@@ -61,6 +61,7 @@ define_root_assembler!(assemble_embedded_constant, Expression, BoundExpressionId
 define_root_assembler!(assemble_predicate_definition, Expression, BoundExpressionId);
 define_root_assembler!(assemble_constraint, ExpressionSequence, BoundBlockId);
 define_root_assembler!(assemble_contract_clause, ExpressionSequence, BoundBlockId);
+define_root_assembler!(assemble_target_gate, Expression, BoundExpressionId);
 
 fn assemble_bound_unit(
     output: BinderOutput,

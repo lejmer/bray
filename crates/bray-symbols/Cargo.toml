@@ -15,6 +15,7 @@ bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
+bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
 bray-parser = { path = "../bray-parser" }

@@ -122,6 +122,8 @@ pub trait BinderFactContext: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use bray_symbols::SymbolOrigin;
+
     use super::BinderFactContext;
     use crate::fact::test_support::TestFixture;
 
@@ -132,7 +134,17 @@ mod tests {
 
         assert_eq!(context.syntax().source_units().len(), 1);
         assert_eq!(context.declarations().declarations().len(), 2);
-        assert_eq!(context.symbols().constants().len(), 1);
+
+        assert_eq!(
+            context
+                .symbols()
+                .constants()
+                .iter()
+                .filter(|constant| constant.origin() == SymbolOrigin::Source)
+                .count(),
+            1
+        );
+
         assert_eq!(context.semantic_values().id(), fixture.semantic_values.id());
 
         assert_eq!(

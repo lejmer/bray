@@ -192,7 +192,8 @@ fn validate_root(
             BoundUnitKind::RuntimeDefault
             | BoundUnitKind::ConstantTemplate
             | BoundUnitKind::EmbeddedConstant
-            | BoundUnitKind::PredicateDefinition,
+            | BoundUnitKind::PredicateDefinition
+            | BoundUnitKind::TargetGate,
             BoundUnitRoot::Expression(expression),
         ) => validate_expression_root(tree, expression),
         (
@@ -282,6 +283,9 @@ fn local_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bo
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableContracts),
             actual,
         ),
+        BoundUnitKeyData::TargetGate(declared) => {
+            declared_region_matches(declared, LocalSymbolRegionRole::TargetGate, actual)
+        }
     }
 }
 
@@ -312,7 +316,8 @@ fn anonymous_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -
             | BoundUnitKeyData::EmbeddedConstant(declared)
             | BoundUnitKeyData::PredicateDefinition(declared)
             | BoundUnitKeyData::Constraint(declared)
-            | BoundUnitKeyData::ContractClause(declared) => break declared.owner(),
+            | BoundUnitKeyData::ContractClause(declared)
+            | BoundUnitKeyData::TargetGate(declared) => break declared.owner(),
         }
     };
 

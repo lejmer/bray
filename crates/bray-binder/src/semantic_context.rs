@@ -76,6 +76,9 @@ pub fn semantic_unit_context(
                 ContractClauseContext::new(declared_entry(symbols, unit)?, kind, result),
             ))
         }
+        (BoundUnitKeyData::TargetGate(_), BoundUnitRoot::Expression(_)) => Ok(
+            SemanticUnitContext::TargetGate(declared_entry(symbols, unit)?),
+        ),
         _ => Err(SemanticUnitContextError::RootKindMismatch),
     }
 }

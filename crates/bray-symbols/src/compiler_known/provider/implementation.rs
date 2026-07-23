@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compiler_known::{
     COMPILER_KNOWN_CATALOG, CatalogScopeLocation, CompilerKnownCatalog,
@@ -24,9 +24,10 @@ use crate::record::{
 };
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
-    AnySymbolId, CompilerKnownEnvironmentSymbolId, ExactSymbolId, MemberLookupIndex,
-    MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbolId, ReceiverParameterSymbolId,
-    SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
+    AnySymbolId, CompilerKnownEnvironmentSymbolId, ConstantSymbolId, ExactSymbolId, MemberEntry,
+    MemberLookupIndex, MemberValidity, MemberVisibility, ModuleOwnerId, ModulePathKey,
+    ModuleSymbolId, ReceiverParameterSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolName,
+    SymbolOrigin, SymbolProvider, SymbolRootKey,
 };
 
 const HEAP_STORAGE_POLICY_KEY: &str = "Heap";
@@ -109,6 +110,8 @@ pub struct CompilerKnownSymbolProvider {
     scope_symbols: BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
     declaration_symbols: BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
     declaration_descriptors: BTreeMap<SymbolId, CompilerKnownDeclarationId>,
+    target_facts: BTreeMap<bray_target::TargetFactKind, ConstantSymbolId>,
+    symbol_target_facts: BTreeMap<ConstantSymbolId, bray_target::TargetFactKind>,
     role_registry: CompilerKnownSymbolRoleRegistry,
     pub(super) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
     completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
@@ -142,7 +145,11 @@ impl CompilerKnownSymbolProvider {
         let mut allocator = SymbolIdAllocator::new();
 
         let environment_id = CompilerKnownEnvironmentSymbolId::from_symbol_id(allocator.next()?);
-        let (scope_symbols, modules) = build_scopes(catalog, environment_id, &mut allocator)?;
+        let BuiltCompilerKnownScopes {
+            scope_symbols,
+            modules,
+            module_members,
+        } = build_scopes(catalog, environment_id, &mut allocator)?;
         let declaration_kinds = resolve_declaration_symbol_kinds(catalog)?;
 
         let (declaration_symbols, descriptor_symbols) =
@@ -163,6 +170,7 @@ impl CompilerKnownSymbolProvider {
             &declaration_symbols,
             declaration_keys,
             signature_symbols,
+            module_members,
         )?;
 
         let BuiltCompilerKnownDeclarations {
@@ -172,6 +180,11 @@ impl CompilerKnownSymbolProvider {
             receivers,
             signature_completion_children,
         } = declarations;
+
+        let super::target::TargetFactSymbols {
+            facts: target_facts,
+            symbols: symbol_target_facts,
+        } = super::target::build_target_facts(&declaration_symbols)?;
 
         let role_registry = CompilerKnownSymbolRoleRegistry::build(catalog, &descriptor_symbols)?;
 
@@ -232,6 +245,8 @@ impl CompilerKnownSymbolProvider {
                 .iter()
                 .map(|(descriptor, symbol)| (symbol.symbol_id(), *descriptor))
                 .collect(),
+            target_facts,
+            symbol_target_facts,
             role_registry,
             member_indexes,
             completion_children,
@@ -276,6 +291,22 @@ impl CompilerKnownSymbolProvider {
         let key = CompilerKnownDeclarationKey::try_new(HEAP_STORAGE_POLICY_KEY)?;
 
         self.declaration_symbol(&key)
+    }
+
+    /// Returns the compiler-known constant exposing one language target fact.
+    pub fn target_fact_symbol(
+        &self,
+        fact: bray_target::TargetFactKind,
+    ) -> Option<ConstantSymbolId> {
+        self.target_facts.get(&fact).copied()
+    }
+
+    /// Returns the language target fact exposed by a compiler-known constant.
+    pub fn symbol_target_fact(
+        &self,
+        symbol: ConstantSymbolId,
+    ) -> Option<bray_target::TargetFactKind> {
+        self.symbol_target_facts.get(&symbol).copied()
     }
 
     pub(in crate::compiler_known) fn untyped_declaration_symbol(
@@ -384,26 +415,26 @@ impl SymbolProvider<ReceiverParameterSymbolId> for CompilerKnownSymbolProvider {
     }
 }
 
+struct BuiltCompilerKnownScopes {
+    scope_symbols: BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
+    modules: Vec<ModuleSymbol>,
+    module_members: BTreeMap<AnySymbolId, Vec<MemberEntry<AnySymbolId>>>,
+}
+
 fn build_scopes(
     catalog: &CompilerKnownCatalog,
     environment: CompilerKnownEnvironmentSymbolId,
     allocator: &mut SymbolIdAllocator,
-) -> Result<
-    (
-        BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
-        Vec<ModuleSymbol>,
-    ),
-    CompilerKnownSymbolBuildError,
-> {
+) -> Result<BuiltCompilerKnownScopes, CompilerKnownSymbolBuildError> {
     let mut scope_symbols = BTreeMap::new();
-    let mut modules = Vec::new();
-
     let mut has_ambient = false;
+    let mut module_paths = BTreeSet::new();
 
+    // Scope keys and module paths retain shared catalog text in both indexes and symbol records.
     for (index, scope) in catalog.compiler_known_scopes().iter().enumerate() {
         validate_scope_id(index, scope.id())?;
 
-        let symbol = match scope.location() {
+        match scope.location() {
             CatalogScopeLocation::Ambient => {
                 if has_ambient {
                     return Err(CompilerKnownSymbolBuildError::DuplicateAmbientScope {
@@ -412,42 +443,112 @@ fn build_scopes(
                 }
 
                 has_ambient = true;
-                CompilerKnownScopeSymbolId::Environment(environment)
+                scope_symbols.insert(
+                    scope.key().clone(),
+                    CompilerKnownScopeSymbolId::Environment(environment),
+                );
             }
             CatalogScopeLocation::Module(path) => {
-                let Some(path) = ModulePathKey::try_new(path.segments()) else {
-                    return Err(CompilerKnownSymbolBuildError::InvalidModulePath {
-                        scope: scope.id(),
-                    });
-                };
+                let segments = path.segments().collect::<Vec<_>>();
 
-                let id = ModuleSymbolId::from_symbol_id(allocator.next()?);
-                let key = SymbolKey::module(SymbolRootKey::CompilerKnownEnvironment, path.clone());
+                for length in 1..=segments.len() {
+                    let Some(path) = ModulePathKey::try_new(segments[..length].iter().copied())
+                    else {
+                        return Err(CompilerKnownSymbolBuildError::InvalidModulePath {
+                            scope: scope.id(),
+                        });
+                    };
 
-                modules.push(ModuleSymbol::new(ModuleSymbolInput {
-                    id,
-                    key,
-                    owner: ModuleOwnerId::from(environment),
-                    path,
-                    origin: SymbolOrigin::CompilerKnown,
-                    visibility: MemberVisibility::Public,
-                    declarations: Box::new([]),
-                    module_parts: Box::new([]),
-                    is_recovered: false,
-                }));
-
-                CompilerKnownScopeSymbolId::Module(id)
+                    module_paths.insert(path);
+                }
             }
-        };
-
-        scope_symbols.insert(scope.key().clone(), symbol);
+        }
     }
 
     if !has_ambient {
         return Err(CompilerKnownSymbolBuildError::MissingAmbientScope);
     }
 
-    Ok((scope_symbols, modules))
+    let mut module_ids = BTreeMap::new();
+    let mut modules = Vec::new();
+
+    for path in module_paths {
+        let id = ModuleSymbolId::from_symbol_id(allocator.next()?);
+        let key = SymbolKey::module(SymbolRootKey::CompilerKnownEnvironment, path.clone());
+
+        module_ids.insert(path.clone(), id);
+        modules.push(ModuleSymbol::new(ModuleSymbolInput {
+            id,
+            key,
+            owner: ModuleOwnerId::from(environment),
+            path,
+            origin: SymbolOrigin::CompilerKnown,
+            visibility: MemberVisibility::Public,
+            declarations: Box::new([]),
+            module_parts: Box::new([]),
+            is_recovered: false,
+        }));
+    }
+
+    let mut module_members = BTreeMap::new();
+
+    for module in &modules {
+        let segments = module.path().segments().collect::<Vec<_>>();
+
+        let Some(name) = segments.last().copied().and_then(SymbolName::try_new) else {
+            return Err(CompilerKnownSymbolBuildError::InvalidModuleHierarchy);
+        };
+
+        let owner = match segments.split_last() {
+            Some((_, [])) => AnySymbolId::from(environment),
+            Some((_, parent)) => {
+                let Some(parent) = ModulePathKey::try_new(parent.iter().copied()) else {
+                    return Err(CompilerKnownSymbolBuildError::InvalidModuleHierarchy);
+                };
+
+                module_ids
+                    .get(&parent)
+                    .copied()
+                    .map(AnySymbolId::from)
+                    .ok_or(CompilerKnownSymbolBuildError::InvalidModuleHierarchy)?
+            }
+            None => return Err(CompilerKnownSymbolBuildError::InvalidModuleHierarchy),
+        };
+
+        module_members
+            .entry(owner)
+            .or_insert_with(Vec::new)
+            .push(MemberEntry::new(
+                module.id().into(),
+                name,
+                MemberVisibility::Public,
+                MemberValidity::Valid,
+            ));
+    }
+
+    for scope in catalog.compiler_known_scopes() {
+        let CatalogScopeLocation::Module(path) = scope.location() else {
+            continue;
+        };
+
+        let Some(path) = ModulePathKey::try_new(path.segments()) else {
+            return Err(CompilerKnownSymbolBuildError::InvalidModulePath { scope: scope.id() });
+        };
+
+        let symbol = module_ids
+            .get(&path)
+            .copied()
+            .map(CompilerKnownScopeSymbolId::Module)
+            .ok_or(CompilerKnownSymbolBuildError::InvalidModulePath { scope: scope.id() })?;
+
+        scope_symbols.insert(scope.key().clone(), symbol);
+    }
+
+    Ok(BuiltCompilerKnownScopes {
+        scope_symbols,
+        modules,
+        module_members,
+    })
 }
 
 fn allocate_declarations(
@@ -514,6 +615,7 @@ fn build_declarations(
     stable_symbols: &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
     mut declaration_keys: BTreeMap<CompilerKnownDeclarationId, SymbolKey>,
     signature_symbols: CompilerKnownSignatureSymbols,
+    mut member_entries: BTreeMap<AnySymbolId, Vec<MemberEntry<AnySymbolId>>>,
 ) -> Result<BuiltCompilerKnownDeclarations, CompilerKnownSymbolBuildError> {
     let CompilerKnownSignatureSymbols {
         declarations: signature_declarations,
@@ -523,8 +625,6 @@ fn build_declarations(
 
     let mut relationships = RelationshipIndex::default();
     let mut identities = Vec::new();
-    let mut member_entries = BTreeMap::new();
-
     for descriptor in catalog.compiler_known_declarations() {
         let Some(symbol) = descriptor_symbols.get(&descriptor.id()).copied() else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
@@ -657,6 +757,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_compiler_known::COMPILER_KNOWN_CATALOG;
+    use bray_target::TargetFactKind;
 
     use crate::compiler_known::test_support::{
         build_provider, declaration_key, scope_key, struct_id,
@@ -799,5 +900,22 @@ mod tests {
                 panic!("parallel compiler-known provider failed: {error:?}");
             }
         }
+    }
+
+    #[test]
+    fn target_facts_round_trip_through_exact_constant_symbols() {
+        let provider = build_provider();
+        let mut symbols = std::collections::BTreeSet::new();
+
+        for &fact in TargetFactKind::ALL {
+            let symbol = provider.target_fact_symbol(fact).unwrap_or_else(|| {
+                panic!("target fact must have a compiler-known symbol: {fact:?}")
+            });
+
+            assert!(symbols.insert(symbol));
+            assert_eq!(provider.symbol_target_fact(symbol), Some(fact));
+        }
+
+        assert_eq!(symbols.len(), TargetFactKind::ALL.len());
     }
 }

@@ -1,15 +1,18 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundResolvedCall, SelectedArgument,
-    SemanticSelection, SemanticSelectionEntry,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator, BoundResolvedCall,
+    OperatorTarget, SelectedArgument, SelectedOperation, SelectionKind, SemanticSelection,
+    SemanticSelectionEntry,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
 };
+use crate::representation::representation_type;
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
     CallableCandidate, CallableCandidateTemplate, CallableCandidateTemplates,
@@ -25,8 +28,15 @@ struct PreparedCall {
     anonymous_target: Option<bray_symbols::AnonymousCallableSymbolId>,
 }
 
+#[derive(Clone, Copy)]
+struct PreparedLogicalOperator {
+    expression: BoundExpressionId,
+    operator: BoundOperator,
+}
+
 pub(super) struct PreparedExpressions {
     calls: Vec<PreparedCall>,
+    logical_operators: Vec<PreparedLogicalOperator>,
     deferred: BTreeSet<BoundExpressionId>,
     diagnostics: DiagnosticBag,
 }
@@ -63,6 +73,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let mut calls = Vec::new();
+    let mut logical_operators = Vec::new();
     let mut deferred = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -161,19 +172,48 @@ where
                 }
             }
             ExpressionCandidateSet::Operation(source) => {
-                deferred.insert(source.expression());
+                if source.kind() == SelectionKind::Operator
+                    && let Some(operator) = logical_operator(expression)
+                {
+                    logical_operators.push(PreparedLogicalOperator {
+                        expression: source.expression(),
+                        operator,
+                    });
+                } else {
+                    deferred.insert(source.expression());
+                }
             }
             ExpressionCandidateSet::NotApplicable(_) => {}
         }
     }
 
     calls.sort_unstable_by_key(|call| call.expression);
+    logical_operators.sort_unstable_by_key(|operation| operation.expression);
 
     Ok(SessionProgress::Complete(PreparedExpressions {
         calls,
+        logical_operators,
         deferred,
         diagnostics,
     }))
+}
+
+fn logical_operator(expression: &BoundExpression) -> Option<BoundOperator> {
+    let operator = match expression {
+        BoundExpression::Unary(expression) if expression.operands().len() == 1 => {
+            expression.operator()
+        }
+        BoundExpression::Binary(expression) if expression.operands().len() == 2 => {
+            expression.operator()
+        }
+        _ => return None,
+    };
+
+    matches!(
+        operator,
+        BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr
+    )
+    .then_some(operator)
 }
 
 fn defer_callable_selection<C>(
@@ -497,6 +537,31 @@ where
     }
 }
 
+pub(super) fn apply_logical_operator_evidence<C>(
+    request: CheckerUnitView<'_, C>,
+    prepared: &PreparedExpressions,
+    session: &mut ExpressionTypeSession<'_, C>,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
+
+    for operation in &prepared.logical_operators {
+        let Some(expression) = request.view().expression(operation.expression) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        session.add_evidence(operation.expression, boolean)?;
+
+        for operand in expression.child_expressions() {
+            session.add_expectation(operand, boolean)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn apply_selected_call_evidence<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
@@ -638,6 +703,18 @@ where
             CheckerOutcome::InfrastructureFailure(error) => return Err(error),
         }
     }
+
+    let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
+
+    entries.extend(prepared.logical_operators.iter().map(|operation| {
+        SemanticSelectionEntry::new(
+            operation.expression,
+            SemanticSelection::Operation(SelectedOperation::Operator {
+                target: OperatorTarget::BuiltIn(operation.operator),
+                result_type: boolean,
+            }),
+        )
+    }));
 
     Ok(Some((entries, diagnostics)))
 }

@@ -6,7 +6,9 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
-use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
+use super::candidate::{
+    PreparedExpressions, apply_logical_operator_evidence, converge, final_selections, prepare_calls,
+};
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use super::pattern_reference::{
     PreparedPatternReferences, pattern_reference_expressions, prepare_pattern_references,
@@ -217,6 +219,8 @@ where
     for evidence in supplemental_evidence {
         session.add_evidence(evidence.expression(), evidence.ty())?;
     }
+
+    apply_logical_operator_evidence(request, &prepared, &mut session)?;
 
     if converge(request, &prepared, &mut session)?.is_cancelled()
         || session.apply_literal_defaults().is_cancelled()

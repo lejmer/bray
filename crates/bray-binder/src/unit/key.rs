@@ -66,6 +66,11 @@ fn local_region_key_parts(
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableContracts),
             vec![unit.source().syntax()],
         ),
+        BoundUnitKeyData::TargetGate(unit) => (
+            shared_symbol_key(unit.owner()),
+            LocalSymbolRegionRole::TargetGate,
+            vec![unit.source().syntax()],
+        ),
     }
 }
 

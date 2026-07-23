@@ -372,7 +372,7 @@ impl ExpressionBinder {
         }
     }
 
-    fn push_resolved_reference<C>(
+    pub(in crate::binding::expression) fn push_resolved_reference<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
         syntax: &impl SourceSyntaxNode,

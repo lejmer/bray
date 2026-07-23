@@ -488,6 +488,10 @@ where
                 expression,
                 kind: DiagnosticKind::CheckingCyclicConstantDefinition,
             }),
+            Some(ConstantReferenceResolution::Invalid) => Err(EvaluationFailure::Source {
+                expression,
+                kind: DiagnosticKind::CheckingInvalidConstantExpression,
+            }),
             None => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }

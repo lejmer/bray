@@ -465,6 +465,10 @@ where
             _ => return Err(EvaluationFailure::invalid_expression(expression)),
         };
 
+        if matches!(selected_member, AnySymbolId::Constant(_)) {
+            return self.evaluate_reference(expression, None, ty);
+        }
+
         let selector = member
             .selector()
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;

@@ -5,8 +5,9 @@ use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundCallableBodyKind, BoundExpression, BoundExpressionId,
     BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl,
-    BoundWalkEvent, CheckedExpressionTypes, CheckedTemplateKind, CheckedTemplateOperation,
-    ExpressionTypeEntry, ExpressionTypeResult, walk_bound_unit_view,
+    BoundWalkEvent, CheckedExpressionTypes, CheckedSemanticSelections, CheckedTemplateKind,
+    CheckedTemplateOperation, ExpressionTypeEntry, ExpressionTypeResult, SelectedOperation,
+    SemanticSelection, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluator,
@@ -86,6 +87,22 @@ impl Compilation {
         definition: AnyConstantDefinitionId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<ConstantDefinitionState>, FactQueryError> {
+        if let Some(value) = self.target_constant_value(definition)? {
+            let values = self.semantic_value_store()?;
+            let ty = values
+                .constant_value_data(value)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?
+                .ty();
+
+            let term = values
+                .intern_constant_term(ConstantTermData::Value(value))
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            return Ok(DiagnosticResult::without_diagnostics(
+                ConstantDefinitionState::Defined(ConstantDefinition::new(ty, term)),
+            ));
+        }
+
         let Some(key) = self.constant_template_key(definition)? else {
             let facts = self.binder_facts(cancellation)?;
 
@@ -169,7 +186,8 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-                let references = self.symbolic_references(bound.result().value())?;
+                let references = self
+                    .symbolic_references(bound.result().value(), &semantics.result().value().1)?;
 
                 let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
@@ -231,6 +249,10 @@ impl Compilation {
         instance: ConstantInstanceKey,
         cancellation: &CancellationToken,
     ) -> Result<SemanticFactResult<ConstantInstanceValueFact>, FactQueryError> {
+        if let Some(value) = self.target_constant_value(instance.definition())? {
+            return Ok(DiagnosticResult::without_diagnostics(value));
+        }
+
         let key = self
             .constant_template_key(instance.definition())?
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -265,8 +287,12 @@ impl Compilation {
             return Ok(DiagnosticResult::without_diagnostics(value));
         }
 
-        let (references, dependency_diagnostics) =
-            self.concrete_references(bound.result().value(), instance, cancellation)?;
+        let (references, dependency_diagnostics) = self.concrete_references(
+            bound.result().value(),
+            &semantics.result().value().1,
+            instance,
+            cancellation,
+        )?;
 
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
@@ -290,10 +316,11 @@ impl Compilation {
     fn symbolic_references(
         &self,
         bound: &BoundUnit,
+        selections: &CheckedSemanticSelections,
     ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        collect_references(bound, |_, target| match target {
+        collect_constant_references(bound, selections, |_, target| match target {
             BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => values
                 .intern_constant_term(ConstantTermData::Parameter(parameter))
                 .map(ConstantReferenceResolution::Term)
@@ -322,6 +349,7 @@ impl Compilation {
     fn concrete_references(
         &self,
         bound: &BoundUnit,
+        selections: &CheckedSemanticSelections,
         instance: ConstantInstanceKey,
         cancellation: &CancellationToken,
     ) -> Result<
@@ -331,23 +359,52 @@ impl Compilation {
         ),
         FactQueryError,
     > {
-        self.concrete_references_for(
+        self.collect_concrete_references(
             bound,
-            instance.substitution().substitution(),
-            instance.selected_implementation(),
-            &BTreeMap::new(),
-            Some(instance),
+            selections,
+            ConcreteReferenceContext {
+                substitution: instance.substitution().substitution(),
+                selected_implementation: instance.selected_implementation(),
+                parameters: &BTreeMap::new(),
+                current_constant: Some(instance),
+            },
             cancellation,
         )
     }
 
-    pub(super) fn concrete_references_for(
+    pub(super) fn concrete_call_references(
         &self,
         bound: &BoundUnit,
+        selections: &CheckedSemanticSelections,
         substitution: GenericSubstitutionId,
         selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
         parameters: &BTreeMap<AnySymbolId, ConstantValueId>,
-        current_constant: Option<ConstantInstanceKey>,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            Vec<(BoundExpressionId, ConstantReferenceResolution)>,
+            DiagnosticBag,
+        ),
+        FactQueryError,
+    > {
+        self.collect_concrete_references(
+            bound,
+            selections,
+            ConcreteReferenceContext {
+                substitution,
+                selected_implementation,
+                parameters,
+                current_constant: None,
+            },
+            cancellation,
+        )
+    }
+
+    fn collect_concrete_references(
+        &self,
+        bound: &BoundUnit,
+        selections: &CheckedSemanticSelections,
+        context: ConcreteReferenceContext<'_>,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -359,65 +416,77 @@ impl Compilation {
         let values = self.semantic_value_store()?;
 
         let substitution = values
-            .generic_substitution_data(substitution)
+            .generic_substitution_data(context.substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let mut dependency_diagnostics = DiagnosticBag::new();
 
-        let references = collect_references(bound, |_, target| match target {
-            BoundReferenceTarget::Surface(symbol) if parameters.contains_key(&symbol) => parameters
-                .get(&symbol)
-                .copied()
-                .map(ConstantReferenceResolution::Value)
-                .ok_or(FactQueryError::InfrastructureFailure),
-            BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
-                let Some(bray_symbols::GenericArgument::Constant(term)) = substitution
-                    .argument_for(bray_symbols::GenericParameterSymbolId::Const(parameter))
-                else {
-                    return Err(FactQueryError::InfrastructureFailure);
-                };
-
-                let data = values
-                    .constant_term_data(term)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                match data.as_ref() {
-                    ConstantTermData::Value(value) => {
-                        Ok(ConstantReferenceResolution::Value(*value))
-                    }
-                    _ => Err(FactQueryError::InfrastructureFailure),
-                }
-            }
-            BoundReferenceTarget::Surface(symbol) => {
-                let Some(definition) = constant_definition_id(symbol) else {
-                    return Err(FactQueryError::InfrastructureFailure);
-                };
-
-                let dependency = if current_constant
-                    .is_some_and(|instance| definition == instance.definition())
+        let references =
+            collect_constant_references(bound, selections, |_, target| match target {
+                BoundReferenceTarget::Surface(symbol)
+                    if context.parameters.contains_key(&symbol) =>
                 {
-                    current_constant.ok_or(FactQueryError::InfrastructureFailure)?
-                } else {
-                    ConstantInstanceKey::new(
-                        definition,
-                        empty_concrete_substitution(values, definition)?,
-                        selected_implementation_for_reference(definition, selected_implementation),
-                    )
-                };
-
-                match self.constant_instance_with_cancellation(dependency, cancellation) {
-                    Ok(result) => {
-                        dependency_diagnostics =
-                            dependency_diagnostics.merged(result.diagnostics());
-
-                        Ok(ConstantReferenceResolution::Value(*result.value()))
-                    }
-                    Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle),
-                    Err(error) => Err(error),
+                    context
+                        .parameters
+                        .get(&symbol)
+                        .copied()
+                        .map(ConstantReferenceResolution::Value)
+                        .ok_or(FactQueryError::InfrastructureFailure)
                 }
-            }
-            BoundReferenceTarget::Local(_) => Err(FactQueryError::InfrastructureFailure),
-        })?;
+                BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
+                    let Some(bray_symbols::GenericArgument::Constant(term)) = substitution
+                        .argument_for(bray_symbols::GenericParameterSymbolId::Const(parameter))
+                    else {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    };
+
+                    let data = values
+                        .constant_term_data(term)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    match data.as_ref() {
+                        ConstantTermData::Value(value) => {
+                            Ok(ConstantReferenceResolution::Value(*value))
+                        }
+                        _ => Err(FactQueryError::InfrastructureFailure),
+                    }
+                }
+                BoundReferenceTarget::Surface(symbol) => {
+                    let Some(definition) = constant_definition_id(symbol) else {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    };
+
+                    let dependency = if context
+                        .current_constant
+                        .is_some_and(|instance| definition == instance.definition())
+                    {
+                        context
+                            .current_constant
+                            .ok_or(FactQueryError::InfrastructureFailure)?
+                    } else {
+                        ConstantInstanceKey::new(
+                            definition,
+                            empty_concrete_substitution(values, definition)?,
+                            selected_implementation_for_reference(
+                                definition,
+                                context.selected_implementation,
+                            ),
+                        )
+                    };
+
+                    match self.constant_instance_with_cancellation(dependency, cancellation) {
+                        Ok(result) => {
+                            dependency_diagnostics =
+                                dependency_diagnostics.merged(result.diagnostics());
+
+                            Ok(ConstantReferenceResolution::Value(*result.value()))
+                        }
+                        Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle),
+                        Err(error) => Err(error),
+                    }
+                }
+                BoundReferenceTarget::Local(_) => Err(FactQueryError::InfrastructureFailure),
+            })?;
 
         Ok((references, dependency_diagnostics))
     }
@@ -576,6 +645,13 @@ pub(super) fn call_parameter_values(
     Ok(resolved)
 }
 
+struct ConcreteReferenceContext<'parameters> {
+    substitution: GenericSubstitutionId,
+    selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+    parameters: &'parameters BTreeMap<AnySymbolId, ConstantValueId>,
+    current_constant: Option<ConstantInstanceKey>,
+}
+
 pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<bray_bound_tree::BoundBlockId> {
     let BoundUnitRoot::CallableBody(body) = bound.root() else {
         return None;
@@ -589,8 +665,9 @@ pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<bray_bound_tre
     }
 }
 
-fn collect_references(
+pub(in crate::compilation) fn collect_constant_references(
     bound: &BoundUnit,
+    selections: &CheckedSemanticSelections,
     mut resolve: impl FnMut(
         BoundExpressionId,
         BoundReferenceTarget,
@@ -635,15 +712,40 @@ fn collect_references(
             return BoundWalkControl::SkipChildren;
         }
 
-        let BoundExpression::Name(name) = bound_expression else {
+        let target = match bound_expression {
+            BoundExpression::Name(name) => match name.target() {
+                BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(_)) => {
+                    Some(name.target())
+                }
+                BoundReferenceTarget::Surface(
+                    AnySymbolId::CallableParameter(_) | AnySymbolId::ReceiverParameter(_),
+                ) => Some(name.target()),
+                BoundReferenceTarget::Surface(symbol)
+                    if constant_definition_id(symbol).is_some() =>
+                {
+                    Some(name.target())
+                }
+                BoundReferenceTarget::Surface(_) | BoundReferenceTarget::Local(_) => None,
+            },
+            BoundExpression::MemberAccess(_) => match selections.expression(expression) {
+                Some(SemanticSelection::Operation(SelectedOperation::Member(member))) => {
+                    match member.member() {
+                        AnySymbolId::Constant(constant) => {
+                            Some(BoundReferenceTarget::Surface(constant.into()))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+
+        let Some(target) = target else {
             return BoundWalkControl::Continue;
         };
 
-        if matches!(name.target(), BoundReferenceTarget::Local(_)) {
-            return BoundWalkControl::Continue;
-        }
-
-        match resolve(expression, name.target()) {
+        match resolve(expression, target) {
             Ok(resolution) => references.push((expression, resolution)),
             Err(error) => {
                 failure = Some(error);
@@ -695,7 +797,7 @@ pub(super) fn substitute_expression_types(
     ))
 }
 
-fn expression_root(bound: &BoundUnit) -> Result<BoundExpressionId, FactQueryError> {
+pub(super) fn expression_root(bound: &BoundUnit) -> Result<BoundExpressionId, FactQueryError> {
     match bound.root() {
         BoundUnitRoot::Expression(root) => Ok(root),
         BoundUnitRoot::CallableBody(_)

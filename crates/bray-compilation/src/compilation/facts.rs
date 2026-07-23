@@ -9,7 +9,7 @@ use bray_bound_tree::{
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_declarations::{
-    DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
+    DeclarationChunkResult, DeclarationTable, DeclarationTableResult, ModulePartId,
     discover_source_unit_declarations, merge_declaration_chunks,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -70,6 +70,8 @@ pub(super) struct CompilationState {
     selected_target: FactCell<crate::SelectedTargetContext>,
     pub(super) target_validity:
         FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
+    pub(super) module_target_gates:
+        FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleTargetGate>>>,
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
@@ -197,6 +199,7 @@ impl Compilation {
                 compiler_known_symbols: FactCell::new(),
                 selected_target: FactCell::new(),
                 target_validity: FactCellMap::new(),
+                module_target_gates: FactCellMap::new(),
                 bound_unit_identities: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
@@ -61,6 +62,19 @@ impl super::super::Compilation {
     ) -> Result<DiagnosticResult<Arc<ImplementationHeaderIndex>>, FactQueryError> {
         let values = self.semantic_value_store()?;
         let facts = self.binder_facts(cancellation)?;
+        let declarations = self.declaration_table();
+        let symbols = self.symbol_graph()?;
+
+        let source_module_parts = declarations
+            .module_parts()
+            .iter()
+            .flat_map(|part| {
+                part.declarations()
+                    .iter()
+                    .copied()
+                    .map(move |declaration| (declaration, part.id()))
+            })
+            .collect::<BTreeMap<_, _>>();
 
         // The coherence-domain key owns its package identity beyond this compilation borrow.
         let domain = ImplementationCoherenceDomainKey::new(self.package_identity().clone());
@@ -124,8 +138,25 @@ impl super::super::Compilation {
                 ))
                 .map_err(super::super::binder::binder_fact_error)?;
 
-            let diagnostics =
-                DiagnosticBag::merged_all([head.diagnostics(), coherence.diagnostics()]);
+            let target_gate = symbols
+                .symbol_key(implementation.into_any())
+                .and_then(bray_symbols::SymbolKey::source_declaration_id)
+                .and_then(|declaration| source_module_parts.get(&declaration).copied())
+                .map(|part| self.module_target_gate_with_cancellation(part, cancellation))
+                .transpose()?;
+
+            if target_gate
+                .as_ref()
+                .is_some_and(|gate| !gate.value().is_enabled())
+            {
+                continue;
+            }
+
+            let diagnostics = DiagnosticBag::merged_all(
+                [head.diagnostics(), coherence.diagnostics()]
+                    .into_iter()
+                    .chain(target_gate.as_ref().map(|gate| gate.diagnostics())),
+            );
 
             let Some(trait_application) = coherence.value().trait_application() else {
                 continue;
@@ -135,15 +166,15 @@ impl super::super::Compilation {
             let generic = head.value().generic().clone();
 
             // Header records retain their stable key independently of participation evidence.
-            // TODO(BRA-251): Populate declaration target dependencies when target-gated
-            // contribution facts expose them.
             headers.push(ImplementationHeader::new(
                 participant.key().clone(),
                 implementation,
                 coherence.value().subject(),
                 trait_application,
                 generic,
-                [],
+                target_gate
+                    .iter()
+                    .flat_map(|gate| gate.value().dependencies().iter().cloned()),
                 diagnostics,
             ));
         }
@@ -185,6 +216,10 @@ impl super::super::Compilation {
 
         for header in compatible {
             cancellation.check()?;
+
+            if !self.target_dependencies_hold(header.target_dependencies())? {
+                continue;
+            }
 
             let substitution = match match_implementation_header(
                 header,
@@ -256,6 +291,7 @@ mod tests {
         NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, SymbolOrigin, TraitApplicationData,
         TypeData,
     };
+    use bray_target::TargetFactKind;
 
     use crate::fact::CompilationFactKey;
     use crate::test_support::{
@@ -315,6 +351,47 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
             substitution.argument_for(fixture.implementation_parameter),
             Some(GenericArgument::Type(fixture.boolean))
         );
+    }
+
+    #[test]
+    fn source_headers_retain_target_dependencies_for_applicability() {
+        let source = target_gated_implementations("target.scalar.u64");
+        let compilation = compilation(&source);
+        let fixture = CandidateFixture::new(&compilation);
+
+        let candidates = compilation
+            .implementation_candidate_set_result(fixture.requirement)
+            .unwrap_or_else(|error| panic!("candidate query must complete: {error:?}"));
+
+        let [candidate] = candidates.value().candidates() else {
+            panic!("enabled target-gated implementation must produce one candidate");
+        };
+
+        let [dependency] = candidate.target_dependencies() else {
+            panic!("target-gated implementation must retain one target dependency");
+        };
+
+        assert_eq!(
+            compilation
+                .available_compiler_known_symbols()
+                .provider()
+                .symbol_target_fact(dependency.fact()),
+            Some(TargetFactKind::ScalarU64)
+        );
+    }
+
+    #[test]
+    fn source_target_dependencies_exclude_inapplicable_implementations() {
+        let source = target_gated_implementations("target.atomic.u64");
+        let compilation = compilation(&source);
+        let fixture = CandidateFixture::new(&compilation);
+
+        let candidates = compilation
+            .implementation_candidate_set_result(fixture.requirement)
+            .unwrap_or_else(|error| panic!("candidate query must complete: {error:?}"));
+
+        assert!(candidates.diagnostics().is_empty());
+        assert!(candidates.value().candidates().is_empty());
     }
 
     #[test]
@@ -619,5 +696,25 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
         values
             .intern_generic_substitution(substitution)
             .unwrap_or_else(|error| panic!("fixture substitution must be interned: {error:?}"))
+    }
+
+    fn target_gated_implementations(target_fact: &str) -> String {
+        format!(
+            r#"@target({target_fact})
+module app;
+
+trait Converts<T>
+{{
+}}
+
+struct Wrapper<T>
+{{
+}}
+
+impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
+{{
+}}
+"#
+        )
     }
 }

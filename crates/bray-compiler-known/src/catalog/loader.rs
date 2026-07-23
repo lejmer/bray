@@ -527,8 +527,8 @@ mod tests {
             Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
         };
 
-        assert_eq!(catalog.compiler_known_scopes().len(), 2);
-        assert_eq!(catalog.compiler_known_declarations().len(), 120);
+        assert_eq!(catalog.compiler_known_scopes().len(), 10);
+        assert_eq!(catalog.compiler_known_declarations().len(), 164);
         assert_eq!(catalog.compiler_known_values().len(), 3);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
         assert_eq!(catalog.recognized_standard_library_declarations().len(), 1);
@@ -1349,6 +1349,7 @@ mod tests {
 
     fn catalog_declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
         match declaration {
+            DeclarationFragmentSyntax::Constant(_) => CatalogDeclarationKind::Constant,
             DeclarationFragmentSyntax::Function(_) => CatalogDeclarationKind::Function,
             DeclarationFragmentSyntax::Predicate(_) => CatalogDeclarationKind::Predicate,
             DeclarationFragmentSyntax::CallableContract(_) => {

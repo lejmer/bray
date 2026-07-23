@@ -12,6 +12,7 @@ use bray_symbols::{
     TraitConstantMemberDeclaredTypeFact, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
 };
 use bray_syntax::LambdaExpressionSyntax;
+use bray_target::TargetFactKind;
 
 use super::CompilationBinderFacts;
 use super::symbol::{type_binder, visible_generic_const_parameters};
@@ -45,6 +46,7 @@ impl DeclaredValueTypeBinding<'_> {
             BoundUnitKind::PredicateDefinition => self.bind_predicate_surface(),
             BoundUnitKind::Constraint => Ok(()),
             BoundUnitKind::ContractClause => self.bind_contract_surface(),
+            BoundUnitKind::TargetGate => self.bind_target_gate_surface(),
         }
     }
 
@@ -246,6 +248,25 @@ impl DeclaredValueTypeBinding<'_> {
 
             self.add_evidence(local_value(result.into()), callable_result);
         }
+
+        Ok(())
+    }
+
+    fn bind_target_gate_surface(&mut self) -> BinderFactResult<()> {
+        let BoundUnitRoot::Expression(expression) = self.unit.root() else {
+            return Err(BinderFactError::DependencyUnavailable);
+        };
+
+        let boolean = self
+            .context
+            .compilation()
+            .target_fact_type(TargetFactKind::ScalarBool)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        self.add_evidence(
+            DeclaredValueTypeTerm::Expression(expression),
+            TypeExpressionTemplate::Resolved(boolean),
+        );
 
         Ok(())
     }

@@ -38,17 +38,10 @@ pub(super) fn path_context<C>(
 where
     C: BinderFactContext + ?Sized,
 {
-    let declaration = binder
-        .unit()
-        .key()
-        .declared_owner()
-        .source_declaration_id()
-        .ok_or(BoundUnitBindingError::InvalidUnitKey)?;
-
     let symbol = binder
         .facts()
         .symbols()
-        .symbol_for_declaration(declaration)
+        .symbol_for_key(binder.unit().key().declared_owner())
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
     let module = binder

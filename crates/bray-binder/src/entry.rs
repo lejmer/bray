@@ -11,6 +11,6 @@ pub use error::BoundUnitBindingError;
 pub use expression::{
     PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
     PendingBoundEmbeddedConstant, PendingBoundPredicateDefinition, PendingBoundRuntimeDefault,
-    bind_constant_template, bind_constraint, bind_contract_clause, bind_embedded_constant,
-    bind_predicate_definition, bind_runtime_default,
+    PendingBoundTargetGate, bind_constant_template, bind_constraint, bind_contract_clause,
+    bind_embedded_constant, bind_predicate_definition, bind_runtime_default, bind_target_gate,
 };

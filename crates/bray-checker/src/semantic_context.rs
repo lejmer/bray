@@ -143,6 +143,8 @@ pub enum SemanticUnitContext {
     Constraint(DeclaredUnitContext),
     /// A callable contract clause.
     ContractClause(ContractClauseContext),
+    /// A source module contribution target gate.
+    TargetGate(DeclaredUnitContext),
 }
 
 impl SemanticUnitContext {
@@ -159,7 +161,8 @@ impl SemanticUnitContext {
             | Self::ConstantTemplate(entry)
             | Self::EmbeddedConstant(entry)
             | Self::PredicateDefinition(entry)
-            | Self::Constraint(entry) => entry.key(),
+            | Self::Constraint(entry)
+            | Self::TargetGate(entry) => entry.key(),
             Self::AnonymousCallable(entry) => entry.key(),
             Self::ContractClause(entry) => entry.declaration().key(),
         }

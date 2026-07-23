@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_declarations::{DeclarationId, SyntaxAnchor};
+use bray_declarations::{DeclarationId, ModulePartId, SyntaxAnchor};
 use bray_syntax::SyntaxTree;
 
 use crate::collection::TypedSymbolRecords;
@@ -68,6 +68,7 @@ macro_rules! define_symbol_graph {
             packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
+            module_part_index: BTreeMap<ModulePartId, ModuleSymbolId>,
             member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
             symbol_index: BTreeMap<crate::SymbolKey, AnySymbolId>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
@@ -181,6 +182,11 @@ macro_rules! define_symbol_graph {
                 path: &ModulePathKey,
             ) -> Option<&ModuleSymbol> {
                 self.module(*self.module_index.get(&owner)?.get(path)?)
+            }
+
+            /// Returns the logical module containing one source module contribution.
+            pub fn module_for_part(&self, part: ModulePartId) -> Option<&ModuleSymbol> {
+                self.module(*self.module_part_index.get(&part)?)
             }
 
             /// Resolves one ordinary member with access to internal declarations.
@@ -754,6 +760,18 @@ macro_rules! define_symbol_graph {
                         index
                     });
 
+                let module_part_index = modules
+                    .records()
+                    .iter()
+                    .flat_map(|module| {
+                        module
+                            .module_parts()
+                            .iter()
+                            .copied()
+                            .map(move |part| (part, module.id()))
+                    })
+                    .collect();
+
                 let member_indexes = self
                     .member_entries
                     .into_iter()
@@ -785,6 +803,7 @@ macro_rules! define_symbol_graph {
                     packages,
                     modules,
                     module_index,
+                    module_part_index,
                     member_indexes,
                     symbol_index,
                     declaration_index: self.declaration_index,

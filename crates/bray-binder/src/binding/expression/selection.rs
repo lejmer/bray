@@ -1,8 +1,10 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundLeadingDotVariantExpression,
-    BoundMemberAccessExpression, BoundMemberSelector, BoundTraitQualifiedMemberExpression,
+    BoundMemberAccessExpression, BoundMemberSelector, BoundReferenceTarget,
+    BoundTraitQualifiedMemberExpression,
 };
 use bray_declarations::SyntaxAnchor;
+use bray_symbols::{AnySymbolId, MemberLookupResult};
 use bray_syntax::{
     LeadingDotVariantExpressionSyntax, MemberAccessOperationSyntax, SourceSyntaxNode,
     TraitQualifiedMemberOperationSyntax,
@@ -38,7 +40,7 @@ impl ExpressionBinder {
     }
 
     pub(super) fn bind_member_access<C>(
-        &self,
+        &mut self,
         binder: &mut Binder<'_, C>,
         syntax: &MemberAccessOperationSyntax,
         receiver: BoundExpressionId,
@@ -46,6 +48,40 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
+        let namespace = match binder.unit_view().expression(receiver) {
+            Some(BoundExpression::Name(name)) => match name.target() {
+                BoundReferenceTarget::Surface(AnySymbolId::Module(module)) => Some(module),
+                BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => None,
+            },
+            _ => None,
+        };
+
+        if let Some(namespace) = namespace {
+            let Some(token) = syntax.identifier_token() else {
+                return self.push_error(binder, Some(syntax));
+            };
+
+            let member = binder.bind_member(
+                namespace.into(),
+                syntax.source(),
+                token,
+                self.path_context.access(),
+            );
+
+            return match member {
+                MemberLookupResult::Found(member) => self.push_resolved_reference(
+                    binder,
+                    syntax,
+                    BoundReferenceTarget::Surface(member.symbol()),
+                ),
+                MemberLookupResult::NotFound
+                | MemberLookupResult::WrongKind(_)
+                | MemberLookupResult::Ambiguous(_)
+                | MemberLookupResult::Inaccessible(_)
+                | MemberLookupResult::Malformed(_) => self.push_error(binder, Some(syntax)),
+            };
+        }
+
         let selector = member_selector(syntax);
 
         let is_recovered =

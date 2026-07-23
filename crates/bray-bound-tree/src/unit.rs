@@ -25,6 +25,8 @@ pub enum BoundUnitKind {
     Constraint,
     /// A callable contract clause.
     ContractClause,
+    /// A module contribution target-selection expression.
+    TargetGate,
 }
 
 impl BoundUnitKind {
@@ -40,6 +42,7 @@ impl BoundUnitKind {
             }
             Self::Constraint => CheckedTemplateKind::GenericConstraint.accepts_owner(owner),
             Self::ContractClause => CheckedTemplateKind::CallableContract.accepts_owner(owner),
+            Self::TargetGate => matches!(owner, SymbolKind::Module),
         }
     }
 }
@@ -196,6 +199,8 @@ pub enum BoundUnitKeyData {
     Constraint(DeclaredBoundUnitKey),
     /// A callable contract clause.
     ContractClause(DeclaredBoundUnitKey),
+    /// A module contribution target-selection expression.
+    TargetGate(DeclaredBoundUnitKey),
 }
 
 impl BoundUnitKeyData {
@@ -210,6 +215,7 @@ impl BoundUnitKeyData {
             Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
             Self::Constraint(_) => BoundUnitKind::Constraint,
             Self::ContractClause(_) => BoundUnitKind::ContractClause,
+            Self::TargetGate(_) => BoundUnitKind::TargetGate,
         }
     }
 
@@ -222,7 +228,8 @@ impl BoundUnitKeyData {
             | Self::EmbeddedConstant(key)
             | Self::PredicateDefinition(key)
             | Self::Constraint(key)
-            | Self::ContractClause(key) => key.source(),
+            | Self::ContractClause(key)
+            | Self::TargetGate(key) => key.source(),
             Self::AnonymousCallable(key) => key.source(),
         }
     }
@@ -324,6 +331,18 @@ impl BoundUnitKey {
         )
     }
 
+    /// Creates a key for a module contribution target-selection expression.
+    ///
+    /// Returns `None` unless the owner is a logical module.
+    pub fn target_gate(owner: SymbolKey, source: BoundSourceAnchor) -> Option<Self> {
+        Self::declared(
+            BoundUnitKind::TargetGate,
+            BoundUnitKeyData::TargetGate,
+            owner,
+            source,
+        )
+    }
+
     /// Returns the structured data forming this key.
     pub fn data(&self) -> &BoundUnitKeyData {
         &self.0
@@ -348,7 +367,8 @@ impl BoundUnitKey {
             | BoundUnitKeyData::EmbeddedConstant(key)
             | BoundUnitKeyData::PredicateDefinition(key)
             | BoundUnitKeyData::Constraint(key)
-            | BoundUnitKeyData::ContractClause(key) => key.owner(),
+            | BoundUnitKeyData::ContractClause(key)
+            | BoundUnitKeyData::TargetGate(key) => key.owner(),
             BoundUnitKeyData::AnonymousCallable(key) => key.enclosing().declared_owner(),
         }
     }
