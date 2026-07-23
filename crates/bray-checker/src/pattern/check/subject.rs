@@ -310,7 +310,7 @@ where
         substitution: GenericSubstitutionId,
         is_recovered: bool,
     ) -> Result<PatternSubject, CheckerInfrastructureError> {
-        // TODO(BRA-215): Supply checked embedded constant terms for field type templates.
+        // TODO(BRA-246): Supply checked embedded constant terms for field type templates.
         let Some(ty) = resolve_type_expression_template(
             self.request.semantic_values(),
             template,

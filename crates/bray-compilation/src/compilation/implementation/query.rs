@@ -135,7 +135,7 @@ impl super::super::Compilation {
             let generic = head.value().generic().clone();
 
             // Header records retain their stable key independently of participation evidence.
-            // TODO(compilation): Populate declaration target dependencies when target-gated
+            // TODO(BRA-251): Populate declaration target dependencies when target-gated
             // contribution facts expose them.
             headers.push(ImplementationHeader::new(
                 participant.key().clone(),

@@ -98,7 +98,7 @@ impl Compilation {
             participating.push(participant);
         }
 
-        // TODO(compilation): Include imported named implementations when explicit using binding
+        // TODO(BRA-252): Include imported named implementations when explicit using binding
         // publishes their resolved identities and syntax anchors.
         let participation = ImplementationParticipationSet::try_new(domain, participating)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;

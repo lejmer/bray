@@ -8,7 +8,7 @@ mod publication;
 mod semantic_context;
 mod surface;
 
-// TODO(binder): Narrow and remove this expectation as remaining speculative binding APIs become used.
+// TODO(BRA-250): Narrow and remove this expectation as remaining speculative binding APIs become used.
 #[cfg_attr(
     not(test),
     expect(
@@ -19,7 +19,7 @@ mod surface;
 mod binding;
 mod result;
 
-// TODO(binder): Narrow and remove this expectation as typed lookup categories become production-used.
+// TODO(BRA-250): Narrow and remove this expectation as typed lookup categories become production-used.
 #[cfg_attr(
     not(test),
     expect(
@@ -29,14 +29,14 @@ mod result;
 )]
 mod lookup;
 
-// TODO(binder): Narrow and remove this expectation as remaining binding contexts become production-used.
+// TODO(BRA-250): Narrow and remove this expectation as remaining binding contexts become production-used.
 #[expect(
     dead_code,
     reason = "some binding contexts are reserved for later semantic decisions"
 )]
 mod binder;
 
-// TODO(binder): Narrow and remove this expectation as remaining local builders become production-used.
+// TODO(BRA-250): Narrow and remove this expectation as remaining local builders become production-used.
 #[cfg_attr(
     not(test),
     expect(

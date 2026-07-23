@@ -12,7 +12,7 @@ use super::FactCellTestObserver;
 #[derive(Debug)]
 pub(crate) struct PublishedUnitFact<T> {
     result: Arc<DiagnosticResult<T>>,
-    // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
+    // TODO(BRA-229): Remove this expectation when incremental invalidation traverses edges.
     #[cfg_attr(
         not(test),
         expect(
@@ -28,7 +28,7 @@ impl<T> PublishedUnitFact<T> {
         &self.result
     }
 
-    // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
+    // TODO(BRA-229): Remove this expectation when incremental invalidation traverses edges.
     #[cfg_attr(
         not(test),
         expect(
