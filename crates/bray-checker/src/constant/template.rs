@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
 use bray_symbols::{
+    CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     ConstantExpressionOccurrenceKey, ConstantTermId, GenericArgument, GenericArgumentTemplate,
-    GenericOwnerId, GenericSubstitutionData, SemanticValueStore, TraitApplicationData,
-    TraitApplicationTemplate, TypeData, TypeExpressionTemplate, TypeId,
+    GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ReceiverParameterSignature,
+    SemanticValueStore, TraitApplicationData, TraitApplicationTemplate, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 
 use crate::CheckerInfrastructureError;
@@ -214,6 +216,76 @@ pub fn resolve_type_expression_template(
     values
         .intern_type(data)
         .map(Some)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+}
+
+/// Resolves and substitutes one callable signature template.
+///
+/// Returns `Ok(None)` when a required constant occurrence has not been requested yet.
+pub fn resolve_callable_signature_template(
+    values: &SemanticValueStore,
+    template: &CallableSignatureTemplate,
+    substitution: GenericSubstitutionId,
+    constants: &CheckedConstantTerms,
+) -> Result<Option<CallableSignature>, CheckerInfrastructureError> {
+    let Some(callable_type) =
+        resolve_type_expression_template(values, template.callable_type(), constants)?
+    else {
+        return Ok(None);
+    };
+
+    let Some(result) = resolve_type_expression_template(values, template.result(), constants)?
+    else {
+        return Ok(None);
+    };
+
+    let parameter_templates = template
+        .parameter_type_templates(values)
+        .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+    let mut parameters = Vec::with_capacity(parameter_templates.len());
+
+    for (parameter, parameter_template) in template
+        .parameters()
+        .iter()
+        .copied()
+        .zip(parameter_templates)
+    {
+        let Some(ty) = resolve_type_expression_template(values, &parameter_template, constants)?
+        else {
+            return Ok(None);
+        };
+
+        parameters.push(CallableParameterSignature::new(
+            parameter,
+            substitute_type(values, ty, substitution)?,
+        ));
+    }
+
+    let receiver = template
+        .receiver()
+        .map(|receiver| {
+            substitute_type(values, receiver.ty(), substitution).map(|ty| {
+                ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
+            })
+        })
+        .transpose()?;
+
+    Ok(Some(CallableSignature::new(
+        substitute_type(values, callable_type, substitution)?,
+        receiver,
+        parameters,
+        substitute_type(values, result, substitution)?,
+    )))
+}
+
+fn substitute_type(
+    values: &SemanticValueStore,
+    ty: TypeId,
+    substitution: GenericSubstitutionId,
+) -> Result<TypeId, CheckerInfrastructureError> {
+    values
+        .substitute_type(ty, substitution)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
 }
 

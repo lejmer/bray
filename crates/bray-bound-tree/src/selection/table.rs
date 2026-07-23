@@ -332,16 +332,24 @@ fn call_matches_expression(call: &SelectedCall, source: &crate::BoundCallExpress
 
 fn construction_inputs_are_valid(construction: &crate::SelectedConstruction) -> bool {
     let mut inputs = BTreeSet::new();
+    let mut ordinals = BTreeSet::new();
     let mut saw_default = false;
 
     construction.inputs().iter().all(|input| match input {
-        SelectedConstructionInput::Explicit { input, .. } if !saw_default => {
-            inputs.insert(*input) && construction.target().accepts_input(*input)
+        SelectedConstructionInput::Explicit { input, ordinal, .. } if !saw_default => {
+            inputs.insert(*input)
+                && ordinals.insert(*ordinal)
+                && construction.target().accepts_input(*input)
         }
-        SelectedConstructionInput::Default { input, provider } => {
+        SelectedConstructionInput::Default {
+            input,
+            provider,
+            ordinal,
+        } => {
             saw_default = true;
 
             inputs.insert(*input)
+                && ordinals.insert(*ordinal)
                 && construction.target().accepts_input(*input)
                 && input.accepts_default(*provider)
         }

@@ -86,6 +86,7 @@ where
         values.push(SelectedConstructionInput::Explicit {
             expression: input.expression,
             input: surfaces[surface_index].input(),
+            ordinal: surfaces[surface_index].ordinal(),
         });
     }
 
@@ -101,6 +102,7 @@ where
         values.push(SelectedConstructionInput::Default {
             input: surface.input(),
             provider,
+            ordinal: surface.ordinal(),
         });
     }
 

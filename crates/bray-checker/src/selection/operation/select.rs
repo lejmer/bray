@@ -609,10 +609,12 @@ mod tests {
                 SelectedConstructionInput::Explicit {
                     expression: fixture.value,
                     input: ConstructionInputId::StructField(second),
+                    ordinal: 1,
                 },
                 SelectedConstructionInput::Default {
                     input: ConstructionInputId::StructField(first),
                     provider: ConstructionDefaultProvider::StructField(default),
+                    ordinal: 0,
                 },
             ]
         );

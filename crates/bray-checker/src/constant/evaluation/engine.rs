@@ -96,10 +96,14 @@ where
         return Err(EvaluationAbort::Cancelled);
     }
 
-    let CheckerUnitRoot::Expression(root) = request.root() else {
-        return Err(EvaluationAbort::Infrastructure(
-            CheckerInfrastructureError::InvalidConstantEvaluationInput,
-        ));
+    let root = match (input.root(), request.root()) {
+        (Some(root), _) if request.view().expression(root).is_some() => root,
+        (None, CheckerUnitRoot::Expression(root)) => root,
+        _ => {
+            return Err(EvaluationAbort::Infrastructure(
+                CheckerInfrastructureError::InvalidConstantEvaluationInput,
+            ));
+        }
     };
 
     if input.expression_types().unit() != request.view().unit()
@@ -226,14 +230,15 @@ where
                 self.evaluate_conversion(expression, *conversion, ty)
             }
             BoundExpression::Structured(structured) => {
-                self.evaluate_structured(expression, structured.kind(), structured.operands(), ty)
+                self.evaluate_structured(expression, structured, ty)
             }
             BoundExpression::MemberAccess(member) => {
                 self.evaluate_member_projection(expression, member, ty)
             }
-            BoundExpression::StructConstruction(_)
-            | BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::Call(_) => self.evaluate_construction(expression, ty),
+            BoundExpression::Call(_) => self.evaluate_construction(expression, ty),
+            BoundExpression::StructConstruction(_) | BoundExpression::LeadingDotVariant(_) => {
+                self.evaluate_construction(expression, ty)
+            }
             BoundExpression::Block(_)
             | BoundExpression::UnresolvedReference(_)
             | BoundExpression::Assignment(_)
@@ -251,6 +256,10 @@ where
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
+    }
+
+    pub(super) const fn retain_open_terms(&self) -> bool {
+        self.retain_target_literals
     }
 
     pub(super) fn evaluate_literal(
@@ -360,11 +369,12 @@ where
     pub(super) fn evaluate_structured(
         &mut self,
         expression: BoundExpressionId,
-        kind: BoundStructuredExpressionKind,
-        operands: &[BoundExpressionId],
+        structured: &bray_bound_tree::BoundStructuredExpression,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        match kind {
+        let operands = structured.operands();
+
+        match structured.kind() {
             BoundStructuredExpressionKind::Unit => {
                 self.intern_value_term(ty, ConstantValueKind::Unit)
             }
@@ -385,10 +395,15 @@ where
                 self.evaluate_repeated_array(expression, operands, ty)
             }
             BoundStructuredExpressionKind::ElementIndex => {
-                self.evaluate_index(expression, operands)
+                self.evaluate_index(expression, structured, ty)
             }
-            BoundStructuredExpressionKind::SliceIndex
-            | BoundStructuredExpressionKind::NullablePropagation
+            BoundStructuredExpressionKind::SliceIndex => {
+                self.evaluate_index(expression, structured, ty)
+            }
+            BoundStructuredExpressionKind::TypeFormConstruction => {
+                self.evaluate_construction(expression, ty)
+            }
+            BoundStructuredExpressionKind::NullablePropagation
             | BoundStructuredExpressionKind::Conditional
             | BoundStructuredExpressionKind::While
             | BoundStructuredExpressionKind::Loop
@@ -398,7 +413,6 @@ where
             | BoundStructuredExpressionKind::Assertion
             | BoundStructuredExpressionKind::ResultPropagation
             | BoundStructuredExpressionKind::Catch
-            | BoundStructuredExpressionKind::TypeFormConstruction
             | BoundStructuredExpressionKind::BooleanFold
             | BoundStructuredExpressionKind::Panic => {
                 // TODO(BRA-246): Extend constant checking when this structured form gains constant semantics.
@@ -538,6 +552,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::num::{NonZeroU16, NonZeroU32};
+    use std::sync::Mutex;
 
     use bray_bound_tree::{
         BoundBinaryExpression, BoundConversionExpression, BoundExpression, BoundExpressionId,
@@ -557,7 +572,8 @@ mod tests {
         GenericConstParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId,
         LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
         PackageIdentity, RealConstantBits, SymbolFactKind, SymbolId, SymbolKey, SymbolKind,
-        SymbolRootKey, TargetSizedIntegerType, TypeId,
+        SymbolRootKey, TargetSizedIntegerType, TraitCallableFulfillmentSymbolId,
+        TraitCallableMemberSymbolId, TraitSymbolId, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
     use bray_target::{
@@ -566,9 +582,13 @@ mod tests {
     };
 
     use crate::representation::representation_type;
-    use crate::test_support::{TestCheckerContext, push_expression, semantic_values, tuple_type};
+    use crate::test_support::{
+        TestCheckerContext, callable_instance, compiler_known_symbol, push_expression,
+        semantic_values, trait_callable_instance, tuple_type,
+    };
     use crate::{
-        CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ConstantChecker,
+        CheckerFactResult, CheckerInfrastructureError, CheckerOutcome, CheckerUnitView,
+        ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
         ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
         ConstantReferenceResolution, DeclaredUnitContext, DefaultConstantChecker,
         DefaultConstantEvaluator, DefaultExpressionTypeChecker, ExpressionTypeChecker,
@@ -781,6 +801,212 @@ mod tests {
                 [0xff],
             ))
         );
+    }
+
+    #[test]
+    fn selected_trait_operations_preserve_and_evaluate_the_exact_fulfillment() {
+        let (seed, _, seed_context) = literal_unit(
+            BoundUnitId::new(109),
+            "module example;\nconst value: i32 = 0;\n",
+            BoundLiteralKind::Integer,
+        );
+
+        let expected = representation(&seed, &seed_context, RepresentationRole::ScalarI32);
+
+        let (unit, root, context) = expression_unit(
+            BoundUnitId::new(110),
+            "module example;\nconst value: i32 = 1 + 2;\n",
+            |tree, origins, origin| {
+                let operands = origins
+                    .iter()
+                    .map(|literal| {
+                        push_expression(
+                            tree,
+                            BoundExpression::Literal(BoundLiteralExpression::new(
+                                literal.origin,
+                                literal.spelling_range,
+                                BoundLiteralKind::Integer,
+                                Some(expected),
+                                false,
+                            )),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                push_expression(
+                    tree,
+                    BoundExpression::Binary(BoundBinaryExpression::new(
+                        origin,
+                        BoundOperator::Add,
+                        operands,
+                        Some(expected),
+                        false,
+                    )),
+                )
+            },
+        );
+
+        let member = trait_callable_instance(compiler_known_symbol::<TraitCallableMemberSymbolId>(
+            "AddCall",
+        ));
+
+        let fulfillment = callable_instance(
+            TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(75)).into(),
+        );
+
+        let requirement = bray_symbols::testing::implementation_requirement(
+            semantic_values(),
+            compiler_known_symbol::<TraitSymbolId>("Add"),
+            expected,
+            expected,
+        );
+        let witness = bray_symbols::testing::implementation_instance(semantic_values(), 76);
+        let types = checked_types(&unit, root, &context, expected);
+
+        let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                root,
+                SemanticSelection::Operation(SelectedOperation::Operator {
+                    target: OperatorTarget::Trait {
+                        operator: BoundOperator::Add,
+                        member,
+                        fulfillment,
+                        requirement,
+                        witness,
+                    },
+                    result_type: expected,
+                }),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("trait operation selection must be valid: {error:?}"));
+
+        let result_value = semantic_values()
+            .intern_constant_value(ConstantValueData::new(
+                expected,
+                ConstantValueKind::Integer(bray_symbols::IntegerConstant::new(
+                    bray_symbols::IntegerSign::NonNegative,
+                    [3],
+                )),
+            ))
+            .unwrap_or_else(|error| panic!("selected call result must intern: {error:?}"));
+
+        let resolver = CapturingCallResolver::new(result_value);
+        let input = ConstantEvaluationInput::new(&types, &selections).with_call_resolver(&resolver);
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let result = DefaultConstantEvaluator
+            .evaluate_constant(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("selected trait operation must evaluate"));
+
+        assert!(result.diagnostics().is_empty());
+        assert_eq!(*result.value(), result_value);
+
+        let requests = resolver.requests();
+        let [request] = requests.as_slice() else {
+            panic!("selected trait operation must request exactly one call");
+        };
+
+        assert_eq!(request.callable(), fulfillment);
+        assert_eq!(request.selected_implementation(), Some(witness));
+        assert_eq!(request.arguments().len(), 2);
+        assert_eq!(request.result_type(), expected);
+
+        let cycle_resolver = CycleCallResolver;
+
+        let cycle_input =
+            ConstantEvaluationInput::new(&types, &selections).with_call_resolver(&cycle_resolver);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let cycle = DefaultConstantEvaluator
+            .evaluate_constant(request, &cycle_input)
+            .into_result()
+            .unwrap_or_else(|| panic!("recursive selected call must recover"));
+
+        assert_eq!(
+            cycle
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingCyclicConstantDefinition)
+                .count(),
+            1
+        );
+
+        let limited_input = ConstantEvaluationInput::new(&types, &selections)
+            .with_call_resolver(&resolver)
+            .with_limits(ConstantEvaluationLimits::default().with_call_depth(0));
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let limited = DefaultConstantEvaluator
+            .evaluate_constant(request, &limited_input)
+            .into_result()
+            .unwrap_or_else(|| panic!("exhausted selected call must recover"));
+
+        assert_eq!(
+            limited
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded)
+                .count(),
+            1
+        );
+
+        assert_eq!(resolver.requests().len(), 1);
+    }
+
+    struct CapturingCallResolver {
+        result: bray_symbols::ConstantValueId,
+        requests: Mutex<Vec<ConstantCallRequest>>,
+    }
+
+    impl CapturingCallResolver {
+        fn new(result: bray_symbols::ConstantValueId) -> Self {
+            Self {
+                result,
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<ConstantCallRequest> {
+            self.requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+    }
+
+    impl ConstantCallResolver for CapturingCallResolver {
+        fn resolve(
+            &self,
+            request: &ConstantCallRequest,
+        ) -> CheckerFactResult<ConstantCallResolution> {
+            self.requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(request.clone());
+
+            Ok(ConstantCallResolution::Evaluated(
+                bray_diagnostics::DiagnosticResult::without_diagnostics(self.result),
+            ))
+        }
+    }
+
+    struct CycleCallResolver;
+
+    impl ConstantCallResolver for CycleCallResolver {
+        fn resolve(
+            &self,
+            _request: &ConstantCallRequest,
+        ) -> CheckerFactResult<ConstantCallResolution> {
+            Ok(ConstantCallResolution::Cycle)
+        }
     }
 
     #[test]

@@ -179,10 +179,14 @@ pub(crate) fn compiler_known_symbol<I: ExactSymbolId>(key: &str) -> I {
 pub(crate) fn trait_callable_instance(
     definition: TraitCallableMemberSymbolId,
 ) -> CallableInstanceData {
-    let substitution = empty_substitution(definition.into());
+    callable_instance(definition.into())
+}
 
-    let Some(definition) = CallableDefinitionId::try_new(definition.into()) else {
-        panic!("trait callable member must be callable");
+pub(crate) fn callable_instance(definition: AnySymbolId) -> CallableInstanceData {
+    let substitution = empty_substitution(definition);
+
+    let Some(definition) = CallableDefinitionId::try_new(definition) else {
+        panic!("test declaration must be callable");
     };
 
     CallableInstanceData::new(definition, substitution)

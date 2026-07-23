@@ -1,13 +1,14 @@
 use bray_bound_tree::{
     BoundAssignmentExpression, BoundBinaryExpression, BoundErrorExpression, BoundExpression,
-    BoundExpressionId, BoundOperator, BoundStructuredExpression, BoundStructuredExpressionKind,
-    BoundTypeReference, BoundUnaryExpression,
+    BoundExpressionId, BoundOperator, BoundSliceBounds, BoundStructuredExpression,
+    BoundStructuredExpressionKind, BoundTypeReference, BoundUnaryExpression,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeId, TypeId};
 use bray_syntax::{
-    ExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
-    SyntaxWalkControl, SyntaxWalkEvent, TypeExpressionSyntax, walk_syntax_node,
+    ExpressionSyntax, PrimaryExpressionSyntax, SliceIndexOperationSyntax, SourceSyntaxNode,
+    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, TypeExpressionSyntax,
+    walk_syntax_node,
 };
 
 use super::super::block::BlockBindingOperations;
@@ -175,17 +176,25 @@ impl ExpressionBinder {
                 .any(|child| binder.expression_is_recovered(*child))
             || blocks.iter().any(|block| binder.block_is_recovered(*block));
 
-        let operands = std::iter::once(operand).chain(children);
+        let operands = std::iter::once(operand).chain(children).collect::<Vec<_>>();
 
-        let expression = BoundStructuredExpression::new(
+        let mut expression = BoundStructuredExpression::new(
             binder.source_origin(&syntax),
             kind,
-            operands,
+            operands.iter().copied(),
             blocks,
             [],
             None,
             recovered,
         );
+
+        if kind == BoundStructuredExpressionKind::SliceIndex {
+            let Some(slice) = syntax.cast::<SliceIndexOperationSyntax>() else {
+                return Err(BindingError::UnsupportedSyntax);
+            };
+
+            expression = expression.with_slice_bounds(slice_bounds(&slice, &operands)?);
+        }
 
         self.push(binder, BoundExpression::Structured(expression))
     }
@@ -370,6 +379,30 @@ impl ExpressionBinder {
     }
 }
 
+fn slice_bounds(
+    syntax: &SliceIndexOperationSyntax,
+    operands: &[BoundExpressionId],
+) -> BindingResult<BoundSliceBounds> {
+    let Some((_, bounds)) = operands.split_first() else {
+        return Err(BindingError::UnsupportedSyntax);
+    };
+
+    let dot_dot = syntax.dot_dot_token().range().start();
+    let syntax_bounds = syntax.expressions().collect::<Vec<_>>();
+
+    match (syntax_bounds.as_slice(), bounds) {
+        ([], []) => Ok(BoundSliceBounds::new(None, None)),
+        ([bound], [expression]) if bound.full_range().end() <= dot_dot => {
+            Ok(BoundSliceBounds::new(Some(*expression), None))
+        }
+        ([bound], [expression]) if bound.full_range().start() >= dot_dot => {
+            Ok(BoundSliceBounds::new(None, Some(*expression)))
+        }
+        ([_, _], [lower, upper]) => Ok(BoundSliceBounds::new(Some(*lower), Some(*upper))),
+        _ => Err(BindingError::UnsupportedSyntax),
+    }
+}
+
 impl<C> BlockBindingOperations<C> for ExpressionBinder
 where
     C: BinderFactContext + ?Sized,
@@ -435,6 +468,8 @@ mod tests {
             "    size as i32;\n",
             "    [size, size];\n",
             "    [size; 2];\n",
+            "    size[..size];\n",
+            "    size[size..];\n",
             "    if size {};\n",
             "    for item in mut size\n",
             "    {\n",
@@ -494,6 +529,8 @@ mod tests {
         let mut saw_named_member = false;
         let mut saw_array = false;
         let mut saw_repeated_array = false;
+        let mut saw_omitted_lower_slice_bound = false;
+        let mut saw_omitted_upper_slice_bound = false;
         let mut saw_integer_literal = false;
         let mut saw_conditional = false;
         let mut saw_for_pattern = false;
@@ -558,6 +595,18 @@ mod tests {
                 {
                     saw_repeated_array = true;
                 }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::SliceIndex =>
+                {
+                    let Some(bounds) = expression.slice_bounds() else {
+                        panic!("slice expression must preserve its exact bound shape");
+                    };
+
+                    saw_omitted_lower_slice_bound |=
+                        bounds.lower().is_none() && bounds.upper().is_some();
+                    saw_omitted_upper_slice_bound |=
+                        bounds.lower().is_some() && bounds.upper().is_none();
+                }
                 BoundExpression::Literal(expression)
                     if expression.kind() == BoundLiteralKind::Integer =>
                 {
@@ -607,6 +656,8 @@ mod tests {
         assert!(saw_named_member);
         assert!(saw_array);
         assert!(saw_repeated_array);
+        assert!(saw_omitted_lower_slice_bound);
+        assert!(saw_omitted_upper_slice_bound);
         assert!(saw_integer_literal);
         assert!(saw_conditional);
         assert!(saw_for_pattern);

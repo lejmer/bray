@@ -16,7 +16,7 @@ pub use call::{
 };
 pub use category::{
     BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,
-    BoundConversionExpression, BoundOperator, BoundStructuredExpression,
+    BoundConversionExpression, BoundOperator, BoundSliceBounds, BoundStructuredExpression,
     BoundStructuredExpressionKind, BoundUnaryExpression,
 };
 pub use construction::{BoundStructConstructionExpression, BoundStructFieldInitializer};

@@ -79,8 +79,10 @@ pub enum OperatorTarget {
     Trait {
         /// The exact source operator contract being implemented.
         operator: BoundOperator,
-        /// The exact substituted callable member.
-        callable: CallableInstanceData,
+        /// The exact substituted trait member selected for the operation.
+        member: CallableInstanceData,
+        /// The exact substituted implementation callable that executes the operation.
+        fulfillment: CallableInstanceData,
         /// The exact trait requirement selected for the operands.
         requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
@@ -110,8 +112,10 @@ pub enum IndexTarget {
     Slice,
     /// A selected custom indexing contract callable and witness.
     Custom {
-        /// The exact substituted indexing member.
-        callable: CallableInstanceData,
+        /// The exact substituted trait member selected for indexing.
+        member: CallableInstanceData,
+        /// The exact substituted implementation callable that executes indexing.
+        fulfillment: CallableInstanceData,
         /// The exact trait requirement selected for the subject and selectors.
         requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
@@ -195,6 +199,8 @@ pub enum SelectedConstructionInput {
         expression: BoundExpressionId,
         /// The exact initialized field or parameter.
         input: ConstructionInputId,
+        /// The initialized input's declaration-order ordinal.
+        ordinal: u32,
     },
     /// An omitted declaration input supplied by its runtime default.
     Default {
@@ -202,6 +208,8 @@ pub enum SelectedConstructionInput {
         input: ConstructionInputId,
         /// The declaration-owned provider evaluated by construction.
         provider: ConstructionDefaultProvider,
+        /// The initialized input's declaration-order ordinal.
+        ordinal: u32,
     },
 }
 
@@ -254,8 +262,10 @@ pub enum ConversionTarget {
     Composite(Arc<[SelectedConversion]>),
     /// A selected `ConvertTo<Target>` member and implementation witness.
     Trait {
-        /// The exact substituted conversion member.
-        callable: CallableInstanceData,
+        /// The exact substituted trait member selected for conversion.
+        member: CallableInstanceData,
+        /// The exact substituted implementation callable that executes the conversion.
+        fulfillment: CallableInstanceData,
         /// The exact conversion trait requirement.
         requirement: ImplementationRequirementKey,
         /// The exact implementation witness.

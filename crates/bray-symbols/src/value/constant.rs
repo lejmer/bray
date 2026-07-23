@@ -379,6 +379,8 @@ pub enum ConstantTermData {
     Call {
         /// Exact substituted callable.
         callable: CallableInstanceId,
+        /// Selected implementation whose fulfillment supplies the callable, when applicable.
+        selected_implementation: Option<ImplementationInstanceId>,
         /// Ordered argument terms.
         arguments: Arc<[ConstantTermId]>,
     },
@@ -390,10 +392,12 @@ impl ConstantTermData {
     /// Creates a checked constant-call term.
     pub fn call(
         callable: CallableInstanceId,
+        selected_implementation: Option<ImplementationInstanceId>,
         arguments: impl IntoIterator<Item = ConstantTermId>,
     ) -> Self {
         Self::Call {
             callable,
+            selected_implementation,
             arguments: shared_slice(arguments),
         }
     }

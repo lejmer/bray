@@ -138,9 +138,16 @@ pub(super) fn validate_constant_term_data(
         }
         ConstantTermData::Call {
             callable,
+            selected_implementation,
             arguments,
         } => {
             tables.callable_instances.get(store, *callable)?;
+
+            if let Some(implementation) = selected_implementation {
+                tables
+                    .implementation_instances
+                    .get(store, *implementation)?;
+            }
 
             for argument in arguments.iter().copied() {
                 tables.constant_terms.get(store, argument)?;

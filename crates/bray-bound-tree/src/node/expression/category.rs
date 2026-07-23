@@ -276,6 +276,30 @@ pub enum BoundStructuredExpressionKind {
     Panic,
 }
 
+/// The optional lower and upper bounds of one slice operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct BoundSliceBounds {
+    lower: Option<BoundExpressionId>,
+    upper: Option<BoundExpressionId>,
+}
+
+impl BoundSliceBounds {
+    /// Creates slice bounds without losing which side of `..` was omitted.
+    pub const fn new(lower: Option<BoundExpressionId>, upper: Option<BoundExpressionId>) -> Self {
+        Self { lower, upper }
+    }
+
+    /// Returns the optional inclusive lower-bound expression.
+    pub const fn lower(self) -> Option<BoundExpressionId> {
+        self.lower
+    }
+
+    /// Returns the optional exclusive upper-bound expression.
+    pub const fn upper(self) -> Option<BoundExpressionId> {
+        self.upper
+    }
+}
+
 /// A source-shaped aggregate, control-flow, or effect expression.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundStructuredExpression {
@@ -284,6 +308,7 @@ pub struct BoundStructuredExpression {
     operands: Arc<[BoundExpressionId]>,
     blocks: Arc<[BoundBlockId]>,
     patterns: Arc<[BoundPatternId]>,
+    slice_bounds: Option<BoundSliceBounds>,
     ty: Option<TypeId>,
     is_recovered: bool,
 }
@@ -305,9 +330,17 @@ impl BoundStructuredExpression {
             operands: shared_slice(operands),
             blocks: shared_slice(blocks),
             patterns: shared_slice(patterns),
+            slice_bounds: None,
             ty,
             is_recovered,
         }
+    }
+
+    /// Retains the exact optional bounds of a slice operation.
+    pub fn with_slice_bounds(mut self, bounds: BoundSliceBounds) -> Self {
+        self.slice_bounds = Some(bounds);
+
+        self
     }
 
     /// Returns the source or synthesized origin.
@@ -333,6 +366,11 @@ impl BoundStructuredExpression {
     /// Returns bound patterns in source order.
     pub fn patterns(&self) -> &[BoundPatternId] {
         &self.patterns
+    }
+
+    /// Returns the exact slice bounds when this is a slice operation.
+    pub const fn slice_bounds(&self) -> Option<BoundSliceBounds> {
+        self.slice_bounds
     }
 
     /// Returns the checked or recovery type.

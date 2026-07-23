@@ -106,14 +106,23 @@ impl HeaderMatcher<'_> {
             (
                 ConstantTermData::Call {
                     callable: pattern_callable,
+                    selected_implementation: pattern_implementation,
                     arguments: pattern_arguments,
                 },
                 ConstantTermData::Call {
                     callable: actual_callable,
+                    selected_implementation: actual_implementation,
                     arguments: actual_arguments,
                 },
             ) => {
                 if !self.match_callable_instance(*pattern_callable, *actual_callable)? {
+                    return Ok(false);
+                }
+
+                if !self.match_optional_implementation(
+                    *pattern_implementation,
+                    *actual_implementation,
+                )? {
                     return Ok(false);
                 }
 
@@ -241,11 +250,11 @@ mod tests {
         let callable = callable_instance(&values);
 
         let pattern_call = values
-            .intern_constant_term(ConstantTermData::call(callable, [parameter_term]))
+            .intern_constant_term(ConstantTermData::call(callable, None, [parameter_term]))
             .unwrap_or_else(|error| panic!("pattern call must be valid: {error:?}"));
 
         let actual_call = values
-            .intern_constant_term(ConstantTermData::call(callable, [value_term]))
+            .intern_constant_term(ConstantTermData::call(callable, None, [value_term]))
             .unwrap_or_else(|error| panic!("actual call must be valid: {error:?}"));
 
         let mut call_matcher = HeaderMatcher::new(&[parameter_id], &values);

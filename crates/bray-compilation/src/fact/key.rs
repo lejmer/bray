@@ -3,8 +3,9 @@ use bray_checker::TargetValidityRequest;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
-    AnySymbolId, ConstantInstanceKey, ImplementationCoherenceDomainKey,
-    ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind,
+    AnySymbolId, CallableInstanceId, ConstantInstanceKey, ConstantValueId,
+    ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
+    ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -77,6 +78,78 @@ pub(crate) struct ConstantInstanceFactKey {
     target: TargetProfile,
 }
 
+/// The complete compilation-local identity of one selected constant call.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ConstantCallFactKey {
+    callable: CallableInstanceId,
+    selected_implementation: Option<ImplementationInstanceId>,
+    arguments: std::sync::Arc<[ConstantValueId]>,
+    result_type: TypeId,
+    target: TargetProfile,
+    limits: bray_checker::ConstantEvaluationLimits,
+}
+
+/// The semantic call identity used for dependency-cycle detection.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ConstantCallDependencyKey {
+    callable: CallableInstanceId,
+    selected_implementation: Option<ImplementationInstanceId>,
+    arguments: std::sync::Arc<[ConstantValueId]>,
+    result_type: TypeId,
+    target: TargetProfile,
+}
+
+impl ConstantCallFactKey {
+    pub(crate) fn new(
+        callable: CallableInstanceId,
+        selected_implementation: Option<ImplementationInstanceId>,
+        arguments: impl Into<std::sync::Arc<[ConstantValueId]>>,
+        result_type: TypeId,
+        target: TargetProfile,
+        limits: bray_checker::ConstantEvaluationLimits,
+    ) -> Self {
+        Self {
+            callable,
+            selected_implementation,
+            arguments: arguments.into(),
+            result_type,
+            target,
+            limits,
+        }
+    }
+
+    pub(crate) const fn callable(&self) -> CallableInstanceId {
+        self.callable
+    }
+
+    pub(crate) const fn selected_implementation(&self) -> Option<ImplementationInstanceId> {
+        self.selected_implementation
+    }
+
+    pub(crate) fn arguments(&self) -> &[ConstantValueId] {
+        &self.arguments
+    }
+
+    pub(crate) const fn result_type(&self) -> TypeId {
+        self.result_type
+    }
+
+    pub(crate) const fn limits(&self) -> bray_checker::ConstantEvaluationLimits {
+        self.limits
+    }
+
+    pub(crate) fn dependency_key(&self) -> ConstantCallDependencyKey {
+        ConstantCallDependencyKey {
+            callable: self.callable,
+            selected_implementation: self.selected_implementation,
+            arguments: std::sync::Arc::clone(&self.arguments),
+            result_type: self.result_type,
+            // Cycle coordination owns its key independently of the cache entry.
+            target: self.target.clone(),
+        }
+    }
+}
+
 impl ConstantInstanceFactKey {
     pub(crate) const fn new(instance: ConstantInstanceKey, target: TargetProfile) -> Self {
         Self { instance, target }
@@ -103,10 +176,14 @@ pub(crate) enum CompilationFactKey {
     CheckDiagnostics,
     /// Source constant definitions mapped to their exact expression units.
     ConstantTemplateKeys,
+    /// Source callable definitions mapped to their exact body units.
+    CallableBodyKeys,
     /// Source predicate definitions mapped to their exact expression units.
     PredicateDefinitionKeys,
     /// One concrete constant value for an exact semantic instance and target profile.
     ConstantInstance(ConstantInstanceFactKey),
+    /// One selected constant call for exact arguments and target profile.
+    ConstantCall(ConstantCallDependencyKey),
     /// Durable control-flow facts for one bound unit.
     CheckedControlFlow(BoundUnitKey),
     /// Final expression types for one bound unit.
@@ -171,8 +248,10 @@ impl CompilationFactKey {
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics
             | Self::ConstantTemplateKeys
+            | Self::CallableBodyKeys
             | Self::PredicateDefinitionKeys
             | Self::ConstantInstance(_)
+            | Self::ConstantCall(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::DependencyInterface(_)
@@ -205,7 +284,8 @@ mod tests {
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolFactKind, SymbolId};
 
     use super::{
-        CompilationFactKey, ConstantInstanceFactKey, ImportedSemanticFactKey, SymbolFactKey,
+        CompilationFactKey, ConstantCallDependencyKey, ConstantCallFactKey,
+        ConstantInstanceFactKey, ImportedSemanticFactKey, SymbolFactKey,
     };
 
     #[test]
@@ -227,6 +307,8 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CompilationFactKey>();
+        assert_send_sync::<ConstantCallDependencyKey>();
+        assert_send_sync::<ConstantCallFactKey>();
         assert_send_sync::<ConstantInstanceFactKey>();
         assert_send_sync::<ImportedSemanticFactKey>();
         assert_send_sync::<SymbolFactKey>();

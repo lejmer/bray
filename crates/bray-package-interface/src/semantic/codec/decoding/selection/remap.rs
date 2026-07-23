@@ -309,9 +309,13 @@ fn remap_constant_term(
         }
         InterfaceConstantTerm::Call {
             callable,
+            selected_implementation,
             arguments,
         } => {
             *callable = maps.callable_instance_id(*callable)?;
+            *selected_implementation = selected_implementation
+                .map(|implementation| maps.implementation_instance_id(implementation))
+                .transpose()?;
             remap_constant_term_ids(Arc::make_mut(arguments), maps)?;
         }
         InterfaceConstantTerm::Projection { subject, kind } => {
