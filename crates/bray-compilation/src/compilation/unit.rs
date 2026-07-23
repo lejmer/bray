@@ -605,7 +605,7 @@ mod tests {
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
     use bray_bound_tree::{
         AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId,
-        BoundReferenceTarget, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
+        BoundReferenceTarget, BoundUnit, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
         CheckedExpressionTypes, DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates,
         DeclaredValueTypeTerm, PatternOperation, PatternPredicate, PatternProjection,
         SelectedArgument, SemanticSelection, walk_bound_unit_view,
@@ -1400,6 +1400,39 @@ mod tests {
         );
     }
 
+    fn first_pattern_reference(bound: &BoundUnit) -> Option<BoundExpressionId> {
+        first_expression(bound, |expression| {
+            matches!(expression, BoundExpression::PatternReference(_))
+        })
+    }
+
+    fn first_expression(
+        bound: &BoundUnit,
+        mut matches: impl FnMut(&BoundExpression) -> bool,
+    ) -> Option<BoundExpressionId> {
+        let mut reference = None;
+
+        walk_bound_unit_view(bound.view(), bound.root(), |event| {
+            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
+                return BoundWalkControl::Continue;
+            };
+
+            if bound
+                .view()
+                .expression(expression)
+                .is_some_and(&mut matches)
+            {
+                reference = Some(expression);
+
+                return BoundWalkControl::Stop;
+            }
+
+            BoundWalkControl::Continue
+        });
+
+        reference
+    }
+
     fn has_constraint_kind(
         facts: &DeclaredValueTypeTemplates,
         kind: DeclaredValueTypeConstraintKind,
@@ -2125,9 +2158,8 @@ func other()
         assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
     }
 
-    // TODO(BRA-249): Replace this recovery assertion with resolved late subject behavior.
     #[test]
-    fn late_typed_match_subjects_retain_contextual_pattern_recovery() {
+    fn late_typed_match_subjects_resolve_contextual_variants() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Choice\n",
@@ -2140,6 +2172,7 @@ func other()
             "    {\n",
             "        case First\n",
             "        {\n",
+            "            First;\n",
             "        }\n",
             "    }\n",
             "}\n",
@@ -2151,23 +2184,43 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("late subject pattern recovery must be available: {error:?}"),
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("late subject pattern must bind: {error:?}"),
         };
 
-        assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingContextualPatternNameUnsupported]
+        let Some(reference) = first_pattern_reference(bound.value()) else {
+            panic!("variant arm body must retain a deferred pattern reference");
+        };
+
+        let selections = match compilation.semantic_selections(key.clone()) {
+            Ok(selections) => selections,
+            Err(error) => panic!("late subject selections must be available: {error:?}"),
+        };
+
+        assert_eq!(selections.value().expression(reference), None);
+        assert!(
+            crate::test_support::diagnostic_kinds(selections.diagnostics())
+                .contains(&bray_diagnostics::DiagnosticKind::BindingUnresolvedName)
         );
 
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("late subject pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
         assert!(facts.value().binding_types().is_empty());
-        assert!(facts.value().is_recovered());
+        assert!(!facts.value().is_recovered());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
     }
 
-    // TODO(BRA-249): Replace this recovery assertion with resolved nested subject behavior.
     #[test]
-    fn nested_variant_patterns_do_not_resolve_against_the_outer_subject() {
+    fn nested_variant_patterns_resolve_against_the_nested_subject() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Inner\n",
@@ -2193,16 +2246,148 @@ func other()
 
         let facts = match compilation.pattern_facts(key) {
             Ok(facts) => facts,
-            Err(error) => panic!("nested pattern recovery must be available: {error:?}"),
+            Err(error) => panic!("nested pattern facts must be available: {error:?}"),
+        };
+
+        assert!(facts.value().binding_types().is_empty());
+        assert!(!facts.value().is_recovered());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn late_typed_bare_bindings_become_visible_after_pattern_resolution() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    match make_value()\n",
+            "    {\n",
+            "        case captured\n",
+            "        {\n",
+            "            captured;\n",
+            "        }\n",
+            "    };\n",
+            "}\n",
+            "func make_value() -> bool\n",
+            "{\n",
+            "    return true;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("late binding pattern must bind: {error:?}"),
+        };
+
+        let Some(binding) = bound
+            .value()
+            .local_symbols()
+            .bindings()
+            .iter()
+            .find(|binding| binding.name().as_str() == "captured")
+            .map(bray_symbols::LocalBindingSymbol::id)
+        else {
+            panic!("late binding pattern must retain its candidate identity");
+        };
+
+        let Some(reference) = first_pattern_reference(bound.value()) else {
+            panic!("arm body must retain a deferred pattern reference");
+        };
+
+        let selections = match compilation.semantic_selections(key.clone()) {
+            Ok(selections) => selections,
+            Err(error) => panic!("late binding selections must be available: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingContextualPatternNameUnsupported]
+            selections.value().expression(reference),
+            Some(&SemanticSelection::Reference(BoundReferenceTarget::Local(
+                binding.into()
+            )))
         );
 
-        assert!(facts.value().binding_types().is_empty());
-        assert!(facts.value().is_recovered());
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("late binding pattern facts must be available: {error:?}"),
+        };
+
+        let Some(binding_type) = facts.value().binding_type(binding) else {
+            panic!("resolved binding must publish its checked type");
+        };
+
+        assert_type_representation(
+            &compilation,
+            binding_type.ty(),
+            RepresentationRole::ScalarBool,
+        );
+
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn nearer_locals_shadow_contextual_pattern_candidates() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    selected;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    match make_choice()\n",
+            "    {\n",
+            "        case selected\n",
+            "        {\n",
+            "            let selected: bool = true;\n",
+            "            selected;\n",
+            "        }\n",
+            "    };\n",
+            "}\n",
+            "func make_choice() -> Choice\n",
+            "{\n",
+            "    return .selected;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("shadowed contextual pattern must bind: {error:?}"),
+        };
+
+        assert_eq!(first_pattern_reference(bound.value()), None);
+        assert!(bound.diagnostics().is_empty(), "{:?}", bound.diagnostics());
+
+        let types = match compilation.expression_types(key) {
+            Ok(types) => types,
+            Err(error) => panic!("shadowed contextual pattern types must be available: {error:?}"),
+        };
+
+        let Some(reference) = first_expression(bound.value(), |expression| {
+            matches!(
+                expression,
+                BoundExpression::Name(name)
+                    if matches!(name.target(), BoundReferenceTarget::Local(_))
+            )
+        }) else {
+            panic!("shadowing local reference must remain bound");
+        };
+
+        let Some(result) = types.value().expression(reference) else {
+            panic!("shadowing local reference must have a final type");
+        };
+
+        assert_type_representation(&compilation, result.ty(), RepresentationRole::ScalarBool);
+
+        assert!(
+            !crate::test_support::diagnostic_kinds(types.diagnostics())
+                .contains(&bray_diagnostics::DiagnosticKind::BindingUnresolvedName),
+            "{:?}",
+            types.diagnostics()
+        );
     }
 
     #[test]

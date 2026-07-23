@@ -18,10 +18,11 @@ pub use expression::{
     BoundGeneratorExpression, BoundGenericArgument, BoundIterationSource,
     BoundLeadingDotVariantExpression, BoundLiteralExpression, BoundLiteralKind, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
-    BoundOperator, BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds,
-    BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
-    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind, IterationSourceMode,
+    BoundOperator, BoundPatternReferenceExpression, BoundReferenceTarget, BoundResolvedCall,
+    BoundSliceBounds, BoundStructConstructionExpression, BoundStructFieldInitializer,
+    BoundStructuredExpression, BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression,
+    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
+    IterationSourceMode,
 };
 pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,

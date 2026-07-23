@@ -185,6 +185,27 @@ where
         Ok(())
     }
 
+    pub(super) fn report_ambiguous_name(
+        &mut self,
+        pattern: BoundPatternId,
+        source: &BoundPattern,
+    ) -> Result<(), CheckerInfrastructureError> {
+        let span = pattern_span(self.request, pattern)?;
+        let name = source.name().map_or("", bray_symbols::SymbolName::as_str);
+
+        self.diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(self.diagnostics.len()),
+                DiagnosticKind::BindingAmbiguousName,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::referenced_name(name)),
+        );
+
+        Ok(())
+    }
+
     pub(in crate::pattern) fn report(
         &mut self,
         pattern: BoundPatternId,

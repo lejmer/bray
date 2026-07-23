@@ -317,17 +317,7 @@ where
             .type_data(subject.ty)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-        let contextual_variant = pattern.kind() == BoundPatternKind::Binding
-            && pattern_mode_accepts_refutable(pattern.mode())
-            && self
-                .expected_subject_variant(pattern, type_data.as_ref())
-                .is_some();
-
-        let target = if contextual_variant {
-            None
-        } else {
-            self.pattern_target(pattern, type_data.as_ref())
-        };
+        let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref());
 
         let kind = effective_pattern_kind(pattern, target);
 
@@ -358,13 +348,13 @@ where
                 .any(|entry| entry.kind() == BoundPatternEntryKind::Recovered)
             || child_recovered
             || children.is_recovered
-            || contextual_variant
+            || is_ambiguous
             || matches!(type_data.as_ref(), TypeData::Error)
             || !compatible;
 
         let operation = pattern_operation(pattern.mode(), is_recovered);
 
-        if !contextual_variant {
+        if !is_ambiguous {
             self.record_bindings(pattern, subject, kind, operation, projection);
         }
 
@@ -381,13 +371,8 @@ where
             is_recovered,
         );
 
-        if contextual_variant {
-            // TODO(BRA-249): Resolve names after expression and nested subject types are available.
-            self.report(
-                id,
-                DiagnosticKind::CheckingContextualPatternNameUnsupported,
-                SeverityKind::Error,
-            )?;
+        if is_ambiguous {
+            self.report_ambiguous_name(id, pattern)?;
         } else if !compatible && !matches!(type_data.as_ref(), TypeData::Error) {
             self.report_incompatible(id, subject.ty)?;
         } else if !pattern_mode_accepts_refutable(pattern.mode())
@@ -416,19 +401,32 @@ where
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> Option<BoundPatternTarget> {
+    ) -> (Option<BoundPatternTarget>, bool) {
+        let expected = self
+            .expected_subject_variant(pattern, subject)
+            .map(|variant| BoundPatternTarget::Surface(variant.into()));
+
+        if pattern.is_contextual_name() {
+            return match (pattern.target(), expected) {
+                (Some(first), Some(second)) if first != second => (None, true),
+                (Some(target), Some(_)) | (Some(target), None) | (None, Some(target)) => {
+                    (Some(target), false)
+                }
+                (None, None) => (None, false),
+            };
+        }
+
         if let Some(target) = pattern.target()
             && !self.variant_target_conflicts_with_subject(target, subject)
         {
-            return Some(target);
+            return (Some(target), false);
         }
 
         if pattern.kind() != BoundPatternKind::Variant {
-            return None;
+            return (None, false);
         }
 
-        self.expected_subject_variant(pattern, subject)
-            .map(|variant| BoundPatternTarget::Surface(variant.into()))
+        (expected, false)
     }
 
     fn expected_subject_variant(

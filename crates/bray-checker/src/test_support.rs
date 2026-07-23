@@ -28,9 +28,10 @@ use bray_target::TargetProfile;
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSource,
-    CheckerUnitView, DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker,
-    ExpressionTypeInput, SemanticUnitContext,
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
+    CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource, CheckerUnitView,
+    DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
+    SemanticUnitContext,
 };
 
 pub(crate) struct TestCheckerContext {
@@ -145,6 +146,23 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
         self
+    }
+}
+
+impl<C> CheckerSemanticFactProvider<C> for TestCheckerContext
+where
+    C: bray_symbols::SymbolFactContract,
+{
+    fn symbol_fact(
+        &self,
+        request: bray_symbols::SymbolFactRequest<C>,
+    ) -> CheckerFactResult<std::sync::Arc<bray_symbols::SymbolFactResult<C>>> {
+        Err(CheckerFactError::Infrastructure(
+            CheckerInfrastructureError::SemanticFactUnavailable {
+                symbol: request.symbol(),
+                kind: request.kind(),
+            },
+        ))
     }
 }
 

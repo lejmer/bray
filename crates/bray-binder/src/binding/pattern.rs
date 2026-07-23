@@ -22,6 +22,7 @@ use crate::lookup::PathBindingContext;
 pub(crate) struct BoundPatternBinding {
     pattern: BoundPatternId,
     bindings: Box<[LocalBindingSymbolId]>,
+    contextual_bindings: Box<[(LocalBindingSymbolId, BoundPatternId)]>,
 }
 
 impl BoundPatternBinding {
@@ -31,6 +32,10 @@ impl BoundPatternBinding {
 
     pub(crate) fn bindings(&self) -> &[LocalBindingSymbolId] {
         &self.bindings
+    }
+
+    fn contextual_bindings(&self) -> &[(LocalBindingSymbolId, BoundPatternId)] {
+        &self.contextual_bindings
     }
 }
 
@@ -102,6 +107,7 @@ macro_rules! define_pattern_binder {
             let mut children = Vec::new();
             let mut entries = Vec::new();
             let mut introduced = Vec::new();
+            let mut contextual_bindings = Vec::new();
             let mut ordinal = 0_u32;
 
             let child_input_type = if syntax.has_alternative_separator() {
@@ -115,6 +121,7 @@ macro_rules! define_pattern_binder {
 
                 children.push(bound.pattern());
                 introduced.extend_from_slice(bound.bindings());
+                contextual_bindings.extend_from_slice(bound.contextual_bindings());
             }
 
             for entry in syntax.$entries() {
@@ -133,6 +140,7 @@ macro_rules! define_pattern_binder {
                     nested_pattern.get_or_insert(bound.pattern());
                     children.push(bound.pattern());
                     introduced.extend_from_slice(bound.bindings());
+                    contextual_bindings.extend_from_slice(bound.contextual_bindings());
                 }
 
                 if nested.is_empty()
@@ -160,7 +168,7 @@ macro_rules! define_pattern_binder {
 
             let binding_token = syntax.simple_binding_token();
 
-            let (target, name_can_bind) =
+            let (target, name_can_bind, is_contextual_name) =
                 self.bind_pattern_target(state.context, syntax, input_type, state.mode)?;
 
             let is_binding = binding_token.is_some()
@@ -201,7 +209,8 @@ macro_rules! define_pattern_binder {
             .with_recovery(syntax.is_recovered())
             .with_target(target)
             .with_name(syntax.pattern_name())
-            .with_literal(syntax.pattern_literal());
+            .with_literal(syntax.pattern_literal())
+            .with_contextual_name(is_contextual_name);
 
             let pattern = self
                 .unit_mut()
@@ -209,9 +218,14 @@ macro_rules! define_pattern_binder {
                 .push_pattern(pattern)
                 .map_err(crate::unit::BoundUnitConstructionError::from)?;
 
+            if is_contextual_name && let Some(binding) = direct_binding {
+                contextual_bindings.push((binding, pattern));
+            }
+
             Ok(BoundPatternBinding {
                 pattern,
                 bindings: introduced.into_boxed_slice(),
+                contextual_bindings: contextual_bindings.into_boxed_slice(),
             })
         }
     };
@@ -435,7 +449,26 @@ where
         pattern: &BoundPatternBinding,
     ) -> BindingResult<()> {
         for binding in pattern.bindings() {
-            self.unit_mut().activate_local(scope, *binding)?;
+            let contextual = pattern
+                .contextual_bindings()
+                .iter()
+                .find(|(candidate, _)| candidate == binding)
+                .copied();
+
+            if let Some((_, owner)) = contextual {
+                let Some(name) = self
+                    .unit_view()
+                    .pattern(owner)
+                    .and_then(BoundPattern::name)
+                    .cloned()
+                else {
+                    continue;
+                };
+
+                self.record_contextual_pattern_binding(scope, name, *binding, owner);
+            } else {
+                self.unit_mut().activate_local(scope, *binding)?;
+            }
         }
 
         Ok(())
@@ -447,7 +480,14 @@ where
         syntax: &impl PatternSyntax,
         input_type: TypeId,
         mode: PatternBindingMode,
-    ) -> BindingResult<(Option<BoundPatternTarget>, bool)> {
+    ) -> BindingResult<(Option<BoundPatternTarget>, bool, bool)> {
+        let is_contextual_name = syntax.bare_name_token().is_some()
+            && matches!(
+                mode,
+                PatternBindingMode::MatchObserve | PatternBindingMode::MatchConsume
+            )
+            && self.type_is_error(input_type);
+
         let result = if let Some(token) = syntax.bare_name_token() {
             self.bind_pattern_identifier(
                 context,
@@ -473,18 +513,27 @@ where
                     mode == PatternBindingMode::Assignment,
                     input_type,
                 )?,
-                (None, None) => return Ok((None, false)),
+                (None, None) => return Ok((None, false, false)),
             }
         };
 
         Ok(match result {
-            bray_symbols::MemberLookupResult::Found(target) => (Some(target), false),
+            bray_symbols::MemberLookupResult::Found(target) => {
+                (Some(target), false, is_contextual_name)
+            }
             bray_symbols::MemberLookupResult::NotFound
-            | bray_symbols::MemberLookupResult::WrongKind(_) => (None, true),
+            | bray_symbols::MemberLookupResult::WrongKind(_) => (None, true, is_contextual_name),
             bray_symbols::MemberLookupResult::Ambiguous(_)
             | bray_symbols::MemberLookupResult::Inaccessible(_)
-            | bray_symbols::MemberLookupResult::Malformed(_) => (None, false),
+            | bray_symbols::MemberLookupResult::Malformed(_) => (None, false, false),
         })
+    }
+
+    fn type_is_error(&self, ty: TypeId) -> bool {
+        self.facts()
+            .semantic_values()
+            .type_data(ty)
+            .is_ok_and(|data| matches!(data.as_ref(), bray_symbols::TypeData::Error))
     }
 
     fn report_incoherent_alternative_pattern(&mut self, syntax: &impl SourceSyntaxNode) {

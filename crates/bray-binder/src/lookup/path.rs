@@ -272,6 +272,26 @@ where
         result
     }
 
+    pub(crate) fn lookup_reference_identifier(
+        &self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+    ) -> NameLookupResult<ResolvedName> {
+        let Some(reference) = token_reference(source, token) else {
+            return malformed_lookup();
+        };
+
+        lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            reference.text(),
+            context.access,
+        )
+    }
+
     pub(crate) fn bind_callable_overload_path(
         &mut self,
         context: PathBindingContext,

@@ -1,7 +1,10 @@
-use bray_declarations::SyntaxAnchor;
-use bray_symbols::{AnyLocalSymbolId, AnySymbolId, SymbolName, TypeId};
+use std::sync::Arc;
 
-use crate::{BoundExpressionId, BoundNodeOrigin};
+use bray_base::shared_slice;
+use bray_declarations::SyntaxAnchor;
+use bray_symbols::{AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, SymbolName, TypeId};
+
+use crate::{BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnresolvedReferenceKind};
 
 /// The exact semantic identity reached by a bound reference expression.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -10,6 +13,76 @@ pub enum BoundReferenceTarget {
     Local(AnyLocalSymbolId),
     /// A compilation-wide identity.
     Surface(AnySymbolId),
+}
+
+/// A value reference whose pattern-introduced local remains subject-dependent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundPatternReferenceExpression {
+    origin: BoundNodeOrigin,
+    pattern: BoundPatternId,
+    binding: LocalBindingSymbolId,
+    name: SymbolName,
+    unresolved_kind: BoundUnresolvedReferenceKind,
+    candidates: Arc<[BoundReferenceTarget]>,
+    is_recovered: bool,
+}
+
+impl BoundPatternReferenceExpression {
+    /// Creates one deferred pattern-local reference.
+    pub fn new(
+        origin: BoundNodeOrigin,
+        pattern: BoundPatternId,
+        binding: LocalBindingSymbolId,
+        name: SymbolName,
+        unresolved_kind: BoundUnresolvedReferenceKind,
+        candidates: impl IntoIterator<Item = BoundReferenceTarget>,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            origin,
+            pattern,
+            binding,
+            name,
+            unresolved_kind,
+            candidates: shared_slice(candidates),
+            is_recovered,
+        }
+    }
+
+    /// Returns the source or synthesized origin.
+    pub const fn origin(&self) -> BoundNodeOrigin {
+        self.origin
+    }
+
+    /// Returns the pattern whose name resolution controls this reference.
+    pub const fn pattern(&self) -> BoundPatternId {
+        self.pattern
+    }
+
+    /// Returns the candidate local binding.
+    pub const fn binding(&self) -> LocalBindingSymbolId {
+        self.binding
+    }
+
+    /// Returns the referenced source name.
+    pub const fn name(&self) -> &SymbolName {
+        &self.name
+    }
+
+    /// Returns the ordinary lookup failure category.
+    pub const fn unresolved_kind(&self) -> BoundUnresolvedReferenceKind {
+        self.unresolved_kind
+    }
+
+    /// Returns viable ordinary lookup candidates in canonical order.
+    pub fn candidates(&self) -> &[BoundReferenceTarget] {
+        &self.candidates
+    }
+
+    /// Returns whether source recovery contributed to this reference.
+    pub const fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
 }
 
 /// A resolved source reference.

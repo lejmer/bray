@@ -217,7 +217,9 @@ where
 
         match bound {
             BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty),
-            BoundExpression::Name(_) => self.evaluate_reference(expression, ty),
+            BoundExpression::Name(_) | BoundExpression::PatternReference(_) => {
+                self.evaluate_reference(expression, ty)
+            }
             BoundExpression::Unary(unary) => {
                 self.evaluate_operator(expression, unary.operator(), unary.operands(), ty)
             }

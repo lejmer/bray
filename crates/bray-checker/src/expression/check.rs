@@ -1,13 +1,23 @@
-use bray_bound_tree::{CheckedSemanticSelections, DeclaredValueTypeTemplates};
+use std::collections::BTreeSet;
+
+use bray_bound_tree::{
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, SemanticSelectionEntry,
+};
+use bray_diagnostics::DiagnosticBag;
+use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
 use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
+use super::pattern_reference::{
+    PreparedPatternReferences, pattern_reference_expressions, prepare_pattern_references,
+};
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
 };
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
-    ExpressionCandidateSet, NestedCallableEvidence,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
+    CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence, NestedCallableEvidence,
+    PatternCheckInput,
 };
 
 pub(crate) fn check_expression_semantics<C>(
@@ -20,7 +30,10 @@ pub(crate) fn check_expression_semantics<C>(
     CheckedSemanticSelections,
 )>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<StructFieldTypeFact>
+        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized,
 {
     if declared_types.unit() != request.view().unit()
         || declared_types.kind() != request.view().kind()
@@ -30,14 +43,123 @@ where
         );
     }
 
-    let (session, prepared) =
-        match prepare_expression_check(request, declared_types, nested_callables, candidate_sets) {
-            Ok(SessionProgress::Complete(prepared)) => prepared,
-            Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    let pending = match pattern_reference_expressions(request) {
+        Ok(pending) => pending,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    };
+
+    if pending.is_empty() {
+        return check_expression_semantics_once(
+            request,
+            declared_types,
+            nested_callables,
+            candidate_sets,
+            &pending,
+            None,
+        );
+    }
+
+    let first_types = match check_provisional_expression_types(
+        request,
+        declared_types,
+        nested_callables,
+        candidate_sets,
+        &pending,
+    ) {
+        CheckerOutcome::Complete(result) => result.into_parts().0,
+        CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+    };
+
+    let provisional_patterns =
+        match crate::pattern::check_patterns(request, &first_types, &PatternCheckInput::new()) {
+            CheckerOutcome::Complete(result) => result.into_parts().0,
+            CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
+            CheckerOutcome::InfrastructureFailure(error) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
         };
 
-    finish_expression_check(request, session, prepared)
+    let prepared = match prepare_pattern_references(request, &provisional_patterns, &pending) {
+        Ok(prepared) => prepared,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    };
+
+    check_expression_semantics_once(
+        request,
+        declared_types,
+        nested_callables,
+        candidate_sets,
+        &pending,
+        Some(prepared),
+    )
+}
+
+fn check_provisional_expression_types<C>(
+    request: CheckerUnitView<'_, C>,
+    declared_types: &DeclaredValueTypeTemplates,
+    nested_callables: &[NestedCallableEvidence],
+    candidate_sets: &[ExpressionCandidateSet],
+    deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let (session, prepared) = match prepare_expression_check(
+        request,
+        declared_types,
+        nested_callables,
+        candidate_sets,
+        &[],
+        deferred,
+    ) {
+        Ok(SessionProgress::Complete(prepared)) => prepared,
+        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    };
+
+    finish_expression_types_with_deferred(request, session, prepared.deferred())
+}
+
+fn check_expression_semantics_once<C>(
+    request: CheckerUnitView<'_, C>,
+    declared_types: &DeclaredValueTypeTemplates,
+    nested_callables: &[NestedCallableEvidence],
+    candidate_sets: &[ExpressionCandidateSet],
+    supplemental_deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+    supplemental: Option<PreparedPatternReferences>,
+) -> CheckerOutcome<(
+    bray_bound_tree::CheckedExpressionTypes,
+    CheckedSemanticSelections,
+)>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let evidence = supplemental
+        .as_ref()
+        .map_or(&[][..], |prepared| prepared.evidence.as_slice());
+
+    let (session, prepared) = match prepare_expression_check(
+        request,
+        declared_types,
+        nested_callables,
+        candidate_sets,
+        evidence,
+        supplemental_deferred,
+    ) {
+        Ok(SessionProgress::Complete(prepared)) => prepared,
+        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    };
+
+    let (selections, diagnostics) = supplemental.map_or_else(
+        || (Vec::new(), DiagnosticBag::new()),
+        |prepared| (prepared.selections, prepared.diagnostics),
+    );
+
+    finish_expression_check(request, session, prepared, selections, diagnostics)
 }
 
 fn prepare_expression_check<'view, C>(
@@ -45,6 +167,8 @@ fn prepare_expression_check<'view, C>(
     declared_types: &DeclaredValueTypeTemplates,
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
+    supplemental_evidence: &[ExpressionTypeEvidence],
+    supplemental_deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
 ) -> Result<
     SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
     CheckerInfrastructureError,
@@ -76,6 +200,7 @@ where
     };
 
     prepared.defer(deferred);
+    prepared.defer(supplemental_deferred.iter().copied());
 
     let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
         return Ok(SessionProgress::Cancelled);
@@ -86,6 +211,10 @@ where
     }
 
     session.apply_input(&input)?;
+
+    for evidence in supplemental_evidence {
+        session.add_evidence(evidence.expression(), evidence.ty())?;
+    }
 
     if converge(request, &prepared, &mut session)?.is_cancelled()
         || session.apply_literal_defaults().is_cancelled()
@@ -101,6 +230,8 @@ fn finish_expression_check<C>(
     request: CheckerUnitView<'_, C>,
     session: ExpressionTypeSession<'_, C>,
     prepared: PreparedExpressions,
+    mut supplemental_selections: Vec<SemanticSelectionEntry>,
+    supplemental_diagnostics: DiagnosticBag,
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -119,11 +250,13 @@ where
 
     let (types, type_diagnostics) = type_result.into_parts();
 
-    let (entries, selection_diagnostics) = match final_selections(request, &types, &prepared) {
+    let (mut entries, selection_diagnostics) = match final_selections(request, &types, &prepared) {
         Ok(Some(result)) => result,
         Ok(None) => return CheckerOutcome::Cancelled,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
+
+    entries.append(&mut supplemental_selections);
 
     let selections = match CheckedSemanticSelections::try_new(request.unit(), &types, entries) {
         Ok(selections) => selections,
@@ -136,7 +269,9 @@ where
 
     CheckerOutcome::complete(
         (types, selections),
-        type_diagnostics.merged(&selection_diagnostics),
+        type_diagnostics
+            .merged(&selection_diagnostics)
+            .merged(&supplemental_diagnostics),
     )
 }
 

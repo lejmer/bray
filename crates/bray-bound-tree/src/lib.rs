@@ -47,12 +47,12 @@ pub use node::{
     BoundLiteralExpression, BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
     BoundNodeKind, BoundOperator, BoundPattern, BoundPatternEntry, BoundPatternEntryKind,
-    BoundPatternId, BoundPatternKind, BoundPatternLiteral, BoundPatternMode, BoundPatternTarget,
-    BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds, BoundStructConstructionExpression,
-    BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
-    BoundTraitQualifiedMemberExpression, BoundTypeReference, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind, ExactBoundNodeId,
-    IterationSourceMode,
+    BoundPatternId, BoundPatternKind, BoundPatternLiteral, BoundPatternMode,
+    BoundPatternReferenceExpression, BoundPatternTarget, BoundReferenceTarget, BoundResolvedCall,
+    BoundSliceBounds, BoundStructConstructionExpression, BoundStructFieldInitializer,
+    BoundStructuredExpression, BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression,
+    BoundTypeReference, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
+    BoundUnresolvedReferenceKind, ExactBoundNodeId, IterationSourceMode,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
