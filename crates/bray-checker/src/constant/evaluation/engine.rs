@@ -860,6 +860,7 @@ mod tests {
             expected,
             expected,
         );
+
         let witness = bray_symbols::testing::implementation_instance(semantic_values(), 76);
         let types = checked_types(&unit, root, &context, expected);
 
@@ -962,6 +963,7 @@ mod tests {
         assert_eq!(resolver.requests().len(), 1);
 
         let ineligible_resolver = IneligibleCallResolver;
+
         let ineligible_input = ConstantEvaluationInput::new(&types, &selections)
             .with_call_resolver(&ineligible_resolver);
 
@@ -1325,6 +1327,7 @@ mod tests {
         );
 
         let expected = representation(&seed, &seed_context, RepresentationRole::ScalarU16);
+
         let (unit, root, context) = reference_unit(BoundUnitId::new(103), expected);
 
         let target_fact = match semantic_values().intern_constant_term(
@@ -1598,7 +1601,6 @@ mod tests {
         let mut tree = BoundTreeBuilder::new(unit);
 
         let root = build(&mut tree, &origins, BoundNodeOrigin::source(key.source()));
-
         let local_symbols = local_symbols(unit, &key);
 
         let unit = BoundUnit::try_new(

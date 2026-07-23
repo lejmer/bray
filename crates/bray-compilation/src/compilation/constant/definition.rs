@@ -519,6 +519,7 @@ fn imported_constant_definition(
     };
 
     let template = fact.template();
+
     let index = usize::try_from(template.result().raw())
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
@@ -581,11 +582,13 @@ pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<BoundExpressio
     };
 
     let body = bound.view().callable_body(body)?;
+
     let BoundCallableBodyKind::Block(block) = body.kind() else {
         return None;
     };
 
     let block = bound.view().block(block)?;
+
     let [BoundBlockItem::Expression(expression)] = block.items() else {
         return None;
     };
@@ -855,9 +858,11 @@ mod tests {
 
         let definition = CallableDefinitionId::try_new(function.id().into())
             .unwrap_or_else(|| panic!("source function must be callable"));
+
         let values = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+
         let substitution = GenericSubstitutionData::try_new(
             GenericOwnerId::try_new(function.id().into())
                 .unwrap_or_else(|| panic!("source function must own a substitution")),
@@ -871,6 +876,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
 
         let ty = i32_type(&compilation);
+
         let request = ConstantCallRequest::new(
             CallableInstanceData::new(definition, substitution),
             None,
@@ -942,12 +948,16 @@ mod tests {
     #[test]
     fn constant_call_arguments_map_the_receiver_before_ordinary_parameters() {
         let compilation = compilation("module app;");
+
         let values = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+
         let ty = i32_type(&compilation);
+
         let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(70));
         let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(71));
+
         let signature = CallableSignature::new(
             ty,
             Some(ReceiverParameterSignature::new(
