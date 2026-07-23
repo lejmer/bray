@@ -27,19 +27,32 @@ where
         operands: &[BoundExpressionId],
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let Some(SemanticSelection::Operation(SelectedOperation::Operator {
-            target: OperatorTarget::BuiltIn(selected),
-            ..
-        })) = self.input.semantic_selections().expression(expression)
+        let Some(SemanticSelection::Operation(SelectedOperation::Operator { target, .. })) =
+            self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-245): Evaluate selected const-call operator implementations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        if *selected != operation {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+        match target {
+            OperatorTarget::BuiltIn(selected) if *selected != operation => {
+                return Err(EvaluationFailure::Infrastructure(
+                    CheckerInfrastructureError::InvalidConstantEvaluationInput,
+                ));
+            }
+            OperatorTarget::BuiltIn(_) => {}
+            OperatorTarget::Trait {
+                operator,
+                fulfillment,
+                witness,
+                ..
+            } if *operator == operation => {
+                return self.evaluate_call(expression, *fulfillment, Some(*witness), operands, ty);
+            }
+            OperatorTarget::Trait { .. } => {
+                return Err(EvaluationFailure::Infrastructure(
+                    CheckerInfrastructureError::InvalidConstantEvaluationInput,
+                ));
+            }
         }
 
         match operands {
@@ -176,6 +189,21 @@ where
             _ => return Err(EvaluationFailure::invalid_expression(expression)),
         };
 
+        if let ConversionTarget::Trait {
+            fulfillment,
+            witness,
+            ..
+        } = conversion.target()
+        {
+            return self.evaluate_call(
+                expression,
+                *fulfillment,
+                Some(*witness),
+                std::slice::from_ref(&source.operand()),
+                ty,
+            );
+        }
+
         let operand = self.evaluate(source.operand())?;
 
         if matches!(conversion.target(), ConversionTarget::Identity) {
@@ -194,7 +222,6 @@ where
                     Err(EvaluationFailure::invalid_expression(expression))
                 }
                 ConversionTarget::Trait { .. } => {
-                    // TODO(BRA-245): Evaluate const-call conversion implementations.
                     Err(EvaluationFailure::invalid_expression(expression))
                 }
             };
@@ -213,7 +240,7 @@ where
     }
 
     pub(super) fn convert_value(
-        &self,
+        &mut self,
         expression: BoundExpressionId,
         conversion: &bray_bound_tree::SelectedConversion,
         value: ConstantValueId,
@@ -246,9 +273,18 @@ where
             ConversionTarget::Composite(children) => {
                 self.convert_composite(expression, conversion.target_type(), data.kind(), children)?
             }
-            ConversionTarget::Trait { .. } => {
-                // TODO(BRA-245): Evaluate const-call conversion implementations.
-                return Err(EvaluationFailure::invalid_expression(expression));
+            ConversionTarget::Trait {
+                fulfillment,
+                witness,
+                ..
+            } => {
+                return self.evaluate_call_values(
+                    expression,
+                    *fulfillment,
+                    Some(*witness),
+                    [value],
+                    conversion.target_type(),
+                );
             }
         };
 
@@ -256,7 +292,7 @@ where
     }
 
     pub(super) fn convert_composite(
-        &self,
+        &mut self,
         expression: BoundExpressionId,
         target: TypeId,
         value: &ConstantValueKind,
@@ -303,16 +339,42 @@ where
     pub(super) fn evaluate_index(
         &mut self,
         expression: BoundExpressionId,
-        operands: &[BoundExpressionId],
+        structured: &bray_bound_tree::BoundStructuredExpression,
+        ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let Some(SemanticSelection::Operation(SelectedOperation::Index {
-            target: IndexTarget::ArrayElement,
-            ..
-        })) = self.input.semantic_selections().expression(expression)
+        let Some(SemanticSelection::Operation(SelectedOperation::Index { target, .. })) =
+            self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-245): Evaluate slice and selected const-call indexing operations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
+
+        if let IndexTarget::Custom {
+            fulfillment,
+            witness,
+            ..
+        } = target
+        {
+            return self.evaluate_call(
+                expression,
+                *fulfillment,
+                Some(*witness),
+                structured.operands(),
+                ty,
+            );
+        }
+
+        if matches!(target, IndexTarget::ArraySlice | IndexTarget::Slice) {
+            return self.evaluate_slice(expression, structured, ty);
+        }
+
+        if !matches!(
+            target,
+            IndexTarget::ArrayElement | IndexTarget::SliceElement
+        ) {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        }
+
+        let operands = structured.operands();
 
         let [subject, index] = operands else {
             return Err(EvaluationFailure::Infrastructure(
@@ -345,6 +407,60 @@ where
         };
 
         self.intern_term(ConstantTermData::Value(value))
+    }
+
+    fn evaluate_slice(
+        &mut self,
+        expression: BoundExpressionId,
+        structured: &bray_bound_tree::BoundStructuredExpression,
+        ty: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let Some(subject) = structured.operands().first().copied() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let subject = self.evaluate(subject)?;
+        let subject = self.closed_value(subject, expression)?;
+        let subject = self.constant_value(subject)?;
+
+        let ConstantValueKind::Array(elements) = subject.kind() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let bounds = structured
+            .slice_bounds()
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+
+        let lower = self
+            .evaluate_slice_bound(expression, bounds.lower())?
+            .unwrap_or(0);
+
+        let upper = self
+            .evaluate_slice_bound(expression, bounds.upper())?
+            .unwrap_or(elements.len());
+
+        let Some(values) = elements.get(lower..upper) else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        self.budget.charge_elements(expression, values.len())?;
+
+        self.intern_value_term(ty, ConstantValueKind::array(values.iter().copied()))
+    }
+
+    fn evaluate_slice_bound(
+        &mut self,
+        expression: BoundExpressionId,
+        bound: Option<BoundExpressionId>,
+    ) -> Result<Option<usize>, EvaluationFailure> {
+        let Some(bound) = bound else {
+            return Ok(None);
+        };
+
+        let bound = self.evaluate(bound)?;
+        let bound = self.closed_value(bound, expression)?;
+
+        self.array_count(expression, bound).map(Some)
     }
 
     pub(super) fn evaluate_member_projection(
@@ -410,12 +526,13 @@ where
         let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
             self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-245): Evaluate const-call construction operations.
             // TODO(BRA-246): Evaluate value-bearing construction operations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        if !construction.inputs().is_empty() {
+        if !construction.inputs().is_empty()
+            && !matches!(construction.target(), ConstructionTarget::TypeForm(_))
+        {
             // TODO(BRA-246): Retain field identities in product and union constant values.
             return Err(EvaluationFailure::invalid_expression(expression));
         }
@@ -423,9 +540,31 @@ where
         let kind = match construction.target() {
             ConstructionTarget::Struct(_) => ConstantValueKind::product([]),
             ConstructionTarget::UnionVariant(variant) => ConstantValueKind::union(variant, []),
-            ConstructionTarget::TypeForm(_) => {
-                // TODO(BRA-245): Evaluate const type-form construction callables.
-                return Err(EvaluationFailure::invalid_expression(expression));
+            ConstructionTarget::TypeForm(callable) => {
+                let mut inputs = construction
+                    .inputs()
+                    .iter()
+                    .map(|input| match input {
+                        bray_bound_tree::SelectedConstructionInput::Explicit {
+                            expression,
+                            ordinal,
+                            ..
+                        } => Ok((*ordinal, *expression)),
+                        bray_bound_tree::SelectedConstructionInput::Default { .. } => {
+                            // TODO(BRA-246): Evaluate declaration-owned defaults in constant construction.
+                            Err(EvaluationFailure::invalid_expression(expression))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                inputs.sort_unstable_by_key(|(ordinal, _)| *ordinal);
+
+                let inputs = inputs
+                    .into_iter()
+                    .map(|(_, input)| input)
+                    .collect::<Vec<_>>();
+
+                return self.evaluate_call(expression, callable, None, &inputs, ty);
             }
         };
 

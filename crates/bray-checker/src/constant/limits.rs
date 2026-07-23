@@ -4,12 +4,13 @@ use bray_diagnostics::DiagnosticKind;
 use super::{ConstantEvaluationInput, evaluation::EvaluationFailure};
 
 /// Deterministic resource limits for one constant-evaluation request.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConstantEvaluationLimits {
     steps: u64,
     aggregate_elements: u64,
     literal_bytes: u64,
     integer_bits: u32,
+    call_depth: u32,
 }
 
 impl ConstantEvaluationLimits {
@@ -20,12 +21,20 @@ impl ConstantEvaluationLimits {
             aggregate_elements,
             literal_bytes,
             integer_bits: 16 * 1024 * 1024,
+            call_depth: 1_024,
         }
     }
 
     /// Uses an explicit maximum bit size for one exact integer result.
     pub const fn with_integer_bits(mut self, integer_bits: u32) -> Self {
         self.integer_bits = integer_bits;
+
+        self
+    }
+
+    /// Uses an explicit maximum nested constant-call depth.
+    pub const fn with_call_depth(mut self, call_depth: u32) -> Self {
+        self.call_depth = call_depth;
 
         self
     }
@@ -48,6 +57,18 @@ impl ConstantEvaluationLimits {
     /// Returns the maximum bit size of one exact integer result.
     pub const fn integer_bits(self) -> u32 {
         self.integer_bits
+    }
+
+    /// Returns the maximum nested constant-call depth.
+    pub const fn call_depth(self) -> u32 {
+        self.call_depth
+    }
+
+    pub(super) const fn nested_call(self) -> Option<Self> {
+        match self.call_depth.checked_sub(1) {
+            Some(call_depth) => Some(self.with_call_depth(call_depth)),
+            None => None,
+        }
     }
 }
 
@@ -140,6 +161,7 @@ mod tests {
         assert!(limits.aggregate_elements() > 0);
         assert!(limits.literal_bytes() > 0);
         assert!(limits.integer_bits() > 0);
+        assert!(limits.call_depth() > 0);
     }
 
     #[test]

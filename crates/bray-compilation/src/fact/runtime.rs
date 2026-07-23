@@ -4,7 +4,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::task::{
     FactTaskContext, FactTaskIdentity, RuntimeIdentity, current_context, current_cycle,
-    record_request,
+    record_request_with_cycle_key,
 };
 use super::{CompilationFactKey, FactCycle, FactQueryError};
 
@@ -28,15 +28,23 @@ struct WaitEdge {
 }
 
 impl FactRuntime {
-    pub(crate) fn request(&self, key: &CompilationFactKey) -> Result<(), FactQueryError> {
-        record_request(self.identity(), key)
+    pub(crate) fn request_with_cycle_key(
+        &self,
+        key: &CompilationFactKey,
+        cycle_key: &CompilationFactKey,
+    ) -> Result<(), FactQueryError> {
+        record_request_with_cycle_key(self.identity(), key, cycle_key)
     }
 
     pub(crate) fn current_task_context(&self) -> Result<FactTaskContext, FactQueryError> {
         current_context(self.identity())
     }
 
-    pub(crate) fn task(&self, key: CompilationFactKey) -> Result<FactTaskContext, FactQueryError> {
+    pub(crate) fn task_with_cycle_key(
+        &self,
+        key: CompilationFactKey,
+        cycle_key: CompilationFactKey,
+    ) -> Result<FactTaskContext, FactQueryError> {
         let identity = self
             .next_task
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -45,7 +53,12 @@ impl FactRuntime {
             .map(FactTaskIdentity)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        Ok(FactTaskContext::new(self.identity(), identity, key))
+        Ok(FactTaskContext::with_cycle_key(
+            self.identity(),
+            identity,
+            key,
+            cycle_key,
+        ))
     }
 
     pub(crate) fn begin(

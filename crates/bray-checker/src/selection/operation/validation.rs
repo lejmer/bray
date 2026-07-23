@@ -23,13 +23,26 @@ where
 {
     match operation {
         SelectedOperation::Operator {
-            target: OperatorTarget::Trait { callable, .. },
+            target:
+                OperatorTarget::Trait {
+                    member,
+                    fulfillment,
+                    ..
+                },
             ..
         }
         | SelectedOperation::Index {
-            target: IndexTarget::Custom { callable, .. },
+            target:
+                IndexTarget::Custom {
+                    member,
+                    fulfillment,
+                    ..
+                },
             ..
-        } => validate_trait_callable_instance(request, *callable)?,
+        } => {
+            validate_trait_callable_instance(request, *member)?;
+            validate_trait_callable_fulfillment(request, *fulfillment)?;
+        }
         SelectedOperation::Construction(construction) => {
             if let ConstructionTarget::TypeForm(callable) = construction.target() {
                 validate_callable_instance(request, callable)?;
@@ -58,8 +71,13 @@ where
 
     while let Some(conversion) = pending.pop() {
         match conversion.target() {
-            ConversionTarget::Trait { callable, .. } => {
-                validate_trait_callable_instance(request, *callable)?;
+            ConversionTarget::Trait {
+                member,
+                fulfillment,
+                ..
+            } => {
+                validate_trait_callable_instance(request, *member)?;
+                validate_trait_callable_fulfillment(request, *fulfillment)?;
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
@@ -92,6 +110,20 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableMember {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    validate_callable_instance(request, callable)
+}
+
+fn validate_trait_callable_fulfillment<C>(
+    request: CheckerUnitView<'_, C>,
+    callable: CallableInstanceData,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableFulfillment {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
@@ -237,7 +269,7 @@ fn collect_compiler_known_operations<'types>(
             target:
                 OperatorTarget::Trait {
                     operator,
-                    callable,
+                    member,
                     requirement,
                     ..
                 },
@@ -259,7 +291,7 @@ fn collect_compiler_known_operations<'types>(
             required.push(RequiredTraitOperation::Callable {
                 role,
                 requirement: *requirement,
-                callable: *callable,
+                callable: *member,
                 receiver: receiver.ty(),
                 parameter_types,
                 callable_result,
@@ -269,7 +301,7 @@ fn collect_compiler_known_operations<'types>(
         SelectedOperation::Index {
             target:
                 IndexTarget::Custom {
-                    callable,
+                    member,
                     requirement,
                     ..
                 },
@@ -297,7 +329,7 @@ fn collect_compiler_known_operations<'types>(
             required.push(RequiredTraitOperation::Callable {
                 role,
                 requirement: *requirement,
-                callable: *callable,
+                callable: *member,
                 receiver: receiver.ty(),
                 parameter_types,
                 callable_result: RequiredCallableResult::Expression(*result_type),
@@ -326,13 +358,13 @@ fn collect_conversion_operations<'types>(
     while let Some(conversion) = pending.pop() {
         match conversion.target() {
             ConversionTarget::Trait {
-                callable,
+                member,
                 requirement,
                 ..
             } => required.push(RequiredTraitOperation::Conversion {
                 role: CompilerKnownOperationRole::PlainConversion,
                 requirement: *requirement,
-                callable: *callable,
+                callable: *member,
                 source: conversion.source_type(),
                 target: conversion.target_type(),
             }),
@@ -446,13 +478,13 @@ mod tests {
     use bray_symbols::{
         CallableSignature, ImplementationRequirementKey, ImplementationSelection, ReceiverMode,
         ReceiverParameterSignature, ReceiverParameterSymbolId, SymbolId,
-        TraitCallableMemberSymbolId, TraitSymbolId,
+        TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
     };
 
     use crate::test_support::{
-        TestCheckerContext, callable_entry, compiler_known_symbol, expression_unit,
-        integer_literal_expression, push_expression, semantic_values, trait_callable_instance,
-        tuple_type,
+        TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol,
+        expression_unit, integer_literal_expression, push_expression, semantic_values,
+        trait_callable_instance, tuple_type,
     };
     use crate::{CheckerUnitView, CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 
@@ -596,6 +628,10 @@ mod tests {
         );
 
         let callable = trait_callable_instance(callable_definition);
+        let fulfillment = callable_instance(
+            TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(32)).into(),
+        );
+
         let witness = bray_symbols::testing::implementation_instance(semantic_values(), 30);
         let other_witness = bray_symbols::testing::implementation_instance(semantic_values(), 31);
 
@@ -603,7 +639,8 @@ mod tests {
             source_element,
             target_element,
             ConversionTarget::Trait {
-                callable,
+                member: callable,
+                fulfillment,
                 requirement,
                 witness,
             },

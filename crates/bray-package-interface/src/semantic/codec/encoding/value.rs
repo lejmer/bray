@@ -296,10 +296,16 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
         }
         InterfaceConstantTerm::Call {
             callable,
+            selected_implementation,
             arguments,
         } => {
             encoder.write_u32(7);
             encoder.write_u32(callable.raw());
+
+            write_optional_u32(
+                encoder,
+                selected_implementation.map(|implementation| implementation.raw()),
+            );
 
             write_ids(encoder, arguments, |id| id.raw());
         }

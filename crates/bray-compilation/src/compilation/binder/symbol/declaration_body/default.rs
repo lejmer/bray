@@ -272,10 +272,8 @@ fn source_runtime_default_key(
         .cloned()
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    Ok(
-        BoundUnitKey::runtime_default(provider, BoundSourceAnchor::new(syntax, source.version()))
-            .ok_or(BinderFactError::DependencyUnavailable)?,
-    )
+    BoundUnitKey::runtime_default(provider, BoundSourceAnchor::new(syntax, source.version()))
+        .ok_or(BinderFactError::DependencyUnavailable)
 }
 
 fn source_generic_context(

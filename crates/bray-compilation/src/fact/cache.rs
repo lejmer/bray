@@ -85,9 +85,20 @@ impl<T> FactCell<T> {
         cancellation: &CancellationToken,
         compute: impl FnOnce() -> Result<T, FactQueryError>,
     ) -> Result<&T, FactQueryError> {
+        self.get_or_compute_with_cycle_key(runtime, key.clone(), key, cancellation, compute)
+    }
+
+    pub(crate) fn get_or_compute_with_cycle_key(
+        &self,
+        runtime: &FactRuntime,
+        key: CompilationFactKey,
+        cycle_key: CompilationFactKey,
+        cancellation: &CancellationToken,
+        compute: impl FnOnce() -> Result<T, FactQueryError>,
+    ) -> Result<&T, FactQueryError> {
         let mut compute = Some(compute);
 
-        runtime.request(&key)?;
+        runtime.request_with_cycle_key(&key, &cycle_key)?;
 
         loop {
             cancellation.check()?;
@@ -109,7 +120,7 @@ impl<T> FactCell<T> {
                     let thread = thread::current().id();
 
                     // The task, cell state, and rollback guard independently retain this key.
-                    let context = runtime.task(key.clone())?;
+                    let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
                     let task = context.identity();
 
                     *state = FactCellState::Computing {
@@ -450,6 +461,55 @@ mod tests {
     }
 
     #[test]
+    fn distinct_cache_keys_with_one_cycle_identity_compute_concurrently() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let first = FactCell::new();
+        let second = FactCell::new();
+        let barrier = Barrier::new(2);
+        let cycle_key = CompilationFactKey::CheckDiagnostics;
+
+        let results = std::thread::scope(|scope| {
+            let first_handle = scope.spawn(|| {
+                first
+                    .get_or_compute_with_cycle_key(
+                        &runtime,
+                        CompilationFactKey::SyntaxTree,
+                        cycle_key.clone(),
+                        &cancellation,
+                        || {
+                            barrier.wait();
+
+                            Ok(1_u32)
+                        },
+                    )
+                    .copied()
+            });
+
+            let second_handle = scope.spawn(|| {
+                second
+                    .get_or_compute_with_cycle_key(
+                        &runtime,
+                        CompilationFactKey::DeclarationTable,
+                        cycle_key.clone(),
+                        &cancellation,
+                        || {
+                            barrier.wait();
+
+                            Ok(2_u32)
+                        },
+                    )
+                    .copied()
+            });
+
+            [join(first_handle), join(second_handle)]
+        });
+
+        assert_eq!(results, [Ok(1), Ok(2)]);
+    }
+
+    #[test]
     fn same_thread_cycles_are_reported_before_waiting() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
@@ -473,6 +533,42 @@ mod tests {
 
         assert_eq!(cycle.facts(), &[key.clone(), key]);
         assert!(cell.get().is_none());
+    }
+
+    #[test]
+    fn distinct_cache_keys_report_their_shared_cycle_identity() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let first = FactCell::new();
+        let second = FactCell::new();
+
+        let cycle_key = CompilationFactKey::CheckDiagnostics;
+
+        let result = first.get_or_compute_with_cycle_key(
+            &runtime,
+            CompilationFactKey::SyntaxTree,
+            cycle_key.clone(),
+            &cancellation,
+            || {
+                second
+                    .get_or_compute_with_cycle_key(
+                        &runtime,
+                        CompilationFactKey::DeclarationTable,
+                        cycle_key.clone(),
+                        &cancellation,
+                        || Ok(2_u32),
+                    )
+                    .copied()
+            },
+        );
+
+        let Err(FactQueryError::Cycle(cycle)) = result else {
+            panic!("shared semantic identity should report a cycle");
+        };
+
+        assert_eq!(cycle.facts(), &[cycle_key.clone(), cycle_key]);
+        assert!(first.get().is_none());
+        assert!(second.get().is_none());
     }
 
     #[test]
@@ -1144,7 +1240,7 @@ mod tests {
     }
 
     fn task_context(runtime: &FactRuntime, key: CompilationFactKey) -> FactTaskContext {
-        match runtime.task(key) {
+        match runtime.task_with_cycle_key(key.clone(), key) {
             Ok(context) => context,
             Err(error) => panic!("fact task should be allocated: {error:?}"),
         }

@@ -196,10 +196,22 @@ impl InternState {
             }
             InterfaceConstantTerm::Call {
                 callable,
+                selected_implementation,
                 arguments,
             } => {
                 let Some(callable) = self.callable_instance_id(*callable) else {
                     return Ok(None);
+                };
+
+                let selected_implementation = match selected_implementation {
+                    Some(id) => {
+                        let Some(id) = self.implementation_instance_id(*id) else {
+                            return Ok(None);
+                        };
+
+                        Some(id)
+                    }
+                    None => None,
                 };
 
                 let Some(arguments) = collect_ids(arguments, |id| self.constant_term_id(*id))
@@ -207,7 +219,11 @@ impl InternState {
                     return Ok(None);
                 };
 
-                Some(ConstantTermData::call(callable, arguments))
+                Some(ConstantTermData::call(
+                    callable,
+                    selected_implementation,
+                    arguments,
+                ))
             }
             InterfaceConstantTerm::Projection { subject, kind } => {
                 let Some(subject) = self.constant_term_id(*subject) else {

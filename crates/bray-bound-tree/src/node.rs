@@ -18,7 +18,7 @@ pub use expression::{
     BoundGeneratorExpression, BoundGenericArgument, BoundLeadingDotVariantExpression,
     BoundLiteralExpression, BoundLiteralKind, BoundMatchArm, BoundMatchExpression,
     BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundOperator,
-    BoundReferenceTarget, BoundResolvedCall, BoundStructConstructionExpression,
+    BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds, BoundStructConstructionExpression,
     BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
     BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
     BoundUnresolvedReferenceKind,

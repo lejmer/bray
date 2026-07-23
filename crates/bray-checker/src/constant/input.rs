@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, CheckedSemanticSelections};
 use bray_symbols::{ConstantTermId, ConstantValueId};
 
-use super::ConstantEvaluationLimits;
+use super::{ConstantCallResolver, ConstantEvaluationLimits};
 
 /// The caller-resolved result of one constant reference dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -20,8 +20,10 @@ pub enum ConstantReferenceResolution {
 pub struct ConstantEvaluationInput<'facts> {
     expression_types: &'facts CheckedExpressionTypes,
     semantic_selections: &'facts CheckedSemanticSelections,
+    root: Option<BoundExpressionId>,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     references_are_consistent: bool,
+    call_resolver: Option<&'facts dyn ConstantCallResolver>,
     limits: ConstantEvaluationLimits,
 }
 
@@ -34,10 +36,26 @@ impl<'facts> ConstantEvaluationInput<'facts> {
         Self {
             expression_types,
             semantic_selections,
+            root: None,
             references: BTreeMap::new(),
             references_are_consistent: true,
+            call_resolver: None,
             limits: ConstantEvaluationLimits::default(),
         }
+    }
+
+    /// Selects one expression inside the checked unit as the evaluation root.
+    pub const fn with_root(mut self, root: BoundExpressionId) -> Self {
+        self.root = Some(root);
+
+        self
+    }
+
+    /// Supplies the demand-driven dependency boundary for selected constant calls.
+    pub const fn with_call_resolver(mut self, resolver: &'facts dyn ConstantCallResolver) -> Self {
+        self.call_resolver = Some(resolver);
+
+        self
     }
 
     /// Supplies resolved constant dependencies for reference occurrences in this expression unit.
@@ -76,9 +94,17 @@ impl<'facts> ConstantEvaluationInput<'facts> {
         self.semantic_selections
     }
 
+    pub(crate) const fn root(&self) -> Option<BoundExpressionId> {
+        self.root
+    }
+
     /// Returns the caller-resolved dependency for one constant reference occurrence.
     pub fn reference(&self, expression: BoundExpressionId) -> Option<ConstantReferenceResolution> {
         self.references.get(&expression).copied()
+    }
+
+    pub(crate) const fn call_resolver(&self) -> Option<&dyn ConstantCallResolver> {
+        self.call_resolver
     }
 
     pub(crate) const fn references_are_consistent(&self) -> bool {

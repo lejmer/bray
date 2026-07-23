@@ -18,6 +18,7 @@ struct FactTaskData {
     runtime: RuntimeIdentity,
     identity: FactTaskIdentity,
     key: CompilationFactKey,
+    cycle_key: CompilationFactKey,
     state: Mutex<FactTaskState>,
 }
 
@@ -28,16 +29,18 @@ struct FactTaskState {
 }
 
 impl FactTaskContext {
-    pub(crate) fn new(
+    pub(crate) fn with_cycle_key(
         runtime: RuntimeIdentity,
         identity: FactTaskIdentity,
         key: CompilationFactKey,
+        cycle_key: CompilationFactKey,
     ) -> Self {
         Self {
             data: Arc::new(FactTaskData {
                 runtime,
                 identity,
                 key,
+                cycle_key,
                 state: Mutex::new(FactTaskState {
                     accepting_dependencies: true,
                     dependencies: BTreeSet::new(),
@@ -118,9 +121,10 @@ pub(crate) struct RuntimeIdentity(pub(crate) usize);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct FactTaskIdentity(pub(crate) u64);
 
-pub(crate) fn record_request(
+pub(crate) fn record_request_with_cycle_key(
     runtime: RuntimeIdentity,
     key: &CompilationFactKey,
+    cycle_key: &CompilationFactKey,
 ) -> Result<(), FactQueryError> {
     local_evaluations(|active| {
         let Some(context) = active.last() else {
@@ -131,7 +135,7 @@ pub(crate) fn record_request(
             return Ok(());
         }
 
-        if let Some(cycle) = task_cycle(active, runtime, key) {
+        if let Some(cycle) = task_cycle(active, runtime, cycle_key) {
             return Err(FactQueryError::Cycle(cycle));
         }
 
@@ -186,7 +190,7 @@ fn task_cycle(
     let facts = active
         .iter()
         .filter(|context| context.data.runtime == runtime)
-        .map(|context| context.data.key.clone())
+        .map(|context| context.data.cycle_key.clone())
         .collect::<Vec<_>>();
 
     let start = facts.iter().position(|active_key| active_key == key)?;

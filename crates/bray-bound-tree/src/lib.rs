@@ -46,10 +46,11 @@ pub use node::{
     BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm, BoundMatchExpression,
     BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundNodeKind,
     BoundOperator, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
-    BoundPatternTarget, BoundReferenceTarget, BoundResolvedCall, BoundStructConstructionExpression,
-    BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
-    BoundTraitQualifiedMemberExpression, BoundTypeReference, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind, ExactBoundNodeId,
+    BoundPatternTarget, BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds,
+    BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
+    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundTypeReference,
+    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
+    ExactBoundNodeId,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,

@@ -219,14 +219,24 @@ impl SemanticValueStore {
             }
             ConstantTermData::Call {
                 callable,
+                selected_implementation,
                 arguments,
-            } => ConstantTermData::call(
-                self.substitute_callable_instance(*callable, substitution)?,
-                arguments
-                    .iter()
-                    .map(|argument| self.substitute_constant_term(*argument, substitution))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
+            } => {
+                let selected_implementation = selected_implementation
+                    .map(|implementation| {
+                        self.substitute_implementation_instance(implementation, substitution)
+                    })
+                    .transpose()?;
+
+                ConstantTermData::call(
+                    self.substitute_callable_instance(*callable, substitution)?,
+                    selected_implementation,
+                    arguments
+                        .iter()
+                        .map(|argument| self.substitute_constant_term(*argument, substitution))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            }
             ConstantTermData::Projection(projection) => {
                 let kind = match projection.kind() {
                     ConstantProjectionKind::ArrayElement(index) => {

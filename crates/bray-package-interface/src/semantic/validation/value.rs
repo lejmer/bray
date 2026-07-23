@@ -269,9 +269,14 @@ impl InterfaceSemanticFacts {
             }
             InterfaceConstantTerm::Call {
                 callable,
+                selected_implementation,
                 arguments,
             } => {
                 validate_index(callable.to_index(), self.callable_instances.len())?;
+
+                if let Some(id) = selected_implementation {
+                    validate_index(id.to_index(), self.implementation_instances.len())?;
+                }
 
                 for id in &**arguments {
                     validate_index(id.to_index(), self.constant_terms.len())?;

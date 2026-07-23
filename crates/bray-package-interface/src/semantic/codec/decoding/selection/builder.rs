@@ -682,9 +682,14 @@ impl<'bytes> SelectionBuilder<'bytes> {
             }
             InterfaceConstantTerm::Call {
                 callable,
+                selected_implementation,
                 arguments,
             } => {
                 self.enqueue(PendingRecord::CallableInstance(callable.raw()));
+
+                if let Some(implementation) = selected_implementation {
+                    self.enqueue(PendingRecord::ImplementationInstance(implementation.raw()));
+                }
 
                 for argument in &**arguments {
                     self.enqueue(PendingRecord::ConstantTerm(argument.raw()));

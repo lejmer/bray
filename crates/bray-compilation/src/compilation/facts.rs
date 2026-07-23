@@ -19,11 +19,12 @@ use bray_package_interface::{
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
-    AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CompilerKnownSymbolBuildError,
-    CompilerKnownSymbolProvider, ConstantInstanceValueFact, ConstantTermId,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
-    ImplementationRequirementKey, ImportedSymbolSkeleton, PackageIdentity, SemanticFactResult,
-    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+    AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
+    CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider, ConstantInstanceValueFact,
+    ConstantTermId, ConstantValueId, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
+    ImplementationParticipationFact, ImplementationRequirementKey, ImportedSymbolSkeleton,
+    PackageIdentity, SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError,
+    SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
@@ -103,12 +104,18 @@ pub(super) struct CompilationState {
     pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
     pub(super) constant_template_keys:
         FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
+    pub(super) callable_body_keys:
+        FactCell<Result<BTreeMap<CallableDefinitionId, BoundUnitKey>, FactQueryError>>,
     pub(super) predicate_definition_keys: FactCell<
         Result<BTreeMap<bray_symbols::PredicateDefinitionSymbolId, BoundUnitKey>, FactQueryError>,
     >,
     pub(super) symbolic_constant_terms: UnitFactCache<ConstantTermId>,
     pub(super) constant_instances:
         FactCellMap<ConstantInstanceFactKey, Arc<SemanticFactResult<ConstantInstanceValueFact>>>,
+    pub(super) constant_calls: FactCellMap<
+        crate::fact::ConstantCallFactKey,
+        Arc<DiagnosticResult<Option<ConstantValueId>>>,
+    >,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
     pub(super) package_interface_export_bundle: FactCell<
         Result<Arc<PackageInterfaceExportBundle>, super::export::PackageInterfaceExportError>,
@@ -203,9 +210,11 @@ impl Compilation {
                 checked_expression_types: UnitFactCache::new(),
                 checked_semantic_selections: UnitFactCache::new(),
                 constant_template_keys: FactCell::new(),
+                callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),
                 symbolic_constant_terms: UnitFactCache::new(),
                 constant_instances: FactCellMap::new(),
+                constant_calls: FactCellMap::new(),
                 check_diagnostics: FactCell::new(),
                 package_interface_export_bundle: FactCell::new(),
             }),

@@ -20,10 +20,11 @@ mod unit;
 mod test_support;
 
 pub use constant::{
-    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError,
-    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantLiteralError,
-    ConstantReferenceResolution, check_array_length, check_constant_literal,
-    normalize_integer_literal, resolve_type_expression_template,
+    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
+    ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
+    ConstantEvaluationLimits, ConstantLiteralError, ConstantReferenceResolution,
+    check_array_length, check_constant_literal, normalize_integer_literal,
+    resolve_callable_signature_template, resolve_type_expression_template,
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,

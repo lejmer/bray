@@ -1,23 +1,24 @@
-use crate::{AnySymbolId, ImplementationSymbolId, TraitSymbolId};
+use crate::{AnySymbolId, CallableSymbolId, ImplementationSymbolId, TraitSymbolId};
 
 use super::GenericSubstitutionId;
 
 /// A validated symbol definition that can produce a callable value.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CallableDefinitionId(AnySymbolId);
+pub struct CallableDefinitionId(CallableSymbolId);
 
 impl CallableDefinitionId {
     /// Creates a callable definition from an exact supported symbol category.
-    pub const fn try_new(symbol: AnySymbolId) -> Option<Self> {
-        if symbol.kind().is_callable() {
-            return Some(Self(symbol));
-        }
-
-        None
+    pub fn try_new(symbol: AnySymbolId) -> Option<Self> {
+        CallableSymbolId::try_from_any(symbol).map(Self)
     }
 
     /// Returns the exact symbol retained by this callable-definition adapter.
-    pub const fn symbol(self) -> AnySymbolId {
+    pub fn symbol(self) -> AnySymbolId {
+        self.0.into_any()
+    }
+
+    /// Returns the callable-family identity represented by this definition.
+    pub const fn callable_symbol(self) -> CallableSymbolId {
         self.0
     }
 }

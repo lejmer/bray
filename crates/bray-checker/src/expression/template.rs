@@ -3,16 +3,16 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    CallableExecution, CallableInstanceData, CallableParameterSignature, CallableSignature,
-    CallableSignatureTemplate, CallableTypeData, GenericArgument, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SemanticValueStore,
-    StructSymbolId, SymbolProvider, TypeData, TypeExpressionTemplate, TypeId,
+    CallableExecution, CallableInstanceData, CallableSignature, CallableSignatureTemplate,
+    CallableTypeData, GenericArgument, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericSubstitutionId, NamedTypeSymbolId, SemanticValueStore, StructSymbolId, SymbolProvider,
+    TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
     CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerInfrastructureError,
-    resolve_type_expression_template,
+    resolve_callable_signature_template, resolve_type_expression_template,
 };
 
 pub(super) enum TemplateResolution<T> {
@@ -119,65 +119,18 @@ fn resolve_signature(
     template: &CallableSignatureTemplate,
     substitution: GenericSubstitutionId,
 ) -> Result<TemplateResolution<CallableSignature>, CheckerInfrastructureError> {
-    let callable_type = match resolve_type_template(values, template.callable_type())? {
-        TemplateResolution::Resolved(ty) => substitute_type(values, ty, substitution)?,
-        TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
-    };
-
-    let result = match resolve_type_template(values, template.result())? {
-        TemplateResolution::Resolved(ty) => substitute_type(values, ty, substitution)?,
-        TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
-    };
-
-    let parameter_templates = template
-        .parameter_type_templates(values)
-        .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
-
-    let mut parameters = Vec::with_capacity(parameter_templates.len());
-
-    for (parameter, parameter_template) in template
-        .parameters()
-        .iter()
-        .copied()
-        .zip(parameter_templates)
-    {
-        let ty = match resolve_type_template(values, &parameter_template)? {
-            TemplateResolution::Resolved(ty) => substitute_type(values, ty, substitution)?,
-            TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
-        };
-
-        parameters.push(CallableParameterSignature::new(parameter, ty));
-    }
-
-    let receiver = template
-        .receiver()
-        .map(|receiver| {
-            substitute_type(values, receiver.ty(), substitution).map(|ty| {
-                bray_symbols::ReceiverParameterSignature::new(
-                    receiver.parameter(),
-                    ty,
-                    receiver.mode(),
-                )
-            })
-        })
-        .transpose()?;
-
-    Ok(TemplateResolution::Resolved(CallableSignature::new(
-        callable_type,
-        receiver,
-        parameters,
-        result,
-    )))
-}
-
-fn substitute_type(
-    values: &SemanticValueStore,
-    ty: TypeId,
-    substitution: GenericSubstitutionId,
-) -> Result<TypeId, CheckerInfrastructureError> {
-    values
-        .substitute_type(ty, substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+    resolve_callable_signature_template(
+        values,
+        template,
+        substitution,
+        &CheckedConstantTerms::new(),
+    )
+    .map(|signature| {
+        signature.map_or(
+            TemplateResolution::Unsupported,
+            TemplateResolution::Resolved,
+        )
+    })
 }
 
 pub(super) fn call_result<C>(
