@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    CallableParameterSymbolId, ReceiverParameterSymbolId, SemanticValueStore,
+    CallableConstness, CallableParameterSymbolId, ReceiverParameterSymbolId, SemanticValueStore,
     SemanticValueStoreError, TypeData, TypeExpressionTemplate, TypeId,
 };
 
@@ -146,6 +146,28 @@ impl CallableSignatureTemplate {
     /// Returns the declared result type template.
     pub const fn result(&self) -> &TypeExpressionTemplate {
         &self.result
+    }
+
+    /// Returns whether calls through this signature are allowed in constant contexts.
+    pub fn constness(
+        &self,
+        semantic_values: &SemanticValueStore,
+    ) -> Result<CallableConstness, CallableSignatureTemplateError> {
+        match self.callable_type() {
+            TypeExpressionTemplate::Callable(callable) => Ok(callable.constness()),
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = semantic_values
+                    .type_data(*ty)
+                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(CallableSignatureTemplateError::InvalidCallableType);
+                };
+
+                Ok(callable.constness())
+            }
+            _ => Err(CallableSignatureTemplateError::InvalidCallableType),
+        }
     }
 
     /// Returns parameter type templates in declaration parameter order.

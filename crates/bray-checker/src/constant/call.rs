@@ -75,6 +75,9 @@ pub enum ConstantCallResolution {
 
 /// Resolves selected constant calls through the caller's demand-driven fact graph.
 pub trait ConstantCallResolver: Sync {
+    /// Returns whether the selected callable may execute in a constant context.
+    fn is_constant_callable(&self, callable: CallableInstanceData) -> CheckerFactResult<bool>;
+
     /// Evaluates one exact call without forcing unrelated semantic facts.
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution>;
 }

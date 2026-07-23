@@ -631,6 +631,7 @@ mod tests {
         let fulfillment = callable_instance(
             TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(32)).into(),
         );
+
         let witness = bray_symbols::testing::implementation_instance(semantic_values(), 30);
         let other_witness = bray_symbols::testing::implementation_instance(semantic_values(), 31);
 

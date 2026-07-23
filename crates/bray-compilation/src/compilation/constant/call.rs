@@ -39,6 +39,15 @@ impl<'compilation> CompilationConstantCallResolver<'compilation> {
 }
 
 impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
+    fn is_constant_callable(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+    ) -> CheckerFactResult<bool> {
+        self.compilation
+            .is_constant_callable(callable, self.cancellation)
+            .map_err(checker_call_fact_error)
+    }
+
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution> {
         match self
             .compilation
@@ -52,20 +61,45 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
                 None => Ok(ConstantCallResolution::Ineligible),
             },
             Err(FactQueryError::Cycle(_)) => Ok(ConstantCallResolution::Cycle),
-            Err(FactQueryError::Cancelled) => Err(CheckerFactError::Cancelled),
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                Err(CheckerFactError::Infrastructure(error))
-            }
-            Err(FactQueryError::InfrastructureFailure | FactQueryError::SemanticUnitContext(_)) => {
-                Err(CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::InvalidConstantEvaluationInput,
-                ))
-            }
+            Err(error) => Err(checker_call_fact_error(error)),
         }
     }
 }
 
+fn checker_call_fact_error(error: FactQueryError) -> CheckerFactError {
+    match error {
+        FactQueryError::Cancelled => CheckerFactError::Cancelled,
+        FactQueryError::CheckerInfrastructure(error) => CheckerFactError::Infrastructure(error),
+        FactQueryError::Cycle(_)
+        | FactQueryError::InfrastructureFailure
+        | FactQueryError::SemanticUnitContext(_) => CheckerFactError::Infrastructure(
+            CheckerInfrastructureError::InvalidConstantEvaluationInput,
+        ),
+    }
+}
+
 impl Compilation {
+    fn is_constant_callable(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        let values = self.semantic_value_store()?;
+        let facts = self.binder_facts(cancellation)?;
+
+        let signature = facts
+            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+                callable.definition().callable_symbol(),
+            ))
+            .map_err(binder_fact_error)?;
+
+        signature
+            .value()
+            .constness(values)
+            .map(|constness| constness == CallableConstness::Constant)
+            .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
     pub(super) fn constant_call_with_cancellation(
         &self,
         request: &ConstantCallRequest,
@@ -88,9 +122,10 @@ impl Compilation {
 
         let cell = self.state.constant_calls.cell(key.clone())?;
 
-        let published = cell.get_or_compute(
+        let published = cell.get_or_compute_with_cycle_key(
             &self.state.fact_runtime,
-            CompilationFactKey::ConstantCall(key.dependency_key()),
+            CompilationFactKey::ConstantCall(key.clone()),
+            CompilationFactKey::ConstantCallCycle(key.dependency_key()),
             cancellation,
             || self.compute_constant_call(&key, cancellation).map(Arc::new),
         )?;
@@ -104,6 +139,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<ConstantValueId>>, FactQueryError> {
         let values = self.semantic_value_store()?;
+
         let callable = values
             .callable_instance_data(key.callable())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;

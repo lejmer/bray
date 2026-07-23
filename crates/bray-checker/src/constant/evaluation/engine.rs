@@ -908,6 +908,7 @@ mod tests {
         assert_eq!(*result.value(), result_value);
 
         let requests = resolver.requests();
+
         let [request] = requests.as_slice() else {
             panic!("selected trait operation must request exactly one call");
         };
@@ -959,6 +960,26 @@ mod tests {
         );
 
         assert_eq!(resolver.requests().len(), 1);
+
+        let ineligible_resolver = IneligibleCallResolver;
+        let ineligible_input = ConstantEvaluationInput::new(&types, &selections)
+            .with_call_resolver(&ineligible_resolver);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let ineligible = DefaultConstantChecker
+            .check_constant_term(request, &ineligible_input)
+            .into_result()
+            .unwrap_or_else(|| panic!("ineligible selected call must recover"));
+
+        assert_eq!(
+            ineligible
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingInvalidConstantExpression)
+                .count(),
+            1
+        );
     }
 
     struct CapturingCallResolver {
@@ -983,6 +1004,13 @@ mod tests {
     }
 
     impl ConstantCallResolver for CapturingCallResolver {
+        fn is_constant_callable(
+            &self,
+            _callable: bray_symbols::CallableInstanceData,
+        ) -> CheckerFactResult<bool> {
+            Ok(true)
+        }
+
         fn resolve(
             &self,
             request: &ConstantCallRequest,
@@ -1001,11 +1029,36 @@ mod tests {
     struct CycleCallResolver;
 
     impl ConstantCallResolver for CycleCallResolver {
+        fn is_constant_callable(
+            &self,
+            _callable: bray_symbols::CallableInstanceData,
+        ) -> CheckerFactResult<bool> {
+            Ok(true)
+        }
+
         fn resolve(
             &self,
             _request: &ConstantCallRequest,
         ) -> CheckerFactResult<ConstantCallResolution> {
             Ok(ConstantCallResolution::Cycle)
+        }
+    }
+
+    struct IneligibleCallResolver;
+
+    impl ConstantCallResolver for IneligibleCallResolver {
+        fn is_constant_callable(
+            &self,
+            _callable: bray_symbols::CallableInstanceData,
+        ) -> CheckerFactResult<bool> {
+            Ok(false)
+        }
+
+        fn resolve(
+            &self,
+            _request: &ConstantCallRequest,
+        ) -> CheckerFactResult<ConstantCallResolution> {
+            panic!("ineligible calls must not be evaluated")
         }
     }
 

@@ -182,8 +182,10 @@ pub(crate) enum CompilationFactKey {
     PredicateDefinitionKeys,
     /// One concrete constant value for an exact semantic instance and target profile.
     ConstantInstance(ConstantInstanceFactKey),
-    /// One selected constant call for exact arguments and target profile.
-    ConstantCall(ConstantCallDependencyKey),
+    /// One selected constant-call evaluation for exact arguments, target, and limits.
+    ConstantCall(ConstantCallFactKey),
+    /// The semantic identity shared by nested evaluations of one selected constant call.
+    ConstantCallCycle(ConstantCallDependencyKey),
     /// Durable control-flow facts for one bound unit.
     CheckedControlFlow(BoundUnitKey),
     /// Final expression types for one bound unit.
@@ -252,6 +254,7 @@ impl CompilationFactKey {
             | Self::PredicateDefinitionKeys
             | Self::ConstantInstance(_)
             | Self::ConstantCall(_)
+            | Self::ConstantCallCycle(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::DependencyInterface(_)

@@ -31,6 +31,19 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         if self.retain_open_terms() {
+            let Some(resolver) = self.input.call_resolver() else {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            };
+
+            match resolver.is_constant_callable(callable) {
+                Ok(true) => {}
+                Ok(false) => return Err(EvaluationFailure::invalid_expression(expression)),
+                Err(CheckerFactError::Cancelled) => return Err(EvaluationFailure::Cancelled),
+                Err(CheckerFactError::Infrastructure(error)) => {
+                    return Err(EvaluationFailure::Infrastructure(error));
+                }
+            }
+
             let callable = self
                 .request
                 .semantic_values()

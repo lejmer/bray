@@ -168,11 +168,14 @@ impl Compilation {
 
                 let references = self.symbolic_references(bound.result().value())?;
 
+                let resolver = CompilationConstantCallResolver::new(self, cancellation);
+
                 let input = ConstantEvaluationInput::new(
                     &semantics.result().value().0,
                     &semantics.result().value().1,
                 )
-                .with_references(references);
+                .with_references(references)
+                .with_call_resolver(&resolver);
 
                 let unit =
                     CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
