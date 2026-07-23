@@ -414,6 +414,7 @@ where
     };
 
     let (generic_arguments, generic_argument_diagnostics) = generic_arguments.into_parts();
+
     let has_generic_argument_diagnostics = !generic_argument_diagnostics.is_empty();
 
     *diagnostics = diagnostics.merged(&generic_argument_diagnostics);
@@ -437,7 +438,6 @@ where
     }
 
     let is_recovered = context.symbol_is_recovered(symbol)?.unwrap_or(true);
-
     let state = combine_recovery(state, is_recovered || has_diagnostics);
 
     candidates.push(CallableCandidateTemplate::Declaration(

@@ -227,6 +227,7 @@ mod tests {
 
         assert_eq!(first, expected);
         assert_eq!(second, expected);
+
         assert!(matches!(expected, Ok(MemberLookupResult::Found(_))));
     }
 

@@ -10,7 +10,7 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
          use std::borrow::Cow;\n\n\
          use bray_source::{TextRange, TextSize};\n\
          use bray_syntax::SyntaxKind;\n\n\
-         use crate::{AvailabilityRule, CompilerKnownOperationRole, ImplementationHook, RepresentationRole};\n\n\
+         use crate::{AvailabilityRule, CompilerKnownIterationRole, CompilerKnownOperationRole, ImplementationHook, RepresentationRole};\n\n\
          use super::super::*;\n\n",
     );
 
@@ -34,6 +34,7 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
              role_registry: CompilerKnownCatalogRoleRegistry {\n\
                  representations: Cow::Borrowed(COMPILER_KNOWN_REPRESENTATION_ROLES),\n\
                  implementations: Cow::Borrowed(COMPILER_KNOWN_IMPLEMENTATION_ROLES),\n\
+                 iterations: Cow::Borrowed(COMPILER_KNOWN_ITERATION_ROLES),\n\
                  operations: Cow::Borrowed(COMPILER_KNOWN_OPERATION_ROLES),\n\
              },\n\
              recognized_scopes: Cow::Borrowed(RECOGNIZED_SCOPES),\n\
@@ -79,6 +80,19 @@ fn render_roles(output: &mut String, catalog: &CompilerKnownCatalog) {
         output.push_str(&format!(
             "    CompilerKnownImplementationBinding {{ hook: ImplementationHook::{:?}, declaration: CompilerKnownDeclarationId::new({}) }},\n",
             binding.hook(),
+            binding.declaration().raw(),
+        ));
+    }
+
+    output.push_str("];\n\n");
+
+    output
+        .push_str("static COMPILER_KNOWN_ITERATION_ROLES: &[CompilerKnownIterationBinding] = &[\n");
+
+    for binding in catalog.role_registry().iterations() {
+        output.push_str(&format!(
+            "    CompilerKnownIterationBinding {{ role: CompilerKnownIterationRole::{:?}, declaration: CompilerKnownDeclarationId::new({}) }},\n",
+            binding.role(),
             binding.declaration().raw(),
         ));
     }

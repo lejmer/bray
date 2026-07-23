@@ -10,12 +10,12 @@ use crate::lookup::{NameAccess, PathBindingContext};
 use crate::publication::BoundUnitAssemblyError;
 use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
 
-pub(super) fn create_binder<'facts, C>(
-    facts: &'facts C,
+pub(super) fn create_binder<C>(
+    facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<Binder<'facts, C>, BoundUnitBindingError>
+) -> Result<Binder<C>, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {

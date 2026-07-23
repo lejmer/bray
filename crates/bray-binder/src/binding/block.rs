@@ -272,9 +272,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
-        let root = binder.unit().root_scope();
 
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root = binder.unit().root_scope();
         let mut operations = TestOperations::new(fixture.declared_type);
 
         let block_id = match binder.bind_block(root, &block, &mut operations) {
@@ -361,11 +362,11 @@ mod tests {
         ));
 
         let facts = fixture.context();
+
         let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+
         let root = binder.unit().root_scope();
-
         let mut operations = TestOperations::failing(fixture.declared_type);
-
         let result = binder.bind_block(root, &block, &mut operations);
 
         assert_eq!(result, Err(BindingError::Cancelled));
@@ -398,9 +399,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
-        let root = binder.unit().root_scope();
 
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root = binder.unit().root_scope();
         let mut operations = TestOperations::new(fixture.declared_type);
 
         let block = match binder.bind_block(root, &block, &mut operations) {
@@ -451,9 +453,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
-        let root = binder.unit().root_scope();
 
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root = binder.unit().root_scope();
         let mut operations = TestOperations::new(fixture.declared_type);
 
         let block = match binder.bind_block(root, &block, &mut operations) {

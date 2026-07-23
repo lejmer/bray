@@ -10,6 +10,13 @@ pub enum SelectionCandidateKey {
     BuiltIn,
     /// A source, imported, or compiler-known declaration candidate.
     Symbol(SymbolKey),
+    /// One exact iterable and iterator implementation pair.
+    Iteration {
+        /// The iterable implementation key.
+        iterable: SymbolKey,
+        /// The iterator implementation key.
+        iterator: SymbolKey,
+    },
     /// One local or source-correlated callable value.
     Value(DeclaredValueTypeTerm),
 }

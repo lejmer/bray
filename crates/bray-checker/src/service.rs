@@ -1,14 +1,14 @@
 use crate::analysis::check_control_flow;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
-use crate::selection::{select_callable, select_operation};
+use crate::selection::{select_callable, select_iteration_source, select_operation};
 use crate::target::check_target_validity;
 use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
     CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionCandidateSet,
-    ExpressionTypeInput, NestedCallableEvidence, OperationSelectionRequest, TargetValidity,
-    TargetValidityRequest,
+    ExpressionTypeInput, IterationSourceSelectionRequest, NestedCallableEvidence,
+    OperationSelectionRequest, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
     CheckedExpressionTypes, DeclaredValueTypeTemplates, SelectedCall, SelectedOperation,
@@ -137,6 +137,15 @@ where
         input: OperationSelectionRequest,
     ) -> CheckerOutcome<CandidateSelection<SelectedOperation>> {
         select_operation(request, types, input)
+    }
+
+    /// Selects one exact iterable and iterator protocol pair.
+    fn select_iteration_source(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        input: &IterationSourceSelectionRequest,
+    ) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedIterationSource>> {
+        select_iteration_source(request, input)
     }
 }
 

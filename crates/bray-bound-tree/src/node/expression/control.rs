@@ -3,7 +3,10 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_symbols::TypeId;
 
-use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId};
+use crate::{
+    BoundBlockId, BoundExpressionId, BoundIterationSource, BoundNodeOrigin, BoundPatternId,
+    IterationSourceMode,
+};
 
 /// One exact match-arm relationship.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,6 +129,7 @@ impl BoundMatchExpression {
 pub struct BoundForExpression {
     origin: BoundNodeOrigin,
     source: BoundExpressionId,
+    source_mode: IterationSourceMode,
     pattern: BoundPatternId,
     body: BoundBlockId,
     else_body: Option<BoundBlockId>,
@@ -138,7 +142,7 @@ impl BoundForExpression {
     /// Creates a for expression.
     pub fn new(
         origin: BoundNodeOrigin,
-        source: BoundExpressionId,
+        source: BoundIterationSource,
         pattern: BoundPatternId,
         body: BoundBlockId,
         else_body: Option<BoundBlockId>,
@@ -147,7 +151,8 @@ impl BoundForExpression {
     ) -> Self {
         Self {
             origin,
-            source,
+            source: source.expression(),
+            source_mode: source.mode(),
             pattern,
             body,
             else_body,
@@ -165,6 +170,11 @@ impl BoundForExpression {
     /// Returns the iteration source.
     pub const fn source(&self) -> BoundExpressionId {
         self.source
+    }
+
+    /// Returns how this expression accesses its iteration source.
+    pub const fn source_mode(&self) -> IterationSourceMode {
+        self.source_mode
     }
 
     /// Returns the iteration pattern.

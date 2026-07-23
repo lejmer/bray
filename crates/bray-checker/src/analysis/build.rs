@@ -941,7 +941,10 @@ mod tests {
 
         let for_expression = BoundExpression::For(BoundForExpression::new(
             origin,
-            source,
+            bray_bound_tree::BoundIterationSource::new(
+                source,
+                bray_bound_tree::IterationSourceMode::Shared,
+            ),
             iteration_pattern,
             for_body,
             Some(for_else),

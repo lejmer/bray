@@ -305,6 +305,14 @@ where
         self.members.is_empty()
     }
 
+    /// Returns one exact member's ordinary name when it belongs to this index.
+    pub fn name(&self, id: I) -> Option<&SymbolName> {
+        self.members
+            .iter()
+            .find(|member| member.id() == id)
+            .map(MemberEntry::name)
+    }
+
     /// Resolves an ordinary name with every candidate considered accessible.
     pub fn lookup(&self, name: &str) -> MemberLookupResult<I> {
         self.lookup_with_access(name, |_, _| true)

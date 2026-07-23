@@ -28,6 +28,7 @@ impl ExpressionBinder {
             let expression = self.bind_expression(binder, scope, Some(&field.expression()))?;
             let token = field.identifier_token();
             let name = symbol_name(field.source(), &token);
+
             let is_recovered = field.is_recovered()
                 || name.is_none()
                 || binder.expression_is_recovered(expression);

@@ -42,15 +42,15 @@ pub use node::{
     BoundConversionExpression, BoundErrorCallExpression, BoundErrorCallableBody,
     BoundErrorConversionExpression, BoundErrorExpression, BoundExpression, BoundExpressionId,
     BoundForExpression, BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
-    BoundGenericArgument, BoundLeadingDotVariantExpression, BoundLiteralExpression,
-    BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm, BoundMatchExpression,
-    BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundNodeKind,
-    BoundOperator, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
+    BoundGenericArgument, BoundIterationSource, BoundLeadingDotVariantExpression,
+    BoundLiteralExpression, BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm,
+    BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
+    BoundNodeKind, BoundOperator, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
     BoundPatternTarget, BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds,
     BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
     BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundTypeReference,
     BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
-    ExactBoundNodeId,
+    ExactBoundNodeId, IterationSourceMode,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
@@ -59,7 +59,8 @@ pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
     ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
     SelectedArgument, SelectedCall, SelectedConstruction, SelectedConstructionInput,
-    SelectedConversion, SelectedImplementationWitness, SelectedOperation, SelectionKind,
+    SelectedConversion, SelectedImplementationWitness, SelectedIterationProtocolOperation,
+    SelectedIterationSource, SelectedIterationTypes, SelectedOperation, SelectionKind,
     SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{

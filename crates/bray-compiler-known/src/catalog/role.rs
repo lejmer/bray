@@ -2,7 +2,9 @@ use std::borrow::Cow;
 #[cfg(any(test, feature = "generation"))]
 use std::collections::BTreeMap;
 
-use crate::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
+use crate::{
+    CompilerKnownIterationRole, CompilerKnownOperationRole, ImplementationHook, RepresentationRole,
+};
 
 #[cfg(any(test, feature = "generation"))]
 use super::operation::CompilerKnownOperationComponents;
@@ -44,6 +46,25 @@ impl CompilerKnownRepresentationBinding {
 pub struct CompilerKnownImplementationBinding {
     pub(super) hook: ImplementationHook,
     pub(super) declaration: CompilerKnownDeclarationId,
+}
+
+/// One exact declaration carrying an iteration protocol role.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CompilerKnownIterationBinding {
+    pub(super) role: CompilerKnownIterationRole,
+    pub(super) declaration: CompilerKnownDeclarationId,
+}
+
+impl CompilerKnownIterationBinding {
+    /// Returns the exact iteration protocol component role.
+    pub const fn role(self) -> CompilerKnownIterationRole {
+        self.role
+    }
+
+    /// Returns the declaration carrying the role.
+    pub const fn declaration(self) -> CompilerKnownDeclarationId {
+        self.declaration
+    }
 }
 
 /// One validated expression operation contract in catalog identity space.
@@ -100,6 +121,7 @@ impl CompilerKnownImplementationBinding {
 pub struct CompilerKnownCatalogRoleRegistry {
     pub(super) representations: Cow<'static, [CompilerKnownRepresentationBinding]>,
     pub(super) implementations: Cow<'static, [CompilerKnownImplementationBinding]>,
+    pub(super) iterations: Cow<'static, [CompilerKnownIterationBinding]>,
     pub(super) operations: Cow<'static, [CompilerKnownOperationBinding]>,
 }
 
@@ -108,6 +130,9 @@ impl CompilerKnownCatalogRoleRegistry {
     pub(super) fn from_descriptors(
         declarations: &[CompilerKnownDeclarationDescriptor],
         values: &[CompilerKnownValueDescriptor],
+        iteration_declarations: impl IntoIterator<
+            Item = (CompilerKnownIterationRole, CompilerKnownDeclarationId),
+        >,
         operation_declarations: impl IntoIterator<
             Item = (
                 CompilerKnownOperationRole,
@@ -148,6 +173,13 @@ impl CompilerKnownCatalogRoleRegistry {
 
         implementations.sort_unstable();
 
+        let mut iterations = iteration_declarations
+            .into_iter()
+            .map(|(role, declaration)| CompilerKnownIterationBinding { role, declaration })
+            .collect::<Vec<_>>();
+
+        iterations.sort_unstable_by_key(|binding| binding.role);
+
         let mut operation_components = BTreeMap::new();
 
         for (role, declaration, kind) in operation_declarations {
@@ -185,6 +217,7 @@ impl CompilerKnownCatalogRoleRegistry {
         Self {
             representations: representations.into(),
             implementations: implementations.into(),
+            iterations: iterations.into(),
             operations: operations.into(),
         }
     }
@@ -197,6 +230,23 @@ impl CompilerKnownCatalogRoleRegistry {
     /// Returns implementation bindings in stable hook and declaration order.
     pub fn implementations(&self) -> &[CompilerKnownImplementationBinding] {
         &self.implementations
+    }
+
+    /// Returns iteration protocol components in stable role order.
+    pub fn iterations(&self) -> &[CompilerKnownIterationBinding] {
+        &self.iterations
+    }
+
+    /// Resolves the exact declaration carrying one iteration protocol role.
+    pub fn iteration_declaration(
+        &self,
+        role: CompilerKnownIterationRole,
+    ) -> Option<CompilerKnownDeclarationId> {
+        self.iterations
+            .binary_search_by_key(&role, |binding| binding.role)
+            .ok()
+            .and_then(|index| self.iterations.get(index))
+            .map(|binding| binding.declaration)
     }
 
     /// Returns expression operation contracts in stable role order.
@@ -251,8 +301,8 @@ impl CompilerKnownCatalogRoleRegistry {
 mod tests {
     use crate::{
         COMPILER_KNOWN_CATALOG, CatalogDeclarationKind, CompilerKnownDeclarationId,
-        CompilerKnownOperationRole, ImplementationHook, RepresentationRole,
-        catalog::CompilerKnownRepresentationTarget,
+        CompilerKnownIterationRole, CompilerKnownOperationRole, ImplementationHook,
+        RepresentationRole, catalog::CompilerKnownRepresentationTarget,
     };
 
     #[test]
@@ -446,6 +496,40 @@ mod tests {
     }
 
     #[test]
+    fn generated_iteration_roles_resolve_every_protocol_component() {
+        let roles = COMPILER_KNOWN_CATALOG.role_registry();
+
+        let expected = [
+            (CompilerKnownIterationRole::IterableTrait, "Iterable"),
+            (
+                CompilerKnownIterationRole::IterableElement,
+                "IterableElement",
+            ),
+            (CompilerKnownIterationRole::IterableCursor, "IterableCursor"),
+            (
+                CompilerKnownIterationRole::IterableIterate,
+                "IterableIterate",
+            ),
+            (CompilerKnownIterationRole::IteratorTrait, "Iterator"),
+            (
+                CompilerKnownIterationRole::IteratorElement,
+                "IteratorElement",
+            ),
+            (CompilerKnownIterationRole::IteratorNext, "IteratorNext"),
+        ];
+
+        assert_eq!(roles.iterations().len(), expected.len());
+
+        for (role, expected_key) in expected {
+            let Some(declaration) = roles.iteration_declaration(role) else {
+                panic!("{role:?} must resolve to a declaration");
+            };
+
+            assert_eq!(declaration_key(declaration), expected_key);
+        }
+    }
+
+    #[test]
     fn operation_contract_order_is_independent_of_component_input_order() {
         let components = [
             (
@@ -481,11 +565,12 @@ mod tests {
         ];
 
         let forward =
-            super::CompilerKnownCatalogRoleRegistry::from_descriptors(&[], &[], components);
+            super::CompilerKnownCatalogRoleRegistry::from_descriptors(&[], &[], [], components);
 
         let reversed = super::CompilerKnownCatalogRoleRegistry::from_descriptors(
             &[],
             &[],
+            [],
             components.into_iter().rev(),
         );
 

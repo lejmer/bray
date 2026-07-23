@@ -90,7 +90,7 @@ pub fn resolve_type_expression_template(
                 substitution,
             }
         }
-        TypeExpressionTemplate::AssociatedTypeProjection {
+        TypeExpressionTemplate::TypeValuedMemberProjection {
             subject,
             application,
             member,
@@ -105,7 +105,7 @@ pub fn resolve_type_expression_template(
                 return Ok(None);
             };
 
-            TypeData::AssociatedTypeProjection {
+            TypeData::TypeValuedMemberProjection {
                 subject,
                 application,
                 member: *member,

@@ -44,6 +44,7 @@ pub(super) enum ParsedDeclarationField {
     Availability(Anchored<Arc<str>>),
     Representation(Anchored<Arc<str>>),
     Implementation(Anchored<Arc<str>>),
+    Iteration(Anchored<Arc<str>>),
     Operation(Anchored<Arc<str>>),
     Surface(Anchored<CatalogDeclarationSurface>),
 }

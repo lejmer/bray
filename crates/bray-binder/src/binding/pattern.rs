@@ -128,6 +128,7 @@ macro_rules! define_pattern_binder {
 
             let binding_token = syntax.simple_binding_token();
             let target = self.bind_pattern_target(state.context, syntax, state.mode)?;
+
             let is_binding = binding_token.is_some()
                 && target.is_none()
                 && state.mode != PatternBindingMode::Assignment;
@@ -146,6 +147,7 @@ macro_rules! define_pattern_binder {
             introduced.extend(direct_bindings.iter().copied());
 
             let mut unique = BTreeSet::new();
+
             introduced.retain(|binding| unique.insert(*binding));
 
             let pattern = BoundPattern::new(
@@ -368,6 +370,7 @@ where
 
     fn report_incoherent_alternative_pattern(&mut self, syntax: &impl SourceSyntaxNode) {
         let span = bray_source::SourceSpan::new(syntax.source().source_id(), syntax.full_range());
+
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(syntax.full_range().start().bytes()),
             DiagnosticKind::BindingIncoherentAlternativePattern,
@@ -663,6 +666,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
+
         let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(pattern) =
@@ -808,6 +812,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
+
         let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(pattern) =
@@ -863,6 +868,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
+
         let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(pattern) =

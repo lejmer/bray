@@ -169,8 +169,8 @@ where
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     let mut binder = Binder::new(facts, context, builder);
-
     let scope = binder.unit().root_scope();
+
     let path = match symbols.containing_module(owner) {
         Some(module) => {
             PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Internal)

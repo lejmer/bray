@@ -22,7 +22,7 @@ pub(super) fn validate_type_data(
         TypeData::Named { substitution, .. } => {
             tables.substitutions.get(store, *substitution)?;
         }
-        TypeData::AssociatedTypeProjection {
+        TypeData::TypeValuedMemberProjection {
             subject,
             application,
             ..
@@ -313,7 +313,7 @@ pub(super) fn validate_concrete_substitution(
                     TypeData::Error
                     | TypeData::TypeParameter(_)
                     | TypeData::ContextualSelf(_)
-                    | TypeData::AssociatedTypeProjection { .. } => {
+                    | TypeData::TypeValuedMemberProjection { .. } => {
                         return Err(SemanticValueStoreError::OpenSubstitution);
                     }
                     TypeData::Named { substitution, .. } => {

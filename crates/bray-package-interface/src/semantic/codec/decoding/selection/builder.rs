@@ -548,7 +548,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
             InterfaceType::Named { substitution, .. } => {
                 self.enqueue(PendingRecord::Substitution(substitution.raw()));
             }
-            InterfaceType::AssociatedTypeProjection {
+            InterfaceType::TypeValuedMemberProjection {
                 subject,
                 application,
                 ..

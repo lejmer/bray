@@ -10,6 +10,7 @@ mod catalog;
 #[cfg(any(test, feature = "generation"))]
 mod catalog_digest;
 mod implementation;
+mod iteration;
 mod operation;
 mod representation;
 
@@ -24,14 +25,15 @@ pub use catalog::{
     CatalogSurfaceToken, CatalogTokenSpelling, CatalogTypeSurface, CatalogTypeSurfaceSyntax,
     CompilerKnownCatalog, CompilerKnownCatalogRoleRegistry, CompilerKnownDeclarationDescriptor,
     CompilerKnownDeclarationId, CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner,
-    CompilerKnownImplementationBinding, CompilerKnownOperationBinding,
-    CompilerKnownRepresentationBinding, CompilerKnownRepresentationTarget,
-    CompilerKnownScopeDescriptor, CompilerKnownScopeId, CompilerKnownScopeKey,
-    CompilerKnownValueDescriptor, CompilerKnownValueId, CompilerKnownValueKey,
-    RecognizedStandardLibraryDeclarationDescriptor, RecognizedStandardLibraryDeclarationId,
-    RecognizedStandardLibraryDeclarationIdentity, RecognizedStandardLibraryDeclarationKey,
-    RecognizedStandardLibraryDeclarationOwner, RecognizedStandardLibraryScopeDescriptor,
-    RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey,
+    CompilerKnownImplementationBinding, CompilerKnownIterationBinding,
+    CompilerKnownOperationBinding, CompilerKnownRepresentationBinding,
+    CompilerKnownRepresentationTarget, CompilerKnownScopeDescriptor, CompilerKnownScopeId,
+    CompilerKnownScopeKey, CompilerKnownValueDescriptor, CompilerKnownValueId,
+    CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
+    RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationIdentity,
+    RecognizedStandardLibraryDeclarationKey, RecognizedStandardLibraryDeclarationOwner,
+    RecognizedStandardLibraryScopeDescriptor, RecognizedStandardLibraryScopeId,
+    RecognizedStandardLibraryScopeKey,
 };
 #[cfg(any(test, feature = "generation"))]
 pub use catalog::{
@@ -43,5 +45,6 @@ pub use catalog::{
 #[cfg(feature = "generation")]
 pub use catalog::{CatalogGenerationError, GeneratedCatalogOutput, generate_catalog_output};
 pub use implementation::ImplementationHook;
+pub use iteration::CompilerKnownIterationRole;
 pub use operation::CompilerKnownOperationRole;
 pub use representation::{IntegerRepresentation, NumericRepresentationKind, RepresentationRole};

@@ -7,7 +7,9 @@ mod export;
 mod facts;
 mod implementation;
 mod imported;
+mod iteration;
 mod load;
+mod substitution;
 mod unit;
 
 pub use export::PackageInterfaceExportError;

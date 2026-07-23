@@ -111,7 +111,7 @@ impl InterfaceSemanticFacts {
             InterfaceType::ContextualSelf(context) => {
                 validate_symbol(context, symbol_count, dependency_count)?;
             }
-            InterfaceType::AssociatedTypeProjection {
+            InterfaceType::TypeValuedMemberProjection {
                 subject,
                 application,
                 member,
@@ -487,6 +487,6 @@ fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {
         | InterfaceType::TypeParameter(_)
         | InterfaceType::ContextualSelf(_)
         | InterfaceType::TraitView(_) => Vec::new(),
-        InterfaceType::AssociatedTypeProjection { subject, .. } => vec![*subject],
+        InterfaceType::TypeValuedMemberProjection { subject, .. } => vec![*subject],
     }
 }

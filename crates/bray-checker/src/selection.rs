@@ -6,12 +6,15 @@
 
 mod call;
 mod check;
+mod iteration;
 mod model;
 mod operation;
 mod order;
 
 pub(crate) use call::{map_argument_parameter_indices, viable_candidate_indices};
-pub(crate) use check::{select_callable, select_callable_candidates, select_operation};
+pub(crate) use check::{
+    select_callable, select_callable_candidates, select_iteration_source, select_operation,
+};
 pub(in crate::selection) use model::OperationCandidatePlan;
 pub use model::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
@@ -19,7 +22,8 @@ pub use model::{
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
     CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
-    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateSource,
-    OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
-    SelectionCandidateKey, SelectionFailure,
+    ImplementationSelectionEvidence, IterationSourceCandidate, IterationSourceSelectionRequest,
+    OperationCandidate, OperationCandidateSource, OperationCandidateState,
+    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
+    SelectionFailure,
 };

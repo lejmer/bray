@@ -6,6 +6,7 @@ mod core;
 mod execution;
 mod flow;
 mod generator;
+mod iteration;
 mod literal;
 mod recovery;
 mod selection;
@@ -25,6 +26,7 @@ pub use core::{BoundBlockExpression, BoundErrorExpression, BoundExpression};
 pub use execution::{BoundAwaitExpression, BoundAwaitResolution, BoundFutureComposition};
 pub use flow::{BoundControlTransferExpression, BoundControlTransferKind};
 pub use generator::BoundGeneratorExpression;
+pub use iteration::{BoundIterationSource, IterationSourceMode};
 pub use literal::{BoundLiteralExpression, BoundLiteralKind};
 pub use recovery::{
     BoundErrorCallExpression, BoundErrorConversionExpression, BoundUnresolvedReferenceExpression,

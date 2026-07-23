@@ -123,6 +123,7 @@ const fn format_english_selection_kind(
         DiagnosticSelectionKind::Construction => "construction operation",
         DiagnosticSelectionKind::Conversion => "conversion",
         DiagnosticSelectionKind::Implementation => "implementation",
+        DiagnosticSelectionKind::IterationSource => "iteration source",
     }
 }
 
@@ -159,7 +160,7 @@ fn format_english_type(ty: bray_diagnostics::DiagnosticType) -> String {
         DiagnosticType::Named => "named type".to_owned(),
         DiagnosticType::TypeParameter => "type parameter".to_owned(),
         DiagnosticType::ContextualSelf => "Self".to_owned(),
-        DiagnosticType::AssociatedType => "associated type".to_owned(),
+        DiagnosticType::TypeValuedMember => "type-valued member".to_owned(),
         DiagnosticType::Tuple(1) => "tuple type with 1 element".to_owned(),
         DiagnosticType::Tuple(count) => format!("tuple type with {count} elements"),
         DiagnosticType::Array => "array type".to_owned(),

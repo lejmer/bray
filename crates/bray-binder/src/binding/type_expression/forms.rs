@@ -7,7 +7,7 @@ use super::core::TypeExpressionBinder;
 use crate::{BinderFactError, BinderFactResult};
 
 impl TypeExpressionBinder<'_> {
-    pub(super) fn bind_associated_type_projection(
+    pub(super) fn bind_type_valued_member_projection(
         &mut self,
         syntax: &TypeExpressionSyntax,
     ) -> BinderFactResult<TypeExpressionTemplate> {
@@ -44,7 +44,7 @@ impl TypeExpressionBinder<'_> {
             self.resolve_trait_application_template(&application)?,
         ) {
             return self
-                .intern_type(TypeData::AssociatedTypeProjection {
+                .intern_type(TypeData::TypeValuedMemberProjection {
                     subject,
                     application,
                     member,
@@ -52,7 +52,7 @@ impl TypeExpressionBinder<'_> {
                 .map(TypeExpressionTemplate::Resolved);
         }
 
-        Ok(TypeExpressionTemplate::AssociatedTypeProjection {
+        Ok(TypeExpressionTemplate::TypeValuedMemberProjection {
             subject: Arc::new(subject),
             application,
             member,

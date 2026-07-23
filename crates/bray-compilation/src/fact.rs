@@ -20,7 +20,8 @@ pub(crate) use cache::FactCell;
 pub(crate) use cache::{FactCellTestEvent, FactCellTestObserver};
 pub(crate) use cell_map::FactCellMap;
 pub(crate) use key::{
-    CompilationFactKey, ConstantCallFactKey, ConstantInstanceFactKey, SymbolFactKey,
+    CompilationFactKey, ConstantCallFactKey, ConstantInstanceFactKey, IterationSourceFactKey,
+    SymbolFactKey,
 };
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};
 pub(crate) use symbol::SymbolFactCache;

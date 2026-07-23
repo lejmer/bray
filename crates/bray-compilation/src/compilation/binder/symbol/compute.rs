@@ -1238,7 +1238,7 @@ struct Values<const count: usize>
     }
 
     #[test]
-    fn source_associated_type_projection_retains_subject_trait_and_member_identity() {
+    fn source_type_valued_member_projection_retains_subject_trait_and_member_identity() {
         let compilation = compilation(
             r#"module app;
 
@@ -1282,13 +1282,13 @@ impl Subject(Provides)
 
         let projection = type_data(&compilation, result.value());
 
-        let TypeData::AssociatedTypeProjection {
+        let TypeData::TypeValuedMemberProjection {
             subject,
             application,
             member,
         } = projection.as_ref()
         else {
-            panic!("qualified associated type must retain projection identity");
+            panic!("qualified type-valued member must retain projection identity");
         };
 
         assert!(matches!(

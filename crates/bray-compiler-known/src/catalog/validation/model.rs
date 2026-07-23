@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{AvailabilityRule, CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
+use crate::{
+    AvailabilityRule, CompilerKnownIterationRole, CompilerKnownOperationRole, ImplementationHook,
+    RepresentationRole,
+};
 
 use super::super::{
     CatalogDeclarationKind, CatalogDeclarationSurface, CatalogKind, CatalogScopeLocation,
@@ -33,6 +36,7 @@ pub(crate) struct ValidatedDeclaration {
     pub(crate) surface: CatalogDeclarationSurface,
     pub(crate) representation_role: Option<RepresentationRole>,
     pub(crate) implementation_hook: Option<ImplementationHook>,
+    pub(crate) iteration_role: Option<CompilerKnownIterationRole>,
     pub(crate) operation_role: Option<CompilerKnownOperationRole>,
     pub(crate) availability_rule: AvailabilityRule,
     pub(crate) anchor: CatalogSourceAnchor,
@@ -75,6 +79,7 @@ pub(super) struct RawDeclaration {
     pub(super) surface: CatalogDeclarationSurface,
     pub(super) representation_role: Option<RepresentationRole>,
     pub(super) implementation_hook: Option<ImplementationHook>,
+    pub(super) iteration_role: Option<CompilerKnownIterationRole>,
     pub(super) operation_role: Option<CompilerKnownOperationRole>,
     pub(super) availability_rule: AvailabilityRule,
     pub(super) anchor: CatalogSourceAnchor,

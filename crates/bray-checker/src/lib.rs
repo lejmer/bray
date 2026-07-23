@@ -38,9 +38,10 @@ pub use selection::{
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
     CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
-    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateSource,
-    OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
-    SelectionCandidateKey, SelectionFailure,
+    ImplementationSelectionEvidence, IterationSourceCandidate, IterationSourceSelectionRequest,
+    OperationCandidate, OperationCandidateSource, OperationCandidateState,
+    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
+    SelectionFailure,
 };
 pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,

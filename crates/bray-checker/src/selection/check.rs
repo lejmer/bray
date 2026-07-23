@@ -7,8 +7,8 @@ use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::{
-    CallableCandidate, CallableSelectionRequest, CandidateSelection, OperationSelectionRequest,
-    SelectionFailure,
+    CallableCandidate, CallableSelectionRequest, CandidateSelection,
+    IterationSourceSelectionRequest, OperationSelectionRequest, SelectionFailure,
 };
 
 pub(crate) fn select_callable<C>(
@@ -51,7 +51,12 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     match result {
-        Ok(Some(selection)) => complete(request, expression, SelectionKind::Callable, selection),
+        Ok(Some(selection)) => complete(
+            request,
+            expression,
+            DiagnosticSelectionKind::Callable,
+            selection,
+        ),
         Ok(None) => CheckerOutcome::Cancelled,
         Err(error) => CheckerOutcome::InfrastructureFailure(error),
     }
@@ -69,8 +74,31 @@ where
     let kind = input.kind();
 
     match super::operation::select(request, types, input) {
-        Ok(Some(selection)) => complete(request, expression, kind, selection),
+        Ok(Some(selection)) => complete(
+            request,
+            expression,
+            diagnostic_selection_kind(kind),
+            selection,
+        ),
         Ok(None) => CheckerOutcome::Cancelled,
+        Err(error) => CheckerOutcome::InfrastructureFailure(error),
+    }
+}
+
+pub(crate) fn select_iteration_source<C>(
+    request: CheckerUnitView<'_, C>,
+    input: &IterationSourceSelectionRequest,
+) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedIterationSource>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match super::iteration::select(input) {
+        Ok(selection) => complete(
+            request,
+            input.expression(),
+            DiagnosticSelectionKind::IterationSource,
+            selection,
+        ),
         Err(error) => CheckerOutcome::InfrastructureFailure(error),
     }
 }
@@ -78,7 +106,7 @@ where
 fn complete<C, T>(
     request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
-    kind: SelectionKind,
+    kind: DiagnosticSelectionKind,
     selection: CandidateSelection<T>,
 ) -> CheckerOutcome<CandidateSelection<T>>
 where
@@ -105,9 +133,7 @@ where
 
     let diagnostic = Diagnostic::new(diagnostic_id(0), diagnostic_kind, SeverityKind::Error)
         .with_primary_span(span)
-        .with_arg(DiagnosticArg::selection_kind(diagnostic_selection_kind(
-            kind,
-        )));
+        .with_arg(DiagnosticArg::selection_kind(kind));
 
     CheckerOutcome::complete(selection, DiagnosticBag::single(diagnostic))
 }

@@ -1,5 +1,6 @@
 use bray_compiler_known::{
-    CatalogDeclarationKind, CompilerKnownDeclarationId, CompilerKnownScopeId,
+    CatalogDeclarationKind, CompilerKnownDeclarationId, CompilerKnownIterationRole,
+    CompilerKnownScopeId,
 };
 
 use crate::SymbolKind;
@@ -62,6 +63,16 @@ pub enum CompilerKnownSymbolBuildError {
     InvalidOperationRoleSymbol {
         /// The declaration selected by the operation role.
         declaration: CompilerKnownDeclarationId,
+    },
+    /// An iteration role declaration materialized with an incompatible symbol category.
+    InvalidIterationRoleSymbol {
+        /// The declaration selected by the iteration role.
+        declaration: CompilerKnownDeclarationId,
+    },
+    /// A partial iteration protocol omitted one required role.
+    MissingIterationRole {
+        /// The absent component role.
+        role: CompilerKnownIterationRole,
     },
     /// Compiler-known declaration ownership contains a cycle.
     DeclarationOwnerCycle {
@@ -130,6 +141,16 @@ impl std::fmt::Display for CompilerKnownSymbolBuildError {
                 formatter,
                 "compiler-known operation role refers to incompatible declaration {declaration:?}"
             ),
+            Self::InvalidIterationRoleSymbol { declaration } => write!(
+                formatter,
+                "compiler-known iteration role refers to incompatible declaration {declaration:?}"
+            ),
+            Self::MissingIterationRole { role } => {
+                write!(
+                    formatter,
+                    "compiler-known iteration role {role:?} is missing"
+                )
+            }
             Self::DeclarationOwnerCycle { declaration } => write!(
                 formatter,
                 "compiler-known declaration ownership cycles through {declaration:?}"

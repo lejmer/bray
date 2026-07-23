@@ -47,6 +47,13 @@ pub(super) fn build_member_indexes(
 }
 
 impl CompilerKnownSymbolProvider {
+    /// Returns one compiler-known member's ordinary name.
+    pub fn member_name(&self, owner: AnySymbolId, member: AnySymbolId) -> Option<&SymbolName> {
+        self.member_indexes
+            .get(&owner)
+            .and_then(|index| index.name(member))
+    }
+
     /// Resolves one compiler-known ordinary member through caller-provided visibility policy.
     pub fn lookup_member_with_access(
         &self,

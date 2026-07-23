@@ -102,7 +102,7 @@ must not publish body postconditions.
 An ordinary function returning `Future<T>` binds as an ordinary call and cannot construct a frame. Only invocation of a callable whose
 callable contract is async creates an async frame operation.
 
-Member lookup for `.start()`, `.join()`, and `.cancel()` uses the ordinary associated type surface and receiver-mode rules. The
+Member lookup for `.start()`, `.join()`, and `.cancel()` uses the ordinary type-associated member surface and receiver-mode rules. The
 selected compiler-provided identity determines the later intrinsic semantic operation; parser shape and method spelling do not.
 
 ---

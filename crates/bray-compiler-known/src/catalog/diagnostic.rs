@@ -4,7 +4,9 @@ use bray_diagnostics::DiagnosticKind;
 use bray_syntax::SyntaxKind;
 
 use super::{CatalogDeclarationKind, CatalogKind, CatalogSourceAnchor};
-use crate::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
+use crate::{
+    CompilerKnownIterationRole, CompilerKnownOperationRole, ImplementationHook, RepresentationRole,
+};
 
 /// Catalog entry category used by structural diagnostics.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -28,6 +30,8 @@ pub enum CatalogField {
     Representation,
     /// A compiler implementation hook.
     Implementation,
+    /// A compiler-known iteration protocol component.
+    Iteration,
     /// A compiler-known expression operation role.
     Operation,
     /// An embedded Bray declaration surface.
@@ -47,6 +51,8 @@ pub enum CatalogMetadataKind {
     Representation,
     /// Compiler implementation metadata.
     Implementation,
+    /// Iteration protocol component metadata.
+    Iteration,
     /// Expression operation contract metadata.
     Operation,
 }
@@ -200,6 +206,19 @@ pub enum CatalogDiagnosticKind {
         hook: ImplementationHook,
         declaration: CatalogDeclarationKind,
     },
+    /// An iteration role was assigned to an incompatible declaration category.
+    IncompatibleIterationRole {
+        role: CompilerKnownIterationRole,
+        declaration: CatalogDeclarationKind,
+    },
+    /// An iteration role was assigned more than once.
+    DuplicateIterationRole { role: CompilerKnownIterationRole },
+    /// A required iteration protocol component is absent.
+    IncompleteIterationProtocol,
+    /// An iteration member is not owned by its compiler-known trait.
+    InvalidIterationComponentOwner { role: CompilerKnownIterationRole },
+    /// A recognized catalog entry attempted to define an iteration protocol role.
+    RecognizedIterationRole,
     /// An operation role was assigned to an incompatible declaration category.
     IncompatibleOperationRole {
         role: CompilerKnownOperationRole,

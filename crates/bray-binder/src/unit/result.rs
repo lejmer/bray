@@ -90,7 +90,6 @@ mod tests {
         region: LocalSymbolRegionId,
     ) -> super::BoundUnitConstructionResult {
         let mut builder = builder(fixture, region);
-
         let root = builder.root_scope();
 
         let block = push_scope(
