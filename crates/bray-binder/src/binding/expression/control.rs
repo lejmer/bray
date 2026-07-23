@@ -1,11 +1,13 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundForExpression, BoundMatchArm, BoundMatchExpression,
+    BoundExpression, BoundExpressionId, BoundForExpression, BoundIterationSource, BoundMatchArm,
+    BoundMatchExpression,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId};
 use bray_syntax::{ForExpressionSyntax, MatchExpressionSyntax};
 
 use super::ExpressionBinder;
+use super::support::iteration_source_mode;
 use crate::BinderFactContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::binding::BindingResult;
@@ -22,6 +24,8 @@ impl ExpressionBinder {
     {
         let iteration =
             self.bind_expression(binder, scope, Some(&syntax.iteration_source().expression()))?;
+
+        let source_mode = iteration_source_mode(&syntax.iteration_source());
 
         let pattern_syntax = syntax.irrefutable_pattern();
         let pattern_scope = binder.unit_mut().push_scope(
@@ -88,7 +92,7 @@ impl ExpressionBinder {
 
         let expression = BoundForExpression::new(
             binder.source_origin(syntax),
-            iteration,
+            BoundIterationSource::new(iteration, source_mode),
             pattern_id,
             body,
             else_body,

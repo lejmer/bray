@@ -34,6 +34,7 @@ const ORDINAL_WORD: &str = "ordinal";
 const AVAILABILITY_WORD: &str = "availability";
 const REPRESENTATION_WORD: &str = "representation";
 const IMPLEMENTATION_WORD: &str = "implementation";
+const ITERATION_WORD: &str = "iteration";
 const OPERATION_WORD: &str = "operation";
 const SURFACE_WORD: &str = "surface";
 const SPELLING_WORD: &str = "spelling";
@@ -246,6 +247,9 @@ impl CatalogParser {
             IMPLEMENTATION_WORD => self
                 .parse_identifier_field(IMPLEMENTATION_WORD)
                 .map(ParsedDeclarationField::Implementation),
+            ITERATION_WORD => self
+                .parse_identifier_field(ITERATION_WORD)
+                .map(ParsedDeclarationField::Iteration),
             OPERATION_WORD => self
                 .parse_identifier_field(OPERATION_WORD)
                 .map(ParsedDeclarationField::Operation),

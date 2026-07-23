@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedIterationSource,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_declarations::{
@@ -93,6 +93,10 @@ pub(super) struct CompilationState {
     pub(super) implementation_candidate_sets: FactCellMap<
         ImplementationRequirementKey,
         Arc<DiagnosticResult<ImplementationCandidateSet>>,
+    >,
+    pub(super) iteration_sources: FactCellMap<
+        crate::fact::IterationSourceFactKey,
+        Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
     >,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) symbol_facts: CompilationSymbolFacts,
@@ -201,6 +205,7 @@ impl Compilation {
                 implementation_participation: FactCellMap::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),
+                iteration_sources: FactCellMap::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),

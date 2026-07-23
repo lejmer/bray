@@ -1,12 +1,26 @@
 use bray_bound_tree::{
     BoundMemberSelector, BoundOperator, BoundReferenceTarget, BoundStructuredExpressionKind,
-    BoundUnresolvedReferenceKind,
+    BoundUnresolvedReferenceKind, IterationSourceMode,
 };
 use bray_symbols::MemberLookupResult;
 use bray_syntax::{SourceSyntaxNode, SyntaxKind};
 
 use crate::binding::name::symbol_name;
 use crate::lookup::ResolvedName;
+
+pub(super) fn iteration_source_mode(
+    syntax: &bray_syntax::IterationSourceSyntax,
+) -> IterationSourceMode {
+    iteration_source_mode_from_kind(syntax.mode_token().map(|token| token.kind()))
+}
+
+const fn iteration_source_mode_from_kind(kind: Option<SyntaxKind>) -> IterationSourceMode {
+    match kind {
+        Some(SyntaxKind::MutKeyword) => IterationSourceMode::Mutable,
+        Some(SyntaxKind::MoveKeyword) => IterationSourceMode::Move,
+        Some(_) | None => IterationSourceMode::Shared,
+    }
+}
 
 pub(super) fn classify_operator(kind: SyntaxKind) -> Option<BoundOperator> {
     Some(match kind {
@@ -112,5 +126,31 @@ pub(super) fn classify_reference_result(
             BoundUnresolvedReferenceKind::Malformed,
             candidates.into_vec(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::IterationSourceMode;
+    use bray_syntax::SyntaxKind;
+
+    use super::iteration_source_mode_from_kind;
+
+    #[test]
+    fn iteration_source_modes_preserve_shared_mutable_and_move_access() {
+        assert_eq!(
+            iteration_source_mode_from_kind(None),
+            IterationSourceMode::Shared
+        );
+
+        assert_eq!(
+            iteration_source_mode_from_kind(Some(SyntaxKind::MutKeyword)),
+            IterationSourceMode::Mutable
+        );
+
+        assert_eq!(
+            iteration_source_mode_from_kind(Some(SyntaxKind::MoveKeyword)),
+            IterationSourceMode::Move
+        );
     }
 }

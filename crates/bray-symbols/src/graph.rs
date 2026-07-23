@@ -209,6 +209,16 @@ macro_rules! define_symbol_graph {
                 }
             }
 
+            /// Returns one source or compiler-known member's ordinary name.
+            pub fn member_name(&self, member: AnySymbolId) -> Option<&crate::SymbolName> {
+                let owner = self.containing_symbol(member)?;
+
+                self.member_indexes
+                    .get(&owner)
+                    .and_then(|index| index.name(member))
+                    .or_else(|| self.compiler_known.member_name(owner, member))
+            }
+
             /// Returns the semantic identity introduced by a declaration when it creates one.
             pub fn symbol_for_declaration(&self, declaration: DeclarationId) -> Option<AnySymbolId> {
                 self.declaration_index.get(&declaration).copied()

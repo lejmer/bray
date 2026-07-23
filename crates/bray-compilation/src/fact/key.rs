@@ -1,4 +1,4 @@
-use bray_bound_tree::BoundUnitKey;
+use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
@@ -87,6 +87,27 @@ pub(crate) struct ConstantCallFactKey {
     result_type: TypeId,
     target: TargetProfile,
     limits: bray_checker::ConstantEvaluationLimits,
+}
+
+/// The exact compilation-local identity of one iteration source selection.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct IterationSourceFactKey {
+    unit: BoundUnitKey,
+    expression: BoundExpressionId,
+}
+
+impl IterationSourceFactKey {
+    pub(crate) const fn new(unit: BoundUnitKey, expression: BoundExpressionId) -> Self {
+        Self { unit, expression }
+    }
+
+    pub(crate) const fn unit(&self) -> &BoundUnitKey {
+        &self.unit
+    }
+
+    pub(crate) const fn expression(&self) -> BoundExpressionId {
+        self.expression
+    }
 }
 
 /// The semantic call identity used for dependency-cycle detection.
@@ -210,6 +231,8 @@ pub(crate) enum CompilationFactKey {
     ImplementationHeaderIndex,
     /// Uncommitted implementation candidates for one exact requirement.
     ImplementationCandidateSet(ImplementationRequirementKey),
+    /// The exact protocol operations selected for one iteration source occurrence.
+    IterationSource(IterationSourceFactKey),
     /// Decoded and remapped semantic facts for one compiled dependency interface.
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned fact category.
@@ -244,6 +267,7 @@ impl CompilationFactKey {
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::SymbolicConstantTerm(key) => Some(key),
+            Self::IterationSource(key) => Some(key.unit()),
             Self::SelectedTarget
             | Self::TargetValidity(_)
             | Self::CompilerKnownSymbols

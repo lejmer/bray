@@ -8,7 +8,9 @@ use bray_compiler_known::{
 };
 
 use super::role::RepresentationTarget;
-use super::{CompilerKnownOperationContract, CompilerKnownSymbolProvider};
+use super::{
+    CompilerKnownIterationProtocol, CompilerKnownOperationContract, CompilerKnownSymbolProvider,
+};
 use crate::availability::resolve_owned_availability;
 use crate::{AnySymbolId, ExactSymbolId};
 
@@ -194,6 +196,17 @@ impl AvailableCompilerKnownSymbols {
             .symbols()
             .all(|symbol| self.contains(symbol))
             .then_some(contract)
+    }
+
+    /// Resolves the iteration protocol when every component is target-available.
+    pub fn iteration_protocol(&self) -> Option<CompilerKnownIterationProtocol> {
+        let protocol = self.provider.role_registry().iteration_protocol()?;
+
+        protocol
+            .symbols()
+            .into_iter()
+            .all(|symbol| self.contains(symbol))
+            .then_some(protocol)
     }
 
     pub(super) fn representation_target(

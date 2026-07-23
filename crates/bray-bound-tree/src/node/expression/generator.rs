@@ -1,13 +1,17 @@
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::TypeId;
 
-use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId};
+use crate::{
+    BoundBlockId, BoundExpressionId, BoundIterationSource, BoundNodeOrigin, BoundPatternId,
+    IterationSourceMode,
+};
 
 /// One generator iteration with its exact source, pattern, body, and region.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundGeneratorExpression {
     origin: BoundNodeOrigin,
     source: BoundExpressionId,
+    source_mode: IterationSourceMode,
     pattern: BoundPatternId,
     body: BoundBlockId,
     region: SyntaxAnchor,
@@ -19,7 +23,7 @@ impl BoundGeneratorExpression {
     /// Creates one bound generator iteration.
     pub const fn new(
         origin: BoundNodeOrigin,
-        source: BoundExpressionId,
+        source: BoundIterationSource,
         pattern: BoundPatternId,
         body: BoundBlockId,
         region: SyntaxAnchor,
@@ -28,7 +32,8 @@ impl BoundGeneratorExpression {
     ) -> Self {
         Self {
             origin,
-            source,
+            source: source.expression(),
+            source_mode: source.mode(),
             pattern,
             body,
             region,
@@ -45,6 +50,11 @@ impl BoundGeneratorExpression {
     /// Returns the iteration source.
     pub const fn source(self) -> BoundExpressionId {
         self.source
+    }
+
+    /// Returns how this expression accesses its iteration source.
+    pub const fn source_mode(self) -> IterationSourceMode {
+        self.source_mode
     }
 
     /// Returns the iteration pattern.

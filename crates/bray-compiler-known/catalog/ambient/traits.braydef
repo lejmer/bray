@@ -22,4 +22,51 @@ scope Ambient at ambient {
     declaration UnaryCallable {
         surface { callable UnaryCallable<T> = func(value: T) -> T; }
     }
+
+    declaration Iterable {
+        iteration IterableTrait;
+
+        surface { trait Iterable {} }
+    }
+
+    declaration IterableElement {
+        owner Iterable;
+        iteration IterableElement;
+
+        surface { type Element; }
+    }
+
+    declaration IterableCursor {
+        owner Iterable;
+        iteration IterableCursor;
+
+        surface { type Cursor; }
+    }
+
+    declaration IterableIterate {
+        owner Iterable;
+        iteration IterableIterate;
+
+        surface { consume func iterate() -> Cursor; }
+    }
+
+    declaration Iterator {
+        iteration IteratorTrait;
+
+        surface { trait Iterator {} }
+    }
+
+    declaration IteratorElement {
+        owner Iterator;
+        iteration IteratorElement;
+
+        surface { type Element; }
+    }
+
+    declaration IteratorNext {
+        owner Iterator;
+        iteration IteratorNext;
+
+        surface { mut func next() -> Element?; }
+    }
 }

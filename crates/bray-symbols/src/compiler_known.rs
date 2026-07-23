@@ -14,7 +14,9 @@ pub use availability::AvailableCompilerKnownSymbols;
 pub use error::CompilerKnownSymbolBuildError;
 pub use fact::{CompilerKnownDeclarationFact, CompilerKnownSymbolFactKey};
 pub use provider::{CompilerKnownScopeSymbolId, CompilerKnownSymbolProvider};
-pub use role::{CompilerKnownOperationContract, CompilerKnownSymbolRoleRegistry};
+pub use role::{
+    CompilerKnownIterationProtocol, CompilerKnownOperationContract, CompilerKnownSymbolRoleRegistry,
+};
 
 #[cfg(test)]
 mod test_support;

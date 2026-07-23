@@ -690,6 +690,8 @@ pub enum DiagnosticSelectionKind {
     Conversion,
     /// A trait implementation witness.
     Implementation,
+    /// An iterable and iterator protocol pair for one source expression.
+    IterationSource,
 }
 
 impl DiagnosticSelectionKind {
@@ -703,6 +705,7 @@ impl DiagnosticSelectionKind {
             Self::Construction => "construction",
             Self::Conversion => "conversion",
             Self::Implementation => "implementation",
+            Self::IterationSource => "iteration_source",
         }
     }
 }

@@ -301,6 +301,7 @@ mod tests {
             &declarations,
             &[],
             std::iter::empty(),
+            std::iter::empty(),
         );
 
         CompilerKnownCatalog {

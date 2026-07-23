@@ -82,7 +82,9 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             .ok_or(BinderFactError::DependencyUnavailable)
     }
 
-    pub(super) fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+    pub(in crate::compilation) fn imported_symbols(
+        &self,
+    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
         let result = self
             .compilation
             .imported_symbol_skeleton_result_with_cancellation(self.cancellation)

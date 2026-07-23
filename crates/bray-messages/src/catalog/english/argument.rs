@@ -123,6 +123,7 @@ const fn format_english_selection_kind(
         DiagnosticSelectionKind::Construction => "construction operation",
         DiagnosticSelectionKind::Conversion => "conversion",
         DiagnosticSelectionKind::Implementation => "implementation",
+        DiagnosticSelectionKind::IterationSource => "iteration source",
     }
 }
 

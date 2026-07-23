@@ -1,4 +1,5 @@
 mod call;
+mod iteration;
 mod operation;
 mod result;
 mod template;
@@ -7,6 +8,7 @@ pub use call::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest,
     ImplementationSelectionEvidence, ReceiverCapability, ReceiverSelection,
 };
+pub use iteration::{IterationSourceCandidate, IterationSourceSelectionRequest};
 pub(in crate::selection) use operation::OperationCandidatePlan;
 pub use operation::{
     CompilerKnownOperationEvidence, ConstructionInputSurface, OperationCandidate,

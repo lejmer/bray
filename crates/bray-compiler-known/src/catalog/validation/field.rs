@@ -15,6 +15,7 @@ pub(super) struct DeclarationFields<'entry> {
     pub(super) availability: Option<&'entry Anchored<Arc<str>>>,
     pub(super) representation: Option<&'entry Anchored<Arc<str>>>,
     pub(super) implementation: Option<&'entry Anchored<Arc<str>>>,
+    pub(super) iteration: Option<&'entry Anchored<Arc<str>>>,
     pub(super) operation: Option<&'entry Anchored<Arc<str>>>,
     pub(super) surface: Option<&'entry Anchored<CatalogDeclarationSurface>>,
 }
@@ -36,6 +37,7 @@ pub(super) fn declaration_fields<'entry>(
         availability: None,
         representation: None,
         implementation: None,
+        iteration: None,
         operation: None,
         surface: None,
     };
@@ -67,6 +69,12 @@ pub(super) fn declaration_fields<'entry>(
                 &mut result.implementation,
                 value,
                 CatalogField::Implementation,
+                diagnostics,
+            ),
+            ParsedDeclarationField::Iteration(value) => set_once(
+                &mut result.iteration,
+                value,
+                CatalogField::Iteration,
                 diagnostics,
             ),
             ParsedDeclarationField::Operation(value) => set_once(

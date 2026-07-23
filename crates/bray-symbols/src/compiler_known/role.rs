@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use bray_compiler_known::{
-    CompilerKnownCatalog, CompilerKnownDeclarationId, CompilerKnownOperationRole,
-    CompilerKnownRepresentationTarget, CompilerKnownValueId, ImplementationHook,
-    RepresentationRole,
+    CompilerKnownCatalog, CompilerKnownDeclarationId, CompilerKnownIterationRole,
+    CompilerKnownOperationRole, CompilerKnownRepresentationTarget, CompilerKnownValueId,
+    ImplementationHook, RepresentationRole,
 };
 
 use super::CompilerKnownSymbolBuildError;
@@ -26,6 +26,67 @@ pub struct CompilerKnownOperationContract {
     result_type_member: Option<TraitTypeMemberSymbolId>,
     fixed_callable_result_type: Option<NamedTypeSymbolId>,
     callable: Option<TraitCallableMemberSymbolId>,
+}
+
+/// Exact compilation-local symbols defining language iteration.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CompilerKnownIterationProtocol {
+    iterable_trait: TraitSymbolId,
+    iterable_element: TraitTypeMemberSymbolId,
+    iterable_cursor: TraitTypeMemberSymbolId,
+    iterable_iterate: TraitCallableMemberSymbolId,
+    iterator_trait: TraitSymbolId,
+    iterator_element: TraitTypeMemberSymbolId,
+    iterator_next: TraitCallableMemberSymbolId,
+}
+
+impl CompilerKnownIterationProtocol {
+    /// Returns the `Iterable` trait definition.
+    pub const fn iterable_trait(self) -> TraitSymbolId {
+        self.iterable_trait
+    }
+
+    /// Returns the `Iterable.Element` associated type.
+    pub const fn iterable_element(self) -> TraitTypeMemberSymbolId {
+        self.iterable_element
+    }
+
+    /// Returns the `Iterable.Cursor` associated type.
+    pub const fn iterable_cursor(self) -> TraitTypeMemberSymbolId {
+        self.iterable_cursor
+    }
+
+    /// Returns the `Iterable.iterate` callable.
+    pub const fn iterable_iterate(self) -> TraitCallableMemberSymbolId {
+        self.iterable_iterate
+    }
+
+    /// Returns the `Iterator` trait definition.
+    pub const fn iterator_trait(self) -> TraitSymbolId {
+        self.iterator_trait
+    }
+
+    /// Returns the `Iterator.Element` associated type.
+    pub const fn iterator_element(self) -> TraitTypeMemberSymbolId {
+        self.iterator_element
+    }
+
+    /// Returns the `Iterator.next` callable.
+    pub const fn iterator_next(self) -> TraitCallableMemberSymbolId {
+        self.iterator_next
+    }
+
+    pub(super) fn symbols(self) -> [AnySymbolId; 7] {
+        [
+            self.iterable_trait.into(),
+            self.iterable_element.into(),
+            self.iterable_cursor.into(),
+            self.iterable_iterate.into(),
+            self.iterator_trait.into(),
+            self.iterator_element.into(),
+            self.iterator_next.into(),
+        ]
+    }
 }
 
 impl CompilerKnownOperationContract {
@@ -74,6 +135,7 @@ pub struct CompilerKnownSymbolRoleRegistry {
     implementations: BTreeMap<ImplementationHook, Box<[AnySymbolId]>>,
     symbol_implementations: BTreeMap<AnySymbolId, ImplementationHook>,
     operations: BTreeMap<CompilerKnownOperationRole, CompilerKnownOperationContract>,
+    iteration: Option<CompilerKnownIterationProtocol>,
 }
 
 impl CompilerKnownSymbolRoleRegistry {
@@ -162,6 +224,8 @@ impl CompilerKnownSymbolRoleRegistry {
             );
         }
 
+        let iteration = build_iteration_protocol(catalog, declaration_symbols)?;
+
         Ok(Self {
             representations,
             symbol_representations,
@@ -172,6 +236,7 @@ impl CompilerKnownSymbolRoleRegistry {
                 .collect(),
             symbol_implementations,
             operations,
+            iteration,
         })
     }
 
@@ -231,6 +296,11 @@ impl CompilerKnownSymbolRoleRegistry {
         self.operations.get(&role).copied()
     }
 
+    /// Returns the exact compiler-known iteration protocol when it is defined.
+    pub const fn iteration_protocol(&self) -> Option<CompilerKnownIterationProtocol> {
+        self.iteration
+    }
+
     pub(super) fn representation_target(
         &self,
         role: RepresentationRole,
@@ -241,6 +311,41 @@ impl CompilerKnownSymbolRoleRegistry {
     pub(super) fn implementation_symbol_ids(&self, hook: ImplementationHook) -> &[AnySymbolId] {
         self.implementations.get(&hook).map_or(&[], Box::as_ref)
     }
+}
+
+fn build_iteration_protocol(
+    catalog: &CompilerKnownCatalog,
+    declaration_symbols: &BTreeMap<CompilerKnownDeclarationId, AnySymbolId>,
+) -> Result<Option<CompilerKnownIterationProtocol>, CompilerKnownSymbolBuildError> {
+    let roles = catalog.role_registry();
+
+    if roles.iterations().is_empty() {
+        return Ok(None);
+    }
+
+    macro_rules! role {
+        ($role:ident, $ty:ty) => {{
+            let role = CompilerKnownIterationRole::$role;
+            let declaration = roles
+                .iteration_declaration(role)
+                .ok_or(CompilerKnownSymbolBuildError::MissingIterationRole { role })?;
+
+            let symbol = untyped_role_symbol(declaration_symbols, declaration)?;
+
+            <$ty>::try_from_any(symbol)
+                .ok_or(CompilerKnownSymbolBuildError::InvalidIterationRoleSymbol { declaration })?
+        }};
+    }
+
+    Ok(Some(CompilerKnownIterationProtocol {
+        iterable_trait: role!(IterableTrait, TraitSymbolId),
+        iterable_element: role!(IterableElement, TraitTypeMemberSymbolId),
+        iterable_cursor: role!(IterableCursor, TraitTypeMemberSymbolId),
+        iterable_iterate: role!(IterableIterate, TraitCallableMemberSymbolId),
+        iterator_trait: role!(IteratorTrait, TraitSymbolId),
+        iterator_element: role!(IteratorElement, TraitTypeMemberSymbolId),
+        iterator_next: role!(IteratorNext, TraitCallableMemberSymbolId),
+    }))
 }
 
 fn role_symbol<I: ExactSymbolId>(
