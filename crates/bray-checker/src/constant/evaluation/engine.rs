@@ -50,6 +50,11 @@ where
             return CheckerOutcome::InfrastructureFailure(error);
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(EvaluationFailure::Propagate(_)) => {
+            return CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidConstantEvaluationInput,
+            );
+        }
         Err(EvaluationFailure::Source { expression, kind }) => {
             let value = match evaluated.evaluator.recovery_value(evaluated.result_type) {
                 Ok(value) => value,
@@ -177,6 +182,19 @@ where
         Err(EvaluationFailure::Infrastructure(error)) => {
             Err(EvaluationAbort::Infrastructure(error))
         }
+        Err(EvaluationFailure::Propagate(term)) => {
+            let term = evaluator
+                .materialize_propagation(term, result_type)
+                .map_err(evaluation_abort)?
+                .unwrap_or(term);
+
+            Ok(EvaluatedConstant {
+                evaluator,
+                diagnostic_anchor: None,
+                result_type,
+                term,
+            })
+        }
         Err(EvaluationFailure::Source { expression, kind }) => {
             let span = match expression_span(request, expression) {
                 Ok(span) => span,
@@ -240,6 +258,16 @@ impl EvaluationAbort {
     }
 }
 
+fn evaluation_abort(failure: EvaluationFailure) -> EvaluationAbort {
+    match failure {
+        EvaluationFailure::Cancelled => EvaluationAbort::Cancelled,
+        EvaluationFailure::Infrastructure(error) => EvaluationAbort::Infrastructure(error),
+        EvaluationFailure::Propagate(_) | EvaluationFailure::Source { .. } => {
+            EvaluationAbort::invalid_input()
+        }
+    }
+}
+
 pub(super) struct Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
@@ -277,7 +305,8 @@ where
     ) -> Result<ConstantTermId, EvaluationFailure> {
         match self.evaluate_flow(expression)? {
             EvaluationFlow::Value(value) => Ok(value),
-            EvaluationFlow::Yield(_) | EvaluationFlow::Return(_) | EvaluationFlow::Propagate(_) => {
+            EvaluationFlow::Propagate(value) => Err(EvaluationFailure::Propagate(value)),
+            EvaluationFlow::Yield(_) | EvaluationFlow::Return(_) => {
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
@@ -506,6 +535,9 @@ where
             BoundStructuredExpressionKind::TypeFormConstruction => {
                 self.evaluate_construction(expression, ty)
             }
+            BoundStructuredExpressionKind::ResultPropagation => {
+                Err(EvaluationFailure::invalid_expression(expression))
+            }
             BoundStructuredExpressionKind::NullablePropagation
             | BoundStructuredExpressionKind::Conditional
             | BoundStructuredExpressionKind::While
@@ -514,7 +546,6 @@ where
             | BoundStructuredExpressionKind::Borrow
             | BoundStructuredExpressionKind::TrustBoundary
             | BoundStructuredExpressionKind::Assertion
-            | BoundStructuredExpressionKind::ResultPropagation
             | BoundStructuredExpressionKind::Catch
             | BoundStructuredExpressionKind::BooleanFold
             | BoundStructuredExpressionKind::Panic => {

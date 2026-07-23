@@ -393,6 +393,7 @@ where
     let magnitude = u64::try_from(length)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
         .to_be_bytes();
+
     let integer = IntegerConstant::new(IntegerSign::NonNegative, magnitude);
 
     request

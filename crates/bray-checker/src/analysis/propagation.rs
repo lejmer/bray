@@ -1,8 +1,8 @@
 use bray_bound_tree::{BoundExpressionId, BoundStructuredExpression};
 use bray_compiler_known::RepresentationRole;
-use bray_symbols::{ExactSymbolId, TypeData, UnionSymbolId};
 
 use crate::CheckerRequestContext;
+use crate::representation::type_representation;
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
@@ -75,19 +75,8 @@ where
     ) -> Option<RepresentationRole> {
         let operand = expression.operands().first().copied()?;
         let operand_type = self.view().expression(operand)?.ty()?;
-        let type_data = self
-            .request()
-            .semantic_values()
-            .type_data(operand_type)
-            .ok()?;
 
-        let TypeData::Named { definition, .. } = type_data.as_ref() else {
-            return None;
-        };
-
-        self.request()
-            .available_compiler_known_symbols()
-            .symbol_representation(UnionSymbolId::try_from_any(definition.into_any())?)
+        type_representation(self.request(), operand_type).ok()?
     }
 
     fn build_run_result_propagation(&mut self, current: AnalysisBlockId) -> AnalysisBlockId {

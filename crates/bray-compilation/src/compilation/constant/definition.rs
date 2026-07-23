@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
@@ -597,6 +597,7 @@ fn collect_references(
     ) -> Result<ConstantReferenceResolution, FactQueryError>,
 ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
     let mut references = Vec::new();
+    let mut non_value_heads = BTreeSet::new();
     let mut failure = None;
 
     let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
@@ -604,7 +605,37 @@ fn collect_references(
             return BoundWalkControl::Continue;
         };
 
-        let Some(BoundExpression::Name(name)) = bound.view().expression(expression) else {
+        let Some(bound_expression) = bound.view().expression(expression) else {
+            return BoundWalkControl::Continue;
+        };
+
+        if let BoundExpression::StructConstruction(construction) = bound_expression
+            && let Some(head) = construction.head()
+        {
+            non_value_heads.insert(head);
+
+            return BoundWalkControl::Continue;
+        }
+
+        match bound_expression {
+            BoundExpression::Call(call) => {
+                non_value_heads.insert(call.callee());
+
+                return BoundWalkControl::Continue;
+            }
+            BoundExpression::ErrorCall(call) => {
+                non_value_heads.insert(call.callee());
+
+                return BoundWalkControl::Continue;
+            }
+            _ => {}
+        }
+
+        if non_value_heads.contains(&expression) {
+            return BoundWalkControl::SkipChildren;
+        }
+
+        let BoundExpression::Name(name) = bound_expression else {
             return BoundWalkControl::Continue;
         };
 
@@ -715,11 +746,11 @@ mod tests {
     use bray_symbols::{
         AnyConstantDefinitionId, CallableDefinitionId, CallableInstanceData,
         CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
-        ConstantDefinitionState, ConstantInstanceKey, ConstantTermData, ConstantValueData,
-        ConstantValueId, ConstantValueKind, GenericArgument, GenericOwnerId,
+        ConstantDefinitionState, ConstantField, ConstantInstanceKey, ConstantTermData,
+        ConstantValueData, ConstantValueId, ConstantValueKind, GenericArgument, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, IntegerConstant, IntegerSign,
-        ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId, SymbolId,
-        SymbolOrigin,
+        NamedTypeSymbolId, ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId,
+        SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
     };
     use bray_target::{TargetIdentity, TargetProfile};
 
@@ -952,6 +983,77 @@ mod tests {
         };
 
         assert_eq!(integer_value(&compilation, value), 9);
+    }
+
+    #[test]
+    fn constant_calls_propagate_closed_result_values() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>\n",
+            "{\n",
+            "    const unwrapped: i32 = try value;\n",
+            "\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let integer_type = i32_type(&compilation);
+        let result_type = result_type(&compilation, integer_type, integer_type);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must publish: {error:?}"));
+
+        let result = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<UnionSymbolId>(bray_compiler_known::RepresentationRole::Result)
+            .unwrap_or_else(|| panic!("Result must be available"));
+
+        let result = symbols
+            .union(result)
+            .unwrap_or_else(|| panic!("Result symbol must resolve"));
+
+        for error in [false, true] {
+            let input = result_value(&compilation, result_type, integer_type, error, 7);
+            let (_, request) = source_constant_call_request(&compilation, [input], result_type);
+
+            let checked = compilation
+                .constant_call_with_cancellation(&request, &compilation.state.cancellation)
+                .unwrap_or_else(|failure| {
+                    panic!("constant result propagation must publish: {failure:?}")
+                });
+
+            assert!(
+                checked.diagnostics().is_empty(),
+                "{:?}",
+                checked.diagnostics()
+            );
+
+            let Some(value) = *checked.value() else {
+                panic!("constant callable must be eligible for evaluation");
+            };
+
+            let value = compilation
+                .semantic_value_store()
+                .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"))
+                .constant_value_data(value)
+                .unwrap_or_else(|failure| {
+                    panic!("propagated result value must resolve: {failure:?}")
+                });
+
+            let ConstantValueKind::Union { variant, fields } = value.kind() else {
+                panic!("constant callable must return a result value");
+            };
+
+            assert_eq!(variant, &result.variants()[usize::from(error)]);
+            assert_eq!(fields.len(), 1);
+        }
     }
 
     #[test]
@@ -1362,6 +1464,95 @@ mod tests {
             compilation,
             bray_compiler_known::RepresentationRole::ScalarBool,
         )
+    }
+
+    fn result_type(
+        compilation: &crate::Compilation,
+        success: bray_symbols::TypeId,
+        error: bray_symbols::TypeId,
+    ) -> bray_symbols::TypeId {
+        let definition = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<UnionSymbolId>(bray_compiler_known::RepresentationRole::Result)
+            .unwrap_or_else(|| panic!("Result representation must be available"));
+
+        let symbol = compilation
+            .symbol_graph()
+            .unwrap_or_else(|failure| panic!("symbol graph must publish: {failure:?}"))
+            .union(definition)
+            .unwrap_or_else(|| panic!("Result symbol must resolve"));
+
+        let parameters = symbol
+            .generic_type_parameters()
+            .iter()
+            .copied()
+            .map(GenericParameterSymbolId::Type);
+
+        let substitution = GenericSubstitutionData::try_new(
+            GenericOwnerId::try_new(definition.into())
+                .unwrap_or_else(|| panic!("Result must own generic parameters")),
+            parameters,
+            [GenericArgument::Type(success), GenericArgument::Type(error)],
+        )
+        .unwrap_or_else(|failure| panic!("Result substitution must be valid: {failure:?}"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"));
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|failure| panic!("Result substitution must intern: {failure:?}"));
+
+        values
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Union(definition),
+                substitution,
+            })
+            .unwrap_or_else(|failure| panic!("Result type must intern: {failure:?}"))
+    }
+
+    fn result_value(
+        compilation: &crate::Compilation,
+        result_type: bray_symbols::TypeId,
+        payload_type: bray_symbols::TypeId,
+        error: bool,
+        payload: u8,
+    ) -> ConstantValueId {
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|failure| panic!("symbol graph must publish: {failure:?}"));
+
+        let result = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<UnionSymbolId>(bray_compiler_known::RepresentationRole::Result)
+            .unwrap_or_else(|| panic!("Result representation must be available"));
+
+        let result = symbols
+            .union(result)
+            .unwrap_or_else(|| panic!("Result symbol must resolve"));
+
+        let variant = result.variants()[usize::from(error)];
+        let variant_symbol = symbols
+            .union_variant(variant)
+            .unwrap_or_else(|| panic!("Result variant must resolve"));
+
+        let [field] = variant_symbol.payload_fields() else {
+            panic!("Result variant must have one payload field");
+        };
+
+        let payload = integer_constant(compilation, payload_type, payload);
+
+        values
+            .intern_constant_value(ConstantValueData::new(
+                result_type,
+                ConstantValueKind::union(variant, [ConstantField::new(*field, payload)]),
+            ))
+            .unwrap_or_else(|failure| panic!("Result value must intern: {failure:?}"))
     }
 
     fn scalar_type(

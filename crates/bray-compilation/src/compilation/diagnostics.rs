@@ -446,7 +446,7 @@ mod tests {
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
     use bray_checker::SemanticUnitContext;
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::CallableContractClauseKind;
+    use bray_symbols::{CallableContractClauseKind, ConstantTermData};
 
     use crate::WorkerBudget;
     use crate::fact::FactCellTestEvent;
@@ -584,6 +584,54 @@ mod tests {
             diagnostic_kinds(compilation.check_diagnostics())
                 .contains(&DiagnosticKind::CheckingIncompatibleExpressionType)
         );
+    }
+
+    #[test]
+    fn bare_generic_constant_arguments_bind_as_embedded_values() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Buffer<const size: usize>\n",
+            "{\n",
+            "}\n",
+            "func use_buffer<const count: usize>(pos value: Buffer<count>)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let keys = compilation
+            .declared_unit_keys()
+            .unwrap_or_else(|error| panic!("callable unit must be discoverable: {error:?}"));
+
+        let key = keys
+            .into_iter()
+            .find(|key| key.kind() == BoundUnitKind::CallableBody)
+            .unwrap_or_else(|| panic!("test source must produce one callable body"));
+
+        let declared = compilation
+            .declared_value_type_templates(key)
+            .unwrap_or_else(|error| panic!("declared types must publish: {error:?}"));
+
+        let occurrence = declared
+            .value()
+            .evidence()
+            .iter()
+            .flat_map(|evidence| evidence.template().constant_expressions())
+            .next()
+            .unwrap_or_else(|| panic!("generic argument must retain its constant expression"));
+
+        let checked = compilation
+            .embedded_constant_term(occurrence)
+            .unwrap_or_else(|error| panic!("embedded constant must bind: {error:?}"));
+
+        let term = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"))
+            .constant_term_data(*checked.value())
+            .unwrap_or_else(|error| panic!("embedded constant term must resolve: {error:?}"));
+
+        assert!(checked.diagnostics().is_empty());
+
+        assert!(matches!(term.as_ref(), ConstantTermData::Parameter(_)));
     }
 
     #[test]

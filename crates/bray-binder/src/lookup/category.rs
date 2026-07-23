@@ -53,6 +53,33 @@ pub(crate) enum ResolvedValueName {
     TraitPredicateFulfillment(TraitPredicateFulfillmentSymbolId),
 }
 
+impl ResolvedValueName {
+    pub(crate) fn into_name(self) -> ResolvedName {
+        match self {
+            Self::Local(id) => ResolvedName::Local(id),
+            Self::GenericConstParameter(id) => ResolvedName::Surface(id.into()),
+            Self::CallableParameter(id) => ResolvedName::Surface(id.into()),
+            Self::PredicateParameter(id) => ResolvedName::Surface(id.into()),
+            Self::ReceiverParameter(id) => ResolvedName::Surface(id.into()),
+            Self::Constant(id) => ResolvedName::Surface(id.into()),
+            Self::Function(id) => ResolvedName::Surface(id.into()),
+            Self::Predicate(id) => ResolvedName::Surface(id.into()),
+            Self::CallableOverload(id) => ResolvedName::Surface(id.into()),
+            Self::StructField(id) => ResolvedName::Surface(id.into()),
+            Self::UnionVariant(id) => ResolvedName::Surface(id.into()),
+            Self::UnionPayloadField(id) => ResolvedName::Surface(id.into()),
+            Self::TypeCallableMember(id) => ResolvedName::Surface(id.into()),
+            Self::Constructor(id) => ResolvedName::Surface(id.into()),
+            Self::TraitCallableMember(id) => ResolvedName::Surface(id.into()),
+            Self::TraitConstantMember(id) => ResolvedName::Surface(id.into()),
+            Self::TraitPredicateMember(id) => ResolvedName::Surface(id.into()),
+            Self::TraitCallableFulfillment(id) => ResolvedName::Surface(id.into()),
+            Self::TraitConstantFulfillment(id) => ResolvedName::Surface(id.into()),
+            Self::TraitPredicateFulfillment(id) => ResolvedName::Surface(id.into()),
+        }
+    }
+}
+
 /// A validated ordinary member reached through a qualified owner.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ResolvedMemberName(AnySymbolId);

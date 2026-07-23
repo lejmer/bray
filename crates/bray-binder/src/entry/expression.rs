@@ -7,7 +7,8 @@ use bray_symbols::{
     PredicateSignatureTemplateFact, SymbolFactRequest,
 };
 use bray_syntax::{
-    EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, WithClauseSyntax,
+    EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, TypeExpressionSyntax,
+    WithClauseSyntax,
 };
 
 use super::BoundUnitBindingError;
@@ -104,7 +105,7 @@ define_pending_expression_unit!(
     PendingBoundEmbeddedConstant,
     bind_embedded_constant,
     assemble_embedded_constant,
-    bind_expression_unit,
+    bind_embedded_constant_unit,
     BoundExpressionId,
     BindingContext::ConstantExpression,
     [],
@@ -193,6 +194,43 @@ where
     bind_expression_unit_with_scope(facts, unit, key, context, |_, _| Ok(()))
 }
 
+fn bind_embedded_constant_unit<C>(
+    facts: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    context: BindingContext,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    if let Some(syntax) = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax()) {
+        return bind_expression_root_unit(
+            facts,
+            unit,
+            key,
+            context,
+            |_, _| Ok(()),
+            move |expression_binder, binder, scope| {
+                expression_binder.bind_expression(binder, scope, Some(&syntax))
+            },
+        );
+    }
+
+    let syntax = anchored_descendant::<_, TypeExpressionSyntax>(facts, key.source().syntax())
+        .ok_or(BoundUnitBindingError::MissingSyntax)?;
+
+    bind_expression_root_unit(
+        facts,
+        unit,
+        key,
+        context,
+        |_, _| Ok(()),
+        move |expression_binder, binder, scope| {
+            expression_binder.bind_type_expression_value(binder, scope, &syntax)
+        },
+    )
+}
+
 fn bind_runtime_default_unit<C>(
     facts: &C,
     unit: BoundUnitId,
@@ -232,6 +270,33 @@ where
     let syntax = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax())
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
+    bind_expression_root_unit(
+        facts,
+        unit,
+        key,
+        context,
+        configure_scope,
+        move |expression_binder, binder, scope| {
+            expression_binder.bind_expression(binder, scope, Some(&syntax))
+        },
+    )
+}
+
+fn bind_expression_root_unit<C>(
+    facts: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    context: BindingContext,
+    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
+    bind_root: impl FnOnce(
+        &mut ExpressionBinder,
+        &mut Binder<'_, C>,
+        LocalScopeId,
+    ) -> Result<BoundExpressionId, crate::binding::BindingError>,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
     let mut binder = create_binder(facts, unit, key, context)?;
     let root_scope = binder.unit().root_scope();
 
@@ -242,9 +307,8 @@ where
 
     let mut expression_binder = ExpressionBinder::new(path_context, error_type);
 
-    let root = expression_binder
-        .bind_expression(&mut binder, root_scope, Some(&syntax))
-        .map_err(map_binding_error)?;
+    let root =
+        bind_root(&mut expression_binder, &mut binder, root_scope).map_err(map_binding_error)?;
 
     let output = binder
         .finish()

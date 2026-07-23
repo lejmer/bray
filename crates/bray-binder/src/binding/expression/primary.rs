@@ -9,7 +9,7 @@ use bray_syntax::{
     AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
     GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
     LiteralExpressionSyntax, MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode,
-    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, walk_direct_child_nodes,
+    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, TypeExpressionSyntax, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -17,9 +17,47 @@ use super::ExpressionBinder;
 use super::support::{ReferenceResolution, classify_reference_result, structured_kind};
 use crate::BinderFactContext;
 use crate::binder::Binder;
-use crate::lookup::NameAccess;
+use crate::lookup::{NameAccess, ResolvedValueName};
 
 impl ExpressionBinder {
+    pub(crate) fn bind_type_expression_value<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        scope: LocalScopeId,
+        syntax: &TypeExpressionSyntax,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let Some(path) = syntax.path() else {
+            return self.push_error(binder, Some(syntax));
+        };
+
+        let result = binder.bind_value_path(
+            self.path_context_for(scope, self.path_context.access()),
+            &path,
+        )?;
+
+        let resolution = classify_reference_result(
+            result.map(ResolvedValueName::into_name, |candidate| candidate),
+        );
+
+        match resolution {
+            ReferenceResolution::Resolved(target) => {
+                self.push_resolved_reference(binder, syntax, target)
+            }
+            ReferenceResolution::Unresolved(kind, candidates) => self.push(
+                binder,
+                BoundExpression::UnresolvedReference(BoundUnresolvedReferenceExpression::new(
+                    binder.source_origin(syntax),
+                    kind,
+                    candidates,
+                    self.error_type,
+                )),
+            ),
+        }
+    }
+
     pub(super) fn bind_primary<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
@@ -337,7 +375,7 @@ impl ExpressionBinder {
     fn push_resolved_reference<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
-        syntax: &AccessExpressionSyntax,
+        syntax: &impl SourceSyntaxNode,
         target: bray_bound_tree::BoundReferenceTarget,
     ) -> BindingResult<BoundExpressionId>
     where

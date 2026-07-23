@@ -260,6 +260,7 @@ where
 pub(in crate::constant) enum EvaluationFailure {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
+    Propagate(ConstantTermId),
     Source {
         expression: BoundExpressionId,
         kind: DiagnosticKind,

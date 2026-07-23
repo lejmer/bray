@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bray_bound_tree::{
     BoundCallResult, BoundCallableTarget, BoundFutureConstruction, BoundResolvedCall,
 };
@@ -306,4 +308,3 @@ pub(super) const fn candidate_state(
         CallableCandidateTemplateState::Recovered => CallableCandidateState::Recovered,
     }
 }
-use std::collections::BTreeMap;
