@@ -223,6 +223,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parser_keeps_bare_case_patterns_separate_from_arm_bodies() {
+        let sources = source_store(["match value { case item { yield item; } };"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        let match_expression = first_match_expression(&expression);
+        let match_body = match_expression.match_body();
+        let match_arm = first_match_arm(&match_body);
+
+        assert_eq!(match_arm.case_pattern().full_text(), "item ");
+        assert_eq!(match_arm.block_expression().full_text(), "{ yield item; } ");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
     fn first_match_expression(expression: &ExpressionSyntax) -> MatchExpressionSyntax {
         let primary = match expression.primary_expression() {
             Some(primary) => primary,

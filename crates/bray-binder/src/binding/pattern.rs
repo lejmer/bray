@@ -113,6 +113,7 @@ macro_rules! define_pattern_binder {
 
             for entry in syntax.$entries() {
                 let nested = entry.$entry_children().collect::<Vec<_>>();
+
                 let name = entry
                     .identifier_token()
                     .and_then(|token| symbol_name(entry.source(), &token));
@@ -373,9 +374,9 @@ where
         let result = match (syntax.first_path(), syntax.simple_binding_token()) {
             (Some(path), _) => match mode {
                 PatternBindingMode::Assignment => self.bind_assignment_pattern_path(context, &path),
-                PatternBindingMode::Declaration | PatternBindingMode::Match => {
-                    self.bind_pattern_path(context, &path)
-                }
+                PatternBindingMode::Declaration
+                | PatternBindingMode::MatchObserve
+                | PatternBindingMode::MatchConsume => self.bind_pattern_path(context, &path),
             },
             (None, Some(token)) => Ok(self.bind_pattern_identifier(
                 context,
@@ -414,7 +415,8 @@ const fn bound_mode(mode: PatternBindingMode) -> BoundPatternMode {
     match mode {
         PatternBindingMode::Declaration => BoundPatternMode::Declaration,
         PatternBindingMode::Assignment => BoundPatternMode::Assignment,
-        PatternBindingMode::Match => BoundPatternMode::Match,
+        PatternBindingMode::MatchObserve => BoundPatternMode::MatchObserve,
+        PatternBindingMode::MatchConsume => BoundPatternMode::MatchConsume,
     }
 }
 
@@ -439,8 +441,6 @@ fn pattern_kind(
         BoundPatternKind::Path
     } else if syntax.has_discard() {
         BoundPatternKind::Discard
-    } else if syntax.has_literal() {
-        BoundPatternKind::Literal
     } else if syntax.has_none() {
         BoundPatternKind::NullableAbsent
     } else if syntax.has_question() {
@@ -457,6 +457,8 @@ fn pattern_kind(
         BoundPatternKind::Tuple
     } else if syntax.has_open_paren() {
         BoundPatternKind::Grouped
+    } else if syntax.has_literal() {
+        BoundPatternKind::Literal
     } else if syntax.has_path() {
         BoundPatternKind::Path
     } else if syntax.has_dot_dot() {
@@ -739,7 +741,7 @@ mod tests {
             context,
             &pattern,
             fixture.declared_type,
-            PatternBindingMode::Match,
+            PatternBindingMode::MatchObserve,
         ) {
             Ok(bound) => bound,
             Err(error) => panic!("case pattern must bind: {error:?}"),
@@ -749,7 +751,10 @@ mod tests {
             panic!("bound case pattern must be committed");
         };
 
-        assert_eq!(pattern.mode(), bray_bound_tree::BoundPatternMode::Match);
+        assert_eq!(
+            pattern.mode(),
+            bray_bound_tree::BoundPatternMode::MatchObserve
+        );
 
         assert_eq!(
             pattern.kind(),
@@ -883,7 +888,7 @@ mod tests {
             context,
             &pattern,
             fixture.declared_type,
-            PatternBindingMode::Match,
+            PatternBindingMode::MatchObserve,
         ) {
             Ok(bound) => bound,
             Err(error) => panic!("incoherent pattern must recover: {error:?}"),
@@ -939,7 +944,7 @@ mod tests {
             context,
             &pattern,
             fixture.declared_type,
-            PatternBindingMode::Match,
+            PatternBindingMode::MatchObserve,
         ) {
             Ok(bound) => bound,
             Err(error) => panic!("constant pattern must bind: {error:?}"),

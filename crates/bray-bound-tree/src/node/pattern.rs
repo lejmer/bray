@@ -13,8 +13,10 @@ pub enum BoundPatternMode {
     Declaration,
     /// Assign through names and projections already visible at the pattern site.
     Assignment,
-    /// Match a subject and introduce arm-local bindings on success.
-    Match,
+    /// Observe a match subject and introduce arm-local bindings on success.
+    MatchObserve,
+    /// Consume a match subject and introduce arm-local bindings on success.
+    MatchConsume,
 }
 
 /// The source-shaped semantic form retained for a bound pattern.

@@ -8,15 +8,23 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{Diagnostic, DiagnosticKind, SeverityKind};
 use bray_source::TextRange;
-use bray_symbols::{AnySymbolId, NamedTypeSymbolId, TypeData, UnionVariantSymbolId};
+use bray_symbols::{
+    AnySymbolId, NamedTypeSymbolId, StructFieldTypeFact, TypeData, UnionPayloadFieldTypeFact,
+    UnionVariantSymbolId,
+};
 
 use super::check::{PatternChecker, effective_pattern_kind};
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
+};
 
 impl<C> PatternChecker<'_, C>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<StructFieldTypeFact>
+        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized,
 {
     pub(super) fn check_matches(&mut self) -> Result<(), CheckerInfrastructureError> {
         let mut matches = Vec::new();
@@ -53,6 +61,7 @@ where
         expression: &bray_bound_tree::BoundMatchExpression,
     ) -> Result<(), CheckerInfrastructureError> {
         let subject = self.expression_type(expression.subject())?;
+
         let subject_data = self
             .request
             .semantic_values()
@@ -136,8 +145,14 @@ where
         let coverage = match kind {
             BoundPatternKind::Literal => self.literal_coverage(pattern)?,
             BoundPatternKind::NullableAbsent => Coverage::nullable_absent(),
-            BoundPatternKind::NullablePresent if self.children_are_irrefutable(pattern) => {
-                Coverage::nullable_present()
+            BoundPatternKind::NullablePresent => {
+                let mut contained = Coverage::default();
+
+                for child in pattern.children() {
+                    contained.merge(&self.coverage(*child)?);
+                }
+
+                Coverage::nullable_present(contained)
             }
             BoundPatternKind::Variant if self.children_are_irrefutable(pattern) => {
                 match checked.target() {
@@ -241,15 +256,14 @@ enum GuardTruth {
 struct Coverage {
     is_total: bool,
     booleans: u8,
-    nullable: u8,
+    nullable_absent: bool,
+    nullable_present: Option<Box<Coverage>>,
     variants: BTreeSet<UnionVariantSymbolId>,
 }
 
 impl Coverage {
     const FALSE: u8 = 1;
     const TRUE: u8 = 2;
-    const ABSENT: u8 = 1;
-    const PRESENT: u8 = 2;
 
     fn total() -> Self {
         Self {
@@ -267,14 +281,14 @@ impl Coverage {
 
     fn nullable_absent() -> Self {
         Self {
-            nullable: Self::ABSENT,
+            nullable_absent: true,
             ..Self::default()
         }
     }
 
-    fn nullable_present() -> Self {
+    fn nullable_present(contained: Self) -> Self {
         Self {
-            nullable: Self::PRESENT,
+            nullable_present: Some(Box::new(contained)),
             ..Self::default()
         }
     }
@@ -289,7 +303,19 @@ impl Coverage {
     fn merge(&mut self, other: &Self) {
         self.is_total |= other.is_total;
         self.booleans |= other.booleans;
-        self.nullable |= other.nullable;
+        self.nullable_absent |= other.nullable_absent;
+
+        match (&mut self.nullable_present, &other.nullable_present) {
+            (Some(current), Some(other)) => current.merge(other),
+            (None, Some(other)) => {
+                let mut contained = Coverage::default();
+
+                contained.merge(other);
+                self.nullable_present = Some(Box::new(contained));
+            }
+            (Some(_), None) | (None, None) => {}
+        }
+
         self.variants.extend(other.variants.iter().copied());
     }
 
@@ -302,12 +328,20 @@ impl Coverage {
             || !other.is_total
                 && (self.is_total
                     || self.booleans & other.booleans == other.booleans
-                        && self.nullable & other.nullable == other.nullable
+                        && (!other.nullable_absent || self.nullable_absent)
+                        && nullable_contains(
+                            self.nullable_present.as_deref(),
+                            other.nullable_present.as_deref(),
+                        )
                         && other.variants.is_subset(&self.variants))
     }
 
     fn is_empty(&self) -> bool {
-        !self.is_total && self.booleans == 0 && self.nullable == 0 && self.variants.is_empty()
+        !self.is_total
+            && self.booleans == 0
+            && !self.nullable_absent
+            && self.nullable_present.is_none()
+            && self.variants.is_empty()
     }
 
     fn is_exhaustive<C>(&self, request: CheckerUnitView<'_, C>, subject: &TypeData) -> bool
@@ -319,7 +353,16 @@ impl Coverage {
         }
 
         match subject {
-            TypeData::Nullable(_) => self.nullable == Self::ABSENT | Self::PRESENT,
+            TypeData::Nullable(target) => {
+                self.nullable_absent
+                    && self.nullable_present.as_deref().is_some_and(|coverage| {
+                        let Ok(target) = request.semantic_values().type_data(*target) else {
+                            return false;
+                        };
+
+                        coverage.is_exhaustive(request, target.as_ref())
+                    })
+            }
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
                 ..
@@ -340,5 +383,13 @@ impl Coverage {
                 }),
             _ => false,
         }
+    }
+}
+
+fn nullable_contains(current: Option<&Coverage>, other: Option<&Coverage>) -> bool {
+    match (current, other) {
+        (_, None) => true,
+        (Some(current), Some(other)) => current.contains(other),
+        (None, Some(_)) => false,
     }
 }

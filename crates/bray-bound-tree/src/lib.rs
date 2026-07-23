@@ -59,7 +59,7 @@ pub use origin::{
 };
 pub use pattern::{
     CheckedPatternFacts, MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry,
-    PatternRefutability,
+    PatternOperation, PatternPredicate, PatternProjection, PatternRefutability,
 };
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,

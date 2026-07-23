@@ -16,6 +16,7 @@ use bray_bound_tree::{
     SelectedOperation,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId};
+use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -95,7 +96,10 @@ impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
 /// Pattern compatibility, binding typing, refutability, and match coverage checking.
 pub trait PatternChecker<C>: Sync
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized,
 {
     /// Checks patterns in one committed bound unit.
     fn check_patterns(
@@ -108,7 +112,13 @@ where
     }
 }
 
-impl<C> PatternChecker<C> for DefaultPatternChecker where C: CheckerRequestContext + ?Sized {}
+impl<C> PatternChecker<C> for DefaultPatternChecker where
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized
+{
+}
 
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync

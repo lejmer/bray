@@ -1,16 +1,22 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{BoundPattern, BoundPatternKind, BoundPatternTarget};
-use bray_compiler_known::RepresentationRole;
-use bray_symbols::{AnySymbolId, ConstantTermData, ConstantValueKind, NamedTypeSymbolId, TypeData};
+use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
+use bray_symbols::{
+    AnySymbolId, ConstantTermData, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeFact,
+    TypeData, UnionPayloadFieldTypeFact,
+};
 
 use super::check::PatternChecker;
 use crate::constant::integer_to_usize;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
 
 impl<C> PatternChecker<'_, C>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<StructFieldTypeFact>
+        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized,
 {
     pub(super) fn pattern_is_compatible(
         &self,
@@ -39,7 +45,7 @@ where
                 matches!(subject, TypeData::Tuple(elements) if elements.len() == pattern.children().len())
             }
             BoundPatternKind::Array => self.array_shape_is_compatible(pattern, subject)?,
-            BoundPatternKind::Variant => self.variant_matches_subject(target, subject),
+            BoundPatternKind::Variant => self.variant_shape_is_compatible(pattern, target, subject),
         };
 
         Ok(compatible)
@@ -120,11 +126,12 @@ where
         }
     }
 
-    fn fixed_array_length(
+    pub(super) fn fixed_array_length(
         &self,
         length: bray_symbols::ConstantTermId,
     ) -> Result<Option<usize>, CheckerInfrastructureError> {
         let values = self.request.semantic_values();
+
         let term = values
             .constant_term_data(length)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
@@ -160,52 +167,41 @@ where
         subject: &TypeData,
         literal: bray_bound_tree::BoundLiteralKind,
     ) -> bool {
-        let TypeData::Named { definition, .. } = subject else {
+        let TypeData::Named {
+            definition: NamedTypeSymbolId::Struct(structure),
+            ..
+        } = subject
+        else {
             return false;
         };
 
-        let roles: &[RepresentationRole] = match literal {
-            bray_bound_tree::BoundLiteralKind::Boolean => &[RepresentationRole::ScalarBool],
-            bray_bound_tree::BoundLiteralKind::Character => &[RepresentationRole::ScalarChar],
-            bray_bound_tree::BoundLiteralKind::String => &[RepresentationRole::String],
-            bray_bound_tree::BoundLiteralKind::Integer => &[
-                RepresentationRole::ScalarI8,
-                RepresentationRole::ScalarI16,
-                RepresentationRole::ScalarI32,
-                RepresentationRole::ScalarI64,
-                RepresentationRole::ScalarI128,
-                RepresentationRole::ScalarU8,
-                RepresentationRole::ScalarU16,
-                RepresentationRole::ScalarU32,
-                RepresentationRole::ScalarU64,
-                RepresentationRole::ScalarU128,
-                RepresentationRole::ScalarIsize,
-                RepresentationRole::ScalarUsize,
-            ],
-            bray_bound_tree::BoundLiteralKind::Real => &[
-                RepresentationRole::ScalarR16,
-                RepresentationRole::ScalarR32,
-                RepresentationRole::ScalarR64,
-                RepresentationRole::ScalarR128,
-            ],
-            bray_bound_tree::BoundLiteralKind::Imaginary => &[
-                RepresentationRole::ScalarC32,
-                RepresentationRole::ScalarC64,
-                RepresentationRole::ScalarC128,
-                RepresentationRole::ScalarC256,
-            ],
+        let Some(role) = self
+            .request
+            .available_compiler_known_symbols()
+            .symbol_representation(*structure)
+        else {
+            return false;
         };
 
-        roles.iter().any(|role| {
-            self.request
-                .available_compiler_known_symbols()
-                .representation_symbol::<bray_symbols::StructSymbolId>(*role)
-                .is_some_and(|candidate| *definition == NamedTypeSymbolId::Struct(candidate))
-        })
+        match literal {
+            bray_bound_tree::BoundLiteralKind::Boolean => role == RepresentationRole::ScalarBool,
+            bray_bound_tree::BoundLiteralKind::Character => role == RepresentationRole::ScalarChar,
+            bray_bound_tree::BoundLiteralKind::String => role == RepresentationRole::String,
+            bray_bound_tree::BoundLiteralKind::Integer => {
+                role.numeric_kind() == Some(NumericRepresentationKind::Integer)
+            }
+            bray_bound_tree::BoundLiteralKind::Real => {
+                role.numeric_kind() == Some(NumericRepresentationKind::Real)
+            }
+            bray_bound_tree::BoundLiteralKind::Imaginary => {
+                role.numeric_kind() == Some(NumericRepresentationKind::Complex)
+            }
+        }
     }
 
-    fn variant_matches_subject(
+    fn variant_shape_is_compatible(
         &self,
+        pattern: &BoundPattern,
         target: Option<BoundPatternTarget>,
         subject: &TypeData,
     ) -> bool {
@@ -220,9 +216,37 @@ where
             return false;
         };
 
-        self.request
+        let Some(variant) = self
+            .request
             .symbols()
             .union_variant(variant)
-            .is_some_and(|record| record.union() == *union)
+            .filter(|record| record.union() == *union)
+        else {
+            return false;
+        };
+
+        let mut selected = BTreeSet::new();
+        let mut has_remaining = false;
+        let mut position = 0_usize;
+
+        for entry in pattern.entries() {
+            if entry.is_remaining() {
+                has_remaining = true;
+
+                continue;
+            }
+
+            let Some(field) = self.union_payload_field(variant.id(), entry, position) else {
+                return false;
+            };
+
+            if !selected.insert(field) {
+                return false;
+            }
+
+            position += 1;
+        }
+
+        has_remaining || selected.len() == variant.payload_fields().len()
     }
 }

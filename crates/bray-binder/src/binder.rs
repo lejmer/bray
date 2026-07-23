@@ -31,7 +31,8 @@ pub(crate) enum BindingContext {
 pub(crate) enum PatternBindingMode {
     Declaration,
     Assignment,
-    Match,
+    MatchObserve,
+    MatchConsume,
 }
 
 /// One contextual expectation active while binding a nested construct.

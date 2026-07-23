@@ -135,7 +135,11 @@ impl ExpressionBinder {
                 self.path_context_for(arm_scope, self.path_context.access()),
                 &pattern_syntax,
                 self.error_type,
-                PatternBindingMode::Match,
+                if syntax.match_subject().consume_keyword().is_some() {
+                    PatternBindingMode::MatchConsume
+                } else {
+                    PatternBindingMode::MatchObserve
+                },
             )?;
 
             binder.activate_pattern_bindings(arm_scope, &pattern)?;

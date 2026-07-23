@@ -283,9 +283,9 @@ impl Parser {
 
         builder.push_path(self.parse_path());
 
-        if self.at(SyntaxKind::OpenParenToken) {
+        if !at_boundary(self) && self.at(SyntaxKind::OpenParenToken) {
             self.parse_payload_pattern_body(&mut builder, context, at_boundary);
-        } else if self.at(SyntaxKind::OpenBraceToken) {
+        } else if !at_boundary(self) && self.at(SyntaxKind::OpenBraceToken) {
             self.parse_product_pattern_body(&mut builder, context, at_boundary);
         }
 
