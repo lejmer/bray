@@ -71,6 +71,30 @@ pub enum TargetSizedIntegerType {
     Usize,
 }
 
+/// One exact aggregate field and its associated constant payload.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ConstantField<I, V> {
+    field: I,
+    value: V,
+}
+
+impl<I, V> ConstantField<I, V> {
+    /// Creates a field payload with its stable declaration identity.
+    pub const fn new(field: I, value: V) -> Self {
+        Self { field, value }
+    }
+
+    /// Returns the exact field declaration.
+    pub const fn field(&self) -> &I {
+        &self.field
+    }
+
+    /// Returns the payload associated with the field.
+    pub const fn value(&self) -> &V {
+        &self.value
+    }
+}
+
 /// A host-independent arbitrary-width normalized integer constant.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct IntegerConstant {
@@ -165,13 +189,13 @@ pub enum ConstantValueKind {
     /// An ordered array value.
     Array(Arc<[ConstantValueId]>),
     /// Ordered fields of a product value.
-    Product(Arc<[ConstantValueId]>),
+    Product(Arc<[ConstantField<StructFieldSymbolId, ConstantValueId>]>),
     /// An active union variant and its ordered payload values.
     Union {
         /// Exact active variant.
         variant: UnionVariantSymbolId,
         /// Ordered payload values.
-        fields: Arc<[ConstantValueId]>,
+        fields: Arc<[ConstantField<UnionPayloadFieldSymbolId, ConstantValueId>]>,
     },
 }
 
@@ -192,14 +216,16 @@ impl ConstantValueKind {
     }
 
     /// Creates an ordered product constant payload.
-    pub fn product(values: impl IntoIterator<Item = ConstantValueId>) -> Self {
-        Self::Product(shared_slice(values))
+    pub fn product(
+        fields: impl IntoIterator<Item = ConstantField<StructFieldSymbolId, ConstantValueId>>,
+    ) -> Self {
+        Self::Product(shared_slice(fields))
     }
 
     /// Creates an active union variant constant payload.
     pub fn union(
         variant: UnionVariantSymbolId,
-        fields: impl IntoIterator<Item = ConstantValueId>,
+        fields: impl IntoIterator<Item = ConstantField<UnionPayloadFieldSymbolId, ConstantValueId>>,
     ) -> Self {
         Self::Union {
             variant,
@@ -359,12 +385,27 @@ pub enum ConstantTermData {
         /// Right operand.
         right: ConstantTermId,
     },
-    /// A selected compiler-defined scalar conversion.
+    /// A selected compiler-defined conversion.
     Conversion {
         /// Converted operand.
         operand: ConstantTermId,
         /// Exact conversion target type.
         target: TypeId,
+    },
+    /// Nullable presence around an open or closed child term.
+    NullablePresent(ConstantTermId),
+    /// An ordered tuple whose elements may remain open.
+    Tuple(Arc<[ConstantTermId]>),
+    /// An ordered array whose elements may remain open.
+    Array(Arc<[ConstantTermId]>),
+    /// Ordered product fields whose values may remain open.
+    Product(Arc<[ConstantField<StructFieldSymbolId, ConstantTermId>]>),
+    /// An active union variant whose payload values may remain open.
+    Union {
+        /// Exact active variant.
+        variant: UnionVariantSymbolId,
+        /// Ordered payload fields.
+        fields: Arc<[ConstantField<UnionPayloadFieldSymbolId, ConstantTermId>]>,
     },
     /// An applied constant definition that can remain open.
     DefinitionApplication {
@@ -389,6 +430,34 @@ pub enum ConstantTermData {
 }
 
 impl ConstantTermData {
+    /// Creates an ordered tuple constant term.
+    pub fn tuple(values: impl IntoIterator<Item = ConstantTermId>) -> Self {
+        Self::Tuple(shared_slice(values))
+    }
+
+    /// Creates an ordered array constant term.
+    pub fn array(values: impl IntoIterator<Item = ConstantTermId>) -> Self {
+        Self::Array(shared_slice(values))
+    }
+
+    /// Creates an ordered product constant term.
+    pub fn product(
+        fields: impl IntoIterator<Item = ConstantField<StructFieldSymbolId, ConstantTermId>>,
+    ) -> Self {
+        Self::Product(shared_slice(fields))
+    }
+
+    /// Creates an active union variant constant term.
+    pub fn union(
+        variant: UnionVariantSymbolId,
+        fields: impl IntoIterator<Item = ConstantField<UnionPayloadFieldSymbolId, ConstantTermId>>,
+    ) -> Self {
+        Self::Union {
+            variant,
+            fields: shared_slice(fields),
+        }
+    }
+
     /// Creates a checked constant-call term.
     pub fn call(
         callable: CallableInstanceId,

@@ -19,7 +19,8 @@ use crate::binder::{Binder, BinderOutput, BindingContext};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
 use crate::publication::{
     assemble_constant_template, assemble_constraint, assemble_contract_clause,
-    assemble_predicate_definition, assemble_runtime_default, direct_nested_units,
+    assemble_embedded_constant, assemble_predicate_definition, assemble_runtime_default,
+    direct_nested_units,
 };
 use crate::{BinderFactContext, BoundUnitComputation, SymbolFactProvider};
 
@@ -98,6 +99,17 @@ define_pending_expression_unit!(
     [],
     "A bound constant-template expression ready to complete its semantic unit.",
     "Binds one constant-template expression into committed task-local state."
+);
+define_pending_expression_unit!(
+    PendingBoundEmbeddedConstant,
+    bind_embedded_constant,
+    assemble_embedded_constant,
+    bind_expression_unit,
+    BoundExpressionId,
+    BindingContext::ConstantExpression,
+    [],
+    "A bound embedded constant expression ready to complete its semantic unit.",
+    "Binds one embedded constant expression into committed task-local state."
 );
 define_pending_expression_unit!(
     PendingBoundPredicateDefinition,

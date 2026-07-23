@@ -81,6 +81,17 @@ impl Compilation {
 
             let declared_types = self.declared_value_type_templates(key.clone())?;
 
+            let embedded_constants = self.checked_constant_terms_for_templates_with_cancellation(
+                declared_types
+                    .value()
+                    .evidence()
+                    .iter()
+                    .map(|evidence| evidence.template())
+                    .chain(declared_types.value().callable_type())
+                    .chain(declared_types.value().callable_result()),
+                &self.state.cancellation,
+            )?;
+
             let expression_semantics =
                 self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
 
@@ -92,6 +103,9 @@ impl Compilation {
 
             facts.push(SemanticDiagnosticFact::Bound(bound));
             facts.push(SemanticDiagnosticFact::DeclaredTypes(declared_types));
+            facts.push(SemanticDiagnosticFact::EmbeddedConstants(
+                embedded_constants,
+            ));
 
             facts.push(SemanticDiagnosticFact::ExpressionSemantics(
                 expression_semantics,
@@ -275,6 +289,7 @@ impl Compilation {
 enum SemanticDiagnosticFact {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
+    EmbeddedConstants(DiagnosticResult<bray_checker::CheckedConstantTerms>),
     ExpressionSemantics(Arc<PublishedUnitFact<CheckedExpressionSemantics>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
     Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
@@ -287,6 +302,7 @@ impl SemanticDiagnosticFact {
         match self {
             Self::Bound(result) => result.diagnostics(),
             Self::DeclaredTypes(result) => result.diagnostics(),
+            Self::EmbeddedConstants(result) => result.diagnostics(),
             Self::ExpressionSemantics(result) => result.result().diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
             Self::Patterns(result) => result.diagnostics(),
@@ -525,6 +541,48 @@ mod tests {
         assert_eq!(
             diagnostic_kinds(first),
             [DiagnosticKind::BindingNameAlreadyDefined]
+        );
+    }
+
+    #[test]
+    fn check_diagnostics_request_embedded_constant_expressions() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(pos source: [i32; false])\n",
+            "{\n",
+            "    let copy: [i32; false] = source;\n",
+            "}\n",
+        ));
+
+        let keys = compilation
+            .declared_unit_keys()
+            .unwrap_or_else(|error| panic!("callable unit must be discoverable: {error:?}"));
+
+        let [key] = keys.as_slice() else {
+            panic!("test source must produce one callable unit");
+        };
+
+        let declared = compilation
+            .declared_value_type_templates(key.clone())
+            .unwrap_or_else(|error| panic!("declared types must publish: {error:?}"));
+
+        let occurrence = declared
+            .value()
+            .evidence()
+            .iter()
+            .flat_map(|evidence| evidence.template().constant_expressions())
+            .next()
+            .unwrap_or_else(|| panic!("array type must retain its length expression"));
+
+        let checked = compilation
+            .embedded_constant_term(occurrence)
+            .unwrap_or_else(|error| panic!("embedded constant must recover: {error:?}"));
+
+        assert!(!checked.diagnostics().is_empty());
+
+        assert!(
+            diagnostic_kinds(compilation.check_diagnostics())
+                .contains(&DiagnosticKind::CheckingIncompatibleExpressionType)
         );
     }
 

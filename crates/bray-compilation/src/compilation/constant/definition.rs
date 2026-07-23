@@ -3,11 +3,10 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockItem, BoundCallableBodyKind, BoundControlTransferKind,
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey,
-    BoundUnitKind, BoundUnitRoot, BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes,
-    CheckedTemplateKind, CheckedTemplateOperation, ExpressionTypeEntry, ExpressionTypeResult,
-    walk_bound_unit_view,
+    AnyBoundNodeId, BoundCallableBodyKind, BoundExpression, BoundExpressionId,
+    BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl,
+    BoundWalkEvent, CheckedExpressionTypes, CheckedTemplateKind, CheckedTemplateOperation,
+    ExpressionTypeEntry, ExpressionTypeResult, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluator,
@@ -147,7 +146,10 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<ConstantTermId>>, FactQueryError> {
-        if key.kind() != BoundUnitKind::ConstantTemplate {
+        if !matches!(
+            key.kind(),
+            BoundUnitKind::ConstantTemplate | BoundUnitKind::EmbeddedConstant
+        ) {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
@@ -414,10 +416,7 @@ impl Compilation {
                     Err(error) => Err(error),
                 }
             }
-            BoundReferenceTarget::Local(_) => {
-                // TODO(BRA-246): Evaluate local constants and immutable local bindings.
-                Err(FactQueryError::InfrastructureFailure)
-            }
+            BoundReferenceTarget::Local(_) => Err(FactQueryError::InfrastructureFailure),
         })?;
 
         Ok((references, dependency_diagnostics))
@@ -577,30 +576,16 @@ pub(super) fn call_parameter_values(
     Ok(resolved)
 }
 
-pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<BoundExpressionId> {
+pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<bray_bound_tree::BoundBlockId> {
     let BoundUnitRoot::CallableBody(body) = bound.root() else {
         return None;
     };
 
     let body = bound.view().callable_body(body)?;
 
-    let BoundCallableBodyKind::Block(block) = body.kind() else {
-        return None;
-    };
-
-    let block = bound.view().block(block)?;
-
-    let [BoundBlockItem::Expression(expression)] = block.items() else {
-        return None;
-    };
-
-    match bound.view().expression(*expression)? {
-        BoundExpression::ControlTransfer(transfer)
-            if transfer.kind() == BoundControlTransferKind::Return =>
-        {
-            transfer.operand()
-        }
-        _ => Some(*expression),
+    match body.kind() {
+        BoundCallableBodyKind::Block(block) => Some(block),
+        BoundCallableBodyKind::Error(_) => None,
     }
 }
 
@@ -622,6 +607,10 @@ fn collect_references(
         let Some(BoundExpression::Name(name)) = bound.view().expression(expression) else {
             return BoundWalkControl::Continue;
         };
+
+        if matches!(name.target(), BoundReferenceTarget::Local(_)) {
+            return BoundWalkControl::Continue;
+        }
 
         match resolve(expression, name.target()) {
             Ok(resolution) => references.push((expression, resolution)),
@@ -832,44 +821,12 @@ mod tests {
             "}\n",
         ));
 
-        let symbols = compilation
-            .symbol_graph()
-            .unwrap_or_else(|error| panic!("test symbol graph must publish: {error:?}"));
-
-        let function = symbols
-            .functions()
-            .iter()
-            .find(|function| function.origin() == SymbolOrigin::Source)
-            .unwrap_or_else(|| panic!("test source must produce one function"));
-
-        let definition = CallableDefinitionId::try_new(function.id().into())
-            .unwrap_or_else(|| panic!("source function must be callable"));
-
         let values = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
-        let substitution = GenericSubstitutionData::try_new(
-            GenericOwnerId::try_new(function.id().into())
-                .unwrap_or_else(|| panic!("source function must own a substitution")),
-            [],
-            [],
-        )
-        .unwrap_or_else(|error| panic!("empty function substitution must validate: {error:?}"));
-
-        let substitution = values
-            .intern_generic_substitution(substitution)
-            .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
-
         let ty = i32_type(&compilation);
-
-        let request = ConstantCallRequest::new(
-            CallableInstanceData::new(definition, substitution),
-            None,
-            [],
-            ty,
-            ConstantEvaluationLimits::default(),
-        );
+        let (definition, request) = source_constant_call_request(&compilation, [], ty);
 
         let callable = values
             .intern_callable_instance(request.callable())
@@ -929,6 +886,72 @@ mod tests {
         };
 
         assert_eq!(integer_value(&compilation, value), 42);
+    }
+
+    #[test]
+    fn constant_calls_evaluate_parameters_conditionals_and_local_constants() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const func choose(pos condition: bool, pos left: i32, pos right: i32) -> i32\n",
+            "{\n",
+            "    const fallback: i32 = right;\n",
+            "\n",
+            "    if condition\n",
+            "    {\n",
+            "        return left;\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
+            "        return fallback;\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let result_type = i32_type(&compilation);
+        let condition_type = bool_type(&compilation);
+        let condition = boolean_constant(&compilation, condition_type, false);
+        let left = integer_constant(&compilation, result_type, 7);
+        let right = integer_constant(&compilation, result_type, 9);
+
+        let (definition, request) =
+            source_constant_call_request(&compilation, [condition, left, right], result_type);
+
+        let body_key = compilation
+            .callable_body_key(definition)
+            .unwrap_or_else(|error| panic!("callable body key must resolve: {error:?}"))
+            .unwrap_or_else(|| panic!("source constant callable must have a body"));
+
+        let body = compilation
+            .bound_unit(body_key)
+            .unwrap_or_else(|error| panic!("constant callable body must bind: {error:?}"));
+
+        assert!(
+            constant_callable_root(body.value()).is_some(),
+            "unexpected constant callable body: {:#?}",
+            body.value()
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let result = compilation
+            .constant_call_with_cancellation(&request, &compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("constant call must publish: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        let Some(value) = *result.value() else {
+            panic!("constant callable must be eligible for evaluation");
+        };
+
+        assert_eq!(integer_value(&compilation, value), 9);
     }
 
     #[test]
@@ -1281,13 +1304,74 @@ mod tests {
             .unwrap_or_else(|error| panic!("generic substitution must be concrete: {error:?}"))
     }
 
+    fn source_constant_call_request(
+        compilation: &crate::Compilation,
+        arguments: impl IntoIterator<Item = ConstantValueId>,
+        result_type: bray_symbols::TypeId,
+    ) -> (CallableDefinitionId, ConstantCallRequest) {
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must publish: {error:?}"));
+
+        let function = symbols
+            .functions()
+            .iter()
+            .find(|function| function.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("test source must produce one function"));
+
+        let definition = CallableDefinitionId::try_new(function.id().into())
+            .unwrap_or_else(|| panic!("source function must be callable"));
+
+        let substitution = GenericSubstitutionData::try_new(
+            GenericOwnerId::try_new(function.id().into())
+                .unwrap_or_else(|| panic!("source function must own a substitution")),
+            [],
+            [],
+        )
+        .unwrap_or_else(|error| panic!("empty function substitution must validate: {error:?}"));
+
+        let substitution = compilation
+            .semantic_value_store()
+            .and_then(|values| {
+                values
+                    .intern_generic_substitution(substitution)
+                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+            })
+            .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
+
+        let request = ConstantCallRequest::new(
+            CallableInstanceData::new(definition, substitution),
+            None,
+            arguments,
+            result_type,
+            ConstantEvaluationLimits::default(),
+        );
+
+        (definition, request)
+    }
+
     fn i32_type(compilation: &crate::Compilation) -> bray_symbols::TypeId {
+        scalar_type(
+            compilation,
+            bray_compiler_known::RepresentationRole::ScalarI32,
+        )
+    }
+
+    fn bool_type(compilation: &crate::Compilation) -> bray_symbols::TypeId {
+        scalar_type(
+            compilation,
+            bray_compiler_known::RepresentationRole::ScalarBool,
+        )
+    }
+
+    fn scalar_type(
+        compilation: &crate::Compilation,
+        role: bray_compiler_known::RepresentationRole,
+    ) -> bray_symbols::TypeId {
         let definition = compilation
             .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(
-                bray_compiler_known::RepresentationRole::ScalarI32,
-            )
-            .unwrap_or_else(|| panic!("i32 representation must be available"));
+            .representation_symbol::<bray_symbols::StructSymbolId>(role)
+            .unwrap_or_else(|| panic!("scalar representation must be available: {role:?}"));
 
         let values = compilation
             .semantic_value_store()
@@ -1330,6 +1414,24 @@ mod tests {
                             IntegerSign::NonNegative,
                             [value],
                         )),
+                    ))
+                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+            })
+            .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
+    }
+
+    fn boolean_constant(
+        compilation: &crate::Compilation,
+        ty: bray_symbols::TypeId,
+        value: bool,
+    ) -> ConstantValueId {
+        compilation
+            .semantic_value_store()
+            .and_then(|values| {
+                values
+                    .intern_constant_value(ConstantValueData::new(
+                        ty,
+                        ConstantValueKind::Boolean(value),
                     ))
                     .map_err(|_| crate::FactQueryError::InfrastructureFailure)
             })

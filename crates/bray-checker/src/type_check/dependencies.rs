@@ -14,7 +14,6 @@ pub(super) struct ExpressionTypeDependencies {
     pub(super) i32: TypeId,
     pub(super) r64: TypeId,
     pub(super) c128: TypeId,
-    pub(super) usize: TypeId,
 }
 
 impl ExpressionTypeDependencies {
@@ -36,7 +35,6 @@ impl ExpressionTypeDependencies {
         let i32 = representation_type(request, RepresentationRole::ScalarI32)?;
         let r64 = representation_type(request, RepresentationRole::ScalarR64)?;
         let c128 = representation_type(request, RepresentationRole::ScalarC128)?;
-        let usize = representation_type(request, RepresentationRole::ScalarUsize)?;
 
         Ok(Self {
             error,
@@ -48,7 +46,6 @@ impl ExpressionTypeDependencies {
             i32,
             r64,
             c128,
-            usize,
         })
     }
 }

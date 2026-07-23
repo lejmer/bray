@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_checker::{
-    CheckedConstantTerms, CheckerFactError, CheckerFactResult, CheckerInfrastructureError,
-    CheckerUnitView, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
-    ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator,
-    resolve_callable_signature_template,
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerUnitView,
+    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
+    ConstantEvaluator, DefaultConstantEvaluator, resolve_callable_signature_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -152,11 +151,19 @@ impl Compilation {
             ))
             .map_err(binder_fact_error)?;
 
+        let checked_terms = self.checked_constant_terms_for_templates_with_cancellation(
+            [
+                signature_fact.value().callable_type(),
+                signature_fact.value().result(),
+            ],
+            cancellation,
+        )?;
+
         let signature = resolve_callable_signature_template(
             values,
             signature_fact.value(),
             callable.substitution(),
-            &CheckedConstantTerms::new(),
+            checked_terms.value(),
         )
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -178,25 +185,28 @@ impl Compilation {
         }
 
         let Some(body_key) = self.callable_body_key(callable.definition())? else {
-            // TODO(BRA-246): Evaluate imported const callables once interfaces expose their bodies.
+            // TODO(BRA-269): Load imported const-callable bodies from implementation artifacts.
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
         let bound = self.bound_unit_with_cancellation(body_key.clone(), cancellation)?;
 
         let Some(root) = constant_callable_root(bound.result().value()) else {
-            // TODO(BRA-246): Evaluate callable parameters, control flow, and local declarations.
             return Ok(DiagnosticResult::new(
                 None,
                 DiagnosticBag::merged_all([
                     signature_fact.diagnostics(),
+                    checked_terms.diagnostics(),
                     bound.result().diagnostics(),
                 ]),
             ));
         };
 
+        // Independently cached body facts each retain the Arc-backed unit key.
         let semantics =
             self.expression_semantics_with_cancellation(body_key.clone(), cancellation)?;
+
+        let patterns = self.pattern_facts_with_cancellation(body_key.clone(), cancellation)?;
 
         let context = self.checker_context_for(&body_key, cancellation)?;
 
@@ -223,7 +233,8 @@ impl Compilation {
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
         let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
-            .with_root(root)
+            .with_block_root(root, key.result_type())
+            .with_pattern_facts(patterns.result().value())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(key.limits());
@@ -239,8 +250,10 @@ impl Compilation {
 
         let diagnostics = DiagnosticBag::merged_all([
             signature_fact.diagnostics(),
+            checked_terms.diagnostics(),
             bound.result().diagnostics(),
             semantics.result().diagnostics(),
+            patterns.result().diagnostics(),
             &dependency_diagnostics,
             evaluated.diagnostics(),
         ]);

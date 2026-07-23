@@ -5,11 +5,11 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, CallableSignatureFact, CallableSignatureTemplate,
-    CallableSymbolId, ConstantDeclaredTypeFact, ConstantSymbolId,
-    GenericConstParameterDeclaredTypeFact, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, StructFieldTypeFact, SymbolFactRequest,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TypeExpressionTemplate, UnionPayloadFieldTypeFact,
+    CallableSymbolId, ConstantDeclaredTypeFact, ConstantExpressionExpectedType,
+    ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeFact,
+    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, StructFieldTypeFact,
+    SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantMemberDeclaredTypeFact, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
 };
 use bray_syntax::LambdaExpressionSyntax;
 
@@ -41,6 +41,7 @@ impl DeclaredValueTypeBinding<'_> {
             BoundUnitKind::AnonymousCallable => self.bind_anonymous_callable_surface(),
             BoundUnitKind::RuntimeDefault => self.bind_runtime_default_surface(),
             BoundUnitKind::ConstantTemplate => self.bind_constant_surface(),
+            BoundUnitKind::EmbeddedConstant => self.bind_embedded_constant_surface(),
             BoundUnitKind::PredicateDefinition => self.bind_predicate_surface(),
             BoundUnitKind::Constraint => Ok(()),
             BoundUnitKind::ContractClause => self.bind_contract_surface(),
@@ -176,6 +177,35 @@ impl DeclaredValueTypeBinding<'_> {
             DeclaredValueTypeTerm::Expression(initializer),
             value,
         );
+
+        Ok(())
+    }
+
+    fn bind_embedded_constant_surface(&mut self) -> BinderFactResult<()> {
+        let BoundUnitRoot::Expression(expression) = self.unit.root() else {
+            return Err(BinderFactError::DependencyUnavailable);
+        };
+
+        let occurrence =
+            ConstantExpressionOccurrenceKey::new(self.owner, self.unit.key().source().syntax());
+
+        let expected = self
+            .context
+            .compilation()
+            .embedded_constant_expected_type(occurrence)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        let template = match expected {
+            ConstantExpressionExpectedType::Resolved(ty) => TypeExpressionTemplate::Resolved(ty),
+            ConstantExpressionExpectedType::GenericParameter(parameter) => self
+                .context
+                .symbol_fact(
+                    SymbolFactRequest::<GenericConstParameterDeclaredTypeFact>::new(parameter),
+                )
+                .map(|result| owned_template(result.value()))?,
+        };
+
+        self.add_evidence(DeclaredValueTypeTerm::Expression(expression), template);
 
         Ok(())
     }

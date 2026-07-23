@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_binder::{
     BinderDependency, BinderFactContext, BoundUnitBindingError, BoundUnitComputation,
     bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
-    bind_contract_clause, bind_expression_candidates, bind_predicate_definition,
-    bind_runtime_default, semantic_unit_context,
+    bind_contract_clause, bind_embedded_constant, bind_expression_candidates,
+    bind_predicate_definition, bind_runtime_default, semantic_unit_context,
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
@@ -458,6 +458,7 @@ fn bind_unit(
         BoundUnitKind::AnonymousCallable => bind_anonymous_callable(facts, unit, key)?.finish(),
         BoundUnitKind::RuntimeDefault => bind_runtime_default(facts, unit, key)?.finish(),
         BoundUnitKind::ConstantTemplate => bind_constant_template(facts, unit, key)?.finish(),
+        BoundUnitKind::EmbeddedConstant => bind_embedded_constant(facts, unit, key)?.finish(),
         BoundUnitKind::PredicateDefinition => bind_predicate_definition(facts, unit, key)?.finish(),
         BoundUnitKind::Constraint => bind_constraint(facts, unit, key)?.finish(),
         BoundUnitKind::ContractClause => bind_contract_clause(facts, unit, key)?.finish(),
@@ -1119,7 +1120,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_declared_type_components_defer_owned_diagnostics() {
+    fn declared_array_types_resolve_their_embedded_constant_lengths() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main(pos source: [i32; 4])\n",
@@ -1137,11 +1138,11 @@ mod tests {
 
         assert!(
             types.diagnostics().is_empty(),
-            "unsupported declared types must not produce derived diagnostics: {:?}",
+            "checked declared types must not produce derived diagnostics: {:?}",
             types.diagnostics()
         );
 
-        assert!(types.value().is_recovered());
+        assert!(!types.value().is_recovered());
     }
 
     #[test]

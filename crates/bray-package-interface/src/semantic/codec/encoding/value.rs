@@ -230,13 +230,13 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
         }
         InterfaceConstantValueKind::Product(values) => {
             encoder.write_u32(12);
-            write_ids(encoder, values, |id| id.raw());
+            write_constant_fields(encoder, values, |id| id.raw());
         }
         InterfaceConstantValueKind::Union { variant, fields } => {
             encoder.write_u32(13);
 
             write_symbol_reference(encoder, variant);
-            write_ids(encoder, fields, |id| id.raw());
+            write_constant_fields(encoder, fields, |id| id.raw());
         }
     }
 }
@@ -277,6 +277,26 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             encoder.write_u32(10);
             encoder.write_u32(operand.raw());
             encoder.write_u32(target.raw());
+        }
+        InterfaceConstantTerm::NullablePresent(value) => {
+            write_tagged_id(encoder, 11, value.raw());
+        }
+        InterfaceConstantTerm::Tuple(values) => {
+            encoder.write_u32(12);
+            write_ids(encoder, values, |id| id.raw());
+        }
+        InterfaceConstantTerm::Array(values) => {
+            encoder.write_u32(13);
+            write_ids(encoder, values, |id| id.raw());
+        }
+        InterfaceConstantTerm::Product(fields) => {
+            encoder.write_u32(14);
+            write_constant_fields(encoder, fields, |id| id.raw());
+        }
+        InterfaceConstantTerm::Union { variant, fields } => {
+            encoder.write_u32(15);
+            write_symbol_reference(encoder, variant);
+            write_constant_fields(encoder, fields, |id| id.raw());
         }
         InterfaceConstantTerm::DefinitionApplication {
             definition,
@@ -374,6 +394,19 @@ fn write_ids<T>(encoder: &mut WireEncoder, values: &[T], raw: impl Fn(&T) -> u32
 
     for value in values {
         encoder.write_u32(raw(value));
+    }
+}
+
+fn write_constant_fields<V>(
+    encoder: &mut WireEncoder,
+    fields: &[bray_symbols::ConstantField<crate::InterfaceSymbolReference, V>],
+    raw: impl Fn(&V) -> u32,
+) {
+    write_count(encoder, fields.len());
+
+    for field in fields {
+        write_symbol_reference(encoder, field.field());
+        encoder.write_u32(raw(field.value()));
     }
 }
 

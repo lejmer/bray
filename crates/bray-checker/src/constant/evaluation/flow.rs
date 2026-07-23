@@ -1,0 +1,228 @@
+use bray_bound_tree::{
+    BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
+    BoundStructuredExpression, BoundStructuredExpressionKind,
+};
+use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueKind, TypeId};
+
+use crate::{CheckerInfrastructureError, CheckerRequestContext};
+
+use super::engine::Evaluator;
+use super::support::EvaluationFailure;
+
+pub(super) enum EvaluationFlow {
+    Value(ConstantTermId),
+    Yield(ConstantTermId),
+    Return(ConstantTermId),
+    Propagate(ConstantTermId),
+}
+
+impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    pub(super) fn evaluate_flow(
+        &mut self,
+        expression: BoundExpressionId,
+    ) -> Result<EvaluationFlow, EvaluationFailure> {
+        let bound = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or(EvaluationFailure::invalid_input())?;
+
+        match bound {
+            BoundExpression::Block(block) => {
+                let ty = self.expression_type(expression)?;
+
+                self.evaluate_block(block.block(), ty)
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::Conditional =>
+            {
+                self.evaluate_conditional(expression, structured)
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::TrustBoundary =>
+            {
+                let [operand] = structured.operands() else {
+                    return Err(EvaluationFailure::invalid_expression(expression));
+                };
+
+                self.evaluate_flow(*operand)
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::Assertion =>
+            {
+                self.evaluate_assertion(expression, structured)
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::NullablePropagation =>
+            {
+                self.evaluate_nullable_propagation(expression, structured)
+            }
+            BoundExpression::ControlTransfer(transfer) => {
+                let term = match transfer.operand() {
+                    Some(operand) => self.evaluate(operand)?,
+                    None => self.unit_term(expression)?,
+                };
+
+                match transfer.kind() {
+                    BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield(term)),
+                    BoundControlTransferKind::Return => Ok(EvaluationFlow::Return(term)),
+                    BoundControlTransferKind::Break | BoundControlTransferKind::Continue => {
+                        Err(EvaluationFailure::invalid_expression(expression))
+                    }
+                }
+            }
+            BoundExpression::Match(matched) => self.evaluate_match(expression, matched),
+            _ => self.evaluate_direct(expression).map(EvaluationFlow::Value),
+        }
+    }
+
+    pub(super) fn evaluate_block(
+        &mut self,
+        block: BoundBlockId,
+        result_type: TypeId,
+    ) -> Result<EvaluationFlow, EvaluationFailure> {
+        let block = self
+            .request
+            .view()
+            .block(block)
+            .ok_or(EvaluationFailure::invalid_input())?;
+
+        let mut result = self.intern_value_term(result_type, ConstantValueKind::Unit)?;
+
+        for item in block.items() {
+            self.observe_cancellation()?;
+
+            match item {
+                BoundBlockItem::LocalConstant(constant) => {
+                    let Some(symbol) = constant.symbol() else {
+                        return Err(EvaluationFailure::invalid_expression(
+                            constant.initializer(),
+                        ));
+                    };
+
+                    let value = self.evaluate(constant.initializer())?;
+
+                    self.locals.insert(AnyLocalSymbolId::from(symbol), value);
+                }
+                BoundBlockItem::LocalBinding(binding) => {
+                    return Err(EvaluationFailure::invalid_expression(binding.initializer()));
+                }
+                BoundBlockItem::Expression(expression) => match self.evaluate_flow(*expression)? {
+                    EvaluationFlow::Value(value) => result = value,
+                    EvaluationFlow::Yield(value) => {
+                        return Ok(EvaluationFlow::Value(value));
+                    }
+                    EvaluationFlow::Return(value) => {
+                        return Ok(EvaluationFlow::Return(value));
+                    }
+                    EvaluationFlow::Propagate(value) => {
+                        if self.is_nullable_type(result_type)? {
+                            return Ok(EvaluationFlow::Value(value));
+                        }
+
+                        return Ok(EvaluationFlow::Propagate(value));
+                    }
+                },
+            }
+        }
+
+        Ok(EvaluationFlow::Value(result))
+    }
+
+    fn evaluate_conditional(
+        &mut self,
+        expression: BoundExpressionId,
+        conditional: &BoundStructuredExpression,
+    ) -> Result<EvaluationFlow, EvaluationFailure> {
+        let [condition] = conditional.operands() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let condition = self.evaluate(*condition)?;
+        let condition = self.closed_value(condition, expression)?;
+        let condition = self.constant_value(condition)?;
+
+        let ConstantValueKind::Boolean(condition) = condition.kind() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let ty = self.expression_type(expression)?;
+
+        match (*condition, conditional.blocks()) {
+            (true, [then, ..]) => self.evaluate_block(*then, ty),
+            (false, [_, otherwise, ..]) => self.evaluate_block(*otherwise, ty),
+            (false, [_]) | (false, []) => self
+                .intern_value_term(ty, ConstantValueKind::Unit)
+                .map(EvaluationFlow::Value),
+            (true, []) => Err(EvaluationFailure::invalid_expression(expression)),
+        }
+    }
+
+    fn evaluate_assertion(
+        &mut self,
+        expression: BoundExpressionId,
+        assertion: &BoundStructuredExpression,
+    ) -> Result<EvaluationFlow, EvaluationFailure> {
+        let Some(condition) = assertion.operands().first().copied() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let condition = self.evaluate(condition)?;
+        let condition = self.closed_value(condition, expression)?;
+        let condition = self.constant_value(condition)?;
+
+        match condition.kind() {
+            ConstantValueKind::Boolean(true) => {
+                self.unit_term(expression).map(EvaluationFlow::Value)
+            }
+            ConstantValueKind::Boolean(false) => {
+                Err(EvaluationFailure::invalid_expression(expression))
+            }
+            _ => Err(EvaluationFailure::invalid_expression(expression)),
+        }
+    }
+
+    fn evaluate_nullable_propagation(
+        &mut self,
+        expression: BoundExpressionId,
+        propagation: &BoundStructuredExpression,
+    ) -> Result<EvaluationFlow, EvaluationFailure> {
+        let [operand] = propagation.operands() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let operand = self.evaluate(*operand)?;
+        let value = self.closed_value(operand, expression)?;
+        let value = self.constant_value(value)?;
+
+        match value.kind() {
+            ConstantValueKind::NullablePresent(value) => self
+                .intern_term(bray_symbols::ConstantTermData::Value(*value))
+                .map(EvaluationFlow::Value),
+            ConstantValueKind::NullableAbsent => Ok(EvaluationFlow::Propagate(operand)),
+            _ => Err(EvaluationFailure::invalid_expression(expression)),
+        }
+    }
+
+    fn is_nullable_type(&self, ty: TypeId) -> Result<bool, EvaluationFailure> {
+        self.request
+            .semantic_values()
+            .type_data(ty)
+            .map(|ty| matches!(ty.as_ref(), bray_symbols::TypeData::Nullable(_)))
+            .map_err(|_| {
+                EvaluationFailure::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })
+    }
+
+    fn unit_term(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        self.intern_value_term(self.expression_type(expression)?, ConstantValueKind::Unit)
+    }
+}

@@ -1,6 +1,6 @@
 use super::{
     CallableDependencyContracts, CallableInstanceData, CallableParameterData, CallableTypeData,
-    ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
+    ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionData,
     GenericSubstitutionId, ImplementationInstanceData, SemanticValueStore, SemanticValueStoreError,
@@ -200,6 +200,44 @@ impl SemanticValueStore {
                 operand: self.substitute_constant_term(*operand, substitution)?,
                 target: self.substitute_type_data(*target, substitution)?,
             },
+            ConstantTermData::NullablePresent(value) => ConstantTermData::NullablePresent(
+                self.substitute_constant_term(*value, substitution)?,
+            ),
+            ConstantTermData::Tuple(values) => ConstantTermData::tuple(
+                values
+                    .iter()
+                    .map(|value| self.substitute_constant_term(*value, substitution))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ConstantTermData::Array(values) => ConstantTermData::array(
+                values
+                    .iter()
+                    .map(|value| self.substitute_constant_term(*value, substitution))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ConstantTermData::Product(fields) => ConstantTermData::product(
+                fields
+                    .iter()
+                    .map(|field| {
+                        Ok(ConstantField::new(
+                            *field.field(),
+                            self.substitute_constant_term(*field.value(), substitution)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+            ),
+            ConstantTermData::Union { variant, fields } => ConstantTermData::union(
+                *variant,
+                fields
+                    .iter()
+                    .map(|field| {
+                        Ok(ConstantField::new(
+                            *field.field(),
+                            self.substitute_constant_term(*field.value(), substitution)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+            ),
             ConstantTermData::DefinitionApplication {
                 definition,
                 substitution: nested,

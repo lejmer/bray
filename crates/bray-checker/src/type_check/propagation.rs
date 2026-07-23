@@ -5,8 +5,7 @@ use bray_bound_tree::{
     BoundStructuredExpressionKind, BoundUnitView,
 };
 use bray_symbols::{
-    ConstantTermData, ConstantValueData, ConstantValueKind, IntegerConstant, IntegerSign, TypeData,
-    TypeId,
+    ConstantTermData, IntegerConstant, IntegerSign, TargetSizedIntegerType, TypeData, TypeId,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -309,7 +308,7 @@ where
         return Ok(());
     }
 
-    let length = array_length(request, operands.len(), types.usize)?;
+    let length = array_length(request, operands.len())?;
     let ty = request
         .semantic_values()
         .intern_type(TypeData::Array { element, length })
@@ -387,7 +386,6 @@ fn add_aggregate_evidence(
 fn array_length<C>(
     request: CheckerUnitView<'_, C>,
     length: usize,
-    usize_type: TypeId,
 ) -> Result<bray_symbols::ConstantTermId, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -396,15 +394,12 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
         .to_be_bytes();
     let integer = IntegerConstant::new(IntegerSign::NonNegative, magnitude);
-    let value = ConstantValueData::new(usize_type, ConstantValueKind::Integer(integer));
-
-    let value = request
-        .semantic_values()
-        .intern_constant_value(value)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     request
         .semantic_values()
-        .intern_constant_term(ConstantTermData::Value(value))
+        .intern_constant_term(ConstantTermData::IntegerLiteral {
+            ty: TargetSizedIntegerType::Usize,
+            value: integer,
+        })
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
 }

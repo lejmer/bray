@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bray_base::Cancellation;
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundSourceAnchor, BoundUnit};
 use bray_compiler_known::RepresentationRole;
+use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
@@ -136,6 +137,12 @@ pub trait CheckerRequestContext: Sync {
 
     /// Returns the selected language-level target profile.
     fn selected_target(&self) -> &TargetProfile;
+
+    /// Checks one source constant expression embedded in a type template.
+    fn checked_constant_expression(
+        &self,
+        occurrence: bray_symbols::ConstantExpressionOccurrence,
+    ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ConstantTermId>>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(

@@ -10,6 +10,7 @@ pub use callable::{
 pub use error::BoundUnitBindingError;
 pub use expression::{
     PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
-    PendingBoundPredicateDefinition, PendingBoundRuntimeDefault, bind_constant_template,
-    bind_constraint, bind_contract_clause, bind_predicate_definition, bind_runtime_default,
+    PendingBoundEmbeddedConstant, PendingBoundPredicateDefinition, PendingBoundRuntimeDefault,
+    bind_constant_template, bind_constraint, bind_contract_clause, bind_embedded_constant,
+    bind_predicate_definition, bind_runtime_default,
 };

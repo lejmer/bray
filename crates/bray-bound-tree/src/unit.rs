@@ -17,6 +17,8 @@ pub enum BoundUnitKind {
     RuntimeDefault,
     /// A constant definition template.
     ConstantTemplate,
+    /// A constant expression embedded in a type-expression template.
+    EmbeddedConstant,
     /// A predicate definition.
     PredicateDefinition,
     /// A declaration constraint expression.
@@ -32,6 +34,7 @@ impl BoundUnitKind {
             Self::AnonymousCallable => false,
             Self::RuntimeDefault => CheckedTemplateKind::RuntimeDefault.accepts_owner(owner),
             Self::ConstantTemplate => CheckedTemplateKind::ConstantDefinition.accepts_owner(owner),
+            Self::EmbeddedConstant => owner.can_be_source_declared(),
             Self::PredicateDefinition => {
                 CheckedTemplateKind::PredicateDefinition.accepts_owner(owner)
             }
@@ -185,6 +188,8 @@ pub enum BoundUnitKeyData {
     RuntimeDefault(DeclaredBoundUnitKey),
     /// A constant definition template.
     ConstantTemplate(DeclaredBoundUnitKey),
+    /// A constant expression embedded in a type-expression template.
+    EmbeddedConstant(DeclaredBoundUnitKey),
     /// A predicate definition.
     PredicateDefinition(DeclaredBoundUnitKey),
     /// A declaration constraint expression.
@@ -201,6 +206,7 @@ impl BoundUnitKeyData {
             Self::AnonymousCallable(_) => BoundUnitKind::AnonymousCallable,
             Self::RuntimeDefault(_) => BoundUnitKind::RuntimeDefault,
             Self::ConstantTemplate(_) => BoundUnitKind::ConstantTemplate,
+            Self::EmbeddedConstant(_) => BoundUnitKind::EmbeddedConstant,
             Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
             Self::Constraint(_) => BoundUnitKind::Constraint,
             Self::ContractClause(_) => BoundUnitKind::ContractClause,
@@ -213,6 +219,7 @@ impl BoundUnitKeyData {
             Self::CallableBody(key)
             | Self::RuntimeDefault(key)
             | Self::ConstantTemplate(key)
+            | Self::EmbeddedConstant(key)
             | Self::PredicateDefinition(key)
             | Self::Constraint(key)
             | Self::ContractClause(key) => key.source(),
@@ -264,6 +271,18 @@ impl BoundUnitKey {
         Self::declared(
             BoundUnitKind::ConstantTemplate,
             BoundUnitKeyData::ConstantTemplate,
+            owner,
+            source,
+        )
+    }
+
+    /// Creates a key for a constant expression embedded in a type-expression template.
+    ///
+    /// Returns `None` when the owner cannot be introduced by a source declaration.
+    pub fn embedded_constant(owner: SymbolKey, source: BoundSourceAnchor) -> Option<Self> {
+        Self::declared(
+            BoundUnitKind::EmbeddedConstant,
+            BoundUnitKeyData::EmbeddedConstant,
             owner,
             source,
         )
@@ -326,6 +345,7 @@ impl BoundUnitKey {
             BoundUnitKeyData::CallableBody(key)
             | BoundUnitKeyData::RuntimeDefault(key)
             | BoundUnitKeyData::ConstantTemplate(key)
+            | BoundUnitKeyData::EmbeddedConstant(key)
             | BoundUnitKeyData::PredicateDefinition(key)
             | BoundUnitKeyData::Constraint(key)
             | BoundUnitKeyData::ContractClause(key) => key.owner(),

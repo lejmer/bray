@@ -67,6 +67,28 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .profile()
     }
 
+    fn checked_constant_expression(
+        &self,
+        occurrence: bray_symbols::ConstantExpressionOccurrence,
+    ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ConstantTermId>> {
+        // The checker request contract returns an owned result across the crate boundary.
+        self.facts
+            .compilation()
+            .embedded_constant_term_with_cancellation(occurrence, self.facts.cancellation())
+            .map(|result| (*result).clone())
+            .map_err(|error| match error {
+                FactQueryError::Cancelled => CheckerFactError::Cancelled,
+                FactQueryError::CheckerInfrastructure(error) => {
+                    CheckerFactError::Infrastructure(error)
+                }
+                FactQueryError::Cycle(_)
+                | FactQueryError::InfrastructureFailure
+                | FactQueryError::SemanticUnitContext(_) => CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                ),
+            })
+    }
+
     fn source(
         &self,
         anchor: BoundSourceAnchor,

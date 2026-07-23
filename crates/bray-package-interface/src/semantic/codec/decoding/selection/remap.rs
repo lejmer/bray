@@ -257,13 +257,14 @@ fn remap_constant_value(
         InterfaceConstantValueKind::NullablePresent(value) => {
             *value = maps.constant_value_id(*value)?;
         }
-        InterfaceConstantValueKind::Tuple(values)
-        | InterfaceConstantValueKind::Array(values)
-        | InterfaceConstantValueKind::Product(values) => {
+        InterfaceConstantValueKind::Tuple(values) | InterfaceConstantValueKind::Array(values) => {
             remap_constant_value_ids(Arc::make_mut(values), maps)?;
         }
+        InterfaceConstantValueKind::Product(fields) => {
+            remap_constant_value_fields(Arc::make_mut(fields), maps)?;
+        }
         InterfaceConstantValueKind::Union { fields, .. } => {
-            remap_constant_value_ids(Arc::make_mut(fields), maps)?;
+            remap_constant_value_fields(Arc::make_mut(fields), maps)?;
         }
         InterfaceConstantValueKind::Boolean(_)
         | InterfaceConstantValueKind::Character(_)
@@ -296,6 +297,18 @@ fn remap_constant_term(
         InterfaceConstantTerm::Conversion { operand, target } => {
             *operand = maps.constant_term_id(*operand)?;
             *target = maps.type_id(*target)?;
+        }
+        InterfaceConstantTerm::NullablePresent(value) => {
+            *value = maps.constant_term_id(*value)?;
+        }
+        InterfaceConstantTerm::Tuple(values) | InterfaceConstantTerm::Array(values) => {
+            remap_constant_term_ids(Arc::make_mut(values), maps)?;
+        }
+        InterfaceConstantTerm::Product(fields) => {
+            remap_constant_term_fields(Arc::make_mut(fields), maps)?;
+        }
+        InterfaceConstantTerm::Union { fields, .. } => {
+            remap_constant_term_fields(Arc::make_mut(fields), maps)?;
         }
         InterfaceConstantTerm::DefinitionApplication {
             substitution,
@@ -407,6 +420,39 @@ fn remap_constant_term_ids(
 ) -> Result<(), InterfaceValidationError> {
     for id in ids {
         *id = maps.constant_term_id(*id)?;
+    }
+
+    Ok(())
+}
+
+fn remap_constant_value_fields(
+    fields: &mut [bray_symbols::ConstantField<
+        crate::InterfaceSymbolReference,
+        InterfaceConstantValueId,
+    >],
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    for field in fields {
+        // Field identity remains unchanged while the selected record ID is remapped.
+        let identity = field.field().clone();
+        *field =
+            bray_symbols::ConstantField::new(identity, maps.constant_value_id(*field.value())?);
+    }
+
+    Ok(())
+}
+
+fn remap_constant_term_fields(
+    fields: &mut [bray_symbols::ConstantField<
+        crate::InterfaceSymbolReference,
+        InterfaceConstantTermId,
+    >],
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    for field in fields {
+        // Field identity remains unchanged while the selected record ID is remapped.
+        let identity = field.field().clone();
+        *field = bray_symbols::ConstantField::new(identity, maps.constant_term_id(*field.value())?);
     }
 
     Ok(())

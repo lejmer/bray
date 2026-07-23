@@ -135,6 +135,8 @@ pub enum SemanticUnitContext {
     RuntimeDefault(DeclaredUnitContext),
     /// A constant definition template.
     ConstantTemplate(DeclaredUnitContext),
+    /// A constant expression embedded in a type-expression template.
+    EmbeddedConstant(DeclaredUnitContext),
     /// A predicate definition.
     PredicateDefinition(DeclaredUnitContext),
     /// A declaration constraint expression.
@@ -155,6 +157,7 @@ impl SemanticUnitContext {
             Self::CallableBody(entry)
             | Self::RuntimeDefault(entry)
             | Self::ConstantTemplate(entry)
+            | Self::EmbeddedConstant(entry)
             | Self::PredicateDefinition(entry)
             | Self::Constraint(entry) => entry.key(),
             Self::AnonymousCallable(entry) => entry.key(),

@@ -46,6 +46,11 @@ fn local_region_key_parts(
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
             vec![unit.source().syntax()],
         ),
+        BoundUnitKeyData::EmbeddedConstant(unit) => (
+            shared_symbol_key(unit.owner()),
+            LocalSymbolRegionRole::EmbeddedConstant,
+            vec![unit.source().syntax()],
+        ),
         BoundUnitKeyData::PredicateDefinition(unit) => (
             shared_symbol_key(unit.owner()),
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::PredicateDefinition),

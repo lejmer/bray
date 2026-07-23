@@ -3,7 +3,7 @@ use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
-    ConstantValueData, ConstantValueId, ConstantValueKind, TypeData, TypeId,
+    ConstantValueData, ConstantValueId, ConstantValueKind, TypeId,
 };
 
 use crate::constant::integer::fits_integer_representation;
@@ -23,9 +23,7 @@ where
         expression: BoundExpressionId,
     ) -> Result<TypeId, EvaluationFailure> {
         let Some(result) = self.input.expression_types().expression(expression) else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            return Err(EvaluationFailure::invalid_input());
         };
 
         if result.status() == ExpressionTypeStatus::Recovered {
@@ -37,19 +35,8 @@ where
 
     pub(super) fn recovery_value(
         &self,
-        root: BoundExpressionId,
+        ty: TypeId,
     ) -> Result<ConstantValueId, CheckerInfrastructureError> {
-        let ty = self
-            .input
-            .expression_types()
-            .expression(root)
-            .map(|result| result.ty())
-            .map_or_else(
-                || self.request.semantic_values().intern_type(TypeData::Error),
-                Ok,
-            )
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
         self.request
             .semantic_values()
             .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
@@ -58,9 +45,9 @@ where
 
     pub(super) fn recovery_term(
         &self,
-        root: BoundExpressionId,
+        ty: TypeId,
     ) -> Result<ConstantTermId, CheckerInfrastructureError> {
-        let value = self.recovery_value(root)?;
+        let value = self.recovery_value(ty)?;
 
         self.request
             .semantic_values()
@@ -129,6 +116,11 @@ where
             | ConstantTermData::Unary { .. }
             | ConstantTermData::Binary { .. }
             | ConstantTermData::Conversion { .. }
+            | ConstantTermData::NullablePresent(_)
+            | ConstantTermData::Tuple(_)
+            | ConstantTermData::Array(_)
+            | ConstantTermData::Product(_)
+            | ConstantTermData::Union { .. }
             | ConstantTermData::DefinitionApplication { .. }
             | ConstantTermData::Call { .. }
             | ConstantTermData::Projection(_) => None,
@@ -147,11 +139,18 @@ where
     pub(super) fn finalize_closed_value(
         &self,
         term: ConstantTermId,
-        expression: BoundExpressionId,
+        expression: Option<BoundExpressionId>,
     ) -> Result<ConstantValueId, EvaluationFailure> {
-        let value = self.closed_value(term, expression)?;
+        let Some(value) = self.term_value(term)? else {
+            return match expression {
+                Some(expression) => Err(EvaluationFailure::invalid_expression(expression)),
+                None => Err(EvaluationFailure::invalid_input()),
+            };
+        };
 
-        self.validate_closed_value(value, expression)?;
+        if let Some(expression) = expression {
+            self.validate_closed_value(value, expression)?;
+        }
 
         Ok(value)
     }
@@ -187,16 +186,19 @@ where
             ConstantValueKind::NullablePresent(value) => {
                 self.validate_closed_value(*value, expression)?;
             }
-            ConstantValueKind::Tuple(values)
-            | ConstantValueKind::Array(values)
-            | ConstantValueKind::Product(values) => {
+            ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => {
                 for value in values.iter() {
                     self.validate_closed_value(*value, expression)?;
                 }
             }
+            ConstantValueKind::Product(fields) => {
+                for field in fields.iter() {
+                    self.validate_closed_value(*field.value(), expression)?;
+                }
+            }
             ConstantValueKind::Union { fields, .. } => {
-                for value in fields.iter() {
-                    self.validate_closed_value(*value, expression)?;
+                for field in fields.iter() {
+                    self.validate_closed_value(*field.value(), expression)?;
                 }
             }
             ConstantValueKind::Error
@@ -265,6 +267,10 @@ pub(in crate::constant) enum EvaluationFailure {
 }
 
 impl EvaluationFailure {
+    pub(super) const fn invalid_input() -> Self {
+        Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
+    }
+
     pub(super) const fn invalid_expression(expression: BoundExpressionId) -> Self {
         Self::Source {
             expression,

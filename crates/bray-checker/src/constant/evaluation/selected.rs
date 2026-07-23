@@ -1,17 +1,18 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundMemberSelector, BoundOperator, ConstructionTarget,
-    ConversionTarget, IndexTarget, OperatorTarget, SelectedOperation, SemanticSelection,
+    BoundExpression, BoundExpressionId, BoundMemberSelector, BoundOperator, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget, SelectedConstructionInput,
+    SelectedOperation, SemanticSelection,
 };
 use bray_compiler_known::NumericRepresentationKind;
 use bray_symbols::{
-    ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, SymbolOrdinal, TypeId,
+    AnySymbolId, ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData,
+    ConstantTermId, ConstantValueId, ConstantValueKind, SymbolOrdinal, TypeId,
 };
 
+use crate::CheckerRequestContext;
 use crate::constant::conversion::convert_scalar;
 use crate::constant::operation::{fold_binary, fold_unary};
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::engine::Evaluator;
 use super::support::{EvaluationFailure, binary_term_operation, unary_term_operation};
@@ -35,9 +36,7 @@ where
 
         match target {
             OperatorTarget::BuiltIn(selected) if *selected != operation => {
-                return Err(EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::InvalidConstantEvaluationInput,
-                ));
+                return Err(EvaluationFailure::invalid_input());
             }
             OperatorTarget::BuiltIn(_) => {}
             OperatorTarget::Trait {
@@ -49,9 +48,7 @@ where
                 return self.evaluate_call(expression, *fulfillment, Some(*witness), operands, ty);
             }
             OperatorTarget::Trait { .. } => {
-                return Err(EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::InvalidConstantEvaluationInput,
-                ));
+                return Err(EvaluationFailure::invalid_input());
             }
         }
 
@@ -60,9 +57,7 @@ where
             [left, right] => {
                 self.evaluate_binary_operator(expression, operation, *left, *right, ty)
             }
-            _ => Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            )),
+            _ => Err(EvaluationFailure::invalid_input()),
         }
     }
 
@@ -217,10 +212,10 @@ where
                     operand,
                     target: conversion.target_type(),
                 }),
-                ConversionTarget::Composite(_) => {
-                    // TODO(BRA-246): Represent open aggregate conversions as constant terms.
-                    Err(EvaluationFailure::invalid_expression(expression))
-                }
+                ConversionTarget::Composite(_) => self.intern_term(ConstantTermData::Conversion {
+                    operand,
+                    target: conversion.target_type(),
+                }),
                 ConversionTarget::Trait { .. } => {
                     Err(EvaluationFailure::invalid_expression(expression))
                 }
@@ -231,9 +226,7 @@ where
         let data = self.constant_value(value)?;
 
         if data.ty() != ty {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            return Err(EvaluationFailure::invalid_input());
         }
 
         self.intern_term(ConstantTermData::Value(value))
@@ -248,9 +241,7 @@ where
         let data = self.constant_value(value)?;
 
         if data.ty() != conversion.source_type() {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            return Err(EvaluationFailure::invalid_input());
         }
 
         let kind = match conversion.target() {
@@ -377,9 +368,7 @@ where
         let operands = structured.operands();
 
         let [subject, index] = operands else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            return Err(EvaluationFailure::invalid_input());
         };
 
         let subject = self.evaluate(*subject)?;
@@ -469,50 +458,69 @@ where
         member: &bray_bound_tree::BoundMemberAccessExpression,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        if !matches!(
-            self.input.semantic_selections().expression(expression),
-            Some(SemanticSelection::Operation(SelectedOperation::Member(_)))
-        ) {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        }
+        let selected_member = match self.input.semantic_selections().expression(expression) {
+            Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
+                target.member()
+            }
+            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+        };
 
-        let BoundMemberSelector::TupleElement(ordinal) = member
+        let selector = member
             .selector()
-            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?
-        else {
-            // TODO(BRA-246): Retain product and union field identities in closed values for projection.
-            return Err(EvaluationFailure::invalid_expression(expression));
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+
+        let projection = match (selector, selected_member) {
+            (BoundMemberSelector::TupleElement(ordinal), _) => {
+                ConstantProjectionKind::TupleElement(SymbolOrdinal::new(*ordinal))
+            }
+            (BoundMemberSelector::Name(_), AnySymbolId::StructField(field)) => {
+                ConstantProjectionKind::ProductField(field)
+            }
+            (BoundMemberSelector::Name(_), AnySymbolId::UnionPayloadField(field)) => {
+                ConstantProjectionKind::UnionPayloadField(field)
+            }
+            _ => return Err(EvaluationFailure::invalid_expression(expression)),
         };
 
         let receiver = self.evaluate(member.receiver())?;
 
         if self.term_value(receiver)?.is_none() {
             return self.intern_term(ConstantTermData::Projection(ConstantProjection::new(
-                receiver,
-                ConstantProjectionKind::TupleElement(SymbolOrdinal::new(*ordinal)),
+                receiver, projection,
             )));
         }
 
         let receiver = self.closed_value(receiver, expression)?;
         let receiver = self.constant_value(receiver)?;
 
-        let ConstantValueKind::Tuple(elements) = receiver.kind() else {
-            return Err(EvaluationFailure::invalid_expression(expression));
+        let value = match (receiver.kind(), projection) {
+            (ConstantValueKind::Tuple(elements), ConstantProjectionKind::TupleElement(ordinal)) => {
+                elements.get(ordinal.raw() as usize).copied()
+            }
+            (ConstantValueKind::Product(fields), ConstantProjectionKind::ProductField(field)) => {
+                fields
+                    .iter()
+                    .find(|entry| *entry.field() == field)
+                    .map(|entry| *entry.value())
+            }
+            (
+                ConstantValueKind::Union { fields, .. },
+                ConstantProjectionKind::UnionPayloadField(field),
+            ) => fields
+                .iter()
+                .find(|entry| *entry.field() == field)
+                .map(|entry| *entry.value()),
+            _ => None,
         };
 
-        let index = usize::try_from(*ordinal)
-            .map_err(|_| EvaluationFailure::invalid_expression(expression))?;
-
-        let Some(value) = elements.get(index).copied() else {
+        let Some(value) = value else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
         let value_data = self.constant_value(value)?;
 
         if value_data.ty() != ty {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            return Err(EvaluationFailure::invalid_input());
         }
 
         self.intern_term(ConstantTermData::Value(value))
@@ -526,32 +534,29 @@ where
         let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
             self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-246): Evaluate value-bearing construction operations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        if !construction.inputs().is_empty()
-            && !matches!(construction.target(), ConstructionTarget::TypeForm(_))
-        {
-            // TODO(BRA-246): Retain field identities in product and union constant values.
-            return Err(EvaluationFailure::invalid_expression(expression));
-        }
+        let target = construction.target();
+        let inputs = construction.inputs().to_vec();
 
-        let kind = match construction.target() {
-            ConstructionTarget::Struct(_) => ConstantValueKind::product([]),
-            ConstructionTarget::UnionVariant(variant) => ConstantValueKind::union(variant, []),
+        match target {
+            ConstructionTarget::Struct(_) => {
+                self.evaluate_product_construction(expression, ty, &inputs)
+            }
+            ConstructionTarget::UnionVariant(variant) => {
+                self.evaluate_union_construction(expression, ty, variant, &inputs)
+            }
             ConstructionTarget::TypeForm(callable) => {
-                let mut inputs = construction
-                    .inputs()
+                let mut inputs = inputs
                     .iter()
                     .map(|input| match input {
-                        bray_bound_tree::SelectedConstructionInput::Explicit {
+                        SelectedConstructionInput::Explicit {
                             expression,
                             ordinal,
                             ..
                         } => Ok((*ordinal, *expression)),
-                        bray_bound_tree::SelectedConstructionInput::Default { .. } => {
-                            // TODO(BRA-246): Evaluate declaration-owned defaults in constant construction.
+                        SelectedConstructionInput::Default { .. } => {
                             Err(EvaluationFailure::invalid_expression(expression))
                         }
                     })
@@ -564,11 +569,104 @@ where
                     .map(|(_, input)| input)
                     .collect::<Vec<_>>();
 
-                return self.evaluate_call(expression, callable, None, &inputs, ty);
+                self.evaluate_call(expression, callable, None, &inputs, ty)
             }
-        };
+        }
+    }
 
-        self.intern_value_term(ty, kind)
+    fn evaluate_product_construction(
+        &mut self,
+        expression: BoundExpressionId,
+        ty: TypeId,
+        inputs: &[SelectedConstructionInput],
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let inputs = self.evaluate_construction_inputs(expression, inputs)?;
+        let mut fields = Vec::with_capacity(inputs.len());
+
+        for (input, value) in inputs {
+            let ConstructionInputId::StructField(field) = input else {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            };
+
+            fields.push(ConstantField::new(field, value));
+        }
+
+        match self.closed_fields(&fields)? {
+            Some(fields) => self.intern_value_term(ty, ConstantValueKind::product(fields)),
+            None => self.intern_term(ConstantTermData::product(fields)),
+        }
+    }
+
+    fn evaluate_union_construction(
+        &mut self,
+        expression: BoundExpressionId,
+        ty: TypeId,
+        variant: bray_symbols::UnionVariantSymbolId,
+        inputs: &[SelectedConstructionInput],
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let inputs = self.evaluate_construction_inputs(expression, inputs)?;
+        let mut fields = Vec::with_capacity(inputs.len());
+
+        for (input, value) in inputs {
+            let ConstructionInputId::UnionPayloadField(field) = input else {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            };
+
+            fields.push(ConstantField::new(field, value));
+        }
+
+        match self.closed_fields(&fields)? {
+            Some(fields) => self.intern_value_term(ty, ConstantValueKind::union(variant, fields)),
+            None => self.intern_term(ConstantTermData::union(variant, fields)),
+        }
+    }
+
+    fn evaluate_construction_inputs(
+        &mut self,
+        expression: BoundExpressionId,
+        inputs: &[SelectedConstructionInput],
+    ) -> Result<Vec<(ConstructionInputId, ConstantTermId)>, EvaluationFailure> {
+        let mut evaluated = Vec::with_capacity(inputs.len());
+
+        for input in inputs {
+            let SelectedConstructionInput::Explicit {
+                expression: value,
+                input,
+                ordinal,
+            } = *input
+            else {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            };
+
+            evaluated.push((ordinal, input, self.evaluate(value)?));
+        }
+
+        evaluated.sort_unstable_by_key(|(ordinal, _, _)| *ordinal);
+
+        Ok(evaluated
+            .into_iter()
+            .map(|(_, input, value)| (input, value))
+            .collect())
+    }
+
+    fn closed_fields<I>(
+        &self,
+        fields: &[ConstantField<I, ConstantTermId>],
+    ) -> Result<Option<Vec<ConstantField<I, ConstantValueId>>>, EvaluationFailure>
+    where
+        I: Copy,
+    {
+        let mut values = Vec::with_capacity(fields.len());
+
+        for field in fields {
+            let Some(value) = self.term_value(*field.value())? else {
+                return Ok(None);
+            };
+
+            values.push(ConstantField::new(*field.field(), value));
+        }
+
+        Ok(Some(values))
     }
 
     pub(super) fn is_complex_literal(

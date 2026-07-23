@@ -12,7 +12,7 @@ use bray_symbols::{
 use super::result::{effective_pattern_kind, symbol_ordinal};
 use super::state::{PatternChecker, PatternChildren, PatternSubject};
 use crate::{
-    CheckedConstantTerms, CheckerFactError, CheckerInfrastructureError, CheckerRequestContext,
+    CheckerFactError, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, resolve_type_expression_template,
 };
 
@@ -305,16 +305,25 @@ where
     }
 
     fn resolve_field_subject(
-        &self,
+        &mut self,
         template: &TypeExpressionTemplate,
         substitution: GenericSubstitutionId,
-        is_recovered: bool,
+        mut is_recovered: bool,
     ) -> Result<PatternSubject, CheckerInfrastructureError> {
-        // TODO(BRA-246): Supply checked embedded constant terms for field type templates.
+        let constants = match self.request.checked_constant_terms(template) {
+            Ok(constants) => constants,
+            Err(CheckerFactError::Cancelled) => return Ok(self.recovered_subject()),
+            Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+        };
+
+        is_recovered |= constants.diagnostics().has_errors();
+        self.diagnostics
+            .extend(constants.diagnostics().iter().cloned());
+
         let Some(ty) = resolve_type_expression_template(
             self.request.semantic_values(),
             template,
-            &CheckedConstantTerms::new(),
+            constants.value(),
         )?
         else {
             return Ok(self.recovered_subject());

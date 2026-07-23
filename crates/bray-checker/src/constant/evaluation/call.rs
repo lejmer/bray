@@ -111,9 +111,7 @@ where
                 let value_data = self.constant_value(value)?;
 
                 if value_data.ty() != result_type {
-                    return Err(EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::InvalidConstantEvaluationInput,
-                    ));
+                    return Err(EvaluationFailure::invalid_input());
                 }
 
                 self.diagnostics = self.diagnostics.merged(result.diagnostics());

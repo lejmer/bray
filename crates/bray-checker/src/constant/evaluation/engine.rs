@@ -1,13 +1,16 @@
+use std::collections::BTreeMap;
+
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
+    BoundBlockId, BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
 };
 use bray_compiler_known::{IntegerRepresentation, NumericRepresentationKind};
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
 use bray_symbols::{
-    ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind, RealConstantBits,
-    TargetSizedIntegerType, TypeId,
+    AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
+    RealConstantBits, TargetSizedIntegerType, TypeId,
 };
 
+use crate::constant::input::ConstantEvaluationRoot;
 use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
 use crate::constant::literal::{normalize_integer_literal, parse_literal};
@@ -15,6 +18,7 @@ use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
 
+use super::flow::EvaluationFlow;
 use super::support::EvaluationFailure;
 
 use crate::{
@@ -39,7 +43,7 @@ where
 
     let value = match evaluated
         .evaluator
-        .finalize_closed_value(evaluated.term, evaluated.root)
+        .finalize_closed_value(evaluated.term, evaluated.diagnostic_anchor)
     {
         Ok(value) => value,
         Err(EvaluationFailure::Infrastructure(error)) => {
@@ -47,7 +51,7 @@ where
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
         Err(EvaluationFailure::Source { expression, kind }) => {
-            let value = match evaluated.evaluator.recovery_value(evaluated.root) {
+            let value = match evaluated.evaluator.recovery_value(evaluated.result_type) {
                 Ok(value) => value,
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
             };
@@ -98,12 +102,17 @@ where
     }
 
     let root = match (input.root(), request.root()) {
-        (Some(root), _) if request.view().expression(root).is_some() => root,
-        (None, CheckerUnitRoot::Expression(root)) => root,
+        (Some(ConstantEvaluationRoot::Expression(root)), _)
+            if request.view().expression(root).is_some() =>
+        {
+            ConstantEvaluationRoot::Expression(root)
+        }
+        (Some(ConstantEvaluationRoot::Block(root)), _) if request.view().block(root).is_some() => {
+            ConstantEvaluationRoot::Block(root)
+        }
+        (None, CheckerUnitRoot::Expression(root)) => ConstantEvaluationRoot::Expression(root),
         _ => {
-            return Err(EvaluationAbort::Infrastructure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
-            ));
+            return Err(EvaluationAbort::invalid_input());
         }
     };
 
@@ -111,21 +120,59 @@ where
         || input.expression_types().kind() != request.view().kind()
         || input.semantic_selections().unit() != request.view().unit()
         || input.semantic_selections().kind() != request.view().kind()
+        || input.pattern_facts().is_some_and(|facts| {
+            facts.unit() != request.view().unit() || facts.kind() != request.view().kind()
+        })
         || !input.references_are_consistent()
     {
-        return Err(EvaluationAbort::Infrastructure(
-            CheckerInfrastructureError::InvalidConstantEvaluationInput,
-        ));
+        return Err(EvaluationAbort::invalid_input());
     }
 
     let mut evaluator = Evaluator::new(request, input, retain_target_literals);
 
-    match evaluator.evaluate(root) {
-        Ok(term) => Ok(EvaluatedConstant {
+    let result_type = match root {
+        ConstantEvaluationRoot::Expression(expression) => input
+            .expression_types()
+            .expression(expression)
+            .map(|result| result.ty())
+            .ok_or(EvaluationAbort::invalid_input())?,
+        ConstantEvaluationRoot::Block(_) => input
+            .result_type()
+            .ok_or(EvaluationAbort::invalid_input())?,
+    };
+
+    let evaluated = match root {
+        ConstantEvaluationRoot::Expression(expression) => evaluator
+            .evaluate_flow(expression)
+            .map(|flow| (flow, Some(expression))),
+        ConstantEvaluationRoot::Block(block) => evaluator
+            .evaluate_block(block, result_type)
+            .map(|flow| (flow, block_diagnostic_anchor(request, block))),
+    };
+
+    let evaluated = match evaluated {
+        Ok((EvaluationFlow::Yield(_), Some(expression))) => {
+            Err(EvaluationFailure::invalid_expression(expression))
+        }
+        Ok((EvaluationFlow::Yield(_), None)) => {
+            return Err(EvaluationAbort::invalid_input());
+        }
+        evaluated => evaluated,
+    };
+
+    match evaluated {
+        Ok((
+            EvaluationFlow::Value(term)
+            | EvaluationFlow::Return(term)
+            | EvaluationFlow::Propagate(term),
+            diagnostic_anchor,
+        )) => Ok(EvaluatedConstant {
             evaluator,
-            root,
+            diagnostic_anchor,
+            result_type,
             term,
         }),
+        Ok((EvaluationFlow::Yield(_), _)) => Err(EvaluationAbort::invalid_input()),
         Err(EvaluationFailure::Cancelled) => Err(EvaluationAbort::Cancelled),
         Err(EvaluationFailure::Infrastructure(error)) => {
             Err(EvaluationAbort::Infrastructure(error))
@@ -145,10 +192,11 @@ where
                 .with_primary_span(span),
             );
 
-            match evaluator.recovery_term(root) {
+            match evaluator.recovery_term(result_type) {
                 Ok(term) => Ok(EvaluatedConstant {
                     evaluator,
-                    root,
+                    diagnostic_anchor: Some(expression),
+                    result_type,
                     term,
                 }),
                 Err(error) => Err(EvaluationAbort::Infrastructure(error)),
@@ -157,18 +205,39 @@ where
     }
 }
 
+fn block_diagnostic_anchor<C>(
+    request: CheckerUnitView<'_, C>,
+    block: BoundBlockId,
+) -> Option<BoundExpressionId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request
+        .view()
+        .block(block)
+        .and_then(|block| block.items().first())
+        .and_then(bray_bound_tree::BoundBlockItem::expression)
+}
+
 struct EvaluatedConstant<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     evaluator: Evaluator<'view, 'input, 'types, C>,
-    root: BoundExpressionId,
+    diagnostic_anchor: Option<BoundExpressionId>,
+    result_type: TypeId,
     term: ConstantTermId,
 }
 
 enum EvaluationAbort {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
+}
+
+impl EvaluationAbort {
+    const fn invalid_input() -> Self {
+        Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
+    }
 }
 
 pub(super) struct Evaluator<'view, 'input, 'types, C>
@@ -179,6 +248,7 @@ where
     pub(super) input: &'input ConstantEvaluationInput<'types>,
     pub(super) budget: EvaluationBudget,
     pub(super) diagnostics: DiagnosticBag,
+    pub(super) locals: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
     retain_target_literals: bool,
 }
 
@@ -196,11 +266,24 @@ where
             input,
             budget: EvaluationBudget::new(input),
             diagnostics: DiagnosticBag::new(),
+            locals: BTreeMap::new(),
             retain_target_literals,
         }
     }
 
     pub(super) fn evaluate(
+        &mut self,
+        expression: BoundExpressionId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        match self.evaluate_flow(expression)? {
+            EvaluationFlow::Value(value) => Ok(value),
+            EvaluationFlow::Yield(_) | EvaluationFlow::Return(_) | EvaluationFlow::Propagate(_) => {
+                Err(EvaluationFailure::invalid_expression(expression))
+            }
+        }
+    }
+
+    pub(super) fn evaluate_direct(
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
@@ -217,9 +300,16 @@ where
 
         match bound {
             BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty),
-            BoundExpression::Name(_) | BoundExpression::PatternReference(_) => {
-                self.evaluate_reference(expression, ty)
+            BoundExpression::Name(name) => {
+                self.evaluate_reference(expression, Some(name.target()), ty)
             }
+            BoundExpression::PatternReference(reference) => self.evaluate_reference(
+                expression,
+                Some(bray_bound_tree::BoundReferenceTarget::Local(
+                    reference.binding().into(),
+                )),
+                ty,
+            ),
             BoundExpression::Unary(unary) => {
                 self.evaluate_operator(expression, unary.operator(), unary.operands(), ty)
             }
@@ -254,10 +344,7 @@ where
             | BoundExpression::For(_)
             | BoundExpression::Match(_)
             | BoundExpression::Generator(_)
-            | BoundExpression::Error(_) => {
-                // TODO(BRA-246): Extend constant checking when this expression category gains constant semantics.
-                Err(EvaluationFailure::invalid_expression(expression))
-            }
+            | BoundExpression::Error(_) => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }
 
@@ -327,8 +414,17 @@ where
     pub(super) fn evaluate_reference(
         &self,
         expression: BoundExpressionId,
+        target: Option<bray_bound_tree::BoundReferenceTarget>,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
+        if let Some(bray_bound_tree::BoundReferenceTarget::Local(local)) = target {
+            return self
+                .locals
+                .get(&local)
+                .copied()
+                .ok_or_else(|| EvaluationFailure::invalid_expression(expression));
+        }
+
         match self.input.reference(expression) {
             Some(ConstantReferenceResolution::Value(value)) => {
                 let data = self
@@ -342,9 +438,7 @@ where
                     })?;
 
                 if data.ty() != ty {
-                    return Err(EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::InvalidConstantEvaluationInput,
-                    ));
+                    return Err(EvaluationFailure::invalid_input());
                 }
 
                 self.intern_term(ConstantTermData::Value(value))
@@ -385,14 +479,20 @@ where
                 self.intern_value_term(ty, ConstantValueKind::NullableAbsent)
             }
             BoundStructuredExpressionKind::Tuple => {
-                let values = self.evaluate_elements(expression, operands)?;
+                let terms = self.evaluate_elements(expression, operands)?;
 
-                self.intern_value_term(ty, ConstantValueKind::tuple(values))
+                match self.closed_elements(&terms)? {
+                    Some(values) => self.intern_value_term(ty, ConstantValueKind::tuple(values)),
+                    None => self.intern_term(ConstantTermData::tuple(terms)),
+                }
             }
             BoundStructuredExpressionKind::Array => {
-                let values = self.evaluate_elements(expression, operands)?;
+                let terms = self.evaluate_elements(expression, operands)?;
 
-                self.intern_value_term(ty, ConstantValueKind::array(values))
+                match self.closed_elements(&terms)? {
+                    Some(values) => self.intern_value_term(ty, ConstantValueKind::array(values)),
+                    None => self.intern_term(ConstantTermData::array(terms)),
+                }
             }
             BoundStructuredExpressionKind::RepeatedArray => {
                 self.evaluate_repeated_array(expression, operands, ty)
@@ -418,7 +518,6 @@ where
             | BoundStructuredExpressionKind::Catch
             | BoundStructuredExpressionKind::BooleanFold
             | BoundStructuredExpressionKind::Panic => {
-                // TODO(BRA-246): Extend constant checking when this structured form gains constant semantics.
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
@@ -428,19 +527,31 @@ where
         &mut self,
         owner: BoundExpressionId,
         operands: &[BoundExpressionId],
-    ) -> Result<Vec<ConstantValueId>, EvaluationFailure> {
+    ) -> Result<Vec<ConstantTermId>, EvaluationFailure> {
         self.budget.charge_elements(owner, operands.len())?;
 
         operands
             .iter()
             .copied()
-            .map(|operand| {
-                let term = self.evaluate(operand)?;
-
-                // TODO(BRA-246): Add aggregate constant terms before accepting open aggregates.
-                self.closed_value(term, owner)
-            })
+            .map(|operand| self.evaluate(operand))
             .collect()
+    }
+
+    fn closed_elements(
+        &self,
+        terms: &[ConstantTermId],
+    ) -> Result<Option<Vec<ConstantValueId>>, EvaluationFailure> {
+        let mut values = Vec::with_capacity(terms.len());
+
+        for term in terms {
+            let Some(value) = self.term_value(*term)? else {
+                return Ok(None);
+            };
+
+            values.push(value);
+        }
+
+        Ok(Some(values))
     }
 
     pub(super) fn evaluate_repeated_array(
@@ -454,17 +565,19 @@ where
         };
 
         let value = self.evaluate(*value)?;
-        let value = self.closed_value(value, expression)?;
         let count = self.evaluate(*count)?;
         let count = self.closed_value(count, expression)?;
         let count = self.array_count(expression, count)?;
 
         self.budget.charge_elements(expression, count)?;
 
-        self.intern_value_term(
-            ty,
-            ConstantValueKind::array(std::iter::repeat_n(value, count)),
-        )
+        match self.term_value(value)? {
+            Some(value) => self.intern_value_term(
+                ty,
+                ConstantValueKind::array(std::iter::repeat_n(value, count)),
+            ),
+            None => self.intern_term(ConstantTermData::array(std::iter::repeat_n(value, count))),
+        }
     }
 
     pub(super) fn array_count(
@@ -560,10 +673,12 @@ mod tests {
     use bray_bound_tree::{
         BoundBinaryExpression, BoundConversionExpression, BoundExpression, BoundExpressionId,
         BoundLiteralExpression, BoundLiteralKind, BoundNameExpression, BoundNodeOrigin,
-        BoundOperator, BoundReferenceTarget, BoundStructuredExpression,
-        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey,
-        BoundUnitRoot, ConversionTarget, OperatorTarget, SelectedConversion, SelectedOperation,
-        SemanticSelection, SemanticSelectionEntry,
+        BoundOperator, BoundReferenceTarget, BoundStructConstructionExpression,
+        BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
+        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey, BoundUnitRoot, ConstructionInputId,
+        ConstructionTarget, ConversionTarget, OperatorTarget, SelectedConstruction,
+        SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
+        SemanticSelectionEntry,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
@@ -574,9 +689,9 @@ mod tests {
         AnySymbolId, ConstantSymbolId, ConstantTermData, ConstantValueData, ConstantValueKind,
         GenericConstParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId,
         LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
-        PackageIdentity, RealConstantBits, SymbolFactKind, SymbolId, SymbolKey, SymbolKind,
-        SymbolRootKey, TargetSizedIntegerType, TraitCallableFulfillmentSymbolId,
-        TraitCallableMemberSymbolId, TraitSymbolId, TypeId,
+        PackageIdentity, RealConstantBits, StructFieldSymbolId, StructSymbolId, SymbolFactKind,
+        SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TargetSizedIntegerType,
+        TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
     use bray_target::{
@@ -1387,6 +1502,233 @@ mod tests {
             constant_value(*closed.value()).kind(),
             &ConstantValueKind::Error
         );
+    }
+
+    #[test]
+    fn open_aggregate_terms_preserve_source_order_and_closed_children() {
+        let source = "module example;\nconst value: (u16, u16) = (other, 1);\n";
+        let mut reference = None;
+        let mut literal_expression = None;
+
+        let (unit, root, context) =
+            expression_unit(BoundUnitId::new(111), source, |tree, origins, origin| {
+                let target = BoundReferenceTarget::Surface(AnySymbolId::from(
+                    ConstantSymbolId::from_symbol_id(SymbolId::new(1)),
+                ));
+
+                let name = push_expression(
+                    tree,
+                    BoundExpression::Name(BoundNameExpression::new(origin, target, None, false)),
+                );
+
+                reference = Some(name);
+
+                let literal = first_literal(origins);
+
+                let literal = push_expression(
+                    tree,
+                    BoundExpression::Literal(BoundLiteralExpression::new(
+                        literal.origin,
+                        literal.spelling_range,
+                        BoundLiteralKind::Integer,
+                        None,
+                        false,
+                    )),
+                );
+
+                literal_expression = Some(literal);
+
+                push_expression(
+                    tree,
+                    BoundExpression::Structured(BoundStructuredExpression::new(
+                        origin,
+                        BoundStructuredExpressionKind::Tuple,
+                        [name, literal],
+                        [],
+                        [],
+                        None,
+                        false,
+                    )),
+                )
+            });
+
+        let element = representation(&unit, &context, RepresentationRole::ScalarU16);
+        let expected = tuple_type([element, element]);
+
+        let reference =
+            reference.unwrap_or_else(|| panic!("test expression must retain its reference"));
+
+        let literal_expression =
+            literal_expression.unwrap_or_else(|| panic!("test expression must retain its literal"));
+
+        let types = bray_bound_tree::CheckedExpressionTypes::new(
+            unit.unit(),
+            unit.key().kind(),
+            [reference, literal_expression]
+                .into_iter()
+                .map(|expression| {
+                    bray_bound_tree::ExpressionTypeEntry::new(
+                        expression,
+                        bray_bound_tree::ExpressionTypeResult::new(
+                            element,
+                            bray_bound_tree::ExpressionTypeStatus::Valid,
+                        ),
+                    )
+                })
+                .chain([bray_bound_tree::ExpressionTypeEntry::new(
+                    root,
+                    bray_bound_tree::ExpressionTypeResult::new(
+                        expected,
+                        bray_bound_tree::ExpressionTypeStatus::Valid,
+                    ),
+                )]),
+        );
+
+        let selections = empty_selections(&unit, &types);
+
+        let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let parameter = semantic_values()
+            .intern_constant_term(ConstantTermData::Parameter(parameter))
+            .unwrap_or_else(|error| panic!("parameter term must intern: {error:?}"));
+
+        let input = ConstantEvaluationInput::new(&types, &selections)
+            .with_references([(reference, ConstantReferenceResolution::Term(parameter))]);
+
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let result = DefaultConstantChecker
+            .check_constant_term(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("open aggregate checking must complete"));
+
+        let term = semantic_values()
+            .constant_term_data(*result.value())
+            .unwrap_or_else(|error| panic!("aggregate term must be available: {error:?}"));
+
+        let ConstantTermData::Tuple(elements) = term.as_ref() else {
+            panic!("open tuple must remain an aggregate term");
+        };
+
+        assert_eq!(elements[0], parameter);
+
+        let second = semantic_values()
+            .constant_term_data(elements[1])
+            .unwrap_or_else(|error| panic!("closed aggregate child must be available: {error:?}"));
+
+        assert!(matches!(second.as_ref(), ConstantTermData::Value(_)));
+    }
+
+    #[test]
+    fn product_construction_preserves_selected_field_identity() {
+        let source = "module example;\nconst value: Item = Item { value = 1 };\n";
+
+        let (unit, root, context) =
+            expression_unit(BoundUnitId::new(112), source, |tree, origins, origin| {
+                let literal = first_literal(origins);
+
+                let value = push_expression(
+                    tree,
+                    BoundExpression::Literal(BoundLiteralExpression::new(
+                        literal.origin,
+                        literal.spelling_range,
+                        BoundLiteralKind::Integer,
+                        None,
+                        false,
+                    )),
+                );
+
+                push_expression(
+                    tree,
+                    BoundExpression::StructConstruction(BoundStructConstructionExpression::new(
+                        origin,
+                        None,
+                        [BoundStructFieldInitializer::new(None, value, false)],
+                        None,
+                        false,
+                    )),
+                )
+            });
+
+        let field_type = representation(&unit, &context, RepresentationRole::ScalarU16);
+        let expected = tuple_type([]);
+        let field = StructFieldSymbolId::from_symbol_id(SymbolId::new(2));
+        let structure = StructSymbolId::from_symbol_id(SymbolId::new(3));
+
+        let value = unit
+            .view()
+            .expression(root)
+            .and_then(|expression| match expression {
+                BoundExpression::StructConstruction(construction) => construction
+                    .fields()
+                    .first()
+                    .map(|field| field.expression()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("test construction must retain its field expression"));
+
+        let types = bray_bound_tree::CheckedExpressionTypes::new(
+            unit.unit(),
+            unit.key().kind(),
+            [
+                bray_bound_tree::ExpressionTypeEntry::new(
+                    value,
+                    bray_bound_tree::ExpressionTypeResult::new(
+                        field_type,
+                        bray_bound_tree::ExpressionTypeStatus::Valid,
+                    ),
+                ),
+                bray_bound_tree::ExpressionTypeEntry::new(
+                    root,
+                    bray_bound_tree::ExpressionTypeResult::new(
+                        expected,
+                        bray_bound_tree::ExpressionTypeStatus::Valid,
+                    ),
+                ),
+            ],
+        );
+
+        let construction = SelectedConstruction::new(
+            ConstructionTarget::Struct(structure),
+            expected,
+            [SelectedConstructionInput::Explicit {
+                expression: value,
+                input: ConstructionInputId::StructField(field),
+                ordinal: 0,
+            }],
+        );
+
+        let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                root,
+                SemanticSelection::Operation(SelectedOperation::Construction(construction)),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("construction selection must be valid: {error:?}"));
+
+        let input = ConstantEvaluationInput::new(&types, &selections);
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let result = DefaultConstantEvaluator
+            .evaluate_constant(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("product evaluation must complete"));
+
+        let value = constant_value(*result.value());
+
+        assert!(matches!(
+            value.kind(),
+            ConstantValueKind::Product(fields)
+                if matches!(fields.as_ref(), [entry] if *entry.field() == field)
+        ));
     }
 
     #[test]

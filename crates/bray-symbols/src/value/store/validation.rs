@@ -78,10 +78,15 @@ pub(super) fn validate_constant_value_data(
         ConstantValueKind::NullablePresent(value) => {
             tables.constant_values.get(store, *value)?;
         }
-        ConstantValueKind::Tuple(values)
-        | ConstantValueKind::Array(values)
-        | ConstantValueKind::Product(values) => validate_values(tables, store, values)?,
-        ConstantValueKind::Union { fields, .. } => validate_values(tables, store, fields)?,
+        ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => {
+            validate_values(tables, store, values)?;
+        }
+        ConstantValueKind::Product(fields) => {
+            validate_field_values(tables, store, fields)?;
+        }
+        ConstantValueKind::Union { fields, .. } => {
+            validate_field_values(tables, store, fields)?;
+        }
         ConstantValueKind::Error
         | ConstantValueKind::Boolean(_)
         | ConstantValueKind::Character(_)
@@ -117,6 +122,20 @@ pub(super) fn validate_constant_term_data(
         ConstantTermData::Conversion { operand, target } => {
             tables.constant_terms.get(store, *operand)?;
             tables.types.get(store, *target)?;
+        }
+        ConstantTermData::NullablePresent(value) => {
+            tables.constant_terms.get(store, *value)?;
+        }
+        ConstantTermData::Tuple(values) | ConstantTermData::Array(values) => {
+            for value in values.iter() {
+                tables.constant_terms.get(store, *value)?;
+            }
+        }
+        ConstantTermData::Product(fields) => {
+            validate_field_terms(tables, store, fields)?;
+        }
+        ConstantTermData::Union { fields, .. } => {
+            validate_field_terms(tables, store, fields)?;
         }
         ConstantTermData::DefinitionApplication {
             definition,
@@ -160,6 +179,30 @@ pub(super) fn validate_constant_term_data(
                 tables.constant_terms.get(store, index)?;
             }
         }
+    }
+
+    Ok(())
+}
+
+fn validate_field_values<I>(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    fields: &[super::super::ConstantField<I, super::super::ConstantValueId>],
+) -> Result<(), SemanticValueStoreError> {
+    for field in fields {
+        tables.constant_values.get(store, *field.value())?;
+    }
+
+    Ok(())
+}
+
+fn validate_field_terms<I>(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    fields: &[super::super::ConstantField<I, super::super::ConstantTermId>],
+) -> Result<(), SemanticValueStoreError> {
+    for field in fields {
+        tables.constant_terms.get(store, *field.value())?;
     }
 
     Ok(())

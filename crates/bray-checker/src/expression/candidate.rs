@@ -28,6 +28,7 @@ struct PreparedCall {
 pub(super) struct PreparedExpressions {
     calls: Vec<PreparedCall>,
     deferred: BTreeSet<BoundExpressionId>,
+    diagnostics: DiagnosticBag,
 }
 
 impl PreparedExpressions {
@@ -42,6 +43,15 @@ impl PreparedExpressions {
     pub(super) fn deferred_mut(&mut self) -> &mut BTreeSet<BoundExpressionId> {
         &mut self.deferred
     }
+
+    pub(super) fn add_diagnostics(&mut self, diagnostics: &DiagnosticBag) {
+        // Prepared expression state outlives the dependency bag it aggregates.
+        self.diagnostics.extend(diagnostics.iter().cloned());
+    }
+
+    pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
 }
 
 pub(super) fn prepare_calls<C>(
@@ -54,6 +64,7 @@ where
 {
     let mut calls = Vec::new();
     let mut deferred = BTreeSet::new();
+    let mut diagnostics = DiagnosticBag::new();
 
     for candidate_set in candidate_sets {
         if request.is_cancelled() {
@@ -92,7 +103,11 @@ where
 
                     match candidate {
                         CallableCandidateTemplate::Declaration(candidate) => {
-                            let materialized = resolve_declaration_candidate(request, candidate)?;
+                            let materialized = resolve_declaration_candidate(
+                                request,
+                                candidate,
+                                &mut diagnostics,
+                            )?;
 
                             match materialized {
                                 TemplateResolution::Resolved(candidate) => {
@@ -157,6 +172,7 @@ where
     Ok(SessionProgress::Complete(PreparedExpressions {
         calls,
         deferred,
+        diagnostics,
     }))
 }
 

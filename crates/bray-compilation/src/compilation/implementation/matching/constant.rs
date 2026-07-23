@@ -82,6 +82,54 @@ impl HeaderMatcher<'_> {
                 self.match_constant(*pattern_operand, *actual_operand)
             }
             (
+                ConstantTermData::NullablePresent(pattern),
+                ConstantTermData::NullablePresent(actual),
+            ) => self.match_constant(*pattern, *actual),
+            (ConstantTermData::Tuple(pattern), ConstantTermData::Tuple(actual))
+            | (ConstantTermData::Array(pattern), ConstantTermData::Array(actual)) => {
+                self.match_constants(pattern, actual)
+            }
+            (ConstantTermData::Product(pattern), ConstantTermData::Product(actual)) => {
+                if pattern.len() != actual.len() {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern.iter().zip(actual.iter()) {
+                    if pattern.field() != actual.field()
+                        || !self.match_constant(*pattern.value(), *actual.value())?
+                    {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (
+                ConstantTermData::Union {
+                    variant: pattern_variant,
+                    fields: pattern_fields,
+                },
+                ConstantTermData::Union {
+                    variant: actual_variant,
+                    fields: actual_fields,
+                },
+            ) => {
+                if pattern_variant != actual_variant || pattern_fields.len() != actual_fields.len()
+                {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern_fields.iter().zip(actual_fields.iter()) {
+                    if pattern.field() != actual.field()
+                        || !self.match_constant(*pattern.value(), *actual.value())?
+                    {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (
                 ConstantTermData::DefinitionApplication {
                     definition: pattern_definition,
                     substitution: pattern_substitution,
