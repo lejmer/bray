@@ -1,13 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockItem, BoundCallableBodyKind, BoundControlTransferKind,
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey,
-    BoundUnitKind, BoundUnitRoot, BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes,
-    CheckedTemplateKind, CheckedTemplateOperation, ExpressionTypeEntry, ExpressionTypeResult,
-    walk_bound_unit_view,
+    AnyBoundNodeId, BoundCallableBodyKind, BoundExpression, BoundExpressionId,
+    BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl,
+    BoundWalkEvent, CheckedExpressionTypes, CheckedTemplateKind, CheckedTemplateOperation,
+    ExpressionTypeEntry, ExpressionTypeResult, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluator,
@@ -147,7 +146,10 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<ConstantTermId>>, FactQueryError> {
-        if key.kind() != BoundUnitKind::ConstantTemplate {
+        if !matches!(
+            key.kind(),
+            BoundUnitKind::ConstantTemplate | BoundUnitKind::EmbeddedConstant
+        ) {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
@@ -414,10 +416,7 @@ impl Compilation {
                     Err(error) => Err(error),
                 }
             }
-            BoundReferenceTarget::Local(_) => {
-                // TODO(BRA-246): Evaluate local constants and immutable local bindings.
-                Err(FactQueryError::InfrastructureFailure)
-            }
+            BoundReferenceTarget::Local(_) => Err(FactQueryError::InfrastructureFailure),
         })?;
 
         Ok((references, dependency_diagnostics))
@@ -577,30 +576,16 @@ pub(super) fn call_parameter_values(
     Ok(resolved)
 }
 
-pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<BoundExpressionId> {
+pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<bray_bound_tree::BoundBlockId> {
     let BoundUnitRoot::CallableBody(body) = bound.root() else {
         return None;
     };
 
     let body = bound.view().callable_body(body)?;
 
-    let BoundCallableBodyKind::Block(block) = body.kind() else {
-        return None;
-    };
-
-    let block = bound.view().block(block)?;
-
-    let [BoundBlockItem::Expression(expression)] = block.items() else {
-        return None;
-    };
-
-    match bound.view().expression(*expression)? {
-        BoundExpression::ControlTransfer(transfer)
-            if transfer.kind() == BoundControlTransferKind::Return =>
-        {
-            transfer.operand()
-        }
-        _ => Some(*expression),
+    match body.kind() {
+        BoundCallableBodyKind::Block(block) => Some(block),
+        BoundCallableBodyKind::Error(_) => None,
     }
 }
 
@@ -612,6 +597,7 @@ fn collect_references(
     ) -> Result<ConstantReferenceResolution, FactQueryError>,
 ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
     let mut references = Vec::new();
+    let mut non_value_heads = BTreeSet::new();
     let mut failure = None;
 
     let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
@@ -619,9 +605,43 @@ fn collect_references(
             return BoundWalkControl::Continue;
         };
 
-        let Some(BoundExpression::Name(name)) = bound.view().expression(expression) else {
+        let Some(bound_expression) = bound.view().expression(expression) else {
             return BoundWalkControl::Continue;
         };
+
+        if let BoundExpression::StructConstruction(construction) = bound_expression
+            && let Some(head) = construction.head()
+        {
+            non_value_heads.insert(head);
+
+            return BoundWalkControl::Continue;
+        }
+
+        match bound_expression {
+            BoundExpression::Call(call) => {
+                non_value_heads.insert(call.callee());
+
+                return BoundWalkControl::Continue;
+            }
+            BoundExpression::ErrorCall(call) => {
+                non_value_heads.insert(call.callee());
+
+                return BoundWalkControl::Continue;
+            }
+            _ => {}
+        }
+
+        if non_value_heads.contains(&expression) {
+            return BoundWalkControl::SkipChildren;
+        }
+
+        let BoundExpression::Name(name) = bound_expression else {
+            return BoundWalkControl::Continue;
+        };
+
+        if matches!(name.target(), BoundReferenceTarget::Local(_)) {
+            return BoundWalkControl::Continue;
+        }
 
         match resolve(expression, name.target()) {
             Ok(resolution) => references.push((expression, resolution)),
@@ -726,11 +746,11 @@ mod tests {
     use bray_symbols::{
         AnyConstantDefinitionId, CallableDefinitionId, CallableInstanceData,
         CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
-        ConstantDefinitionState, ConstantInstanceKey, ConstantTermData, ConstantValueData,
-        ConstantValueId, ConstantValueKind, GenericArgument, GenericOwnerId,
+        ConstantDefinitionState, ConstantField, ConstantInstanceKey, ConstantTermData,
+        ConstantValueData, ConstantValueId, ConstantValueKind, GenericArgument, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, IntegerConstant, IntegerSign,
-        ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId, SymbolId,
-        SymbolOrigin,
+        NamedTypeSymbolId, ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId,
+        SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
     };
     use bray_target::{TargetIdentity, TargetProfile};
 
@@ -832,44 +852,12 @@ mod tests {
             "}\n",
         ));
 
-        let symbols = compilation
-            .symbol_graph()
-            .unwrap_or_else(|error| panic!("test symbol graph must publish: {error:?}"));
-
-        let function = symbols
-            .functions()
-            .iter()
-            .find(|function| function.origin() == SymbolOrigin::Source)
-            .unwrap_or_else(|| panic!("test source must produce one function"));
-
-        let definition = CallableDefinitionId::try_new(function.id().into())
-            .unwrap_or_else(|| panic!("source function must be callable"));
-
         let values = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
-        let substitution = GenericSubstitutionData::try_new(
-            GenericOwnerId::try_new(function.id().into())
-                .unwrap_or_else(|| panic!("source function must own a substitution")),
-            [],
-            [],
-        )
-        .unwrap_or_else(|error| panic!("empty function substitution must validate: {error:?}"));
-
-        let substitution = values
-            .intern_generic_substitution(substitution)
-            .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
-
         let ty = i32_type(&compilation);
-
-        let request = ConstantCallRequest::new(
-            CallableInstanceData::new(definition, substitution),
-            None,
-            [],
-            ty,
-            ConstantEvaluationLimits::default(),
-        );
+        let (definition, request) = source_constant_call_request(&compilation, [], ty);
 
         let callable = values
             .intern_callable_instance(request.callable())
@@ -929,6 +917,143 @@ mod tests {
         };
 
         assert_eq!(integer_value(&compilation, value), 42);
+    }
+
+    #[test]
+    fn constant_calls_evaluate_parameters_conditionals_and_local_constants() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const func choose(pos condition: bool, pos left: i32, pos right: i32) -> i32\n",
+            "{\n",
+            "    const fallback: i32 = right;\n",
+            "\n",
+            "    if condition\n",
+            "    {\n",
+            "        return left;\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
+            "        return fallback;\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let result_type = i32_type(&compilation);
+        let condition_type = bool_type(&compilation);
+        let condition = boolean_constant(&compilation, condition_type, false);
+        let left = integer_constant(&compilation, result_type, 7);
+        let right = integer_constant(&compilation, result_type, 9);
+
+        let (definition, request) =
+            source_constant_call_request(&compilation, [condition, left, right], result_type);
+
+        let body_key = compilation
+            .callable_body_key(definition)
+            .unwrap_or_else(|error| panic!("callable body key must resolve: {error:?}"))
+            .unwrap_or_else(|| panic!("source constant callable must have a body"));
+
+        let body = compilation
+            .bound_unit(body_key)
+            .unwrap_or_else(|error| panic!("constant callable body must bind: {error:?}"));
+
+        assert!(
+            constant_callable_root(body.value()).is_some(),
+            "unexpected constant callable body: {:#?}",
+            body.value()
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let result = compilation
+            .constant_call_with_cancellation(&request, &compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("constant call must publish: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        let Some(value) = *result.value() else {
+            panic!("constant callable must be eligible for evaluation");
+        };
+
+        assert_eq!(integer_value(&compilation, value), 9);
+    }
+
+    #[test]
+    fn constant_calls_propagate_closed_result_values() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>\n",
+            "{\n",
+            "    const unwrapped: i32 = try value;\n",
+            "\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let integer_type = i32_type(&compilation);
+        let result_type = result_type(&compilation, integer_type, integer_type);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must publish: {error:?}"));
+
+        let result = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<UnionSymbolId>(bray_compiler_known::RepresentationRole::Result)
+            .unwrap_or_else(|| panic!("Result must be available"));
+
+        let result = symbols
+            .union(result)
+            .unwrap_or_else(|| panic!("Result symbol must resolve"));
+
+        for error in [false, true] {
+            let input = result_value(&compilation, result_type, integer_type, error, 7);
+            let (_, request) = source_constant_call_request(&compilation, [input], result_type);
+
+            let checked = compilation
+                .constant_call_with_cancellation(&request, &compilation.state.cancellation)
+                .unwrap_or_else(|failure| {
+                    panic!("constant result propagation must publish: {failure:?}")
+                });
+
+            assert!(
+                checked.diagnostics().is_empty(),
+                "{:?}",
+                checked.diagnostics()
+            );
+
+            let Some(value) = *checked.value() else {
+                panic!("constant callable must be eligible for evaluation");
+            };
+
+            let value = compilation
+                .semantic_value_store()
+                .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"))
+                .constant_value_data(value)
+                .unwrap_or_else(|failure| {
+                    panic!("propagated result value must resolve: {failure:?}")
+                });
+
+            let ConstantValueKind::Union { variant, fields } = value.kind() else {
+                panic!("constant callable must return a result value");
+            };
+
+            assert_eq!(variant, &result.variants()[usize::from(error)]);
+            assert_eq!(fields.len(), 1);
+        }
     }
 
     #[test]
@@ -1281,13 +1406,163 @@ mod tests {
             .unwrap_or_else(|error| panic!("generic substitution must be concrete: {error:?}"))
     }
 
+    fn source_constant_call_request(
+        compilation: &crate::Compilation,
+        arguments: impl IntoIterator<Item = ConstantValueId>,
+        result_type: bray_symbols::TypeId,
+    ) -> (CallableDefinitionId, ConstantCallRequest) {
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must publish: {error:?}"));
+
+        let function = symbols
+            .functions()
+            .iter()
+            .find(|function| function.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("test source must produce one function"));
+
+        let definition = CallableDefinitionId::try_new(function.id().into())
+            .unwrap_or_else(|| panic!("source function must be callable"));
+
+        let substitution = GenericSubstitutionData::try_new(
+            GenericOwnerId::try_new(function.id().into())
+                .unwrap_or_else(|| panic!("source function must own a substitution")),
+            [],
+            [],
+        )
+        .unwrap_or_else(|error| panic!("empty function substitution must validate: {error:?}"));
+
+        let substitution = compilation
+            .semantic_value_store()
+            .and_then(|values| {
+                values
+                    .intern_generic_substitution(substitution)
+                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+            })
+            .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
+
+        let request = ConstantCallRequest::new(
+            CallableInstanceData::new(definition, substitution),
+            None,
+            arguments,
+            result_type,
+            ConstantEvaluationLimits::default(),
+        );
+
+        (definition, request)
+    }
+
     fn i32_type(compilation: &crate::Compilation) -> bray_symbols::TypeId {
+        scalar_type(
+            compilation,
+            bray_compiler_known::RepresentationRole::ScalarI32,
+        )
+    }
+
+    fn bool_type(compilation: &crate::Compilation) -> bray_symbols::TypeId {
+        scalar_type(
+            compilation,
+            bray_compiler_known::RepresentationRole::ScalarBool,
+        )
+    }
+
+    fn result_type(
+        compilation: &crate::Compilation,
+        success: bray_symbols::TypeId,
+        error: bray_symbols::TypeId,
+    ) -> bray_symbols::TypeId {
         let definition = compilation
             .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(
-                bray_compiler_known::RepresentationRole::ScalarI32,
-            )
-            .unwrap_or_else(|| panic!("i32 representation must be available"));
+            .representation_symbol::<UnionSymbolId>(bray_compiler_known::RepresentationRole::Result)
+            .unwrap_or_else(|| panic!("Result representation must be available"));
+
+        let symbol = compilation
+            .symbol_graph()
+            .unwrap_or_else(|failure| panic!("symbol graph must publish: {failure:?}"))
+            .union(definition)
+            .unwrap_or_else(|| panic!("Result symbol must resolve"));
+
+        let parameters = symbol
+            .generic_type_parameters()
+            .iter()
+            .copied()
+            .map(GenericParameterSymbolId::Type);
+
+        let substitution = GenericSubstitutionData::try_new(
+            GenericOwnerId::try_new(definition.into())
+                .unwrap_or_else(|| panic!("Result must own generic parameters")),
+            parameters,
+            [GenericArgument::Type(success), GenericArgument::Type(error)],
+        )
+        .unwrap_or_else(|failure| panic!("Result substitution must be valid: {failure:?}"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"));
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|failure| panic!("Result substitution must intern: {failure:?}"));
+
+        values
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Union(definition),
+                substitution,
+            })
+            .unwrap_or_else(|failure| panic!("Result type must intern: {failure:?}"))
+    }
+
+    fn result_value(
+        compilation: &crate::Compilation,
+        result_type: bray_symbols::TypeId,
+        payload_type: bray_symbols::TypeId,
+        error: bool,
+        payload: u8,
+    ) -> ConstantValueId {
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|failure| panic!("symbol graph must publish: {failure:?}"));
+
+        let result = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<UnionSymbolId>(bray_compiler_known::RepresentationRole::Result)
+            .unwrap_or_else(|| panic!("Result representation must be available"));
+
+        let result = symbols
+            .union(result)
+            .unwrap_or_else(|| panic!("Result symbol must resolve"));
+
+        let variant = result.variants()[usize::from(error)];
+        let variant_symbol = symbols
+            .union_variant(variant)
+            .unwrap_or_else(|| panic!("Result variant must resolve"));
+
+        let [field] = variant_symbol.payload_fields() else {
+            panic!("Result variant must have one payload field");
+        };
+
+        let payload = integer_constant(compilation, payload_type, payload);
+
+        values
+            .intern_constant_value(ConstantValueData::new(
+                result_type,
+                ConstantValueKind::union(variant, [ConstantField::new(*field, payload)]),
+            ))
+            .unwrap_or_else(|failure| panic!("Result value must intern: {failure:?}"))
+    }
+
+    fn scalar_type(
+        compilation: &crate::Compilation,
+        role: bray_compiler_known::RepresentationRole,
+    ) -> bray_symbols::TypeId {
+        let definition = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<bray_symbols::StructSymbolId>(role)
+            .unwrap_or_else(|| panic!("scalar representation must be available: {role:?}"));
 
         let values = compilation
             .semantic_value_store()
@@ -1330,6 +1605,24 @@ mod tests {
                             IntegerSign::NonNegative,
                             [value],
                         )),
+                    ))
+                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+            })
+            .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
+    }
+
+    fn boolean_constant(
+        compilation: &crate::Compilation,
+        ty: bray_symbols::TypeId,
+        value: bool,
+    ) -> ConstantValueId {
+        compilation
+            .semantic_value_store()
+            .and_then(|values| {
+                values
+                    .intern_constant_value(ConstantValueData::new(
+                        ty,
+                        ConstantValueKind::Boolean(value),
                     ))
                     .map_err(|_| crate::FactQueryError::InfrastructureFailure)
             })

@@ -1,7 +1,7 @@
 use bray_symbols::{
     CallableInstanceId, ConstantProjection, ConstantProjectionKind, ConstantTermData,
-    ConstantTermId, GenericArgument, GenericParameterSymbolId, ImplementationInstanceId,
-    SemanticValueStoreError,
+    ConstantTermId, ConstantValueId, ConstantValueKind, GenericArgument, GenericParameterSymbolId,
+    ImplementationInstanceId, SemanticValueStoreError,
 };
 
 use super::header::HeaderMatcher;
@@ -27,6 +27,10 @@ impl HeaderMatcher<'_> {
         }
 
         let actual_data = self.values.constant_term_data(actual)?;
+
+        if let ConstantTermData::Value(actual) = actual_data.as_ref() {
+            return self.match_closed_constant(pattern_data.as_ref(), *actual);
+        }
 
         match (pattern_data.as_ref(), actual_data.as_ref()) {
             (
@@ -82,6 +86,54 @@ impl HeaderMatcher<'_> {
                 self.match_constant(*pattern_operand, *actual_operand)
             }
             (
+                ConstantTermData::NullablePresent(pattern),
+                ConstantTermData::NullablePresent(actual),
+            ) => self.match_constant(*pattern, *actual),
+            (ConstantTermData::Tuple(pattern), ConstantTermData::Tuple(actual))
+            | (ConstantTermData::Array(pattern), ConstantTermData::Array(actual)) => {
+                self.match_constants(pattern, actual)
+            }
+            (ConstantTermData::Product(pattern), ConstantTermData::Product(actual)) => {
+                if pattern.len() != actual.len() {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern.iter().zip(actual.iter()) {
+                    if pattern.field() != actual.field()
+                        || !self.match_constant(*pattern.value(), *actual.value())?
+                    {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (
+                ConstantTermData::Union {
+                    variant: pattern_variant,
+                    fields: pattern_fields,
+                },
+                ConstantTermData::Union {
+                    variant: actual_variant,
+                    fields: actual_fields,
+                },
+            ) => {
+                if pattern_variant != actual_variant || pattern_fields.len() != actual_fields.len()
+                {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern_fields.iter().zip(actual_fields.iter()) {
+                    if pattern.field() != actual.field()
+                        || !self.match_constant(*pattern.value(), *actual.value())?
+                    {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (
                 ConstantTermData::DefinitionApplication {
                     definition: pattern_definition,
                     substitution: pattern_substitution,
@@ -133,6 +185,98 @@ impl HeaderMatcher<'_> {
             }
             _ => Ok(false),
         }
+    }
+
+    fn match_closed_constant(
+        &mut self,
+        pattern: &ConstantTermData,
+        actual: ConstantValueId,
+    ) -> Result<bool, SemanticValueStoreError> {
+        let actual_id = actual;
+        let actual = self.values.constant_value_data(actual_id)?;
+
+        match (pattern, actual.kind()) {
+            (ConstantTermData::Value(pattern), _) => Ok(*pattern == actual_id),
+            (
+                ConstantTermData::NullablePresent(pattern),
+                ConstantValueKind::NullablePresent(actual),
+            ) => self.match_constant_to_value(*pattern, *actual),
+            (ConstantTermData::Tuple(pattern), ConstantValueKind::Tuple(actual))
+            | (ConstantTermData::Array(pattern), ConstantValueKind::Array(actual)) => {
+                self.match_constants_to_values(pattern, actual)
+            }
+            (ConstantTermData::Product(pattern), ConstantValueKind::Product(actual)) => {
+                if pattern.len() != actual.len() {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern.iter().zip(actual.iter()) {
+                    if pattern.field() != actual.field()
+                        || !self.match_constant_to_value(*pattern.value(), *actual.value())?
+                    {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (
+                ConstantTermData::Union {
+                    variant: pattern_variant,
+                    fields: pattern_fields,
+                },
+                ConstantValueKind::Union {
+                    variant: actual_variant,
+                    fields: actual_fields,
+                },
+            ) => {
+                if pattern_variant != actual_variant || pattern_fields.len() != actual_fields.len()
+                {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern_fields.iter().zip(actual_fields.iter()) {
+                    if pattern.field() != actual.field()
+                        || !self.match_constant_to_value(*pattern.value(), *actual.value())?
+                    {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn match_constant_to_value(
+        &mut self,
+        pattern: ConstantTermId,
+        actual: ConstantValueId,
+    ) -> Result<bool, SemanticValueStoreError> {
+        let actual = self
+            .values
+            .intern_constant_term(ConstantTermData::Value(actual))?;
+
+        self.match_constant(pattern, actual)
+    }
+
+    fn match_constants_to_values(
+        &mut self,
+        pattern: &[ConstantTermId],
+        actual: &[ConstantValueId],
+    ) -> Result<bool, SemanticValueStoreError> {
+        if pattern.len() != actual.len() {
+            return Ok(false);
+        }
+
+        for (pattern, actual) in pattern.iter().zip(actual) {
+            if !self.match_constant_to_value(*pattern, *actual)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     fn match_callable_instance(
@@ -293,6 +437,54 @@ mod tests {
         assert_eq!(
             projection_matcher.arguments.get(&parameter_id),
             Some(&bray_symbols::GenericArgument::Constant(value_term))
+        );
+    }
+
+    #[test]
+    fn open_aggregate_patterns_match_closed_aggregate_values() {
+        let values = semantic_values();
+        let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(1));
+        let parameter_id = GenericParameterSymbolId::Const(parameter);
+
+        let parameter_term = values
+            .intern_constant_term(ConstantTermData::Parameter(parameter))
+            .unwrap_or_else(|error| panic!("parameter term must be valid: {error:?}"));
+
+        let pattern = values
+            .intern_constant_term(ConstantTermData::array([parameter_term]))
+            .unwrap_or_else(|error| panic!("aggregate pattern must be valid: {error:?}"));
+
+        let child_term = constant_value_term(&values);
+        let child = values
+            .constant_term_data(child_term)
+            .unwrap_or_else(|error| panic!("closed child term must resolve: {error:?}"));
+
+        let ConstantTermData::Value(child) = child.as_ref() else {
+            panic!("test child must be a closed value");
+        };
+
+        let child_data = values
+            .constant_value_data(*child)
+            .unwrap_or_else(|error| panic!("closed child value must resolve: {error:?}"));
+
+        let aggregate = values
+            .intern_constant_value(ConstantValueData::new(
+                child_data.ty(),
+                ConstantValueKind::array([*child]),
+            ))
+            .unwrap_or_else(|error| panic!("closed aggregate value must be valid: {error:?}"));
+
+        let actual = values
+            .intern_constant_term(ConstantTermData::Value(aggregate))
+            .unwrap_or_else(|error| panic!("closed aggregate term must be valid: {error:?}"));
+
+        let mut matcher = HeaderMatcher::new(&[parameter_id], &values);
+
+        assert_eq!(matcher.match_constant(pattern, actual), Ok(true));
+
+        assert_eq!(
+            matcher.arguments.get(&parameter_id),
+            Some(&bray_symbols::GenericArgument::Constant(child_term))
         );
     }
 

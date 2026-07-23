@@ -57,6 +57,7 @@ macro_rules! define_root_assembler {
 
 define_root_assembler!(assemble_runtime_default, Expression, BoundExpressionId);
 define_root_assembler!(assemble_constant_template, Expression, BoundExpressionId);
+define_root_assembler!(assemble_embedded_constant, Expression, BoundExpressionId);
 define_root_assembler!(assemble_predicate_definition, Expression, BoundExpressionId);
 define_root_assembler!(assemble_constraint, ExpressionSequence, BoundBlockId);
 define_root_assembler!(assemble_contract_clause, ExpressionSequence, BoundBlockId);

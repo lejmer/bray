@@ -192,6 +192,7 @@ where
         input,
         deferred,
         unsupported_callable_result,
+        diagnostics,
     } = declared;
 
     let Some(mut prepared) = prepare_calls(request, nested_callables, candidate_sets)?.into_value()
@@ -199,6 +200,7 @@ where
         return Ok(SessionProgress::Cancelled);
     };
 
+    prepared.add_diagnostics(&diagnostics);
     prepared.defer(deferred);
     prepared.defer(supplemental_deferred.iter().copied());
 
@@ -271,6 +273,7 @@ where
         (types, selections),
         type_diagnostics
             .merged(&selection_diagnostics)
+            .merged(prepared.diagnostics())
             .merged(&supplemental_diagnostics),
     )
 }

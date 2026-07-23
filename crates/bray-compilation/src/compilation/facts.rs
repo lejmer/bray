@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
@@ -20,11 +20,11 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
-    CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider, ConstantInstanceValueFact,
-    ConstantTermId, ConstantValueId, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
-    ImplementationParticipationFact, ImplementationRequirementKey, ImportedSymbolSkeleton,
-    PackageIdentity, SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError,
-    SymbolGraph,
+    CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider, ConstantExpressionExpectedType,
+    ConstantExpressionOccurrenceKey, ConstantInstanceValueFact, ConstantTermId, ConstantValueId,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    ImplementationRequirementKey, ImportedSymbolSkeleton, PackageIdentity, SemanticFactResult,
+    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
@@ -115,6 +115,8 @@ pub(super) struct CompilationState {
         Result<BTreeMap<bray_symbols::PredicateDefinitionSymbolId, BoundUnitKey>, FactQueryError>,
     >,
     pub(super) symbolic_constant_terms: UnitFactCache<ConstantTermId>,
+    pub(super) embedded_constant_expectations:
+        Mutex<BTreeMap<ConstantExpressionOccurrenceKey, ConstantExpressionExpectedType>>,
     pub(super) constant_instances:
         FactCellMap<ConstantInstanceFactKey, Arc<SemanticFactResult<ConstantInstanceValueFact>>>,
     pub(super) constant_calls: FactCellMap<
@@ -220,6 +222,7 @@ impl Compilation {
                 callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),
                 symbolic_constant_terms: UnitFactCache::new(),
+                embedded_constant_expectations: Mutex::new(BTreeMap::new()),
                 constant_instances: FactCellMap::new(),
                 constant_calls: FactCellMap::new(),
                 check_diagnostics: FactCell::new(),

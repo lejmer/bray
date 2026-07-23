@@ -18,17 +18,20 @@ where
         .type_data(ty)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let TypeData::Named {
-        definition: NamedTypeSymbolId::Struct(definition),
-        ..
-    } = data.as_ref()
-    else {
+    let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(None);
     };
 
-    Ok(request
-        .available_compiler_known_symbols()
-        .symbol_representation(*definition))
+    let representation = match definition {
+        NamedTypeSymbolId::Struct(definition) => request
+            .available_compiler_known_symbols()
+            .symbol_representation(*definition),
+        NamedTypeSymbolId::Union(definition) => request
+            .available_compiler_known_symbols()
+            .symbol_representation(*definition),
+    };
+
+    Ok(representation)
 }
 
 pub(crate) fn representation_type<C>(

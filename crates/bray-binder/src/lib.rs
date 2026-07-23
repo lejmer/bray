@@ -55,9 +55,9 @@ pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
     BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
     PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
-    PendingBoundPredicateDefinition, PendingBoundRuntimeDefault, bind_anonymous_callable,
-    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_predicate_definition, bind_runtime_default,
+    PendingBoundEmbeddedConstant, PendingBoundPredicateDefinition, PendingBoundRuntimeDefault,
+    bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
+    bind_contract_clause, bind_embedded_constant, bind_predicate_definition, bind_runtime_default,
 };
 pub use fact::{
     BinderFactContext, BinderFactError, BinderFactResult, BindingSymbolFactProvider,

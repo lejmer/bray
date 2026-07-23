@@ -4,6 +4,7 @@ use bray_bound_tree::{
     BoundExpression, BoundExpressionId, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
     DeclaredValueTypeTerm,
 };
+use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
 use super::template::{TemplateResolution, resolve_type_template};
@@ -17,6 +18,7 @@ pub(super) struct PreparedDeclaredTypes {
     pub(super) input: ExpressionTypeInput,
     pub(super) deferred: BTreeSet<BoundExpressionId>,
     pub(super) unsupported_callable_result: bool,
+    pub(super) diagnostics: DiagnosticBag,
 }
 
 #[derive(Default)]
@@ -97,6 +99,7 @@ where
 
     let mut component_types = BTreeMap::<DeclaredValueTypeTerm, BTreeSet<TypeId>>::new();
     let mut unsupported = BTreeSet::new();
+    let mut diagnostics = DiagnosticBag::new();
 
     for evidence in declared.evidence().iter().chain(supplemental) {
         if request.is_cancelled() {
@@ -105,7 +108,7 @@ where
 
         let representative = components.representative(evidence.term());
 
-        match resolve_type_template(request.semantic_values(), evidence.template())? {
+        match resolve_type_template(request, evidence.template(), &mut diagnostics)? {
             TemplateResolution::Resolved(ty) => {
                 component_types
                     .entry(representative)
@@ -151,7 +154,7 @@ where
     let mut unsupported_callable_result = false;
 
     if let Some(result) = declared.callable_result() {
-        match resolve_type_template(request.semantic_values(), result)? {
+        match resolve_type_template(request, result, &mut diagnostics)? {
             TemplateResolution::Resolved(result) => {
                 input = input.with_callable_result_type(result);
             }
@@ -163,6 +166,7 @@ where
         input,
         deferred,
         unsupported_callable_result,
+        diagnostics,
     }))
 }
 

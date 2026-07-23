@@ -171,7 +171,7 @@ pub use value::{
     CallableDependencyContracts, CallableExecution, CallableInstanceData, CallableInstanceId,
     CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,
     CallableTrust, CallableTypeData, ConcreteGenericSubstitutionId, ConstantBinaryOperation,
-    ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
+    ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
     ConstantUnaryOperation, ConstantValueData, ConstantValueId, ConstantValueKind,
     DependencyContractTemplateData, DependencyContractTemplateId, DependencyGuard,
     DependencyProjection, DependencyRequirement, DependencyRequirementKind, DependencySubject,

@@ -12,9 +12,9 @@ pub use application::{
     CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, TraitApplicationData,
 };
 pub use constant::{
-    AnyConstantDefinitionId, ConstantBinaryOperation, ConstantProjection, ConstantProjectionKind,
-    ConstantTermData, ConstantUnaryOperation, ConstantValueData, ConstantValueKind,
-    IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
+    AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,
+    ConstantProjectionKind, ConstantTermData, ConstantUnaryOperation, ConstantValueData,
+    ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
 };
 pub use dependency::{
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,

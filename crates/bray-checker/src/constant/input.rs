@@ -1,9 +1,21 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, CheckedSemanticSelections};
-use bray_symbols::{ConstantTermId, ConstantValueId};
+use bray_bound_tree::{
+    BoundBlockId, BoundExpressionId, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedSemanticSelections,
+};
+use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
 use super::{ConstantCallResolver, ConstantEvaluationLimits};
+
+/// The exact root evaluated by one constant request.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum ConstantEvaluationRoot {
+    /// One expression and all semantic children it demands.
+    Expression(BoundExpressionId),
+    /// One callable or control-flow block.
+    Block(BoundBlockId),
+}
 
 /// The caller-resolved result of one constant reference dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -20,7 +32,9 @@ pub enum ConstantReferenceResolution {
 pub struct ConstantEvaluationInput<'facts> {
     expression_types: &'facts CheckedExpressionTypes,
     semantic_selections: &'facts CheckedSemanticSelections,
-    root: Option<BoundExpressionId>,
+    pattern_facts: Option<&'facts CheckedPatternFacts>,
+    root: Option<ConstantEvaluationRoot>,
+    result_type: Option<TypeId>,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     references_are_consistent: bool,
     call_resolver: Option<&'facts dyn ConstantCallResolver>,
@@ -36,7 +50,9 @@ impl<'facts> ConstantEvaluationInput<'facts> {
         Self {
             expression_types,
             semantic_selections,
+            pattern_facts: None,
             root: None,
+            result_type: None,
             references: BTreeMap::new(),
             references_are_consistent: true,
             call_resolver: None,
@@ -46,7 +62,22 @@ impl<'facts> ConstantEvaluationInput<'facts> {
 
     /// Selects one expression inside the checked unit as the evaluation root.
     pub const fn with_root(mut self, root: BoundExpressionId) -> Self {
-        self.root = Some(root);
+        self.root = Some(ConstantEvaluationRoot::Expression(root));
+
+        self
+    }
+
+    /// Selects one block inside the checked unit as the evaluation root.
+    pub const fn with_block_root(mut self, root: BoundBlockId, result_type: TypeId) -> Self {
+        self.root = Some(ConstantEvaluationRoot::Block(root));
+        self.result_type = Some(result_type);
+
+        self
+    }
+
+    /// Supplies checked pattern structure for constant match evaluation.
+    pub const fn with_pattern_facts(mut self, facts: &'facts CheckedPatternFacts) -> Self {
+        self.pattern_facts = Some(facts);
 
         self
     }
@@ -94,8 +125,16 @@ impl<'facts> ConstantEvaluationInput<'facts> {
         self.semantic_selections
     }
 
-    pub(crate) const fn root(&self) -> Option<BoundExpressionId> {
+    pub(crate) const fn root(&self) -> Option<ConstantEvaluationRoot> {
         self.root
+    }
+
+    pub(crate) const fn result_type(&self) -> Option<TypeId> {
+        self.result_type
+    }
+
+    pub(crate) const fn pattern_facts(&self) -> Option<&CheckedPatternFacts> {
+        self.pattern_facts
     }
 
     /// Returns the caller-resolved dependency for one constant reference occurrence.

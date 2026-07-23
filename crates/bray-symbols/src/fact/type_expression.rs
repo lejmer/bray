@@ -319,6 +319,73 @@ impl TypeExpressionTemplate {
             | Self::Callable(_) => None,
         }
     }
+
+    /// Returns embedded constant expressions in deterministic template order.
+    pub fn constant_expressions(&self) -> Vec<ConstantExpressionOccurrence> {
+        let mut occurrences = Vec::new();
+
+        self.push_constant_expressions(&mut occurrences);
+
+        occurrences
+    }
+
+    fn push_constant_expressions(&self, occurrences: &mut Vec<ConstantExpressionOccurrence>) {
+        match self {
+            Self::Resolved(_) => {}
+            Self::Named { arguments, .. } => {
+                push_argument_constants(arguments, occurrences);
+            }
+            Self::TypeValuedMemberProjection {
+                subject,
+                application,
+                ..
+            } => {
+                subject.push_constant_expressions(occurrences);
+                push_argument_constants(application.arguments(), occurrences);
+            }
+            Self::Tuple(elements) => {
+                for element in elements.iter() {
+                    element.push_constant_expressions(occurrences);
+                }
+            }
+            Self::Array { element, length } => {
+                element.push_constant_expressions(occurrences);
+                occurrences.push(*length);
+            }
+            Self::Slice(element) | Self::Nullable(element) => {
+                element.push_constant_expressions(occurrences);
+            }
+            Self::Borrow { target, .. } => {
+                target.push_constant_expressions(occurrences);
+            }
+            Self::TraitView(application) => {
+                push_argument_constants(application.arguments(), occurrences);
+            }
+            Self::OwnedIndirection { storage, target } => {
+                storage.push_constant_expressions(occurrences);
+                target.push_constant_expressions(occurrences);
+            }
+            Self::Callable(callable) => {
+                for parameter in callable.parameters() {
+                    parameter.ty().push_constant_expressions(occurrences);
+                }
+
+                callable.result().push_constant_expressions(occurrences);
+            }
+        }
+    }
+}
+
+fn push_argument_constants(
+    arguments: &[GenericArgumentTemplate],
+    occurrences: &mut Vec<ConstantExpressionOccurrence>,
+) {
+    for argument in arguments {
+        match argument {
+            GenericArgumentTemplate::Type(ty) => ty.push_constant_expressions(occurrences),
+            GenericArgumentTemplate::Constant(occurrence) => occurrences.push(*occurrence),
+        }
+    }
 }
 
 #[cfg(test)]

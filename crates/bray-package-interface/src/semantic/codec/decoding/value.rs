@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::common::{decode_real, decode_tag, read_ids, validate_record_count};
 use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_string,
@@ -17,7 +19,7 @@ use crate::wire::WireReader;
 use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
-use bray_symbols::{IntegerConstant, IntegerSign, SymbolOrdinal};
+use bray_symbols::{ConstantField, IntegerConstant, IntegerSign, SymbolOrdinal};
 
 pub(super) struct TypeRecordTables<'bytes> {
     pub(super) substitutions: RecordTable<'bytes>,
@@ -330,14 +332,14 @@ pub(super) fn decode_constant_value(
             context,
             InterfaceConstantValueId::new,
         )?)),
-        12 => Ok(InterfaceConstantValueKind::Product(read_ids(
+        12 => Ok(InterfaceConstantValueKind::Product(read_constant_fields(
             reader,
             context,
             InterfaceConstantValueId::new,
         )?)),
         13 => Ok(InterfaceConstantValueKind::Union {
             variant: read_symbol_reference(reader, context)?,
-            fields: read_ids(reader, context, InterfaceConstantValueId::new)?,
+            fields: read_constant_fields(reader, context, InterfaceConstantValueId::new)?,
         }),
         _ => Err(InterfaceValidationError::Malformed),
     }
@@ -390,8 +392,48 @@ pub(super) fn decode_constant_term(
             operand: InterfaceConstantTermId::new(read_u32(reader)?),
             target: InterfaceTypeId::new(read_u32(reader)?),
         }),
+        11 => Ok(InterfaceConstantTerm::NullablePresent(
+            InterfaceConstantTermId::new(read_u32(reader)?),
+        )),
+        12 => Ok(InterfaceConstantTerm::Tuple(read_ids(
+            reader,
+            context,
+            InterfaceConstantTermId::new,
+        )?)),
+        13 => Ok(InterfaceConstantTerm::Array(read_ids(
+            reader,
+            context,
+            InterfaceConstantTermId::new,
+        )?)),
+        14 => Ok(InterfaceConstantTerm::Product(read_constant_fields(
+            reader,
+            context,
+            InterfaceConstantTermId::new,
+        )?)),
+        15 => Ok(InterfaceConstantTerm::Union {
+            variant: read_symbol_reference(reader, context)?,
+            fields: read_constant_fields(reader, context, InterfaceConstantTermId::new)?,
+        }),
         _ => Err(InterfaceValidationError::Malformed),
     }
+}
+
+fn read_constant_fields<V>(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+    value: impl Fn(u32) -> V,
+) -> Result<Arc<[ConstantField<crate::InterfaceSymbolReference, V>]>, InterfaceValidationError> {
+    let count = read_count(reader, context.limits(), InterfaceLimit::RecordCount)?;
+    let mut fields = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        fields.push(ConstantField::new(
+            read_symbol_reference(reader, context)?,
+            value(read_u32(reader)?),
+        ));
+    }
+
+    Ok(fields.into())
 }
 
 fn decode_integer(
@@ -442,11 +484,12 @@ pub(super) fn decode_constant_projection(
 mod tests {
     use bray_symbols::{
         AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
-        CallablePosition, CallableTrust, ConstantSymbolId, ConstantTermData, ExternalSymbolKey,
-        FunctionSymbolId, InherentImplementationSymbolId, IntegerConstant, IntegerSign,
-        ModuleSymbolId, NamedTypeSymbolId, PackageIdentity, PackageSymbolId, SelfTypeContext,
-        SemanticValueStore, StructSymbolId, SymbolId, SymbolKind, SymbolName, SymbolOrdinal,
-        TargetSizedIntegerType, TraitSymbolId, TypeData,
+        CallablePosition, CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData,
+        ConstantValueKind, ExternalSymbolKey, FunctionSymbolId, InherentImplementationSymbolId,
+        IntegerConstant, IntegerSign, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
+        PackageSymbolId, SelfTypeContext, SemanticValueStore, StructFieldSymbolId, StructSymbolId,
+        SymbolId, SymbolKind, SymbolName, SymbolOrdinal, TargetSizedIntegerType, TraitSymbolId,
+        TypeData, UnionPayloadFieldSymbolId, UnionSymbolId, UnionVariantSymbolId,
     };
 
     use super::super::decode_semantic_facts;
@@ -679,6 +722,112 @@ mod tests {
             term.as_ref(),
             ConstantTermData::Conversion { operand, target }
                 if *operand == imported.constant_terms()[0] && *target == imported.types()[0]
+        ));
+    }
+
+    #[test]
+    fn aggregate_values_and_open_terms_round_trip_with_field_identities() {
+        let surface = semantic_surface([]);
+        let structure_field = symbol_reference(&surface, SymbolKind::StructField);
+        let variant = symbol_reference(&surface, SymbolKind::UnionVariant);
+        let payload_field = symbol_reference(&surface, SymbolKind::UnionPayloadField);
+
+        let facts = InterfaceSemanticFacts::new().with_values(
+            [],
+            [InterfaceType::Tuple([].into())],
+            [
+                InterfaceConstantValue::new(
+                    InterfaceTypeId::new(0),
+                    InterfaceConstantValueKind::Unit,
+                ),
+                InterfaceConstantValue::new(
+                    InterfaceTypeId::new(0),
+                    InterfaceConstantValueKind::Product(
+                        [ConstantField::new(
+                            structure_field.clone(),
+                            InterfaceConstantValueId::new(0),
+                        )]
+                        .into(),
+                    ),
+                ),
+                InterfaceConstantValue::new(
+                    InterfaceTypeId::new(0),
+                    InterfaceConstantValueKind::Union {
+                        variant: variant.clone(),
+                        fields: [ConstantField::new(
+                            payload_field.clone(),
+                            InterfaceConstantValueId::new(0),
+                        )]
+                        .into(),
+                    },
+                ),
+            ],
+            [
+                InterfaceConstantTerm::Value(InterfaceConstantValueId::new(0)),
+                InterfaceConstantTerm::Product(
+                    [ConstantField::new(
+                        structure_field,
+                        crate::InterfaceConstantTermId::new(0),
+                    )]
+                    .into(),
+                ),
+                InterfaceConstantTerm::Union {
+                    variant,
+                    fields: [ConstantField::new(
+                        payload_field,
+                        crate::InterfaceConstantTermId::new(0),
+                    )]
+                    .into(),
+                },
+            ],
+        );
+
+        let limits = InterfaceValidationLimits::default();
+
+        let sections = encode_semantic_facts(&facts, &surface, limits)
+            .unwrap_or_else(|error| panic!("aggregate semantic encoding failed: {error:?}"));
+
+        let views = encoded_section_views(&sections);
+
+        let decoded = decode_semantic_facts(&views, &surface, limits)
+            .unwrap_or_else(|error| panic!("aggregate semantic decoding failed: {error:?}"));
+
+        assert_eq!(decoded, facts);
+
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let imported = decoded
+            .intern(&store, &resolver(&surface))
+            .unwrap_or_else(|error| panic!("aggregate semantic interning failed: {error:?}"));
+
+        let product = store
+            .constant_value_data(imported.constant_values()[1])
+            .unwrap_or_else(|error| panic!("product constant must be interned: {error:?}"));
+
+        let ConstantValueKind::Product(fields) = product.kind() else {
+            panic!("second aggregate constant must remain a product");
+        };
+
+        assert!(matches!(
+            fields.as_ref(),
+            [field] if field.field().kind() == SymbolKind::StructField
+                && *field.value() == imported.constant_values()[0]
+        ));
+
+        let union = store
+            .constant_term_data(imported.constant_terms()[2])
+            .unwrap_or_else(|error| panic!("union term must be interned: {error:?}"));
+
+        assert!(matches!(
+            union.as_ref(),
+            ConstantTermData::Union { variant, fields }
+                if variant.kind() == SymbolKind::UnionVariant
+                    && matches!(
+                        fields.as_ref(),
+                        [field] if field.field().kind() == SymbolKind::UnionPayloadField
+                            && *field.value() == imported.constant_terms()[0]
+                    )
         ));
     }
 
@@ -1015,9 +1164,16 @@ mod tests {
         dependencies: impl IntoIterator<Item = PackageIdentity>,
     ) -> crate::PackageInterfaceSurface {
         let module = test_module_key(package_identity(), "semantic");
+        let structure = named_key(module.clone(), SymbolKind::Struct, "record");
+        let union = named_key(module.clone(), SymbolKind::Union, "choice");
+        let variant = named_key(union.clone(), SymbolKind::UnionVariant, "some");
 
         let symbols = [
-            named_key(module.clone(), SymbolKind::Struct, "record"),
+            structure.clone(),
+            named_key(structure, SymbolKind::StructField, "value"),
+            union,
+            variant.clone(),
+            named_key(variant, SymbolKind::UnionPayloadField, "value"),
             named_key(module.clone(), SymbolKind::Constant, "answer"),
             named_key(module.clone(), SymbolKind::Function, "run"),
             named_key(module.clone(), SymbolKind::Trait, "contract"),
@@ -1064,6 +1220,12 @@ mod tests {
                     SymbolKind::Package => PackageSymbolId::from_symbol_id(id).into(),
                     SymbolKind::Module => ModuleSymbolId::from_symbol_id(id).into(),
                     SymbolKind::Struct => StructSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::StructField => StructFieldSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::Union => UnionSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::UnionVariant => UnionVariantSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::UnionPayloadField => {
+                        UnionPayloadFieldSymbolId::from_symbol_id(id).into()
+                    }
                     SymbolKind::Constant => ConstantSymbolId::from_symbol_id(id).into(),
                     SymbolKind::Function => FunctionSymbolId::from_symbol_id(id).into(),
                     SymbolKind::Trait => TraitSymbolId::from_symbol_id(id).into(),

@@ -130,6 +130,15 @@ impl CheckerRequestContext for TestCheckerContext {
             .unwrap_or_else(|| test_target_profile())
     }
 
+    fn checked_constant_expression(
+        &self,
+        _occurrence: bray_symbols::ConstantExpressionOccurrence,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+        Err(CheckerFactError::Infrastructure(
+            CheckerInfrastructureError::SemanticValueUnavailable,
+        ))
+    }
+
     fn source(
         &self,
         anchor: BoundSourceAnchor,

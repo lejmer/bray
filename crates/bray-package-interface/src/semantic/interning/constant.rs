@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantValueData,
+    ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantValueData,
     ConstantValueKind, SemanticValueStore, StructFieldSymbolId, UnionPayloadFieldSymbolId,
     UnionVariantSymbolId,
 };
@@ -76,18 +76,39 @@ impl InternState {
             InterfaceConstantValueKind::Array(values) => {
                 collect_ids(values, |id| self.constant_value_id(*id)).map(ConstantValueKind::array)
             }
-            InterfaceConstantValueKind::Product(values) => {
-                collect_ids(values, |id| self.constant_value_id(*id))
-                    .map(ConstantValueKind::product)
+            InterfaceConstantValueKind::Product(fields) => {
+                let mut values = Vec::with_capacity(fields.len());
+
+                for field in fields.iter() {
+                    let Some(value) = self.constant_value_id(*field.value()) else {
+                        return Ok(None);
+                    };
+
+                    values.push(ConstantField::new(
+                        resolve_exact::<StructFieldSymbolId>(symbols, field.field())?,
+                        value,
+                    ));
+                }
+
+                Some(ConstantValueKind::product(values))
             }
             InterfaceConstantValueKind::Union { variant, fields } => {
-                let Some(fields) = collect_ids(fields, |id| self.constant_value_id(*id)) else {
-                    return Ok(None);
-                };
+                let mut values = Vec::with_capacity(fields.len());
+
+                for field in fields.iter() {
+                    let Some(value) = self.constant_value_id(*field.value()) else {
+                        return Ok(None);
+                    };
+
+                    values.push(ConstantField::new(
+                        resolve_exact::<UnionPayloadFieldSymbolId>(symbols, field.field())?,
+                        value,
+                    ));
+                }
 
                 Some(ConstantValueKind::union(
                     resolve_exact::<UnionVariantSymbolId>(symbols, variant)?,
-                    fields,
+                    values,
                 ))
             }
         })
@@ -167,6 +188,50 @@ impl InternState {
                 };
 
                 Some(ConstantTermData::Conversion { operand, target })
+            }
+            InterfaceConstantTerm::NullablePresent(value) => self
+                .constant_term_id(*value)
+                .map(ConstantTermData::NullablePresent),
+            InterfaceConstantTerm::Tuple(values) => {
+                collect_ids(values, |id| self.constant_term_id(*id)).map(ConstantTermData::tuple)
+            }
+            InterfaceConstantTerm::Array(values) => {
+                collect_ids(values, |id| self.constant_term_id(*id)).map(ConstantTermData::array)
+            }
+            InterfaceConstantTerm::Product(fields) => {
+                let mut values = Vec::with_capacity(fields.len());
+
+                for field in fields.iter() {
+                    let Some(value) = self.constant_term_id(*field.value()) else {
+                        return Ok(None);
+                    };
+
+                    values.push(ConstantField::new(
+                        resolve_exact::<StructFieldSymbolId>(symbols, field.field())?,
+                        value,
+                    ));
+                }
+
+                Some(ConstantTermData::product(values))
+            }
+            InterfaceConstantTerm::Union { variant, fields } => {
+                let mut values = Vec::with_capacity(fields.len());
+
+                for field in fields.iter() {
+                    let Some(value) = self.constant_term_id(*field.value()) else {
+                        return Ok(None);
+                    };
+
+                    values.push(ConstantField::new(
+                        resolve_exact::<UnionPayloadFieldSymbolId>(symbols, field.field())?,
+                        value,
+                    ));
+                }
+
+                Some(ConstantTermData::union(
+                    resolve_exact::<UnionVariantSymbolId>(symbols, variant)?,
+                    values,
+                ))
             }
             InterfaceConstantTerm::DefinitionApplication {
                 definition,

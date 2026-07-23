@@ -154,6 +154,11 @@ where
             | ConstantTermData::Unary { .. }
             | ConstantTermData::Binary { .. }
             | ConstantTermData::Conversion { .. }
+            | ConstantTermData::NullablePresent(_)
+            | ConstantTermData::Tuple(_)
+            | ConstantTermData::Array(_)
+            | ConstantTermData::Product(_)
+            | ConstantTermData::Union { .. }
             | ConstantTermData::DefinitionApplication { .. }
             | ConstantTermData::Call { .. }
             | ConstantTermData::Projection(_) => return Ok(None),

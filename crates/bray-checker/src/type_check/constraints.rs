@@ -4,8 +4,10 @@ use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId, BoundLiteralKind,
     BoundStructuredExpressionKind,
 };
-use bray_symbols::{TypeData, TypeId};
+use bray_compiler_known::RepresentationRole;
+use bray_symbols::{GenericArgument, TypeData, TypeId};
 
+use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeExpectation;
@@ -160,6 +162,13 @@ where
                 );
             }
             BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::ResultPropagation =>
+            {
+                if let Some(ty) = propagation_output_type(request, structured) {
+                    inference.add_evidence(variable, ty, expression_id);
+                }
+            }
+            BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::Panic =>
             {
                 add_operand_expectation(
@@ -174,6 +183,41 @@ where
     }
 
     true
+}
+
+fn propagation_output_type<C>(
+    request: CheckerUnitView<'_, C>,
+    propagation: &bray_bound_tree::BoundStructuredExpression,
+) -> Option<TypeId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let operand = propagation.operands().first().copied()?;
+    let operand_type = request.view().expression(operand)?.ty()?;
+    let data = request.semantic_values().type_data(operand_type).ok()?;
+
+    let TypeData::Named { substitution, .. } = data.as_ref() else {
+        return None;
+    };
+
+    let role = type_representation(request, operand_type).ok()??;
+
+    if !matches!(
+        role,
+        RepresentationRole::Result | RepresentationRole::RunResult
+    ) {
+        return None;
+    }
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(*substitution)
+        .ok()?;
+
+    match substitution.bindings().first()?.argument() {
+        GenericArgument::Type(ty) => Some(ty),
+        GenericArgument::Constant(_) => None,
+    }
 }
 
 pub(super) fn add_operand_expectation(

@@ -54,6 +54,9 @@ pub fn semantic_unit_context(
         (BoundUnitKeyData::ConstantTemplate(_), BoundUnitRoot::Expression(_)) => Ok(
             SemanticUnitContext::ConstantTemplate(declared_entry(symbols, unit)?),
         ),
+        (BoundUnitKeyData::EmbeddedConstant(_), BoundUnitRoot::Expression(_)) => Ok(
+            SemanticUnitContext::EmbeddedConstant(declared_entry(symbols, unit)?),
+        ),
         (BoundUnitKeyData::PredicateDefinition(_), BoundUnitRoot::Expression(_)) => Ok(
             SemanticUnitContext::PredicateDefinition(declared_entry(symbols, unit)?),
         ),

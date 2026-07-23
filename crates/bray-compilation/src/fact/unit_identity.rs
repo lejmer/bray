@@ -81,7 +81,7 @@ impl BoundUnitIdentityMap {
     }
 }
 
-const UNIT_KIND_COUNT: u32 = 7;
+const UNIT_KIND_COUNT: u32 = 8;
 
 const fn unit_kind_ordinal(kind: BoundUnitKind) -> u32 {
     match kind {
@@ -89,8 +89,9 @@ const fn unit_kind_ordinal(kind: BoundUnitKind) -> u32 {
         BoundUnitKind::AnonymousCallable => 1,
         BoundUnitKind::RuntimeDefault => 2,
         BoundUnitKind::ConstantTemplate => 3,
-        BoundUnitKind::PredicateDefinition => 4,
-        BoundUnitKind::Constraint => 5,
-        BoundUnitKind::ContractClause => 6,
+        BoundUnitKind::EmbeddedConstant => 4,
+        BoundUnitKind::PredicateDefinition => 5,
+        BoundUnitKind::Constraint => 6,
+        BoundUnitKind::ContractClause => 7,
     }
 }

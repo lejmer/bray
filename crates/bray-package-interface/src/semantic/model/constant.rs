@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    ConstantBinaryOperation, ConstantUnaryOperation, IntegerConstant, RealConstantBits,
-    SymbolOrdinal, TargetSizedIntegerType,
+    ConstantBinaryOperation, ConstantField, ConstantUnaryOperation, IntegerConstant,
+    RealConstantBits, SymbolOrdinal, TargetSizedIntegerType,
 };
 
 use super::{
@@ -56,13 +56,13 @@ pub enum InterfaceConstantValueKind {
     /// Ordered array values.
     Array(Arc<[InterfaceConstantValueId]>),
     /// Ordered product fields.
-    Product(Arc<[InterfaceConstantValueId]>),
+    Product(Arc<[ConstantField<InterfaceSymbolReference, InterfaceConstantValueId>]>),
     /// Active union variant and payload.
     Union {
         /// Active variant.
         variant: InterfaceSymbolReference,
         /// Ordered payload fields.
-        fields: Arc<[InterfaceConstantValueId]>,
+        fields: Arc<[ConstantField<InterfaceSymbolReference, InterfaceConstantValueId>]>,
     },
 }
 
@@ -98,12 +98,27 @@ pub enum InterfaceConstantTerm {
         /// Right operand.
         right: InterfaceConstantTermId,
     },
-    /// A selected compiler-defined scalar conversion.
+    /// A selected compiler-defined conversion.
     Conversion {
         /// Converted operand.
         operand: InterfaceConstantTermId,
         /// Exact conversion target type.
         target: InterfaceTypeId,
+    },
+    /// Nullable presence around an open or closed child term.
+    NullablePresent(InterfaceConstantTermId),
+    /// An ordered tuple whose elements may remain open.
+    Tuple(Arc<[InterfaceConstantTermId]>),
+    /// An ordered array whose elements may remain open.
+    Array(Arc<[InterfaceConstantTermId]>),
+    /// Ordered product fields whose values may remain open.
+    Product(Arc<[ConstantField<InterfaceSymbolReference, InterfaceConstantTermId>]>),
+    /// An active union variant whose payload values may remain open.
+    Union {
+        /// Exact active variant.
+        variant: InterfaceSymbolReference,
+        /// Ordered payload fields.
+        fields: Arc<[ConstantField<InterfaceSymbolReference, InterfaceConstantTermId>]>,
     },
     /// An applied constant definition that remains open.
     DefinitionApplication {

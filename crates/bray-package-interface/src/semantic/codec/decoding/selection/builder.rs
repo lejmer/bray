@@ -621,15 +621,19 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 self.enqueue(PendingRecord::ConstantValue(value.raw()));
             }
             InterfaceConstantValueKind::Tuple(values)
-            | InterfaceConstantValueKind::Array(values)
-            | InterfaceConstantValueKind::Product(values) => {
+            | InterfaceConstantValueKind::Array(values) => {
                 for value in &**values {
                     self.enqueue(PendingRecord::ConstantValue(value.raw()));
                 }
             }
+            InterfaceConstantValueKind::Product(fields) => {
+                for field in fields.iter() {
+                    self.enqueue(PendingRecord::ConstantValue(field.value().raw()));
+                }
+            }
             InterfaceConstantValueKind::Union { fields, .. } => {
-                for field in &**fields {
-                    self.enqueue(PendingRecord::ConstantValue(field.raw()));
+                for field in fields.iter() {
+                    self.enqueue(PendingRecord::ConstantValue(field.value().raw()));
                 }
             }
             InterfaceConstantValueKind::Boolean(_)
@@ -668,6 +672,24 @@ impl<'bytes> SelectionBuilder<'bytes> {
             InterfaceConstantTerm::Conversion { operand, target } => {
                 self.enqueue(PendingRecord::ConstantTerm(operand.raw()));
                 self.enqueue(PendingRecord::Type(target.raw()));
+            }
+            InterfaceConstantTerm::NullablePresent(value) => {
+                self.enqueue(PendingRecord::ConstantTerm(value.raw()));
+            }
+            InterfaceConstantTerm::Tuple(values) | InterfaceConstantTerm::Array(values) => {
+                for value in values.iter() {
+                    self.enqueue(PendingRecord::ConstantTerm(value.raw()));
+                }
+            }
+            InterfaceConstantTerm::Product(fields) => {
+                for field in fields.iter() {
+                    self.enqueue(PendingRecord::ConstantTerm(field.value().raw()));
+                }
+            }
+            InterfaceConstantTerm::Union { fields, .. } => {
+                for field in fields.iter() {
+                    self.enqueue(PendingRecord::ConstantTerm(field.value().raw()));
+                }
             }
             InterfaceConstantTerm::DefinitionApplication {
                 substitution,

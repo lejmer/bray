@@ -7,7 +7,7 @@ use bray_bound_tree::{
     SelectedIterationSource, SelectedIterationTypes,
 };
 use bray_checker::{
-    CandidateSelection, CheckedConstantTerms, DefaultSemanticSelector, IterationSourceCandidate,
+    CandidateSelection, DefaultSemanticSelector, IterationSourceCandidate,
     IterationSourceSelectionRequest, SemanticSelector, resolve_type_expression_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -337,6 +337,7 @@ impl Compilation {
             let instance = bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
             let result = self.constant_instance_with_cancellation(instance, cancellation)?;
 
+            // Applicability owns dependency diagnostics after the cached result drops.
             diagnostics.add_range(result.diagnostics().clone());
 
             if result.value() != &dependency.value() {
@@ -449,13 +450,14 @@ fn selected_type_valued_member(
         return Ok(TypeValuedMemberResolution::Invalid);
     }
 
-    // TODO(BRA-246): Supply checked embedded constant terms for source type templates.
-    let Some(ty) = resolve_type_expression_template(
-        facts.semantic_values(),
-        result.value(),
-        &CheckedConstantTerms::new(),
-    )
-    .map_err(FactQueryError::CheckerInfrastructure)?
+    let checked = facts.compilation().checked_constant_terms(result.value())?;
+
+    // Iteration resolution owns dependency diagnostics after the checked terms drop.
+    diagnostics.add_range(checked.diagnostics().clone());
+
+    let Some(ty) =
+        resolve_type_expression_template(facts.semantic_values(), result.value(), checked.value())
+            .map_err(FactQueryError::CheckerInfrastructure)?
     else {
         return Ok(TypeValuedMemberResolution::Deferred);
     };

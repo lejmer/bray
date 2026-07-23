@@ -12,6 +12,8 @@ pub enum LocalSymbolRegionRole {
     CallableBody,
     /// An anonymous callable signature and body.
     AnonymousCallable,
+    /// A constant expression embedded in a declaration type template.
+    EmbeddedConstant,
     /// A declaration-owned checked expression fact.
     DeclarationFact(SymbolFactKind),
 }

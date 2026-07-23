@@ -149,6 +149,30 @@ scope Ambient at ambient {
         surface { union Result<T, E> {} }
     }
 
+    declaration ResultVariant0Ok {
+        owner Result;
+
+        surface { Ok(pos value: T); }
+    }
+
+    declaration ResultVariant0OkValue {
+        owner ResultVariant0Ok;
+
+        surface { pos value: T }
+    }
+
+    declaration ResultVariant1Error {
+        owner Result;
+
+        surface { Error(pos error: E); }
+    }
+
+    declaration ResultVariant1ErrorError {
+        owner ResultVariant1Error;
+
+        surface { pos error: E }
+    }
+
     value True {
         spelling true;
         type { bool }

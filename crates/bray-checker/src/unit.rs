@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_bound_tree::{
@@ -133,6 +134,42 @@ where
     /// Returns the selected language-level target profile.
     pub fn selected_target(self) -> &'view TargetProfile {
         self.context.selected_target()
+    }
+
+    /// Checks one source constant expression embedded in a type template.
+    pub(crate) fn checked_constant_expression(
+        self,
+        occurrence: bray_symbols::ConstantExpressionOccurrence,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+        self.context.checked_constant_expression(occurrence)
+    }
+
+    /// Checks every source constant expression embedded in one type template.
+    pub(crate) fn checked_constant_terms(
+        self,
+        template: &bray_symbols::TypeExpressionTemplate,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<crate::CheckedConstantTerms>> {
+        let mut terms = BTreeMap::new();
+        let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
+
+        for occurrence in template.constant_expressions() {
+            let result = self.checked_constant_expression(occurrence)?;
+
+            // The aggregate result owns diagnostics after this dependency result drops.
+            diagnostics.add_range(result.diagnostics().clone());
+            terms.insert(occurrence.key(), *result.value());
+        }
+
+        let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|_| {
+            crate::CheckerFactError::Infrastructure(
+                CheckerInfrastructureError::SemanticValueUnavailable,
+            )
+        })?;
+
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            checked,
+            diagnostics,
+        ))
     }
 
     /// Resolves a bound source anchor without exposing its source snapshot.

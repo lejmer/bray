@@ -195,17 +195,23 @@ impl InterfaceSemanticFacts {
                 validate_index(id.to_index(), self.constant_values.len())?;
             }
             InterfaceConstantValueKind::Tuple(values)
-            | InterfaceConstantValueKind::Array(values)
-            | InterfaceConstantValueKind::Product(values) => {
+            | InterfaceConstantValueKind::Array(values) => {
                 for id in &**values {
                     validate_index(id.to_index(), self.constant_values.len())?;
+                }
+            }
+            InterfaceConstantValueKind::Product(fields) => {
+                for field in fields.iter() {
+                    validate_symbol(field.field(), symbol_count, dependency_count)?;
+                    validate_index(field.value().to_index(), self.constant_values.len())?;
                 }
             }
             InterfaceConstantValueKind::Union { variant, fields } => {
                 validate_symbol(variant, symbol_count, dependency_count)?;
 
-                for id in &**fields {
-                    validate_index(id.to_index(), self.constant_values.len())?;
+                for field in fields.iter() {
+                    validate_symbol(field.field(), symbol_count, dependency_count)?;
+                    validate_index(field.value().to_index(), self.constant_values.len())?;
                 }
             }
             InterfaceConstantValueKind::String(value) => {
@@ -254,6 +260,28 @@ impl InterfaceSemanticFacts {
             InterfaceConstantTerm::Conversion { operand, target } => {
                 validate_index(operand.to_index(), self.constant_terms.len())?;
                 validate_index(target.to_index(), self.types.len())?;
+            }
+            InterfaceConstantTerm::NullablePresent(value) => {
+                validate_index(value.to_index(), self.constant_terms.len())?;
+            }
+            InterfaceConstantTerm::Tuple(values) | InterfaceConstantTerm::Array(values) => {
+                for value in values.iter() {
+                    validate_index(value.to_index(), self.constant_terms.len())?;
+                }
+            }
+            InterfaceConstantTerm::Product(fields) => {
+                for field in fields.iter() {
+                    validate_symbol(field.field(), symbol_count, dependency_count)?;
+                    validate_index(field.value().to_index(), self.constant_terms.len())?;
+                }
+            }
+            InterfaceConstantTerm::Union { variant, fields } => {
+                validate_symbol(variant, symbol_count, dependency_count)?;
+
+                for field in fields.iter() {
+                    validate_symbol(field.field(), symbol_count, dependency_count)?;
+                    validate_index(field.value().to_index(), self.constant_terms.len())?;
+                }
             }
             InterfaceConstantTerm::DefinitionApplication {
                 definition,
