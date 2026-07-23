@@ -1,21 +1,24 @@
 use bray_bound_tree::{BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{LocalSymbolRegionId, TypeData};
+use bray_symbols::{
+    AnySymbolId, CallableSignatureFact, CallableSymbolId, LocalScopeId, LocalSymbolRegionId,
+    SymbolFactRequest, SymbolName, TypeData,
+};
 
 use super::BoundUnitBindingError;
-use crate::BinderFactContext;
 use crate::binder::{Binder, BindingContext};
 use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::publication::BoundUnitAssemblyError;
 use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
+use crate::{BinderFactContext, SymbolFactProvider};
 
 pub(super) fn create_binder<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<Binder<C>, BoundUnitBindingError>
+) -> Result<Binder<'_, C>, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -30,7 +33,7 @@ where
 
 pub(super) fn path_context<C>(
     binder: &Binder<'_, C>,
-    scope: bray_symbols::LocalScopeId,
+    scope: LocalScopeId,
 ) -> Result<PathBindingContext, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
@@ -60,6 +63,79 @@ where
         module.owner(),
         NameAccess::Internal,
     ))
+}
+
+pub(super) fn push_callable_inputs<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+{
+    let callable = binder
+        .facts()
+        .symbols()
+        .symbol_for_key(binder.unit().key().declared_owner())
+        .and_then(CallableSymbolId::try_from_any)
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let signature = binder
+        .facts()
+        .symbol_facts()
+        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+        .map_err(map_fact_error)?;
+
+    if let Some(receiver) = signature.value().receiver() {
+        insert_named_surface(binder, scope, receiver.parameter().into(), "self")?;
+    }
+
+    for parameter in signature.value().parameters() {
+        insert_source_surface(binder, scope, (*parameter).into())?;
+    }
+
+    Ok(())
+}
+
+pub(super) fn insert_source_surface<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    symbol: AnySymbolId,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let declaration = binder
+        .facts()
+        .symbols()
+        .symbol_key(symbol)
+        .and_then(bray_symbols::SymbolKey::source_declaration_id)
+        .and_then(|declaration| binder.facts().declarations().declaration(declaration))
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let name = declaration
+        .name()
+        .and_then(bray_declarations::DeclarationName::as_identifier)
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    insert_named_surface(binder, scope, symbol, name)
+}
+
+pub(super) fn insert_named_surface<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    symbol: AnySymbolId,
+    name: &str,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let name = SymbolName::try_new(name).ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    binder
+        .unit_mut()
+        .insert_surface_name(scope, name, symbol)
+        .map_err(|_| BoundUnitBindingError::Construction)
 }
 
 pub(super) fn error_type<C>(facts: &C) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
@@ -105,5 +181,12 @@ pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
 pub(super) fn map_assembly_error(error: BoundUnitAssemblyError) -> BoundUnitBindingError {
     match error {
         BoundUnitAssemblyError::InvalidBoundUnit(_) => BoundUnitBindingError::Assembly,
+    }
+}
+
+pub(super) const fn map_fact_error(error: crate::BinderFactError) -> BoundUnitBindingError {
+    match error {
+        crate::BinderFactError::Cancelled => BoundUnitBindingError::Cancelled,
+        crate::BinderFactError::DependencyUnavailable => BoundUnitBindingError::Binding,
     }
 }

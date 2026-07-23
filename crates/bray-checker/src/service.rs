@@ -1,6 +1,7 @@
 use crate::analysis::check_control_flow;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
+use crate::pattern::check_patterns;
 use crate::selection::{select_callable, select_iteration_source, select_operation};
 use crate::target::check_target_validity;
 use crate::type_check::check_expression_types;
@@ -8,12 +9,14 @@ use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
     CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionCandidateSet,
     ExpressionTypeInput, IterationSourceSelectionRequest, NestedCallableEvidence,
-    OperationSelectionRequest, TargetValidity, TargetValidityRequest,
+    OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    CheckedExpressionTypes, DeclaredValueTypeTemplates, SelectedCall, SelectedOperation,
+    CheckedExpressionTypes, CheckedPatternFacts, DeclaredValueTypeTemplates, SelectedCall,
+    SelectedOperation,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId};
+use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -26,6 +29,10 @@ pub struct DefaultExpressionTypeChecker;
 /// The standard cooperating expression type and semantic-selection checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultExpressionSemanticChecker;
+
+/// The standard Bray pattern and match-coverage checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultPatternChecker;
 
 /// The standard Bray constant evaluator implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -83,6 +90,33 @@ where
 
 impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
     C: CheckerRequestContext + ?Sized
+{
+}
+
+/// Pattern compatibility, binding typing, refutability, and match coverage checking.
+pub trait PatternChecker<C>: Sync
+where
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized,
+{
+    /// Checks patterns in one committed bound unit.
+    fn check_patterns(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        expression_types: &CheckedExpressionTypes,
+        input: &PatternCheckInput,
+    ) -> CheckerOutcome<CheckedPatternFacts> {
+        check_patterns(request, expression_types, input)
+    }
+}
+
+impl<C> PatternChecker<C> for DefaultPatternChecker where
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized
 {
 }
 

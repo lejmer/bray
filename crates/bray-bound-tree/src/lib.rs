@@ -9,6 +9,7 @@ mod dependency;
 mod identity;
 mod node;
 mod origin;
+mod pattern;
 mod selection;
 mod storage;
 mod template;
@@ -45,15 +46,20 @@ pub use node::{
     BoundGenericArgument, BoundIterationSource, BoundLeadingDotVariantExpression,
     BoundLiteralExpression, BoundLiteralKind, BoundLocalBinding, BoundLocalConstant, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
-    BoundNodeKind, BoundOperator, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
-    BoundPatternTarget, BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds,
-    BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
-    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundTypeReference,
-    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
-    ExactBoundNodeId, IterationSourceMode,
+    BoundNodeKind, BoundOperator, BoundPattern, BoundPatternEntry, BoundPatternEntryKind,
+    BoundPatternId, BoundPatternKind, BoundPatternLiteral, BoundPatternMode, BoundPatternTarget,
+    BoundReferenceTarget, BoundResolvedCall, BoundSliceBounds, BoundStructConstructionExpression,
+    BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
+    BoundTraitQualifiedMemberExpression, BoundTypeReference, BoundUnaryExpression,
+    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind, ExactBoundNodeId,
+    IterationSourceMode,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
+};
+pub use pattern::{
+    CheckedPatternFacts, MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry,
+    PatternOperation, PatternPredicate, PatternProjection, PatternRefutability,
 };
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,

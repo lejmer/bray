@@ -236,6 +236,27 @@ mod tests {
         .with_arg(DiagnosticArg::required_alignment(64))
         .with_arg(DiagnosticArg::maximum_alignment(16));
 
+        let incompatible_pattern = Diagnostic::new(
+            DiagnosticId::new(5),
+            DiagnosticKind::CheckingIncompatiblePattern,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_type(
+            bray_diagnostics::DiagnosticType::Boolean,
+        ));
+
+        let non_exhaustive_match = Diagnostic::new(
+            DiagnosticId::new(6),
+            DiagnosticKind::CheckingNonExhaustiveMatch,
+            SeverityKind::Error,
+        );
+
+        let contextual_pattern_name = Diagnostic::new(
+            DiagnosticId::new(7),
+            DiagnosticKind::CheckingContextualPatternNameUnsupported,
+            SeverityKind::Error,
+        );
+
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(
@@ -261,6 +282,21 @@ mod tests {
         assert_eq!(
             renderer.render(&target_alignment).message(),
             "required storage alignment 64 exceeds the selected target maximum of 16"
+        );
+
+        assert_eq!(
+            renderer.render(&incompatible_pattern).message(),
+            "pattern is incompatible with bool"
+        );
+
+        assert_eq!(
+            renderer.render(&non_exhaustive_match).message(),
+            "match does not cover every possible value"
+        );
+
+        assert_eq!(
+            renderer.render(&contextual_pattern_name).message(),
+            "bare variant patterns are not supported yet, use a leading dot or qualified path"
         );
     }
 

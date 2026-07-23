@@ -274,6 +274,26 @@ const CHECKING_INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
 ];
 
+const CHECKING_INCOMPATIBLE_PATTERN: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("pattern is incompatible with "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
+
+const CHECKING_REFUTABLE_PATTERN: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("pattern must be irrefutable")];
+
+const CHECKING_NON_EXHAUSTIVE_MATCH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "match does not cover every possible value",
+)];
+
+const CHECKING_UNREACHABLE_MATCH_ARM: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("match arm is unreachable")];
+
+const CHECKING_CONTEXTUAL_PATTERN_NAME_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "bare variant patterns are not supported yet, use a leading dot or qualified path",
+    )];
+
 const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("cannot infer expression type")];
 
@@ -555,6 +575,21 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleExpressionType => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_EXPRESSION_TYPE)
+        }
+        DiagnosticKind::CheckingIncompatiblePattern => {
+            MessageTemplate::new(CHECKING_INCOMPATIBLE_PATTERN)
+        }
+        DiagnosticKind::CheckingRefutablePattern => {
+            MessageTemplate::new(CHECKING_REFUTABLE_PATTERN)
+        }
+        DiagnosticKind::CheckingNonExhaustiveMatch => {
+            MessageTemplate::new(CHECKING_NON_EXHAUSTIVE_MATCH)
+        }
+        DiagnosticKind::CheckingUnreachableMatchArm => {
+            MessageTemplate::new(CHECKING_UNREACHABLE_MATCH_ARM)
+        }
+        DiagnosticKind::CheckingContextualPatternNameUnsupported => {
+            MessageTemplate::new(CHECKING_CONTEXTUAL_PATTERN_NAME_UNSUPPORTED)
         }
         DiagnosticKind::CheckingCannotInferExpressionType => {
             MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)

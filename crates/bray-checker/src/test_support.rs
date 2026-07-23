@@ -8,8 +8,10 @@ use bray_bound_tree::{
     BoundNameExpression, BoundNodeOrigin, BoundReferenceTarget, BoundSourceAnchor, BoundTree,
     BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
-use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
-use bray_parser::parse_source_unit;
+use bray_declarations::{
+    DeclarationId, SyntaxAnchor, discover_source_unit_declarations, merge_declaration_chunks,
+};
+use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceSpan, SourceVersion,
     TextSizeOverflow,
@@ -18,7 +20,7 @@ use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, FunctionSymbolId,
     GenericOwnerId, GenericSubstitutionData, LocalScopeBoundary, LocalSymbolRegionId,
     LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
-    PackageIdentity, SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolName,
+    PackageIdentity, SemanticValueStore, SymbolGraph, SymbolId, SymbolKey, SymbolKind, SymbolName,
     SymbolRootKey, TraitCallableMemberSymbolId, TypeData, TypeId,
 };
 use bray_target::TargetProfile;
@@ -111,6 +113,10 @@ impl CheckerRequestContext for TestCheckerContext {
         semantic_values()
     }
 
+    fn symbols(&self) -> &SymbolGraph {
+        symbol_graph()
+    }
+
     fn available_compiler_known_symbols(&self) -> &bray_symbols::AvailableCompilerKnownSymbols {
         available_compiler_known_symbols()
     }
@@ -155,6 +161,27 @@ pub(crate) fn semantic_values() -> &'static SemanticValueStore {
     VALUES.get_or_init(|| match SemanticValueStore::try_new() {
         Ok(values) => values,
         Err(error) => panic!("test semantic value store must be available: {error:?}"),
+    })
+}
+
+pub(crate) fn symbol_graph() -> &'static SymbolGraph {
+    static GRAPH: OnceLock<SymbolGraph> = OnceLock::new();
+
+    GRAPH.get_or_init(|| {
+        let snapshot = source_snapshot();
+        let parsed = parse_source_unit(snapshot);
+        let discovered = discover_source_unit_declarations(parsed.source_unit());
+        let merged = merge_declaration_chunks([&discovered]);
+        let (syntax, _) = SyntaxTreeResult::from_source_unit_results([parsed]).into_parts();
+
+        let Some(package) = PackageIdentity::try_new("example.package") else {
+            panic!("test package identity must be non-empty");
+        };
+
+        match SymbolGraph::build_source(package, merged.table(), &syntax) {
+            Ok(graph) => graph,
+            Err(error) => panic!("test symbol graph must build: {error:?}"),
+        }
     })
 }
 

@@ -11,8 +11,9 @@ use bray_diagnostics::DiagnosticResult;
 use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
-    ConstantDeclaredTypeFact, ConstantSymbolId, ImportedSymbolSkeleton, PackageIdentity,
-    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
+    CallableSignatureFact, CallableSignatureTemplate, ConstantDeclaredTypeFact, ConstantSymbolId,
+    ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore, SymbolFactRequest, SymbolGraph,
+    TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -24,6 +25,7 @@ use super::{
 pub(crate) struct TestSymbolFacts {
     symbol: ConstantSymbolId,
     pub(super) result: Arc<DiagnosticResult<TypeExpressionTemplate>>,
+    callable_signature: Arc<DiagnosticResult<CallableSignatureTemplate>>,
 }
 
 impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
@@ -36,6 +38,15 @@ impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
         }
 
         Ok(Arc::clone(&self.result))
+    }
+}
+
+impl SymbolFactProvider<CallableSignatureFact> for TestSymbolFacts {
+    fn symbol_fact(
+        &self,
+        _: SymbolFactRequest<CallableSignatureFact>,
+    ) -> BinderFactResult<Arc<DiagnosticResult<CallableSignatureTemplate>>> {
+        Ok(Arc::clone(&self.callable_signature))
     }
 }
 
@@ -204,6 +215,15 @@ impl TestFixture {
             TypeExpressionTemplate::Resolved(declared_type),
         ));
 
+        let callable_signature = Arc::new(DiagnosticResult::without_diagnostics(
+            CallableSignatureTemplate::new(
+                TypeExpressionTemplate::Resolved(declared_type),
+                None,
+                [],
+                TypeExpressionTemplate::Resolved(declared_type),
+            ),
+        ));
+
         Self {
             syntax,
             declarations,
@@ -214,6 +234,7 @@ impl TestFixture {
             symbol_facts: TestSymbolFacts {
                 symbol: constant,
                 result: symbol_result,
+                callable_signature,
             },
             target: bray_target::test_support::test_target_profile(),
             cancellation: TestCancellation {

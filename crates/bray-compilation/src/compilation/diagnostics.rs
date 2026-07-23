@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts,
-    DeclaredValueTypeTemplates,
+    CheckedPatternFacts, DeclaredValueTypeTemplates,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -85,6 +85,7 @@ impl Compilation {
                 self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
 
             let control_flow = self.control_flow(key.clone())?;
+            let patterns = self.pattern_facts(key.clone())?;
 
             // TODO(BRA-199): Finalized invocation and layout facts must request their exact
             // target-validity facts and retain those diagnostics in their semantic results.
@@ -97,6 +98,7 @@ impl Compilation {
             ));
 
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
+            facts.push(SemanticDiagnosticFact::Patterns(patterns));
 
             if key.kind() == BoundUnitKind::ConstantTemplate {
                 let symbols = self.symbol_graph()?;
@@ -275,6 +277,7 @@ enum SemanticDiagnosticFact {
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     ExpressionSemantics(Arc<PublishedUnitFact<CheckedExpressionSemantics>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
+    Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
 }
@@ -286,6 +289,7 @@ impl SemanticDiagnosticFact {
             Self::DeclaredTypes(result) => result.diagnostics(),
             Self::ExpressionSemantics(result) => result.result().diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
+            Self::Patterns(result) => result.diagnostics(),
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
         }

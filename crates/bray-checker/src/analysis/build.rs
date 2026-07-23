@@ -955,7 +955,7 @@ mod tests {
         let for_expression = push_expression(&mut builder, for_expression);
 
         let subject = push_error_expression(&mut builder, origin);
-        let match_pattern = push_pattern(&mut builder, origin, BoundPatternMode::Match);
+        let match_pattern = push_pattern(&mut builder, origin, BoundPatternMode::MatchObserve);
         let guard = push_error_expression(&mut builder, origin);
         let arm_value = push_error_expression(&mut builder, origin);
         let arm_body = push_block(&mut builder, origin, [arm_value]);

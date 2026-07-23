@@ -1,15 +1,18 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
 };
+use bray_symbols::CallableSignatureFact;
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
-use super::support::{anchored_descendant, error_type, map_assembly_error, map_binding_error};
+use super::support::{
+    anchored_descendant, error_type, map_assembly_error, map_binding_error, push_callable_inputs,
+};
 use crate::binder::{BinderOutput, BindingContext};
 use crate::publication::{
     assemble_anonymous_callable, assemble_callable_body, direct_nested_units,
 };
-use crate::{BinderFactContext, BoundUnitComputation};
+use crate::{BinderFactContext, BoundUnitComputation, SymbolFactProvider};
 
 /// A bound declared callable body ready to complete its semantic unit.
 pub struct PendingBoundCallableBody {
@@ -60,6 +63,7 @@ pub fn bind_callable_body<C>(
 ) -> Result<PendingBoundCallableBody, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
 {
     let body =
         anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(facts, key.source().syntax())
@@ -67,6 +71,9 @@ where
 
     let mut binder = super::support::create_binder(facts, unit, key, BindingContext::CallableBody)?;
     let root_scope = binder.unit().root_scope();
+
+    push_callable_inputs(&mut binder, root_scope)?;
+
     let path_context = super::support::path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
 

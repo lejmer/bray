@@ -27,4 +27,7 @@ pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,
     BoundPatternId, ExactBoundNodeId,
 };
-pub use pattern::{BoundPattern, BoundPatternKind, BoundPatternMode, BoundPatternTarget};
+pub use pattern::{
+    BoundPattern, BoundPatternEntry, BoundPatternEntryKind, BoundPatternKind, BoundPatternLiteral,
+    BoundPatternMode, BoundPatternTarget,
+};

@@ -7,14 +7,16 @@ use bray_binder::{
     bind_runtime_default, semantic_unit_context,
 };
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, walk_bound_unit_view,
+    AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
+    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
+    CheckedExpressionTypes, CheckedPatternFacts, CheckedSemanticSelections,
+    DeclaredValueTypeTemplates, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultExpressionSemanticChecker, ExpressionCandidateSet, ExpressionSemanticChecker,
-    NestedCallableEvidence, SemanticUnitContext,
+    DefaultExpressionSemanticChecker, DefaultPatternChecker, ExpressionCandidateSet,
+    ExpressionSemanticChecker, IterationPatternType, NestedCallableEvidence, PatternCheckInput,
+    PatternChecker, SemanticUnitContext,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -56,6 +58,16 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<CheckedExpressionTypes>>, FactQueryError> {
         let published = self.expression_types_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns checked pattern and match-coverage facts for one bound semantic unit.
+    pub fn pattern_facts(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedPatternFacts>>, FactQueryError> {
+        let published = self.pattern_facts_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -277,6 +289,118 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn pattern_facts_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedPatternFacts>>, FactQueryError> {
+        // Cache identity, unit publication, and dependent queries retain the shared key separately.
+        self.unit_fact(
+            &self.state.checked_patterns,
+            CompilationFactKey::CheckedPatterns(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
+
+                let (input, dependency_diagnostics) =
+                    self.pattern_check_input(&key, bound.result().value(), cancellation)?;
+
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let result = check_patterns(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                    types.result().value(),
+                    &input,
+                )?;
+
+                let (patterns, pattern_diagnostics) = result.into_parts();
+                let diagnostics = dependency_diagnostics.merged(&pattern_diagnostics);
+
+                Ok((DiagnosticResult::new(patterns, diagnostics), Box::new([])))
+            },
+        )
+    }
+
+    fn pattern_check_input(
+        &self,
+        key: &BoundUnitKey,
+        bound: &BoundUnit,
+        cancellation: &CancellationToken,
+    ) -> Result<(PatternCheckInput, DiagnosticBag), FactQueryError> {
+        let mut iterations = Vec::new();
+
+        let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
+            if cancellation.is_cancelled() {
+                return BoundWalkControl::Stop;
+            }
+
+            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(id)) = event else {
+                return BoundWalkControl::Continue;
+            };
+
+            let Some(expression) = bound.view().expression(id) else {
+                return BoundWalkControl::Stop;
+            };
+
+            let pattern = match expression {
+                BoundExpression::For(expression) => Some(expression.pattern()),
+                BoundExpression::Generator(expression) => Some(expression.pattern()),
+                _ => None,
+            };
+
+            if let Some(pattern) = pattern {
+                iterations.push((id, pattern));
+            }
+
+            BoundWalkControl::Continue
+        });
+
+        if cancellation.is_cancelled() {
+            return Err(FactQueryError::Cancelled);
+        }
+
+        if outcome != BoundWalkOutcome::Completed {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        let error_type = self
+            .semantic_value_store()?
+            .intern_type(bray_symbols::TypeData::Error)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let mut inputs = Vec::with_capacity(iterations.len());
+        let mut diagnostics = DiagnosticBag::new();
+
+        for (expression, pattern) in iterations {
+            // Each demand-driven selection query owns its cheaply shared unit key.
+            let selection =
+                self.iteration_source_with_cancellation(key.clone(), expression, cancellation)?;
+
+            diagnostics = diagnostics.merged(selection.diagnostics());
+
+            match selection.value() {
+                Some(selection) => inputs.push(IterationPatternType::new(
+                    pattern,
+                    selection.element_type(),
+                    false,
+                )),
+                None => inputs.push(IterationPatternType::new(pattern, error_type, true)),
+            }
+        }
+
+        Ok((
+            PatternCheckInput::new().with_iteration_patterns(inputs),
+            diagnostics,
+        ))
+    }
+
     fn semantic_selections_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -446,6 +570,20 @@ fn check_expression_semantics(
     Ok((result, Box::new([])))
 }
 
+fn check_patterns(
+    bound: &BoundUnit,
+    semantic_context: &SemanticUnitContext,
+    context: &CompilationCheckerContext<'_>,
+    types: &CheckedExpressionTypes,
+    input: &PatternCheckInput,
+) -> Result<DiagnosticResult<CheckedPatternFacts>, FactQueryError> {
+    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
+    })?;
+
+    checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
+}
+
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
@@ -468,11 +606,14 @@ mod tests {
     use bray_bound_tree::{
         BoundCallResult, BoundCallableTarget, BoundExpressionId, BoundReferenceTarget,
         BoundUnitKind, CheckedExpressionTypes, DeclaredValueTypeConstraintKind,
-        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, SelectedArgument, SemanticSelection,
+        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, PatternOperation, PatternPredicate,
+        PatternProjection, SelectedArgument, SemanticSelection,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
-    use bray_symbols::{NamedTypeSymbolId, SymbolKind, TypeData, TypeExpressionTemplate};
+    use bray_symbols::{
+        NamedTypeSymbolId, SymbolKind, SymbolOrdinal, TypeData, TypeExpressionTemplate,
+    };
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
@@ -1224,14 +1365,22 @@ mod tests {
             panic!("selected expression must have a final type");
         };
 
+        assert_type_representation(compilation, result.ty(), expected);
+    }
+
+    fn assert_type_representation(
+        compilation: &Compilation,
+        ty: bray_symbols::TypeId,
+        expected: RepresentationRole,
+    ) {
         let values = match compilation.semantic_value_store() {
             Ok(values) => values,
             Err(error) => panic!("semantic values must be available: {error:?}"),
         };
 
-        let data = match values.type_data(result.ty()) {
+        let data = match values.type_data(ty) {
             Ok(data) => data,
-            Err(error) => panic!("selected expression type must be available: {error:?}"),
+            Err(error) => panic!("type must be available: {error:?}"),
         };
 
         let TypeData::Named {
@@ -1239,7 +1388,7 @@ mod tests {
             ..
         } = data.as_ref()
         else {
-            panic!("selected expression must have a named scalar type");
+            panic!("type must use a named scalar representation");
         };
 
         assert_eq!(
@@ -1654,6 +1803,620 @@ func other()
                 SemanticUnitContextError::MissingOwner
             ))
         ));
+    }
+
+    #[test]
+    fn pattern_facts_publish_exhaustive_boolean_match_coverage() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case true\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case false\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.checked_patterns.is_published(&key),
+            Ok(false)
+        );
+
+        let facts = match compilation.pattern_facts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            compilation.state.checked_patterns.is_published(&key),
+            Ok(true)
+        );
+
+        let repeated = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated pattern facts must be available: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&facts, &repeated));
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.unreachable_arms().is_empty());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+
+        let literal_patterns = facts
+            .value()
+            .patterns()
+            .iter()
+            .filter(|pattern| matches!(pattern.test(), Some(PatternPredicate::Literal(_))))
+            .collect::<Vec<_>>();
+
+        assert_eq!(literal_patterns.len(), 2);
+
+        assert!(literal_patterns.iter().all(|pattern| {
+            pattern.operation() == PatternOperation::Observe
+                && matches!(pattern.refinement(), Some(PatternPredicate::Literal(_)))
+        }));
+    }
+
+    #[test]
+    fn pattern_facts_report_non_exhaustive_matches() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case true\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingNonExhaustiveMatch]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_report_unreachable_match_arms() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case true\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case true\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case false\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert_eq!(coverage.unreachable_arms(), &[1]);
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingUnreachableMatchArm]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_report_patterns_incompatible_with_the_subject() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case none\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_reject_refutable_declaration_patterns() {
+        let compilation = pattern_compilation("    let true: bool = true;\n");
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingRefutablePattern]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_publish_exhaustive_nullable_match_coverage() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: i32? = none;\n",
+            "    match value\n",
+            "    {\n",
+            "        case ?present\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case none\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive());
+        assert!(coverage.unreachable_arms().is_empty());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn pattern_facts_compose_nested_nullable_coverage() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool? = none;\n",
+            "    match value\n",
+            "    {\n",
+            "        case none\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case ?true\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case ?false\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("nullable pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn pattern_facts_publish_exhaustive_closed_union_coverage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    First;\n",
+            "    Second;\n",
+            "}\n",
+            "func main(value: Choice)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case .First\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case .Second\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.unreachable_arms().is_empty());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn pattern_facts_recover_contextual_variant_names_until_staged_resolution_exists() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    First;\n",
+            "}\n",
+            "func main(value: Choice)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case First\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("recovered pattern facts must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingContextualPatternNameUnsupported]
+        );
+
+        assert!(facts.value().binding_types().is_empty());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn pattern_facts_report_arms_after_a_catch_all_as_unreachable() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case _\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case true\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive());
+        assert_eq!(coverage.unreachable_arms(), &[1]);
+    }
+
+    #[test]
+    fn pattern_facts_check_fixed_array_shape_before_proving_irrefutability() {
+        let valid = pattern_compilation("    let [first, .., last]: [i32; 3] = [1, 2, 3];\n");
+        let invalid = pattern_compilation("    let [first]: [i32; 2] = [1, 2];\n");
+
+        let valid_key = source_callable_body_key(&valid);
+        let invalid_key = source_callable_body_key(&invalid);
+
+        let valid_facts = match valid.pattern_facts(valid_key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("valid array-pattern facts must be available: {error:?}"),
+        };
+
+        let invalid_facts = match invalid.pattern_facts(invalid_key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("invalid array-pattern facts must be available: {error:?}"),
+        };
+
+        assert!(
+            valid_facts.diagnostics().is_empty(),
+            "{:?}",
+            valid_facts.diagnostics()
+        );
+
+        let [first, last] = valid_facts.value().binding_types() else {
+            panic!("array pattern must publish its two binding types");
+        };
+
+        assert_eq!(
+            first.projection(),
+            Some(PatternProjection::ElementFromStart(SymbolOrdinal::new(0)))
+        );
+
+        assert_eq!(
+            last.projection(),
+            Some(PatternProjection::ElementFromEnd(SymbolOrdinal::new(0)))
+        );
+
+        assert!(!valid_facts.value().is_recovered());
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(invalid_facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_check_product_field_coverage() {
+        let valid = compilation(concat!(
+            "module app;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: i32;\n",
+            "    y: i32;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let { x, y }: Point = Point { x = 1, y = 2 };\n",
+            "}\n",
+        ));
+
+        let invalid = compilation(concat!(
+            "module app;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: i32;\n",
+            "    y: i32;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let { x }: Point = Point { x = 1, y = 2 };\n",
+            "}\n",
+        ));
+
+        let valid_key = source_callable_body_key(&valid);
+        let invalid_key = source_callable_body_key(&invalid);
+
+        let valid_facts = match valid.pattern_facts(valid_key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("valid product-pattern facts must be available: {error:?}"),
+        };
+
+        let invalid_facts = match invalid.pattern_facts(invalid_key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("invalid product-pattern facts must be available: {error:?}"),
+        };
+
+        assert!(
+            valid_facts.diagnostics().is_empty(),
+            "{:?}",
+            valid_facts.diagnostics()
+        );
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(invalid_facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_check_and_project_generic_product_fields() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Wrapper<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "}\n",
+            "func main(input: Wrapper<bool>)\n",
+            "{\n",
+            "    let { value }: Wrapper<bool> = input;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("generic product-pattern facts must be available: {error:?}"),
+        };
+
+        let [binding] = facts.value().binding_types() else {
+            panic!("field shorthand must publish one binding type");
+        };
+
+        assert_type_representation(&compilation, binding.ty(), RepresentationRole::ScalarBool);
+
+        assert_eq!(binding.operation(), PatternOperation::Consume);
+
+        assert!(matches!(
+            binding.projection(),
+            Some(PatternProjection::ProductField(_))
+        ));
+
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn pattern_facts_check_and_project_generic_union_payload_fields() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Maybe<T>\n",
+            "{\n",
+            "    Some(value: T);\n",
+            "    None;\n",
+            "}\n",
+            "func main(input: Maybe<bool>)\n",
+            "{\n",
+            "    match input\n",
+            "    {\n",
+            "        case .Some(value = value)\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case .None\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("generic payload-pattern facts must be available: {error:?}"),
+        };
+
+        let [binding] = facts.value().binding_types() else {
+            panic!("payload pattern must publish one binding type");
+        };
+
+        assert_type_representation(&compilation, binding.ty(), RepresentationRole::ScalarBool);
+
+        assert!(matches!(
+            binding.projection(),
+            Some(PatternProjection::ActiveUnionPayloadField { .. })
+        ));
+
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn pattern_facts_do_not_treat_unknown_named_payload_fields_as_positional() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Maybe<T>\n",
+            "{\n",
+            "    Some(value: T);\n",
+            "}\n",
+            "func main(input: Maybe<bool>)\n",
+            "{\n",
+            "    match input\n",
+            "    {\n",
+            "        case .Some(other = value)\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("invalid payload-pattern facts must recover: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_check_nested_product_patterns_against_field_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: i32;\n",
+            "    y: i32;\n",
+            "}\n",
+            "func main(input: Point)\n",
+            "{\n",
+            "    let { x = none, y }: Point = input;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("nested product-pattern facts must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_retain_consuming_match_operations() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match consume value\n",
+            "    {\n",
+            "        case _\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("consuming pattern facts must be available: {error:?}"),
+        };
+
+        assert!(
+            facts
+                .value()
+                .patterns()
+                .iter()
+                .all(|pattern| pattern.operation() == PatternOperation::Consume)
+        );
+    }
+
+    fn pattern_compilation(body: &str) -> Compilation {
+        compilation(&format!("module app;\nfunc main()\n{{\n{body}}}\n",))
     }
 
     fn callable_compilation() -> Compilation {

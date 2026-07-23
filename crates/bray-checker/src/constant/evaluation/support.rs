@@ -3,7 +3,7 @@ use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
-    ConstantValueData, ConstantValueId, ConstantValueKind, IntegerConstant, TypeData, TypeId,
+    ConstantValueData, ConstantValueId, ConstantValueKind, TypeData, TypeId,
 };
 
 use crate::constant::integer::fits_integer_representation;
@@ -368,18 +368,4 @@ pub(super) const fn binary_term_operation(
         | BoundOperator::BitwiseNot
         | BoundOperator::LogicalNot => None,
     }
-}
-
-pub(super) fn integer_to_usize(integer: &IntegerConstant) -> Option<usize> {
-    if integer.sign() != bray_symbols::IntegerSign::NonNegative {
-        return None;
-    }
-
-    let mut value = 0_usize;
-
-    for byte in integer.magnitude() {
-        value = value.checked_mul(256)?.checked_add(usize::from(*byte))?;
-    }
-
-    Some(value)
 }
