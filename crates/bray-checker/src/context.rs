@@ -6,7 +6,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
-    SymbolFactKind, SymbolFactRequest, SymbolFactResult,
+    SymbolFactKind, SymbolFactRequest, SymbolFactResult, SymbolGraph,
 };
 use bray_target::TargetProfile;
 
@@ -127,6 +127,9 @@ pub trait CheckerRequestContext: Sync {
 
     /// Returns the canonical semantic values used by bound structure and facts.
     fn semantic_values(&self) -> &SemanticValueStore;
+
+    /// Returns the compilation-wide symbol graph.
+    fn symbols(&self) -> &SymbolGraph;
 
     /// Returns compiler-known symbols available for the current target.
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;

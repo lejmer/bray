@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, TypeId};
+use bray_source::TextRange;
+use bray_symbols::{AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, SymbolName, TypeId};
 
-use crate::{BoundNodeOrigin, BoundPatternId};
+use crate::{BoundLiteralKind, BoundNodeOrigin, BoundPatternId};
 
 /// The source-semantic operation performed by a bound pattern.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -60,6 +61,92 @@ pub enum BoundPatternTarget {
     Surface(AnySymbolId),
 }
 
+/// A literal retained by a source pattern.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundPatternLiteral {
+    kind: BoundLiteralKind,
+    range: TextRange,
+}
+
+impl BoundPatternLiteral {
+    /// Creates one source-correlated pattern literal.
+    pub const fn new(kind: BoundLiteralKind, range: TextRange) -> Self {
+        Self { kind, range }
+    }
+
+    /// Returns the literal category.
+    pub const fn kind(self) -> BoundLiteralKind {
+        self.kind
+    }
+
+    /// Returns the exact literal-token range.
+    pub const fn range(self) -> TextRange {
+        self.range
+    }
+}
+
+/// One product, tuple, array, or variant payload entry in source order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundPatternEntry {
+    name: Option<SymbolName>,
+    kind: BoundPatternEntryKind,
+}
+
+/// The exact semantic content of one structured pattern entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BoundPatternEntryKind {
+    /// A nested source pattern.
+    Pattern(BoundPatternId),
+    /// A shorthand binding whose name also selects the field.
+    Binding(LocalBindingSymbolId),
+    /// The `..` marker accounting for remaining fields or elements.
+    Remaining,
+    /// Recovery prevented the entry from retaining valid semantic content.
+    Recovered,
+}
+
+impl BoundPatternEntry {
+    /// Creates one source-ordered pattern entry.
+    pub const fn new(name: Option<SymbolName>, kind: BoundPatternEntryKind) -> Self {
+        Self { name, kind }
+    }
+
+    /// Returns the optional named-field selector.
+    pub const fn name(&self) -> Option<&SymbolName> {
+        self.name.as_ref()
+    }
+
+    /// Returns the nested pattern when this entry contains one.
+    pub const fn pattern(&self) -> Option<BoundPatternId> {
+        match self.kind {
+            BoundPatternEntryKind::Pattern(pattern) => Some(pattern),
+            BoundPatternEntryKind::Binding(_)
+            | BoundPatternEntryKind::Remaining
+            | BoundPatternEntryKind::Recovered => None,
+        }
+    }
+
+    /// Returns the shorthand binding introduced by this entry.
+    pub const fn binding(&self) -> Option<LocalBindingSymbolId> {
+        match self.kind {
+            BoundPatternEntryKind::Binding(binding) => Some(binding),
+            BoundPatternEntryKind::Pattern(_)
+            | BoundPatternEntryKind::Remaining
+            | BoundPatternEntryKind::Recovered => None,
+        }
+    }
+
+    /// Returns whether this is a remaining-elements or remaining-fields entry.
+    pub const fn is_remaining(&self) -> bool {
+        matches!(self.kind, BoundPatternEntryKind::Remaining)
+    }
+
+    /// Returns the exact entry content.
+    pub const fn kind(&self) -> BoundPatternEntryKind {
+        self.kind
+    }
+}
+
 /// One checked source pattern and its exact local identities.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundPattern {
@@ -68,8 +155,11 @@ pub struct BoundPattern {
     mode: BoundPatternMode,
     kind: BoundPatternKind,
     children: Arc<[BoundPatternId]>,
+    entries: Arc<[BoundPatternEntry]>,
     bindings: Arc<[LocalBindingSymbolId]>,
     target: Option<BoundPatternTarget>,
+    name: Option<SymbolName>,
+    literal: Option<BoundPatternLiteral>,
     is_mutable: bool,
     is_recovered: bool,
 }
@@ -90,11 +180,21 @@ impl BoundPattern {
             mode,
             kind,
             children: shared_slice(children),
+            entries: Arc::from([]),
             bindings: shared_slice(bindings),
             target: None,
+            name: None,
+            literal: None,
             is_mutable: false,
             is_recovered: false,
         }
+    }
+
+    /// Returns this pattern with source-ordered structured entries recorded.
+    pub fn with_entries(mut self, entries: impl IntoIterator<Item = BoundPatternEntry>) -> Self {
+        self.entries = shared_slice(entries);
+
+        self
     }
 
     /// Returns this pattern with its binding mutability recorded.
@@ -112,6 +212,20 @@ impl BoundPattern {
     /// Returns this pattern with its resolved non-binding target recorded.
     pub const fn with_target(mut self, target: Option<BoundPatternTarget>) -> Self {
         self.target = target;
+        self
+    }
+
+    /// Returns this pattern with its source name recorded.
+    pub fn with_name(mut self, name: Option<SymbolName>) -> Self {
+        self.name = name;
+
+        self
+    }
+
+    /// Returns this pattern with its source literal recorded.
+    pub const fn with_literal(mut self, literal: Option<BoundPatternLiteral>) -> Self {
+        self.literal = literal;
+
         self
     }
 
@@ -140,6 +254,11 @@ impl BoundPattern {
         &self.children
     }
 
+    /// Returns structured entries in deterministic source order.
+    pub fn entries(&self) -> &[BoundPatternEntry] {
+        &self.entries
+    }
+
     /// Returns local bindings introduced directly by this pattern.
     pub fn bindings(&self) -> &[LocalBindingSymbolId] {
         &self.bindings
@@ -148,6 +267,16 @@ impl BoundPattern {
     /// Returns the existing local or declaration selected by this pattern.
     pub const fn target(&self) -> Option<BoundPatternTarget> {
         self.target
+    }
+
+    /// Returns the source name retained by this pattern.
+    pub const fn name(&self) -> Option<&SymbolName> {
+        self.name.as_ref()
+    }
+
+    /// Returns the source literal retained by this pattern.
+    pub const fn literal(&self) -> Option<BoundPatternLiteral> {
+        self.literal
     }
 
     /// Returns whether this binding pattern requested mutable storage access.

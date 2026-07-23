@@ -147,6 +147,14 @@ pub enum DiagnosticKind {
     CheckingTargetAbiRepresentationUnsupported,
     /// The selected target cannot represent the required alignment.
     CheckingTargetAlignmentUnsupported,
+    /// A pattern form cannot match values of its established input type.
+    CheckingIncompatiblePattern,
+    /// A context requiring an irrefutable pattern received a refutable pattern.
+    CheckingRefutablePattern,
+    /// A match expression does not cover every value of its subject type.
+    CheckingNonExhaustiveMatch,
+    /// A match arm cannot be selected because earlier arms already cover it.
+    CheckingUnreachableMatchArm,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -242,6 +250,10 @@ impl DiagnosticKind {
             Self::CheckingTargetCallableAbiUnavailable => 7015,
             Self::CheckingTargetAlignmentUnsupported => 7016,
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
+            Self::CheckingIncompatiblePattern => 7021,
+            Self::CheckingRefutablePattern => 7022,
+            Self::CheckingNonExhaustiveMatch => 7023,
+            Self::CheckingUnreachableMatchArm => 7024,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -352,6 +364,10 @@ impl DiagnosticKind {
             Self::CheckingTargetAbiRepresentationUnsupported => {
                 "checking_target_abi_representation_unsupported"
             }
+            Self::CheckingIncompatiblePattern => "checking_incompatible_pattern",
+            Self::CheckingRefutablePattern => "checking_refutable_pattern",
+            Self::CheckingNonExhaustiveMatch => "checking_non_exhaustive_match",
+            Self::CheckingUnreachableMatchArm => "checking_unreachable_match_arm",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",

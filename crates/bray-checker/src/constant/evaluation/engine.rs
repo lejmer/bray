@@ -8,13 +8,14 @@ use bray_symbols::{
     TargetSizedIntegerType, TypeId,
 };
 
+use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
 use crate::constant::literal::{normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
 
-use super::support::{EvaluationFailure, integer_to_usize};
+use super::support::EvaluationFailure;
 
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitRoot,

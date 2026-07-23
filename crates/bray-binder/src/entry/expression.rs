@@ -13,7 +13,7 @@ use bray_syntax::{
 use super::BoundUnitBindingError;
 use super::support::{
     anchored_descendant, create_binder, error_type, map_assembly_error, map_binding_error,
-    path_context,
+    map_fact_error, path_context, push_callable_inputs,
 };
 use crate::binder::{Binder, BinderOutput, BindingContext};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
@@ -142,7 +142,7 @@ fn bind_constraint_unit<C>(
 where
     C: BinderFactContext + ?Sized,
 {
-    bind_expression_sequence_unit(facts, unit, key, context, false)
+    bind_expression_sequence_unit(facts, unit, key, context, false, |_, _| Ok(()))
 }
 
 fn bind_contract_clause_unit<C>(
@@ -166,7 +166,7 @@ where
         false
     };
 
-    bind_expression_sequence_unit(facts, unit, key, context, has_result)
+    bind_expression_sequence_unit(facts, unit, key, context, has_result, push_callable_inputs)
 }
 
 fn bind_expression_unit<C>(
@@ -372,6 +372,7 @@ fn bind_expression_sequence_unit<C>(
     key: BoundUnitKey,
     context: BindingContext,
     has_contract_result: bool,
+    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
@@ -391,6 +392,8 @@ where
 
     let mut binder = create_binder(facts, unit, key, context)?;
     let root_scope = binder.unit().root_scope();
+
+    configure_scope(&mut binder, root_scope)?;
 
     let expression_scope = if context == BindingContext::ContractClause {
         push_contract_scope(&mut binder, root_scope, syntax, has_contract_result)
@@ -439,13 +442,6 @@ where
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
     Ok((output, root))
-}
-
-const fn map_fact_error(error: crate::BinderFactError) -> BoundUnitBindingError {
-    match error {
-        crate::BinderFactError::Cancelled => BoundUnitBindingError::Cancelled,
-        crate::BinderFactError::DependencyUnavailable => BoundUnitBindingError::Binding,
-    }
 }
 
 fn anchored_expression_sequence<C>(

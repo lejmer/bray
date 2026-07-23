@@ -48,6 +48,10 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         self.facts.semantic_values()
     }
 
+    fn symbols(&self) -> &bray_symbols::SymbolGraph {
+        CompilationCheckerContext::symbols(self)
+    }
+
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
         self.facts
             .compilation()

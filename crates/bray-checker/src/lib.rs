@@ -8,6 +8,7 @@ mod context;
 mod diagnostic;
 mod expression;
 mod outcome;
+mod pattern;
 mod representation;
 mod selection;
 mod semantic_context;
@@ -32,6 +33,7 @@ pub use context::{
 };
 pub use expression::NestedCallableEvidence;
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
+pub use pattern::{IterationPatternType, PatternCheckInput};
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
     CallableCandidateTemplateState, CallableCandidateTemplates,
@@ -49,8 +51,9 @@ pub use semantic_context::{
 pub use service::{
     ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
     DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultExpressionSemanticChecker,
-    DefaultExpressionTypeChecker, DefaultSemanticSelector, DefaultTargetValidityChecker,
-    ExpressionSemanticChecker, ExpressionTypeChecker, SemanticSelector, TargetValidityChecker,
+    DefaultExpressionTypeChecker, DefaultPatternChecker, DefaultSemanticSelector,
+    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker, PatternChecker,
+    SemanticSelector, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,

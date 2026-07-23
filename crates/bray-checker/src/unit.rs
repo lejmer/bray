@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult,
+    SymbolFactResult, SymbolGraph,
 };
 use bray_target::TargetProfile;
 
@@ -118,6 +118,11 @@ where
     /// Returns the canonical semantic values referenced by the bound unit.
     pub fn semantic_values(self) -> &'view SemanticValueStore {
         self.context.semantic_values()
+    }
+
+    /// Returns the compilation-wide symbol graph.
+    pub fn symbols(self) -> &'view SymbolGraph {
+        self.context.symbols()
     }
 
     /// Returns target-available compiler-known identities and behavior roles.

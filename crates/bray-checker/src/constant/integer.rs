@@ -24,6 +24,20 @@ pub(super) fn from_big_integer(value: BigInt) -> IntegerConstant {
     IntegerConstant::new(sign, magnitude)
 }
 
+pub(crate) fn integer_to_usize(value: &IntegerConstant) -> Option<usize> {
+    if value.sign() != IntegerSign::NonNegative {
+        return None;
+    }
+
+    let mut result = 0_usize;
+
+    for byte in value.magnitude() {
+        result = result.checked_mul(256)?.checked_add(usize::from(*byte))?;
+    }
+
+    Some(result)
+}
+
 pub(super) fn fits_integer_representation(
     value: &IntegerConstant,
     representation: IntegerRepresentation,

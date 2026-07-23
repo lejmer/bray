@@ -1,14 +1,18 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode, BoundPatternTarget,
+    BoundPattern, BoundPatternEntry, BoundPatternEntryKind, BoundPatternId, BoundPatternKind,
+    BoundPatternLiteral, BoundPatternMode, BoundPatternTarget,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::{LocalBindingSymbolId, LocalScopeId, SymbolName, SymbolOrdinal, TypeId};
 use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken};
 
-use super::name::{name_is_available, name_text_is_available, report_name_already_defined};
+use super::expression::literal_kind;
+use super::name::{
+    name_is_available, name_text_is_available, report_name_already_defined, symbol_name,
+};
 use super::{BindingError, BindingResult};
 use crate::BinderFactContext;
 use crate::binder::{Binder, PatternBindingMode};
@@ -96,6 +100,7 @@ macro_rules! define_pattern_binder {
             self.check_cancellation()?;
 
             let mut children = Vec::new();
+            let mut entries = Vec::new();
             let mut introduced = Vec::new();
             let mut ordinal = 0_u32;
 
@@ -108,10 +113,17 @@ macro_rules! define_pattern_binder {
 
             for entry in syntax.$entries() {
                 let nested = entry.$entry_children().collect::<Vec<_>>();
+                let name = entry
+                    .identifier_token()
+                    .and_then(|token| symbol_name(entry.source(), &token));
+
+                let mut nested_pattern = None;
+                let mut shorthand_binding = None;
 
                 for child in &nested {
                     let bound = self.$inner(child, state)?;
 
+                    nested_pattern.get_or_insert(bound.pattern());
                     children.push(bound.pattern());
                     introduced.extend_from_slice(bound.bindings());
                 }
@@ -122,8 +134,21 @@ macro_rules! define_pattern_binder {
                     && let Some(binding) =
                         self.push_pattern_binding(&entry, token, &mut ordinal, state)?
                 {
+                    shorthand_binding = Some(binding);
                     introduced.push(binding);
                 }
+
+                let kind = if let Some(pattern) = nested_pattern {
+                    BoundPatternEntryKind::Pattern(pattern)
+                } else if let Some(binding) = shorthand_binding {
+                    BoundPatternEntryKind::Binding(binding)
+                } else if entry.dot_dot_token().is_some() {
+                    BoundPatternEntryKind::Remaining
+                } else {
+                    BoundPatternEntryKind::Recovered
+                };
+
+                entries.push(BoundPatternEntry::new(name, kind));
             }
 
             let binding_token = syntax.simple_binding_token();
@@ -154,13 +179,16 @@ macro_rules! define_pattern_binder {
                 self.pattern_origin(syntax),
                 state.input_type,
                 bound_mode(state.mode),
-                pattern_kind(syntax, is_binding, target.is_some(), $has_alternatives),
+                pattern_kind(syntax, is_binding, target, $has_alternatives),
                 children,
                 direct_bindings,
             )
+            .with_entries(entries)
             .with_mutability(syntax.mut_keyword().is_some())
             .with_recovery(syntax.is_recovered())
-            .with_target(target);
+            .with_target(target)
+            .with_name(syntax.pattern_name())
+            .with_literal(syntax.pattern_literal());
 
             let pattern = self
                 .unit_mut()
@@ -393,14 +421,21 @@ const fn bound_mode(mode: PatternBindingMode) -> BoundPatternMode {
 fn pattern_kind(
     syntax: &impl PatternSyntax,
     is_binding: bool,
-    has_target: bool,
+    target: Option<BoundPatternTarget>,
     has_alternatives: bool,
 ) -> BoundPatternKind {
     if has_alternatives && syntax.has_alternative_separator() {
         BoundPatternKind::Alternative
     } else if is_binding {
         BoundPatternKind::Binding
-    } else if has_target {
+    } else if matches!(
+        target,
+        Some(BoundPatternTarget::Surface(
+            bray_symbols::AnySymbolId::UnionVariant(_)
+        ))
+    ) {
+        BoundPatternKind::Variant
+    } else if target.is_some() {
         BoundPatternKind::Path
     } else if syntax.has_discard() {
         BoundPatternKind::Discard
@@ -438,6 +473,8 @@ trait PatternSyntax: SourceSyntaxNode {
     fn alternative_bindings_are_coherent(&self) -> bool;
     fn simple_binding_token(&self) -> Option<SyntaxToken>;
     fn first_path(&self) -> Option<bray_syntax::PathSyntax>;
+    fn pattern_name(&self) -> Option<SymbolName>;
+    fn pattern_literal(&self) -> Option<BoundPatternLiteral>;
     fn has_alternative_separator(&self) -> bool;
     fn has_discard(&self) -> bool;
     fn has_literal(&self) -> bool;
@@ -483,6 +520,24 @@ macro_rules! impl_pattern_syntax {
 
             fn first_path(&self) -> Option<bray_syntax::PathSyntax> {
                 self.paths().next()
+            }
+
+            fn pattern_name(&self) -> Option<SymbolName> {
+                self.identifier_token()
+                    .and_then(|token| symbol_name(self.source(), &token))
+                    .or_else(|| {
+                        self.paths()
+                            .next()
+                            .and_then(|path| path.identifier_tokens().last())
+                            .and_then(|token| symbol_name(self.source(), &token))
+                    })
+            }
+
+            fn pattern_literal(&self) -> Option<BoundPatternLiteral> {
+                let token = self.literal_token()?;
+                let kind = literal_kind(token.kind())?;
+
+                Some(BoundPatternLiteral::new(kind, token.range()))
             }
 
             fn has_alternative_separator(&self) -> bool {

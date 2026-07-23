@@ -166,7 +166,7 @@ where
     )
 }
 
-fn diagnostic_type<C>(
+pub(crate) fn diagnostic_type<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Result<DiagnosticType, CheckerInfrastructureError>

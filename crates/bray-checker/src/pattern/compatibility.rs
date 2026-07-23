@@ -1,0 +1,228 @@
+use std::collections::BTreeSet;
+
+use bray_bound_tree::{BoundPattern, BoundPatternKind, BoundPatternTarget};
+use bray_compiler_known::RepresentationRole;
+use bray_symbols::{AnySymbolId, ConstantTermData, ConstantValueKind, NamedTypeSymbolId, TypeData};
+
+use super::check::PatternChecker;
+use crate::constant::integer_to_usize;
+use crate::{CheckerInfrastructureError, CheckerRequestContext};
+
+impl<C> PatternChecker<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    pub(super) fn pattern_is_compatible(
+        &self,
+        pattern: &BoundPattern,
+        kind: BoundPatternKind,
+        target: Option<BoundPatternTarget>,
+        subject: &TypeData,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        let compatible = match kind {
+            BoundPatternKind::Binding
+            | BoundPatternKind::Discard
+            | BoundPatternKind::Grouped
+            | BoundPatternKind::Alternative
+            | BoundPatternKind::Remaining
+            | BoundPatternKind::Error
+            | BoundPatternKind::Path => true,
+            BoundPatternKind::Literal => pattern
+                .literal()
+                .is_some_and(|literal| self.type_accepts_literal(subject, literal.kind())),
+            BoundPatternKind::NullableAbsent | BoundPatternKind::NullablePresent => {
+                matches!(subject, TypeData::Nullable(_))
+            }
+            BoundPatternKind::Box => matches!(subject, TypeData::OwnedIndirection { .. }),
+            BoundPatternKind::Product => self.product_shape_is_compatible(pattern, subject),
+            BoundPatternKind::Tuple => {
+                matches!(subject, TypeData::Tuple(elements) if elements.len() == pattern.children().len())
+            }
+            BoundPatternKind::Array => self.array_shape_is_compatible(pattern, subject)?,
+            BoundPatternKind::Variant => self.variant_matches_subject(target, subject),
+        };
+
+        Ok(compatible)
+    }
+
+    fn product_shape_is_compatible(&self, pattern: &BoundPattern, subject: &TypeData) -> bool {
+        let TypeData::Named {
+            definition: NamedTypeSymbolId::Struct(structure),
+            ..
+        } = subject
+        else {
+            return false;
+        };
+
+        let Some(structure) = self.request.symbols().structure(*structure) else {
+            return false;
+        };
+
+        let mut selected = BTreeSet::new();
+        let mut has_remaining = false;
+
+        for entry in pattern.entries() {
+            if entry.is_remaining() {
+                has_remaining = true;
+
+                continue;
+            }
+
+            let Some(name) = entry.name() else {
+                return false;
+            };
+
+            if !selected.insert(name.as_str())
+                || !structure.fields().iter().any(|field| {
+                    self.request
+                        .symbols()
+                        .member_name((*field).into())
+                        .is_some_and(|candidate| candidate == name)
+                })
+            {
+                return false;
+            }
+        }
+
+        has_remaining || selected.len() == structure.fields().len()
+    }
+
+    fn array_shape_is_compatible(
+        &self,
+        pattern: &BoundPattern,
+        subject: &TypeData,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        let explicit = pattern
+            .entries()
+            .iter()
+            .filter(|entry| !entry.is_remaining())
+            .count();
+
+        let has_remaining = pattern
+            .entries()
+            .iter()
+            .any(bray_bound_tree::BoundPatternEntry::is_remaining);
+
+        match subject {
+            TypeData::Array { length, .. } => {
+                let Some(length) = self.fixed_array_length(*length)? else {
+                    return Ok(false);
+                };
+
+                Ok(if has_remaining {
+                    explicit <= length
+                } else {
+                    explicit == length
+                })
+            }
+            TypeData::Slice(_) => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
+    fn fixed_array_length(
+        &self,
+        length: bray_symbols::ConstantTermId,
+    ) -> Result<Option<usize>, CheckerInfrastructureError> {
+        let values = self.request.semantic_values();
+        let term = values
+            .constant_term_data(length)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let integer = match term.as_ref() {
+            ConstantTermData::IntegerLiteral { value, .. } => value,
+            ConstantTermData::Value(value) => {
+                let value = values
+                    .constant_value_data(*value)
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                let ConstantValueKind::Integer(integer) = value.kind() else {
+                    return Ok(None);
+                };
+
+                return Ok(integer_to_usize(integer));
+            }
+            ConstantTermData::Parameter(_)
+            | ConstantTermData::TargetFact(_)
+            | ConstantTermData::Unary { .. }
+            | ConstantTermData::Binary { .. }
+            | ConstantTermData::Conversion { .. }
+            | ConstantTermData::DefinitionApplication { .. }
+            | ConstantTermData::Call { .. }
+            | ConstantTermData::Projection(_) => return Ok(None),
+        };
+
+        Ok(integer_to_usize(integer))
+    }
+
+    fn type_accepts_literal(
+        &self,
+        subject: &TypeData,
+        literal: bray_bound_tree::BoundLiteralKind,
+    ) -> bool {
+        let TypeData::Named { definition, .. } = subject else {
+            return false;
+        };
+
+        let roles: &[RepresentationRole] = match literal {
+            bray_bound_tree::BoundLiteralKind::Boolean => &[RepresentationRole::ScalarBool],
+            bray_bound_tree::BoundLiteralKind::Character => &[RepresentationRole::ScalarChar],
+            bray_bound_tree::BoundLiteralKind::String => &[RepresentationRole::String],
+            bray_bound_tree::BoundLiteralKind::Integer => &[
+                RepresentationRole::ScalarI8,
+                RepresentationRole::ScalarI16,
+                RepresentationRole::ScalarI32,
+                RepresentationRole::ScalarI64,
+                RepresentationRole::ScalarI128,
+                RepresentationRole::ScalarU8,
+                RepresentationRole::ScalarU16,
+                RepresentationRole::ScalarU32,
+                RepresentationRole::ScalarU64,
+                RepresentationRole::ScalarU128,
+                RepresentationRole::ScalarIsize,
+                RepresentationRole::ScalarUsize,
+            ],
+            bray_bound_tree::BoundLiteralKind::Real => &[
+                RepresentationRole::ScalarR16,
+                RepresentationRole::ScalarR32,
+                RepresentationRole::ScalarR64,
+                RepresentationRole::ScalarR128,
+            ],
+            bray_bound_tree::BoundLiteralKind::Imaginary => &[
+                RepresentationRole::ScalarC32,
+                RepresentationRole::ScalarC64,
+                RepresentationRole::ScalarC128,
+                RepresentationRole::ScalarC256,
+            ],
+        };
+
+        roles.iter().any(|role| {
+            self.request
+                .available_compiler_known_symbols()
+                .representation_symbol::<bray_symbols::StructSymbolId>(*role)
+                .is_some_and(|candidate| *definition == NamedTypeSymbolId::Struct(candidate))
+        })
+    }
+
+    fn variant_matches_subject(
+        &self,
+        target: Option<BoundPatternTarget>,
+        subject: &TypeData,
+    ) -> bool {
+        let (
+            Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))),
+            TypeData::Named {
+                definition: NamedTypeSymbolId::Union(union),
+                ..
+            },
+        ) = (target, subject)
+        else {
+            return false;
+        };
+
+        self.request
+            .symbols()
+            .union_variant(variant)
+            .is_some_and(|record| record.union() == *union)
+    }
+}

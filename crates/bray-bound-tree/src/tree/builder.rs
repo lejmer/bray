@@ -97,6 +97,12 @@ impl BoundTreeBuilder {
             self.validate_pattern_id(*child)?;
         }
 
+        for entry in pattern.entries() {
+            if let Some(child) = entry.pattern() {
+                self.validate_pattern_id(child)?;
+            }
+        }
+
         let slot = next_slot(self.patterns.len(), BoundNodeKind::Pattern)?;
 
         self.patterns.push(pattern);
@@ -288,7 +294,9 @@ mod tests {
     use super::{BoundTreeBuildError, BoundTreeBuilder};
     use crate::test_support::{error_expression, source_anchor};
     use crate::{
-        BoundBlock, BoundBlockItem, BoundExpressionId, BoundNodeKind, BoundNodeOrigin, BoundUnitId,
+        BoundBlock, BoundBlockItem, BoundExpressionId, BoundNodeKind, BoundNodeOrigin,
+        BoundPattern, BoundPatternEntry, BoundPatternEntryKind, BoundPatternId, BoundPatternKind,
+        BoundPatternMode, BoundUnitId,
     };
 
     #[test]
@@ -340,6 +348,34 @@ mod tests {
             Err(BoundTreeBuildError::MissingNode {
                 kind: BoundNodeKind::Expression,
                 slot: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn structured_pattern_entries_validate_nested_pattern_relationships() {
+        let unit = BoundUnitId::new(3);
+        let mut builder = BoundTreeBuilder::new(unit);
+
+        let pattern = BoundPattern::new(
+            BoundNodeOrigin::source(source_anchor()),
+            crate::test_support::error_type(),
+            BoundPatternMode::Declaration,
+            BoundPatternKind::Product,
+            [],
+            [],
+        )
+        .with_entries([BoundPatternEntry::new(
+            None,
+            BoundPatternEntryKind::Pattern(BoundPatternId::from_slot(BoundUnitId::new(4), 0)),
+        )]);
+
+        assert_eq!(
+            builder.push_pattern(pattern),
+            Err(BoundTreeBuildError::ForeignNode {
+                expected: unit,
+                actual: BoundUnitId::new(4),
+                kind: BoundNodeKind::Pattern,
             })
         );
     }

@@ -68,7 +68,7 @@ impl Compilation {
         self.iteration_source_with_cancellation(unit, expression, &self.state.cancellation)
     }
 
-    fn iteration_source_with_cancellation(
+    pub(in crate::compilation) fn iteration_source_with_cancellation(
         &self,
         unit: BoundUnitKey,
         expression: BoundExpressionId,

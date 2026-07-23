@@ -15,6 +15,7 @@ pub use call::{ConstantCallRequest, ConstantCallResolution, ConstantCallResolver
 pub(crate) use evaluation::check_constant_term;
 pub(crate) use evaluation::evaluate_constant;
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
+pub(crate) use integer::integer_to_usize;
 pub use limits::ConstantEvaluationLimits;
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub use template::{
