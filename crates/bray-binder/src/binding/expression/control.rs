@@ -117,6 +117,12 @@ impl ExpressionBinder {
         let subject =
             self.bind_expression(binder, scope, Some(&syntax.match_subject().expression()))?;
 
+        let subject_type = binder
+            .unit_view()
+            .expression(subject)
+            .and_then(bray_bound_tree::BoundExpression::ty)
+            .unwrap_or(self.error_type);
+
         let mut arms = Vec::new();
 
         for arm in syntax.match_body().match_arms() {
@@ -134,7 +140,7 @@ impl ExpressionBinder {
             let pattern = binder.bind_case_pattern(
                 self.path_context_for(arm_scope, self.path_context.access()),
                 &pattern_syntax,
-                self.error_type,
+                subject_type,
                 if syntax.match_subject().consume_keyword().is_some() {
                     PatternBindingMode::MatchConsume
                 } else {

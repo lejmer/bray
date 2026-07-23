@@ -219,15 +219,19 @@ impl ExpressionBinder {
                 ));
 
                 match target {
-                    ReferenceResolution::Resolved(target) => self.push(
-                        binder,
-                        BoundExpression::Name(BoundNameExpression::new(
-                            binder.source_origin(syntax),
-                            target,
-                            None,
-                            syntax.is_recovered(),
-                        )),
-                    )?,
+                    ReferenceResolution::Resolved(target) => {
+                        let ty = binder.value_type(target);
+
+                        self.push(
+                            binder,
+                            BoundExpression::Name(BoundNameExpression::new(
+                                binder.source_origin(syntax),
+                                target,
+                                ty,
+                                syntax.is_recovered(),
+                            )),
+                        )?
+                    }
                     ReferenceResolution::Unresolved(kind, candidates) => self.push(
                         binder,
                         BoundExpression::UnresolvedReference(

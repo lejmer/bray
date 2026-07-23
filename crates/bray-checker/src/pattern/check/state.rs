@@ -317,21 +317,13 @@ where
             .type_data(subject.ty)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-        let contextual_variant = pattern.kind() == BoundPatternKind::Binding
-            && pattern_mode_accepts_refutable(pattern.mode())
-            && self
-                .expected_subject_variant(pattern, type_data.as_ref())
-                .is_some();
-
-        let target = if contextual_variant {
-            None
-        } else {
-            self.pattern_target(pattern, type_data.as_ref())
-        };
+        let target = self.pattern_target(pattern, type_data.as_ref());
 
         let kind = effective_pattern_kind(pattern, target);
+
         let compatible = self.pattern_is_compatible(pattern, kind, target, type_data.as_ref())?;
         let children = self.child_subjects(pattern, subject, target, type_data.as_ref())?;
+
         let mut child_refutability = Vec::with_capacity(pattern.children().len());
         let mut child_recovered = false;
 
@@ -356,16 +348,12 @@ where
                 .any(|entry| entry.kind() == BoundPatternEntryKind::Recovered)
             || child_recovered
             || children.is_recovered
-            || contextual_variant
             || matches!(type_data.as_ref(), TypeData::Error)
             || !compatible;
 
         let operation = pattern_operation(pattern.mode(), is_recovered);
 
-        if !contextual_variant {
-            self.record_bindings(pattern, subject, kind, operation, projection);
-        }
-
+        self.record_bindings(pattern, subject, kind, operation, projection);
         self.record_entry_bindings(pattern, operation, &children.entries);
 
         let shape_is_total =
@@ -379,14 +367,7 @@ where
             is_recovered,
         );
 
-        if contextual_variant {
-            // TODO(BRA-248): Resolve bare variant names before provisional bindings become visible.
-            self.report(
-                id,
-                DiagnosticKind::CheckingContextualPatternNameUnsupported,
-                SeverityKind::Error,
-            )?;
-        } else if !compatible && !matches!(type_data.as_ref(), TypeData::Error) {
+        if !compatible && !matches!(type_data.as_ref(), TypeData::Error) {
             self.report_incompatible(id, subject.ty)?;
         } else if !pattern_mode_accepts_refutable(pattern.mode())
             && refutability == PatternRefutability::Refutable

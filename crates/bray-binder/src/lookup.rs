@@ -3,6 +3,7 @@ mod category;
 mod diagnostic;
 mod implementation;
 mod path;
+mod pattern;
 #[cfg(test)]
 mod test_support;
 

@@ -1,8 +1,8 @@
-use bray_bound_tree::{BoundUnitId, BoundUnitKey};
+use bray_bound_tree::{BoundReferenceTarget, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
-    AnySymbolId, CallableSignatureFact, CallableSymbolId, LocalScopeId, LocalSymbolRegionId,
-    SymbolFactRequest, SymbolName, TypeData,
+    AnySymbolId, CallableSignatureFact, CallableSignatureTemplate, CallableSymbolId, LocalScopeId,
+    LocalSymbolRegionId, SymbolFactRequest, SymbolName, TypeData,
 };
 
 use super::BoundUnitBindingError;
@@ -86,12 +86,51 @@ where
         .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
         .map_err(map_fact_error)?;
 
-    if let Some(receiver) = signature.value().receiver() {
-        insert_named_surface(binder, scope, receiver.parameter().into(), "self")?;
+    insert_callable_inputs(
+        binder,
+        scope,
+        signature.value(),
+        signature.value().parameters().len(),
+    )
+}
+
+pub(super) fn insert_callable_inputs<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    signature: &CallableSignatureTemplate,
+    parameter_count: usize,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    if let Some(receiver) = signature.receiver() {
+        let parameter = receiver.parameter().into();
+
+        insert_named_surface(binder, scope, parameter, "self")?;
+        binder.record_value_type(BoundReferenceTarget::Surface(parameter), receiver.ty());
     }
 
-    for parameter in signature.value().parameters() {
-        insert_source_surface(binder, scope, (*parameter).into())?;
+    if parameter_count == 0 {
+        return Ok(());
+    }
+
+    let parameter_types = signature
+        .parameter_type_templates(binder.facts().semantic_values())
+        .map_err(|_| BoundUnitBindingError::Binding)?;
+
+    for (parameter, ty) in signature
+        .parameters()
+        .iter()
+        .zip(parameter_types)
+        .take(parameter_count)
+    {
+        let parameter = (*parameter).into();
+
+        insert_source_surface(binder, scope, parameter)?;
+
+        if let Some(ty) = ty.resolved_type() {
+            binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
+        }
     }
 
     Ok(())

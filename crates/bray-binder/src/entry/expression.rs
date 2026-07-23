@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnySymbolId, CallableSignatureFact, LocalScopeId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, SymbolFactRequest, SymbolName,
+    PredicateSignatureTemplateFact, SymbolFactRequest,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, WithClauseSyntax,
@@ -12,8 +12,8 @@ use bray_syntax::{
 
 use super::BoundUnitBindingError;
 use super::support::{
-    anchored_descendant, create_binder, error_type, map_assembly_error, map_binding_error,
-    map_fact_error, path_context, push_callable_inputs,
+    anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_source_surface,
+    map_assembly_error, map_binding_error, map_fact_error, path_context, push_callable_inputs,
 };
 use crate::binder::{Binder, BinderOutput, BindingContext};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
@@ -279,20 +279,12 @@ where
         ))
         .map_err(map_fact_error)?;
 
-    if let Some(receiver) = signature.value().receiver() {
-        insert_named_surface(binder, scope, receiver.parameter().into(), "self")?;
-    }
-
-    for parameter in signature
-        .value()
-        .parameters()
-        .iter()
-        .take(parameter.ordinal() as usize)
-    {
-        insert_source_surface(binder, scope, (*parameter).into())?;
-    }
-
-    Ok(())
+    insert_callable_inputs(
+        binder,
+        scope,
+        signature.value(),
+        parameter.ordinal() as usize,
+    )
 }
 
 fn push_predicate_inputs<C>(
@@ -319,51 +311,16 @@ where
         .map_err(map_fact_error)?;
 
     for parameter in signature.value().parameters() {
-        insert_source_surface(binder, scope, parameter.parameter().into())?;
+        let symbol = parameter.parameter().into();
+
+        insert_source_surface(binder, scope, symbol)?;
+
+        if let Some(ty) = parameter.ty().resolved_type() {
+            binder.record_value_type(bray_bound_tree::BoundReferenceTarget::Surface(symbol), ty);
+        }
     }
 
     Ok(())
-}
-
-fn insert_source_surface<C>(
-    binder: &mut Binder<'_, C>,
-    scope: LocalScopeId,
-    symbol: AnySymbolId,
-) -> Result<(), BoundUnitBindingError>
-where
-    C: BinderFactContext + ?Sized,
-{
-    let declaration = binder
-        .facts()
-        .symbols()
-        .symbol_key(symbol)
-        .and_then(bray_symbols::SymbolKey::source_declaration_id)
-        .and_then(|declaration| binder.facts().declarations().declaration(declaration))
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
-
-    let name = declaration
-        .name()
-        .and_then(bray_declarations::DeclarationName::as_identifier)
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
-
-    insert_named_surface(binder, scope, symbol, name)
-}
-
-fn insert_named_surface<C>(
-    binder: &mut Binder<'_, C>,
-    scope: LocalScopeId,
-    symbol: AnySymbolId,
-    name: &str,
-) -> Result<(), BoundUnitBindingError>
-where
-    C: BinderFactContext + ?Sized,
-{
-    let name = SymbolName::try_new(name).ok_or(BoundUnitBindingError::MissingOwner)?;
-
-    binder
-        .unit_mut()
-        .insert_surface_name(scope, name, symbol)
-        .map_err(|_| BoundUnitBindingError::Construction)
 }
 
 fn bind_expression_sequence_unit<C>(
