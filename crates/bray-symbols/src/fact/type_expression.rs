@@ -269,8 +269,8 @@ pub enum TypeExpressionTemplate {
         /// Generic arguments in parameter order.
         arguments: Arc<[GenericArgumentTemplate]>,
     },
-    /// An associated type projection retains its applied trait and exact member.
-    AssociatedTypeProjection {
+    /// A type-valued member projection retains its applied trait and exact member.
+    TypeValuedMemberProjection {
         subject: Arc<TypeExpressionTemplate>,
         application: TraitApplicationTemplate,
         member: TraitTypeMemberSymbolId,
@@ -308,7 +308,7 @@ impl TypeExpressionTemplate {
         match self {
             Self::Resolved(ty) => Some(*ty),
             Self::Named { .. }
-            | Self::AssociatedTypeProjection { .. }
+            | Self::TypeValuedMemberProjection { .. }
             | Self::Tuple(_)
             | Self::Array { .. }
             | Self::Slice(_)

@@ -240,7 +240,7 @@ pub enum TypeData {
     },
     TypeParameter(GenericTypeParameterSymbolId),
     ContextualSelf(SelfTypeContext),
-    AssociatedTypeProjection {
+    TypeValuedMemberProjection {
         subject: TypeId,
         application: TraitApplicationId,
         member: TraitTypeMemberSymbolId,
@@ -275,8 +275,8 @@ subject type and compile-time argument that participates in identity.
 Contextual `Self` retains the exact named type, trait, or implementation context that gives the type its meaning. It is not lowered
 to an error type or represented as a synthetic generic parameter.
 
-Associated type projections remain explicit canonical types while their selected type is not globally fixed. A context that selects
-an implementation can resolve the projection through an ordinary semantic fact without mutating the original `TypeId`.
+Type-valued member projections remain explicit canonical types while their selected type is not globally fixed. A context that
+selects an implementation can resolve the projection through an ordinary semantic fact without mutating the original `TypeId`.
 
 One canonical error type supports recovery. The diagnostic belongs to the fact that produced the error type. Error types do not
 embed diagnostic IDs or source text and are forbidden in successfully emitted package interfaces.

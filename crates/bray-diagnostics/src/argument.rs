@@ -771,8 +771,8 @@ pub enum DiagnosticType {
     TypeParameter,
     /// The contextual `Self` type.
     ContextualSelf,
-    /// An associated type projection.
-    AssociatedType,
+    /// A type-valued member projection.
+    TypeValuedMember,
     /// A tuple with the supplied element count.
     Tuple(u64),
     /// A fixed-size array.

@@ -170,7 +170,7 @@ pub(super) fn decode_type(
         2 => Ok(InterfaceType::TypeParameter(read_symbol_reference(
             reader, context,
         )?)),
-        3 => Ok(InterfaceType::AssociatedTypeProjection {
+        3 => Ok(InterfaceType::TypeValuedMemberProjection {
             subject: InterfaceTypeId::new(read_u32(reader)?),
             application: InterfaceTraitApplicationId::new(read_u32(reader)?),
             member: read_symbol_reference(reader, context)?,

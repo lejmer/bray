@@ -46,12 +46,12 @@ impl CompilerKnownIterationProtocol {
         self.iterable_trait
     }
 
-    /// Returns the `Iterable.Element` associated type.
+    /// Returns the `Iterable.Element` type-valued member.
     pub const fn iterable_element(self) -> TraitTypeMemberSymbolId {
         self.iterable_element
     }
 
-    /// Returns the `Iterable.Cursor` associated type.
+    /// Returns the `Iterable.Cursor` type-valued member.
     pub const fn iterable_cursor(self) -> TraitTypeMemberSymbolId {
         self.iterable_cursor
     }
@@ -66,7 +66,7 @@ impl CompilerKnownIterationProtocol {
         self.iterator_trait
     }
 
-    /// Returns the `Iterator.Element` associated type.
+    /// Returns the `Iterator.Element` type-valued member.
     pub const fn iterator_element(self) -> TraitTypeMemberSymbolId {
         self.iterator_element
     }

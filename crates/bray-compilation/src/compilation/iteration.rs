@@ -52,7 +52,7 @@ struct ImplementationFulfillments<'symbols> {
     types: &'symbols [TraitTypeFulfillmentSymbolId],
 }
 
-enum AssociatedTypeResolution {
+enum TypeValuedMemberResolution {
     Resolved(TypeId),
     Invalid,
     Deferred,
@@ -202,32 +202,32 @@ impl Compilation {
             let iterable_fulfillments =
                 implementation_fulfillments(facts, iterable.implementation())?;
 
-            let cursor_type = match selected_associated_type(
+            let cursor_type = match selected_type_valued_member(
                 facts,
                 iterable,
                 iterable_fulfillments.types,
                 input.protocol.iterable_cursor(),
                 diagnostics,
             )? {
-                AssociatedTypeResolution::Resolved(ty) => ty,
-                AssociatedTypeResolution::Invalid => continue,
-                AssociatedTypeResolution::Deferred => {
+                TypeValuedMemberResolution::Resolved(ty) => ty,
+                TypeValuedMemberResolution::Invalid => continue,
+                TypeValuedMemberResolution::Deferred => {
                     is_deferred = true;
 
                     continue;
                 }
             };
 
-            let element_type = match selected_associated_type(
+            let element_type = match selected_type_valued_member(
                 facts,
                 iterable,
                 iterable_fulfillments.types,
                 input.protocol.iterable_element(),
                 diagnostics,
             )? {
-                AssociatedTypeResolution::Resolved(ty) => ty,
-                AssociatedTypeResolution::Invalid => continue,
-                AssociatedTypeResolution::Deferred => {
+                TypeValuedMemberResolution::Resolved(ty) => ty,
+                TypeValuedMemberResolution::Invalid => continue,
+                TypeValuedMemberResolution::Deferred => {
                     is_deferred = true;
 
                     continue;
@@ -270,16 +270,16 @@ impl Compilation {
                 let iterator_fulfillments =
                     implementation_fulfillments(facts, iterator.implementation())?;
 
-                let iterator_element = match selected_associated_type(
+                let iterator_element = match selected_type_valued_member(
                     facts,
                     iterator,
                     iterator_fulfillments.types,
                     input.protocol.iterator_element(),
                     diagnostics,
                 )? {
-                    AssociatedTypeResolution::Resolved(ty) => ty,
-                    AssociatedTypeResolution::Invalid => continue,
-                    AssociatedTypeResolution::Deferred => {
+                    TypeValuedMemberResolution::Resolved(ty) => ty,
+                    TypeValuedMemberResolution::Invalid => continue,
+                    TypeValuedMemberResolution::Deferred => {
                         is_deferred = true;
 
                         continue;
@@ -412,13 +412,13 @@ fn implementation_requirement(
     Ok(ImplementationRequirementKey::new(subject, application))
 }
 
-fn selected_associated_type(
+fn selected_type_valued_member(
     facts: &CompilationBinderFacts<'_>,
     candidate: &ImplementationCandidate,
     fulfillments: &[TraitTypeFulfillmentSymbolId],
     member: TraitTypeMemberSymbolId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<AssociatedTypeResolution, FactQueryError> {
+) -> Result<TypeValuedMemberResolution, FactQueryError> {
     let expected_name = facts
         .symbols()
         .member_name(member.into())
@@ -430,11 +430,11 @@ fn selected_associated_type(
     });
 
     let Some(fulfillment) = matching.next() else {
-        return Ok(AssociatedTypeResolution::Invalid);
+        return Ok(TypeValuedMemberResolution::Invalid);
     };
 
     if matching.next().is_some() {
-        return Ok(AssociatedTypeResolution::Invalid);
+        return Ok(TypeValuedMemberResolution::Invalid);
     }
 
     let result = facts
@@ -446,7 +446,7 @@ fn selected_associated_type(
     diagnostics.add_range(result.diagnostics().clone());
 
     if result.diagnostics().has_errors() {
-        return Ok(AssociatedTypeResolution::Invalid);
+        return Ok(TypeValuedMemberResolution::Invalid);
     }
 
     // TODO(BRA-246): Supply checked embedded constant terms for source type templates.
@@ -457,13 +457,13 @@ fn selected_associated_type(
     )
     .map_err(FactQueryError::CheckerInfrastructure)?
     else {
-        return Ok(AssociatedTypeResolution::Deferred);
+        return Ok(TypeValuedMemberResolution::Deferred);
     };
 
     facts
         .semantic_values()
         .substitute_type(ty, candidate.substitution())
-        .map(AssociatedTypeResolution::Resolved)
+        .map(TypeValuedMemberResolution::Resolved)
         .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 

@@ -283,7 +283,7 @@ A trait implementation cannot provide constructor declarations.
 
 A trait implementation cannot provide callable overload declarations.
 
-An inherent member's effective reachability is governed by its associated type, declaring module, and member visibility.
+An inherent member's effective reachability is governed by its implementation subject type, declaring module, and member visibility.
 
 Individual trait implementation members cannot use `public` or `internal` modifiers.
 
@@ -368,7 +368,8 @@ A named constructor occupies an ordinary name and follows the ordinary associate
 
 ### Visibility and deterministic order
 
-The associated surface retains both accessible and inaccessible members. Effective reachability is capped by the associated type,
+The type-associated member surface retains both accessible and inaccessible members. Effective reachability is capped by the
+implementation subject type,
 the member's declaring module, and the member's own visibility.
 
 An inherent implementation does not create another visibility boundary. It also does not make a member reachable when its type,

@@ -132,12 +132,12 @@ impl<'values> HeaderMatcher<'values> {
                 self.match_substitution(*pattern_substitution, *actual_substitution)
             }
             (
-                TypeData::AssociatedTypeProjection {
+                TypeData::TypeValuedMemberProjection {
                     subject: pattern_subject,
                     application: pattern_application,
                     member: pattern_member,
                 },
-                TypeData::AssociatedTypeProjection {
+                TypeData::TypeValuedMemberProjection {
                     subject: actual_subject,
                     application: actual_application,
                     member: actual_member,

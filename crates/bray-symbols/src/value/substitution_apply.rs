@@ -45,7 +45,7 @@ impl SemanticValueStore {
                 definition: *definition,
                 substitution: self.substitute_generic_substitution(*nested, substitution)?,
             },
-            TypeData::AssociatedTypeProjection {
+            TypeData::TypeValuedMemberProjection {
                 subject,
                 application,
                 member,
@@ -60,7 +60,7 @@ impl SemanticValueStore {
                     nested,
                 ))?;
 
-                TypeData::AssociatedTypeProjection {
+                TypeData::TypeValuedMemberProjection {
                     subject: self.substitute_type_data(*subject, substitution)?,
                     application,
                     member: *member,

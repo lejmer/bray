@@ -186,7 +186,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         }
 
         if syntax.dot_token().is_some() {
-            return self.bind_associated_type_projection(syntax);
+            return self.bind_type_valued_member_projection(syntax);
         }
 
         if syntax.generic_argument_lists().next().is_some() {

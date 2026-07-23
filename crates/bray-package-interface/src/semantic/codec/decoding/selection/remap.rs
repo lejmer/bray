@@ -196,7 +196,7 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
         InterfaceType::Named { substitution, .. } => {
             *substitution = maps.substitution_id(*substitution)?;
         }
-        InterfaceType::AssociatedTypeProjection {
+        InterfaceType::TypeValuedMemberProjection {
             subject,
             application,
             ..

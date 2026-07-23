@@ -183,7 +183,7 @@ where
         TypeData::Named { definition, .. } => diagnostic_named_type(request, *definition),
         TypeData::TypeParameter(_) => DiagnosticType::TypeParameter,
         TypeData::ContextualSelf(_) => DiagnosticType::ContextualSelf,
-        TypeData::AssociatedTypeProjection { .. } => DiagnosticType::AssociatedType,
+        TypeData::TypeValuedMemberProjection { .. } => DiagnosticType::TypeValuedMember,
         TypeData::Tuple(elements) => {
             let count = u64::try_from(elements.len()).unwrap_or(u64::MAX);
 

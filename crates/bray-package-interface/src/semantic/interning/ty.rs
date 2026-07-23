@@ -66,7 +66,7 @@ impl InternState {
 
                 Some(TypeData::ContextualSelf(context))
             }
-            InterfaceType::AssociatedTypeProjection {
+            InterfaceType::TypeValuedMemberProjection {
                 subject,
                 application,
                 member,
@@ -79,7 +79,7 @@ impl InternState {
                     return Ok(None);
                 };
 
-                Some(TypeData::AssociatedTypeProjection {
+                Some(TypeData::TypeValuedMemberProjection {
                     subject,
                     application,
                     member: resolve_exact::<TraitTypeMemberSymbolId>(symbols, member)?,

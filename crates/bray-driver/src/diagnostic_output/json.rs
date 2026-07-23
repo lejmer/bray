@@ -309,7 +309,7 @@ impl DiagnosticTypeJson {
             DiagnosticType::Named => ("named", None),
             DiagnosticType::TypeParameter => ("type_parameter", None),
             DiagnosticType::ContextualSelf => ("contextual_self", None),
-            DiagnosticType::AssociatedType => ("associated_type", None),
+            DiagnosticType::TypeValuedMember => ("type_valued_member", None),
             DiagnosticType::Tuple(count) => ("tuple", Some(count)),
             DiagnosticType::Array => ("array", None),
             DiagnosticType::Slice => ("slice", None),

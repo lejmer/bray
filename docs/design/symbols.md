@@ -737,7 +737,7 @@ A struct exposes:
 - callable members,
 - associated constants,
 - associated predicates,
-- associated type-valued members,
+- type-valued members from inherent implementations,
 - callable overload families,
 - inherent implementations associated with the struct.
 
@@ -756,7 +756,7 @@ A union exposes:
 - callable members,
 - associated constants,
 - associated predicates,
-- associated type-valued members,
+- type-valued members from inherent implementations,
 - callable overload families,
 - inherent implementations associated with the union.
 
@@ -782,7 +782,7 @@ participating trait implementations separately. Union payload fields remain in t
 union-wide surface.
 
 Aggregation stores existing typed symbol IDs. It does not clone or reparent symbols. A direct member remains contained by its type,
-an inherent member remains contained by its inherent implementation, and both expose the associated type-definition ID. This keeps
+an inherent member remains contained by its inherent implementation, and both expose the owning type-definition ID. This keeps
 source provenance and implementation ownership available to diagnostics, navigation, and public API analysis.
 
 The aggregate ordinary-name index enforces one name across direct members and every contributing inherent implementation. Member
