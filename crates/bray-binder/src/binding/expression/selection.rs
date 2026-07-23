@@ -26,6 +26,7 @@ impl ExpressionBinder {
     {
         let selector =
             symbol_name(syntax.source(), &syntax.identifier_token()).map(BoundMemberSelector::Name);
+        
         let expression = BoundLeadingDotVariantExpression::new(
             binder.source_origin(syntax),
             selector,
@@ -46,6 +47,7 @@ impl ExpressionBinder {
         C: BinderFactContext + ?Sized,
     {
         let selector = member_selector(syntax);
+        
         let is_recovered =
             syntax.is_recovered() || selector.is_none() || binder.expression_is_recovered(receiver);
 
@@ -72,6 +74,7 @@ impl ExpressionBinder {
         let member = syntax.member_access_operation();
         let selector = member_selector(&member);
         let trait_syntax = SyntaxAnchor::from_node(&syntax.trait_application());
+        
         let is_recovered = syntax.is_recovered()
             || selector.is_none()
             || trait_syntax.is_recovered()

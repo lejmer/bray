@@ -194,7 +194,6 @@ impl TypeExpressionBinder<'_> {
         };
 
         let abi = self.bind_optional_callable_abi(directives);
-
         let dependency_contract = self.empty_dependency_contract()?;
 
         let dependencies = CallableDependencyContracts::for_execution(

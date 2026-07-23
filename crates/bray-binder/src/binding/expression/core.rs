@@ -497,9 +497,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
-        let root_scope = binder.unit().root_scope();
 
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root_scope = binder.unit().root_scope();
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match binder.bind_callable_body_block(
@@ -682,9 +683,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
-        let root_scope = binder.unit().root_scope();
 
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root_scope = binder.unit().root_scope();
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match binder.bind_callable_body_block(
@@ -741,9 +743,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
-        let root_scope = binder.unit().root_scope();
 
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root_scope = binder.unit().root_scope();
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match binder.bind_callable_body_block(
@@ -830,9 +833,10 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
-        let root_scope = binder.unit().root_scope();
 
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+
+        let root_scope = binder.unit().root_scope();
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match binder.bind_callable_body_block(

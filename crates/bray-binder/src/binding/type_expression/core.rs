@@ -217,6 +217,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         syntax: &TypeExpressionSyntax,
     ) -> BinderFactResult<TypeExpressionTemplate> {
         let target = self.bind_only_nested_type(syntax)?;
+
         let kind = if syntax.mut_token().is_some() {
             BorrowKind::Mutable
         } else {

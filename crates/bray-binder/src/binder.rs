@@ -268,6 +268,7 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         }
 
         self.diagnostics.truncate(checkpoint.diagnostics);
+
         self.expected_contexts = checkpoint.expected_contexts.into_vec();
         self.control_targets = checkpoint.control_targets.into_vec();
 

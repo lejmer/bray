@@ -80,6 +80,7 @@ where
         .map_err(map_binding_error)?;
 
     let origin = BoundNodeOrigin::source(binder.unit().key().source());
+
     let callable = if binder.block_is_recovered(block) {
         BoundCallableBody::error(origin, Some(block))
     } else {
@@ -133,6 +134,7 @@ where
         .map_err(map_binding_error)?;
 
     let origin = BoundNodeOrigin::source(binder.unit().key().source());
+
     let callable_body = if binder.block_is_recovered(block) {
         BoundCallableBody::error(origin, Some(block))
     } else {
@@ -146,6 +148,7 @@ where
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let callable = boundary.callable();
+
     let output = binder
         .finish()
         .map_err(|_| BoundUnitBindingError::Construction)?;
@@ -177,7 +180,9 @@ mod tests {
         ));
 
         let facts = fixture.context();
+
         let (binder, _) = crate::binding::binder_and_block(&facts);
+
         let key = binder.unit().key().clone();
 
         let pending = match bind_callable_body(&facts, bray_bound_tree::BoundUnitId::new(40), key) {

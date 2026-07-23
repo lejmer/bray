@@ -28,6 +28,7 @@ impl ExpressionBinder {
         let source_mode = iteration_source_mode(&syntax.iteration_source());
 
         let pattern_syntax = syntax.irrefutable_pattern();
+
         let pattern_scope = binder.unit_mut().push_scope(
             scope,
             LocalScopeBoundary::PatternArm,
@@ -84,6 +85,7 @@ impl ExpressionBinder {
         };
 
         let else_body = blocks.next();
+
         let recovered = syntax.is_recovered()
             || binder.expression_is_recovered(iteration)
             || binder.pattern_is_recovered(pattern_id)
@@ -121,6 +123,7 @@ impl ExpressionBinder {
             binder.check_cancellation()?;
 
             let pattern_syntax = arm.case_pattern();
+
             let arm_scope = binder.unit_mut().push_scope(
                 scope,
                 LocalScopeBoundary::PatternArm,

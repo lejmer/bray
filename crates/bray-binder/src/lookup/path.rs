@@ -151,6 +151,7 @@ where
         path: &PathSyntax,
     ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
         let lookup = self.bind_path(context, path)?;
+
         let result = lookup.result.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Constant(id)) => {
                 Some(BoundPatternTarget::Surface(id.into()))
@@ -180,6 +181,7 @@ where
         path: &PathSyntax,
     ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
         let lookup = self.bind_path(context, path)?;
+
         let result = lookup.result.map(
             |name| match name {
                 ResolvedName::Local(id) => BoundPatternTarget::Local(id),
@@ -548,6 +550,7 @@ fn bind_remaining_path(
         let (next, length) = combine_path_prefixes(prefixes);
 
         result = next;
+
         consumed += length;
     }
 
@@ -825,11 +828,13 @@ mod tests {
         };
 
         let structure = structure.into_any();
+
         let AnySymbolId::Struct(structure) = structure else {
             panic!("Point must retain its struct identity");
         };
 
         let member_path = path("x");
+
         let Some(member_token) = member_path.identifier_tokens().next() else {
             panic!("test member path must contain one identifier");
         };

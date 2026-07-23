@@ -114,6 +114,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
+
         let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(lambda) =
@@ -172,7 +173,6 @@ mod tests {
         };
 
         let mut binder = Binder::new(&facts, BindingContext::CallableBody, nested_unit);
-
         let root = binder.unit().root_scope();
 
         let boundary = match binder.bind_anonymous_callable_boundary(root, &lambda) {

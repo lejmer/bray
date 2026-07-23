@@ -221,7 +221,6 @@ where
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     let mut binder = create_binder(facts, unit, key, context)?;
-
     let root_scope = binder.unit().root_scope();
 
     configure_scope(&mut binder, root_scope)?;
@@ -391,7 +390,6 @@ where
     let is_recovered = syntax.is_recovered();
 
     let mut binder = create_binder(facts, unit, key, context)?;
-
     let root_scope = binder.unit().root_scope();
 
     let expression_scope = if context == BindingContext::ContractClause {

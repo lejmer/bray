@@ -19,6 +19,7 @@ where
         error_type: TypeId,
     ) -> BindingResult<BoundBlockId> {
         let mut binder = ExpressionBinder::new(path_context, error_type);
+
         let target = ControlTarget::new(
             ControlTargetKind::Callable,
             self.unit().key().source().syntax(),

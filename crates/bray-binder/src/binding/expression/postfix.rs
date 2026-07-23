@@ -197,7 +197,6 @@ impl ExpressionBinder {
         C: BinderFactContext + ?Sized,
     {
         let recovered = syntax.is_recovered() || binder.expression_is_recovered(operand);
-
         let target_syntax = SyntaxAnchor::from_node(&syntax.type_expression());
 
         let expression = if recovered {

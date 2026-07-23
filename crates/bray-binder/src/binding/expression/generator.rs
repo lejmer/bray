@@ -28,6 +28,7 @@ impl ExpressionBinder {
         let source_mode = iteration_source_mode(&syntax.iteration_source());
 
         let pattern_syntax = syntax.irrefutable_pattern();
+
         let pattern_scope = binder.unit_mut().push_scope(
             scope,
             LocalScopeBoundary::PatternArm,
@@ -56,6 +57,7 @@ impl ExpressionBinder {
 
         let body = body?;
         let pattern = pattern.pattern();
+
         let is_recovered = syntax.is_recovered()
             || region.is_recovered()
             || binder.expression_is_recovered(source)

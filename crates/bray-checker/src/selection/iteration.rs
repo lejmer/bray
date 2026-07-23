@@ -105,7 +105,6 @@ mod tests {
         let (expression, source) = expression_ids();
 
         let values = semantic_values();
-
         let candidate = candidate(&values, expression, expression, 1);
 
         let request = IterationSourceSelectionRequest::new(
@@ -159,8 +158,8 @@ mod tests {
         let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(20));
         let requirement = implementation_requirement(values, trait_definition, ty, ty);
         let witness = implementation_instance(values, identity);
-
         let member = TraitCallableMemberSymbolId::from_symbol_id(SymbolId::new(30));
+
         let fulfillment =
             bray_symbols::TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(31));
 

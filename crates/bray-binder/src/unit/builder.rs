@@ -505,9 +505,7 @@ mod tests {
     #[test]
     fn recovered_identities_remain_hidden_until_activated_once() {
         let fixture = fixture();
-
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(5));
-
         let root = builder.root_scope();
 
         let block = push_scope(
@@ -553,9 +551,7 @@ mod tests {
     #[test]
     fn malformed_pattern_identity_is_reported_without_panicking() {
         let fixture = fixture();
-
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(6));
-
         let root = builder.root_scope();
 
         assert_eq!(
@@ -571,9 +567,7 @@ mod tests {
     #[test]
     fn contextual_results_require_contract_scopes() {
         let fixture = fixture();
-
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(7));
-
         let root = builder.root_scope();
 
         assert_eq!(
@@ -773,7 +767,6 @@ mod tests {
     #[test]
     fn mismatched_callable_sources_leave_no_partial_boundary() {
         let fixture = fixture();
-
         let outer = new_builder(&fixture, LocalSymbolRegionId::new(10));
         let source = BoundSourceAnchor::new(fixture.first, fixture.version);
 
@@ -827,9 +820,7 @@ mod tests {
     #[test]
     fn checkpoints_restore_local_identity_and_visibility_state() {
         let fixture = fixture();
-
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(13));
-
         let root = builder.root_scope();
         let checkpoint = builder.checkpoint();
         let abandoned = push_binding(&mut builder, root, fixture.first, false);
@@ -857,9 +848,7 @@ mod tests {
     fn rejected_composite_checkpoints_leave_tree_and_locals_unchanged() {
         let fixture = fixture();
         let region = LocalSymbolRegionId::new(14);
-
         let mut builder = new_builder(&fixture, region);
-
         let root = builder.root_scope();
         let retained = push_binding(&mut builder, root, fixture.first, false);
 

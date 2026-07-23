@@ -326,6 +326,7 @@ fn build_iteration_protocol(
     macro_rules! role {
         ($role:ident, $ty:ty) => {{
             let role = CompilerKnownIterationRole::$role;
+
             let declaration = roles
                 .iteration_declaration(role)
                 .ok_or(CompilerKnownSymbolBuildError::MissingIterationRole { role })?;
