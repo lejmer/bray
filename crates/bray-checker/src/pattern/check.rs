@@ -344,7 +344,7 @@ where
             )?;
         }
 
-        let entry = PatternCheckEntry::new(id, subject.ty, refutability, target, is_recovered);
+        let entry = PatternCheckEntry::new(id, subject.ty, refutability, target);
 
         self.patterns.insert(id, entry);
 

@@ -23,7 +23,6 @@ pub struct PatternCheckEntry {
     input_type: TypeId,
     refutability: PatternRefutability,
     target: Option<BoundPatternTarget>,
-    is_recovered: bool,
 }
 
 impl PatternCheckEntry {
@@ -33,14 +32,12 @@ impl PatternCheckEntry {
         input_type: TypeId,
         refutability: PatternRefutability,
         target: Option<BoundPatternTarget>,
-        is_recovered: bool,
     ) -> Self {
         Self {
             pattern,
             input_type,
             refutability,
             target,
-            is_recovered,
         }
     }
 
@@ -66,7 +63,7 @@ impl PatternCheckEntry {
 
     /// Returns whether checking used conservative recovery.
     pub const fn is_recovered(self) -> bool {
-        self.is_recovered
+        matches!(self.refutability, PatternRefutability::Recovered)
     }
 }
 
