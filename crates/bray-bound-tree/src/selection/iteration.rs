@@ -1,5 +1,5 @@
 use bray_symbols::{
-    CallableDefinitionId, ImplementationInstanceId, ImplementationRequirementKey, TypeId,
+    CallableInstanceData, ImplementationInstanceId, ImplementationRequirementKey, TypeId,
 };
 
 use crate::{BoundExpressionId, BoundIterationSource, IterationSourceMode};
@@ -43,7 +43,8 @@ impl SelectedIterationTypes {
 pub struct SelectedIterationProtocolOperation {
     requirement: ImplementationRequirementKey,
     witness: ImplementationInstanceId,
-    callable: CallableDefinitionId,
+    member: CallableInstanceData,
+    fulfillment: CallableInstanceData,
 }
 
 impl SelectedIterationProtocolOperation {
@@ -51,12 +52,14 @@ impl SelectedIterationProtocolOperation {
     pub const fn new(
         requirement: ImplementationRequirementKey,
         witness: ImplementationInstanceId,
-        callable: CallableDefinitionId,
+        member: CallableInstanceData,
+        fulfillment: CallableInstanceData,
     ) -> Self {
         Self {
             requirement,
             witness,
-            callable,
+            member,
+            fulfillment,
         }
     }
 
@@ -70,9 +73,14 @@ impl SelectedIterationProtocolOperation {
         self.witness
     }
 
-    /// Returns the callable operation supplied by the implementation.
-    pub const fn callable(&self) -> CallableDefinitionId {
-        self.callable
+    /// Returns the exact substituted protocol member selected for this operation.
+    pub const fn member(&self) -> CallableInstanceData {
+        self.member
+    }
+
+    /// Returns the exact substituted implementation callable that executes this operation.
+    pub const fn fulfillment(&self) -> CallableInstanceData {
+        self.fulfillment
     }
 }
 
@@ -155,12 +163,22 @@ impl SelectedIterationSource {
     }
 
     /// Returns the selected source-to-cursor operation.
-    pub const fn iterate(&self) -> CallableDefinitionId {
-        self.iterable.callable()
+    pub const fn iterate(&self) -> CallableInstanceData {
+        self.iterable.fulfillment()
     }
 
     /// Returns the selected cursor-advance operation.
-    pub const fn next(&self) -> CallableDefinitionId {
-        self.iterator.callable()
+    pub const fn next(&self) -> CallableInstanceData {
+        self.iterator.fulfillment()
+    }
+
+    /// Returns the selected source-to-cursor protocol member.
+    pub const fn iterate_member(&self) -> CallableInstanceData {
+        self.iterable.member()
+    }
+
+    /// Returns the selected cursor-advance protocol member.
+    pub const fn next_member(&self) -> CallableInstanceData {
+        self.iterator.member()
     }
 }

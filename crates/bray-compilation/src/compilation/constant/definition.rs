@@ -18,14 +18,15 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey,
     ConstantInstanceValueFact, ConstantTermData, ConstantTermId, ConstantValueData,
-    ConstantValueId, ConstantValueKind, ErrorConstantDefinition, GenericOwnerId,
-    GenericSubstitutionData, GenericSubstitutionId, SemanticFactResult, SymbolFactRequest,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDefinitionFact,
+    ConstantValueId, ConstantValueKind, ErrorConstantDefinition, GenericSubstitutionId,
+    SemanticFactResult, SymbolFactRequest, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDefinitionFact,
 };
 
 use super::super::Compilation;
 use super::super::binder::{binder_fact_error, imported_declaration_template};
 use super::super::checker::checker_result;
+use super::super::substitution::empty_substitution;
 use super::super::unit::semantic_unit_context_for;
 use super::call::CompilationConstantCallResolver;
 use crate::fact::{
@@ -300,7 +301,7 @@ impl Compilation {
                     return Err(FactQueryError::InfrastructureFailure);
                 };
 
-                let substitution = empty_substitution(values, definition)?;
+                let substitution = empty_substitution(values, definition.into_any())?;
 
                 let term = values
                     .intern_constant_term(ConstantTermData::DefinitionApplication {
@@ -696,26 +697,11 @@ pub(in crate::compilation) fn constant_definition_id(
     }
 }
 
-fn empty_substitution(
-    values: &bray_symbols::SemanticValueStore,
-    definition: AnyConstantDefinitionId,
-) -> Result<bray_symbols::GenericSubstitutionId, FactQueryError> {
-    let owner = GenericOwnerId::try_new(definition.into_any())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-    let data = GenericSubstitutionData::try_new(owner, [], [])
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    values
-        .intern_generic_substitution(data)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
-}
-
 pub(in crate::compilation) fn empty_concrete_substitution(
     values: &bray_symbols::SemanticValueStore,
     definition: AnyConstantDefinitionId,
 ) -> Result<bray_symbols::ConcreteGenericSubstitutionId, FactQueryError> {
-    let substitution = empty_substitution(values, definition)?;
+    let substitution = empty_substitution(values, definition.into_any())?;
 
     values
         .require_concrete_substitution(substitution)

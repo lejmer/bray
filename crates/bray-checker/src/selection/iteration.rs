@@ -38,12 +38,14 @@ mod tests {
         implementation_instance, implementation_requirement, source_function_key,
     };
     use bray_symbols::{
-        CallableDefinitionId, SemanticValueStore, SymbolId, SymbolKey, SymbolKind,
-        TraitCallableMemberSymbolId, TraitSymbolId, TypeData,
+        SemanticValueStore, SymbolId, SymbolKey, SymbolKind, TraitCallableMemberSymbolId,
+        TraitSymbolId, TypeData,
     };
 
     use super::select;
-    use crate::test_support::{expression_unit, literal_expression, push_expression};
+    use crate::test_support::{
+        callable_instance, expression_unit, literal_expression, push_expression,
+    };
     use crate::{
         CandidateSelection, CheckerInfrastructureError, IterationSourceCandidate,
         IterationSourceSelectionRequest, SelectionFailure,
@@ -52,6 +54,7 @@ mod tests {
     #[test]
     fn iteration_selection_is_unavailable_unique_or_stably_ambiguous() {
         let (expression, source) = expression_ids();
+
         let values = semantic_values();
 
         let unavailable = IterationSourceSelectionRequest::new(
@@ -100,7 +103,9 @@ mod tests {
     #[test]
     fn iteration_selection_rejects_candidates_for_another_source_occurrence() {
         let (expression, source) = expression_ids();
+
         let values = semantic_values();
+
         let candidate = candidate(&values, expression, expression, 1);
 
         let request = IterationSourceSelectionRequest::new(
@@ -155,18 +160,26 @@ mod tests {
         let requirement = implementation_requirement(values, trait_definition, ty, ty);
         let witness = implementation_instance(values, identity);
 
-        let callable = TraitCallableMemberSymbolId::from_symbol_id(SymbolId::new(30));
-
-        let Some(callable) = CallableDefinitionId::try_new(callable.into()) else {
-            panic!("trait callable members must be callable definitions");
-        };
+        let member = TraitCallableMemberSymbolId::from_symbol_id(SymbolId::new(30));
+        let fulfillment =
+            bray_symbols::TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(31));
 
         let selection = SelectedIterationSource::new(
             expression,
             BoundIterationSource::new(source, IterationSourceMode::Shared),
             SelectedIterationTypes::new(ty, ty, ty),
-            SelectedIterationProtocolOperation::new(requirement, witness, callable),
-            SelectedIterationProtocolOperation::new(requirement, witness, callable),
+            SelectedIterationProtocolOperation::new(
+                requirement,
+                witness,
+                callable_instance(member.into()),
+                callable_instance(fulfillment.into()),
+            ),
+            SelectedIterationProtocolOperation::new(
+                requirement,
+                witness,
+                callable_instance(member.into()),
+                callable_instance(fulfillment.into()),
+            ),
         );
 
         let Some(key) = SymbolKey::source_declaration(
