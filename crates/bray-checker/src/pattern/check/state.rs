@@ -380,7 +380,7 @@ where
         );
 
         if contextual_variant {
-            // TODO(pattern): Resolve bare variant names before provisional bindings become visible.
+            // TODO(BRA-248): Resolve bare variant names before provisional bindings become visible.
             self.report(
                 id,
                 DiagnosticKind::CheckingContextualPatternNameUnsupported,
