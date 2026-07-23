@@ -210,11 +210,11 @@ pub(super) fn pattern_refutability(
     is_recovered: bool,
 ) -> PatternRefutability {
     match kind {
+        BoundPatternKind::Error => PatternRefutability::Recovered,
+        _ if is_recovered => PatternRefutability::Recovered,
         BoundPatternKind::Binding | BoundPatternKind::Discard | BoundPatternKind::Remaining => {
             PatternRefutability::Irrefutable
         }
-        BoundPatternKind::Error => PatternRefutability::Recovered,
-        _ if is_recovered => PatternRefutability::Recovered,
         BoundPatternKind::Product
         | BoundPatternKind::Tuple
         | BoundPatternKind::Array
