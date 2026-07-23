@@ -1,9 +1,10 @@
 use bray_bound_tree::{
     BoundAnonymousCallableExpression, BoundBlockExpression, BoundExpression, BoundExpressionId,
-    BoundNameExpression, BoundStructuredExpressionKind, BoundUnresolvedReferenceExpression,
+    BoundNameExpression, BoundPatternReferenceExpression, BoundStructuredExpressionKind,
+    BoundUnresolvedReferenceExpression,
 };
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::LocalScopeId;
+use bray_symbols::{LocalScopeId, SymbolName};
 use bray_syntax::{
     AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
     GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
@@ -211,36 +212,7 @@ impl ExpressionBinder {
         let root_token = syntax.identifier_token().or_else(|| syntax.self_token());
 
         let mut current = match root_token {
-            Some(token) => {
-                let target = classify_reference_result(binder.bind_reference_identifier(
-                    self.path_context_for(scope, access),
-                    syntax.source(),
-                    token,
-                ));
-
-                match target {
-                    ReferenceResolution::Resolved(target) => self.push(
-                        binder,
-                        BoundExpression::Name(BoundNameExpression::new(
-                            binder.source_origin(syntax),
-                            target,
-                            None,
-                            syntax.is_recovered(),
-                        )),
-                    )?,
-                    ReferenceResolution::Unresolved(kind, candidates) => self.push(
-                        binder,
-                        BoundExpression::UnresolvedReference(
-                            BoundUnresolvedReferenceExpression::new(
-                                binder.source_origin(syntax),
-                                kind,
-                                candidates,
-                                self.error_type,
-                            ),
-                        ),
-                    )?,
-                }
-            }
+            Some(token) => self.bind_root_reference(binder, scope, syntax, token, access)?,
             None => match syntax.access_expressions().next() {
                 Some(nested) => {
                     let nested_access = if syntax.internal_token().is_some() {
@@ -292,5 +264,95 @@ impl ExpressionBinder {
         });
 
         failure.map_or(Ok(current), Err)
+    }
+
+    fn bind_root_reference<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        scope: LocalScopeId,
+        syntax: &AccessExpressionSyntax,
+        token: bray_syntax::SyntaxToken,
+        access: NameAccess,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let name = token
+            .text(syntax.source().text())
+            .and_then(SymbolName::try_new);
+
+        let context = self.path_context_for(scope, access);
+
+        if let Some(name) = name
+            && let Some((binding, pattern)) =
+                binder.contextual_pattern_binding(scope, name.as_str())?
+        {
+            let resolution = classify_reference_result(binder.lookup_reference_identifier(
+                context,
+                syntax.source(),
+                token,
+            ));
+
+            return match resolution {
+                ReferenceResolution::Unresolved(kind, candidates) => self.push(
+                    binder,
+                    BoundExpression::PatternReference(BoundPatternReferenceExpression::new(
+                        binder.source_origin(syntax),
+                        pattern,
+                        binding,
+                        name,
+                        kind,
+                        candidates,
+                        syntax.is_recovered(),
+                    )),
+                ),
+                ReferenceResolution::Resolved(target) => {
+                    self.push_resolved_reference(binder, syntax, target)
+                }
+            };
+        }
+
+        let resolution = classify_reference_result(binder.bind_reference_identifier(
+            context,
+            syntax.source(),
+            token,
+        ));
+
+        match resolution {
+            ReferenceResolution::Resolved(target) => {
+                self.push_resolved_reference(binder, syntax, target)
+            }
+            ReferenceResolution::Unresolved(kind, candidates) => self.push(
+                binder,
+                BoundExpression::UnresolvedReference(BoundUnresolvedReferenceExpression::new(
+                    binder.source_origin(syntax),
+                    kind,
+                    candidates,
+                    self.error_type,
+                )),
+            ),
+        }
+    }
+
+    fn push_resolved_reference<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        syntax: &AccessExpressionSyntax,
+        target: bray_bound_tree::BoundReferenceTarget,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let ty = binder.value_type(target);
+
+        self.push(
+            binder,
+            BoundExpression::Name(BoundNameExpression::new(
+                binder.source_origin(syntax),
+                target,
+                ty,
+                syntax.is_recovered(),
+            )),
+        )
     }
 }

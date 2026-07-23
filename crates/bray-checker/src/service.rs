@@ -123,7 +123,10 @@ impl<C> PatternChecker<C> for DefaultPatternChecker where
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized,
 {
     /// Computes final expression types and exact semantic selections together.
     fn check_expression_semantics(
@@ -141,7 +144,10 @@ where
 }
 
 impl<C> ExpressionSemanticChecker<C> for DefaultExpressionSemanticChecker where
-    C: CheckerRequestContext + ?Sized
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + ?Sized
 {
 }
 

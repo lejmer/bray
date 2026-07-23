@@ -251,12 +251,6 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let contextual_pattern_name = Diagnostic::new(
-            DiagnosticId::new(7),
-            DiagnosticKind::CheckingContextualPatternNameUnsupported,
-            SeverityKind::Error,
-        );
-
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(
@@ -292,11 +286,6 @@ mod tests {
         assert_eq!(
             renderer.render(&non_exhaustive_match).message(),
             "match does not cover every possible value"
-        );
-
-        assert_eq!(
-            renderer.render(&contextual_pattern_name).message(),
-            "bare variant patterns are not supported yet, use a leading dot or qualified path"
         );
     }
 

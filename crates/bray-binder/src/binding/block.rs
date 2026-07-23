@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundBlock, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundLocalBinding,
-    BoundLocalConstant, BoundTypeReference,
+    BoundLocalConstant, BoundReferenceTarget, BoundTypeReference,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId, SymbolOrdinal, TypeId};
@@ -165,6 +165,7 @@ where
             context,
             &syntax.irrefutable_pattern(),
             input_type,
+            operations.error_type(),
             PatternBindingMode::Declaration,
         )?;
 
@@ -209,6 +210,10 @@ where
                 )?;
 
                 self.unit_mut().activate_local(scope, symbol)?;
+
+                if let Some(ty) = declared_type.ty() {
+                    self.record_value_type(BoundReferenceTarget::Local(symbol.into()), ty);
+                }
 
                 Some(symbol)
             }

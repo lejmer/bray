@@ -40,6 +40,7 @@ impl ExpressionBinder {
             self.path_context_for(pattern_scope, self.path_context.access()),
             &pattern_syntax,
             self.error_type,
+            self.error_type,
             PatternBindingMode::Declaration,
         )?;
 

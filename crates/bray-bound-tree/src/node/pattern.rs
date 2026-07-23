@@ -162,6 +162,7 @@ pub struct BoundPattern {
     target: Option<BoundPatternTarget>,
     name: Option<SymbolName>,
     literal: Option<BoundPatternLiteral>,
+    is_contextual_name: bool,
     is_mutable: bool,
     is_recovered: bool,
 }
@@ -187,6 +188,7 @@ impl BoundPattern {
             target: None,
             name: None,
             literal: None,
+            is_contextual_name: false,
             is_mutable: false,
             is_recovered: false,
         }
@@ -227,6 +229,13 @@ impl BoundPattern {
     /// Returns this pattern with its source literal recorded.
     pub const fn with_literal(mut self, literal: Option<BoundPatternLiteral>) -> Self {
         self.literal = literal;
+
+        self
+    }
+
+    /// Returns this pattern with deferred subject-aware name resolution recorded.
+    pub const fn with_contextual_name(mut self, is_contextual_name: bool) -> Self {
+        self.is_contextual_name = is_contextual_name;
 
         self
     }
@@ -279,6 +288,11 @@ impl BoundPattern {
     /// Returns the source literal retained by this pattern.
     pub const fn literal(&self) -> Option<BoundPatternLiteral> {
         self.literal
+    }
+
+    /// Returns whether the name must also be resolved through the checked subject type.
+    pub const fn is_contextual_name(&self) -> bool {
+        self.is_contextual_name
     }
 
     /// Returns whether this binding pattern requested mutable storage access.

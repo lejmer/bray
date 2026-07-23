@@ -2,14 +2,16 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
-    CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
+    BoundUnit, CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
     SelectedConstructionInput, SelectedOperation,
 };
 
 /// The exact checked semantic choice attached to one expression occurrence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SemanticSelection {
+    /// The exact value selected for a subject-dependent pattern reference.
+    Reference(BoundReferenceTarget),
     /// An exact callable, ABI, witness set, and argument mapping.
     Call(SelectedCall),
     /// An exact member, operator, index, construction, conversion, or implementation operation.
@@ -175,6 +177,9 @@ fn selection_matches_expression(
     expression: &BoundExpression,
 ) -> bool {
     match (selection, expression) {
+        (SemanticSelection::Reference(target), BoundExpression::PatternReference(source)) => {
+            *target == BoundReferenceTarget::Local(source.binding().into())
+        }
         (SemanticSelection::Call(call), BoundExpression::Call(source)) => {
             call_matches_expression(call, source)
         }
@@ -380,6 +385,7 @@ fn construction_source_inputs(expression: &BoundExpression) -> Vec<BoundExpressi
 
 fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::TypeId> {
     match selection {
+        SemanticSelection::Reference(_) => None,
         SemanticSelection::Call(call) => Some(call.resolution().result().ty()),
         SemanticSelection::Operation(operation) => operation.result_type(),
     }

@@ -1,11 +1,15 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundPatternId, BoundUnitKey, BoundUnitView,
+    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundPatternId, BoundReferenceTarget,
+    BoundUnitKey, BoundUnitView,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticBag};
-use bray_symbols::{AnySymbolId, ConstantSymbolId, SymbolFactKind, TypeId};
+use bray_symbols::{
+    AnySymbolId, ConstantSymbolId, LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId,
+    SymbolFactKind, SymbolName, TypeData, TypeId,
+};
 
 use crate::BinderFactContext;
 use crate::unit::{
@@ -124,6 +128,8 @@ pub(crate) struct BinderCheckpoint {
     diagnostics: usize,
     expected_contexts: Box<[ExpectedContext]>,
     control_targets: Box<[ControlTarget]>,
+    known_value_type_log: usize,
+    contextual_pattern_bindings: usize,
     dependency_log: usize,
 }
 
@@ -136,6 +142,14 @@ pub(crate) struct Binder<'facts, C: BinderFactContext + ?Sized> {
     diagnostics: Vec<Diagnostic>,
     expected_contexts: Vec<ExpectedContext>,
     control_targets: Vec<ControlTarget>,
+    known_value_types: BTreeMap<BoundReferenceTarget, TypeId>,
+    known_value_type_log: Vec<(BoundReferenceTarget, Option<TypeId>)>,
+    contextual_pattern_bindings: Vec<(
+        LocalScopeId,
+        SymbolName,
+        LocalBindingSymbolId,
+        BoundPatternId,
+    )>,
     dependencies: BTreeSet<BinderDependency>,
     dependency_log: Vec<BinderDependency>,
 }
@@ -153,6 +167,9 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
             diagnostics: Vec::new(),
             expected_contexts: Vec::new(),
             control_targets: Vec::new(),
+            known_value_types: BTreeMap::new(),
+            known_value_type_log: Vec::new(),
+            contextual_pattern_bindings: Vec::new(),
             dependencies: BTreeSet::new(),
             dependency_log: Vec::new(),
         }
@@ -228,6 +245,71 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
             .find(|target| target.kind() == kind)
     }
 
+    pub(crate) fn record_value_type(&mut self, target: BoundReferenceTarget, ty: TypeId) {
+        let Ok(data) = self.facts.semantic_values().type_data(ty) else {
+            return;
+        };
+
+        if matches!(data.as_ref(), TypeData::Error) {
+            return;
+        }
+
+        let previous = self.known_value_types.insert(target, ty);
+
+        if previous != Some(ty) {
+            self.known_value_type_log.push((target, previous));
+        }
+    }
+
+    pub(crate) fn value_type(&self, target: BoundReferenceTarget) -> Option<TypeId> {
+        self.known_value_types.get(&target).copied()
+    }
+
+    pub(crate) fn record_contextual_pattern_binding(
+        &mut self,
+        scope: LocalScopeId,
+        name: SymbolName,
+        binding: LocalBindingSymbolId,
+        pattern: BoundPatternId,
+    ) {
+        self.contextual_pattern_bindings
+            .push((scope, name, binding, pattern));
+    }
+
+    pub(crate) fn contextual_pattern_binding(
+        &self,
+        mut scope: LocalScopeId,
+        name: &str,
+    ) -> Result<Option<(LocalBindingSymbolId, BoundPatternId)>, BoundUnitConstructionError> {
+        loop {
+            if !self.unit.local_symbols_named(scope, name)?.is_empty()
+                || !self.unit.surface_symbols_named(scope, name)?.is_empty()
+            {
+                return Ok(None);
+            }
+
+            if let Some((_, _, binding, pattern)) =
+                self.contextual_pattern_bindings.iter().rev().find(
+                    |(candidate_scope, candidate_name, _, _)| {
+                        *candidate_scope == scope && candidate_name.as_str() == name
+                    },
+                )
+            {
+                return Ok(Some((*binding, *pattern)));
+            }
+
+            if self.unit.scope_boundary(scope)? == LocalScopeBoundary::Callable {
+                return Ok(None);
+            }
+
+            let Some(parent) = self.unit.scope_parent(scope)? else {
+                return Ok(None);
+            };
+
+            scope = parent;
+        }
+    }
+
     pub(crate) fn add_diagnostic(&mut self, diagnostic: Diagnostic) {
         self.diagnostics.push(diagnostic);
     }
@@ -249,6 +331,8 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
             // compact lengths and rollback trails.
             expected_contexts: self.expected_contexts.clone().into_boxed_slice(),
             control_targets: self.control_targets.clone().into_boxed_slice(),
+            known_value_type_log: self.known_value_type_log.len(),
+            contextual_pattern_bindings: self.contextual_pattern_bindings.len(),
             dependency_log: self.dependency_log.len(),
         }
     }
@@ -259,6 +343,8 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         dependency_relevance: AbandonedDependencyRelevance,
     ) -> bool {
         if checkpoint.diagnostics > self.diagnostics.len()
+            || checkpoint.known_value_type_log > self.known_value_type_log.len()
+            || checkpoint.contextual_pattern_bindings > self.contextual_pattern_bindings.len()
             || checkpoint.dependency_log > self.dependency_log.len()
         {
             return false;
@@ -272,6 +358,24 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
 
         self.expected_contexts = checkpoint.expected_contexts.into_vec();
         self.control_targets = checkpoint.control_targets.into_vec();
+
+        for (target, previous) in self
+            .known_value_type_log
+            .drain(checkpoint.known_value_type_log..)
+            .rev()
+        {
+            match previous {
+                Some(ty) => {
+                    self.known_value_types.insert(target, ty);
+                }
+                None => {
+                    self.known_value_types.remove(&target);
+                }
+            }
+        }
+
+        self.contextual_pattern_bindings
+            .truncate(checkpoint.contextual_pattern_bindings);
 
         if dependency_relevance == AbandonedDependencyRelevance::ProvenIrrelevant {
             for dependency in self.dependency_log.drain(checkpoint.dependency_log..) {
@@ -339,8 +443,9 @@ impl BinderOutput {
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::BoundReferenceTarget;
     use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
-    use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolFactKind};
+    use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolFactKind, TypeData};
 
     use super::{
         AbandonedDependencyRelevance, Binder, BinderDependency, BindingContext, ControlTarget,
@@ -412,6 +517,16 @@ mod tests {
 
         assert_eq!(binder.unit_mut().activate_local(root, abandoned), Ok(()));
 
+        let Ok(known_type) = facts.semantic_values().intern_type(TypeData::tuple([])) else {
+            panic!("known test type must be available");
+        };
+
+        let abandoned_target = BoundReferenceTarget::Local(abandoned.into());
+
+        binder.record_value_type(abandoned_target, known_type);
+
+        assert_eq!(binder.value_type(abandoned_target), Some(known_type));
+
         binder.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
 
         binder.push_control_target(ControlTarget::new(
@@ -427,6 +542,7 @@ mod tests {
 
         assert_eq!(binder.expected(), None);
         assert_eq!(binder.control_target(), None);
+        assert_eq!(binder.value_type(abandoned_target), None);
 
         let reused = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 

@@ -152,15 +152,7 @@ where
     ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
         let lookup = self.bind_path(context, path)?;
 
-        let result = lookup.result.classify(|name| match name {
-            ResolvedName::Surface(AnySymbolId::Constant(id)) => {
-                Some(BoundPatternTarget::Surface(id.into()))
-            }
-            ResolvedName::Surface(AnySymbolId::UnionVariant(id)) => {
-                Some(BoundPatternTarget::Surface(id.into()))
-            }
-            ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
-        });
+        let result = lookup.result.classify(classify_pattern_target);
 
         if matches!(
             result,
@@ -195,69 +187,6 @@ where
         }
 
         Ok(result)
-    }
-
-    pub(crate) fn bind_pattern_identifier(
-        &mut self,
-        context: PathBindingContext,
-        source: &SourceSnapshot,
-        token: SyntaxToken,
-        assignment: bool,
-    ) -> NameLookupResult<BoundPatternTarget> {
-        let Some(reference) = token_reference(source, token) else {
-            return malformed_lookup();
-        };
-
-        let lookup = lookup_unqualified_name(
-            self.unit(),
-            self.facts().symbols(),
-            context.scope,
-            context.module,
-            reference.text(),
-            context.access,
-        );
-
-        let result = if assignment {
-            lookup.map(
-                |name| match name {
-                    ResolvedName::Local(id) => BoundPatternTarget::Local(id),
-                    ResolvedName::Surface(id) => BoundPatternTarget::Surface(id),
-                },
-                |name| name,
-            )
-        } else {
-            lookup.classify(|name| match name {
-                ResolvedName::Surface(AnySymbolId::Constant(id)) => {
-                    Some(BoundPatternTarget::Surface(id.into()))
-                }
-                ResolvedName::Surface(AnySymbolId::UnionVariant(id)) => {
-                    Some(BoundPatternTarget::Surface(id.into()))
-                }
-                ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
-            })
-        };
-
-        if assignment
-            || matches!(
-                result,
-                MemberLookupResult::Ambiguous(_)
-                    | MemberLookupResult::Inaccessible(_)
-                    | MemberLookupResult::Malformed(_)
-            )
-        {
-            report_lookup_result(
-                self,
-                &reference,
-                if assignment {
-                    DiagnosticNameKind::Value
-                } else {
-                    DiagnosticNameKind::Pattern
-                },
-                &result,
-            );
-        }
-
-        result
     }
 
     pub(crate) fn bind_module_path(
@@ -341,6 +270,26 @@ where
         report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
 
         result
+    }
+
+    pub(crate) fn lookup_reference_identifier(
+        &self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+    ) -> NameLookupResult<ResolvedName> {
+        let Some(reference) = token_reference(source, token) else {
+            return malformed_lookup();
+        };
+
+        lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            reference.text(),
+            context.access,
+        )
     }
 
     pub(crate) fn bind_callable_overload_path(
@@ -454,6 +403,18 @@ where
             references,
             ordinary,
         ))
+    }
+}
+
+pub(super) fn classify_pattern_target(name: ResolvedName) -> Option<BoundPatternTarget> {
+    match name {
+        ResolvedName::Surface(AnySymbolId::Constant(id)) => {
+            Some(BoundPatternTarget::Surface(id.into()))
+        }
+        ResolvedName::Surface(AnySymbolId::UnionVariant(id)) => {
+            Some(BoundPatternTarget::Surface(id.into()))
+        }
+        ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
     }
 }
 
@@ -731,7 +692,10 @@ fn path_references(path: &PathSyntax) -> Option<Vec<NameReference>> {
         .collect()
 }
 
-fn token_reference(source: &SourceSnapshot, token: SyntaxToken) -> Option<NameReference> {
+pub(super) fn token_reference(
+    source: &SourceSnapshot,
+    token: SyntaxToken,
+) -> Option<NameReference> {
     if token.is_missing() {
         return None;
     }
