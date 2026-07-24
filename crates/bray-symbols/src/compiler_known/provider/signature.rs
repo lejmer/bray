@@ -69,6 +69,7 @@ pub(super) fn allocate_signature_symbols(
             } = child;
 
             let raw_id = allocator.next()?;
+
             let Some(symbol) = declaration_symbol_id(raw_id, kind.symbol_kind()) else {
                 return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
                     declaration: descriptor.id(),

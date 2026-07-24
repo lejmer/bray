@@ -26,6 +26,7 @@ impl<'graph> CompilerKnownCatalogAudit<'graph> {
         audit_roles(graph)?;
 
         let root = graph.roots().compiler_known().into();
+
         let plan = graph
             .completion_plan(
                 root,

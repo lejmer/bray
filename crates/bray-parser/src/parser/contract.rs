@@ -539,6 +539,7 @@ mod tests {
             "trusted func check(value: i32) ",
             "requires(trusted valid(value)) {}",
         );
+
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 

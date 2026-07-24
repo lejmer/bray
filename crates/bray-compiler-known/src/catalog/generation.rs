@@ -509,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn published_catalog_contains_the_closed_v1_conformance_entries() {
+    fn published_catalog_contains_the_closed_conformance_entries() {
         let compiler_known = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
             .iter()
