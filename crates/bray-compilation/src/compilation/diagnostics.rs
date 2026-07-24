@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts, CheckedPatternFacts,
     DeclaredValueTypeTemplates,
@@ -8,8 +9,9 @@ use bray_bound_tree::{
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, ModuleTargetGate,
-    SemanticFactResult, SymbolGraph, SymbolKey,
+    AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, ModuleSurface,
+    ModuleSurfaceFact, ModuleTargetGate, SemanticFactResult, SymbolFactRequest, SymbolGraph,
+    SymbolKey, SymbolOrigin,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -73,6 +75,19 @@ impl Compilation {
         let declarations = self.declaration_table();
         let symbols = self.symbol_graph()?;
         let mut facts = Vec::new();
+        let binder = self.binder_facts(&self.state.cancellation)?;
+
+        for module in symbols
+            .modules()
+            .iter()
+            .filter(|module| module.origin() == SymbolOrigin::Source)
+        {
+            let surface = binder
+                .symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(module.id()))
+                .map_err(super::binder::binder_fact_error)?;
+
+            facts.push(SemanticDiagnosticFact::ModuleSurface(surface));
+        }
 
         for part in declarations.module_parts() {
             let module = symbols
@@ -316,6 +331,7 @@ enum SemanticDiagnosticFact {
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
     ModuleTargetGate(Arc<DiagnosticResult<ModuleTargetGate>>),
+    ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
 }
 
 impl SemanticDiagnosticFact {
@@ -330,6 +346,7 @@ impl SemanticDiagnosticFact {
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleTargetGate(result) => result.diagnostics(),
+            Self::ModuleSurface(result) => result.diagnostics(),
         }
     }
 }

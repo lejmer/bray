@@ -104,6 +104,24 @@ const BINDING_TRUSTED_PREDICATE_BODY_NOT_ALLOWED: &[MessageTemplatePart] =
         "trusted predicate declaration cannot have a body",
     )];
 
+const BINDING_CYCLIC_MODULE_EXPORT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("module export path through "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" forms a cycle"),
+];
+
+const BINDING_CONFLICTING_MODULE_EXPORT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("module export name "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" conflicts with another declaration"),
+];
+
+const BINDING_INVALID_MODULE_EXPORT_TARGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("name "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" cannot be re-exported"),
+];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -651,6 +669,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingTrustedPredicateBodyNotAllowed => {
             MessageTemplate::new(BINDING_TRUSTED_PREDICATE_BODY_NOT_ALLOWED)
+        }
+        DiagnosticKind::BindingCyclicModuleExport => {
+            MessageTemplate::new(BINDING_CYCLIC_MODULE_EXPORT)
+        }
+        DiagnosticKind::BindingConflictingModuleExport => {
+            MessageTemplate::new(BINDING_CONFLICTING_MODULE_EXPORT)
+        }
+        DiagnosticKind::BindingInvalidModuleExportTarget => {
+            MessageTemplate::new(BINDING_INVALID_MODULE_EXPORT_TARGET)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

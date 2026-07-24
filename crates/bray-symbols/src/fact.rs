@@ -4,6 +4,7 @@ mod contract;
 mod default;
 mod execution;
 mod implementation;
+mod module;
 mod predicate;
 mod signature;
 mod target;
@@ -27,14 +28,15 @@ pub use contract::{
     ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationParticipationFact,
     ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, PredicateDefinitionFact, PredicateSignatureTemplateFact,
-    SemanticFactContract, SemanticFactResult, StructFieldDefaultFact,
-    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
-    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
+    PredicateSignatureTemplateFact, SemanticFactContract, SemanticFactResult,
+    StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
+    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
@@ -61,6 +63,7 @@ pub use implementation::{
     ImplementationSelectionCandidate, ImplementationSubject, ImplementationSubjectTemplate,
     ParticipatingImplementation,
 };
+pub use module::{ModuleReExport, ModuleSurface, ModuleUsing};
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
     ErrorPredicateDefinition, GenericConstraintSet, PredicateDefinition, PredicateDefinitionState,
