@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::TypeId;
+use bray_symbols::{BorrowKind, TypeId};
 
 use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnitKey};
 
@@ -313,6 +313,7 @@ pub struct BoundStructuredExpression {
     blocks: Arc<[BoundBlockId]>,
     patterns: Arc<[BoundPatternId]>,
     slice_bounds: Option<BoundSliceBounds>,
+    borrow_kind: Option<BorrowKind>,
     ty: Option<TypeId>,
     is_recovered: bool,
 }
@@ -335,6 +336,7 @@ impl BoundStructuredExpression {
             blocks: shared_slice(blocks),
             patterns: shared_slice(patterns),
             slice_bounds: None,
+            borrow_kind: None,
             ty,
             is_recovered,
         }
@@ -343,6 +345,13 @@ impl BoundStructuredExpression {
     /// Retains the exact optional bounds of a slice operation.
     pub fn with_slice_bounds(mut self, bounds: BoundSliceBounds) -> Self {
         self.slice_bounds = Some(bounds);
+
+        self
+    }
+
+    /// Retains whether a borrow permits shared observation or exclusive mutation.
+    pub const fn with_borrow_kind(mut self, kind: BorrowKind) -> Self {
+        self.borrow_kind = Some(kind);
 
         self
     }
@@ -375,6 +384,11 @@ impl BoundStructuredExpression {
     /// Returns the exact slice bounds when this is a slice operation.
     pub const fn slice_bounds(&self) -> Option<BoundSliceBounds> {
         self.slice_bounds
+    }
+
+    /// Returns the exact borrow kind for a borrow expression.
+    pub const fn borrow_kind(&self) -> Option<BorrowKind> {
+        self.borrow_kind
     }
 
     /// Returns the checked or recovery type.

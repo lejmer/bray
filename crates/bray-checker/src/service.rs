@@ -3,6 +3,7 @@ use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
 use crate::pattern::check_patterns;
 use crate::selection::{select_callable, select_iteration_source, select_operation};
+use crate::storage::plan_storage;
 use crate::target::check_target_validity;
 use crate::type_check::check_expression_types;
 use crate::{
@@ -13,7 +14,7 @@ use crate::{
 };
 use bray_bound_tree::{
     CheckedExpressionTypes, CheckedPatternFacts, DeclaredValueTypeTemplates, SelectedCall,
-    SelectedIterationSource, SelectedOperation,
+    SelectedIterationSource, SelectedOperation, StoragePlan,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -49,6 +50,10 @@ pub struct DefaultSemanticSelector;
 /// The standard Bray post-selection target-validity checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultTargetValidityChecker;
+
+/// The standard Bray per-unit storage planner.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultStoragePlanner;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -119,6 +124,26 @@ impl<C> PatternChecker<C> for DefaultPatternChecker where
         + ?Sized
 {
 }
+
+/// Storage identity and occurrence-specific access planning over one checked bound unit.
+pub trait StoragePlanner<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Constructs persistent storage identities and evaluated access plans.
+    fn plan_storage(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        types: &CheckedExpressionTypes,
+        patterns: &CheckedPatternFacts,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        iterations: &[SelectedIterationSource],
+    ) -> CheckerOutcome<StoragePlan> {
+        plan_storage(request, types, patterns, selections, iterations)
+    }
+}
+
+impl<C> StoragePlanner<C> for DefaultStoragePlanner where C: CheckerRequestContext + ?Sized {}
 
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync

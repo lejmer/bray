@@ -1,0 +1,372 @@
+use bray_bound_tree::{
+    BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundReferenceTarget,
+    BoundStructuredExpressionKind, IndexTarget, SelectedOperation, SemanticSelection,
+    StorageAccessId, StorageAccessPurpose, StorageProjection,
+};
+
+use super::super::plan::{PlanError, Planner, invalid_node, iteration_purpose};
+use crate::{CheckerInfrastructureError, CheckerRequestContext};
+
+impl<C> Planner<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    pub(in crate::storage) fn plan_expression(
+        &mut self,
+        id: BoundExpressionId,
+        purpose: Option<StorageAccessPurpose>,
+    ) -> Result<StorageAccessId, PlanError> {
+        self.check_cancellation()?;
+
+        if let Some(access) = self.expression_accesses.get(&id).copied() {
+            self.record_purpose(id, purpose, access)?;
+
+            return Ok(access);
+        }
+
+        // The immutable node is cloned so recursive planning can mutably advance task-local state.
+        let expression = self
+            .request
+            .view()
+            .expression(id)
+            .ok_or_else(|| invalid_node(id))?
+            .clone();
+
+        let access = match &expression {
+            BoundExpression::Name(name) => self.reference_access(id, name.target())?,
+            BoundExpression::PatternReference(reference) => {
+                let target = match self.selections.expression(id) {
+                    Some(SemanticSelection::Reference(target)) => *target,
+                    Some(_) | None => BoundReferenceTarget::Local(reference.binding().into()),
+                };
+
+                self.reference_access(id, target)?
+            }
+            BoundExpression::Assignment(assignment) => {
+                self.plan_assignment(id, assignment.operands())?
+            }
+            BoundExpression::MemberAccess(member) => {
+                let receiver = self.plan_expression(member.receiver(), None)?;
+                let projection = self.member_projection(id, member.selector())?;
+                let access = self.project_access(id, receiver, projection)?;
+
+                self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+
+                access
+            }
+            BoundExpression::TraitQualifiedMember(member) => {
+                let receiver = self.plan_expression(member.receiver(), None)?;
+                let projection = self.selected_member_projection(id)?;
+                let access = self.project_access(id, receiver, projection)?;
+
+                self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+
+                access
+            }
+            BoundExpression::Structured(structured) => {
+                self.plan_structured(id, structured.kind(), structured.operands())?
+            }
+            BoundExpression::Call(call) => self.plan_call(
+                id,
+                call.callee(),
+                call.arguments()
+                    .iter()
+                    .map(bray_bound_tree::BoundArgument::expression),
+            )?,
+            BoundExpression::ErrorCall(call) => self.plan_call(
+                id,
+                call.callee(),
+                call.arguments()
+                    .iter()
+                    .map(bray_bound_tree::BoundArgument::expression),
+            )?,
+            BoundExpression::For(expression) => {
+                let source = self.plan_expression(expression.source(), None)?;
+
+                let mode = self
+                    .iterations
+                    .get(&id)
+                    .map(|selection| selection.mode())
+                    .unwrap_or_else(|| expression.source_mode());
+
+                self.record_purpose(expression.source(), Some(iteration_purpose(mode)), source)?;
+                self.plan_pattern(expression.pattern(), expression.source(), source)?;
+                self.plan_block(expression.body())?;
+
+                if let Some(else_body) = expression.else_body() {
+                    self.plan_block(else_body)?;
+                }
+
+                self.temporary_access(id)?
+            }
+            BoundExpression::Generator(expression) => {
+                let source = self.plan_expression(expression.source(), None)?;
+
+                let mode = self
+                    .iterations
+                    .get(&id)
+                    .map(|selection| selection.mode())
+                    .unwrap_or_else(|| expression.source_mode());
+
+                self.record_purpose(expression.source(), Some(iteration_purpose(mode)), source)?;
+                self.plan_pattern(expression.pattern(), expression.source(), source)?;
+                self.plan_block(expression.body())?;
+
+                self.temporary_access(id)?
+            }
+            BoundExpression::Match(expression) => {
+                let subject = self.plan_expression(expression.subject(), None)?;
+
+                for arm in expression.arms() {
+                    self.plan_pattern(arm.pattern(), expression.subject(), subject)?;
+
+                    if let Some(guard) = arm.guard() {
+                        self.plan_expression(guard, Some(StorageAccessPurpose::Read))?;
+                    }
+
+                    self.plan_block(arm.body())?;
+                }
+
+                self.temporary_access(id)?
+            }
+            BoundExpression::ControlTransfer(transfer) => {
+                if let Some(operand) = transfer.operand() {
+                    self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                }
+
+                if transfer.kind() == BoundControlTransferKind::Return {
+                    let access = self.result_access(id, transfer.operand())?;
+
+                    self.record_purpose(id, Some(StorageAccessPurpose::Write), access)?;
+
+                    access
+                } else {
+                    self.temporary_access(id)?
+                }
+            }
+            _ => {
+                for child in expression.child_expressions() {
+                    self.plan_expression(child, Some(StorageAccessPurpose::Read))?;
+                }
+
+                for block in expression.child_blocks() {
+                    self.plan_block(block)?;
+                }
+
+                self.temporary_access(id)?
+            }
+        };
+
+        self.expression_accesses.insert(id, access);
+        self.record_purpose(id, purpose, access)?;
+
+        Ok(access)
+    }
+
+    fn plan_call(
+        &mut self,
+        id: BoundExpressionId,
+        callee: BoundExpressionId,
+        arguments: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> Result<StorageAccessId, PlanError> {
+        self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
+
+        // TODO(BRA-268): Resolve each transfer to an exact copy, move, or borrow once selected
+        // calls retain instantiated parameter ownership and borrowing modes.
+        for argument in arguments {
+            self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
+        }
+
+        self.temporary_access(id)
+    }
+
+    fn plan_assignment(
+        &mut self,
+        id: BoundExpressionId,
+        operands: &[BoundExpressionId],
+    ) -> Result<StorageAccessId, PlanError> {
+        let Some((destination, values)) = operands.split_first() else {
+            return self.recovery_access(id);
+        };
+
+        let destination_access = self.plan_expression(*destination, None)?;
+
+        self.record_purpose(
+            *destination,
+            Some(StorageAccessPurpose::Write),
+            destination_access,
+        )?;
+
+        self.record_purpose(
+            id,
+            Some(StorageAccessPurpose::Assignment),
+            destination_access,
+        )?;
+
+        for value in values {
+            self.plan_expression(*value, Some(StorageAccessPurpose::ValueTransfer))?;
+        }
+
+        self.temporary_access(id)
+    }
+
+    fn plan_structured(
+        &mut self,
+        id: BoundExpressionId,
+        kind: BoundStructuredExpressionKind,
+        operands: &[BoundExpressionId],
+    ) -> Result<StorageAccessId, PlanError> {
+        match kind {
+            BoundStructuredExpressionKind::Borrow => {
+                let Some(operand) = operands.first().copied() else {
+                    return self.recovery_access(id);
+                };
+
+                let operand_access = self.plan_expression(operand, None)?;
+
+                let borrow_kind = self
+                    .request
+                    .view()
+                    .expression(id)
+                    .and_then(|expression| match expression {
+                        BoundExpression::Structured(expression) => expression.borrow_kind(),
+                        _ => None,
+                    })
+                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+                // TODO(BRA-208): Materialize the dependency-backed borrow capability when
+                // composite borrow checking establishes it.
+                let access = self.copy_access(id, operand_access)?;
+
+                self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
+
+                for operand in &operands[1..] {
+                    self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
+                }
+
+                Ok(access)
+            }
+            BoundStructuredExpressionKind::ElementIndex
+            | BoundStructuredExpressionKind::SliceIndex
+            | BoundStructuredExpressionKind::NullablePropagation => {
+                self.plan_structured_projection(id, kind, operands)
+            }
+            _ => {
+                for operand in operands {
+                    self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
+                }
+
+                // The immutable node is cloned so recursive planning can mutably advance
+                // task-local state.
+                let expression = self
+                    .request
+                    .view()
+                    .expression(id)
+                    .ok_or_else(|| invalid_node(id))?
+                    .clone();
+
+                for block in expression.child_blocks() {
+                    self.plan_block(block)?;
+                }
+
+                self.temporary_access(id)
+            }
+        }
+    }
+
+    fn plan_structured_projection(
+        &mut self,
+        id: BoundExpressionId,
+        kind: BoundStructuredExpressionKind,
+        operands: &[BoundExpressionId],
+    ) -> Result<StorageAccessId, PlanError> {
+        let Some(receiver) = operands.first().copied() else {
+            return self.recovery_access(id);
+        };
+
+        let receiver_access = self.plan_expression(receiver, None)?;
+
+        for selector in &operands[1..] {
+            self.plan_expression(*selector, Some(StorageAccessPurpose::Read))?;
+        }
+
+        let (projection, purpose) = match kind {
+            BoundStructuredExpressionKind::ElementIndex => {
+                let selected = matches!(
+                    self.selections.expression(id),
+                    Some(SemanticSelection::Operation(SelectedOperation::Index {
+                        target: IndexTarget::ArrayElement | IndexTarget::SliceElement,
+                        ..
+                    }))
+                );
+
+                // TODO(BRA-268): Restrict this fallback to recovery once every index provider
+                // publishes an exact selection.
+                if !selected {
+                    let access = self.conservative_subject_access(id, receiver_access)?;
+
+                    self.record_purpose(id, Some(StorageAccessPurpose::Index), access)?;
+
+                    return Ok(access);
+                }
+
+                let Some(selector) = operands.get(1).copied() else {
+                    return self.recovery_access(id);
+                };
+
+                (
+                    StorageProjection::Element(selector),
+                    StorageAccessPurpose::Index,
+                )
+            }
+            BoundStructuredExpressionKind::SliceIndex => {
+                let selected = matches!(
+                    self.selections.expression(id),
+                    Some(SemanticSelection::Operation(SelectedOperation::Index {
+                        target: IndexTarget::ArraySlice | IndexTarget::Slice,
+                        ..
+                    }))
+                );
+
+                // TODO(BRA-268): Restrict this fallback to recovery once every slice provider
+                // publishes an exact selection.
+                if !selected {
+                    let access = self.conservative_subject_access(id, receiver_access)?;
+
+                    self.record_purpose(id, Some(StorageAccessPurpose::Slice), access)?;
+
+                    return Ok(access);
+                }
+
+                let bounds = self
+                    .request
+                    .view()
+                    .expression(id)
+                    .and_then(|expression| match expression {
+                        BoundExpression::Structured(expression) => expression.slice_bounds(),
+                        _ => None,
+                    })
+                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+                (
+                    StorageProjection::SliceRange {
+                        start: bounds.lower(),
+                        end: bounds.upper(),
+                    },
+                    StorageAccessPurpose::Slice,
+                )
+            }
+            BoundStructuredExpressionKind::NullablePropagation => (
+                StorageProjection::NullableValue,
+                StorageAccessPurpose::Projection,
+            ),
+            _ => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+        };
+
+        let access = self.project_access(id, receiver_access, Some(projection))?;
+
+        self.record_purpose(id, Some(purpose), access)?;
+
+        Ok(access)
+    }
+}
