@@ -5,7 +5,7 @@ use bray_binder::{
     bind_callable_type_directives as bind_callable_type_directive_surface, bind_directive_template,
 };
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
-use bray_declarations::SyntaxAnchor;
+use bray_declarations::{ModulePartRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableTypeDirectiveKey, DeclarationDirectivesFact, DirectiveAttachment,
@@ -124,7 +124,7 @@ fn bind_module_directives(
         .module(owner)
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    let declarations = context.compilation().declaration_table();
+    let declarations = context.declarations();
     let mut directives = Vec::new();
 
     for part in module.module_parts() {
@@ -147,6 +147,42 @@ fn bind_module_directives(
     Ok(directives)
 }
 
+pub(in crate::compilation) fn bind_module_part_directives_for_selection(
+    context: &CompilationBinderFacts<'_>,
+    owner: ModuleSymbolId,
+    part: &ModulePartRecord,
+) -> BinderFactResult<DiagnosticResult<DirectiveSurface>> {
+    let mut directives = Vec::new();
+    let mut diagnostics = DiagnosticBag::new();
+
+    let anchors = part
+        .surface()
+        .directives()
+        .iter()
+        .copied()
+        .filter(|anchor| {
+            matches!(
+                anchor.syntax_kind(),
+                bray_syntax::SyntaxKind::TargetDirective | bray_syntax::SyntaxKind::TestDirective
+            )
+        })
+        .collect::<Vec<_>>();
+
+    bind_anchors(
+        context,
+        owner.into(),
+        DirectiveAttachment::ModulePart(part.id()),
+        &anchors,
+        &mut directives,
+        &mut diagnostics,
+    )?;
+
+    Ok(DiagnosticResult::new(
+        DirectiveSurface::new(directives),
+        diagnostics,
+    ))
+}
+
 fn bind_nonmodule_directives(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
@@ -160,8 +196,7 @@ fn bind_nonmodule_directives(
     match key.data() {
         SymbolKeyData::SourceDeclaration { declaration, .. } => {
             let declaration = context
-                .compilation()
-                .declaration_table()
+                .declarations()
                 .declaration(*declaration)
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
@@ -359,7 +394,7 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
         CallableSignatureFact, CallableSymbolId, CallableTypeDirectiveKey, DirectiveArgumentName,
-        DirectiveAttachment, DirectiveKind, SymbolFactRequest, SymbolOrigin,
+        DirectiveAttachment, DirectiveKind, ProductKind, SymbolFactRequest, SymbolOrigin,
         TypeExpressionTemplate,
     };
     use bray_syntax::{
@@ -371,23 +406,28 @@ mod tests {
     use crate::WorkerBudget;
     use crate::compilation::binder::symbol::test_support::{binder_facts, published_fact};
     use crate::fact::CancellationToken;
-    use crate::test_support::{compilation, compilation_with_sources_and_worker_budget};
+    use crate::test_support::{
+        compilation, compilation_with_product, compilation_with_sources_product_and_worker_budget,
+    };
 
     #[test]
     fn function_directives_preserve_source_order_duplicates_and_argument_forms() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "\n",
-            "@abi(c)\n",
-            "@link(\"first\", kind = \"static\")\n",
-            "@link(\"second\")\n",
-            "@symbol(\"native_main\")\n",
-            "@entrypoint\n",
-            "@test\n",
-            "func main()\n",
-            "{\n",
-            "}\n",
-        ));
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "@abi(c)\n",
+                "@link(\"first\", kind = \"static\")\n",
+                "@link(\"second\")\n",
+                "@symbol(\"native_main\")\n",
+                "@entrypoint\n",
+                "@test\n",
+                "func main()\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Test,
+        );
 
         let symbols = compilation
             .symbol_graph()
@@ -524,7 +564,7 @@ mod tests {
 
     #[test]
     fn module_directives_retain_exact_partial_module_attachments() {
-        let compilation = compilation_with_sources_and_worker_budget(
+        let compilation = compilation_with_sources_product_and_worker_budget(
             &[
                 concat!(
                     "@target(target.scalar.u64)\n",
@@ -533,6 +573,7 @@ mod tests {
                 ),
                 concat!("@test\n", "@link(\"second\")\n", "module app;\n"),
             ],
+            ProductKind::Test,
             WorkerBudget::serial(),
         );
 

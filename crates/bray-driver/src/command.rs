@@ -42,6 +42,7 @@ impl DriverOptions {
     pub fn compilation_options(self) -> CompilationOptions {
         CompilationOptions::new(
             self.worker_budget,
+            bray_symbols::ProductKind::Library,
             bray_compilation::SelectedTarget::baseline(),
         )
     }

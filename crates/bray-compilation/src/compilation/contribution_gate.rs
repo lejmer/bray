@@ -1,23 +1,29 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use bray_binder::malformed_directive_argument_diagnostic;
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey, BoundUnitKind};
 use bray_checker::{
     CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator, ConstantReferenceResolution,
     DefaultConstantEvaluator,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_declarations::{ModulePartId, ModulePartRecord};
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_declarations::ModulePartId;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult,
+    SeverityKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantSymbolId, ConstantValueData, ConstantValueId,
-    ConstantValueKind, DirectiveAttachment, DirectiveKind, IntegerConstant, IntegerSign,
-    ModuleSymbol, ModuleSymbolId, ModuleTargetGate, NamedTypeSymbolId, StructSymbolId,
-    SymbolProvider, TargetFactDependency, TypeId,
+    ConstantValueKind, DirectiveArgumentTemplate, DirectiveKind, DirectiveSurface,
+    DirectiveTemplate, IntegerConstant, IntegerSign, ModuleContributionGate, ModuleSymbol,
+    NamedTypeSymbolId, ProductKind, StructSymbolId, SymbolProvider, TargetFactDependency, TypeId,
 };
 use bray_target::{TargetFactKind, TargetFactValue};
 
 use super::Compilation;
+use super::binder::bind_module_part_directives_for_selection;
 use super::checker::checker_result;
 use super::constant::collect_constant_references;
 use super::substitution::named_type;
@@ -25,27 +31,26 @@ use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
-    /// Returns the selected-target result for one source module contribution.
-    pub fn module_target_gate(
+    pub(in crate::compilation) fn module_contribution_gate(
         &self,
         part: ModulePartId,
-    ) -> Result<Arc<DiagnosticResult<ModuleTargetGate>>, FactQueryError> {
-        self.module_target_gate_with_cancellation(part, &self.state.cancellation)
+    ) -> Result<Arc<DiagnosticResult<ModuleContributionGate>>, FactQueryError> {
+        self.module_contribution_gate_with_cancellation(part, &self.state.cancellation)
     }
 
-    pub(in crate::compilation) fn module_target_gate_with_cancellation(
+    pub(in crate::compilation) fn module_contribution_gate_with_cancellation(
         &self,
         part: ModulePartId,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<DiagnosticResult<ModuleTargetGate>>, FactQueryError> {
-        let cell = self.state.module_target_gates.cell(part)?;
+    ) -> Result<Arc<DiagnosticResult<ModuleContributionGate>>, FactQueryError> {
+        let cell = self.state.module_contribution_gates.cell(part)?;
 
         let result = cell.get_or_compute(
             &self.state.fact_runtime,
-            CompilationFactKey::ModuleTargetGate(part),
+            CompilationFactKey::ModuleContributionGate(part),
             cancellation,
             || {
-                self.compute_module_target_gate(part, cancellation)
+                self.compute_module_contribution_gate(part, cancellation)
                     .map(Arc::new)
             },
         )?;
@@ -101,74 +106,87 @@ impl Compilation {
         self.target_fact_value(fact).map(Some)
     }
 
-    pub(in crate::compilation) fn module_target_gate_key(
+    fn module_contribution_gate_key(
         &self,
-        part: &ModulePartRecord,
         module: &ModuleSymbol,
-    ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        // TODO(BRA-256): Diagnose duplicate target directives when constructing source graphs.
-        let directives = self.declaration_directives(module.id().into())?;
-
-        let Some(directive) = directives.value().directives().iter().find(|directive| {
-            directive.kind() == DirectiveKind::Target
-                && directive.attachment() == DirectiveAttachment::ModulePart(part.id())
-        }) else {
-            return Ok(None);
-        };
-
-        let Some(argument) = directive.arguments().first() else {
-            return Ok(None);
-        };
-
+        argument: &DirectiveArgumentTemplate,
+    ) -> Result<BoundUnitKey, FactQueryError> {
         let source = self.bound_source(argument.expression().syntax())?;
 
         // The unit key retains the module's Arc-backed identity after this graph lookup.
         BoundUnitKey::target_gate(module.key().clone(), source)
-            .map(Some)
             .ok_or(FactQueryError::InfrastructureFailure)
     }
 
-    pub(in crate::compilation) fn module_symbol_id_for_part(
-        &self,
-        part: &ModulePartRecord,
-    ) -> Result<ModuleSymbolId, FactQueryError> {
-        self.symbol_graph()?
-            .module_for_part(part.id())
-            .map(ModuleSymbol::id)
-            .ok_or(FactQueryError::InfrastructureFailure)
-    }
-
-    fn compute_module_target_gate(
+    fn compute_module_contribution_gate(
         &self,
         part: ModulePartId,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<ModuleTargetGate>, FactQueryError> {
+    ) -> Result<DiagnosticResult<ModuleContributionGate>, FactQueryError> {
         let declarations = self.declaration_table();
 
         let part = declarations
             .module_part(part)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let symbols = self.symbol_graph()?;
+        let symbols = self.discovery_symbol_graph()?;
 
         let module = symbols
-            .module(self.module_symbol_id_for_part(part)?)
+            .module_for_part(part.id())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let Some(key) = self.module_target_gate_key(part, module)? else {
-            return Ok(DiagnosticResult::without_diagnostics(
-                ModuleTargetGate::new(true, []),
-            ));
+        let context = self.discovery_binder_facts(cancellation)?;
+
+        let directives = bind_module_part_directives_for_selection(&context, module.id(), part)
+            .map_err(super::binder::binder_fact_error)?;
+
+        let (directives, mut diagnostics) = directives.into_parts();
+
+        add_duplicate_gate_diagnostics(&directives, &mut diagnostics);
+
+        let test_enabled = first_directive(&directives, DirectiveKind::Test)
+            .is_none_or(|_| self.options().product_kind() == ProductKind::Test);
+
+        let target_gate = match first_directive(&directives, DirectiveKind::Target) {
+            Some(directive) => match directive.arguments().first() {
+                Some(argument) => {
+                    let key = self.module_contribution_gate_key(module, argument)?;
+
+                    self.evaluate_module_target_gate(key, cancellation)?
+                }
+                None => {
+                    let syntax = directive.syntax();
+
+                    diagnostics.add(malformed_directive_argument_diagnostic(SourceSpan::new(
+                        syntax.source_id(),
+                        syntax.full_range(),
+                    )));
+
+                    DiagnosticResult::without_diagnostics(ModuleContributionGate::new(false, []))
+                }
+            },
+            None => DiagnosticResult::without_diagnostics(ModuleContributionGate::new(true, [])),
         };
 
-        self.evaluate_module_target_gate(key, cancellation)
+        let (target_gate, target_diagnostics) = target_gate.into_parts();
+
+        diagnostics.add_range(target_diagnostics);
+
+        // The combined gate retains the target gate's Arc-backed dependency identities.
+        Ok(DiagnosticResult::new(
+            ModuleContributionGate::new(
+                test_enabled && target_gate.is_enabled(),
+                target_gate.dependencies().iter().cloned(),
+            ),
+            diagnostics,
+        ))
     }
 
     fn evaluate_module_target_gate(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<ModuleTargetGate>, FactQueryError> {
+    ) -> Result<DiagnosticResult<ModuleContributionGate>, FactQueryError> {
         if key.kind() != BoundUnitKind::TargetGate {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -231,7 +249,7 @@ impl Compilation {
         };
 
         Ok(DiagnosticResult::new(
-            ModuleTargetGate::new(enabled, dependencies),
+            ModuleContributionGate::new(enabled, dependencies),
             diagnostics,
         ))
     }
@@ -324,6 +342,42 @@ impl Compilation {
             NamedTypeSymbolId::Struct(definition),
         )
     }
+}
+
+fn first_directive(
+    directives: &DirectiveSurface,
+    kind: DirectiveKind,
+) -> Option<&DirectiveTemplate> {
+    directives
+        .directives()
+        .iter()
+        .find(|directive| directive.kind() == kind)
+}
+
+fn add_duplicate_gate_diagnostics(directives: &DirectiveSurface, diagnostics: &mut DiagnosticBag) {
+    for kind in [DirectiveKind::Target, DirectiveKind::Test] {
+        for directive in directives
+            .directives()
+            .iter()
+            .filter(|directive| directive.kind() == kind)
+            .skip(1)
+        {
+            diagnostics.add(duplicate_module_contribution_directive(directive));
+        }
+    }
+}
+
+fn duplicate_module_contribution_directive(directive: &DirectiveTemplate) -> Diagnostic {
+    let syntax = directive.syntax();
+    let span = SourceSpan::new(syntax.source_id(), syntax.full_range());
+
+    Diagnostic::new(
+        DiagnosticId::new(span.range().start().bytes()),
+        DiagnosticKind::CheckingDuplicateModuleContributionDirective,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_syntax_kind(syntax.syntax_kind()))
+    .with_primary_span(span)
 }
 
 fn unsigned_integer(value: u64) -> IntegerConstant {
@@ -450,8 +504,8 @@ mod tests {
         };
 
         let results = std::thread::scope(|scope| {
-            let first = scope.spawn(|| compilation.module_target_gate(part.id()));
-            let second = scope.spawn(|| compilation.module_target_gate(part.id()));
+            let first = scope.spawn(|| compilation.module_contribution_gate(part.id()));
+            let second = scope.spawn(|| compilation.module_contribution_gate(part.id()));
 
             [first, second].map(|thread| {
                 thread
@@ -479,6 +533,24 @@ mod tests {
         };
 
         assert_dependency(&compilation, dependency, TargetFactKind::PointerBits);
+    }
+
+    #[test]
+    fn malformed_target_gates_do_not_contribute_to_the_selected_graph() {
+        let compilation = compilation("@target() module app;");
+        let gate = module_gate(&compilation);
+
+        assert!(!gate.diagnostics().is_empty());
+        assert!(!gate.value().is_enabled());
+
+        assert!(
+            compilation
+                .product_source_graph()
+                .unwrap_or_else(|error| panic!("source graph must be available: {error:?}"))
+                .declarations()
+                .module_parts()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -519,13 +591,13 @@ mod tests {
 
     fn module_gate(
         compilation: &crate::Compilation,
-    ) -> Arc<bray_diagnostics::DiagnosticResult<bray_symbols::ModuleTargetGate>> {
+    ) -> Arc<bray_diagnostics::DiagnosticResult<bray_symbols::ModuleContributionGate>> {
         let [part] = compilation.declaration_table().module_parts() else {
             panic!("fixture must contain one module contribution");
         };
 
         compilation
-            .module_target_gate(part.id())
+            .module_contribution_gate(part.id())
             .unwrap_or_else(|error| panic!("target gate must be available: {error:?}"))
     }
 

@@ -58,6 +58,20 @@ pub(super) fn missing_source_input_diagnostic(id: DiagnosticId) -> Diagnostic {
     .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceInputRequired))
 }
 
+pub(super) fn duplicate_source_input_diagnostic(
+    id: DiagnosticId,
+    context: SourceInputDiagnosticContext,
+) -> Diagnostic {
+    with_source_input_context_args(
+        Diagnostic::new(
+            id,
+            DiagnosticKind::RequestDuplicateSourceInput,
+            SeverityKind::Error,
+        ),
+        context,
+    )
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct SourceInputDiagnosticContext {
     input_index: usize,

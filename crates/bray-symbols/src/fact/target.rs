@@ -34,15 +34,15 @@ impl TargetFactDependency {
     }
 }
 
-/// The selected-target result for one source module contribution.
+/// The selected product and target result for one source module contribution.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ModuleTargetGate {
+pub struct ModuleContributionGate {
     enabled: bool,
     dependencies: Arc<[TargetFactDependency]>,
 }
 
-impl ModuleTargetGate {
-    /// Creates a module target gate from its result and observed target facts.
+impl ModuleContributionGate {
+    /// Creates a contribution gate from its result and observed target facts.
     pub fn new(
         enabled: bool,
         dependencies: impl IntoIterator<Item = TargetFactDependency>,
@@ -58,7 +58,7 @@ impl ModuleTargetGate {
         }
     }
 
-    /// Returns whether the module contribution participates for the selected target.
+    /// Returns whether the module contribution participates in the selected product.
     pub const fn is_enabled(&self) -> bool {
         self.enabled
     }

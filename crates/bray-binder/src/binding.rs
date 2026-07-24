@@ -15,7 +15,9 @@ mod test_support;
 
 pub use candidate::bind_expression_candidates;
 pub(crate) use contract::{callable_normal_completion_has_value, push_contract_scope};
-pub use directive::{bind_callable_type_directives, bind_directive_template};
+pub use directive::{
+    bind_callable_type_directives, bind_directive_template, malformed_directive_argument_diagnostic,
+};
 pub(crate) use error::{BindingError, BindingResult};
 pub(crate) use expression::ExpressionBinder;
 pub use type_expression::{

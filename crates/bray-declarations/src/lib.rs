@@ -18,7 +18,7 @@ mod test_support;
 pub use chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
 pub use discover::discover_source_unit_declarations;
 pub use id::{ContainerId, DeclarationId, ModulePartId};
-pub use merge::merge_declaration_chunks;
+pub use merge::{merge_declaration_chunks, merge_selected_declaration_chunks};
 pub use name::{DeclarationName, ImplementationDeclarationName, ModulePath};
 pub use record::{
     ContainerKind, ContainerRecord, DeclarationKind, DeclarationRecord, ModulePartRecord,
