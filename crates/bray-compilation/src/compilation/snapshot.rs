@@ -245,6 +245,10 @@ fn reuse_fixed_cells(
         CompilationFactKey::ImplementationHeaderIndex
     );
     reuse!(
+        type_associated_implementation_index,
+        CompilationFactKey::TypeAssociatedImplementationIndex
+    );
+    reuse!(
         semantic_diagnostics,
         CompilationFactKey::SemanticDiagnostics
     );
@@ -294,6 +298,10 @@ fn reuse_mapped_cells(
 
     reuse!(implementation_participation, |key| {
         CompilationFactKey::ImplementationParticipation(key.clone())
+    });
+
+    reuse!(type_associated_surfaces, |key| {
+        CompilationFactKey::TypeAssociatedSurface(*key)
     });
 
     reuse!(implementation_candidate_sets, |key| {

@@ -204,6 +204,7 @@ mod tests {
 
     use super::super::test_support::{
         OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
+        record_range_with_local_owner,
     };
     use super::{decode_semantic_fact_graph, decode_semantic_facts};
     use crate::semantic::codec::{encode_semantic_facts, encode_validated_semantic_facts};
@@ -674,7 +675,7 @@ mod tests {
     fn referenced_implementation_corruption_fails_deterministically() {
         let (surface, owner, mut sections) = implementation_fixture();
         let section = section_mut(&mut sections, InterfaceSectionTag::Implementations);
-        let implementation = record_range(&section.2, 0, 0);
+        let implementation = record_range_with_local_owner(&section.2, 0, owner);
 
         section.2[implementation.start..implementation.start + 4]
             .copy_from_slice(&u32::MAX.to_le_bytes());

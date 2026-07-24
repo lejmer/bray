@@ -54,6 +54,16 @@ impl CompilerKnownSymbolProvider {
             .and_then(|index| index.name(member))
     }
 
+    pub(crate) fn member_entry(
+        &self,
+        owner: AnySymbolId,
+        member: AnySymbolId,
+    ) -> Option<&MemberEntry<AnySymbolId>> {
+        self.member_indexes
+            .get(&owner)
+            .and_then(|index| index.entry(member))
+    }
+
     /// Resolves one compiler-known ordinary member through caller-provided visibility policy.
     pub fn lookup_member_with_access(
         &self,

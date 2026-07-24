@@ -97,9 +97,11 @@ pub use fact::{
     TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
     TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
     TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    TrustedCapabilityRequirement, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
-    UnionPayloadDefaultSurface, UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact,
-    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    TrustedCapabilityRequirement, TypeAssociatedImplementation, TypeAssociatedLifecycleMember,
+    TypeAssociatedLifecycleSlot, TypeAssociatedMember, TypeAssociatedMemberOrigin,
+    TypeAssociatedSurface, TypeAssociatedSurfaceBuildError, TypeExpressionTemplate,
+    UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,

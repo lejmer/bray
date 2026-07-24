@@ -307,10 +307,12 @@ where
 
     /// Returns one exact member's ordinary name when it belongs to this index.
     pub fn name(&self, id: I) -> Option<&SymbolName> {
-        self.members
-            .iter()
-            .find(|member| member.id() == id)
-            .map(MemberEntry::name)
+        self.entry(id).map(MemberEntry::name)
+    }
+
+    /// Returns one exact member's immutable lookup entry.
+    pub fn entry(&self, id: I) -> Option<&MemberEntry<I>> {
+        self.members.iter().find(|member| member.id() == id)
     }
 
     /// Resolves an ordinary name with every candidate considered accessible.

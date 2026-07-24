@@ -34,6 +34,7 @@ macro_rules! define_imported_symbol_skeleton {
             >,
             pub(crate) external_index: BTreeMap<ExternalSymbolKey, AnySymbolId>,
             pub(crate) lookups: BTreeMap<AnySymbolId, BTreeMap<SymbolName, AnySymbolId>>,
+            pub(crate) member_names: BTreeMap<AnySymbolId, SymbolName>,
             pub(crate) module_paths:
                 BTreeMap<PackageSymbolId, BTreeMap<crate::ModulePathKey, ModuleSymbolId>>,
             $(
@@ -134,6 +135,11 @@ macro_rules! define_imported_symbol_skeleton {
                     .and_then(|index| index.get(&name))
                     .copied()
                     .map_or(MemberLookupResult::NotFound, MemberLookupResult::Found)
+            }
+
+            /// Returns one imported member's ordinary name.
+            pub fn member_name(&self, member: AnySymbolId) -> Option<&SymbolName> {
+                self.member_names.get(&member)
             }
 
             /// Returns imported receiver parameters in stable external-key order.

@@ -6,7 +6,8 @@ use bray_source::SourceId;
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
     ConstantValueId, ImplementationCoherenceDomainKey, ImplementationInstanceId,
-    ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind, TypeId,
+    ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId,
+    SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -254,6 +255,10 @@ pub(crate) enum CompilationFactKey {
     ImportedSemanticFact(ImportedSemanticFactKey),
     /// Implementations participating in one package coherence domain.
     ImplementationParticipation(ImplementationCoherenceDomainKey),
+    /// The complete declaration-level member surface of one named type.
+    TypeAssociatedSurface(NamedTypeSymbolId),
+    /// Inherent implementations grouped by their exact named subject.
+    TypeAssociatedImplementationIndex,
     /// The deterministic compilation-local imported symbol identity skeleton.
     ImportedSymbolSkeleton,
     /// The current library product's complete immutable interface export bundle.
@@ -310,6 +315,8 @@ impl CompilationFactKey {
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImplementationParticipation(_)
+            | Self::TypeAssociatedSurface(_)
+            | Self::TypeAssociatedImplementationIndex
             | Self::ImportedSymbolSkeleton
             | Self::PackageInterfaceExportBundle
             | Self::SemanticValueStore

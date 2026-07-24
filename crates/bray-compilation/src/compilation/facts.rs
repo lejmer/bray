@@ -24,8 +24,9 @@ use bray_symbols::{
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
     ConstantTermId, ConstantValueId, DirectiveSurface, ImplementationCandidateSet,
     ImplementationCoherenceDomainKey, ImplementationParticipationFact,
-    ImplementationRequirementKey, ImportedSymbolSkeleton, PackageIdentity, SemanticFactResult,
-    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+    ImplementationRequirementKey, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
+    SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+    TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -96,6 +97,10 @@ pub(super) struct CompilationState {
         ImplementationCoherenceDomainKey,
         Arc<SemanticFactResult<ImplementationParticipationFact>>,
     >,
+    pub(super) type_associated_surfaces:
+        FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
+    pub(super) type_associated_implementation_index:
+        FactCell<super::type_surface::InherentImplementationAssociationIndex>,
     pub(super) implementation_index:
         FactCell<DiagnosticResult<Arc<super::implementation::ImplementationHeaderIndex>>>,
     pub(super) implementation_candidate_sets: FactCellMap<
@@ -232,6 +237,8 @@ impl Compilation {
                 imported_semantic_facts: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 implementation_participation: FactCellMap::new(),
+                type_associated_surfaces: FactCellMap::new(),
+                type_associated_implementation_index: FactCell::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),
                 iteration_sources: FactCellMap::new(),

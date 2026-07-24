@@ -14,6 +14,7 @@ mod snapshot;
 mod source_graph;
 mod source_module;
 mod substitution;
+mod type_surface;
 mod unit;
 
 pub use export::PackageInterfaceExportError;
