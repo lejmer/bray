@@ -2,7 +2,61 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{AnySymbolId, DependencyContractTemplateId, SymbolOrdinal};
+use crate::{
+    AnySymbolId, DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId, SymbolOrdinal,
+};
+
+/// The result of attempting to prove one semantic predicate.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ProofOutcome {
+    /// Available semantic facts establish the predicate.
+    Proven,
+    /// Available semantic facts establish that the predicate is false.
+    Disproven,
+    /// Available semantic facts are insufficient to decide the predicate.
+    Unknown,
+    /// Earlier recovery prevents a sound proof.
+    Recovered,
+}
+
+impl ProofOutcome {
+    /// Combines ordered obligations using logical conjunction.
+    pub const fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Disproven, _) | (_, Self::Disproven) => Self::Disproven,
+            (Self::Recovered, _) | (_, Self::Recovered) => Self::Recovered,
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (Self::Proven, Self::Proven) => Self::Proven,
+        }
+    }
+}
+
+/// The exact generic declaration instance whose constraints must hold.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GenericConstraintObligationKey {
+    owner: GenericOwnerId,
+    substitution: GenericSubstitutionId,
+}
+
+impl GenericConstraintObligationKey {
+    /// Creates an obligation for one exact generic declaration instance.
+    pub const fn new(owner: GenericOwnerId, substitution: GenericSubstitutionId) -> Self {
+        Self {
+            owner,
+            substitution,
+        }
+    }
+
+    /// Returns the constrained generic declaration.
+    pub const fn owner(self) -> GenericOwnerId {
+        self.owner
+    }
+
+    /// Returns the exact arguments used to instantiate the declaration.
+    pub const fn substitution(self) -> GenericSubstitutionId {
+        self.substitution
+    }
+}
 
 /// A checked source-independent semantic predicate summary.
 ///
@@ -256,7 +310,7 @@ pub enum PredicateDefinitionState<T> {
 mod tests {
     use super::{
         CallableContractClause, CallableContractClauseKind, CallableContractSet,
-        GenericConstraintSet, PredicateDefinitionState, PredicateSemanticSummary,
+        GenericConstraintSet, PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome,
     };
     use crate::{
         CallablePhaseBehavior, CurrentRunCancellation, DependencyContractTemplateData,
@@ -268,6 +322,29 @@ mod tests {
         let constraints = GenericConstraintSet::new([]);
 
         assert!(constraints.constraints().is_empty());
+    }
+
+    #[test]
+    fn predicate_proofs_combine_as_conjunctions() {
+        assert_eq!(
+            ProofOutcome::Proven.and(ProofOutcome::Proven),
+            ProofOutcome::Proven
+        );
+
+        assert_eq!(
+            ProofOutcome::Proven.and(ProofOutcome::Unknown),
+            ProofOutcome::Unknown
+        );
+
+        assert_eq!(
+            ProofOutcome::Unknown.and(ProofOutcome::Recovered),
+            ProofOutcome::Recovered
+        );
+
+        assert_eq!(
+            ProofOutcome::Recovered.and(ProofOutcome::Disproven),
+            ProofOutcome::Disproven
+        );
     }
 
     #[test]

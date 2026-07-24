@@ -25,7 +25,7 @@ pub(super) struct CompilationCheckerContext<'compilation> {
 }
 
 impl<'compilation> CompilationCheckerContext<'compilation> {
-    fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
+    pub(super) fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
         Self { facts }
     }
 
@@ -87,6 +87,36 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 ),
             })
+    }
+
+    fn generic_constraints(
+        &self,
+        obligation: bray_symbols::GenericConstraintObligationKey,
+    ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ProofOutcome>> {
+        match self
+            .facts
+            .compilation()
+            .generic_constraint_satisfaction_with_cancellation(
+                obligation,
+                self.facts.cancellation(),
+            ) {
+            Ok(result) => Ok((*result).clone()),
+            Err(FactQueryError::Cycle(_)) => Ok(DiagnosticResult::without_diagnostics(
+                bray_symbols::ProofOutcome::Unknown,
+            )),
+            Err(error) => Err(match error {
+                FactQueryError::Cancelled => CheckerFactError::Cancelled,
+                FactQueryError::CheckerInfrastructure(error) => {
+                    CheckerFactError::Infrastructure(error)
+                }
+                FactQueryError::Cycle(_) => unreachable!("cycles are handled above"),
+                FactQueryError::InfrastructureFailure | FactQueryError::SemanticUnitContext(_) => {
+                    CheckerFactError::Infrastructure(
+                        CheckerInfrastructureError::SemanticValueUnavailable,
+                    )
+                }
+            }),
+        }
     }
 
     fn source(
