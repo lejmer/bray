@@ -1,8 +1,8 @@
-use std::sync::{Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
 #[cfg(test)]
-use std::{fmt, sync::Arc};
+use std::fmt;
 
 use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
@@ -13,6 +13,11 @@ const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 pub(crate) struct FactCell<T> {
+    storage: Arc<FactCellStorage<T>>,
+}
+
+#[derive(Debug)]
+struct FactCellStorage<T> {
     value: OnceLock<T>,
     state: Mutex<FactCellState>,
     changed: Condvar,
@@ -63,17 +68,65 @@ enum FactCellState {
 impl<T> FactCell<T> {
     pub(crate) fn new() -> Self {
         Self {
-            value: OnceLock::new(),
-            state: Mutex::new(FactCellState::Vacant),
-            changed: Condvar::new(),
-            #[cfg(test)]
-            observer: Mutex::new(None),
+            storage: Arc::new(FactCellStorage {
+                value: OnceLock::new(),
+                state: Mutex::new(FactCellState::Vacant),
+                changed: Condvar::new(),
+                #[cfg(test)]
+                observer: Mutex::new(None),
+            }),
+        }
+    }
+
+    pub(crate) fn get(&self) -> Option<&T> {
+        self.storage.value.get()
+    }
+
+    pub(crate) fn ready(key: CompilationFactKey, value: T) -> Self {
+        Self {
+            storage: Arc::new(FactCellStorage {
+                value: OnceLock::from(value),
+                state: Mutex::new(FactCellState::Ready(key)),
+                changed: Condvar::new(),
+                #[cfg(test)]
+                observer: Mutex::new(None),
+            }),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn get(&self) -> Option<&T> {
-        self.value.get()
+    pub(crate) fn shares_storage_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.storage, &other.storage)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn storage_reference_count(&self) -> usize {
+        Arc::strong_count(&self.storage)
+    }
+
+    pub(crate) fn updated(
+        &self,
+        key: &CompilationFactKey,
+        reusable: &std::collections::BTreeSet<CompilationFactKey>,
+    ) -> Self {
+        if !reusable.contains(key) {
+            return Self::new();
+        }
+
+        self.reused(key).unwrap_or_default()
+    }
+
+    pub(super) fn reused(&self, key: &CompilationFactKey) -> Option<Self> {
+        // Reused cells share one immutable publication allocation across snapshots.
+        self.is_ready_for(key).then(|| self.clone())
+    }
+
+    pub(super) fn is_ready_for(&self, key: &CompilationFactKey) -> bool {
+        let Ok(state) = self.storage.state.lock() else {
+            return false;
+        };
+
+        matches!(&*state, FactCellState::Ready(ready_key) if ready_key == key)
     }
 
     pub(crate) fn get_or_compute(
@@ -108,6 +161,7 @@ impl<T> FactCell<T> {
             cancellation.check()?;
 
             let mut state = self
+                .storage
                 .state
                 .lock()
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -168,6 +222,7 @@ impl<T> FactCell<T> {
                     }
 
                     let task = *task;
+
                     let current_task = runtime
                         .current_task_context()
                         .ok()
@@ -187,6 +242,7 @@ impl<T> FactCell<T> {
                     self.observe(FactCellTestEvent::Waiting)?;
 
                     let state = self
+                        .storage
                         .state
                         .lock()
                         .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -202,6 +258,7 @@ impl<T> FactCell<T> {
 
                     if same_evaluation {
                         let waited = self
+                            .storage
                             .changed
                             .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
                             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -225,6 +282,7 @@ impl<T> FactCell<T> {
         commit: EvaluationCommit<'_>,
     ) -> Result<(), FactQueryError> {
         let mut state = self
+            .storage
             .state
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -239,7 +297,8 @@ impl<T> FactCell<T> {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        self.value
+        self.storage
+            .value
             .set(value)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
@@ -247,13 +306,14 @@ impl<T> FactCell<T> {
 
         *state = FactCellState::Ready(key);
 
-        self.changed.notify_all();
+        self.storage.changed.notify_all();
 
         Ok(())
     }
 
     fn ready_value(&self) -> Result<&T, FactQueryError> {
-        self.value
+        self.storage
+            .value
             .get()
             .ok_or(FactQueryError::InfrastructureFailure)
     }
@@ -264,6 +324,7 @@ impl<T> FactCell<T> {
         observer: FactCellTestObserver,
     ) -> Result<(), FactQueryError> {
         let mut current = self
+            .storage
             .observer
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -276,6 +337,7 @@ impl<T> FactCell<T> {
     #[cfg(test)]
     fn observe(&self, event: FactCellTestEvent) -> Result<(), FactQueryError> {
         let observer = self
+            .storage
             .observer
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?
@@ -289,7 +351,7 @@ impl<T> FactCell<T> {
     }
 
     fn abandon(&self, task: FactTaskIdentity, key: &CompilationFactKey) {
-        let Ok(mut state) = self.state.lock() else {
+        let Ok(mut state) = self.storage.state.lock() else {
             return;
         };
 
@@ -303,14 +365,22 @@ impl<T> FactCell<T> {
             return;
         }
 
-        *state = if self.value.get().is_some() {
+        *state = if self.storage.value.get().is_some() {
             // Recovery must retain the initialized value's cache identity after the guard drops.
             FactCellState::Ready(key.clone())
         } else {
             FactCellState::Vacant
         };
 
-        self.changed.notify_all();
+        self.storage.changed.notify_all();
+    }
+}
+
+impl<T> Clone for FactCell<T> {
+    fn clone(&self) -> Self {
+        Self {
+            storage: Arc::clone(&self.storage),
+        }
     }
 }
 
@@ -608,12 +678,14 @@ mod tests {
 
         let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
             syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(2_u32))?;
+
             declarations.get_or_compute(
                 &runtime,
                 declaration_key.clone(),
                 &cancellation,
                 || Ok(3_u32),
             )?;
+
             syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(4_u32))?;
 
             Ok(5_u32)
@@ -910,6 +982,7 @@ mod tests {
 
         let first_context = task_context(&runtime, key.clone());
         let observed_owner = first_context.identity();
+
         let first = match runtime.begin(first_context) {
             Ok(evaluation) => evaluation,
             Err(error) => panic!("first evaluation should begin: {error:?}"),
@@ -918,6 +991,7 @@ mod tests {
         drop(first);
 
         let second_context = task_context(&runtime, key.clone());
+
         let second = match runtime.begin(second_context) {
             Ok(evaluation) => evaluation,
             Err(error) => panic!("second evaluation should begin: {error:?}"),
@@ -985,6 +1059,7 @@ mod tests {
         let child_key = CompilationFactKey::DeclarationTable;
 
         let weak_parent = Arc::downgrade(&parent);
+
         let observer = FactCellTestObserver::new(move |event| {
             if event != FactCellTestEvent::Computed {
                 return;
@@ -994,7 +1069,7 @@ mod tests {
                 return;
             };
 
-            let mut state = match parent.state.lock() {
+            let mut state = match parent.storage.state.lock() {
                 Ok(state) => state,
                 Err(_) => panic!("test fact state should remain available"),
             };

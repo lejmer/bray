@@ -55,32 +55,32 @@ pub struct Compilation {
 }
 
 pub(super) struct CompilationState {
-    package_identity: PackageIdentity,
-    options: CompilationOptions,
-    sources: SourceStore,
-    source_diagnostics: DiagnosticBag,
+    pub(super) package_identity: PackageIdentity,
+    pub(super) options: CompilationOptions,
+    pub(super) sources: SourceStore,
+    pub(super) source_diagnostics: DiagnosticBag,
     pub(super) package_interface_export: Option<PackageInterfaceExportRequest>,
     pub(super) dependency_interfaces: Box<[DependencyInterfaceInput]>,
     pub(super) fact_runtime: FactRuntime,
     pub(super) cancellation: CancellationToken,
-    source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
-    syntax_tree_result: FactCell<SyntaxTreeResult>,
-    declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
-    declaration_table_result: FactCell<DeclarationTableResult>,
+    pub(super) source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
+    pub(super) syntax_tree_result: FactCell<SyntaxTreeResult>,
+    pub(super) declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
+    pub(super) declaration_table_result: FactCell<DeclarationTableResult>,
     pub(super) product_source_graph: FactCell<Result<ProductSourceGraph, FactQueryError>>,
-    compiler_known_symbols:
+    pub(super) compiler_known_symbols:
         FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
-    selected_target: FactCell<crate::SelectedTargetContext>,
+    pub(super) selected_target: FactCell<crate::SelectedTargetContext>,
     pub(super) target_validity:
         FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
     pub(super) module_contribution_gates:
         FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleContributionGate>>>,
     pub(super) callable_type_directives:
         FactCellMap<CallableTypeDirectiveKey, Arc<DiagnosticResult<DirectiveSurface>>>,
-    bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
-    discovery_symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
-    symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
-    semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
+    pub(super) bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
+    pub(super) discovery_symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
+    pub(super) symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
+    pub(super) semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) loaded_dependency_interfaces:
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
     pub(super) imported_symbol_skeleton:

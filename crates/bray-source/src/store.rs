@@ -31,6 +31,24 @@ impl SourceStore {
         }
     }
 
+    /// Creates a source store from snapshots in source ID order.
+    ///
+    /// Returns `None` when a snapshot's source ID does not match its position.
+    pub fn from_snapshots(snapshots: Vec<SourceSnapshot>) -> Option<Self> {
+        let loaded_count = u64::try_from(snapshots.len()).ok()?;
+
+        for (index, snapshot) in snapshots.iter().enumerate() {
+            if snapshot.source_id().to_index() != Some(index) {
+                return None;
+            }
+        }
+
+        Some(Self {
+            loader: SourceLoader::with_loaded_count(loaded_count),
+            snapshots,
+        })
+    }
+
     /// Inserts source text and returns its assigned source ID.
     pub fn insert(
         &mut self,
@@ -195,6 +213,57 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(texts, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn source_store_accepts_ordered_loaded_snapshots() {
+        let mut original = SourceStore::new();
+
+        insert(
+            &mut original,
+            SourceIdentity::new(30),
+            SourceOrigin::stdin(),
+            SourceVersion::new(0),
+            "a",
+        );
+
+        let snapshots = original.iter().cloned().collect();
+
+        let Some(rebuilt) = SourceStore::from_snapshots(snapshots) else {
+            panic!("ordered snapshots must form a source store");
+        };
+
+        let Some(original_text) = original
+            .get(SourceId::new(0))
+            .map(|source| source.shared_text())
+        else {
+            panic!("original source must exist");
+        };
+
+        let Some(rebuilt_text) = rebuilt
+            .get(SourceId::new(0))
+            .map(|source| source.shared_text())
+        else {
+            panic!("rebuilt source must exist");
+        };
+
+        assert!(std::sync::Arc::ptr_eq(&original_text, &rebuilt_text));
+    }
+
+    #[test]
+    fn source_store_rejects_snapshots_outside_source_id_order() {
+        let snapshot = match crate::SourceSnapshot::new(
+            SourceId::new(1),
+            SourceIdentity::new(30),
+            SourceOrigin::stdin(),
+            SourceVersion::new(0),
+            "a",
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test source must fit: {error:?}"),
+        };
+
+        assert!(SourceStore::from_snapshots(vec![snapshot]).is_none());
     }
 
     #[test]

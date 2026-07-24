@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_binder::BinderDependency;
@@ -12,14 +13,7 @@ use super::FactCellTestObserver;
 #[derive(Debug)]
 pub(crate) struct PublishedUnitFact<T> {
     result: Arc<DiagnosticResult<T>>,
-    // TODO(BRA-229): Remove this expectation when incremental invalidation traverses edges.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "incremental dependency invalidation is implemented by a subsequent issue"
-        )
-    )]
+    #[cfg(test)]
     dependencies: Box<[BinderDependency]>,
 }
 
@@ -28,14 +22,7 @@ impl<T> PublishedUnitFact<T> {
         &self.result
     }
 
-    // TODO(BRA-229): Remove this expectation when incremental invalidation traverses edges.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "incremental dependency invalidation is implemented by a subsequent issue"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
@@ -56,6 +43,16 @@ where
         }
     }
 
+    pub(crate) fn updated(
+        &self,
+        reusable: &BTreeSet<CompilationFactKey>,
+        fact_key: impl Fn(&BoundUnitKey) -> CompilationFactKey,
+    ) -> Self {
+        Self {
+            cells: self.cells.updated(reusable, fact_key),
+        }
+    }
+
     pub(crate) fn get_or_compute(
         &self,
         runtime: &FactRuntime,
@@ -73,10 +70,17 @@ where
         let cell = self.cells.cell(unit_key.clone())?;
 
         let published = cell.get_or_compute(runtime, fact_key, cancellation, || {
-            let (result, dependencies) = compute()?;
+            let computation = compute()?;
+
+            #[cfg(test)]
+            let (result, dependencies) = computation;
+
+            #[cfg(not(test))]
+            let (result, _) = computation;
 
             Ok(Arc::new(PublishedUnitFact {
                 result: Arc::new(result),
+                #[cfg(test)]
                 dependencies,
             }))
         })?;
@@ -88,6 +92,11 @@ where
     #[cfg(test)]
     pub(crate) fn is_published(&self, key: &BoundUnitKey) -> Result<bool, FactQueryError> {
         self.cells.is_published(key)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_cell_with(&self, other: &Self, key: &BoundUnitKey) -> bool {
+        self.cells.shares_cell_with(&other.cells, key)
     }
 
     #[cfg(test)]

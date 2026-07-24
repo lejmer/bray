@@ -26,6 +26,18 @@ where
         }
     }
 
+    pub(crate) fn updated(
+        &self,
+        reusable: &std::collections::BTreeSet<CompilationFactKey>,
+    ) -> Self {
+        Self {
+            cells: self.cells.updated(reusable, |owner| {
+                CompilationFactKey::from(SymbolFactKey::new(C::erase_owner(*owner), C::KIND))
+            }),
+            marker: PhantomData,
+        }
+    }
+
     pub(crate) fn get_or_compute(
         &self,
         runtime: &FactRuntime,

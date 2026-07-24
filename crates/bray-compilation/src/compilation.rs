@@ -10,6 +10,7 @@ mod implementation;
 mod imported;
 mod iteration;
 mod load;
+mod snapshot;
 mod source_graph;
 mod source_module;
 mod substitution;

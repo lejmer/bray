@@ -21,96 +21,69 @@ use bray_symbols::{
 use super::super::binder_fact_error;
 use super::super::context::CompilationBinderFacts;
 use super::binding::{CompilationSymbolFactBinding, binder_error};
-use crate::fact::SymbolFactCache;
+use crate::fact::{CompilationFactKey, SymbolFactCache};
 
-pub(in crate::compilation) struct CompilationSymbolFacts {
-    pub(super) module_surfaces: SymbolFactCache<ModuleSurfaceFact>,
-    pub(super) declaration_directives: SymbolFactCache<DeclarationDirectivesFact>,
-    pub(super) generic_constraints: SymbolFactCache<GenericConstraintsFact>,
-    pub(super) generic_declaration_templates: SymbolFactCache<GenericDeclarationTemplateFact>,
-    pub(super) callable_signatures: SymbolFactCache<CallableSignatureFact>,
-    pub(super) callable_contracts: SymbolFactCache<CallableContractsFact>,
-    pub(super) callable_contract_templates: SymbolFactCache<CallableContractTemplateFact>,
-    pub(super) predicate_signature_templates: SymbolFactCache<PredicateSignatureTemplateFact>,
-    pub(super) callable_contract_types: SymbolFactCache<CallableContractTypeFact>,
-    pub(super) constant_declared_types: SymbolFactCache<ConstantDeclaredTypeFact>,
-    pub(super) constant_definitions: SymbolFactCache<ConstantDefinitionFact>,
-    pub(super) generic_const_parameter_declared_types:
-        SymbolFactCache<GenericConstParameterDeclaredTypeFact>,
-    pub(super) trait_constant_member_declared_types:
-        SymbolFactCache<TraitConstantMemberDeclaredTypeFact>,
-    pub(super) trait_constant_member_definitions:
-        SymbolFactCache<TraitConstantMemberDefinitionFact>,
-    pub(super) trait_constant_fulfillment_declared_types:
-        SymbolFactCache<TraitConstantFulfillmentDeclaredTypeFact>,
-    pub(super) trait_constant_fulfillment_definitions:
-        SymbolFactCache<TraitConstantFulfillmentDefinitionFact>,
-    pub(super) struct_field_types: SymbolFactCache<StructFieldTypeFact>,
-    pub(super) union_payload_field_types: SymbolFactCache<UnionPayloadFieldTypeFact>,
-    pub(super) inherent_type_member_values: SymbolFactCache<InherentTypeMemberValueFact>,
-    pub(super) trait_type_fulfillment_values: SymbolFactCache<TraitTypeFulfillmentValueFact>,
-    pub(super) implementation_subjects: SymbolFactCache<ImplementationSubjectFact>,
-    pub(super) implemented_traits: SymbolFactCache<ImplementedTraitApplicationFact>,
-    pub(super) implementation_coherence: SymbolFactCache<ImplementationCoherenceFact>,
-    pub(super) implementation_head_templates: SymbolFactCache<ImplementationHeadTemplateFact>,
-    pub(super) callable_parameter_default_templates:
-        SymbolFactCache<CallableParameterDefaultTemplateFact>,
-    pub(super) callable_parameter_defaults: SymbolFactCache<CallableParameterDefaultFact>,
-    pub(super) struct_field_default_templates: SymbolFactCache<StructFieldDefaultTemplateFact>,
-    pub(super) struct_field_defaults: SymbolFactCache<StructFieldDefaultFact>,
-    pub(super) union_payload_field_default_templates:
-        SymbolFactCache<UnionPayloadFieldDefaultTemplateFact>,
-    pub(super) union_payload_field_defaults: SymbolFactCache<UnionPayloadFieldDefaultFact>,
-    pub(super) predicate_definitions: SymbolFactCache<PredicateDefinitionFact>,
-    pub(super) trait_predicate_member_definitions:
-        SymbolFactCache<TraitPredicateMemberDefinitionFact>,
-    pub(super) trait_predicate_fulfillment_definitions:
-        SymbolFactCache<TraitPredicateFulfillmentDefinitionFact>,
-    pub(super) callable_overload_templates: SymbolFactCache<CallableOverloadTemplateFact>,
-    pub(super) implementation_overload_templates:
-        SymbolFactCache<ImplementationOverloadTemplateFact>,
+macro_rules! define_compilation_symbol_facts {
+    ($($field:ident: $contract:ty),+ $(,)?) => {
+        pub(in crate::compilation) struct CompilationSymbolFacts {
+            $(pub(super) $field: SymbolFactCache<$contract>,)+
+        }
+
+        impl CompilationSymbolFacts {
+            pub(in crate::compilation) const fn new() -> Self {
+                Self {
+                    $($field: SymbolFactCache::new(),)+
+                }
+            }
+
+            pub(in crate::compilation) fn updated(
+                &self,
+                reusable: &std::collections::BTreeSet<CompilationFactKey>,
+            ) -> Self {
+                Self {
+                    $($field: self.$field.updated(reusable),)+
+                }
+            }
+        }
+    };
 }
 
-impl CompilationSymbolFacts {
-    pub(in crate::compilation) const fn new() -> Self {
-        Self {
-            module_surfaces: SymbolFactCache::new(),
-            declaration_directives: SymbolFactCache::new(),
-            generic_constraints: SymbolFactCache::new(),
-            generic_declaration_templates: SymbolFactCache::new(),
-            callable_signatures: SymbolFactCache::new(),
-            callable_contracts: SymbolFactCache::new(),
-            callable_contract_templates: SymbolFactCache::new(),
-            predicate_signature_templates: SymbolFactCache::new(),
-            callable_contract_types: SymbolFactCache::new(),
-            constant_declared_types: SymbolFactCache::new(),
-            constant_definitions: SymbolFactCache::new(),
-            generic_const_parameter_declared_types: SymbolFactCache::new(),
-            trait_constant_member_declared_types: SymbolFactCache::new(),
-            trait_constant_member_definitions: SymbolFactCache::new(),
-            trait_constant_fulfillment_declared_types: SymbolFactCache::new(),
-            trait_constant_fulfillment_definitions: SymbolFactCache::new(),
-            struct_field_types: SymbolFactCache::new(),
-            union_payload_field_types: SymbolFactCache::new(),
-            inherent_type_member_values: SymbolFactCache::new(),
-            trait_type_fulfillment_values: SymbolFactCache::new(),
-            implementation_subjects: SymbolFactCache::new(),
-            implemented_traits: SymbolFactCache::new(),
-            implementation_coherence: SymbolFactCache::new(),
-            implementation_head_templates: SymbolFactCache::new(),
-            callable_parameter_default_templates: SymbolFactCache::new(),
-            callable_parameter_defaults: SymbolFactCache::new(),
-            struct_field_default_templates: SymbolFactCache::new(),
-            struct_field_defaults: SymbolFactCache::new(),
-            union_payload_field_default_templates: SymbolFactCache::new(),
-            union_payload_field_defaults: SymbolFactCache::new(),
-            predicate_definitions: SymbolFactCache::new(),
-            trait_predicate_member_definitions: SymbolFactCache::new(),
-            trait_predicate_fulfillment_definitions: SymbolFactCache::new(),
-            callable_overload_templates: SymbolFactCache::new(),
-            implementation_overload_templates: SymbolFactCache::new(),
-        }
-    }
+define_compilation_symbol_facts! {
+    module_surfaces: ModuleSurfaceFact,
+    declaration_directives: DeclarationDirectivesFact,
+    generic_constraints: GenericConstraintsFact,
+    generic_declaration_templates: GenericDeclarationTemplateFact,
+    callable_signatures: CallableSignatureFact,
+    callable_contracts: CallableContractsFact,
+    callable_contract_templates: CallableContractTemplateFact,
+    predicate_signature_templates: PredicateSignatureTemplateFact,
+    callable_contract_types: CallableContractTypeFact,
+    constant_declared_types: ConstantDeclaredTypeFact,
+    constant_definitions: ConstantDefinitionFact,
+    generic_const_parameter_declared_types: GenericConstParameterDeclaredTypeFact,
+    trait_constant_member_declared_types: TraitConstantMemberDeclaredTypeFact,
+    trait_constant_member_definitions: TraitConstantMemberDefinitionFact,
+    trait_constant_fulfillment_declared_types: TraitConstantFulfillmentDeclaredTypeFact,
+    trait_constant_fulfillment_definitions: TraitConstantFulfillmentDefinitionFact,
+    struct_field_types: StructFieldTypeFact,
+    union_payload_field_types: UnionPayloadFieldTypeFact,
+    inherent_type_member_values: InherentTypeMemberValueFact,
+    trait_type_fulfillment_values: TraitTypeFulfillmentValueFact,
+    implementation_subjects: ImplementationSubjectFact,
+    implemented_traits: ImplementedTraitApplicationFact,
+    implementation_coherence: ImplementationCoherenceFact,
+    implementation_head_templates: ImplementationHeadTemplateFact,
+    callable_parameter_default_templates: CallableParameterDefaultTemplateFact,
+    callable_parameter_defaults: CallableParameterDefaultFact,
+    struct_field_default_templates: StructFieldDefaultTemplateFact,
+    struct_field_defaults: StructFieldDefaultFact,
+    union_payload_field_default_templates: UnionPayloadFieldDefaultTemplateFact,
+    union_payload_field_defaults: UnionPayloadFieldDefaultFact,
+    predicate_definitions: PredicateDefinitionFact,
+    trait_predicate_member_definitions: TraitPredicateMemberDefinitionFact,
+    trait_predicate_fulfillment_definitions: TraitPredicateFulfillmentDefinitionFact,
+    callable_overload_templates: CallableOverloadTemplateFact,
+    implementation_overload_templates: ImplementationOverloadTemplateFact,
 }
 
 impl<C> SymbolFactProvider<C> for CompilationBinderFacts<'_>

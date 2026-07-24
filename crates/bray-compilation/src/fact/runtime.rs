@@ -40,6 +40,65 @@ impl FactRuntime {
         }
     }
 
+    pub(crate) fn updated(
+        &self,
+        worker_budget: WorkerBudget,
+        invalidation_roots: impl IntoIterator<Item = CompilationFactKey>,
+    ) -> (Self, BTreeSet<CompilationFactKey>) {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|_| panic!("fact dependency state must remain available"));
+
+        let mut invalidated = invalidation_roots.into_iter().collect::<BTreeSet<_>>();
+        let mut dependents = BTreeMap::<CompilationFactKey, Vec<CompilationFactKey>>::new();
+
+        // The revised runtime owns stable graph keys independently of the previous snapshot.
+        for (fact, dependencies) in &state.dependencies {
+            for dependency in dependencies {
+                dependents
+                    .entry(dependency.clone())
+                    .or_default()
+                    .push(fact.clone());
+            }
+        }
+
+        let mut pending = invalidated.iter().cloned().collect::<VecDeque<_>>();
+
+        while let Some(invalidated_fact) = pending.pop_front() {
+            let Some(affected) = dependents.get(&invalidated_fact) else {
+                continue;
+            };
+
+            for fact in affected {
+                if invalidated.insert(fact.clone()) {
+                    pending.push_back(fact.clone());
+                }
+            }
+        }
+
+        // Retained dependency sets remain independently owned after the previous runtime is gone.
+        let dependencies = state
+            .dependencies
+            .iter()
+            .filter(|(fact, _)| !invalidated.contains(*fact))
+            .map(|(fact, dependencies)| (fact.clone(), dependencies.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        let reusable = dependencies.keys().cloned().collect();
+
+        let runtime = Self {
+            next_task: AtomicU64::new(0),
+            state: Mutex::new(RuntimeState {
+                dependencies,
+                ..RuntimeState::default()
+            }),
+            scheduler: FactScheduler::new(worker_budget),
+        };
+
+        (runtime, reusable)
+    }
+
     pub(crate) fn run<T>(
         &self,
         operation: impl FnOnce() -> Result<T, FactQueryError> + Send,
@@ -139,7 +198,6 @@ impl FactRuntime {
         observed_owner: FactTaskIdentity,
     ) -> Result<Option<WaitingGuard<'_>>, FactQueryError> {
         let requester = self.current_task_context().ok();
-
         let mut state = self.state()?;
 
         let Some(owner) = state.owners.get(key).copied() else {
