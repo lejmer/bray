@@ -2,16 +2,20 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map:
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
+use crate::WorkerBudget;
+
+use super::scheduler::FactScheduler;
 use super::task::{
-    FactTaskContext, FactTaskIdentity, RuntimeIdentity, current_context, current_cycle,
-    record_request_with_cycle_key,
+    FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, current_context,
+    current_cycle, record_request_with_cycle_key, run_with_evaluations,
 };
 use super::{CompilationFactKey, FactCycle, FactQueryError};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct FactRuntime {
     next_task: AtomicU64,
     state: Mutex<RuntimeState>,
+    scheduler: FactScheduler,
 }
 
 #[derive(Debug, Default)]
@@ -28,6 +32,41 @@ struct WaitEdge {
 }
 
 impl FactRuntime {
+    pub(crate) fn new(worker_budget: WorkerBudget) -> Self {
+        Self {
+            next_task: AtomicU64::new(0),
+            state: Mutex::new(RuntimeState::default()),
+            scheduler: FactScheduler::new(worker_budget),
+        }
+    }
+
+    pub(crate) fn run<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, FactQueryError> + Send,
+    ) -> Result<T, FactQueryError>
+    where
+        T: Send,
+    {
+        self.scheduler.run(operation)?
+    }
+
+    pub(crate) fn map_indexed<T>(
+        &self,
+        len: usize,
+        operation: impl Fn(usize) -> T + Send + Sync,
+    ) -> Result<Vec<T>, FactQueryError>
+    where
+        T: Send,
+    {
+        let evaluations = capture_evaluations()?;
+
+        let results = self.scheduler.map_indexed(len, |index| {
+            run_with_evaluations(&evaluations, || Ok(operation(index)))
+        })?;
+
+        results.into_iter().collect()
+    }
+
     pub(crate) fn request_with_cycle_key(
         &self,
         key: &CompilationFactKey,
@@ -87,7 +126,7 @@ impl FactRuntime {
         })
     }
 
-    pub(crate) fn same_thread_cycle(
+    pub(crate) fn same_task_cycle(
         &self,
         key: &CompilationFactKey,
     ) -> Result<FactCycle, FactQueryError> {
@@ -225,6 +264,13 @@ impl FactRuntime {
             .dependencies
             .get(key)
             .map(|dependencies| dependencies.iter().cloned().collect::<Box<[_]>>()))
+    }
+}
+
+#[cfg(test)]
+impl Default for FactRuntime {
+    fn default() -> Self {
+        Self::new(WorkerBudget::serial())
     }
 }
 

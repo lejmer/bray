@@ -158,6 +158,25 @@ pub(crate) fn current_context(runtime: RuntimeIdentity) -> Result<FactTaskContex
     })
 }
 
+pub(crate) fn capture_evaluations() -> Result<Vec<FactTaskContext>, FactQueryError> {
+    // Scheduled jobs need independent stack storage while sharing each task's Arc-backed state.
+    local_evaluations(|active| Ok(active.clone()))
+}
+
+pub(crate) fn run_with_evaluations<T>(
+    evaluations: &[FactTaskContext],
+    operation: impl FnOnce() -> Result<T, FactQueryError>,
+) -> Result<T, FactQueryError> {
+    // Each worker owns its local stack while retaining the caller's Arc-backed task contexts.
+    let previous = local_evaluations(|active| Ok(std::mem::replace(active, evaluations.to_vec())))?;
+
+    let _guard = LocalEvaluationStackGuard {
+        previous: Some(previous),
+    };
+
+    operation()
+}
+
 pub(crate) fn current_cycle(
     runtime: RuntimeIdentity,
     key: &CompilationFactKey,
@@ -214,6 +233,24 @@ impl Drop for LocalTaskGuard<'_> {
             {
                 active.pop();
             }
+
+            Ok(())
+        });
+    }
+}
+
+struct LocalEvaluationStackGuard {
+    previous: Option<Vec<FactTaskContext>>,
+}
+
+impl Drop for LocalEvaluationStackGuard {
+    fn drop(&mut self) {
+        let Some(previous) = self.previous.take() else {
+            return;
+        };
+
+        let _ = local_evaluations(|active| {
+            *active = previous;
 
             Ok(())
         });

@@ -52,12 +52,15 @@ impl Compilation {
             CompilationFactKey::CheckDiagnostics,
             &self.state.check_diagnostics,
             || {
-                DiagnosticBag::merged_all([
-                    self.source_diagnostics(),
-                    self.syntax_tree_result().diagnostics(),
-                    self.imported_diagnostics(),
-                    self.semantic_diagnostics(),
-                ])
+                let diagnostics = self.map_facts(4, |index| match index {
+                    0 => self.source_diagnostics(),
+                    1 => self.syntax_tree_result().diagnostics(),
+                    2 => self.imported_diagnostics(),
+                    3 => self.semantic_diagnostics(),
+                    _ => unreachable!("scheduled diagnostic index must be in range"),
+                });
+
+                DiagnosticBag::merged_all(diagnostics)
             },
         )
     }

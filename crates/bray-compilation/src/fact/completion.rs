@@ -1,5 +1,4 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
@@ -7,8 +6,7 @@ use bray_symbols::{
     SymbolFactForcer, SymbolGraph,
 };
 
-use super::CancellationToken;
-use crate::WorkerBudget;
+use super::{CancellationToken, FactRuntime};
 
 /// An outer force-completion outcome that is not a source diagnostic.
 #[derive(Debug, Eq, PartialEq)]
@@ -66,16 +64,17 @@ where
 /// Forces one symbol-owned subtree and deterministically aggregates fact diagnostics.
 ///
 /// Diagnostics are returned only after every required fact completes successfully.
-pub fn force_complete_symbol<F>(
+pub(crate) fn force_complete_symbol<F>(
     graph: &SymbolGraph,
     root: AnySymbolId,
     level: SymbolCompletionLevel,
-    workers: WorkerBudget,
+    runtime: &FactRuntime,
     cancellation: &CancellationToken,
     forcer: &F,
 ) -> Result<DiagnosticBag, SymbolCompletionError<F::Error>>
 where
     F: SymbolFactForcer + ?Sized,
+    F::Error: Send,
 {
     let plan = match graph.completion_plan(root, level, cancellation) {
         Ok(plan) => plan,
@@ -87,108 +86,35 @@ where
         }
     };
 
-    let diagnostics = if workers.get() == 1 {
-        force_serial(plan.requests(), cancellation, forcer)?
-    } else {
-        force_parallel(plan.requests(), workers.get(), cancellation, forcer)?
-    };
+    let diagnostics = force_scheduled(plan.requests(), runtime, cancellation, forcer)?;
 
     Ok(DiagnosticBag::merged_all(diagnostics.iter()))
 }
 
-fn force_serial<F>(
+fn force_scheduled<F>(
     requests: &[SymbolFactCompletionRequest],
+    runtime: &FactRuntime,
     cancellation: &CancellationToken,
     forcer: &F,
 ) -> Result<Vec<DiagnosticBag>, SymbolCompletionError<F::Error>>
 where
     F: SymbolFactForcer + ?Sized,
+    F::Error: Send,
 {
-    let mut diagnostics = Vec::with_capacity(requests.len());
+    let scheduled = catch_unwind(AssertUnwindSafe(|| {
+        runtime.map_indexed(requests.len(), |index| {
+            if cancellation.is_cancelled() {
+                None
+            } else {
+                Some(forcer.force(requests[index]))
+            }
+        })
+    }));
 
-    for request in requests.iter().copied() {
-        cancellation
-            .check()
-            .map_err(|_| SymbolCompletionError::Cancelled)?;
-
-        match forcer.force(request) {
-            Ok(fact_diagnostics) => diagnostics.push(fact_diagnostics),
-            Err(error) => return Err(SymbolCompletionError::Fact { request, error }),
-        }
-    }
-
-    cancellation
-        .check()
-        .map_err(|_| SymbolCompletionError::Cancelled)?;
-
-    Ok(diagnostics)
-}
-
-fn force_parallel<F>(
-    requests: &[SymbolFactCompletionRequest],
-    worker_budget: usize,
-    cancellation: &CancellationToken,
-    forcer: &F,
-) -> Result<Vec<DiagnosticBag>, SymbolCompletionError<F::Error>>
-where
-    F: SymbolFactForcer + ?Sized,
-{
-    let worker_count = worker_budget.min(requests.len());
-
-    if worker_count <= 1 {
-        return force_serial(requests, cancellation, forcer);
-    }
-
-    let next_request = AtomicUsize::new(0);
-    let (sender, receiver) = mpsc::channel();
-
-    let worker_failed = std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(worker_count);
-
-        for _ in 0..worker_count {
-            // Each scoped worker needs an independently owned sending handle.
-            let sender = sender.clone();
-            let next_request = &next_request;
-
-            handles.push(scope.spawn(move || {
-                loop {
-                    let index = next_request.fetch_add(1, Ordering::Relaxed);
-
-                    if index >= requests.len() {
-                        break;
-                    }
-
-                    let result = if cancellation.is_cancelled() {
-                        None
-                    } else {
-                        Some(forcer.force(requests[index]))
-                    };
-
-                    if sender.send((index, result)).is_err() {
-                        break;
-                    }
-                }
-            }));
-        }
-
-        drop(sender);
-
-        handles.into_iter().any(|handle| handle.join().is_err())
-    });
-
-    if worker_failed {
-        return Err(SymbolCompletionError::WorkerFailure);
-    }
-
-    let mut indexed = (0..requests.len()).map(|_| None).collect::<Vec<_>>();
-
-    for (index, result) in receiver {
-        indexed[index] = result;
-    }
-
-    if cancellation.is_cancelled() || indexed.iter().any(Option::is_none) {
-        return Err(SymbolCompletionError::Cancelled);
-    }
+    let indexed = match scheduled {
+        Ok(Ok(indexed)) => indexed,
+        Ok(Err(_)) | Err(_) => return Err(SymbolCompletionError::WorkerFailure),
+    };
 
     let mut diagnostics = Vec::with_capacity(requests.len());
 
@@ -201,6 +127,10 @@ where
             Ok(fact_diagnostics) => diagnostics.push(fact_diagnostics),
             Err(error) => return Err(SymbolCompletionError::Fact { request, error }),
         }
+    }
+
+    if cancellation.is_cancelled() {
+        return Err(SymbolCompletionError::Cancelled);
     }
 
     Ok(diagnostics)
@@ -222,7 +152,7 @@ mod tests {
     };
 
     use super::{SymbolCompletionError, force_complete_symbol};
-    use crate::fact::{CompilationFactKey, SymbolFactKey};
+    use crate::fact::{CompilationFactKey, FactRuntime, SymbolFactKey};
     use crate::{CancellationToken, Compilation, FactCycle, FactQueryError, WorkerBudget};
 
     #[test]
@@ -332,7 +262,7 @@ mod tests {
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
-            WorkerBudget::serial(),
+            &FactRuntime::new(WorkerBudget::serial()),
             &CancellationToken::new(),
             &serial_forcer,
         );
@@ -343,7 +273,7 @@ mod tests {
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
-            worker_budget(2),
+            &FactRuntime::new(worker_budget(2)),
             &CancellationToken::new(),
             &parallel_forcer,
         );
@@ -379,7 +309,7 @@ mod tests {
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
-            WorkerBudget::serial(),
+            &FactRuntime::new(WorkerBudget::serial()),
             &cancellation,
             &forcer,
         );
@@ -407,7 +337,7 @@ mod tests {
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
-            worker_budget(4),
+            &FactRuntime::new(worker_budget(4)),
             &cancellation,
             &forcer,
         );
@@ -435,7 +365,7 @@ mod tests {
             &graph,
             constant,
             SymbolCompletionLevel::DeclarationSurface,
-            WorkerBudget::serial(),
+            &FactRuntime::new(WorkerBudget::serial()),
             &CancellationToken::new(),
             &failing,
         );
@@ -548,13 +478,15 @@ mod tests {
     ) -> DiagnosticBag
     where
         F: bray_symbols::SymbolFactForcer,
-        F::Error: std::fmt::Debug,
+        F::Error: std::fmt::Debug + Send,
     {
+        let runtime = FactRuntime::new(workers);
+
         match force_complete_symbol(
             graph,
             root,
             SymbolCompletionLevel::DeclarationSurface,
-            workers,
+            &runtime,
             &CancellationToken::new(),
             forcer,
         ) {

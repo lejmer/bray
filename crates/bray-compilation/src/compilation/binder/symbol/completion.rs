@@ -241,7 +241,7 @@ impl Compilation {
             facts.symbols,
             root,
             level,
-            self.worker_budget(),
+            &self.state.fact_runtime,
             cancellation,
             &facts,
         )
