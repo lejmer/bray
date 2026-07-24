@@ -22,6 +22,7 @@ where
 
     for entry in types.entries() {
         let expression_id = entry.expression();
+
         let Some(BoundExpression::Structured(expression)) =
             request.view().expression(expression_id)
         else {
