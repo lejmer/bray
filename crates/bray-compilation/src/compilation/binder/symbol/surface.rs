@@ -61,7 +61,10 @@ fn callable_surface(
     });
 
     let parameters = parameters.ok_or(BinderFactError::DependencyUnavailable)?;
-    let abi = bind_callable_abi(abi_directives);
+
+    // Declaration discovery owns duplicate directive diagnostics. Binding only needs the first
+    // ABI directive to choose the recovered callable ABI.
+    let abi = bind_callable_abi(abi_directives.into_iter().take(1));
 
     Ok(CallableSurface {
         parameters,

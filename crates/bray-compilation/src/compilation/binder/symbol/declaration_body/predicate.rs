@@ -2,12 +2,8 @@ use std::collections::BTreeMap;
 
 use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
-use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
-};
+use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::InterfacePredicateDefinitionState;
-use bray_source::SourceSpan;
 use bray_symbols::{
     ErrorPredicateDefinition, PredicateDefinition, PredicateDefinitionFact,
     PredicateDefinitionState, PredicateDefinitionSymbolId, PredicateSemanticSummary,
@@ -80,40 +76,20 @@ fn predicate_definition(
 
     let key = predicate_definition_key(context, owner)?;
 
-    if signature.value().is_trusted()
-        && let Some(key) = key.as_ref()
-    {
-        let diagnostic = predicate_diagnostic(
-            key.source().syntax(),
-            DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
-        );
-
-        let diagnostics = signature
-            .diagnostics()
-            .merged(&DiagnosticBag::single(diagnostic));
-
+    if signature.value().is_trusted() && key.is_some() {
         return Ok(DiagnosticResult::new(
             PredicateDefinitionState::Error(ErrorPredicateDefinition),
-            diagnostics,
+            signature.diagnostics().clone(),
         ));
     }
 
     let Some(key) = key else {
         let state = missing_predicate_state(owner, signature.value().is_trusted());
-        let diagnostics =
-            match missing_predicate_diagnostic_kind(owner, signature.value().is_trusted()) {
-                Some(kind) => {
-                    let anchor = predicate_declaration_anchor(context, owner)?;
-                    let diagnostic = predicate_diagnostic(anchor, kind);
 
-                    signature
-                        .diagnostics()
-                        .merged(&DiagnosticBag::single(diagnostic))
-                }
-                None => signature.diagnostics().clone(),
-            };
-
-        return Ok(DiagnosticResult::new(state, diagnostics));
+        return Ok(DiagnosticResult::new(
+            state,
+            signature.diagnostics().clone(),
+        ));
     };
 
     let parser_diagnostics = syntax_diagnostics(context, key.source().syntax());
@@ -190,44 +166,6 @@ fn imported_predicate_definition(
             ))
         }
     }
-}
-
-fn missing_predicate_diagnostic_kind(
-    owner: PredicateDefinitionSymbolId,
-    is_trusted: bool,
-) -> Option<DiagnosticKind> {
-    match owner {
-        PredicateDefinitionSymbolId::Predicate(_) if is_trusted => None,
-        PredicateDefinitionSymbolId::TraitMember(_) => None,
-        PredicateDefinitionSymbolId::Predicate(_)
-        | PredicateDefinitionSymbolId::TraitFulfillment(_) => {
-            Some(DiagnosticKind::BindingPredicateBodyRequired)
-        }
-    }
-}
-
-fn predicate_declaration_anchor(
-    context: &CompilationBinderFacts<'_>,
-    owner: PredicateDefinitionSymbolId,
-) -> BinderFactResult<SyntaxAnchor> {
-    context
-        .symbols()
-        .symbol_key(owner.into_any())
-        .and_then(bray_symbols::SymbolKey::source_declaration_id)
-        .and_then(|declaration| context.declarations().declaration(declaration))
-        .map(bray_declarations::DeclarationRecord::syntax_anchor)
-        .ok_or(BinderFactError::DependencyUnavailable)
-}
-
-fn predicate_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
-    let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
-
-    Diagnostic::new(
-        DiagnosticId::new(span.range().start().bytes()),
-        kind,
-        SeverityKind::Error,
-    )
-    .with_primary_span(span)
 }
 
 fn predicate_definition_key(
@@ -379,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_predicate_tails_publish_structured_diagnostics() {
+    fn predicate_definition_states_do_not_duplicate_declaration_diagnostics() {
         let compilation = compilation(concat!(
             "module app;\n",
             "predicate missing();\n",
@@ -416,21 +354,19 @@ mod tests {
             defined.value(),
             PredicateDefinitionState::Error(_)
         ));
+        assert!(missing.diagnostics().is_empty());
+        assert!(defined.diagnostics().is_empty());
+
         assert_eq!(
-            missing
-                .diagnostics()
+            compilation
+                .declaration_diagnostics()
                 .iter()
                 .map(bray_diagnostics::Diagnostic::kind)
                 .collect::<Vec<_>>(),
-            [DiagnosticKind::BindingPredicateBodyRequired]
-        );
-        assert_eq!(
-            defined
-                .diagnostics()
-                .iter()
-                .map(bray_diagnostics::Diagnostic::kind)
-                .collect::<Vec<_>>(),
-            [DiagnosticKind::BindingTrustedPredicateBodyNotAllowed]
+            [
+                DiagnosticKind::DeclarationBodyRequired,
+                DiagnosticKind::DeclarationBodyNotAllowed,
+            ]
         );
     }
 }

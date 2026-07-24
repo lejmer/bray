@@ -60,11 +60,15 @@ mod tests {
             "module app;\n",
             "struct Resource\n",
             "{\n",
-            "    finalize() {}\n",
+            "    finalize()\n",
+            "    {\n",
+            "    }\n",
             "}\n",
             "impl Resource\n",
             "{\n",
-            "    finalize() {}\n",
+            "    finalize()\n",
+            "    {\n",
+            "    }\n",
             "}\n",
         ));
 

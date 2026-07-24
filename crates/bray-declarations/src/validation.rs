@@ -38,10 +38,12 @@ pub(crate) fn declaration_form_diagnostics(
             continue;
         }
 
-        diagnostics.extend(modifier_occurrence_diagnostics(
-            declaration_span(declaration),
-            declaration.surface().modifier_occurrences(),
-        ));
+        if declaration.kind() != DeclarationKind::Module {
+            diagnostics.extend(modifier_occurrence_diagnostics(
+                declaration_span(declaration),
+                declaration.surface().modifier_occurrences(),
+            ));
+        }
 
         diagnostics.extend(context_modifier_diagnostics(
             table,
