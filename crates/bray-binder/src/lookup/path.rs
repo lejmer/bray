@@ -516,14 +516,15 @@ where
 }
 
 pub(super) fn classify_pattern_target(name: ResolvedName) -> Option<BoundPatternTarget> {
-    match name {
-        ResolvedName::Surface(AnySymbolId::Constant(id)) => {
-            Some(BoundPatternTarget::Surface(id.into()))
-        }
-        ResolvedName::Surface(AnySymbolId::UnionVariant(id)) => {
-            Some(BoundPatternTarget::Surface(id.into()))
-        }
-        ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+    let target = match name {
+        ResolvedName::Local(id) => BoundPatternTarget::Local(id),
+        ResolvedName::Surface(id) => BoundPatternTarget::Surface(id),
+    };
+
+    match target {
+        target if target.is_constant() => Some(target),
+        BoundPatternTarget::Surface(AnySymbolId::UnionVariant(_)) => Some(target),
+        BoundPatternTarget::Local(_) | BoundPatternTarget::Surface(_) => None,
     }
 }
 

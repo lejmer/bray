@@ -40,7 +40,15 @@ impl Compilation {
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Arc<DiagnosticResult<ConstantDefinitionState>>, FactQueryError> {
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        self.constant_definition_with_cancellation(definition, &self.state.cancellation)
+    }
+
+    pub(in crate::compilation) fn constant_definition_with_cancellation(
+        &self,
+        definition: AnyConstantDefinitionId,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<DiagnosticResult<ConstantDefinitionState>>, FactQueryError> {
+        let facts = self.binder_facts(cancellation)?;
 
         match definition {
             AnyConstantDefinitionId::Constant(owner) => facts
@@ -492,7 +500,7 @@ impl Compilation {
         Ok((references, dependency_diagnostics))
     }
 
-    fn constant_template_key(
+    pub(in crate::compilation) fn constant_template_key(
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
@@ -669,6 +677,18 @@ pub(super) fn constant_callable_root(bound: &BoundUnit) -> Option<bray_bound_tre
 pub(in crate::compilation) fn collect_constant_references(
     bound: &BoundUnit,
     selections: &CheckedSemanticSelections,
+    resolve: impl FnMut(
+        BoundExpressionId,
+        BoundReferenceTarget,
+    ) -> Result<ConstantReferenceResolution, FactQueryError>,
+) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
+    collect_constant_references_from(bound, selections, bound.root(), resolve)
+}
+
+pub(in crate::compilation) fn collect_constant_references_from(
+    bound: &BoundUnit,
+    selections: &CheckedSemanticSelections,
+    root: impl Into<AnyBoundNodeId>,
     mut resolve: impl FnMut(
         BoundExpressionId,
         BoundReferenceTarget,
@@ -678,7 +698,7 @@ pub(in crate::compilation) fn collect_constant_references(
     let mut non_value_heads = BTreeSet::new();
     let mut failure = None;
 
-    let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
+    let outcome = walk_bound_unit_view(bound.view(), root, |event| {
         let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
             return BoundWalkControl::Continue;
         };

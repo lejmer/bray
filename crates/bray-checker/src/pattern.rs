@@ -4,4 +4,6 @@ mod coverage;
 mod input;
 
 pub(crate) use check::check_patterns;
-pub use input::{IterationPatternType, PatternCheckInput};
+pub use input::{
+    GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,
+};

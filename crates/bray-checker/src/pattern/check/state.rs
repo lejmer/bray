@@ -16,7 +16,7 @@ use bray_symbols::{
 use super::result::{
     effective_pattern_kind, pattern_mode_accepts_refutable, pattern_operation, pattern_refutability,
 };
-use crate::pattern::input::PatternCheckInput;
+use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
     CheckerUnitView,
@@ -90,7 +90,7 @@ pub(super) struct PatternChildren {
     pub(super) is_recovered: bool,
 }
 
-pub(in crate::pattern) struct PatternChecker<'view, C>
+pub(in crate::pattern) struct PatternChecker<'view, 'input, C>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<StructFieldTypeFact>
@@ -100,6 +100,10 @@ where
     pub(in crate::pattern) request: CheckerUnitView<'view, C>,
     expression_types: &'view CheckedExpressionTypes,
     iteration_patterns: BTreeMap<BoundPatternId, PatternSubject>,
+    pub(in crate::pattern) constant_patterns:
+        &'input BTreeMap<BoundPatternId, PatternConstantEvidence>,
+    pub(in crate::pattern) constant_guards:
+        &'input BTreeMap<BoundExpressionId, bray_symbols::ConstantValueId>,
     subjects: BTreeMap<BoundPatternId, PatternSubject>,
     pub(in crate::pattern) patterns: BTreeMap<BoundPatternId, PatternCheckEntry>,
     pub(super) binding_types: BTreeMap<bray_symbols::LocalBindingSymbolId, PatternBindingTypeEntry>,
@@ -108,7 +112,7 @@ where
     pub(super) error_type: TypeId,
 }
 
-impl<'view, C> PatternChecker<'view, C>
+impl<'view, 'input, C> PatternChecker<'view, 'input, C>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<StructFieldTypeFact>
@@ -118,8 +122,12 @@ where
     fn new(
         request: CheckerUnitView<'view, C>,
         expression_types: &'view CheckedExpressionTypes,
-        input: &PatternCheckInput,
+        input: &'input PatternCheckInput,
     ) -> Result<Self, CheckerInfrastructureError> {
+        if !input.is_consistent() {
+            return Err(CheckerInfrastructureError::InvalidPatternCheckInput);
+        }
+
         let error_type = request
             .semantic_values()
             .intern_type(TypeData::Error)
@@ -143,6 +151,8 @@ where
             request,
             expression_types,
             iteration_patterns,
+            constant_patterns: input.constant_patterns(),
+            constant_guards: input.constant_guards(),
             subjects: BTreeMap::new(),
             patterns: BTreeMap::new(),
             binding_types: BTreeMap::new(),
@@ -321,7 +331,9 @@ where
 
         let kind = effective_pattern_kind(pattern, target);
 
-        let compatible = self.pattern_is_compatible(pattern, kind, target, type_data.as_ref())?;
+        let compatible =
+            self.pattern_is_compatible(id, pattern, kind, target, subject.ty, type_data.as_ref())?;
+
         let children = self.child_subjects(pattern, subject, target, type_data.as_ref())?;
 
         let mut child_refutability = Vec::with_capacity(pattern.children().len());
@@ -349,6 +361,7 @@ where
             || child_recovered
             || children.is_recovered
             || is_ambiguous
+            || self.constant_pattern_is_recovered(id, target)?
             || matches!(type_data.as_ref(), TypeData::Error)
             || !compatible;
 
@@ -385,7 +398,7 @@ where
             )?;
         }
 
-        let predicate = self.pattern_predicate(pattern, kind, target, type_data.as_ref())?;
+        let predicate = self.pattern_predicate(id, pattern, kind, target, type_data.as_ref())?;
 
         let entry = PatternCheckEntry::new(id, subject.ty, operation, refutability, target)
             .with_test((!is_recovered).then_some(predicate).flatten())

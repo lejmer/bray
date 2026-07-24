@@ -394,13 +394,32 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
 
-                let (input, _, dependency_diagnostics, _) =
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
+                let (input, _, iteration_diagnostics, _) =
                     self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let unit =
+                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+                        .map_err(|error| {
+                            FactQueryError::CheckerInfrastructure(
+                                CheckerInfrastructureError::InvalidUnitView(error),
+                            )
+                        })?;
+
+                let (input, constant_diagnostics) = self.add_constant_pattern_evidence(
+                    unit,
+                    types.result().value(),
+                    selections.result().value(),
+                    input,
+                    cancellation,
+                )?;
 
                 let result = check_patterns(
                     bound.result().value(),
@@ -411,7 +430,11 @@ impl Compilation {
                 )?;
 
                 let (patterns, pattern_diagnostics) = result.into_parts();
-                let diagnostics = dependency_diagnostics.merged(&pattern_diagnostics);
+                let diagnostics = DiagnosticBag::merged_all([
+                    &iteration_diagnostics,
+                    &constant_diagnostics,
+                    &pattern_diagnostics,
+                ]);
 
                 Ok((DiagnosticResult::new(patterns, diagnostics), Box::new([])))
             },
@@ -2396,6 +2419,201 @@ func other()
             pattern.operation() == PatternOperation::Observe
                 && matches!(pattern.refinement(), Some(PatternPredicate::Literal(_)))
         }));
+    }
+
+    #[test]
+    fn pattern_facts_use_constant_paths_for_boolean_coverage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const yes: bool = true;\n",
+            "const no: bool = false;\n",
+            "func main(value: bool)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case yes\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case no\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("constant-backed pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.unreachable_arms().is_empty());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+
+        assert_eq!(
+            facts
+                .value()
+                .patterns()
+                .iter()
+                .filter(|pattern| matches!(pattern.test(), Some(PatternPredicate::Constant(_))))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn pattern_facts_report_subsumed_constant_alternatives() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const yes: bool = true;\n",
+            "func main(value: bool)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case yes | true\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case false\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("constant alternative facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingUnreachablePatternAlternative]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_use_constant_guard_truth_for_coverage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const enabled: bool = true;\n",
+            "const disabled: bool = false;\n",
+            "func main(value: bool)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case true when disabled\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case true when enabled\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case false\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("constant guard facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert_eq!(coverage.unreachable_arms(), &[0]);
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingUnreachableMatchArm]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_evaluate_closed_local_constant_patterns() {
+        let compilation = pattern_compilation(concat!(
+            "    const base: bool = true;\n",
+            "    const yes: bool = base;\n",
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case yes\n",
+            "        {\n",
+            "        }\n",
+            "\n",
+            "        case false\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("local constant pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn pattern_facts_reject_constant_paths_with_incompatible_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const one: i32 = 1;\n",
+            "func main(value: bool)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case one\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("incompatible constant pattern must recover: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+        );
+
+        assert!(facts.value().is_recovered());
     }
 
     #[test]

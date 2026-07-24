@@ -14,7 +14,7 @@ use crate::diagnostic::{diagnostic_id, pattern_span};
 use crate::type_check::diagnostic_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
 
-impl<C> PatternChecker<'_, C>
+impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<StructFieldTypeFact>
@@ -62,6 +62,7 @@ where
 
     pub(super) fn pattern_predicate(
         &self,
+        id: BoundPatternId,
         pattern: &BoundPattern,
         kind: BoundPatternKind,
         target: Option<BoundPatternTarget>,
@@ -69,6 +70,11 @@ where
     ) -> Result<Option<PatternPredicate>, CheckerInfrastructureError> {
         let predicate = match (kind, subject) {
             (BoundPatternKind::Literal, _) => pattern.literal().map(PatternPredicate::Literal),
+            (BoundPatternKind::Path, _) => self
+                .constant_patterns
+                .get(&id)
+                .map(|evidence| evidence.term())
+                .map(PatternPredicate::Constant),
             (BoundPatternKind::NullableAbsent, TypeData::Nullable(_)) => {
                 Some(PatternPredicate::NullableAbsent)
             }

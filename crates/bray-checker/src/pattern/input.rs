@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::BoundPatternId;
-use bray_symbols::TypeId;
+use bray_bound_tree::{BoundExpressionId, BoundPatternId};
+use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
 /// The selected element type supplied to one iteration pattern.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,10 +39,73 @@ impl IterationPatternType {
     }
 }
 
+/// A checked constant value selected by one path pattern.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PatternConstantEvidence {
+    pattern: BoundPatternId,
+    ty: TypeId,
+    term: ConstantTermId,
+}
+
+impl PatternConstantEvidence {
+    /// Creates exact constant evidence for one pattern occurrence.
+    pub const fn new(pattern: BoundPatternId, ty: TypeId, term: ConstantTermId) -> Self {
+        Self { pattern, ty, term }
+    }
+
+    /// Returns the exact path pattern.
+    pub const fn pattern(self) -> BoundPatternId {
+        self.pattern
+    }
+
+    /// Returns the checked constant type.
+    pub const fn ty(self) -> TypeId {
+        self.ty
+    }
+
+    /// Returns the checked open or closed constant term.
+    pub const fn term(self) -> ConstantTermId {
+        self.term
+    }
+}
+
+/// A checked constant value produced by one match guard.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GuardConstantEvidence {
+    guard: BoundExpressionId,
+    value: ConstantValueId,
+}
+
+impl GuardConstantEvidence {
+    /// Creates exact constant evidence for one guard expression.
+    pub const fn new(guard: BoundExpressionId, value: ConstantValueId) -> Self {
+        Self { guard, value }
+    }
+
+    /// Returns the exact guard expression.
+    pub const fn guard(self) -> BoundExpressionId {
+        self.guard
+    }
+
+    /// Returns the checked constant value.
+    pub const fn value(self) -> ConstantValueId {
+        self.value
+    }
+}
+
 /// Contextual types unavailable from the bound unit alone.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternCheckInput {
     iteration_patterns: Arc<[IterationPatternType]>,
+    constant_patterns: BTreeMap<BoundPatternId, PatternConstantEvidence>,
+    constant_guards: BTreeMap<BoundExpressionId, ConstantValueId>,
+    is_consistent: bool,
+}
+
+impl Default for PatternCheckInput {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PatternCheckInput {
@@ -49,6 +113,9 @@ impl PatternCheckInput {
     pub fn new() -> Self {
         Self {
             iteration_patterns: Arc::from([]),
+            constant_patterns: BTreeMap::new(),
+            constant_guards: BTreeMap::new(),
+            is_consistent: true,
         }
     }
 
@@ -62,7 +129,101 @@ impl PatternCheckInput {
         self
     }
 
+    /// Returns this input with evaluated path-pattern constants.
+    pub fn with_constant_patterns(
+        mut self,
+        patterns: impl IntoIterator<Item = PatternConstantEvidence>,
+    ) -> Self {
+        for evidence in patterns {
+            if self
+                .constant_patterns
+                .insert(evidence.pattern(), evidence)
+                .is_some_and(|current| current != evidence)
+            {
+                self.is_consistent = false;
+            }
+        }
+
+        self
+    }
+
+    /// Returns this input with evaluated match guards.
+    pub fn with_constant_guards(
+        mut self,
+        guards: impl IntoIterator<Item = GuardConstantEvidence>,
+    ) -> Self {
+        for evidence in guards {
+            if self
+                .constant_guards
+                .insert(evidence.guard(), evidence.value())
+                .is_some_and(|current| current != evidence.value())
+            {
+                self.is_consistent = false;
+            }
+        }
+
+        self
+    }
+
     pub(super) fn iteration_patterns(&self) -> &[IterationPatternType] {
         &self.iteration_patterns
+    }
+
+    pub(super) fn constant_patterns(&self) -> &BTreeMap<BoundPatternId, PatternConstantEvidence> {
+        &self.constant_patterns
+    }
+
+    pub(super) fn constant_guards(&self) -> &BTreeMap<BoundExpressionId, ConstantValueId> {
+        &self.constant_guards
+    }
+
+    pub(super) const fn is_consistent(&self) -> bool {
+        self.is_consistent
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::BoundUnitId;
+    use bray_symbols::{ConstantValueData, ConstantValueKind};
+
+    use super::{GuardConstantEvidence, PatternCheckInput};
+    use crate::test_support::{
+        error_type, expression_unit, integer_literal_expression, push_expression, semantic_values,
+    };
+
+    #[test]
+    fn conflicting_constant_evidence_is_rejected_deterministically() {
+        let values = semantic_values();
+        let ty = error_type();
+
+        let (_, expressions) = expression_unit(BoundUnitId::new(1), |tree, origin| {
+            vec![push_expression(
+                tree,
+                integer_literal_expression(origin, None),
+            )]
+        });
+
+        let [guard] = expressions.as_slice() else {
+            panic!("test unit must contain one expression");
+        };
+
+        let first_value = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(false),
+            ))
+            .unwrap_or_else(|error| panic!("first test constant must intern: {error:?}"));
+
+        let second_value = values
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
+            .unwrap_or_else(|error| panic!("second test constant must intern: {error:?}"));
+
+        let input = PatternCheckInput::new().with_constant_guards([
+            GuardConstantEvidence::new(*guard, first_value),
+            GuardConstantEvidence::new(*guard, second_value),
+        ]);
+
+        assert!(!input.is_consistent());
     }
 }

@@ -16,7 +16,7 @@ use crate::{
     CheckerSemanticFactProvider, resolve_type_expression_template,
 };
 
-impl<C> PatternChecker<'_, C>
+impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<StructFieldTypeFact>

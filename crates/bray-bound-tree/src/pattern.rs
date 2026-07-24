@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
-    LocalBindingSymbolId, StructFieldSymbolId, StructSymbolId, SymbolOrdinal, TypeId,
-    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    ConstantTermId, LocalBindingSymbolId, StructFieldSymbolId, StructSymbolId, SymbolOrdinal,
+    TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::{
@@ -33,6 +33,8 @@ pub enum PatternOperation {
 pub enum PatternPredicate {
     /// The subject equals one source literal.
     Literal(BoundPatternLiteral),
+    /// The subject equals one checked open or closed constant term.
+    Constant(ConstantTermId),
     /// The nullable subject is absent.
     NullableAbsent,
     /// The nullable subject is present.

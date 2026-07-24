@@ -165,6 +165,8 @@ pub enum DiagnosticKind {
     CheckingNonExhaustiveMatch,
     /// A match arm cannot be selected because earlier arms already cover it.
     CheckingUnreachableMatchArm,
+    /// A pattern alternative cannot match values not covered by earlier alternatives.
+    CheckingUnreachablePatternAlternative,
     /// A module declaration repeats one contribution-controlling directive.
     CheckingDuplicateModuleContributionDirective,
     /// A fixed-size array generator's required element count cannot be proven.
@@ -273,6 +275,7 @@ impl DiagnosticKind {
             Self::CheckingRefutablePattern => 7022,
             Self::CheckingNonExhaustiveMatch => 7023,
             Self::CheckingUnreachableMatchArm => 7024,
+            Self::CheckingUnreachablePatternAlternative => 7027,
             Self::CheckingDuplicateModuleContributionDirective => 7025,
             Self::CheckingArrayGeneratorCardinalityNotProvable => 7026,
             Self::EmissionMissingContribution => 9001,
@@ -394,6 +397,9 @@ impl DiagnosticKind {
             Self::CheckingRefutablePattern => "checking_refutable_pattern",
             Self::CheckingNonExhaustiveMatch => "checking_non_exhaustive_match",
             Self::CheckingUnreachableMatchArm => "checking_unreachable_match_arm",
+            Self::CheckingUnreachablePatternAlternative => {
+                "checking_unreachable_pattern_alternative"
+            }
             Self::CheckingDuplicateModuleContributionDirective => {
                 "checking_duplicate_module_contribution_directive"
             }
@@ -463,7 +469,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 91] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 92] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -545,6 +551,7 @@ mod tests {
             DiagnosticKind::CheckingRefutablePattern,
             DiagnosticKind::CheckingNonExhaustiveMatch,
             DiagnosticKind::CheckingUnreachableMatchArm,
+            DiagnosticKind::CheckingUnreachablePatternAlternative,
             DiagnosticKind::CheckingDuplicateModuleContributionDirective,
             DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
             DiagnosticKind::EmissionMissingContribution,

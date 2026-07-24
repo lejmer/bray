@@ -1,6 +1,7 @@
 mod array;
 mod call;
 mod conversion;
+mod equality;
 mod evaluation;
 mod floating;
 mod input;
@@ -12,6 +13,7 @@ mod template;
 
 pub use array::{ArrayLengthError, check_array_length};
 pub use call::{ConstantCallRequest, ConstantCallResolution, ConstantCallResolver};
+pub(crate) use equality::constant_values_equal;
 pub use evaluation::EvaluatedConstant;
 pub(crate) use evaluation::check_constant_term;
 pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references};

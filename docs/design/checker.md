@@ -439,7 +439,15 @@ The pattern domain owns:
 - exhaustiveness and coverage across a complete arm set,
 - coherent bindings across alternative patterns,
 - move, copy, borrow, and observation requirements introduced by the pattern,
-- active-variant, nullable, literal, shape, and predicate refinement seeds.
+- active-variant, nullable, literal, constant, shape, and predicate refinement seeds.
+
+Literal and named-constant patterns use the shared checked constant term and value representation.
+Closed values provide exact duplicate, subsumption, and coverage identity. Open terms remain valid
+pattern predicates but cannot prove finite coverage until a concrete request supplies a value.
+
+Coverage uses closed constant guard results when they are available. A proven `true` guard
+contributes its pattern region, a proven `false` guard makes the arm unreachable, and every other
+guard remains statically unknown without executing ordinary user code.
 
 The local pattern result describes required operations and possible refinements. Whole-unit storage and refinement domains decide
 whether those operations are valid at the exact program point.

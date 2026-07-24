@@ -138,6 +138,7 @@ where
         predicate: Option<PatternPredicate>,
         subject: ConstantValueId,
     ) -> Result<bool, EvaluationFailure> {
+        let subject_id = subject;
         let subject = self.constant_value(subject)?;
 
         Ok(match predicate {
@@ -194,6 +195,18 @@ where
                 .map_err(|error| EvaluationFailure::literal(owner, error))?;
 
                 subject.kind() == &expected
+            }
+            Some(PatternPredicate::Constant(expected)) => {
+                let Some(expected) = self.term_value(expected)? else {
+                    return Err(EvaluationFailure::invalid_expression(owner));
+                };
+
+                crate::constant::constant_values_equal(
+                    self.request.semantic_values(),
+                    subject_id,
+                    expected,
+                )
+                .map_err(EvaluationFailure::Infrastructure)?
             }
             Some(PatternPredicate::OwnedTarget) => {
                 return Err(EvaluationFailure::invalid_expression(owner));
