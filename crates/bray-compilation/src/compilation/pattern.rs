@@ -7,7 +7,8 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     CheckerOutcome, CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator,
-    DefaultConstantEvaluator, GuardConstantEvidence, PatternCheckInput, PatternConstantEvidence,
+    ConstantReferenceResolution, DefaultConstantEvaluator, GuardConstantEvidence,
+    PatternCheckInput, PatternConstantEvidence,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
@@ -36,6 +37,7 @@ impl Compilation {
         let sites = collect_constant_sites(request)?;
         let mut patterns = Vec::new();
         let mut guards = Vec::new();
+        let mut local_constants = LocalPatternConstants::new(sites.local_constants);
         let mut diagnostics = DiagnosticBag::new();
 
         for (pattern, target) in sites.patterns {
@@ -47,19 +49,15 @@ impl Compilation {
                 BoundPatternTarget::Surface(symbol) => {
                     self.surface_pattern_constant(symbol, cancellation, &mut diagnostics)?
                 }
-                BoundPatternTarget::Local(AnyLocalSymbolId::Constant(local)) => {
-                    let Some(initializer) = sites.local_constants.get(&local).copied() else {
-                        continue;
-                    };
-
-                    self.local_pattern_constant(
+                BoundPatternTarget::Local(AnyLocalSymbolId::Constant(local)) => self
+                    .local_pattern_constant(
                         request,
                         types,
                         selections,
-                        initializer,
+                        local,
+                        &mut local_constants,
                         cancellation,
-                    )?
-                }
+                    )?,
                 BoundPatternTarget::Local(_) => None,
             };
 
@@ -68,14 +66,29 @@ impl Compilation {
             }
         }
 
+        if !sites.guards.is_empty() {
+            self.evaluate_local_constants(
+                request,
+                types,
+                selections,
+                &mut local_constants,
+                cancellation,
+            )?;
+        }
+
         for guard in sites.guards {
             if cancellation.is_cancelled() {
                 return Err(FactQueryError::Cancelled);
             }
 
-            if let Some(value) =
-                self.evaluate_closed_expression(request, types, selections, guard, cancellation)?
-            {
+            if let Some(value) = self.evaluate_closed_expression(
+                request,
+                types,
+                selections,
+                guard,
+                &local_constants.values,
+                cancellation,
+            )? {
                 guards.push(GuardConstantEvidence::new(guard, value));
             }
         }
@@ -94,6 +107,118 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<(TypeId, ConstantTermId)>, FactQueryError> {
+        let Some((ty, resolution)) =
+            self.resolve_surface_constant(symbol, cancellation, diagnostics)?
+        else {
+            return Ok(None);
+        };
+
+        let term = match resolution {
+            ConstantReferenceResolution::Value(value) => self.constant_value_term(value)?,
+            ConstantReferenceResolution::Term(term) => term,
+            ConstantReferenceResolution::Cycle | ConstantReferenceResolution::Invalid => {
+                return Ok(None);
+            }
+        };
+
+        Ok(Some((ty, term)))
+    }
+
+    fn local_pattern_constant(
+        &self,
+        request: CheckerUnitView<'_, CompilationCheckerContext<'_>>,
+        types: &CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
+        local: LocalConstantSymbolId,
+        constants: &mut LocalPatternConstants,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<(TypeId, ConstantTermId)>, FactQueryError> {
+        self.evaluate_local_constants_through(
+            request,
+            types,
+            selections,
+            local,
+            constants,
+            cancellation,
+        )?;
+
+        Ok(constants.values.get(&local).copied())
+    }
+
+    fn evaluate_local_constants(
+        &self,
+        request: CheckerUnitView<'_, CompilationCheckerContext<'_>>,
+        types: &CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
+        constants: &mut LocalPatternConstants,
+        cancellation: &CancellationToken,
+    ) -> Result<(), FactQueryError> {
+        let Some(last) = constants
+            .initializers
+            .last_key_value()
+            .map(|(local, _)| *local)
+        else {
+            return Ok(());
+        };
+
+        self.evaluate_local_constants_through(
+            request,
+            types,
+            selections,
+            last,
+            constants,
+            cancellation,
+        )
+    }
+
+    fn evaluate_local_constants_through(
+        &self,
+        request: CheckerUnitView<'_, CompilationCheckerContext<'_>>,
+        types: &CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
+        last: LocalConstantSymbolId,
+        constants: &mut LocalPatternConstants,
+        cancellation: &CancellationToken,
+    ) -> Result<(), FactQueryError> {
+        let pending = constants
+            .initializers
+            .range(..=last)
+            .filter(|(local, _)| !constants.values.contains_key(local))
+            .map(|(local, initializer)| (*local, *initializer))
+            .collect::<Vec<_>>();
+
+        for (local, initializer) in pending {
+            let Some(value) = self.evaluate_closed_expression(
+                request,
+                types,
+                selections,
+                initializer,
+                &constants.values,
+                cancellation,
+            )?
+            else {
+                continue;
+            };
+
+            let data = self
+                .semantic_value_store()?
+                .constant_value_data(value)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            constants
+                .values
+                .insert(local, (data.ty(), self.constant_value_term(value)?));
+        }
+
+        Ok(())
+    }
+
+    fn resolve_surface_constant(
+        &self,
+        symbol: AnySymbolId,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<(TypeId, ConstantReferenceResolution)>, FactQueryError> {
         let Some(definition) = constant_definition_id(symbol) else {
             return Ok(None);
         };
@@ -107,59 +232,38 @@ impl Compilation {
             return Ok(None);
         };
 
-        let mut ty = definition_data.ty();
-        let mut term = definition_data.term();
+        let ty = definition_data.ty();
+        let term = definition_data.term();
 
-        if !constant_can_evaluate_without_context(self, symbol, definition)? {
-            return Ok(Some((ty, term)));
+        let term_data = self
+            .semantic_value_store()?
+            .constant_term_data(term)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if let ConstantTermData::Value(value) = term_data.as_ref() {
+            return Ok(Some((ty, ConstantReferenceResolution::Value(*value))));
+        }
+
+        if self.constant_template_key(definition)?.is_none()
+            || !constant_can_evaluate_without_context(self, symbol, definition)?
+        {
+            return Ok(Some((ty, ConstantReferenceResolution::Term(term))));
         }
 
         let substitution = empty_concrete_substitution(self.semantic_value_store()?, definition)?;
-
         let instance = ConstantInstanceKey::new(definition, substitution, None);
 
-        match self.constant_instance_with_cancellation(instance, cancellation) {
+        let resolution = match self.constant_instance_with_cancellation(instance, cancellation) {
             Ok(result) => {
                 *diagnostics = diagnostics.merged(result.diagnostics());
 
-                let value = *result.value();
-
-                let data = self
-                    .semantic_value_store()?
-                    .constant_value_data(value)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                ty = data.ty();
-                term = self.constant_value_term(value)?;
+                ConstantReferenceResolution::Value(*result.value())
             }
-            Err(FactQueryError::Cancelled) => return Err(FactQueryError::Cancelled),
-            Err(FactQueryError::Cycle(_)) => {}
+            Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle,
             Err(error) => return Err(error),
-        }
-
-        Ok(Some((ty, term)))
-    }
-
-    fn local_pattern_constant(
-        &self,
-        request: CheckerUnitView<'_, CompilationCheckerContext<'_>>,
-        types: &CheckedExpressionTypes,
-        selections: &CheckedSemanticSelections,
-        initializer: BoundExpressionId,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<(TypeId, ConstantTermId)>, FactQueryError> {
-        let Some(value) =
-            self.evaluate_closed_expression(request, types, selections, initializer, cancellation)?
-        else {
-            return Ok(None);
         };
 
-        let data = self
-            .semantic_value_store()?
-            .constant_value_data(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        Ok(Some((data.ty(), self.constant_value_term(value)?)))
+        Ok(Some((ty, resolution)))
     }
 
     fn constant_value_term(
@@ -177,11 +281,12 @@ impl Compilation {
         types: &CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
         expression: BoundExpressionId,
+        local_constants: &BTreeMap<LocalConstantSymbolId, (TypeId, ConstantTermId)>,
         cancellation: &CancellationToken,
     ) -> Result<Option<ConstantValueId>, FactQueryError> {
         let mut dependency_diagnostics = DiagnosticBag::new();
 
-        let references = match collect_constant_references_from(
+        let references = collect_constant_references_from(
             request.unit(),
             selections,
             expression,
@@ -190,31 +295,27 @@ impl Compilation {
                     return Err(FactQueryError::InfrastructureFailure);
                 };
 
-                let Some(definition) = constant_definition_id(symbol) else {
-                    return Err(FactQueryError::InfrastructureFailure);
-                };
+                if let AnySymbolId::GenericConstParameter(parameter) = symbol {
+                    let term = self
+                        .semantic_value_store()?
+                        .intern_constant_term(ConstantTermData::Parameter(parameter))
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                if !constant_can_evaluate_without_context(self, symbol, definition)? {
-                    return Err(FactQueryError::InfrastructureFailure);
+                    return Ok(ConstantReferenceResolution::Term(term));
                 }
 
-                let substitution =
-                    empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+                let Some((_, resolution)) = self.resolve_surface_constant(
+                    symbol,
+                    cancellation,
+                    &mut dependency_diagnostics,
+                )?
+                else {
+                    return Ok(ConstantReferenceResolution::Invalid);
+                };
 
-                let instance = ConstantInstanceKey::new(definition, substitution, None);
-                let result = self.constant_instance_with_cancellation(instance, cancellation)?;
-
-                dependency_diagnostics = dependency_diagnostics.merged(result.diagnostics());
-
-                Ok(bray_checker::ConstantReferenceResolution::Value(
-                    *result.value(),
-                ))
+                Ok(resolution)
             },
-        ) {
-            Ok(references) => references,
-            Err(FactQueryError::Cancelled) => return Err(FactQueryError::Cancelled),
-            Err(_) => return Ok(None),
-        };
+        )?;
 
         if dependency_diagnostics.has_errors() {
             return Ok(None);
@@ -225,12 +326,19 @@ impl Compilation {
         let input = ConstantEvaluationInput::new(types, selections)
             .with_root(expression)
             .with_references(references)
+            .with_local_terms(
+                local_constants
+                    .iter()
+                    .map(|(local, (_, term))| (AnyLocalSymbolId::from(*local), *term)),
+            )
             .with_call_resolver(&resolver);
 
         let result = match DefaultConstantEvaluator.evaluate_constant(request, &input) {
             CheckerOutcome::Complete(result) => result,
             CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
-            CheckerOutcome::InfrastructureFailure(_) => return Ok(None),
+            CheckerOutcome::InfrastructureFailure(error) => {
+                return Err(FactQueryError::CheckerInfrastructure(error));
+            }
         };
 
         if result.diagnostics().has_errors() {
@@ -252,6 +360,20 @@ struct ConstantPatternSites {
     patterns: Vec<(BoundPatternId, BoundPatternTarget)>,
     guards: BTreeSet<BoundExpressionId>,
     local_constants: BTreeMap<LocalConstantSymbolId, BoundExpressionId>,
+}
+
+struct LocalPatternConstants {
+    initializers: BTreeMap<LocalConstantSymbolId, BoundExpressionId>,
+    values: BTreeMap<LocalConstantSymbolId, (TypeId, ConstantTermId)>,
+}
+
+impl LocalPatternConstants {
+    fn new(initializers: BTreeMap<LocalConstantSymbolId, BoundExpressionId>) -> Self {
+        Self {
+            initializers,
+            values: BTreeMap::new(),
+        }
+    }
 }
 
 fn collect_constant_sites(

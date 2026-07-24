@@ -14,7 +14,7 @@ use bray_symbols::{
 };
 
 use super::check::{PatternChecker, effective_pattern_kind};
-use crate::constant::check_constant_literal;
+use crate::constant::{check_constant_literal, constant_values_equal};
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
 use crate::{
@@ -77,7 +77,8 @@ where
         for (index, arm) in expression.arms().iter().copied().enumerate() {
             let arm_coverage = self.coverage(arm.pattern())?;
             let guard = self.guard_truth(arm.guard())?;
-            let is_unreachable = guard == GuardTruth::False || covered.contains(&arm_coverage);
+            let is_unreachable =
+                guard == GuardTruth::False || covered.contains(self.request, &arm_coverage)?;
 
             if is_unreachable {
                 let index = u32::try_from(index).unwrap_or(u32::MAX);
@@ -173,7 +174,7 @@ where
                 for child in pattern.children() {
                     let alternative = self.coverage(*child)?;
 
-                    if coverage.contains(&alternative) {
+                    if coverage.contains(self.request, &alternative)? {
                         self.report(
                             *child,
                             DiagnosticKind::CheckingUnreachablePatternAlternative,
@@ -335,7 +336,7 @@ enum GuardTruth {
 struct Coverage {
     is_total: bool,
     is_unknown: bool,
-    constants: BTreeSet<ConstantValueId>,
+    constants: Vec<ConstantValueId>,
     nullable_absent: bool,
     nullable_present: Option<Box<Coverage>>,
     variants: BTreeSet<UnionVariantSymbolId>,
@@ -358,7 +359,7 @@ impl Coverage {
 
     fn constant(value: ConstantValueId) -> Self {
         Self {
-            constants: BTreeSet::from([value]),
+            constants: vec![value],
             ..Self::default()
         }
     }
@@ -387,7 +388,7 @@ impl Coverage {
     fn merge(&mut self, other: &Self) {
         self.is_total |= other.is_total;
         self.is_unknown |= other.is_unknown;
-        self.constants.extend(other.constants.iter().copied());
+        self.constants.extend_from_slice(&other.constants);
         self.nullable_absent |= other.nullable_absent;
 
         match (&mut self.nullable_present, &other.nullable_present) {
@@ -404,21 +405,37 @@ impl Coverage {
         self.variants.extend(other.variants.iter().copied());
     }
 
-    fn contains(&self, other: &Self) -> bool {
+    fn contains<C>(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        other: &Self,
+    ) -> Result<bool, CheckerInfrastructureError>
+    where
+        C: CheckerRequestContext + ?Sized,
+    {
         if other.is_empty() || other.is_unknown {
-            return false;
+            return Ok(false);
         }
 
-        other.is_total && self.is_total
+        let constants_contained = constants_contain(
+            request,
+            self.constants.as_slice(),
+            other.constants.as_slice(),
+        )?;
+
+        let contains = other.is_total && self.is_total
             || !other.is_total
                 && (self.is_total
-                    || other.constants.is_subset(&self.constants)
+                    || constants_contained
                         && (!other.nullable_absent || self.nullable_absent)
                         && nullable_contains(
+                            request,
                             self.nullable_present.as_deref(),
                             other.nullable_present.as_deref(),
-                        )
-                        && other.variants.is_subset(&self.variants))
+                        )?
+                        && other.variants.is_subset(&self.variants));
+
+        Ok(contains)
     }
 
     fn is_empty(&self) -> bool {
@@ -498,10 +515,44 @@ impl Coverage {
     }
 }
 
-fn nullable_contains(current: Option<&Coverage>, other: Option<&Coverage>) -> bool {
+fn constants_contain<C>(
+    request: CheckerUnitView<'_, C>,
+    current: &[ConstantValueId],
+    other: &[ConstantValueId],
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    for other in other {
+        let mut contained = false;
+
+        for current in current {
+            if constant_values_equal(request.semantic_values(), *current, *other)? {
+                contained = true;
+
+                break;
+            }
+        }
+
+        if !contained {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn nullable_contains<C>(
+    request: CheckerUnitView<'_, C>,
+    current: Option<&Coverage>,
+    other: Option<&Coverage>,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     match (current, other) {
-        (_, None) => true,
-        (Some(current), Some(other)) => current.contains(other),
-        (None, Some(_)) => false,
+        (_, None) => Ok(true),
+        (Some(current), Some(other)) => current.contains(request, other),
+        (None, Some(_)) => Ok(false),
     }
 }

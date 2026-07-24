@@ -4,7 +4,7 @@ use bray_bound_tree::{
     BoundBlockId, BoundExpressionId, CheckedExpressionTypes, CheckedPatternFacts,
     CheckedSemanticSelections,
 };
-use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
+use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueId, TypeId};
 
 use super::{ConstantCallResolver, ConstantEvaluationLimits};
 
@@ -38,7 +38,8 @@ pub struct ConstantEvaluationInput<'facts> {
     root: Option<ConstantEvaluationRoot>,
     result_type: Option<TypeId>,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
-    references_are_consistent: bool,
+    local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
+    is_consistent: bool,
     call_resolver: Option<&'facts dyn ConstantCallResolver>,
     limits: ConstantEvaluationLimits,
 }
@@ -56,7 +57,8 @@ impl<'facts> ConstantEvaluationInput<'facts> {
             root: None,
             result_type: None,
             references: BTreeMap::new(),
-            references_are_consistent: true,
+            local_terms: BTreeMap::new(),
+            is_consistent: true,
             call_resolver: None,
             limits: ConstantEvaluationLimits::default(),
         }
@@ -103,7 +105,26 @@ impl<'facts> ConstantEvaluationInput<'facts> {
                 .insert(expression, resolution)
                 .is_some_and(|existing| existing != resolution)
             {
-                self.references_are_consistent = false;
+                self.is_consistent = false;
+            }
+        }
+
+        self
+    }
+
+    /// Supplies closed or symbolic values for local constants visible at the selected root.
+    /// Repeated local identities must have the same term.
+    pub fn with_local_terms(
+        mut self,
+        terms: impl IntoIterator<Item = (AnyLocalSymbolId, ConstantTermId)>,
+    ) -> Self {
+        for (local, term) in terms {
+            if self
+                .local_terms
+                .insert(local, term)
+                .is_some_and(|existing| existing != term)
+            {
+                self.is_consistent = false;
             }
         }
 
@@ -144,12 +165,16 @@ impl<'facts> ConstantEvaluationInput<'facts> {
         self.references.get(&expression).copied()
     }
 
+    pub(crate) fn local_term(&self, local: AnyLocalSymbolId) -> Option<ConstantTermId> {
+        self.local_terms.get(&local).copied()
+    }
+
     pub(crate) const fn call_resolver(&self) -> Option<&dyn ConstantCallResolver> {
         self.call_resolver
     }
 
-    pub(crate) const fn references_are_consistent(&self) -> bool {
-        self.references_are_consistent
+    pub(crate) const fn is_consistent(&self) -> bool {
+        self.is_consistent
     }
 
     /// Returns the deterministic resource limits for this request.

@@ -156,7 +156,7 @@ where
         || input.pattern_facts().is_some_and(|facts| {
             facts.unit() != request.view().unit() || facts.kind() != request.view().kind()
         })
-        || !input.references_are_consistent()
+        || !input.is_consistent()
     {
         return Err(EvaluationAbort::invalid_input());
     }
@@ -481,6 +481,7 @@ where
                 .locals
                 .get(&local)
                 .copied()
+                .or_else(|| self.input.local_term(local))
                 .ok_or_else(|| EvaluationFailure::invalid_expression(expression));
         }
 

@@ -500,7 +500,7 @@ impl Compilation {
         Ok((references, dependency_diagnostics))
     }
 
-    fn constant_template_key(
+    pub(in crate::compilation) fn constant_template_key(
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {

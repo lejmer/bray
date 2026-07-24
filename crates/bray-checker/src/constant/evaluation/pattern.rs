@@ -201,7 +201,12 @@ where
                     return Err(EvaluationFailure::invalid_expression(owner));
                 };
 
-                subject_id == expected
+                crate::constant::constant_values_equal(
+                    self.request.semantic_values(),
+                    subject_id,
+                    expected,
+                )
+                .map_err(EvaluationFailure::Infrastructure)?
             }
             Some(PatternPredicate::OwnedTarget) => {
                 return Err(EvaluationFailure::invalid_expression(owner));

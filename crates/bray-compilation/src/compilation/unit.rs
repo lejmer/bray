@@ -2555,7 +2555,8 @@ func other()
     #[test]
     fn pattern_facts_evaluate_closed_local_constant_patterns() {
         let compilation = pattern_compilation(concat!(
-            "    const yes: bool = true;\n",
+            "    const base: bool = true;\n",
+            "    const yes: bool = base;\n",
             "    let value: bool = true;\n",
             "    match value\n",
             "    {\n",
