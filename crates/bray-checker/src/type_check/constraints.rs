@@ -13,7 +13,7 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
-use super::region::{ResultRegionKind, ResultRegions};
+use super::region::{ExpressionTypeRegions, ResultRegionKind};
 
 pub(super) fn add_intrinsic_constraints(
     expression: &BoundExpression,
@@ -64,7 +64,7 @@ pub(super) fn add_relationship_constraints<C>(
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
-    result_regions: &ResultRegions,
+    regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> bool
@@ -89,7 +89,7 @@ where
                 let ty = match transfer.kind() {
                     BoundControlTransferKind::Yield => transfer
                         .target()
-                        .and_then(|target| result_regions.get(&target))
+                        .and_then(|target| regions.result(target))
                         .map_or(types.never, |region| match region.kind() {
                             ResultRegionKind::SingleYield => types.never,
                             ResultRegionKind::ArrayGenerator

@@ -13,7 +13,7 @@ use crate::{
 };
 use bray_bound_tree::{
     CheckedExpressionTypes, CheckedPatternFacts, DeclaredValueTypeTemplates, SelectedCall,
-    SelectedOperation,
+    SelectedIterationSource, SelectedOperation,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -135,11 +135,20 @@ where
         declared_types: &DeclaredValueTypeTemplates,
         nested_callables: &[NestedCallableEvidence],
         candidate_sets: &[ExpressionCandidateSet],
+        pattern_input: &PatternCheckInput,
+        iteration_sources: &[SelectedIterationSource],
     ) -> CheckerOutcome<(
         CheckedExpressionTypes,
         bray_bound_tree::CheckedSemanticSelections,
     )> {
-        check_expression_semantics(request, declared_types, nested_callables, candidate_sets)
+        check_expression_semantics(
+            request,
+            declared_types,
+            nested_callables,
+            candidate_sets,
+            pattern_input,
+            iteration_sources,
+        )
     }
 }
 

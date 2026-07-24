@@ -1,5 +1,6 @@
 use bray_symbols::{
-    CallableInstanceData, ImplementationInstanceId, ImplementationRequirementKey, TypeId,
+    CallableInstanceData, ConstantTermId, ImplementationInstanceId, ImplementationRequirementKey,
+    TypeId,
 };
 
 use crate::{BoundExpressionId, BoundIterationSource, IterationSourceMode};
@@ -92,6 +93,7 @@ pub struct SelectedIterationSource {
     types: SelectedIterationTypes,
     iterable: SelectedIterationProtocolOperation,
     iterator: SelectedIterationProtocolOperation,
+    exact_count: Option<ConstantTermId>,
 }
 
 impl SelectedIterationSource {
@@ -109,7 +111,15 @@ impl SelectedIterationSource {
             types,
             iterable,
             iterator,
+            exact_count: None,
         }
+    }
+
+    /// Returns this selection with its proven exact iteration count.
+    pub const fn with_exact_count(mut self, exact_count: ConstantTermId) -> Self {
+        self.exact_count = Some(exact_count);
+
+        self
     }
 
     /// Returns the iteration expression owning this selection.
@@ -140,6 +150,11 @@ impl SelectedIterationSource {
     /// Returns the selected element type.
     pub const fn element_type(&self) -> TypeId {
         self.types.element()
+    }
+
+    /// Returns the exact iteration count when selected contracts and source facts prove it.
+    pub const fn exact_count(&self) -> Option<ConstantTermId> {
+        self.exact_count
     }
 
     /// Returns the selected `Iterable` requirement.

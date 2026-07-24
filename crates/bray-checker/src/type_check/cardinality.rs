@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundStructuredExpressionKind, CheckedExpressionTypes,
+    BoundStructuredExpressionKind, CheckedExpressionTypes, SelectedIterationSource,
 };
 use bray_symbols::TypeData;
 
@@ -9,10 +9,15 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 pub(super) fn unproven_array_generators<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
+    iteration_sources: &[SelectedIterationSource],
 ) -> Result<Vec<BoundExpressionId>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    if iteration_sources.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut unproven = Vec::new();
 
     for entry in types.entries() {
@@ -29,7 +34,8 @@ where
             continue;
         }
 
-        if !array_generator_is_proven(request, types, expression_id, expression)? {
+        if !array_generator_is_proven(request, types, iteration_sources, expression_id, expression)?
+        {
             unproven.push(expression_id);
         }
     }
@@ -40,6 +46,7 @@ where
 fn array_generator_is_proven<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
+    iteration_sources: &[SelectedIterationSource],
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
 ) -> Result<bool, CheckerInfrastructureError>
@@ -75,27 +82,18 @@ where
         return Ok(false);
     };
 
-    let Some(source) = types
-        .expression(iteration.source())
-        .filter(|result| !result.is_recovered())
+    let Some(selection) = iteration_sources
+        .iter()
+        .find(|selection| selection.expression() == iteration_id)
     else {
         return Ok(false);
     };
 
-    let source_data = request
-        .semantic_values()
-        .type_data(source.ty())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    let TypeData::Array {
-        length: source_length,
-        ..
-    } = source_data.as_ref()
-    else {
+    let Some(source_length) = selection.exact_count() else {
         return Ok(false);
     };
 
-    if source_length != result_length {
+    if source_length != *result_length {
         return Ok(false);
     }
 

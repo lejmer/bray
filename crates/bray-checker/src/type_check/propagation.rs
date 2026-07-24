@@ -16,15 +16,14 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 use super::constraints::add_operand_expectation;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
-use super::region::{ResultRegionKind, ResultRegions};
+use super::region::{ExpressionTypeRegions, ResultRegionKind};
 
 pub(super) fn propagate_dynamic_constraints<C>(
     request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
-    block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
-    result_regions: &ResultRegions,
+    regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<Option<bool>, CheckerInfrastructureError>
@@ -48,7 +47,7 @@ where
     if !propagate_blocks(
         request,
         block_variables,
-        block_owners,
+        regions,
         variables,
         types,
         inference,
@@ -66,7 +65,7 @@ where
             request.view(),
             expression_id,
             variables,
-            result_regions,
+            regions,
             types,
             inference,
         );
@@ -99,7 +98,7 @@ where
                 expression_id,
                 expression,
                 variables,
-                result_regions,
+                regions,
                 types,
                 inference,
             )?,
@@ -108,7 +107,7 @@ where
                 expression_id,
                 expression,
                 variables,
-                result_regions,
+                regions,
                 inference,
             )?,
             BoundStructuredExpressionKind::Catch => infer_catch(
@@ -129,7 +128,7 @@ where
 fn propagate_blocks<C>(
     request: CheckerUnitView<'_, C>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
-    block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
+    regions: &ExpressionTypeRegions,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
@@ -152,7 +151,7 @@ where
 
         let last = block.items().last().and_then(BoundBlockItem::expression);
 
-        let Some(source) = block_owners.get(&block_id).copied() else {
+        let Some(source) = regions.block_owner(block_id) else {
             continue;
         };
 
@@ -175,7 +174,7 @@ fn propagate_control_transfer(
     view: BoundUnitView<'_>,
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    result_regions: &ResultRegions,
+    regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
@@ -189,7 +188,7 @@ fn propagate_control_transfer(
 
     match transfer.kind() {
         BoundControlTransferKind::Yield => {
-            if let Some(region) = result_regions.get(&target) {
+            if let Some(region) = regions.result(target) {
                 add_transfer_value(
                     region.variable(),
                     transfer.operand(),
@@ -201,40 +200,18 @@ fn propagate_control_transfer(
             }
         }
         BoundControlTransferKind::Break => {
-            for (&candidate, &candidate_variable) in variables {
-                let Some(expression) = view.expression(candidate) else {
-                    continue;
-                };
-
-                if break_target(expression) == Some(target) {
-                    add_transfer_value(
-                        candidate_variable,
-                        transfer.operand(),
-                        expression_id,
-                        variables,
-                        types,
-                        inference,
-                    );
-                }
+            if let Some(variable) = regions.break_variable(target) {
+                add_transfer_value(
+                    variable,
+                    transfer.operand(),
+                    expression_id,
+                    variables,
+                    types,
+                    inference,
+                );
             }
         }
         BoundControlTransferKind::Return | BoundControlTransferKind::Continue => {}
-    }
-}
-
-fn break_target(expression: &BoundExpression) -> Option<bray_declarations::SyntaxAnchor> {
-    match expression {
-        BoundExpression::Structured(expression)
-            if matches!(
-                expression.kind(),
-                BoundStructuredExpressionKind::Loop | BoundStructuredExpressionKind::While
-            ) =>
-        {
-            Some(expression.origin().source_anchor().syntax())
-        }
-        BoundExpression::For(expression) => Some(expression.origin().source_anchor().syntax()),
-        BoundExpression::Generator(expression) => Some(expression.region()),
-        _ => None,
     }
 }
 
@@ -359,7 +336,7 @@ fn infer_general_generator<C>(
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    result_regions: &ResultRegions,
+    regions: &ExpressionTypeRegions,
     inference: &mut TypeInferenceContext,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -369,9 +346,8 @@ where
         return Ok(());
     };
 
-    let Some(region) = result_regions
-        .get(&expression.origin().source_anchor().syntax())
-        .copied()
+    let Some(region) = regions
+        .result(expression.origin().source_anchor().syntax())
         .filter(|region| {
             region.owner() == expression_id && region.kind() == ResultRegionKind::GeneralGenerator
         })
@@ -495,7 +471,7 @@ fn infer_array_generator<C>(
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    result_regions: &ResultRegions,
+    regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<(), CheckerInfrastructureError>
@@ -506,9 +482,8 @@ where
         return Ok(());
     };
 
-    let Some(region) = result_regions
-        .get(&expression.origin().source_anchor().syntax())
-        .copied()
+    let Some(region) = regions
+        .result(expression.origin().source_anchor().syntax())
         .filter(|region| {
             region.owner() == expression_id && region.kind() == ResultRegionKind::ArrayGenerator
         })

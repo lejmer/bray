@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry};
+use bray_bound_tree::{
+    BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry, SelectedIterationSource,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
@@ -67,13 +69,14 @@ pub(crate) fn finish_expression_types<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    finish_expression_types_with_deferred(request, session, &BTreeSet::new())
+    finish_expression_types_with_deferred(request, session, &BTreeSet::new(), &[])
 }
 
 pub(crate) fn finish_expression_types_with_deferred<C>(
     request: CheckerUnitView<'_, C>,
     session: ExpressionTypeSession<'_, C>,
     deferred: &BTreeSet<BoundExpressionId>,
+    iteration_sources: &[SelectedIterationSource],
 ) -> CheckerOutcome<CheckedExpressionTypes>
 where
     C: CheckerRequestContext + ?Sized,
@@ -164,10 +167,11 @@ where
     let checked_types =
         CheckedExpressionTypes::new(request.view().unit(), request.view().kind(), entries);
 
-    let unproven_generators = match unproven_array_generators(request, &checked_types) {
-        Ok(expressions) => expressions,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let unproven_generators =
+        match unproven_array_generators(request, &checked_types, iteration_sources) {
+            Ok(expressions) => expressions,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
 
     for expression in unproven_generators {
         let span = match expression_span(request, expression) {
@@ -1455,7 +1459,7 @@ mod tests {
     }
 
     #[test]
-    fn array_generators_require_exactly_one_yield_per_iteration() {
+    fn array_generators_defer_cardinality_without_selected_iteration_sources() {
         let fixture = generator_unit(
             BoundUnitId::new(64),
             BoundStructuredExpressionKind::ArrayGenerator,
@@ -1471,10 +1475,7 @@ mod tests {
                 .iter()
                 .map(bray_diagnostics::Diagnostic::kind)
                 .collect::<Vec<_>>(),
-            [
-                DiagnosticKind::CheckingCannotInferExpressionType,
-                DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
-            ]
+            [DiagnosticKind::CheckingCannotInferExpressionType]
         );
     }
 

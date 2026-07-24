@@ -16,7 +16,7 @@ use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
 use super::literal::{adapt_contextual_literals, apply_literal_defaults};
 use super::propagation::propagate_dynamic_constraints;
-use super::region::{ResultRegions, initialize_result_regions};
+use super::region::{ExpressionTypeRegions, initialize_expression_type_regions};
 use super::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 
 pub(crate) enum SessionProgress<T> {
@@ -52,8 +52,7 @@ where
     expressions: Vec<BoundExpressionId>,
     variables: BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: BTreeMap<BoundBlockId, InferenceTypeId>,
-    block_owners: BTreeMap<BoundBlockId, BoundExpressionId>,
-    result_regions: ResultRegions,
+    regions: ExpressionTypeRegions,
     types: ExpressionTypeDependencies,
     inference: TypeInferenceContext,
 }
@@ -98,12 +97,13 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let result_regions = initialize_result_regions(
+        let regions = initialize_expression_type_regions(
             request,
             &nodes.expressions,
             &nodes.blocks,
+            &variables,
             &block_variables,
-            &block_owners,
+            block_owners,
             &mut inference,
         )?;
 
@@ -112,7 +112,7 @@ where
             &nodes.expressions,
             &variables,
             &block_variables,
-            &result_regions,
+            &regions,
             &types,
             &mut inference,
         ) {
@@ -132,8 +132,7 @@ where
             expressions: nodes.expressions,
             variables,
             block_variables,
-            block_owners,
-            result_regions,
+            regions,
             types,
             inference,
         }))
@@ -257,8 +256,7 @@ where
                 &self.expressions,
                 &self.variables,
                 &self.block_variables,
-                &self.block_owners,
-                &self.result_regions,
+                &self.regions,
                 &self.types,
                 &mut self.inference,
             )?

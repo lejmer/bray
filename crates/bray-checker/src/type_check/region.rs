@@ -37,20 +37,40 @@ impl ResultRegion {
     }
 }
 
-pub(super) type ResultRegions = BTreeMap<SyntaxAnchor, ResultRegion>;
+#[derive(Debug)]
+pub(super) struct ExpressionTypeRegions {
+    block_owners: BTreeMap<BoundBlockId, BoundExpressionId>,
+    break_variables: BTreeMap<SyntaxAnchor, InferenceTypeId>,
+    results: BTreeMap<SyntaxAnchor, ResultRegion>,
+}
 
-pub(super) fn initialize_result_regions<C>(
+impl ExpressionTypeRegions {
+    pub(super) fn block_owner(&self, block: BoundBlockId) -> Option<BoundExpressionId> {
+        self.block_owners.get(&block).copied()
+    }
+
+    pub(super) fn break_variable(&self, target: SyntaxAnchor) -> Option<InferenceTypeId> {
+        self.break_variables.get(&target).copied()
+    }
+
+    pub(super) fn result(&self, target: SyntaxAnchor) -> Option<ResultRegion> {
+        self.results.get(&target).copied()
+    }
+}
+
+pub(super) fn initialize_expression_type_regions<C>(
     request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     blocks: &[BoundBlockId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
-    block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
+    block_owners: BTreeMap<BoundBlockId, BoundExpressionId>,
     inference: &mut TypeInferenceContext,
-) -> Result<ResultRegions, CheckerInfrastructureError>
+) -> Result<ExpressionTypeRegions, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut regions = BTreeMap::new();
+    let mut results = BTreeMap::new();
 
     for block in blocks {
         let Some(bound) = request.view().block(*block) else {
@@ -67,7 +87,7 @@ where
             continue;
         };
 
-        regions.insert(
+        results.insert(
             bound.origin().source_anchor().syntax(),
             ResultRegion {
                 owner,
@@ -93,7 +113,7 @@ where
             return Err(CheckerInfrastructureError::ExpressionTypeCapacityExceeded);
         };
 
-        regions.insert(
+        results.insert(
             bound.origin().source_anchor().syntax(),
             ResultRegion {
                 owner: *expression,
@@ -101,6 +121,55 @@ where
                 kind,
             },
         );
+    }
+
+    let break_variables = collect_break_variables(request, expressions, variables)?;
+
+    Ok(ExpressionTypeRegions {
+        block_owners,
+        break_variables,
+        results,
+    })
+}
+
+fn collect_break_variables<C>(
+    request: CheckerUnitView<'_, C>,
+    expressions: &[BoundExpressionId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+) -> Result<BTreeMap<SyntaxAnchor, InferenceTypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut regions = BTreeMap::new();
+
+    for expression in expressions {
+        let Some(variable) = variables.get(expression).copied() else {
+            continue;
+        };
+
+        let Some(bound) = request.view().expression(*expression) else {
+            return Err(CheckerInfrastructureError::InvalidBoundNode {
+                node: (*expression).into(),
+            });
+        };
+
+        let target = match bound {
+            BoundExpression::Structured(bound)
+                if matches!(
+                    bound.kind(),
+                    BoundStructuredExpressionKind::Loop | BoundStructuredExpressionKind::While
+                ) =>
+            {
+                Some(bound.origin().source_anchor().syntax())
+            }
+            BoundExpression::For(bound) => Some(bound.origin().source_anchor().syntax()),
+            BoundExpression::Generator(bound) => Some(bound.region()),
+            _ => None,
+        };
+
+        if let Some(target) = target {
+            regions.insert(target, variable);
+        }
     }
 
     Ok(regions)
