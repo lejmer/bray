@@ -156,12 +156,13 @@ where
         expression: BoundExpressionId,
         storage: bray_bound_tree::StorageIdentityId,
     ) -> Result<StorageAccessId, PlanError> {
-        self.push_expression_access(
-            expression,
-            StorageAccessRoot::Storage(storage),
-            [],
-            self.expression_type(expression)?,
-        )
+        let root = match self.builder()?.identity(storage) {
+            Some(StorageIdentity::Error(_)) => StorageAccessRoot::Recovery(storage),
+            Some(_) => StorageAccessRoot::Storage(storage),
+            None => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+        };
+
+        self.push_expression_access(expression, root, [], self.expression_type(expression)?)
     }
 
     pub(super) fn copy_access(
@@ -183,6 +184,40 @@ where
             projections,
             self.expression_type(expression)?,
         )
+    }
+
+    pub(super) fn conservative_subject_access(
+        &mut self,
+        expression: BoundExpressionId,
+        subject: StorageAccessId,
+    ) -> Result<StorageAccessId, PlanError> {
+        let subject = self
+            .builder()?
+            .access(subject)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let root = subject.root();
+        let projections = subject.projections().to_vec();
+
+        let node = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or_else(|| invalid_node(expression))?;
+
+        let result = self.expression_type(expression)?;
+
+        let access = StorageAccess::new(
+            root,
+            projections,
+            result.ty(),
+            node.origin().source_anchor(),
+            true,
+        );
+
+        self.builder_mut()?
+            .push_access(access)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
     }
 
     pub(super) fn temporary_access(

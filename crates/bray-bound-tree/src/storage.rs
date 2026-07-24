@@ -4,8 +4,8 @@ mod plan;
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use model::{
-    BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,
-    StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
+    BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
+    StorageIdentityId, StorageProjection, StorageRelationship,
 };
 pub use plan::{
     StorageAccessPlan, StorageAccessPurpose, StorageBinding, StorageBindingTarget, StoragePlan,

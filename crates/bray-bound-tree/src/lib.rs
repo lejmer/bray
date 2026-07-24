@@ -70,10 +70,9 @@ pub use selection::{
     SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{
-    BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
-    StorageIdentityId, StoragePlan, StoragePlanBuildError, StoragePlanBuilder, StorageProjection,
-    StorageRelationship,
+    BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
+    StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
+    StoragePlan, StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

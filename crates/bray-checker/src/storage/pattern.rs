@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundPatternId, BoundPatternTarget, BoundReferenceTarget, PatternOperation,
-    PatternProjection, StorageAccess, StorageAccessId, StorageAccessPurpose, StorageBinding,
-    StorageBindingTarget, StorageIdentity, StorageProjection,
+    BoundExpressionId, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternTarget,
+    BoundReferenceTarget, PatternOperation, PatternProjection, StorageAccess, StorageAccessId,
+    StorageAccessPurpose, StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
 };
 
 use super::plan::{PlanError, Planner, invalid_node};
@@ -31,6 +31,10 @@ where
             .pattern(id)
             .ok_or_else(|| invalid_node(id))?
             .clone();
+
+        if pattern.kind() == BoundPatternKind::Alternative {
+            self.install_alternative_bindings(&pattern)?;
+        }
 
         let checked = self
             .patterns
@@ -121,16 +125,20 @@ where
 
         let target = StorageBindingTarget::Local(binding);
 
-        match checked.operation() {
-            PatternOperation::Consume | PatternOperation::Copy | PatternOperation::Recovered => {
-                self.bind_identity(target, StorageIdentity::LocalOwned(pattern.into()))?;
-            }
-            PatternOperation::Observe
-            | PatternOperation::SharedBorrow
-            | PatternOperation::MutableBorrow => {
-                self.builder_mut()?
-                    .bind(target, StorageBinding::Access(access))
-                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+        if !self.conservative_pattern_bindings.contains(&binding) {
+            match checked.operation() {
+                PatternOperation::Consume
+                | PatternOperation::Copy
+                | PatternOperation::Recovered => {
+                    self.bind_identity(target, StorageIdentity::LocalOwned(pattern.into()))?;
+                }
+                PatternOperation::Observe
+                | PatternOperation::SharedBorrow
+                | PatternOperation::MutableBorrow => {
+                    self.builder_mut()?
+                        .bind(target, StorageBinding::Access(access))
+                        .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                }
             }
         }
 
@@ -147,6 +155,69 @@ where
         };
 
         self.record_purpose(subject_expression, Some(purpose), access)
+    }
+
+    fn install_alternative_bindings(&mut self, pattern: &BoundPattern) -> Result<(), PlanError> {
+        let bindings = self.descendant_bindings(pattern)?;
+        let source = pattern.origin().source_anchor();
+
+        // TODO(BRA-268): Replace recovery-backed logical storage with exact branch-dependent
+        // alias alternatives once the storage relationship domain can retain them.
+        for binding in bindings {
+            let checked = self
+                .patterns
+                .binding_type(binding)
+                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+            if !matches!(
+                checked.operation(),
+                PatternOperation::Observe
+                    | PatternOperation::SharedBorrow
+                    | PatternOperation::MutableBorrow
+            ) {
+                continue;
+            }
+
+            self.conservative_pattern_bindings.insert(binding);
+
+            let target = StorageBindingTarget::Local(binding);
+
+            if self.builder()?.binding(target).is_none() {
+                self.bind_identity(target, StorageIdentity::Error(source))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn descendant_bindings(
+        &self,
+        pattern: &BoundPattern,
+    ) -> Result<Vec<bray_symbols::LocalBindingSymbolId>, PlanError> {
+        let mut bindings = pattern.bindings().to_vec();
+
+        bindings.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
+
+        let mut pending = pattern.children().to_vec();
+
+        while let Some(pattern) = pending.pop() {
+            self.check_cancellation()?;
+
+            let pattern = self
+                .request
+                .view()
+                .pattern(pattern)
+                .ok_or_else(|| invalid_node(pattern))?;
+
+            bindings.extend_from_slice(pattern.bindings());
+            bindings.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
+            pending.extend_from_slice(pattern.children());
+        }
+
+        bindings.sort_unstable();
+        bindings.dedup();
+
+        Ok(bindings)
     }
 
     fn plan_pattern_target(

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    BorrowCapability, BorrowCapabilityId, BoundUnitId, BoundUnitKind, StorageAccess,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageBinding, StorageBindingTarget,
-    StorageIdentity, StorageIdentityId, StoragePlan,
+    BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
+    StoragePlan,
 };
 
 /// A contract violation that prevents construction of one storage plan.
@@ -31,7 +31,6 @@ pub struct StoragePlanBuilder {
     kind: BoundUnitKind,
     identities: Vec<StorageIdentity>,
     accesses: Vec<StorageAccess>,
-    borrow_capabilities: Vec<BorrowCapability>,
     bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
     plans: Vec<StorageAccessPlan>,
     planned_accesses: BTreeSet<(
@@ -49,7 +48,6 @@ impl StoragePlanBuilder {
             kind,
             identities: Vec::new(),
             accesses: Vec::new(),
-            borrow_capabilities: Vec::new(),
             bindings: BTreeMap::new(),
             plans: Vec::new(),
             planned_accesses: BTreeSet::new(),
@@ -88,34 +86,6 @@ impl StoragePlanBuilder {
         let id = StorageAccessId::from_storage_slot(self.unit, slot);
 
         self.accesses.push(access);
-
-        Ok(id)
-    }
-
-    /// Adds one borrow capability established by an access operation.
-    pub fn push_borrow_capability(
-        &mut self,
-        capability: BorrowCapability,
-    ) -> Result<BorrowCapabilityId, StoragePlanBuildError> {
-        if !capability.is_valid_for(self.unit) {
-            return Err(StoragePlanBuildError::ForeignUnit);
-        }
-
-        if self.access(capability.access()).is_none() {
-            return Err(StoragePlanBuildError::MissingAccess);
-        }
-
-        if capability
-            .derived_from()
-            .is_some_and(|parent| self.borrow_capability(parent).is_none())
-        {
-            return Err(StoragePlanBuildError::MissingBorrowCapability);
-        }
-
-        let slot = next_slot(self.borrow_capabilities.len())?;
-        let id = BorrowCapabilityId::from_storage_slot(self.unit, slot);
-
-        self.borrow_capabilities.push(capability);
 
         Ok(id)
     }
@@ -180,6 +150,11 @@ impl StoragePlanBuilder {
         checked_entry(self.unit, id.unit(), id.storage_index(), &self.accesses)
     }
 
+    /// Returns a previously established storage identity.
+    pub fn identity(&self, id: StorageIdentityId) -> Option<&StorageIdentity> {
+        checked_entry(self.unit, id.unit(), id.storage_index(), &self.identities)
+    }
+
     /// Completes the immutable storage plan.
     pub fn finish(self) -> StoragePlan {
         StoragePlan::new(
@@ -187,7 +162,6 @@ impl StoragePlanBuilder {
             self.kind,
             self.identities,
             self.accesses,
-            self.borrow_capabilities,
             self.bindings.into_iter().collect(),
             self.plans,
         )
@@ -205,10 +179,8 @@ impl StoragePlanBuilder {
                     return Err(StoragePlanBuildError::MissingIdentity);
                 }
             }
-            crate::StorageAccessRoot::Borrow(capability) => {
-                if self.borrow_capability(capability).is_none() {
-                    return Err(StoragePlanBuildError::MissingBorrowCapability);
-                }
+            crate::StorageAccessRoot::Borrow(_) => {
+                return Err(StoragePlanBuildError::MissingBorrowCapability);
             }
         }
 
@@ -256,26 +228,16 @@ impl StoragePlanBuilder {
                 StorageBindingTarget::PredicateParameter(expected),
                 Some(StorageIdentity::PredicateParameter(actual)),
             ) => expected == actual,
-            (StorageBindingTarget::Local(_), Some(StorageIdentity::LocalOwned(_)))
+            (
+                StorageBindingTarget::Local(_),
+                Some(StorageIdentity::LocalOwned(_) | StorageIdentity::Error(_)),
+            )
             | (
                 StorageBindingTarget::PostconditionResult(_) | StorageBindingTarget::Result,
                 Some(StorageIdentity::Result(_)),
             ) => true,
             _ => false,
         }
-    }
-
-    fn identity(&self, id: StorageIdentityId) -> Option<&StorageIdentity> {
-        checked_entry(self.unit, id.unit(), id.storage_index(), &self.identities)
-    }
-
-    fn borrow_capability(&self, id: BorrowCapabilityId) -> Option<&BorrowCapability> {
-        checked_entry(
-            self.unit,
-            id.unit(),
-            id.storage_index(),
-            &self.borrow_capabilities,
-        )
     }
 }
 

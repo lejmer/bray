@@ -286,6 +286,7 @@ fn bind_callable_signature(
         .symbols
         .callable_parameters_and_receiver(callable)
         .ok_or(BinderFactError::DependencyUnavailable)?;
+
     let surface = declaration_callable_surface(context, symbol)?;
 
     type_binder(context, symbol)?.bind_callable_signature(

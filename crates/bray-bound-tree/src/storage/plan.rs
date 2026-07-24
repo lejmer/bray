@@ -7,8 +7,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    BorrowCapability, BorrowCapabilityId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-    StorageAccess, StorageAccessId, StorageIdentity, StorageIdentityId,
+    BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId, StorageIdentity,
+    StorageIdentityId,
 };
 
 /// A semantic identity that names storage within one bound unit.
@@ -57,6 +57,8 @@ pub enum StorageAccessPurpose {
     Write,
     /// Transfer ownership out of the reached storage.
     Move,
+    /// Transfer a value before its copy-or-move behavior has been resolved.
+    ValueTransfer,
     /// Establish a borrow capability over the reached storage.
     Borrow(BorrowKind),
     /// Use the reached storage as an assignment destination.
@@ -115,7 +117,6 @@ pub struct StoragePlan {
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
     accesses: Arc<[StorageAccess]>,
-    borrow_capabilities: Arc<[BorrowCapability]>,
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
     plans: Arc<[StorageAccessPlan]>,
 }
@@ -126,7 +127,6 @@ impl StoragePlan {
         kind: BoundUnitKind,
         identities: Vec<StorageIdentity>,
         accesses: Vec<StorageAccess>,
-        borrow_capabilities: Vec<BorrowCapability>,
         bindings: Vec<(StorageBindingTarget, StorageBinding)>,
         plans: Vec<StorageAccessPlan>,
     ) -> Self {
@@ -135,7 +135,6 @@ impl StoragePlan {
             kind,
             identities: identities.into(),
             accesses: accesses.into(),
-            borrow_capabilities: borrow_capabilities.into(),
             bindings: bindings.into(),
             plans: plans.into(),
         }
@@ -161,11 +160,6 @@ impl StoragePlan {
         &self.accesses
     }
 
-    /// Returns borrow capabilities in deterministic evaluation order.
-    pub fn borrow_capabilities(&self) -> &[BorrowCapability] {
-        &self.borrow_capabilities
-    }
-
     /// Returns semantic identity relationships in canonical target order.
     pub fn bindings(&self) -> &[(StorageBindingTarget, StorageBinding)] {
         &self.bindings
@@ -185,12 +179,6 @@ impl StoragePlan {
     /// Returns one evaluated storage access.
     pub fn access(&self, id: StorageAccessId) -> Option<&StorageAccess> {
         self.entry(id.unit(), id.storage_index(), &self.accesses)
-    }
-
-    /// Returns one borrow capability.
-    pub fn borrow_capability(&self, id: BorrowCapabilityId) -> Option<BorrowCapability> {
-        self.entry(id.unit(), id.storage_index(), &self.borrow_capabilities)
-            .copied()
     }
 
     /// Returns the storage or access named by a semantic identity.

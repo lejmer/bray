@@ -545,6 +545,7 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
                 let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
@@ -759,8 +760,9 @@ mod tests {
         BoundReferenceTarget, BoundUnit, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
         CheckedExpressionTypes, DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates,
         DeclaredValueTypeTerm, PatternOperation, PatternPredicate, PatternProjection,
-        SelectedArgument, SemanticSelection, StorageAccessPurpose, StorageBindingTarget,
-        StorageIdentity, StorageProjection, walk_bound_unit_view,
+        SelectedArgument, SemanticSelection, StorageAccessPurpose, StorageAccessRoot,
+        StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
+        walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
@@ -873,6 +875,7 @@ mod tests {
             StorageAccessPurpose::Read,
             StorageAccessPurpose::Write,
             StorageAccessPurpose::Move,
+            StorageAccessPurpose::ValueTransfer,
             StorageAccessPurpose::Assignment,
             StorageAccessPurpose::Member,
             StorageAccessPurpose::Index,
@@ -925,6 +928,53 @@ mod tests {
         assert!(dependencies.contains(
             &crate::fact::CompilationFactKey::CheckedSemanticSelections(key)
         ));
+    }
+
+    #[test]
+    fn storage_plans_retain_coherent_alternative_bindings_conservatively() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    First(value: i32);\n",
+            "    Second(value: i32);\n",
+            "}\n",
+            "func main(value: Choice)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case First(value = item) | Second(value = item)\n",
+            "        {\n",
+            "            item;\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let plan = match compilation.storage_plan(key) {
+            Ok(plan) => plan,
+            Err(error) => panic!("alternative-pattern storage planning must publish: {error:?}"),
+        };
+
+        let Some((_, StorageBinding::Identity(storage))) = plan
+            .value()
+            .bindings()
+            .iter()
+            .find(|(target, _)| matches!(target, StorageBindingTarget::Local(_)))
+        else {
+            panic!("coherent alternatives must retain one logical local binding");
+        };
+
+        assert!(matches!(
+            plan.value().identity(*storage),
+            Some(StorageIdentity::Error(_))
+        ));
+
+        assert!(plan.value().accesses().iter().any(|access| {
+            matches!(access.root(), StorageAccessRoot::Recovery(root) if root == *storage)
+        }));
     }
 
     #[test]

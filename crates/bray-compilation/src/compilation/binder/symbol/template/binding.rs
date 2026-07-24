@@ -305,6 +305,7 @@ fn bind_predicate_signature_template(
     owner: PredicateDefinitionSymbolId,
 ) -> BinderFactResult<DiagnosticResult<PredicateSignatureTemplate>> {
     let symbol = owner.into_any();
+
     let parameters = context
         .symbols
         .predicate_definition_parameters(owner)

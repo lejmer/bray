@@ -129,18 +129,20 @@ where
 
                 self.temporary_access(id)?
             }
-            BoundExpression::ControlTransfer(transfer)
-                if transfer.kind() == BoundControlTransferKind::Return =>
-            {
+            BoundExpression::ControlTransfer(transfer) => {
                 if let Some(operand) = transfer.operand() {
-                    self.plan_expression(operand, Some(StorageAccessPurpose::Read))?;
+                    self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
                 }
 
-                let access = self.result_access(id, transfer.operand())?;
+                if transfer.kind() == BoundControlTransferKind::Return {
+                    let access = self.result_access(id, transfer.operand())?;
 
-                self.record_purpose(id, Some(StorageAccessPurpose::Write), access)?;
+                    self.record_purpose(id, Some(StorageAccessPurpose::Write), access)?;
 
-                access
+                    access
+                } else {
+                    self.temporary_access(id)?
+                }
             }
             _ => {
                 for child in expression.child_expressions() {
@@ -169,10 +171,10 @@ where
     ) -> Result<StorageAccessId, PlanError> {
         self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
 
-        // TODO(BRA-268): Replace conservative reads once selected calls retain instantiated
-        // parameter ownership and borrowing modes.
+        // TODO(BRA-268): Resolve each transfer to an exact copy, move, or borrow once selected
+        // calls retain instantiated parameter ownership and borrowing modes.
         for argument in arguments {
-            self.plan_expression(argument, Some(StorageAccessPurpose::Read))?;
+            self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
         }
 
         self.temporary_access(id)
@@ -202,7 +204,7 @@ where
         )?;
 
         for value in values {
-            self.plan_expression(*value, Some(StorageAccessPurpose::Read))?;
+            self.plan_expression(*value, Some(StorageAccessPurpose::ValueTransfer))?;
         }
 
         self.temporary_access(id)
@@ -232,6 +234,8 @@ where
                     })
                     .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
+                // TODO(BRA-208): Materialize the dependency-backed borrow capability when
+                // composite borrow checking establishes it.
                 let access = self.copy_access(id, operand_access)?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
@@ -299,7 +303,7 @@ where
                 // TODO(BRA-268): Restrict this fallback to recovery once every index provider
                 // publishes an exact selection.
                 if !selected {
-                    let access = self.temporary_access(id)?;
+                    let access = self.conservative_subject_access(id, receiver_access)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Index), access)?;
 
@@ -327,7 +331,7 @@ where
                 // TODO(BRA-268): Restrict this fallback to recovery once every slice provider
                 // publishes an exact selection.
                 if !selected {
-                    let access = self.temporary_access(id)?;
+                    let access = self.conservative_subject_access(id, receiver_access)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Slice), access)?;
 

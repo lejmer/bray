@@ -710,9 +710,9 @@ parameter, receiver, local, result, temporary, allocation, compiler-created, and
 storage-access occurrence in source evaluation order.
 
 An access plan records the exact expression occurrence, its checked access root and ordered projections, its reached type, and the
-operation performed through it. Operations include reads, writes, moves, borrows, assignments, member access, indexing, slicing,
-and pattern projections. A single expression can produce several projected accesses with the same operation, as with product or
-sequence destructuring.
+operation performed through it. Operations include reads, writes, moves, unresolved value transfers, borrows, assignments, member
+access, indexing, slicing, and pattern projections. A single expression can produce several projected accesses with the same
+operation, as with product or sequence destructuring.
 
 Planning requests only the exact unit's bound tree, final expression types, semantic selections, checked pattern facts, and selected
 iteration sources. Nested semantic units and unrelated declarations retain independent fact identities and are not scanned or

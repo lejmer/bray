@@ -70,6 +70,7 @@ where
     pub(super) expression_accesses: BTreeMap<BoundExpressionId, StorageAccessId>,
     pub(super) planned_blocks: BTreeSet<BoundBlockId>,
     pub(super) planned_patterns: BTreeSet<BoundPatternId>,
+    pub(super) conservative_pattern_bindings: BTreeSet<bray_symbols::LocalBindingSymbolId>,
     pub(super) result_storage: bray_bound_tree::StorageIdentityId,
     pub(super) receiver_storage: Option<bray_bound_tree::StorageIdentityId>,
 }
@@ -124,6 +125,7 @@ where
             expression_accesses: BTreeMap::new(),
             planned_blocks: BTreeSet::new(),
             planned_patterns: BTreeSet::new(),
+            conservative_pattern_bindings: BTreeSet::new(),
             result_storage,
             receiver_storage: None,
         })

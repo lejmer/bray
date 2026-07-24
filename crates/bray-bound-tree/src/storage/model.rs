@@ -2,16 +2,13 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
-    AnonymousCallableParameterSymbolId, BorrowKind, CallableParameterSymbolId,
-    PredicateParameterSymbolId, ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal,
-    TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    AnonymousCallableParameterSymbolId, CallableParameterSymbolId, PredicateParameterSymbolId,
+    ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal, TypeId,
+    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::identity::define_unit_scoped_id;
-use crate::{
-    AnyBoundNodeId, BoundDependencyContractId, BoundExpressionId, BoundNodeOrigin,
-    BoundSourceAnchor, BoundUnitId,
-};
+use crate::{AnyBoundNodeId, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor, BoundUnitId};
 
 define_unit_scoped_id!(
     StorageIdentityId,
@@ -42,7 +39,6 @@ macro_rules! impl_storage_id {
 
 impl_storage_id!(StorageIdentityId);
 impl_storage_id!(StorageAccessId);
-impl_storage_id!(BorrowCapabilityId);
 
 /// One exact or symbolic storage origin and its semantic provenance.
 ///
@@ -244,69 +240,6 @@ impl StorageAccess {
     }
 }
 
-/// The immutable semantic origin of one borrow capability.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct BorrowCapability {
-    kind: BorrowKind,
-    access: StorageAccessId,
-    source: BoundSourceAnchor,
-    dependency_contract: BoundDependencyContractId,
-    derived_from: Option<BorrowCapabilityId>,
-}
-
-impl BorrowCapability {
-    /// Creates a borrow capability established over one evaluated storage access.
-    pub const fn new(
-        kind: BorrowKind,
-        access: StorageAccessId,
-        source: BoundSourceAnchor,
-        dependency_contract: BoundDependencyContractId,
-        derived_from: Option<BorrowCapabilityId>,
-    ) -> Self {
-        Self {
-            kind,
-            access,
-            source,
-            dependency_contract,
-            derived_from,
-        }
-    }
-
-    /// Returns whether this capability permits shared observation or exclusive mutation.
-    pub const fn kind(self) -> BorrowKind {
-        self.kind
-    }
-
-    /// Returns the evaluated storage access reached by the borrow operation.
-    pub const fn access(self) -> StorageAccessId {
-        self.access
-    }
-
-    /// Returns the source construct that established this capability.
-    pub const fn source(self) -> BoundSourceAnchor {
-        self.source
-    }
-
-    /// Returns the dependency contract carried by this capability.
-    pub const fn dependency_contract(self) -> BoundDependencyContractId {
-        self.dependency_contract
-    }
-
-    /// Returns the parent capability when this capability is a reborrow.
-    pub const fn derived_from(self) -> Option<BorrowCapabilityId> {
-        self.derived_from
-    }
-
-    pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
-        self.access.unit() == unit
-            && self.dependency_contract.unit() == unit
-            && match self.derived_from {
-                Some(capability) => capability.unit() == unit,
-                None => true,
-            }
-    }
-}
-
 /// A checker-proven relationship between two evaluated storage accesses.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageRelationship {
@@ -339,14 +272,12 @@ impl BoundUnitId {
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::BorrowKind;
-
     use super::{
-        BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,
-        StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
+        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+        StorageProjection, StorageRelationship,
     };
     use crate::test_support::{error_type, source_anchor};
-    use crate::{BoundDependencyContractId, BoundExpressionId, BoundUnitId};
+    use crate::{BoundExpressionId, BoundUnitId};
 
     #[test]
     fn storage_identity_is_distinct_from_provenance_and_access_occurrences() {
@@ -392,27 +323,6 @@ mod tests {
         assert!(!access.is_recovered());
         assert!(access.is_valid_for(unit));
         assert!(!access.is_valid_for(BoundUnitId::new(2)));
-    }
-
-    #[test]
-    fn borrow_identity_is_distinct_from_activity_and_reborrow_origin() {
-        let unit = BoundUnitId::new(5);
-        let parent = BorrowCapabilityId::from_slot(unit, 0);
-        let child_id = BorrowCapabilityId::from_slot(unit, 1);
-        let contract = BoundDependencyContractId::from_slot(unit, 0);
-
-        let child = BorrowCapability::new(
-            BorrowKind::Mutable,
-            StorageAccessId::from_slot(unit, 3),
-            source_anchor(),
-            contract,
-            Some(parent),
-        );
-
-        assert_ne!(parent, child_id);
-        assert_eq!(child.derived_from(), Some(parent));
-        assert_eq!(child.kind(), BorrowKind::Mutable);
-        assert!(child.is_valid_for(unit));
     }
 
     #[test]
