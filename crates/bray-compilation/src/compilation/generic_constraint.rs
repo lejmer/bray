@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
-    BoundBlockItem, BoundExpressionId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
+    BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
 };
 use bray_checker::{
     CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator,
@@ -55,6 +55,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<SemanticFactResult<GenericConstraintSatisfactionFact>, FactQueryError> {
         let values = self.semantic_value_store()?;
+
         let substitution = values
             .generic_substitution_data(key.substitution())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -64,6 +65,7 @@ impl Compilation {
         }
 
         let facts = self.binder_facts(cancellation)?;
+
         let template = facts
             .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
                 key.owner(),
@@ -96,9 +98,11 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<ProofOutcome, FactQueryError> {
         let values = self.semantic_value_store()?;
+
         let substitution = values
             .generic_substitution_data(candidate.substitution())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
         let obligation =
             GenericConstraintObligationKey::new(substitution.owner(), candidate.substitution());
 
@@ -119,11 +123,12 @@ impl Compilation {
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
-        let Some(expression) = constraint.expression() else {
+        let (Some(unit), Some(expression)) = (constraint.unit_syntax(), constraint.expression())
+        else {
             return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
         };
 
-        let key = self.constraint_unit_key(expression)?;
+        let key = self.constraint_unit_key(expression.owner(), unit)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
@@ -188,6 +193,7 @@ impl Compilation {
         }
 
         let values = self.semantic_value_store()?;
+
         let value = values
             .constant_value_data(*evaluated.value())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -204,29 +210,22 @@ impl Compilation {
 
     fn constraint_unit_key(
         &self,
-        expression: bray_symbols::DeclarationExpressionTemplate,
+        owner: bray_symbols::AnySymbolId,
+        syntax: bray_declarations::SyntaxAnchor,
     ) -> Result<BoundUnitKey, FactQueryError> {
         let symbols = self.symbol_graph()?;
-        let owner = symbols
-            .symbol_key(expression.owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-        let syntax = expression.syntax();
 
-        self.declared_unit_keys()?
-            .into_iter()
-            .find(|key| {
-                matches!(
-                    key.kind(),
-                    BoundUnitKind::Constraint | BoundUnitKind::ContractClause
-                ) && key.declared_owner() == owner
-                    && key.source().syntax().source_id() == syntax.source_id()
-                    && key
-                        .source()
-                        .syntax()
-                        .full_range()
-                        .contains_range(syntax.full_range())
-            })
-            .ok_or(FactQueryError::InfrastructureFailure)
+        let owner = symbols
+            .symbol_key(owner)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let source = self
+            .source(syntax.source_id())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let source = BoundSourceAnchor::new(syntax, source.version());
+
+        BoundUnitKey::constraint(owner.clone(), source).ok_or(FactQueryError::InfrastructureFailure)
     }
 }
 

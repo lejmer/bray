@@ -13,6 +13,8 @@ pub enum GenericConstraintTemplate {
     Source {
         /// The constraint's stable declaration-order position.
         ordinal: SymbolOrdinal,
+        /// The syntax occurrence that owns the independently bound constraint unit.
+        unit: bray_declarations::SyntaxAnchor,
         /// The exact source expression occurrence.
         expression: DeclarationExpressionTemplate,
     },
@@ -22,9 +24,14 @@ pub enum GenericConstraintTemplate {
 
 impl GenericConstraintTemplate {
     /// Creates one unevaluated generic constraint.
-    pub const fn new(ordinal: SymbolOrdinal, expression: DeclarationExpressionTemplate) -> Self {
+    pub const fn new(
+        ordinal: SymbolOrdinal,
+        unit: bray_declarations::SyntaxAnchor,
+        expression: DeclarationExpressionTemplate,
+    ) -> Self {
         Self::Source {
             ordinal,
+            unit,
             expression,
         }
     }
@@ -41,6 +48,14 @@ impl GenericConstraintTemplate {
     pub const fn expression(self) -> Option<DeclarationExpressionTemplate> {
         match self {
             Self::Source { expression, .. } => Some(expression),
+            Self::Resolved(_) => None,
+        }
+    }
+
+    /// Returns the source syntax that owns the independently bound constraint unit.
+    pub const fn unit_syntax(self) -> Option<bray_declarations::SyntaxAnchor> {
+        match self {
+            Self::Source { unit, .. } => Some(unit),
             Self::Resolved(_) => None,
         }
     }

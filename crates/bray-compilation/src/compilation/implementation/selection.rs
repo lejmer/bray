@@ -48,7 +48,9 @@ impl Compilation {
             self.implementation_candidate_set_result_with_cancellation(key, cancellation)?;
 
         let values = self.semantic_value_store()?;
+
         let mut applicable = Vec::new();
+        let mut has_unknown = false;
         let mut diagnostics = candidates.diagnostics().clone();
 
         for candidate in candidates.value().candidates() {
@@ -60,8 +62,14 @@ impl Compilation {
                 &mut diagnostics,
             )?;
 
-            if outcome != ProofOutcome::Proven {
-                continue;
+            match outcome {
+                ProofOutcome::Proven => {}
+                ProofOutcome::Unknown => {
+                    has_unknown = true;
+
+                    continue;
+                }
+                ProofOutcome::Disproven | ProofOutcome::Recovered => continue,
             }
 
             let instance = values
@@ -77,10 +85,11 @@ impl Compilation {
             ));
         }
 
-        let selection = match applicable.as_slice() {
-            [] => ImplementationSelection::Unavailable,
-            [candidate] => ImplementationSelection::Selected(candidate.instance()),
-            _ => ImplementationSelection::ambiguous(applicable)
+        let selection = match (has_unknown, applicable.as_slice()) {
+            (true, _) => ImplementationSelection::Deferred,
+            (false, []) => ImplementationSelection::Unavailable,
+            (false, [candidate]) => ImplementationSelection::Selected(candidate.instance()),
+            (false, _) => ImplementationSelection::ambiguous(applicable)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?,
         };
 
