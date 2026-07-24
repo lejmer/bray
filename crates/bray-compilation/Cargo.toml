@@ -20,6 +20,7 @@ bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-target = { path = "../bray-target" }
+rayon = "1.11.0"
 
 [dev-dependencies]
 bray-bound-tree = { path = "../bray-bound-tree", features = ["test-support"] }

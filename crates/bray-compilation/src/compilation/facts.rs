@@ -200,6 +200,7 @@ impl Compilation {
 
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
+        let worker_budget = options.worker_budget();
 
         Ok(Self {
             state: Arc::new(CompilationState {
@@ -209,7 +210,7 @@ impl Compilation {
                 source_diagnostics: diagnostics,
                 package_interface_export,
                 dependency_interfaces: dependency_interfaces.into_boxed_slice(),
-                fact_runtime: FactRuntime::default(),
+                fact_runtime: FactRuntime::new(worker_budget),
                 cancellation: CancellationToken::new(),
                 source_unit_syntax: empty_fact_caches(source_count),
                 syntax_tree_result: FactCell::new(),
@@ -336,10 +337,16 @@ impl Compilation {
             CompilationFactKey::SyntaxTree,
             &self.state.syntax_tree_result,
             || {
-                let source_units = self.sources().iter().map(|snapshot| {
+                let source_ids = self
+                    .sources()
+                    .iter()
+                    .map(SourceSnapshot::source_id)
+                    .collect::<Vec<_>>();
+
+                let source_units = self.map_facts(source_ids.len(), |index| {
                     // Source stores and fact caches share the loaded source count.
                     // The whole-source syntax result owns the composed source units.
-                    match self.source_unit_syntax(snapshot.source_id()) {
+                    match self.source_unit_syntax(source_ids[index]) {
                         Some(result) => result.clone(),
                         None => panic!("source unit fact cache should match source store"),
                     }
@@ -378,16 +385,51 @@ impl Compilation {
             CompilationFactKey::DeclarationTable,
             &self.state.declaration_table_result,
             || {
-                let chunks = self.sources().iter().map(|snapshot| {
-                    match self.declaration_chunk(snapshot.source_id()) {
-                        Some(chunk) => chunk,
+                let source_ids = self
+                    .sources()
+                    .iter()
+                    .map(SourceSnapshot::source_id)
+                    .collect::<Vec<_>>();
+
+                let chunks = self.map_facts(source_ids.len(), |index| {
+                    match self.declaration_chunk(source_ids[index]) {
+                        // The merge owns its input chunks after scheduled work completes.
+                        Some(chunk) => chunk.clone(),
                         None => panic!("declaration chunk cache should match source store"),
                     }
                 });
 
-                merge_declaration_chunks(chunks)
+                merge_declaration_chunks(chunks.iter())
             },
         )
+    }
+
+    pub(super) fn map_facts<T>(
+        &self,
+        len: usize,
+        operation: impl Fn(usize) -> T + Send + Sync,
+    ) -> Vec<T>
+    where
+        T: Send,
+    {
+        match self.state.fact_runtime.map_indexed(len, operation) {
+            Ok(values) => values,
+            Err(FactQueryError::Cancelled) => {
+                panic!("uncancellable scheduled facts were unexpectedly cancelled")
+            }
+            Err(FactQueryError::Cycle(cycle)) => {
+                panic!("scheduled fact dependencies formed a cycle: {cycle:?}")
+            }
+            Err(FactQueryError::InfrastructureFailure) => {
+                panic!("scheduled fact infrastructure failed")
+            }
+            Err(FactQueryError::SemanticUnitContext(error)) => {
+                panic!("scheduled semantic unit context failed: {error:?}")
+            }
+            Err(FactQueryError::CheckerInfrastructure(error)) => {
+                panic!("scheduled checker infrastructure failed: {error:?}")
+            }
+        }
     }
 
     /// Returns the merged declaration table for this compilation.
@@ -501,8 +543,11 @@ impl Compilation {
         &self,
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
-        compute: impl FnOnce() -> T,
-    ) -> &'a T {
+        compute: impl FnOnce() -> T + Send,
+    ) -> &'a T
+    where
+        T: Send,
+    {
         match cache.get_or_compute(
             &self.state.fact_runtime,
             key,
@@ -533,8 +578,11 @@ impl Compilation {
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
         cancellation: &CancellationToken,
-        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError>,
-    ) -> Result<&'a T, FactQueryError> {
+        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
+    ) -> Result<&'a T, FactQueryError>
+    where
+        T: Send,
+    {
         cache.get_or_compute(&self.state.fact_runtime, key, cancellation, || {
             compute(cancellation)
         })
@@ -549,8 +597,12 @@ impl Compilation {
         compute: impl FnOnce(
             &CancellationToken,
         )
-            -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>,
-    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
+            -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
+        + Send,
+    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
+    where
+        T: Send + Sync,
+    {
         cache.get_or_compute(
             &self.state.fact_runtime,
             cancellation,

@@ -48,7 +48,11 @@ impl WorkerBudget {
 
 impl Default for WorkerBudget {
     fn default() -> Self {
-        Self::available_parallelism()
+        if cfg!(test) {
+            Self::serial()
+        } else {
+            Self::available_parallelism()
+        }
     }
 }
 

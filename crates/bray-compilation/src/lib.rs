@@ -20,7 +20,6 @@ pub use compiler_known::{
 };
 pub use fact::{
     CancellationToken, FactCycle, FactQueryError, ImportedSemanticFactKey, SymbolCompletionError,
-    force_complete_symbol,
 };
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,

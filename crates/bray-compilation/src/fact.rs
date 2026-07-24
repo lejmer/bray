@@ -5,13 +5,16 @@ mod completion;
 mod error;
 mod key;
 mod runtime;
+mod scheduler;
 mod symbol;
 mod task;
 mod unit;
 mod unit_identity;
 
 pub use cancellation::CancellationToken;
-pub use completion::{SymbolCompletionError, force_complete_symbol};
+pub use completion::SymbolCompletionError;
+
+pub(crate) use completion::force_complete_symbol;
 pub use error::{FactCycle, FactQueryError};
 pub use key::ImportedSemanticFactKey;
 

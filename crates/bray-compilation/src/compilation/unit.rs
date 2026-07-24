@@ -772,7 +772,10 @@ mod tests {
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
-    use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
+    use crate::test_support::{
+        FactTestGate, compilation, compilation_with_sources_and_worker_budget,
+        source_callable_body_key,
+    };
 
     #[test]
     fn storage_plans_publish_unit_local_identities_accesses_and_dependencies() {
@@ -1920,7 +1923,18 @@ mod tests {
 
     #[test]
     fn repeated_and_concurrent_requests_share_production_semantic_facts() {
-        let compilation = callable_compilation();
+        let worker_budget = crate::WorkerBudget::new(2)
+            .unwrap_or_else(|error| panic!("test worker budget must be valid: {error:?}"));
+
+        let compilation = compilation_with_sources_and_worker_budget(
+            &[r#"module app;
+func main()
+{
+}
+"#],
+            worker_budget,
+        );
+
         let key = source_callable_body_key(&compilation);
 
         let first_bound = match compilation.bound_unit(key.clone()) {

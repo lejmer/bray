@@ -31,7 +31,7 @@ where
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
         request: SymbolFactRequest<C>,
-        compute: impl FnOnce() -> Result<SymbolFactResult<C>, FactQueryError>,
+        compute: impl FnOnce() -> Result<SymbolFactResult<C>, FactQueryError> + Send,
     ) -> Result<Arc<SymbolFactResult<C>>, FactQueryError> {
         let key = CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
 

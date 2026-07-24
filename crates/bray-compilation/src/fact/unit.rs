@@ -46,7 +46,10 @@ pub(crate) struct UnitFactCache<T> {
     cells: FactCellMap<BoundUnitKey, Arc<PublishedUnitFact<T>>>,
 }
 
-impl<T> UnitFactCache<T> {
+impl<T> UnitFactCache<T>
+where
+    T: Send + Sync,
+{
     pub(crate) const fn new() -> Self {
         Self {
             cells: FactCellMap::new(),
@@ -59,7 +62,8 @@ impl<T> UnitFactCache<T> {
         cancellation: &CancellationToken,
         fact_key: CompilationFactKey,
         unit_key: BoundUnitKey,
-        compute: impl FnOnce() -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>,
+        compute: impl FnOnce() -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
+        + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
         if fact_key.bound_unit_key() != Some(&unit_key) {
             return Err(FactQueryError::InfrastructureFailure);
@@ -171,7 +175,8 @@ mod tests {
         cancellation: &CancellationToken,
         key: bray_bound_tree::BoundUnitKey,
         compute: impl FnOnce()
-            -> Result<(DiagnosticResult<u32>, Box<[BinderDependency]>), FactQueryError>,
+            -> Result<(DiagnosticResult<u32>, Box<[BinderDependency]>), FactQueryError>
+        + Send,
     ) -> std::sync::Arc<super::PublishedUnitFact<u32>> {
         match cache.get_or_compute(
             runtime,
