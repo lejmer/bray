@@ -11,6 +11,7 @@ use bray_symbols::{
 };
 
 use super::aggregation::{collect_implementation_members, collect_named_type_members};
+use super::diagnostic::lifecycle_slot_diagnostics;
 use crate::compilation::Compilation;
 use crate::compilation::binder::{self, CompilationBinderFacts};
 use crate::compilation::source_graph::{
@@ -123,6 +124,12 @@ impl Compilation {
             implementations,
         )
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        diagnostics.add_range(
+            lifecycle_slot_diagnostics(&facts, &surface)?
+                .iter()
+                .cloned(),
+        );
 
         Ok(DiagnosticResult::new(surface, diagnostics))
     }

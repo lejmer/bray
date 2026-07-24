@@ -14,6 +14,7 @@ mod surface;
 mod table;
 #[cfg(test)]
 mod test_support;
+mod validation;
 
 pub use chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
 pub use discover::discover_source_unit_declarations;
@@ -26,3 +27,4 @@ pub use record::{
 pub use result::{DeclarationChunkResult, DeclarationTableResult};
 pub use surface::{DeclarationSurface, SyntaxAnchor};
 pub use table::DeclarationTable;
+pub use validation::duplicate_lifecycle_slot_diagnostic;

@@ -867,7 +867,7 @@ mod tests {
         let sources = source_store([concat!(
             "module core;\n",
             "func main<T, const N: Int>(value: T) {}\n",
-            "predicate valid<T, const N: Int>(value: T);\n",
+            "trusted predicate valid<T, const N: Int>(value: T);\n",
             "union Maybe { Some(value: Int, fallback: Int); }",
         )]);
 

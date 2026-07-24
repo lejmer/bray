@@ -1426,10 +1426,7 @@ func invalid()
                 .iter()
                 .map(|diagnostic| diagnostic.kind())
                 .collect::<Vec<_>>(),
-            [
-                DiagnosticKind::BindingInvalidCallableAbi,
-                DiagnosticKind::BindingDuplicateCallableAbi,
-            ]
+            [DiagnosticKind::BindingInvalidCallableAbi]
         );
     }
 
