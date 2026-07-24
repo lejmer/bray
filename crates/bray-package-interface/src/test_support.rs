@@ -19,9 +19,9 @@ use crate::{
     InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceProductIdentity,
     InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
     InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
-    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
-    encode_package_interface,
+    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, PackageInterfaceExportBundle,
+    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
+    build_package_interface_surface, encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -522,6 +522,9 @@ fn template_facts(
                 ),
             ],
         )
+        .with_type_representations([
+            InterfaceTypeRepresentation::new(structure.clone()).with_properties(true, true)
+        ])
         .with_templates(
             [template, predicate_template],
             [

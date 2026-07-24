@@ -436,7 +436,7 @@ fn read_constant_fields<V>(
     Ok(fields.into())
 }
 
-fn decode_integer(
+pub(super) fn decode_integer(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
 ) -> Result<IntegerConstant, InterfaceValidationError> {

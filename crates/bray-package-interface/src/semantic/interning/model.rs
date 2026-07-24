@@ -68,6 +68,7 @@ pub struct ImportedSemanticFacts {
     pub(super) generic_declarations: Arc<[ImportedGenericDeclarationFact]>,
     pub(super) callable_parameter_defaults: Arc<[ImportedCallableParameterDefaultFact]>,
     pub(super) predicate_definitions: Arc<[ImportedPredicateDefinitionFact]>,
+    pub(super) type_representations: Arc<[bray_symbols::DeclaredTypeRepresentation]>,
     pub(super) declaration_templates: Arc<[ImportedDeclarationTemplateFact]>,
     pub(super) constraints: Arc<[ImportedConstraintFact]>,
     pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
@@ -99,6 +100,8 @@ pub enum ImportedSemanticFact {
     CallableParameterDefault(ImportedCallableParameterDefaultFact),
     /// One predicate definition state.
     PredicateDefinition(ImportedPredicateDefinitionFact),
+    /// One declared type representation contract.
+    TypeRepresentation(bray_symbols::DeclaredTypeRepresentation),
     /// One checked generic constraint.
     GenericConstraint(ImportedConstraintFact),
     /// One complete callable contract set.
@@ -322,6 +325,13 @@ impl ImportedSemanticFacts {
                 .filter(|fact| fact.owner().into_any() == owner)
                 .map(ImportedSemanticFact::PredicateDefinition)
                 .collect(),
+            InterfaceSemanticFactKind::TypeRepresentation => self
+                .type_representations
+                .iter()
+                .filter(|fact| fact.subject().into_any() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::TypeRepresentation)
+                .collect(),
             InterfaceSemanticFactKind::GenericConstraint => self
                 .constraints
                 .iter()
@@ -425,6 +435,11 @@ impl ImportedSemanticFacts {
     /// Returns imported predicate definition states in interface order.
     pub fn predicate_definitions(&self) -> &[ImportedPredicateDefinitionFact] {
         &self.predicate_definitions
+    }
+
+    /// Returns imported declared type representation contracts in interface order.
+    pub fn type_representations(&self) -> &[bray_symbols::DeclaredTypeRepresentation] {
+        &self.type_representations
     }
 
     /// Returns imported declaration-owned templates in canonical interface order.

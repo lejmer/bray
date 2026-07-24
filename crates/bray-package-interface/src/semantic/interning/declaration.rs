@@ -1,8 +1,9 @@
 use bray_symbols::{
     CallableParameterSymbolId, CallableSignatureTemplate, CallableSymbolId,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericOwnerId,
-    GenericParameterSymbolId, PredicateDefinitionSymbolId, ReceiverParameterSignature,
-    ReceiverParameterSymbolId, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    GenericParameterSymbolId, GenericTypeParameterSymbolId, NamedTypeSymbolId,
+    PredicateDefinitionSymbolId, ReceiverParameterSignature, ReceiverParameterSymbolId,
+    TypeExpressionTemplate, UnevaluatedDefaultTemplate, UnionVariantSymbolId,
 };
 
 use super::common::{invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
@@ -150,6 +151,63 @@ impl InternState {
                     owner,
                     state: input.state(),
                 })
+            })
+            .collect()
+    }
+
+    pub(super) fn convert_type_representations(
+        &self,
+        facts: &InterfaceSemanticFacts,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<bray_symbols::DeclaredTypeRepresentation>, InterfaceSemanticInternError> {
+        facts
+            .type_representations
+            .iter()
+            .map(|input| {
+                let subject = resolve_family::<NamedTypeSymbolId>(symbols, input.owner())?;
+
+                let union_tag_type = input
+                    .union_tag_type()
+                    .map(|tag_type| {
+                        self.type_id(tag_type)
+                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                    })
+                    .transpose()?;
+
+                let union_tags = input
+                    .union_tags()
+                    .iter()
+                    .map(|tag| {
+                        Ok(bray_symbols::DeclaredUnionTag::new(
+                            resolve_exact::<UnionVariantSymbolId>(symbols, tag.variant())?,
+                            tag.value().clone(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;
+
+                let copy_dependencies = input
+                    .copy_dependencies()
+                    .iter()
+                    .map(|dependency| {
+                        resolve_exact::<GenericTypeParameterSymbolId>(symbols, dependency)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(bray_symbols::DeclaredTypeRepresentation::new(subject)
+                    .with_layout(
+                        input.layout(),
+                        input.alignment(),
+                        input.packing(),
+                        union_tag_type,
+                    )
+                    .with_union_tags(union_tags)
+                    .with_properties(
+                        input.copy_contract(),
+                        input.is_plain_storage(),
+                        input.has_finite_size(),
+                        false,
+                    )
+                    .with_copy_dependencies(copy_dependencies))
             })
             .collect()
     }

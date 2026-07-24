@@ -103,6 +103,11 @@ pub struct IntegerConstant {
 }
 
 impl IntegerConstant {
+    /// Creates a nonnegative integer from an unsigned 64-bit value.
+    pub fn from_u64(value: u64) -> Self {
+        Self::new(IntegerSign::NonNegative, value.to_be_bytes())
+    }
+
     /// Creates a canonical integer from a sign and big-endian unsigned magnitude.
     pub fn new(sign: IntegerSign, magnitude: impl IntoIterator<Item = u8>) -> Self {
         let magnitude: Vec<_> = magnitude
@@ -140,6 +145,17 @@ impl IntegerConstant {
     /// Returns whether this integer is greater than zero.
     pub fn is_positive(&self) -> bool {
         self.sign == IntegerSign::NonNegative && !self.is_zero()
+    }
+
+    /// Converts this value to an unsigned 64-bit integer when representable.
+    pub fn to_u64(&self) -> Option<u64> {
+        if self.sign != IntegerSign::NonNegative {
+            return None;
+        }
+
+        self.magnitude.iter().try_fold(0_u64, |value, byte| {
+            value.checked_mul(256)?.checked_add(u64::from(*byte))
+        })
     }
 }
 
@@ -486,5 +502,24 @@ mod tests {
         assert!(zero.is_zero());
 
         assert_eq!(positive.magnitude(), &[5]);
+    }
+
+    #[test]
+    fn integer_constants_convert_to_u64_only_when_representable() {
+        let maximum = IntegerConstant::new(IntegerSign::NonNegative, [0xff; 8]);
+
+        let overflow = IntegerConstant::new(IntegerSign::NonNegative, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        let negative = IntegerConstant::new(IntegerSign::Negative, [1]);
+
+        assert_eq!(maximum.to_u64(), Some(u64::MAX));
+        assert_eq!(overflow.to_u64(), None);
+        assert_eq!(negative.to_u64(), None);
+    }
+
+    #[test]
+    fn integer_constants_construct_from_unsigned_values() {
+        assert_eq!(IntegerConstant::from_u64(0).magnitude(), []);
+        assert_eq!(IntegerConstant::from_u64(256).magnitude(), [1, 0]);
     }
 }

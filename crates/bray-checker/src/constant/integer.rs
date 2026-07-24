@@ -38,7 +38,7 @@ pub(crate) fn integer_to_usize(value: &IntegerConstant) -> Option<usize> {
     Some(result)
 }
 
-pub(super) fn fits_integer_representation(
+pub(crate) fn fits_integer_representation(
     value: &IntegerConstant,
     representation: IntegerRepresentation,
     target_width: impl FnOnce() -> NonZeroU16,
@@ -74,7 +74,7 @@ fn fits_signed(value: &IntegerConstant, width: u16) -> bool {
     }
 }
 
-pub(super) fn significant_bits(magnitude: &[u8]) -> usize {
+pub(crate) fn significant_bits(magnitude: &[u8]) -> usize {
     magnitude.first().map_or(0, |first| {
         magnitude.len() * 8 - first.leading_zeros() as usize
     })

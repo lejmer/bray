@@ -16,6 +16,7 @@ mod service;
 mod storage;
 mod target;
 mod type_check;
+mod type_representation;
 mod unit;
 
 #[cfg(test)]
@@ -64,4 +65,8 @@ pub use target::{
     TargetValidity, TargetValidityContext, TargetValidityRequest, TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
+pub use type_representation::{
+    DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant, RepresentationIntegerType,
+    TypeRepresentationContext, check_declared_type_representation,
+};
 pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};

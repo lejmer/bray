@@ -193,6 +193,16 @@ pub enum DiagnosticKind {
     CheckingDuplicateModuleContributionDirective,
     /// A fixed-size array generator's required element count cannot be proven.
     CheckingArrayGeneratorCardinalityNotProvable,
+    /// A stored field or payload does not have a valid finite outer representation.
+    CheckingInvalidStoredType,
+    /// A declared type contains an inline representation cycle.
+    CheckingRecursiveTypeRepresentation,
+    /// A layout directive does not describe a valid source-level layout contract.
+    CheckingInvalidLayoutDirective,
+    /// A declared implicit-copy contract is not satisfied by the represented type.
+    CheckingInvalidCopyContract,
+    /// A union tag contract is incomplete, duplicated, or otherwise invalid.
+    CheckingInvalidUnionTag,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -311,6 +321,11 @@ impl DiagnosticKind {
             Self::CheckingUnreachablePatternAlternative => 7027,
             Self::CheckingDuplicateModuleContributionDirective => 7025,
             Self::CheckingArrayGeneratorCardinalityNotProvable => 7026,
+            Self::CheckingInvalidStoredType => 7028,
+            Self::CheckingRecursiveTypeRepresentation => 7029,
+            Self::CheckingInvalidLayoutDirective => 7030,
+            Self::CheckingInvalidCopyContract => 7031,
+            Self::CheckingInvalidUnionTag => 7032,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -450,6 +465,11 @@ impl DiagnosticKind {
             Self::CheckingArrayGeneratorCardinalityNotProvable => {
                 "checking_array_generator_cardinality_not_provable"
             }
+            Self::CheckingInvalidStoredType => "checking_invalid_stored_type",
+            Self::CheckingRecursiveTypeRepresentation => "checking_recursive_type_representation",
+            Self::CheckingInvalidLayoutDirective => "checking_invalid_layout_directive",
+            Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
+            Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -513,7 +533,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 103] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 108] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -609,6 +629,11 @@ mod tests {
             DiagnosticKind::CheckingUnreachablePatternAlternative,
             DiagnosticKind::CheckingDuplicateModuleContributionDirective,
             DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+            DiagnosticKind::CheckingInvalidStoredType,
+            DiagnosticKind::CheckingRecursiveTypeRepresentation,
+            DiagnosticKind::CheckingInvalidLayoutDirective,
+            DiagnosticKind::CheckingInvalidCopyContract,
+            DiagnosticKind::CheckingInvalidUnionTag,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

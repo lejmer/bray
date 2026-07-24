@@ -219,6 +219,7 @@ wire_tags!(InterfaceSemanticFactKind {
     8 => InterfaceSemanticFactKind::GenericDeclaration,
     9 => InterfaceSemanticFactKind::CallableParameterDefault,
     10 => InterfaceSemanticFactKind::PredicateDefinition,
+    11 => InterfaceSemanticFactKind::TypeRepresentation,
 });
 
 wire_tags!(InterfacePredicateDefinitionState {

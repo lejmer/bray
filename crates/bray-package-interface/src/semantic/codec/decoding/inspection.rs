@@ -163,6 +163,14 @@ fn inspect_declarations(
             InterfaceInspectionRecordKind::CallableParameterDefaults,
             decoded.callable_parameter_defaults.len(),
         ),
+        record(
+            InterfaceInspectionRecordKind::PredicateDefinitions,
+            decoded.predicate_definitions.len(),
+        ),
+        record(
+            InterfaceInspectionRecordKind::TypeRepresentations,
+            decoded.type_representations.len(),
+        ),
     ])
 }
 

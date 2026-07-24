@@ -46,6 +46,10 @@ impl InterfaceSemanticFacts {
                 .windows(2)
                 .all(|pair| pair[0].owner < pair[1].owner)
             || !self
+                .type_representations
+                .windows(2)
+                .all(|pair| pair[0].owner < pair[1].owner)
+            || !self
                 .implementations
                 .windows(2)
                 .all(|pair| pair[0].implementation < pair[1].implementation)
@@ -102,6 +106,72 @@ impl InterfaceSemanticFacts {
 
         for definition in &*self.predicate_definitions {
             validate_predicate_definition(definition, surface)?;
+        }
+
+        for representation in &*self.type_representations {
+            let owner = local_symbol(&representation.owner)?;
+            let owner_kind = validate_symbol_kind(&representation.owner, surface)?;
+
+            if !matches!(owner_kind, SymbolKind::Struct | SymbolKind::Union)
+                || representation
+                    .alignment
+                    .is_some_and(|value| !value.is_power_of_two())
+                || representation
+                    .packing
+                    .is_some_and(|value| !value.is_power_of_two())
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            if let Some(tag_type) = representation.union_tag_type {
+                validate_index(tag_type.to_index(), self.types.len())?;
+            }
+
+            if owner_kind != SymbolKind::Union
+                && (representation.union_tag_type.is_some()
+                    || !representation.union_tags.is_empty())
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            for tag in &*representation.union_tags {
+                let variant = local_symbol(&tag.variant)?;
+
+                if validate_symbol_kind(&tag.variant, surface)? != SymbolKind::UnionVariant
+                    || !surface.relationships().iter().any(|relationship| {
+                        relationship.kind() == bray_symbols::SymbolRelationshipKind::UnionVariant
+                            && relationship.owner() == owner
+                            && relationship.member() == variant
+                    })
+                {
+                    return Err(InterfaceValidationError::Malformed);
+                }
+            }
+
+            if representation.copy == bray_symbols::DeclaredCopyContract::Conditional {
+                if representation.copy_dependencies.is_empty()
+                    || !is_strictly_sorted(&representation.copy_dependencies)
+                {
+                    return Err(InterfaceValidationError::Malformed);
+                }
+            } else if !representation.copy_dependencies.is_empty() {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            for dependency in &*representation.copy_dependencies {
+                let parameter = local_symbol(dependency)?;
+
+                if validate_symbol_kind(dependency, surface)? != SymbolKind::GenericTypeParameter
+                    || !surface.relationships().iter().any(|relationship| {
+                        relationship.kind()
+                            == bray_symbols::SymbolRelationshipKind::GenericParameter
+                            && relationship.owner() == owner
+                            && relationship.member() == parameter
+                    })
+                {
+                    return Err(InterfaceValidationError::Malformed);
+                }
+            }
         }
 
         for implementation in &*self.implementations {

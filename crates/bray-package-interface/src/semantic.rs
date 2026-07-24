@@ -38,4 +38,5 @@ pub use model::{
     InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetFactDependency,
     InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
     InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionTag,
 };
