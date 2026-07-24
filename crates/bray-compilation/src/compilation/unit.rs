@@ -2217,6 +2217,7 @@ func other()
         };
 
         assert_eq!(selections.value().expression(reference), None);
+
         assert!(
             crate::test_support::diagnostic_kinds(selections.diagnostics())
                 .contains(&bray_diagnostics::DiagnosticKind::BindingUnresolvedName)

@@ -120,6 +120,7 @@ impl Compilation {
     ) -> Result<(Vec<ParticipatingImplementation>, DiagnosticBag), FactQueryError> {
         let declarations = self.declaration_table();
         let facts = self.binder_facts(cancellation)?;
+
         let mut anchors_by_implementation =
             BTreeMap::<NamedTraitImplementationSymbolId, BTreeSet<SyntaxAnchor>>::new();
 
@@ -466,6 +467,7 @@ impl First
             .unwrap_or_else(|| panic!("using declaration anchor must remain resolvable"));
 
         assert!(declaration.internal_keyword().is_some());
+
         assert_eq!(
             declaration.path().full_text(),
             "example.dependency.templates.RecordContract"
@@ -482,6 +484,7 @@ impl First
             .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
 
         assert!(participation.diagnostics().is_empty());
+
         assert!(
             participation
                 .value()

@@ -717,6 +717,7 @@ mod tests {
         ));
 
         let key = source_callable_body_key(&compilation);
+
         let bound = match compilation.bound_unit(key.clone()) {
             Ok(bound) => bound,
             Err(error) => panic!("bound unit must be available: {error:?}"),
@@ -798,6 +799,7 @@ mod tests {
         ));
 
         let key = source_callable_body_key(&compilation);
+
         let bound = match compilation.bound_unit(key.clone()) {
             Ok(bound) => bound,
             Err(error) => panic!("bound unit must be available: {error:?}"),
@@ -811,6 +813,7 @@ mod tests {
         };
 
         let cancellation = CancellationToken::new();
+
         let facts = match compilation.binder_facts_for(&key, &cancellation) {
             Ok(facts) => facts,
             Err(error) => panic!("binder facts must be available: {error:?}"),
@@ -943,6 +946,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("Iterator witness must be available: {error:?}"));
 
         assert_ne!(iterable_witness.definition(), iterator_witness.definition());
+
         assert_eq!(
             selected.iterate_member().definition().symbol().kind(),
             SymbolKind::TraitCallableMember

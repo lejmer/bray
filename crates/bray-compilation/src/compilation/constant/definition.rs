@@ -89,6 +89,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ConstantDefinitionState>, FactQueryError> {
         if let Some(value) = self.target_constant_value(definition)? {
             let values = self.semantic_value_store()?;
+
             let ty = values
                 .constant_value_data(value)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?
@@ -1640,6 +1641,7 @@ mod tests {
             .unwrap_or_else(|| panic!("Result symbol must resolve"));
 
         let variant = result.variants()[usize::from(error)];
+
         let variant_symbol = symbols
             .union_variant(variant)
             .unwrap_or_else(|| panic!("Result variant must resolve"));
