@@ -155,6 +155,22 @@ impl StoragePlan {
         &self.identities
     }
 
+    /// Returns storage origins with their unit-local identities.
+    pub fn identity_entries(
+        &self,
+    ) -> impl Iterator<Item = (StorageIdentityId, StorageIdentity)> + '_ {
+        self.identities
+            .iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(index, identity)| {
+                let slot = u32::try_from(index).ok()?;
+                let id = StorageIdentityId::from_storage_slot(self.unit, slot);
+
+                Some((id, identity))
+            })
+    }
+
     /// Returns evaluated accesses in deterministic evaluation order.
     pub fn accesses(&self) -> &[StorageAccess] {
         &self.accesses

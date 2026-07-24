@@ -1,8 +1,10 @@
 mod builder;
+mod liveness;
 mod model;
 mod plan;
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
+pub use liveness::{LastUse, LiveAcrossScope, LivenessFacts, LivenessFactsBuildError};
 pub use model::{
     BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
     StorageIdentityId, StorageProjection, StorageRelationship,
