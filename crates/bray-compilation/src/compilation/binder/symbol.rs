@@ -5,6 +5,7 @@ mod compute;
 mod constant;
 mod contract;
 mod declaration_body;
+mod directive;
 mod environment;
 mod imported;
 mod module_surface;

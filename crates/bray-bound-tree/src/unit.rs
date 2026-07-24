@@ -17,7 +17,7 @@ pub enum BoundUnitKind {
     RuntimeDefault,
     /// A constant definition template.
     ConstantTemplate,
-    /// A constant expression embedded in a type-expression template.
+    /// A constant expression embedded in a declaration surface.
     EmbeddedConstant,
     /// A predicate definition.
     PredicateDefinition,
@@ -36,7 +36,9 @@ impl BoundUnitKind {
             Self::AnonymousCallable => false,
             Self::RuntimeDefault => CheckedTemplateKind::RuntimeDefault.accepts_owner(owner),
             Self::ConstantTemplate => CheckedTemplateKind::ConstantDefinition.accepts_owner(owner),
-            Self::EmbeddedConstant => owner.can_be_source_declared(),
+            Self::EmbeddedConstant => {
+                owner.can_be_source_declared() || matches!(owner, SymbolKind::Module)
+            }
             Self::PredicateDefinition => {
                 CheckedTemplateKind::PredicateDefinition.accepts_owner(owner)
             }
@@ -191,7 +193,7 @@ pub enum BoundUnitKeyData {
     RuntimeDefault(DeclaredBoundUnitKey),
     /// A constant definition template.
     ConstantTemplate(DeclaredBoundUnitKey),
-    /// A constant expression embedded in a type-expression template.
+    /// A constant expression embedded in a declaration surface.
     EmbeddedConstant(DeclaredBoundUnitKey),
     /// A predicate definition.
     PredicateDefinition(DeclaredBoundUnitKey),
@@ -283,9 +285,9 @@ impl BoundUnitKey {
         )
     }
 
-    /// Creates a key for a constant expression embedded in a type-expression template.
+    /// Creates a key for a constant expression embedded in a declaration surface.
     ///
-    /// Returns `None` when the owner cannot be introduced by a source declaration.
+    /// Returns `None` when the owner cannot contain source-backed constant expressions.
     pub fn embedded_constant(owner: SymbolKey, source: BoundSourceAnchor) -> Option<Self> {
         Self::declared(
             BoundUnitKind::EmbeddedConstant,

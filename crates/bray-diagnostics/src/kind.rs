@@ -113,6 +113,8 @@ pub enum DiagnosticKind {
     BindingConflictingModuleExport,
     /// An export path resolves to an entity that cannot enter a module export surface.
     BindingInvalidModuleExportTarget,
+    /// A directive argument cannot be bound because its syntax is malformed.
+    BindingMalformedDirectiveArgument,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
@@ -239,6 +241,7 @@ impl DiagnosticKind {
             Self::BindingCyclicModuleExport => 6012,
             Self::BindingConflictingModuleExport => 6013,
             Self::BindingInvalidModuleExportTarget => 6014,
+            Self::BindingMalformedDirectiveArgument => 6015,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingInvalidConstantExpression => 7003,
@@ -338,6 +341,7 @@ impl DiagnosticKind {
             Self::BindingCyclicModuleExport => "binding_cyclic_module_export",
             Self::BindingConflictingModuleExport => "binding_conflicting_module_export",
             Self::BindingInvalidModuleExportTarget => "binding_invalid_module_export_target",
+            Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
@@ -443,7 +447,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 84] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 88] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -496,6 +500,10 @@ mod tests {
             DiagnosticKind::BindingDuplicateCallableAbi,
             DiagnosticKind::BindingPredicateBodyRequired,
             DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
+            DiagnosticKind::BindingCyclicModuleExport,
+            DiagnosticKind::BindingConflictingModuleExport,
+            DiagnosticKind::BindingInvalidModuleExportTarget,
+            DiagnosticKind::BindingMalformedDirectiveArgument,
             DiagnosticKind::CheckingIncompatibleExpressionType,
             DiagnosticKind::CheckingCannotInferExpressionType,
             DiagnosticKind::CheckingInvalidConstantExpression,

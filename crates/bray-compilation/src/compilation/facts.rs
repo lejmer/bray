@@ -20,9 +20,10 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
-    CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider, ConstantExpressionExpectedType,
-    ConstantExpressionOccurrenceKey, ConstantInstanceValueFact, ConstantTermId, ConstantValueId,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
+    ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
+    ConstantTermId, ConstantValueId, DirectiveSurface, ImplementationCandidateSet,
+    ImplementationCoherenceDomainKey, ImplementationParticipationFact,
     ImplementationRequirementKey, ImportedSymbolSkeleton, PackageIdentity, SemanticFactResult,
     SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
 };
@@ -72,6 +73,8 @@ pub(super) struct CompilationState {
         FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
     pub(super) module_target_gates:
         FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleTargetGate>>>,
+    pub(super) callable_type_directives:
+        FactCellMap<CallableTypeDirectiveKey, Arc<DiagnosticResult<DirectiveSurface>>>,
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
@@ -200,6 +203,7 @@ impl Compilation {
                 selected_target: FactCell::new(),
                 target_validity: FactCellMap::new(),
                 module_target_gates: FactCellMap::new(),
+                callable_type_directives: FactCellMap::new(),
                 bound_unit_identities: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),

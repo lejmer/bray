@@ -1,4 +1,5 @@
 use bray_binder::{BinderFactError, BinderFactResult, CallableTypeQualifiers, bind_callable_abi};
+use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableTrust, ReceiverMode,
@@ -230,16 +231,7 @@ pub(super) fn with_declaration_root<R>(
     consume: impl FnOnce(SyntaxNodeView<'_>) -> BinderFactResult<R>,
 ) -> BinderFactResult<R> {
     if let Some(anchor) = context.symbols.declaration_syntax_anchor(symbol) {
-        let root = context
-            .compilation
-            .syntax_tree()
-            .find_node(
-                anchor.source_id(),
-                anchor.syntax_kind(),
-                anchor.full_range(),
-                anchor.is_recovered(),
-            )
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+        let root = syntax_node_for_anchor(context, anchor)?;
 
         return consume(root);
     }
@@ -251,4 +243,20 @@ pub(super) fn with_declaration_root<R>(
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     consume(fragment.root())
+}
+
+pub(super) fn syntax_node_for_anchor<'syntax>(
+    context: &'syntax CompilationBinderFacts<'_>,
+    anchor: SyntaxAnchor,
+) -> BinderFactResult<SyntaxNodeView<'syntax>> {
+    context
+        .compilation
+        .syntax_tree()
+        .find_node(
+            anchor.source_id(),
+            anchor.syntax_kind(),
+            anchor.full_range(),
+            anchor.is_recovered(),
+        )
+        .ok_or(BinderFactError::DependencyUnavailable)
 }

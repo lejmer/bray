@@ -173,6 +173,7 @@ impl TypeExpressionBinder<'_> {
         }
 
         let element = self.bind_type(&element)?;
+
         let mut lengths = syntax.expressions();
 
         let Some(length) = lengths.next() else {

@@ -49,7 +49,8 @@ mod unit;
 pub use binder::BinderDependency;
 pub use binding::{
     CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding,
-    bind_callable_abi, bind_expression_candidates,
+    bind_callable_abi, bind_callable_type_directives, bind_directive_template,
+    bind_expression_candidates,
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
