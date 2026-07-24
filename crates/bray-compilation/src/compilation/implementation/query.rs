@@ -282,14 +282,12 @@ impl super::super::Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::SymbolFactProvider;
-    use bray_compiler_known::RepresentationRole;
+    use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_symbols::{
         GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-        ImplementationCoherenceDomainKey, ImplementationCoherenceFact,
-        ImplementationHeadTemplateFact, ImplementationRequirementKey, ImplementationSymbolId,
-        NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, SymbolOrigin, TraitApplicationData,
-        TypeData,
+        ImplementationCoherenceDomainKey, ImplementationRequirementKey, ImplementationSymbolId,
+        NamedTraitImplementationSymbolId, NamedTypeSymbolId, StructSymbolId, SymbolOrigin,
+        TraitApplicationData, TypeData,
     };
     use bray_target::TargetFactKind;
 
@@ -457,52 +455,34 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
     #[test]
     fn compiler_known_implementation_headers_participate_by_availability() {
         let compilation = compilation("module app;");
-        let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts(&cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let Some(key) = CompilerKnownDeclarationKey::try_new("HeapStorageImplementation") else {
+            panic!("HeapStorageImplementation must be a valid declaration key");
+        };
 
-        let implementation = compilation
+        let Some(implementation) = compilation
             .available_compiler_known_symbols()
-            .declarations()
-            .iter()
-            .copied()
-            .filter_map(ImplementationSymbolId::try_from_any)
-            .filter(|implementation| !matches!(implementation, ImplementationSymbolId::Inherent(_)))
-            .find(|implementation| {
-                facts
-                    .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
-                        *implementation,
-                    ))
-                    .is_ok_and(|head| head.value().generic().parameters().is_empty())
-            })
-            .unwrap_or_else(|| panic!("catalog must expose a non-generic trait implementation"));
+            .declaration_symbol::<NamedTraitImplementationSymbolId>(&key)
+        else {
+            panic!("catalog must expose the HeapStorage implementation");
+        };
 
-        let coherence = facts
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
-                implementation,
-            ))
-            .unwrap_or_else(|error| panic!("coherence fact must be available: {error:?}"));
+        let implementation = ImplementationSymbolId::NamedTrait(implementation);
 
-        let trait_application = coherence
-            .value()
-            .trait_application()
-            .unwrap_or_else(|| panic!("fixture implementation must implement a trait"));
+        let domain = ImplementationCoherenceDomainKey::new(compilation.package_identity().clone());
 
-        let requirement =
-            ImplementationRequirementKey::new(coherence.value().subject(), trait_application);
-
-        let candidates = compilation
-            .implementation_candidate_set_result(requirement)
-            .unwrap_or_else(|error| panic!("candidate query must complete: {error:?}"));
+        let participation = compilation
+            .implementation_participation(domain)
+            .unwrap_or_else(|error| {
+                panic!("implementation participation must complete: {error:?}")
+            });
 
         assert!(
-            candidates
+            participation
                 .value()
-                .candidates()
+                .implementations()
                 .iter()
-                .any(|candidate| candidate.implementation() == implementation)
+                .any(|participant| participant.implementation() == implementation)
         );
     }
 

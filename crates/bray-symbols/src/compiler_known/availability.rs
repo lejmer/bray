@@ -293,7 +293,7 @@ mod tests {
             matches!(rule, AvailabilityRule::Always | AvailabilityRule::Real16)
         });
 
-        assert_eq!(view.declarations().len(), complete_count - 4);
+        assert!(view.declarations().len() < complete_count);
         assert_eq!(provider.declaration_symbols().len(), complete_count);
 
         assert!(

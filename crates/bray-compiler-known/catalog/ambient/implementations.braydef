@@ -1,13 +1,49 @@
 catalog compiler_known;
 
 scope Ambient at ambient {
-    declaration BoolStorageImplementation {
-        surface { impl BoolStorage = bool(Storage<bool>) {} }
+    declaration HeapStorageImplementation {
+        surface { impl HeapStorage = Heap(Storage<T>) {} }
     }
 
-    declaration BoolStorageItem {
-        owner BoolStorageImplementation;
+    declaration HeapStorageCreate {
+        owner HeapStorageImplementation;
 
-        surface { type Item = bool; }
+        surface {
+            trusted static func create(pos value: T) -> Heap
+                uses(manual_alloc, raw_memory, unchecked_init)
+            {}
+        }
+    }
+
+    declaration HeapStorageBorrow {
+        owner HeapStorageImplementation;
+
+        surface { static func borrow(pos storage: &Heap) -> &T {} }
+    }
+
+    declaration HeapStorageBorrowMut {
+        owner HeapStorageImplementation;
+
+        surface { static func borrow_mut(pos storage: &mut Heap) -> &mut T {} }
+    }
+
+    declaration HeapStorageDestroy {
+        owner HeapStorageImplementation;
+
+        surface {
+            trusted static func destroy(pos storage: &mut Heap)
+                uses(raw_memory, unchecked_init)
+            {}
+        }
+    }
+
+    declaration HeapStorageRelease {
+        owner HeapStorageImplementation;
+
+        surface {
+            trusted static func release(pos storage: Heap)
+                uses(manual_alloc)
+            {}
+        }
     }
 }

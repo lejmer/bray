@@ -299,10 +299,9 @@ mod tests {
         CallableContractTypeFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
         ExactSymbolId, FunctionSymbolId, GenericConstraintsFact, GenericDeclarationTemplateFact,
         GenericOwnerId, ImplementationCoherenceFact, ImplementationSymbolId,
-        NamedTraitImplementationSymbolId, SelfTypeContext, StructFieldSymbolId,
-        StructFieldTypeFact, StructSymbolId, SymbolFactRequest, TraitCallableMemberSymbolId,
-        TraitSymbolId, TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueFact,
-        TypeCallableMemberSymbolId, TypeData, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+        NamedTraitImplementationSymbolId, StructFieldSymbolId, StructFieldTypeFact, StructSymbolId,
+        SymbolFactRequest, TraitCallableMemberSymbolId, TypeCallableMemberSymbolId, TypeData,
+        UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
     };
 
     use super::{CancellationToken, SymbolCompletionLevel};
@@ -342,29 +341,7 @@ mod tests {
         assert!(Arc::ptr_eq(&first_copy, &second_copy));
         assert_eq!(first_copy.value().parameters().len(), 3);
 
-        let copy_contracts = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractsFact>::new(copy.into()),
-        );
-
-        assert_eq!(copy_contracts.value().invocation_preconditions().len(), 1);
-        assert_eq!(copy_contracts.value().static_constraints().len(), 1);
-
-        assert_eq!(
-            copy_contracts
-                .value()
-                .normal_completion_postconditions()
-                .len(),
-            1
-        );
-
-        assert!(
-            copy_contracts
-                .value()
-                .deferred_execution_behavior()
-                .is_none()
-        );
-
+        // TODO(BRA-270): Assert checked contracts once capability paths have typed identities.
         let copy_contract_template = published_fact(
             &facts,
             SymbolFactRequest::<CallableContractTemplateFact>::new(copy.into()),
@@ -373,7 +350,7 @@ mod tests {
         assert!(matches!(
             copy_contract_template.value(),
             CallableContractTemplate::Source(contract)
-                if contract.expressions().len() == 3 && contract.capabilities().is_empty()
+                if contract.expressions().len() == 5 && contract.capabilities().len() == 2
         ));
 
         let pointer = declaration::<StructSymbolId>(symbols, "RawPointer");
@@ -398,7 +375,7 @@ mod tests {
         assert_eq!(pointer_template.value().constraints().len(), 1);
 
         let storage_implementation =
-            declaration::<NamedTraitImplementationSymbolId>(symbols, "BoolStorageImplementation");
+            declaration::<NamedTraitImplementationSymbolId>(symbols, "HeapStorageImplementation");
 
         let coherence = published_fact(
             &facts,
@@ -483,35 +460,15 @@ mod tests {
                 .is_some()
         );
 
-        let item = declaration::<TraitTypeFulfillmentSymbolId>(symbols, "BoolStorageItem");
-        let item_type = published_fact(
+        let borrow = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageBorrow");
+
+        let borrow_signature = published_fact(
             &facts,
-            SymbolFactRequest::<TraitTypeFulfillmentValueFact>::new(item),
+            SymbolFactRequest::<CallableSignatureFact>::new(borrow.into()),
         );
 
-        assert!(matches!(
-            type_data(&compilation, item_type.value()).as_ref(),
-            TypeData::Named { definition, .. }
-                if *definition == declaration::<StructSymbolId>(symbols, "Bool").into()
-        ));
-
-        let load = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageLoad");
-
-        let load_signature = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableSignatureFact>::new(load.into()),
-        );
-
-        let Some(receiver) = load_signature.value().receiver() else {
-            panic!("trait callable must retain its contextual receiver");
-        };
-
-        assert_eq!(
-            type_data(&compilation, receiver.ty()).as_ref(),
-            &TypeData::ContextualSelf(SelfTypeContext::Trait(declaration::<TraitSymbolId>(
-                symbols, "Storage"
-            )))
-        );
+        assert!(borrow_signature.value().receiver().is_none());
+        assert_eq!(borrow_signature.value().parameters().len(), 1);
     }
 
     fn declaration<I>(symbols: &bray_symbols::SymbolGraph, key: &str) -> I

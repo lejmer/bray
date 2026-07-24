@@ -131,7 +131,9 @@ impl CatalogGenericParameter {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CatalogDeclarationSignature {
     generic_parameters: Box<[CatalogGenericParameter]>,
+    implementation_parameter_candidates: Box<[CatalogGenericParameter]>,
     callable_parameters: u32,
+    predicate_parameters: u32,
     is_static: bool,
 }
 
@@ -141,9 +143,19 @@ impl CatalogDeclarationSignature {
         &self.generic_parameters
     }
 
+    /// Returns names that may become inferred parameters of an implementation.
+    pub fn implementation_parameter_candidates(&self) -> &[CatalogGenericParameter] {
+        &self.implementation_parameter_candidates
+    }
+
     /// Returns the number of written parameters in the direct callable parameter list.
     pub const fn callable_parameters(&self) -> u32 {
         self.callable_parameters
+    }
+
+    /// Returns the number of written parameters in the direct predicate parameter list.
+    pub const fn predicate_parameters(&self) -> u32 {
+        self.predicate_parameters
     }
 
     /// Returns whether the declaration carries a static modifier.
@@ -201,12 +213,26 @@ fn preparsed_fragment(
 }
 
 fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarationSignature {
+    let is_implementation = matches!(
+        elements.first(),
+        Some(CatalogSurfaceElement::EnterNode(
+            SyntaxKind::InherentImplementationDeclaration
+                | SyntaxKind::NamedTraitImplementationDeclaration
+                | SyntaxKind::UnnamedTraitImplementationDeclaration
+        ))
+    );
+
     let mut generic_parameters = Vec::new();
+    let mut implementation_parameter_candidates = Vec::new();
     let mut callable_parameters = 0_u32;
+    let mut predicate_parameters = 0_u32;
     let mut depth = 0_u32;
     let mut generic_list_depth = None;
     let mut generic_parameter = None;
+    let mut generic_argument_depth = None;
+    let mut implementation_parameter_kind = None;
     let mut parameter_list_depth = None;
+    let mut predicate_parameter_list_depth = None;
     let mut is_static = false;
 
     for element in elements {
@@ -216,7 +242,27 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
 
                 match (*kind, depth) {
                     (SyntaxKind::GenericParameterList, 2) => generic_list_depth = Some(depth),
+                    (SyntaxKind::GenericArgument, _) if is_implementation => {
+                        generic_argument_depth = Some(depth);
+                    }
+                    (SyntaxKind::TypeExpression, _)
+                        if generic_argument_depth.is_some()
+                            && implementation_parameter_kind.is_none() =>
+                    {
+                        implementation_parameter_kind =
+                            Some((CatalogGenericParameterKind::Type, depth));
+                    }
+                    (SyntaxKind::Expression, _)
+                        if generic_argument_depth.is_some()
+                            && implementation_parameter_kind.is_none() =>
+                    {
+                        implementation_parameter_kind =
+                            Some((CatalogGenericParameterKind::Const, depth));
+                    }
                     (SyntaxKind::ParameterList, 2) => parameter_list_depth = Some(depth),
+                    (SyntaxKind::PredicateParameterList, 2) => {
+                        predicate_parameter_list_depth = Some(depth);
+                    }
                     (SyntaxKind::GenericTypeParameter, 3) if generic_list_depth == Some(2) => {
                         generic_parameter = Some((CatalogGenericParameterKind::Type, depth));
                     }
@@ -225,6 +271,11 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                     }
                     (SyntaxKind::Parameter, 3) if parameter_list_depth == Some(2) => {
                         callable_parameters = callable_parameters.saturating_add(1);
+                    }
+                    (SyntaxKind::PredicateParameter, 3)
+                        if predicate_parameter_list_depth == Some(2) =>
+                    {
+                        predicate_parameters = predicate_parameters.saturating_add(1);
                     }
                     _ => {}
                 }
@@ -240,6 +291,20 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                         name: token.spelling().to_owned(),
                     });
                 }
+
+                if token.is_identifier()
+                    && let Some((kind, _)) = implementation_parameter_kind
+                    && !implementation_parameter_candidates.iter().any(
+                        |candidate: &CatalogGenericParameter| {
+                            candidate.kind == kind && candidate.name == token.spelling()
+                        },
+                    )
+                {
+                    implementation_parameter_candidates.push(CatalogGenericParameter {
+                        kind,
+                        name: token.spelling().to_owned(),
+                    });
+                }
             }
             CatalogSurfaceElement::ExitNode(kind) => {
                 if *kind == SyntaxKind::GenericParameterList && generic_list_depth == Some(depth) {
@@ -248,6 +313,23 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
 
                 if *kind == SyntaxKind::ParameterList && parameter_list_depth == Some(depth) {
                     parameter_list_depth = None;
+                }
+
+                if *kind == SyntaxKind::PredicateParameterList
+                    && predicate_parameter_list_depth == Some(depth)
+                {
+                    predicate_parameter_list_depth = None;
+                }
+
+                if *kind == SyntaxKind::GenericArgument && generic_argument_depth == Some(depth) {
+                    generic_argument_depth = None;
+                    implementation_parameter_kind = None;
+                }
+
+                if implementation_parameter_kind
+                    .is_some_and(|(_, parameter_depth)| parameter_depth == depth)
+                {
+                    implementation_parameter_kind = None;
                 }
 
                 if generic_parameter.is_some_and(|(_, parameter_depth)| parameter_depth == depth) {
@@ -261,7 +343,9 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
 
     CatalogDeclarationSignature {
         generic_parameters: generic_parameters.into_boxed_slice(),
+        implementation_parameter_candidates: implementation_parameter_candidates.into_boxed_slice(),
         callable_parameters,
+        predicate_parameters,
         is_static,
     }
 }
@@ -345,6 +429,37 @@ mod tests {
             signature.generic_parameters()[1].kind(),
             CatalogGenericParameterKind::Const
         );
+    }
+
+    #[test]
+    fn signature_scanning_retains_only_implementation_head_candidates() {
+        let implementation = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::NamedTraitImplementationDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression),
+            token(SyntaxKind::IdentifierToken, "T"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::NamedTraitImplementationDeclaration),
+        ]);
+
+        let callable = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression),
+            token(SyntaxKind::IdentifierToken, "T"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration),
+        ]);
+
+        let [candidate] = implementation.implementation_parameter_candidates() else {
+            panic!("implementation head should retain one inferred parameter candidate");
+        };
+
+        assert_eq!(candidate.name(), "T");
+        assert_eq!(candidate.kind(), CatalogGenericParameterKind::Type);
+        assert!(callable.implementation_parameter_candidates().is_empty());
     }
 
     fn token(kind: SyntaxKind, spelling: &str) -> CatalogSurfaceElement {

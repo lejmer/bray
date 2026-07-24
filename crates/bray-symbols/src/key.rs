@@ -144,6 +144,8 @@ pub enum SynthesizedSymbolRole {
     DeclaredGenericConstParameter,
     /// A written callable parameter supplied by generated declaration syntax.
     CallableParameter,
+    /// A written predicate parameter supplied by generated declaration syntax.
+    PredicateParameter,
     /// An inferred type parameter attached to an implementation.
     InferredImplementationTypeParameter,
     /// An inferred constant parameter attached to an implementation.
@@ -164,6 +166,7 @@ impl SynthesizedSymbolRole {
             Self::DeclaredGenericTypeParameter => SymbolKind::GenericTypeParameter,
             Self::DeclaredGenericConstParameter => SymbolKind::GenericConstParameter,
             Self::CallableParameter => SymbolKind::CallableParameter,
+            Self::PredicateParameter => SymbolKind::PredicateParameter,
             Self::InferredImplementationTypeParameter => SymbolKind::GenericTypeParameter,
             Self::InferredImplementationConstParameter => SymbolKind::GenericConstParameter,
             Self::CallableParameterDefaultProvider => SymbolKind::CallableParameterDefaultProvider,
@@ -208,6 +211,11 @@ impl SynthesizedSymbolKey {
     /// Creates a written callable-parameter key for generated declaration syntax.
     pub fn callable_parameter(subject: SymbolKey, ordinal: SymbolOrdinal) -> Self {
         Self::with_ordinal(SynthesizedSymbolRole::CallableParameter, subject, ordinal)
+    }
+
+    /// Creates a written predicate-parameter key for generated declaration syntax.
+    pub fn predicate_parameter(subject: SymbolKey, ordinal: SymbolOrdinal) -> Self {
+        Self::with_ordinal(SynthesizedSymbolRole::PredicateParameter, subject, ordinal)
     }
 
     /// Creates an inferred implementation type-parameter key.

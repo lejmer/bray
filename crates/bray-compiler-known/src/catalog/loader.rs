@@ -528,18 +528,18 @@ mod tests {
         };
 
         assert_eq!(catalog.compiler_known_scopes().len(), 10);
-        assert_eq!(catalog.compiler_known_declarations().len(), 164);
-        assert_eq!(catalog.compiler_known_values().len(), 3);
-        assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
-        assert_eq!(catalog.recognized_standard_library_declarations().len(), 1);
+        assert_eq!(catalog.compiler_known_declarations().len(), 199);
+        assert_eq!(catalog.compiler_known_values().len(), 4);
+        assert_eq!(catalog.recognized_standard_library_scopes().len(), 3);
+        assert_eq!(catalog.recognized_standard_library_declarations().len(), 59);
 
         let raw_pointer = declaration(&catalog, "RawPointer");
         let element = declaration(&catalog, "RawPointerElement");
         let storage = declaration(&catalog, "Storage");
-        let storage_load = declaration(&catalog, "StorageLoad");
+        let storage_create = declaration(&catalog, "StorageCreate");
         let callable = declaration(&catalog, "UnaryCallable");
-        let implementation = declaration(&catalog, "BoolStorageImplementation");
-        let implementation_item = declaration(&catalog, "BoolStorageItem");
+        let implementation = declaration(&catalog, "HeapStorageImplementation");
+        let implementation_item = declaration(&catalog, "HeapStorageCreate");
         let memory_copy = declaration(&catalog, "MemoryCopy");
         let future = declaration(&catalog, "Future");
         let future_start = declaration(&catalog, "FutureStart");
@@ -558,7 +558,7 @@ mod tests {
         assert_eq!(callable.kind(), CatalogDeclarationKind::CallableContract);
 
         assert_eq!(
-            storage_load.owner(),
+            storage_create.owner(),
             CompilerKnownDeclarationOwner::Declaration(storage.id())
         );
 
@@ -673,6 +673,7 @@ mod tests {
                 ("False", RepresentationRole::BooleanFalse),
                 ("None", RepresentationRole::NoneValue),
                 ("True", RepresentationRole::BooleanTrue),
+                ("UnitValue", RepresentationRole::UnitValue),
             ]
         );
 

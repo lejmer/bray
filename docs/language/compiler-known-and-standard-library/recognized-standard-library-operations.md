@@ -2,13 +2,25 @@
 
 The standard library can provide operations whose contracts are known to the compiler.
 
-The recognized standard-library operations include:
+The exact recognized identities are listed by the
+[conformance catalog](conformance-catalog.md).
 
-- `std.convert<Target>(source)`, the fallible conversion operation backed by `CheckedConvertTo<Target>`,
-- numeric policy operations such as `std.round_to<Target>(source, rule = ...)`, `std.truncate_to<Target>(source)`, `std.saturate_to<Target>(source)`, and `std.wrap_to<Target>(source)`,
-- string operations under the `std.string` module, including scalar-value count, emptiness, equality, scalar indexing, scalar slicing, UTF-8 views, and UTF-8 construction,
-- raw memory helpers under `std.memory`, including raw pointer helpers, allocation owners, raw buffers, device memory helpers, and ABI/layout helpers, when imported,
-- standard storage policy types and helpers used with compiler-known type forms, when imported.
+`std.convert<Target, Source>(source)` returns
+`Result<Target, Source(CheckedConvertTo<Target>).Error>`.
+
+The recognized numeric-policy operations are `std.round_to`, `std.truncate_to`,
+`std.saturate_to`, and `std.wrap_to`.
+
+`std.round_to` accepts the recognized `std.RoundingRule` union.
+
+The recognized string operations are `std.string.scalar_count`, `std.string.is_empty`,
+`std.string.equals`, `std.string.scalar_at`, `std.string.scalar_slice`, `std.string.utf8`, and
+`std.string.from_utf8`.
+
+The recognized raw-memory operations, layout declarations, allocation owner, and raw-buffer
+declarations are the exact `std.memory` declarations listed by the conformance catalog.
+
+Device-memory helpers are not recognized.
 
 These operations are not syntax.
 

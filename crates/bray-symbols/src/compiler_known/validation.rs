@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compiler_known::{
     AvailabilityRule, CatalogScopeLocation, CompilerKnownDeclarationId,
-    CompilerKnownDeclarationOwner, CompilerKnownRepresentationTarget,
+    CompilerKnownDeclarationOwner, CompilerKnownRepresentationTarget, ImplementationHook,
+    RepresentationRole,
 };
 
 use super::{
@@ -21,9 +22,11 @@ impl<'graph> CompilerKnownCatalogAudit<'graph> {
     /// Audits stable identities, ownership, target views, roles, and completion coverage.
     pub fn new(graph: &'graph SymbolGraph) -> Result<Self, CompilerKnownCatalogAuditError> {
         audit_stable_identities(graph)?;
+        audit_closed_catalog(graph)?;
         audit_roles(graph)?;
 
         let root = graph.roots().compiler_known().into();
+
         let plan = graph
             .completion_plan(
                 root,
@@ -68,6 +71,43 @@ impl<'graph> CompilerKnownCatalogAudit<'graph> {
     pub const fn report(&self) -> CompilerKnownCatalogAuditReport {
         self.report
     }
+}
+
+fn audit_closed_catalog(graph: &SymbolGraph) -> Result<(), CompilerKnownCatalogAuditError> {
+    let catalog = graph.compiler_known_provider().catalog();
+
+    for role in RepresentationRole::ALL {
+        if catalog
+            .role_registry()
+            .representation_target(*role)
+            .is_none()
+        {
+            return Err(CompilerKnownCatalogAuditError::MissingRepresentationRole(
+                *role,
+            ));
+        }
+    }
+
+    for hook in ImplementationHook::ALL {
+        let compiler_known = catalog
+            .role_registry()
+            .implementation_declarations(*hook)
+            .next()
+            .is_some();
+
+        let recognized = catalog
+            .recognized_standard_library_declarations()
+            .iter()
+            .any(|descriptor| descriptor.implementation_hook() == Some(*hook));
+
+        if !compiler_known && !recognized {
+            return Err(CompilerKnownCatalogAuditError::MissingImplementationHook(
+                *hook,
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn audit_stable_identities(graph: &SymbolGraph) -> Result<(), CompilerKnownCatalogAuditError> {

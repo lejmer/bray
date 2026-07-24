@@ -69,7 +69,10 @@ impl CompilerKnownSymbolProvider {
     }
 }
 
-fn member_name(surface: &CatalogDeclarationSurfaceSyntax, kind: SymbolKind) -> Option<SymbolName> {
+pub(super) fn member_name(
+    surface: &CatalogDeclarationSurfaceSyntax,
+    kind: SymbolKind,
+) -> Option<SymbolName> {
     if matches!(
         kind,
         SymbolKind::InherentImplementation

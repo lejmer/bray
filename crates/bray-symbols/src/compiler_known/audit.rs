@@ -94,10 +94,14 @@ pub enum CompilerKnownCatalogAuditError {
     InvalidRepresentationRole(RepresentationRole),
     /// Representation-role registry cardinality does not match descriptor metadata.
     InvalidRepresentationRegistry,
+    /// A required representation role has no catalog entry.
+    MissingRepresentationRole(RepresentationRole),
     /// One generated implementation hook does not resolve to its catalog declarations.
     InvalidImplementationRole(ImplementationHook),
     /// Implementation-role registry cardinality does not match descriptor metadata.
     InvalidImplementationRegistry,
+    /// A required implementation hook has no compiler-known or recognized declaration.
+    MissingImplementationHook(ImplementationHook),
     /// One target view has the wrong declaration availability.
     InvalidTargetDeclaration {
         /// The audited target profile.
@@ -159,12 +163,24 @@ impl std::fmt::Display for CompilerKnownCatalogAuditError {
             Self::InvalidRepresentationRegistry => {
                 formatter.write_str("compiler-known representation-role registry is incomplete")
             }
+            Self::MissingRepresentationRole(role) => {
+                write!(
+                    formatter,
+                    "compiler-known representation role {role:?} is missing"
+                )
+            }
             Self::InvalidImplementationRole(hook) => write!(
                 formatter,
                 "compiler-known implementation hook {hook:?} is inconsistent"
             ),
             Self::InvalidImplementationRegistry => {
                 formatter.write_str("compiler-known implementation-role registry is incomplete")
+            }
+            Self::MissingImplementationHook(hook) => {
+                write!(
+                    formatter,
+                    "compiler implementation hook {hook:?} is missing"
+                )
             }
             Self::InvalidTargetDeclaration {
                 profile,

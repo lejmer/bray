@@ -40,7 +40,7 @@ pub(super) const BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] =
 
 const PATH_START_KINDS: [SyntaxKind; 1] = [SyntaxKind::IdentifierToken];
 
-const CONTRACT_CLAUSE_RECOVERY_KINDS: [SyntaxKind; 37] = [
+const CONTRACT_CLAUSE_RECOVERY_KINDS: [SyntaxKind; 36] = [
     SyntaxKind::CloseParenToken,
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
@@ -59,7 +59,6 @@ const CONTRACT_CLAUSE_RECOVERY_KINDS: [SyntaxKind; 37] = [
     SyntaxKind::InternalKeyword,
     SyntaxKind::ExternKeyword,
     SyntaxKind::AsyncKeyword,
-    SyntaxKind::TrustedKeyword,
     SyntaxKind::ConstKeyword,
     SyntaxKind::StaticKeyword,
     SyntaxKind::ConsumeKeyword,
@@ -207,13 +206,13 @@ impl Parser {
 
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
 
-        if self.at_contract_clause_sequence_end(at_boundary) {
+        if self.at_contract_clause_sequence_end(at_boundary, item_start_kinds) {
             builder.push_item(parse_item(self, at_boundary));
         } else {
             self.parse_separated_list_until(
                 builder,
                 spec,
-                |parser| parser.at_contract_clause_sequence_end(at_boundary),
+                |parser| parser.at_contract_clause_sequence_end(at_boundary, item_start_kinds),
                 |parser| parse_item(parser, at_boundary),
             );
         }
@@ -226,7 +225,8 @@ impl Parser {
         at_boundary: ContractBoundary,
     ) -> ExpressionSyntax {
         let mut at_expression_boundary = |parser: &mut Parser| {
-            parser.at(SyntaxKind::CommaToken) || parser.at_contract_clause_sequence_end(at_boundary)
+            parser.at(SyntaxKind::CommaToken)
+                || parser.at_contract_clause_sequence_end(at_boundary, &EXPRESSION_START_KINDS)
         };
 
         self.parse_expression_until(&mut at_expression_boundary)
@@ -236,11 +236,20 @@ impl Parser {
         self.parse_path()
     }
 
-    fn at_contract_clause_sequence_end(&mut self, at_boundary: ContractBoundary) -> bool {
-        self.at(SyntaxKind::CloseParenToken)
-            || self.at(SyntaxKind::EndOfFileToken)
-            || self.at_callable_contract_clause_start()
-            || at_boundary(self)
+    fn at_contract_clause_sequence_end(
+        &mut self,
+        at_boundary: ContractBoundary,
+        item_start_kinds: &[SyntaxKind],
+    ) -> bool {
+        if self.at(SyntaxKind::CloseParenToken) || self.at(SyntaxKind::EndOfFileToken) {
+            return true;
+        }
+
+        if self.at_any(item_start_kinds) {
+            return false;
+        }
+
+        self.at_callable_contract_clause_start() || at_boundary(self)
     }
 }
 
@@ -519,6 +528,39 @@ mod tests {
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [DiagnosticKind::LexicalInvalidCharacter]
+        );
+    }
+
+    #[test]
+    fn parser_accepts_trust_boundaries_in_contract_expressions() {
+        let source = concat!(
+            "module main; ",
+            "trusted predicate valid(value: i32); ",
+            "trusted func check(value: i32) ",
+            "requires(trusted valid(value)) {}",
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.function_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one function declaration: {declarations:?}");
+        };
+
+        let requires_clauses = declaration.requires_clauses().collect::<Vec<_>>();
+
+        let [requires_clause] = requires_clauses.as_slice() else {
+            panic!("expected one requires clause: {requires_clauses:?}");
+        };
+
+        assert_eq!(requires_clause.expressions().count(), 1);
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:#?}",
+            result.diagnostics()
         );
     }
 }

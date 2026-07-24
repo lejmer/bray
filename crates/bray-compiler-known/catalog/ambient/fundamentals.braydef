@@ -173,6 +173,30 @@ scope Ambient at ambient {
         surface { pos error: E }
     }
 
+    declaration ConversionError {
+        representation ConversionError;
+
+        surface { union ConversionError {} }
+    }
+
+    declaration ConversionErrorVariant0OutOfRange {
+        owner ConversionError;
+
+        surface { OutOfRange; }
+    }
+
+    declaration ConversionErrorVariant1NonFinite {
+        owner ConversionError;
+
+        surface { NonFinite; }
+    }
+
+    declaration ConversionErrorVariant2NonRepresentable {
+        owner ConversionError;
+
+        surface { NonRepresentable; }
+    }
+
     value True {
         spelling true;
         type { bool }
@@ -183,6 +207,12 @@ scope Ambient at ambient {
         spelling false;
         type { bool }
         representation BooleanFalse;
+    }
+
+    value UnitValue {
+        spelling unit;
+        type { unit }
+        representation UnitValue;
     }
 
     value None {
