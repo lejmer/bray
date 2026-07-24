@@ -1,8 +1,11 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot};
+use bray_binder::{
+    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
+};
 use bray_declarations::DeclarationTable;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImportedSymbolFactAddress, ImportedSymbolSkeleton, SemanticValueStore, SymbolGraph,
+    ImportedSymbolFactAddress, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceFact,
+    ModuleSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
@@ -162,6 +165,20 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
         CompilationBinderFacts::imported_path_root(self, components)
+    }
+
+    fn module_re_export_lookup(
+        &self,
+        module: ModuleSymbolId,
+        name: &str,
+        access: bray_binder::NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+        let surface = self.symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(module))?;
+
+        Ok(match access {
+            bray_binder::NameAccess::Public => surface.value().lookup_public(name),
+            bray_binder::NameAccess::Internal => surface.value().lookup(name),
+        })
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

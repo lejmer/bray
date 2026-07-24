@@ -11,9 +11,9 @@ use bray_diagnostics::DiagnosticResult;
 use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
-    CallableSignatureFact, CallableSignatureTemplate, ConstantDeclaredTypeFact, ConstantSymbolId,
-    ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, CallableSignatureFact, CallableSignatureTemplate, ConstantDeclaredTypeFact,
+    ConstantSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageIdentity,
+    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -119,6 +119,15 @@ impl BinderFactContext for TestContext<'_> {
 
         Ok(selected
             .and_then(|(package, _)| ImportedPathRoot::for_path(symbols, package.id(), components)))
+    }
+
+    fn module_re_export_lookup(
+        &self,
+        _module: ModuleSymbolId,
+        _name: &str,
+        _access: crate::NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+        Ok(MemberLookupResult::NotFound)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

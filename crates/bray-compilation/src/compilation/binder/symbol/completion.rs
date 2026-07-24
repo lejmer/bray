@@ -8,16 +8,16 @@ use bray_symbols::{
     GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
     GenericOwnerId, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementationSymbolId,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateDefinitionFact,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, StructFieldDefaultFact,
-    StructFieldDefaultTemplateFact, StructFieldSymbolId, StructFieldTypeFact,
-    SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract, SymbolFactForcer,
-    SymbolFactKind, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
-    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
-    UnionPayloadFieldTypeFact,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, ModuleSurfaceFact,
+    ModuleSymbolId, PredicateDefinitionFact, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateFact, StructFieldDefaultFact, StructFieldDefaultTemplateFact,
+    StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
+    SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
+    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
 };
 
 use super::super::binder_fact_error;
@@ -32,10 +32,12 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
         match request.kind() {
             // These surfaces are frozen into the immutable symbol graph before semantic facts.
             SymbolFactKind::Members
-            | SymbolFactKind::Imports
             | SymbolFactKind::Directives
             | SymbolFactKind::GenericParameters
             | SymbolFactKind::UnionVariantPayload => Ok(DiagnosticBag::new()),
+            SymbolFactKind::Imports => {
+                force_exact::<ModuleSurfaceFact, ModuleSymbolId>(self, request.symbol())
+            }
             SymbolFactKind::GenericConstraints => {
                 let owner = GenericOwnerId::try_new(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;

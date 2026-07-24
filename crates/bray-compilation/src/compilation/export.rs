@@ -1,12 +1,17 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_declarations::DeclarationKind;
+use bray_binder::SymbolFactProvider;
 use bray_package_interface::{
-    ExportRelationshipInput, ExportSymbolInput, InterfaceSemanticFacts,
-    PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
-    PackageInterfaceExportSurfaceError, SymbolRelationshipKind, build_package_interface_surface,
+    ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
+    ExportedLookupKind, InterfaceSemanticFacts, PackageInterfaceExportBuildError,
+    PackageInterfaceExportBundle, PackageInterfaceExportSurfaceError, SymbolRelationshipKind,
+    build_package_interface_surface,
 };
-use bray_symbols::{AnySymbolId, ExternalSymbolKey, SymbolKind, SymbolOrigin};
+use bray_symbols::{
+    AnySymbolId, ExternalSymbolKey, ModuleSurfaceFact, ModuleSymbolId, SymbolFactRequest,
+    SymbolKind, SymbolOrigin,
+};
 
 use super::Compilation;
 use crate::fact::CompilationFactKey;
@@ -20,8 +25,6 @@ pub enum PackageInterfaceExportError {
     RecoveredPublicModule,
     /// A reachable public declaration does not have a complete serializable fact set.
     IncompletePublicDeclarationFacts(SymbolKind),
-    /// A reachable using or export declaration has no completed public lookup fact.
-    IncompletePublicLookupFacts(DeclarationKind),
     /// Canonical identity-surface validation rejected the selected graph.
     Surface(PackageInterfaceExportSurfaceError),
     /// Semantic or support-graph validation rejected the export bundle.
@@ -65,6 +68,7 @@ impl Compilation {
 
         let mut selected = vec![ExportSymbolInput::new(package_key.clone(), None)];
         let mut relationships = Vec::new();
+        let mut module_keys = BTreeMap::new();
 
         for (ordinal, module) in symbols
             .modules()
@@ -86,6 +90,8 @@ impl Compilation {
                 Some(package_key.clone()),
             ));
 
+            module_keys.insert(module.id(), module_key.clone());
+
             let ordinal = u32::try_from(ordinal)
                 .map_err(|_| PackageInterfaceExportSurfaceError::SymbolCountOverflow)
                 .map_err(PackageInterfaceExportError::Surface)?;
@@ -98,6 +104,8 @@ impl Compilation {
             ));
         }
 
+        let exports = self.public_module_re_exports(&module_keys)?;
+
         if request.identity().package() != self.package_identity() {
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }
@@ -105,8 +113,9 @@ impl Compilation {
         // Package-interface identities are Arc-backed and the frozen surface owns its snapshot.
         let identity = request.identity().clone();
 
-        let surface = build_package_interface_surface(identity, [], selected, relationships, [])
-            .map_err(PackageInterfaceExportError::Surface)?;
+        let surface =
+            build_package_interface_surface(identity, [], selected, relationships, exports)
+                .map_err(PackageInterfaceExportError::Surface)?;
 
         PackageInterfaceExportBundle::try_new(
             surface,
@@ -115,6 +124,60 @@ impl Compilation {
         )
         .map(Arc::new)
         .map_err(PackageInterfaceExportError::Bundle)
+    }
+
+    fn public_module_re_exports(
+        &self,
+        module_keys: &BTreeMap<ModuleSymbolId, ExternalSymbolKey>,
+    ) -> Result<Vec<ExportLookupInput>, PackageInterfaceExportError> {
+        let facts = self
+            .binder_facts(&self.state.cancellation)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        let mut exports = Vec::new();
+
+        for (module, owner_key) in module_keys {
+            let surface = facts
+                .symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(*module))
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+            if surface.diagnostics().has_errors() {
+                return Err(PackageInterfaceExportError::InvalidCompilation);
+            }
+
+            for edge in surface
+                .value()
+                .re_exports()
+                .iter()
+                .filter(|edge| edge.visibility().is_public())
+            {
+                let AnySymbolId::Module(target) = edge.target() else {
+                    return Err(
+                        PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+                            edge.target().kind(),
+                        ),
+                    );
+                };
+
+                let Some(target_key) = module_keys.get(&target) else {
+                    return Err(
+                        PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+                            SymbolKind::Module,
+                        ),
+                    );
+                };
+
+                // Export inputs share Arc-backed keys and names with the immutable source facts.
+                exports.push(ExportLookupInput::new(
+                    owner_key.clone(),
+                    edge.name().clone(),
+                    ExportedLookupKind::ReExport,
+                    ExportSymbolReferenceInput::Local(target_key.clone()),
+                ));
+            }
+        }
+
+        Ok(exports)
     }
 }
 
@@ -128,16 +191,6 @@ fn reject_unavailable_public_declarations(
         }
 
         let Some(symbol) = symbols.symbol_for_declaration(declaration.id()) else {
-            if matches!(
-                declaration.kind(),
-                DeclarationKind::Using | DeclarationKind::Export
-            ) && declaration_module_is_public(compilation, symbols, declaration)
-            {
-                return Err(PackageInterfaceExportError::IncompletePublicLookupFacts(
-                    declaration.kind(),
-                ));
-            }
-
             continue;
         };
 
@@ -178,18 +231,6 @@ fn symbol_is_publicly_reachable(
 
         symbol = owner;
     }
-}
-
-fn declaration_module_is_public(
-    compilation: &Compilation,
-    symbols: &bray_symbols::SymbolGraph,
-    declaration: &bray_declarations::DeclarationRecord,
-) -> bool {
-    compilation
-        .source_module_for_declaration(symbols, declaration)
-        .is_ok_and(|module| {
-            module.origin() == SymbolOrigin::Source && module.visibility().is_public()
-        })
 }
 
 #[cfg(test)]
@@ -262,6 +303,26 @@ mod tests {
         assert_eq!(bundle.surface().symbols().symbols().len(), 2);
     }
 
+    #[test]
+    fn public_module_re_exports_enter_the_interface_lookup_surface() {
+        let compilation =
+            compilation_from_sources(["module a;\n", concat!("module b;\n", "\n", "export a;\n",)]);
+
+        let bundle = export(&compilation);
+        let [edge] = bundle.surface().exports() else {
+            panic!(
+                "expected one module re-export: {:?}",
+                bundle.surface().exports()
+            );
+        };
+
+        assert_eq!(edge.name().as_str(), "a");
+        assert_eq!(
+            edge.kind(),
+            bray_package_interface::ExportedLookupKind::ReExport
+        );
+    }
+
     fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {
         match compilation.package_interface_export_bundle() {
             Some(Ok(bundle)) => bundle,
@@ -271,6 +332,10 @@ mod tests {
     }
 
     fn compilation(source: &str) -> Compilation {
+        compilation_from_sources([source])
+    }
+
+    fn compilation_from_sources<const N: usize>(sources: [&str; N]) -> Compilation {
         let package = PackageIdentity::try_new("example.package")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
@@ -288,16 +353,22 @@ mod tests {
         let export =
             PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
 
-        let source = SourceInput::virtual_text(
-            SourceIdentity::new(1),
-            "test.bray",
-            SourceVersion::new(0),
-            source,
-        );
+        let sources = sources.into_iter().enumerate().map(|(index, source)| {
+            let index = u32::try_from(index)
+                .unwrap_or_else(|_| panic!("test source count must fit source identities"));
 
-        Compilation::load(
-            CompilationRequest::new(package, vec![source]).with_package_interface_export(export),
-        )
-        .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
+            SourceInput::virtual_text(
+                SourceIdentity::new(index),
+                format!("test-{index}.bray"),
+                SourceVersion::new(0),
+                source,
+            )
+        });
+
+        let request = CompilationRequest::new(package, sources.collect())
+            .with_package_interface_export(export);
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
     }
 }

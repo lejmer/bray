@@ -107,6 +107,12 @@ pub enum DiagnosticKind {
     BindingPredicateBodyRequired,
     /// A trusted predicate declaration provides a body despite being opaque.
     BindingTrustedPredicateBodyNotAllowed,
+    /// An export declaration depends on itself through one or more module surfaces.
+    BindingCyclicModuleExport,
+    /// A re-exported name conflicts with another declaration in the exporting module.
+    BindingConflictingModuleExport,
+    /// An export path resolves to an entity that cannot enter a module export surface.
+    BindingInvalidModuleExportTarget,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
@@ -230,6 +236,9 @@ impl DiagnosticKind {
             Self::BindingDuplicateCallableAbi => 6009,
             Self::BindingPredicateBodyRequired => 6010,
             Self::BindingTrustedPredicateBodyNotAllowed => 6011,
+            Self::BindingCyclicModuleExport => 6012,
+            Self::BindingConflictingModuleExport => 6013,
+            Self::BindingInvalidModuleExportTarget => 6014,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingInvalidConstantExpression => 7003,
@@ -326,6 +335,9 @@ impl DiagnosticKind {
             Self::BindingTrustedPredicateBodyNotAllowed => {
                 "binding_trusted_predicate_body_not_allowed"
             }
+            Self::BindingCyclicModuleExport => "binding_cyclic_module_export",
+            Self::BindingConflictingModuleExport => "binding_conflicting_module_export",
+            Self::BindingInvalidModuleExportTarget => "binding_invalid_module_export_target",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",

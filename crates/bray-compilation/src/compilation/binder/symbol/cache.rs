@@ -8,9 +8,9 @@ use bray_symbols::{
     ConstantDefinitionFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
     GenericDeclarationTemplateFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, PredicateDefinitionFact, PredicateSignatureTemplateFact,
-    StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldTypeFact,
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
+    PredicateSignatureTemplateFact, StructFieldDefaultFact, StructFieldDefaultTemplateFact,
+    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
     TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
     TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
     TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
@@ -24,6 +24,7 @@ use super::binding::{CompilationSymbolFactBinding, binder_error};
 use crate::fact::SymbolFactCache;
 
 pub(in crate::compilation) struct CompilationSymbolFacts {
+    pub(super) module_surfaces: SymbolFactCache<ModuleSurfaceFact>,
     pub(super) generic_constraints: SymbolFactCache<GenericConstraintsFact>,
     pub(super) generic_declaration_templates: SymbolFactCache<GenericDeclarationTemplateFact>,
     pub(super) callable_signatures: SymbolFactCache<CallableSignatureFact>,
@@ -72,6 +73,7 @@ pub(in crate::compilation) struct CompilationSymbolFacts {
 impl CompilationSymbolFacts {
     pub(in crate::compilation) const fn new() -> Self {
         Self {
+            module_surfaces: SymbolFactCache::new(),
             generic_constraints: SymbolFactCache::new(),
             generic_declaration_templates: SymbolFactCache::new(),
             callable_signatures: SymbolFactCache::new(),

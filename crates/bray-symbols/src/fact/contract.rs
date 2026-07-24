@@ -5,7 +5,7 @@ use bray_diagnostics::DiagnosticResult;
 use crate::{
     AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId, CallableSymbolId,
     ConstantSymbolId, GenericConstParameterSymbolId, GenericOwnerId, ImplementationSymbolId,
-    InherentTypeMemberSymbolId, PredicateSymbolId, StructFieldSymbolId,
+    InherentTypeMemberSymbolId, ModuleSymbolId, PredicateSymbolId, StructFieldSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
     UnionPayloadFieldSymbolId,
@@ -17,9 +17,10 @@ use super::{
     ConstantDefinitionState, ConstantInstanceKey, GenericConstraintSet, GenericDeclarationTemplate,
     ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceKey,
     ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
-    ImplementationSelection, ImplementationSubjectTemplate, OverloadSignatureTemplate,
-    PredicateDefinition, PredicateDefinitionState, PredicateSignatureTemplate, SymbolFactKind,
-    TraitApplicationTemplate, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    ImplementationSelection, ImplementationSubjectTemplate, ModuleSurface,
+    OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
+    PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
+    UnevaluatedDefaultTemplate,
 };
 
 mod sealed {
@@ -124,6 +125,13 @@ macro_rules! define_symbol_fact_contract {
 }
 
 define_symbol_fact_contract! {
+    /// Validated using relationships and re-export edges for one logical module.
+    ModuleSurfaceFact {
+        owner: ModuleSymbolId,
+        value: ModuleSurface,
+        kind: Imports,
+        erase: |owner: ModuleSymbolId| owner.into(),
+    }
     /// Generic parameter identities and unevaluated constraints for one declaration.
     GenericDeclarationTemplateFact {
         owner: GenericOwnerId,

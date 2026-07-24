@@ -2,12 +2,13 @@ use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImportedSymbolSkeleton, PackageSymbolId, SemanticValueStore, SymbolGraph, SymbolKey,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageSymbolId,
+    SemanticValueStore, SymbolGraph, SymbolKey,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
 
-use crate::BinderFactResult;
+use crate::{BinderFactResult, NameAccess};
 
 /// One selected imported package root for a qualified source path.
 #[derive(Clone, Copy, Debug)]
@@ -101,6 +102,14 @@ pub trait BinderFactContext: Send + Sync {
         &self,
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>>;
+
+    /// Resolves one name introduced by a source module export declaration.
+    fn module_re_export_lookup(
+        &self,
+        module: ModuleSymbolId,
+        name: &str,
+        access: NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>;
 
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;

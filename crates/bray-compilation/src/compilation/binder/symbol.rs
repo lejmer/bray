@@ -7,6 +7,7 @@ mod contract;
 mod declaration_body;
 mod environment;
 mod imported;
+mod module_surface;
 mod surface;
 mod template;
 

@@ -1,5 +1,5 @@
 use bray_bound_tree::BoundPatternTarget;
-use bray_diagnostics::DiagnosticNameKind;
+use bray_diagnostics::{DiagnosticBag, DiagnosticNameKind, DiagnosticResult};
 use bray_source::SourceSnapshot;
 use bray_symbols::{
     AnySymbolId, CallableOverloadSymbolId, ImportedSymbolSkeleton, MemberLookupIndex,
@@ -16,7 +16,7 @@ use super::category::{
     ResolvedMemberName, ResolvedName, ResolvedTypeName, ResolvedValueName,
     classify_callable_overload, classify_member, classify_trait, classify_type, classify_value,
 };
-use super::diagnostic::{NameReference, malformed_lookup, report_lookup_result};
+use super::diagnostic::{NameReference, lookup_diagnostic, malformed_lookup, report_lookup_result};
 use crate::{BinderFactContext, BinderFactResult, ImportedPathRoot, binder::Binder};
 
 /// Visibility policy for one source name reference.
@@ -100,16 +100,124 @@ pub(crate) fn bind_module_path<C>(
 where
     C: BinderFactContext + ?Sized,
 {
+    bind_module_path_with_re_exports(facts, module, path, access, &mut |module, name, access| {
+        facts.module_re_export_lookup(module, name, access)
+    })
+}
+
+/// Resolves one module-relative surface path with caller-provided source re-export lookup.
+pub fn bind_surface_path_with_re_exports<C>(
+    facts: &C,
+    module: ModuleSymbolId,
+    path: &PathSyntax,
+    access: NameAccess,
+    re_exports: &mut impl FnMut(
+        ModuleSymbolId,
+        &str,
+        NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>,
+) -> BinderFactResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let lookup = bind_module_path_lookup(facts, module, path, access, re_exports)?;
+    let result = surface_lookup(lookup.result);
+
+    let diagnostics = lookup
+        .reference
+        .map_or_else(DiagnosticBag::new, |reference| {
+            lookup_diagnostic(&reference, DiagnosticNameKind::Symbol, &result)
+                .map_or_else(DiagnosticBag::new, DiagnosticBag::single)
+        });
+
+    Ok(DiagnosticResult::new(result, diagnostics))
+}
+
+fn surface_lookup(result: NameLookupResult<ResolvedName>) -> MemberLookupResult<AnySymbolId> {
+    match result {
+        MemberLookupResult::Found(ResolvedName::Surface(symbol)) => {
+            MemberLookupResult::Found(symbol)
+        }
+        MemberLookupResult::Found(ResolvedName::Local(_)) => {
+            MemberLookupResult::Malformed(Box::new([]))
+        }
+        MemberLookupResult::NotFound => MemberLookupResult::NotFound,
+        MemberLookupResult::WrongKind(candidates) => {
+            MemberLookupResult::WrongKind(surface_candidates(candidates))
+        }
+        MemberLookupResult::Ambiguous(candidates) => {
+            MemberLookupResult::Ambiguous(surface_candidates(candidates))
+        }
+        MemberLookupResult::Inaccessible(candidates) => {
+            MemberLookupResult::Inaccessible(surface_candidates(candidates))
+        }
+        MemberLookupResult::Malformed(candidates) => {
+            MemberLookupResult::Malformed(surface_candidates(candidates))
+        }
+    }
+}
+
+fn surface_candidates(candidates: Box<[ResolvedName]>) -> Box<[AnySymbolId]> {
+    candidates
+        .into_vec()
+        .into_iter()
+        .filter_map(|candidate| match candidate {
+            ResolvedName::Surface(symbol) => Some(symbol),
+            ResolvedName::Local(_) => None,
+        })
+        .collect()
+}
+
+fn bind_module_path_with_re_exports<C>(
+    facts: &C,
+    module: ModuleSymbolId,
+    path: &PathSyntax,
+    access: NameAccess,
+    re_exports: &mut impl FnMut(
+        ModuleSymbolId,
+        &str,
+        NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>,
+) -> BinderFactResult<NameLookupResult<ResolvedName>>
+where
+    C: BinderFactContext + ?Sized,
+{
+    Ok(bind_module_path_lookup(facts, module, path, access, re_exports)?.result)
+}
+
+fn bind_module_path_lookup<C>(
+    facts: &C,
+    module: ModuleSymbolId,
+    path: &PathSyntax,
+    access: NameAccess,
+    re_exports: &mut impl FnMut(
+        ModuleSymbolId,
+        &str,
+        NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>,
+) -> BinderFactResult<PathLookup>
+where
+    C: BinderFactContext + ?Sized,
+{
     let Some(module) = facts.symbols().module(module) else {
-        return Ok(malformed_lookup());
+        return Ok(PathLookup {
+            result: malformed_lookup(),
+            reference: None,
+        });
     };
 
     let Some(references) = path_references(path) else {
-        return Ok(malformed_lookup());
+        return Ok(PathLookup {
+            result: malformed_lookup(),
+            reference: None,
+        });
     };
 
     let Some(first) = references.first() else {
-        return Ok(malformed_lookup());
+        return Ok(PathLookup {
+            result: malformed_lookup(),
+            reference: None,
+        });
     };
 
     let components = references
@@ -130,15 +238,15 @@ where
         ),
     );
 
-    Ok(bind_path_with_ordinary(
+    bind_path_with_ordinary(
         facts.symbols(),
         imported_root,
         module.owner(),
         access,
         references,
         ordinary,
+        re_exports,
     )
-    .result)
 }
 
 impl<C> Binder<'_, C>
@@ -395,14 +503,15 @@ where
             context.access,
         );
 
-        Ok(bind_path_with_ordinary(
+        bind_path_with_ordinary(
             self.facts().symbols(),
             imported_root,
             context.module_owner,
             context.access,
             references,
             ordinary,
-        ))
+            &mut |module, name, access| self.facts().module_re_export_lookup(module, name, access),
+        )
     }
 }
 
@@ -425,7 +534,12 @@ fn bind_path_with_ordinary(
     access: NameAccess,
     references: Vec<NameReference>,
     ordinary: NameLookupResult<ResolvedName>,
-) -> PathLookup {
+    re_exports: &mut impl FnMut(
+        ModuleSymbolId,
+        &str,
+        NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>,
+) -> BinderFactResult<PathLookup> {
     let source_prefix = next_module_prefix(symbols, module_owner, None, &references, access);
     let compiler_known_owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
 
@@ -448,6 +562,7 @@ fn bind_path_with_ordinary(
         references,
         result,
         consumed,
+        re_exports,
     )
 }
 
@@ -458,20 +573,33 @@ fn bind_remaining_path(
     references: Vec<NameReference>,
     mut result: NameLookupResult<ResolvedName>,
     mut consumed: usize,
-) -> PathLookup {
+    re_exports: &mut impl FnMut(
+        ModuleSymbolId,
+        &str,
+        NameAccess,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>,
+) -> BinderFactResult<PathLookup> {
     while consumed < references.len() {
         let owner = match &result {
             MemberLookupResult::Found(ResolvedName::Surface(owner)) => *owner,
-            _ => return path_lookup(result, references, consumed.saturating_sub(1)),
+            _ => return Ok(path_lookup(result, references, consumed.saturating_sub(1))),
         };
 
-        let ordinary = lookup_surface_name_with_imports(
+        let mut ordinary = lookup_surface_name_with_imports(
             symbols,
             imported_symbols,
             owner,
             references[consumed].text(),
             access,
         );
+
+        if matches!(ordinary, MemberLookupResult::NotFound)
+            && let AnySymbolId::Module(module) = owner
+            && symbols.module(module).is_some()
+        {
+            ordinary = re_exports(module, references[consumed].text(), access)?
+                .map(ResolvedName::Surface, ResolvedName::Surface);
+        }
 
         let module_prefix = match owner {
             AnySymbolId::Module(module) => symbols
@@ -515,7 +643,7 @@ fn bind_remaining_path(
         consumed += length;
     }
 
-    path_lookup(result, references, consumed.saturating_sub(1))
+    Ok(path_lookup(result, references, consumed.saturating_sub(1)))
 }
 
 fn lookup_surface_name_with_imports(

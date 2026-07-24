@@ -66,7 +66,7 @@ pub use fact::{
 };
 pub use lookup::{
     BoundImplementationUsing, NameAccess, bind_implementation_using,
-    bind_named_trait_implementation_path,
+    bind_named_trait_implementation_path, bind_surface_path_with_re_exports,
 };
 pub use result::BoundUnitComputation;
 pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};
