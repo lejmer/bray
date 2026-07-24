@@ -1,5 +1,6 @@
 use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
+use bray_declarations::ModulePartId;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
@@ -187,6 +188,8 @@ pub(crate) enum CompilationFactKey {
     SelectedTarget,
     /// Post-selection validity of one exact target requirement.
     TargetValidity(TargetValidityRequest),
+    /// The selected-target result for one source module contribution.
+    ModuleTargetGate(ModulePartId),
     /// The complete canonical compiler-known symbol and fact provider.
     CompilerKnownSymbols,
     /// Deterministic compact identities for bound-unit source anchors.
@@ -273,6 +276,7 @@ impl CompilationFactKey {
             Self::IterationSource(key) => Some(key.unit()),
             Self::SelectedTarget
             | Self::TargetValidity(_)
+            | Self::ModuleTargetGate(_)
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics

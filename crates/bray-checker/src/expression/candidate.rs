@@ -2,11 +2,12 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundExpressionId, BoundResolvedCall, SelectedArgument,
-    SemanticSelection, SemanticSelectionEntry,
+    SelectionKind, SemanticSelection, SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
+use super::built_in_operator::{self, PreparedBuiltInOperator};
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
 };
@@ -27,6 +28,7 @@ struct PreparedCall {
 
 pub(super) struct PreparedExpressions {
     calls: Vec<PreparedCall>,
+    built_in_operators: Vec<PreparedBuiltInOperator>,
     deferred: BTreeSet<BoundExpressionId>,
     diagnostics: DiagnosticBag,
 }
@@ -52,6 +54,10 @@ impl PreparedExpressions {
     pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }
+
+    pub(super) fn built_in_operators(&self) -> &[PreparedBuiltInOperator] {
+        &self.built_in_operators
+    }
 }
 
 pub(super) fn prepare_calls<C>(
@@ -63,6 +69,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let mut calls = Vec::new();
+    let mut built_in_operators = Vec::new();
     let mut deferred = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -161,16 +168,25 @@ where
                 }
             }
             ExpressionCandidateSet::Operation(source) => {
-                deferred.insert(source.expression());
+                if source.kind() == SelectionKind::Operator
+                    && let Some(operator) =
+                        PreparedBuiltInOperator::for_expression(source.expression(), expression)
+                {
+                    built_in_operators.push(operator);
+                } else {
+                    deferred.insert(source.expression());
+                }
             }
             ExpressionCandidateSet::NotApplicable(_) => {}
         }
     }
 
     calls.sort_unstable_by_key(|call| call.expression);
+    built_in_operators.sort_unstable_by_key(|operation| operation.expression());
 
     Ok(SessionProgress::Complete(PreparedExpressions {
         calls,
+        built_in_operators,
         deferred,
         diagnostics,
     }))
@@ -479,6 +495,13 @@ where
 
         let types = session.preview();
 
+        built_in_operator::apply_comparison_expectations(
+            request,
+            &types,
+            prepared.built_in_operators(),
+            session,
+        )?;
+
         if add_candidate_expectations(request, &types, &prepared.calls, session)?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
@@ -638,6 +661,12 @@ where
             CheckerOutcome::InfrastructureFailure(error) => return Err(error),
         }
     }
+
+    entries.extend(built_in_operator::selections(
+        request,
+        types,
+        prepared.built_in_operators(),
+    )?);
 
     Ok(Some((entries, diagnostics)))
 }

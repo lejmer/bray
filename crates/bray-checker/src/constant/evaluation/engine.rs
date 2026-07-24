@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
@@ -19,6 +19,7 @@ use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
 
 use super::flow::EvaluationFlow;
+use super::result::EvaluatedConstant;
 use super::support::EvaluationFailure;
 
 use crate::{
@@ -30,6 +31,26 @@ pub(crate) fn evaluate_constant<C>(
     request: CheckerUnitView<'_, C>,
     input: &ConstantEvaluationInput<'_>,
 ) -> CheckerOutcome<ConstantValueId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match evaluate_constant_with_references(request, input) {
+        CheckerOutcome::Complete(result) => {
+            let (evaluated, diagnostics) = result.into_parts();
+
+            CheckerOutcome::complete(evaluated.value(), diagnostics)
+        }
+        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+    }
+}
+
+pub(crate) fn evaluate_constant_with_references<C>(
+    request: CheckerUnitView<'_, C>,
+    input: &ConstantEvaluationInput<'_>,
+) -> CheckerOutcome<EvaluatedConstant>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -61,6 +82,7 @@ where
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
             };
 
+            let evaluated_references = evaluated.evaluator.evaluated_references;
             let mut diagnostics = evaluated.evaluator.diagnostics;
 
             let span = match expression_span(request, expression) {
@@ -73,11 +95,17 @@ where
                     .with_primary_span(span),
             );
 
-            return CheckerOutcome::complete(value, diagnostics);
+            return CheckerOutcome::complete(
+                EvaluatedConstant::new(value, evaluated_references),
+                diagnostics,
+            );
         }
     };
 
-    CheckerOutcome::complete(value, evaluated.evaluator.diagnostics)
+    CheckerOutcome::complete(
+        EvaluatedConstant::new(value, evaluated.evaluator.evaluated_references),
+        evaluated.evaluator.diagnostics,
+    )
 }
 
 pub(crate) fn check_constant_term<C>(
@@ -98,7 +126,7 @@ fn evaluate_checked<'view, 'input, 'types, C>(
     request: CheckerUnitView<'view, C>,
     input: &'input ConstantEvaluationInput<'types>,
     retain_target_literals: bool,
-) -> Result<EvaluatedConstant<'view, 'input, 'types, C>, EvaluationAbort>
+) -> Result<EvaluationState<'view, 'input, 'types, C>, EvaluationAbort>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -171,7 +199,7 @@ where
             | EvaluationFlow::Return(term)
             | EvaluationFlow::Propagate(term),
             diagnostic_anchor,
-        )) => Ok(EvaluatedConstant {
+        )) => Ok(EvaluationState {
             evaluator,
             diagnostic_anchor,
             result_type,
@@ -188,7 +216,7 @@ where
                 .map_err(evaluation_abort)?
                 .unwrap_or(term);
 
-            Ok(EvaluatedConstant {
+            Ok(EvaluationState {
                 evaluator,
                 diagnostic_anchor: None,
                 result_type,
@@ -211,7 +239,7 @@ where
             );
 
             match evaluator.recovery_term(result_type) {
-                Ok(term) => Ok(EvaluatedConstant {
+                Ok(term) => Ok(EvaluationState {
                     evaluator,
                     diagnostic_anchor: Some(expression),
                     result_type,
@@ -237,7 +265,7 @@ where
         .and_then(bray_bound_tree::BoundBlockItem::expression)
 }
 
-struct EvaluatedConstant<'view, 'input, 'types, C>
+struct EvaluationState<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -277,6 +305,7 @@ where
     pub(super) budget: EvaluationBudget,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) locals: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
+    evaluated_references: BTreeSet<BoundExpressionId>,
     retain_target_literals: bool,
 }
 
@@ -295,6 +324,7 @@ where
             budget: EvaluationBudget::new(input),
             diagnostics: DiagnosticBag::new(),
             locals: BTreeMap::new(),
+            evaluated_references: BTreeSet::new(),
             retain_target_literals,
         }
     }
@@ -441,7 +471,7 @@ where
     }
 
     pub(super) fn evaluate_reference(
-        &self,
+        &mut self,
         expression: BoundExpressionId,
         target: Option<bray_bound_tree::BoundReferenceTarget>,
         ty: TypeId,
@@ -453,6 +483,8 @@ where
                 .copied()
                 .ok_or_else(|| EvaluationFailure::invalid_expression(expression));
         }
+
+        self.evaluated_references.insert(expression);
 
         match self.input.reference(expression) {
             Some(ConstantReferenceResolution::Value(value)) => {
@@ -487,6 +519,10 @@ where
             Some(ConstantReferenceResolution::Cycle) => Err(EvaluationFailure::Source {
                 expression,
                 kind: DiagnosticKind::CheckingCyclicConstantDefinition,
+            }),
+            Some(ConstantReferenceResolution::Invalid) => Err(EvaluationFailure::Source {
+                expression,
+                kind: DiagnosticKind::CheckingInvalidConstantExpression,
             }),
             None => Err(EvaluationFailure::invalid_expression(expression)),
         }

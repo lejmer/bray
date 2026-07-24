@@ -221,12 +221,12 @@ impl Compilation {
 
         let parameters = call_parameter_values(values, &signature, key.arguments())?;
 
-        let (references, dependency_diagnostics) = self.concrete_references_for(
+        let (references, dependency_diagnostics) = self.concrete_call_references(
             bound.result().value(),
+            &semantics.result().value().1,
             callable.substitution(),
             key.selected_implementation(),
             &parameters,
-            None,
             cancellation,
         )?;
 

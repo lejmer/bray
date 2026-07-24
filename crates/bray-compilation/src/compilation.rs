@@ -10,6 +10,7 @@ mod imported;
 mod iteration;
 mod load;
 mod substitution;
+mod target_gate;
 mod unit;
 
 pub use export::PackageInterfaceExportError;

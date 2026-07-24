@@ -14,6 +14,8 @@ pub enum LocalSymbolRegionRole {
     AnonymousCallable,
     /// A constant expression embedded in a declaration type template.
     EmbeddedConstant,
+    /// A module contribution target-selection expression.
+    TargetGate,
     /// A declaration-owned checked expression fact.
     DeclarationFact(SymbolFactKind),
 }

@@ -342,6 +342,7 @@ dependencies = [
  "bray-parser",
  "bray-source",
  "bray-syntax",
+ "bray-target",
  "bray-testing",
 ]
 

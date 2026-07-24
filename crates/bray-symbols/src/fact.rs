@@ -70,7 +70,7 @@ pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
 };
-pub use target::TargetFactDependency;
+pub use target::{ModuleTargetGate, TargetFactDependency};
 pub use template::{
     CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,
     DeclarationExpressionTemplate, DeclarationPredicateClauseKind, GenericConstraintTemplate,

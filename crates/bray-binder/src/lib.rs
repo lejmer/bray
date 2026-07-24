@@ -56,8 +56,9 @@ pub use entry::{
     BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
     PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
     PendingBoundEmbeddedConstant, PendingBoundPredicateDefinition, PendingBoundRuntimeDefault,
-    bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
-    bind_contract_clause, bind_embedded_constant, bind_predicate_definition, bind_runtime_default,
+    PendingBoundTargetGate, bind_anonymous_callable, bind_callable_body, bind_constant_template,
+    bind_constraint, bind_contract_clause, bind_embedded_constant, bind_predicate_definition,
+    bind_runtime_default, bind_target_gate,
 };
 pub use fact::{
     BinderFactContext, BinderFactError, BinderFactResult, BindingSymbolFactProvider,

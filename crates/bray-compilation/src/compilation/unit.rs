@@ -4,7 +4,7 @@ use bray_binder::{
     BinderDependency, BinderFactContext, BoundUnitBindingError, BoundUnitComputation,
     bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
     bind_contract_clause, bind_embedded_constant, bind_expression_candidates,
-    bind_predicate_definition, bind_runtime_default, semantic_unit_context,
+    bind_predicate_definition, bind_runtime_default, bind_target_gate, semantic_unit_context,
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
@@ -32,6 +32,20 @@ type ExpressionSemanticComputation = (
 );
 
 impl Compilation {
+    pub(in crate::compilation) fn bound_source(
+        &self,
+        anchor: bray_declarations::SyntaxAnchor,
+    ) -> Result<bray_bound_tree::BoundSourceAnchor, FactQueryError> {
+        let source = self
+            .source(anchor.source_id())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        Ok(bray_bound_tree::BoundSourceAnchor::new(
+            anchor,
+            source.version(),
+        ))
+    }
+
     /// Returns one bound semantic unit and its diagnostics.
     pub fn bound_unit(
         &self,
@@ -462,6 +476,7 @@ fn bind_unit(
         BoundUnitKind::PredicateDefinition => bind_predicate_definition(facts, unit, key)?.finish(),
         BoundUnitKind::Constraint => bind_constraint(facts, unit, key)?.finish(),
         BoundUnitKind::ContractClause => bind_contract_clause(facts, unit, key)?.finish(),
+        BoundUnitKind::TargetGate => bind_target_gate(facts, unit, key)?.finish(),
     }
 }
 
@@ -1151,9 +1166,9 @@ mod tests {
             "module app;\n",
             "func main()\n",
             "{\n",
-            "    let result = target<Item, Item>(0);\n",
+            "    let result = convert<Item, Item>(0);\n",
             "}\n",
-            "func target<T, U>(pos unused: i32) -> T\n",
+            "func convert<T, U>(pos unused: i32) -> T\n",
             "{\n",
             "}\n",
             "struct Item\n",

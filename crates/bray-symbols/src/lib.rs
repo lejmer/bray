@@ -77,7 +77,7 @@ pub use fact::{
     ImplementationRequirementKey, ImplementationSelection, ImplementationSelectionCandidate,
     ImplementationSelectionFact, ImplementationSubject, ImplementationSubjectFact,
     ImplementationSubjectTemplate, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    NeverCancelSymbolCompletion, OverloadArmTemplate, OverloadSignatureTemplate,
+    ModuleTargetGate, NeverCancelSymbolCompletion, OverloadArmTemplate, OverloadSignatureTemplate,
     ParticipatingImplementation, PredicateDefinition, PredicateDefinitionFact,
     PredicateDefinitionState, PredicateParameterTemplate, PredicateSemanticSummary,
     PredicateSignatureTemplate, PredicateSignatureTemplateFact, ReceiverMode,

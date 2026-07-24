@@ -58,11 +58,37 @@ macro_rules! impl_declared_type_fact {
     };
 }
 
-impl_declared_type_fact!(
-    ConstantDeclaredTypeFact,
-    constant_declared_types,
-    ConstantDeclarationSyntax
-);
+impl CompilationSymbolFactBinding<ConstantDeclaredTypeFact> for CompilationSymbolFacts {
+    fn cache(&self) -> &SymbolFactCache<ConstantDeclaredTypeFact> {
+        &self.constant_declared_types
+    }
+
+    fn bind(
+        &self,
+        context: &CompilationBinderFacts<'_>,
+        request: SymbolFactRequest<ConstantDeclaredTypeFact>,
+    ) -> BinderFactResult<SymbolFactResult<ConstantDeclaredTypeFact>> {
+        if let Some(fact) = context
+            .compilation()
+            .available_compiler_known_symbols()
+            .provider()
+            .symbol_target_fact(request.owner())
+        {
+            let ty = context
+                .compilation()
+                .target_fact_type(fact)
+                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            return Ok(DiagnosticResult::without_diagnostics(
+                bray_symbols::TypeExpressionTemplate::Resolved(ty),
+            ));
+        }
+
+        bind_declaration_type::<ConstantDeclarationSyntax>(context, request.symbol(), |syntax| {
+            syntax.type_expression()
+        })
+    }
+}
 
 impl CompilationSymbolFactBinding<GenericConstParameterDeclaredTypeFact>
     for CompilationSymbolFacts

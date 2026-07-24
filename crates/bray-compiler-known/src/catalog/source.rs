@@ -148,7 +148,7 @@ impl CatalogTokenSpelling {
 }
 
 #[cfg(any(test, feature = "generation"))]
-const SOURCES: [CatalogSource; 8] = [
+const SOURCES: [CatalogSource; 9] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
@@ -176,23 +176,29 @@ const SOURCES: [CatalogSource; 8] = [
     CatalogSource::new(
         CatalogSourceId::new(4),
         CatalogKind::CompilerKnown,
+        "catalog/ambient/target-facts.braydef",
+        include_str!("../../catalog/ambient/target-facts.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(5),
+        CatalogKind::CompilerKnown,
         "catalog/ambient/traits.braydef",
         include_str!("../../catalog/ambient/traits.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(5),
+        CatalogSourceId::new(6),
         CatalogKind::CompilerKnown,
         "catalog/ambient/target-scalars.braydef",
         include_str!("../../catalog/ambient/target-scalars.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(6),
+        CatalogSourceId::new(7),
         CatalogKind::CompilerKnown,
         "catalog/core/memory.braydef",
         include_str!("../../catalog/core/memory.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(7),
+        CatalogSourceId::new(8),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/standard-library.braydef",
         include_str!("../../catalog/recognized/standard-library.braydef"),
@@ -227,7 +233,7 @@ mod tests {
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 8);
+        assert_eq!(sources.len(), 9);
 
         assert_eq!(
             sources

@@ -21,7 +21,7 @@ use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, pus
 use crate::publication::{
     assemble_constant_template, assemble_constraint, assemble_contract_clause,
     assemble_embedded_constant, assemble_predicate_definition, assemble_runtime_default,
-    direct_nested_units,
+    assemble_target_gate, direct_nested_units,
 };
 use crate::{BinderFactContext, BoundUnitComputation, SymbolFactProvider};
 
@@ -144,6 +144,17 @@ define_pending_expression_unit!(
     [CallableSignatureFact],
     "A bound contract-clause expression sequence ready to complete its semantic unit.",
     "Binds one contract-clause expression sequence into committed task-local state."
+);
+define_pending_expression_unit!(
+    PendingBoundTargetGate,
+    bind_target_gate,
+    assemble_target_gate,
+    bind_expression_unit,
+    BoundExpressionId,
+    BindingContext::ConstantExpression,
+    [],
+    "A bound module target-selection expression ready to complete its semantic unit.",
+    "Binds one module target-selection expression into committed task-local state."
 );
 
 fn bind_constraint_unit<C>(

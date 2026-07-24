@@ -2,14 +2,14 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts,
-    CheckedPatternFacts, DeclaredValueTypeTemplates,
+    BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts, CheckedPatternFacts,
+    DeclaredValueTypeTemplates,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, SemanticFactResult,
-    SymbolGraph, SymbolKey,
+    AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, ModuleTargetGate,
+    SemanticFactResult, SymbolGraph, SymbolKey,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -65,11 +65,29 @@ impl Compilation {
     fn compute_semantic_diagnostics(&self) -> Result<DiagnosticBag, FactQueryError> {
         let mut pending = BTreeSet::new();
 
+        // TODO(BRA-256): Demand units from the active product source graph.
         for key in self.declared_unit_keys()? {
             pending.insert(unit_order_key(key));
         }
 
+        let declarations = self.declaration_table();
+        let symbols = self.symbol_graph()?;
         let mut facts = Vec::new();
+
+        for part in declarations.module_parts() {
+            let module = symbols
+                .module(self.module_symbol_id_for_part(part)?)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            if self.module_target_gate_key(part, module)?.is_none() {
+                continue;
+            }
+
+            let gate =
+                self.module_target_gate_with_cancellation(part.id(), &self.state.cancellation)?;
+
+            facts.push(SemanticDiagnosticFact::ModuleTargetGate(gate));
+        }
 
         while let Some((_, _, _, key)) = pending.pop_first() {
             let bound = self.bound_unit(key.clone())?;
@@ -181,6 +199,16 @@ impl Compilation {
             )?;
         }
 
+        for part in declarations.module_parts() {
+            let module = symbols
+                .module(self.module_symbol_id_for_part(part)?)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            if let Some(key) = self.module_target_gate_key(part, module)? {
+                keys.push(key);
+            }
+        }
+
         Ok(keys)
     }
 
@@ -276,14 +304,6 @@ impl Compilation {
             BoundUnitKey::runtime_default(provider, self.bound_source(expression)?),
         )
     }
-
-    fn bound_source(&self, anchor: SyntaxAnchor) -> Result<BoundSourceAnchor, FactQueryError> {
-        let source = self
-            .source(anchor.source_id())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        Ok(BoundSourceAnchor::new(anchor, source.version()))
-    }
 }
 
 enum SemanticDiagnosticFact {
@@ -295,6 +315,7 @@ enum SemanticDiagnosticFact {
     Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
+    ModuleTargetGate(Arc<DiagnosticResult<ModuleTargetGate>>),
 }
 
 impl SemanticDiagnosticFact {
@@ -308,6 +329,7 @@ impl SemanticDiagnosticFact {
             Self::Patterns(result) => result.diagnostics(),
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
+            Self::ModuleTargetGate(result) => result.diagnostics(),
         }
     }
 }

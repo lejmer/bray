@@ -633,7 +633,15 @@ mod tests {
         );
 
         assert_eq!(graph.functions().len(), 2);
-        assert_eq!(graph.constants().len(), 1);
+
+        assert_eq!(
+            graph
+                .constants()
+                .iter()
+                .filter(|constant| constant.origin() == SymbolOrigin::Source)
+                .count(),
+            1
+        );
     }
 
     #[test]

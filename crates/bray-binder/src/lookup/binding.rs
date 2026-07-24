@@ -202,6 +202,11 @@ pub(crate) fn combine_name_lookups(
         &mut has_malformed,
     );
 
+    accessible.sort_unstable();
+    accessible.dedup();
+    inaccessible.sort_unstable();
+    inaccessible.dedup();
+
     if has_malformed {
         return MemberLookupResult::Malformed(accessible.into_boxed_slice());
     }

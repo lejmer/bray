@@ -2,6 +2,7 @@ use bray_compiler_known::{
     CatalogDeclarationKind, CompilerKnownDeclarationId, CompilerKnownIterationRole,
     CompilerKnownScopeId,
 };
+use bray_target::TargetFactKind;
 
 use crate::SymbolKind;
 use crate::allocator::SymbolIdCapacityError;
@@ -40,6 +41,8 @@ pub enum CompilerKnownSymbolBuildError {
         /// The affected scope.
         scope: CompilerKnownScopeId,
     },
+    /// Valid module scope paths did not form a complete lookup hierarchy.
+    InvalidModuleHierarchy,
     /// A declaration referred to a scope absent from the catalog skeleton.
     MissingScopeOwner {
         /// The affected declaration.
@@ -73,6 +76,11 @@ pub enum CompilerKnownSymbolBuildError {
     MissingIterationRole {
         /// The absent component role.
         role: CompilerKnownIterationRole,
+    },
+    /// A language-defined target fact is absent or has an incompatible declaration kind.
+    MissingTargetFact {
+        /// The target fact that could not be materialized.
+        fact: TargetFactKind,
     },
     /// Compiler-known declaration ownership contains a cycle.
     DeclarationOwnerCycle {
@@ -125,6 +133,9 @@ impl std::fmt::Display for CompilerKnownSymbolBuildError {
                     "compiler-known scope {scope:?} has an invalid module path"
                 )
             }
+            Self::InvalidModuleHierarchy => {
+                formatter.write_str("compiler-known module paths do not form a valid hierarchy")
+            }
             Self::MissingScopeOwner { declaration, scope } => write!(
                 formatter,
                 "compiler-known declaration {declaration:?} refers to missing scope {scope:?}"
@@ -149,6 +160,13 @@ impl std::fmt::Display for CompilerKnownSymbolBuildError {
                 write!(
                     formatter,
                     "compiler-known iteration role {role:?} is missing"
+                )
+            }
+            Self::MissingTargetFact { fact } => {
+                write!(
+                    formatter,
+                    "compiler-known target fact {} is missing or invalid",
+                    fact.as_str()
                 )
             }
             Self::DeclarationOwnerCycle { declaration } => write!(

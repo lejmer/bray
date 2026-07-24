@@ -92,6 +92,54 @@ pub enum TargetFactKind {
 }
 
 impl TargetFactKind {
+    /// Every language-defined target fact in stable path order.
+    pub const ALL: &'static [Self] = &[
+        Self::IdentityName,
+        Self::IdentityArchitecture,
+        Self::IdentityVendor,
+        Self::IdentitySystem,
+        Self::IdentityEnvironment,
+        Self::IdentityAbi,
+        Self::PointerBits,
+        Self::PointerBytes,
+        Self::EndianLittle,
+        Self::EndianBig,
+        Self::ScalarBool,
+        Self::ScalarChar,
+        Self::ScalarI8,
+        Self::ScalarI16,
+        Self::ScalarI32,
+        Self::ScalarI64,
+        Self::ScalarI128,
+        Self::ScalarU8,
+        Self::ScalarU16,
+        Self::ScalarU32,
+        Self::ScalarU64,
+        Self::ScalarU128,
+        Self::ScalarUsize,
+        Self::ScalarIsize,
+        Self::ScalarR16,
+        Self::ScalarR32,
+        Self::ScalarR64,
+        Self::ScalarR128,
+        Self::ScalarC32,
+        Self::ScalarC64,
+        Self::ScalarC128,
+        Self::ScalarC256,
+        Self::AtomicU8,
+        Self::AtomicU16,
+        Self::AtomicU32,
+        Self::AtomicU64,
+        Self::AtomicU128,
+        Self::AtomicPointer,
+        Self::AbiC,
+        Self::AbiSystem,
+        Self::AddressSpaceHost,
+        Self::AddressSpaceDevice,
+        Self::AlignmentMaxStorage,
+        Self::AlignmentMaxAllocation,
+    ];
+
     /// Returns the language-defined target-fact path.
     pub const fn as_str(self) -> &'static str {
         match self {

@@ -26,6 +26,8 @@ pub enum ConstantReferenceResolution {
     Term(ConstantTermId),
     /// The compilation fact graph detected a constant-definition cycle.
     Cycle,
+    /// The reference is not permitted by this constant-evaluation context.
+    Invalid,
 }
 
 /// Checked semantic inputs for one constant-expression checking or evaluation request.

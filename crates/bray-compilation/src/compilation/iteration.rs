@@ -12,7 +12,7 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnyConstantDefinitionId, AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
+    AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     ExternalDeclarationIdentity, ExternalSymbolKeyData, ImplementationCandidate,
     ImplementationInstanceData, ImplementationRequirementKey, ImplementationSymbolId,
     SymbolFactRequest, SymbolKeyData, TraitApplicationData, TraitCallableFulfillmentSymbolId,
@@ -23,7 +23,6 @@ use bray_symbols::{
 use super::Compilation;
 use super::binder::{CompilationBinderFacts, binder_fact_error};
 use super::checker::{CompilationCheckerContext, checker_result};
-use super::constant::empty_concrete_substitution;
 use super::substitution::empty_substitution;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceFactKey};
@@ -195,7 +194,7 @@ impl Compilation {
                 continue;
             }
 
-            if !self.target_dependencies_hold(iterable, cancellation, diagnostics)? {
+            if !self.target_dependencies_hold(iterable.target_dependencies())? {
                 continue;
             }
 
@@ -263,7 +262,7 @@ impl Compilation {
                     continue;
                 }
 
-                if !self.target_dependencies_hold(iterator, cancellation, diagnostics)? {
+                if !self.target_dependencies_hold(iterator.target_dependencies())? {
                     continue;
                 }
 
@@ -320,32 +319,6 @@ impl Compilation {
         }
 
         Ok((candidates, is_deferred))
-    }
-
-    fn target_dependencies_hold(
-        &self,
-        candidate: &ImplementationCandidate,
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<bool, FactQueryError> {
-        for dependency in candidate.target_dependencies() {
-            let definition = AnyConstantDefinitionId::Constant(dependency.fact());
-
-            let substitution =
-                empty_concrete_substitution(self.semantic_value_store()?, definition)?;
-
-            let instance = bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
-            let result = self.constant_instance_with_cancellation(instance, cancellation)?;
-
-            // Applicability owns dependency diagnostics after the cached result drops.
-            diagnostics.add_range(result.diagnostics().clone());
-
-            if result.value() != &dependency.value() {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
     }
 }
 
