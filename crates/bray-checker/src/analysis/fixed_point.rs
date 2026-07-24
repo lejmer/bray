@@ -19,6 +19,10 @@ pub(crate) trait FixedPointDomain {
 
     fn bottom(&self) -> Self::State;
 
+    fn initial(&self, _: &AnalysisBlock) -> Self::State {
+        self.bottom()
+    }
+
     fn boundary(&self) -> Self::State;
 
     fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool;
@@ -69,8 +73,10 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     domain: &D,
     cancellation: &dyn Cancellation,
 ) -> FixedPointOutcome<FixedPointResult<D::State>> {
-    let mut states = std::iter::repeat_with(|| domain.bottom())
-        .take(graph.blocks().len())
+    let mut states = graph
+        .blocks()
+        .iter()
+        .map(|block| domain.initial(block))
         .collect::<Vec<_>>();
 
     let mut queued = vec![false; graph.blocks().len()];

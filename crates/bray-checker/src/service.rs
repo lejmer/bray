@@ -1,5 +1,6 @@
 use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
+use crate::analysis::check_refinements;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
 use crate::pattern::check_patterns;
@@ -14,8 +15,9 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    CheckedExpressionTypes, CheckedPatternFacts, DeclaredValueTypeTemplates, LivenessFacts,
-    SelectedCall, SelectedIterationSource, SelectedOperation, StoragePlan,
+    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts,
+    DeclaredValueTypeTemplates, LivenessFacts, SelectedCall, SelectedIterationSource,
+    SelectedOperation, StoragePlan,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -59,6 +61,10 @@ pub struct DefaultStoragePlanner;
 /// The standard Bray storage and obligation liveness analyzer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultLivenessAnalyzer;
+
+/// The standard Bray flow-sensitive fact analyzer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultRefinementAnalyzer;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -166,6 +172,24 @@ where
 }
 
 impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where C: CheckerRequestContext + ?Sized {}
+
+/// Flow-sensitive semantic facts over one checked bound unit.
+pub trait RefinementAnalyzer<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Computes durable facts available before checked operation occurrences.
+    fn analyze_refinements(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        patterns: &CheckedPatternFacts,
+        storage: &StoragePlan,
+    ) -> CheckerOutcome<CheckedRefinementFacts> {
+        check_refinements(request, patterns, storage)
+    }
+}
+
+impl<C> RefinementAnalyzer<C> for DefaultRefinementAnalyzer where C: CheckerRequestContext + ?Sized {}
 
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync

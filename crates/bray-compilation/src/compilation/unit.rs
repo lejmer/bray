@@ -9,15 +9,15 @@ use bray_binder::{
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
-    CheckedExpressionTypes, CheckedPatternFacts, CheckedSemanticSelections,
+    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
     DeclaredValueTypeTemplates, LivenessFacts, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
     DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
-    DefaultStoragePlanner, ExpressionCandidateSet, ExpressionSemanticChecker, IterationPatternType,
-    LivenessAnalyzer, NestedCallableEvidence, PatternCheckInput, PatternChecker,
-    SemanticUnitContext, StoragePlanner,
+    DefaultRefinementAnalyzer, DefaultStoragePlanner, ExpressionCandidateSet,
+    ExpressionSemanticChecker, IterationPatternType, LivenessAnalyzer, NestedCallableEvidence,
+    PatternCheckInput, PatternChecker, RefinementAnalyzer, SemanticUnitContext, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -114,6 +114,16 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<LivenessFacts>>, FactQueryError> {
         let published = self.liveness_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns flow-sensitive facts available at checked operation occurrences.
+    pub fn refinement_facts(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedRefinementFacts>>, FactQueryError> {
+        let published = self.refinement_facts_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -657,6 +667,47 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn refinement_facts_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedRefinementFacts>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.refinement_facts,
+            CompilationFactKey::RefinementFacts(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let result = analyze_refinements(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                    patterns.result().value(),
+                    storage.result().value(),
+                )?;
+
+                let (facts, refinement_diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    patterns.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    &refinement_diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+            },
+        )
+    }
+
     fn declared_value_type_templates_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -823,6 +874,20 @@ fn analyze_liveness(
     checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, storage))
 }
 
+fn analyze_refinements(
+    bound: &BoundUnit,
+    semantic_context: &SemanticUnitContext,
+    context: &CompilationCheckerContext<'_>,
+    patterns: &CheckedPatternFacts,
+    storage: &StoragePlan,
+) -> Result<DiagnosticResult<CheckedRefinementFacts>, FactQueryError> {
+    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
+    })?;
+
+    checker_result(DefaultRefinementAnalyzer.analyze_refinements(unit, patterns, storage))
+}
+
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
@@ -847,9 +912,9 @@ mod tests {
         BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKind,
         BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, DeclaredValueTypeConstraintKind,
         DeclaredValueTypeTemplates, DeclaredValueTypeTerm, PatternOperation, PatternPredicate,
-        PatternProjection, SelectedArgument, SemanticSelection, StorageAccessPurpose,
-        StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
-        StorageProjection, walk_bound_unit_view,
+        PatternProjection, RefinementFactKind, SelectedArgument, SemanticSelection,
+        StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
+        StorageIdentity, StorageProjection, walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
@@ -1105,6 +1170,71 @@ mod tests {
         };
 
         assert!(!facts.value().last_uses().is_empty());
+    }
+
+    #[test]
+    fn refinement_facts_are_lazy_cached_and_retain_branch_conditions() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(pos condition: bool)\n",
+            "{\n",
+            "    if condition\n",
+            "    {\n",
+            "        condition;\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
+            "        condition;\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.refinement_facts.is_published(&key),
+            Ok(false)
+        );
+
+        let first = match compilation.refinement_facts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("refinement analysis must publish: {error:?}"),
+        };
+
+        assert!(
+            first.value().occurrences().iter().any(|occurrence| {
+                occurrence.facts().iter().any(|fact| {
+                    matches!(
+                        fact.kind(),
+                        RefinementFactKind::Condition { value: true, .. }
+                    )
+                })
+            }),
+            "{first:?}"
+        );
+
+        let second = match compilation.refinement_facts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated refinement analysis must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let dependencies = match compilation.state.fact_runtime.dependencies(
+            &crate::fact::CompilationFactKey::RefinementFacts(key.clone()),
+        ) {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("published refinements must retain dependencies"),
+            Err(error) => panic!("refinement dependencies must be readable: {error:?}"),
+        };
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::CheckedPatterns(
+                key.clone()
+            ))
+        );
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key)));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use bray_symbols::TypeId;
 use crate::BoundNodeOrigin;
 
 /// The source-level category of a literal expression.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundLiteralKind {
     /// A binary, decimal, or hexadecimal integer literal.
     Integer,

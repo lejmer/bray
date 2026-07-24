@@ -373,6 +373,10 @@ fn reuse_mapped_cells(
 
     reuse!(liveness, |key| CompilationFactKey::Liveness(key.clone()));
 
+    reuse!(refinement_facts, |key| {
+        CompilationFactKey::RefinementFacts(key.clone())
+    });
+
     reuse!(symbolic_constant_terms, |key| {
         CompilationFactKey::SymbolicConstantTerm(key.clone())
     });

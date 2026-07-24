@@ -29,7 +29,7 @@ pub enum PatternOperation {
 }
 
 /// One structural condition tested or established by a checked pattern.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PatternPredicate {
     /// The subject equals one source literal.
     Literal(BoundPatternLiteral),

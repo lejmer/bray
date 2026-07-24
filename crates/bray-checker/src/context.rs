@@ -65,6 +65,8 @@ pub enum CheckerInfrastructureError {
     InvalidStoragePlan,
     /// Liveness inputs or durable decisions violate the requested unit contract.
     InvalidLivenessFacts,
+    /// Refinement inputs do not describe the requested bound unit.
+    InvalidRefinementInput,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.

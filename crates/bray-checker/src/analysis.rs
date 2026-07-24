@@ -13,3 +13,4 @@ mod refinement;
 
 pub(crate) use check::check_control_flow;
 pub(crate) use liveness::analyze_storage_liveness;
+pub(crate) use refinement::check_refinements;

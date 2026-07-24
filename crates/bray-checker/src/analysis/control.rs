@@ -22,10 +22,11 @@ where
         match expression.kind() {
             BoundStructuredExpressionKind::Conditional => {
                 let current = self.build_operands(expression.operands(), current)?;
+                let condition = expression.operands().first().copied();
 
                 self.push_bound(current, id.into());
 
-                self.build_branches(expression.blocks(), current)
+                self.build_branches(expression.blocks(), condition, current)
             }
             BoundStructuredExpressionKind::While => {
                 let Some(body) = expression.blocks().first().copied() else {
@@ -60,6 +61,9 @@ where
             BoundStructuredExpressionKind::Assertion => {
                 self.build_assertion(id, expression.operands(), current)
             }
+            BoundStructuredExpressionKind::TrustBoundary => {
+                self.build_trust_boundary(id, expression.operands(), current)
+            }
             BoundStructuredExpressionKind::BooleanFold => {
                 self.build_boolean_fold(id, expression.operands(), current)
             }
@@ -76,7 +80,10 @@ where
                 let current = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(current, id.into());
-                self.build_propagation(id, current, true)
+
+                let subject = expression.operands().first().copied().unwrap_or(id);
+
+                self.build_propagation(subject, current, true)
             }
             BoundStructuredExpressionKind::Panic => {
                 let current = self.build_operands(expression.operands(), current)?;
@@ -136,8 +143,25 @@ where
             _ => return Some(Some(current)),
         };
 
-        self.push_edge(current, right_entry, right_kind, None);
-        self.push_edge(current, join, bypass_kind, None);
+        self.push_edge(
+            current,
+            right_entry,
+            right_kind,
+            Some(AnalysisRefinement::Condition {
+                expression: left,
+                value: operator == BoundOperator::LogicalAnd,
+            }),
+        );
+
+        self.push_edge(
+            current,
+            join,
+            bypass_kind,
+            Some(AnalysisRefinement::Condition {
+                expression: left,
+                value: operator == BoundOperator::LogicalOr,
+            }),
+        );
 
         if let Some(right) = operands.get(1).copied() {
             if let Some(completion) = self.build_expression(right, right_entry)? {
@@ -172,14 +196,53 @@ where
         let success = self.push_block();
         let failure = self.push_block();
 
-        self.push_edge(current, success, AnalysisEdgeKind::ConditionalTrue, None);
-        self.push_edge(current, failure, AnalysisEdgeKind::ConditionalFalse, None);
+        self.push_edge(
+            current,
+            success,
+            AnalysisEdgeKind::ConditionalTrue,
+            Some(AnalysisRefinement::Condition {
+                expression: condition,
+                value: true,
+            }),
+        );
+
+        self.push_edge(
+            current,
+            failure,
+            AnalysisEdgeKind::ConditionalFalse,
+            Some(AnalysisRefinement::Condition {
+                expression: condition,
+                value: false,
+            }),
+        );
 
         let failure = self.build_operands(operands.get(1..).unwrap_or_default(), failure)?;
 
         self.push_exit(failure, AnalysisExitKind::Panic);
 
         Some(Some(success))
+    }
+
+    fn build_trust_boundary(
+        &mut self,
+        id: BoundExpressionId,
+        operands: &[BoundExpressionId],
+        current: AnalysisBlockId,
+    ) -> Option<Option<AnalysisBlockId>> {
+        let entry = self.push_block();
+
+        self.push_edge(
+            current,
+            entry,
+            AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::TrustBoundary(id)),
+        );
+
+        let current = self.build_operands(operands, entry)?;
+
+        self.push_bound(current, id.into());
+
+        Some(Some(current))
     }
 
     fn build_boolean_fold(
@@ -274,7 +337,10 @@ where
         for arm in expression.arms() {
             let arm_entry = self.push_block();
             let next_candidate = self.push_block();
-            let refinement = AnalysisRefinement::PatternSuccess(arm.pattern());
+            let refinement = AnalysisRefinement::PatternSuccess {
+                subject: expression.subject(),
+                pattern: arm.pattern(),
+            };
 
             self.push_edge(
                 candidate,
@@ -296,18 +362,31 @@ where
 
             let body_entry = match arm.guard() {
                 Some(guard) => {
+                    let guard_expression = guard;
                     let guard = self
                         .build_expression(guard, arm_entry)?
                         .unwrap_or_else(|| self.push_block());
 
                     let body_entry = self.push_block();
 
-                    self.push_edge(guard, body_entry, AnalysisEdgeKind::ConditionalTrue, None);
+                    self.push_edge(
+                        guard,
+                        body_entry,
+                        AnalysisEdgeKind::ConditionalTrue,
+                        Some(AnalysisRefinement::Condition {
+                            expression: guard_expression,
+                            value: true,
+                        }),
+                    );
+
                     self.push_edge(
                         guard,
                         next_candidate,
                         AnalysisEdgeKind::ConditionalFalse,
-                        None,
+                        Some(AnalysisRefinement::Condition {
+                            expression: guard_expression,
+                            value: false,
+                        }),
                     );
 
                     body_entry
@@ -330,6 +409,7 @@ where
     fn build_branches(
         &mut self,
         branches: &[BoundBlockId],
+        condition: Option<BoundExpressionId>,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         let join = self.push_block();
@@ -343,7 +423,15 @@ where
                 AnalysisEdgeKind::ConditionalFalse
             };
 
-            self.push_edge(current, entry, kind, None);
+            self.push_edge(
+                current,
+                entry,
+                kind,
+                condition.map(|expression| AnalysisRefinement::Condition {
+                    expression,
+                    value: index == 0,
+                }),
+            );
 
             if let Some(completion) = self.build_block(branch, entry)? {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
@@ -351,7 +439,15 @@ where
         }
 
         if branches.len() < 2 {
-            self.push_edge(current, join, AnalysisEdgeKind::ConditionalFalse, None);
+            self.push_edge(
+                current,
+                join,
+                AnalysisEdgeKind::ConditionalFalse,
+                condition.map(|expression| AnalysisRefinement::Condition {
+                    expression,
+                    value: false,
+                }),
+            );
         }
 
         Some(Some(join))
@@ -373,15 +469,29 @@ where
 
         self.push_edge(current, header, AnalysisEdgeKind::Sequential, None);
 
+        let condition_expression = condition.last().copied();
         let condition = self.build_operands(condition, header)?;
 
         self.push_bound(condition, id.into());
-        self.push_edge(condition, body_entry, AnalysisEdgeKind::LoopEntry, None);
+
+        self.push_edge(
+            condition,
+            body_entry,
+            AnalysisEdgeKind::LoopEntry,
+            condition_expression.map(|expression| AnalysisRefinement::Condition {
+                expression,
+                value: true,
+            }),
+        );
+
         self.push_edge(
             condition,
             exhausted,
             AnalysisEdgeKind::ConditionalFalse,
-            None,
+            condition_expression.map(|expression| AnalysisRefinement::Condition {
+                expression,
+                value: false,
+            }),
         );
 
         self.loops.push(LoopContext {
