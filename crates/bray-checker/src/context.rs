@@ -58,6 +58,8 @@ pub enum CheckerInfrastructureError {
     InvalidSemanticSelectionInput,
     /// Constant-evaluation inputs do not describe the requested bound unit.
     InvalidConstantEvaluationInput,
+    /// Storage-planning inputs or constructed records violate the requested unit contract.
+    InvalidStoragePlan,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.

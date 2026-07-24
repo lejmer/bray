@@ -220,6 +220,8 @@ pub(crate) enum CompilationFactKey {
     CheckedPatterns(BoundUnitKey),
     /// Final semantic selections for one bound unit.
     CheckedSemanticSelections(BoundUnitKey),
+    /// Persistent storage identities and occurrence-specific access plans for one bound unit.
+    StoragePlan(BoundUnitKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -278,6 +280,7 @@ impl CompilationFactKey {
             | Self::CheckedExpressionTypes(key)
             | Self::CheckedPatterns(key)
             | Self::CheckedSemanticSelections(key)
+            | Self::StoragePlan(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)

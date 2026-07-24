@@ -10,13 +10,13 @@ use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
     CheckedExpressionTypes, CheckedPatternFacts, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, walk_bound_unit_view,
+    DeclaredValueTypeTemplates, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultExpressionSemanticChecker, DefaultPatternChecker, ExpressionCandidateSet,
-    ExpressionSemanticChecker, IterationPatternType, NestedCallableEvidence, PatternCheckInput,
-    PatternChecker, SemanticUnitContext,
+    DefaultExpressionSemanticChecker, DefaultPatternChecker, DefaultStoragePlanner,
+    ExpressionCandidateSet, ExpressionSemanticChecker, IterationPatternType,
+    NestedCallableEvidence, PatternCheckInput, PatternChecker, SemanticUnitContext, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -93,6 +93,16 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedSemanticSelections>>, FactQueryError> {
         let published =
             self.semantic_selections_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns storage identities, evaluated access plans, and their diagnostics for one unit.
+    pub fn storage_plan(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<StoragePlan>>, FactQueryError> {
+        let published = self.storage_plan_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -521,6 +531,57 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn storage_plan_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<StoragePlan>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.storage_plans,
+            CompilationFactKey::StoragePlan(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
+                let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
+                let (_, iterations, iteration_diagnostics, _) =
+                    self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
+
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let result = plan_storage(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                    types.result().value(),
+                    patterns.result().value(),
+                    selections.result().value(),
+                    &iterations,
+                )?;
+
+                let (plan, plan_diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    types.result().diagnostics(),
+                    patterns.result().diagnostics(),
+                    selections.result().diagnostics(),
+                    &iteration_diagnostics,
+                    &plan_diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(plan, diagnostics), Box::new([])))
+            },
+        )
+    }
+
     fn declared_value_type_templates_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -656,6 +717,24 @@ fn check_patterns(
     checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
 }
 
+fn plan_storage(
+    bound: &BoundUnit,
+    semantic_context: &SemanticUnitContext,
+    context: &CompilationCheckerContext<'_>,
+    types: &CheckedExpressionTypes,
+    patterns: &CheckedPatternFacts,
+    selections: &CheckedSemanticSelections,
+    iterations: &[bray_bound_tree::SelectedIterationSource],
+) -> Result<DiagnosticResult<StoragePlan>, FactQueryError> {
+    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
+    })?;
+
+    checker_result(
+        DefaultStoragePlanner.plan_storage(unit, types, patterns, selections, iterations),
+    )
+}
+
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
@@ -680,7 +759,8 @@ mod tests {
         BoundReferenceTarget, BoundUnit, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
         CheckedExpressionTypes, DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates,
         DeclaredValueTypeTerm, PatternOperation, PatternPredicate, PatternProjection,
-        SelectedArgument, SemanticSelection, walk_bound_unit_view,
+        SelectedArgument, SemanticSelection, StorageAccessPurpose, StorageBindingTarget,
+        StorageIdentity, StorageProjection, walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
@@ -691,6 +771,270 @@ mod tests {
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
     use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
+
+    #[test]
+    fn storage_plans_publish_unit_local_identities_accesses_and_dependencies() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: i32;\n",
+            "    y: i32;\n",
+            "}\n",
+            "func main(input: Point, items: [i32; 4]) -> i32\n",
+            "{\n",
+            "    let mut value: i32 = input.x;\n",
+            "    let { x, y }: Point = input;\n",
+            "    let shared = &value;\n",
+            "    let exclusive = & mut value;\n",
+            "    let first = items[0];\n",
+            "    let middle = items[1..3];\n",
+            "    value = x;\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.storage_plans.is_published(&key),
+            Ok(false)
+        );
+
+        let first = match compilation.storage_plan(key.clone()) {
+            Ok(plan) => plan,
+            Err(error) => panic!("storage planning must publish: {error:?}"),
+        };
+
+        assert!(
+            first
+                .value()
+                .identities()
+                .iter()
+                .any(|identity| { matches!(identity, StorageIdentity::Parameter(_)) })
+        );
+
+        assert!(
+            first
+                .value()
+                .identities()
+                .iter()
+                .any(|identity| { matches!(identity, StorageIdentity::LocalOwned(_)) })
+        );
+
+        assert!(
+            first
+                .value()
+                .identities()
+                .iter()
+                .any(|identity| { matches!(identity, StorageIdentity::Result(_)) })
+        );
+
+        assert!(
+            first
+                .value()
+                .identities()
+                .iter()
+                .any(|identity| { matches!(identity, StorageIdentity::Temporary(_)) })
+        );
+
+        assert!(
+            first
+                .value()
+                .bindings()
+                .iter()
+                .any(|(target, _)| { matches!(target, StorageBindingTarget::Parameter(_)) })
+        );
+
+        assert!(
+            first
+                .value()
+                .bindings()
+                .iter()
+                .any(|(target, _)| { matches!(target, StorageBindingTarget::Local(_)) })
+        );
+
+        assert!(
+            first
+                .value()
+                .bindings()
+                .iter()
+                .any(|(target, _)| { matches!(target, StorageBindingTarget::Result) })
+        );
+
+        assert!(first.value().accesses().iter().any(|access| {
+            access
+                .projections()
+                .iter()
+                .any(|projection| matches!(projection, StorageProjection::ProductField(_)))
+        }));
+
+        for purpose in [
+            StorageAccessPurpose::Read,
+            StorageAccessPurpose::Write,
+            StorageAccessPurpose::Move,
+            StorageAccessPurpose::Assignment,
+            StorageAccessPurpose::Member,
+            StorageAccessPurpose::Index,
+            StorageAccessPurpose::Slice,
+            StorageAccessPurpose::Projection,
+            StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Shared),
+            StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable),
+        ] {
+            assert!(
+                first
+                    .value()
+                    .access_plans()
+                    .iter()
+                    .any(|plan| plan.purpose() == purpose),
+                "storage plan must retain {purpose:?}"
+            );
+        }
+
+        let second = match compilation.storage_plan(key.clone()) {
+            Ok(plan) => plan,
+            Err(error) => panic!("repeated storage planning must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::StoragePlan(key.clone()))
+        {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("published storage plans must retain dependencies"),
+            Err(error) => panic!("storage-plan dependencies must be readable: {error:?}"),
+        };
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
+
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::CheckedExpressionTypes(
+                key.clone()
+            ))
+        );
+
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::CheckedPatterns(
+                key.clone()
+            ))
+        );
+
+        assert!(dependencies.contains(
+            &crate::fact::CompilationFactKey::CheckedSemanticSelections(key)
+        ));
+    }
+
+    #[test]
+    fn storage_plans_retain_recovery_without_panicking() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32)\n",
+            "{\n",
+            "    let broken: i32 = ;\n",
+            "    value;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let plan = match compilation.storage_plan(key) {
+            Ok(plan) => plan,
+            Err(error) => panic!("recovered storage planning must publish: {error:?}"),
+        };
+
+        assert!(
+            plan.value()
+                .accesses()
+                .iter()
+                .any(bray_bound_tree::StorageAccess::is_recovered)
+        );
+    }
+
+    #[test]
+    fn storage_plans_cover_receiver_predicate_and_anonymous_parameters() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "predicate accepts(value: i32) = true;\n",
+            "struct Counter\n",
+            "{\n",
+            "    func read() -> i32\n",
+            "    {\n",
+            "        return 0;\n",
+            "    }\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let callable = lambda(value: i32)\n",
+            "    {\n",
+            "        value;\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let keys = match compilation.declared_unit_keys_for_test() {
+            Ok(keys) => keys,
+            Err(error) => panic!("declared unit keys must be available: {error:?}"),
+        };
+
+        let receiver = keys
+            .iter()
+            .filter(|key| key.kind() == BoundUnitKind::CallableBody)
+            .filter_map(|key| compilation.storage_plan(key.clone()).ok())
+            .find(|plan| {
+                plan.value()
+                    .identities()
+                    .iter()
+                    .any(|identity| matches!(identity, StorageIdentity::Receiver(_)))
+            })
+            .unwrap_or_else(|| panic!("type callable storage must retain its receiver"));
+
+        assert!(receiver.diagnostics().is_empty());
+
+        let predicate_key = keys
+            .iter()
+            .find(|key| key.kind() == BoundUnitKind::PredicateDefinition)
+            .unwrap_or_else(|| panic!("predicate definition key must be available"));
+
+        let predicate = match compilation.storage_plan(predicate_key.clone()) {
+            Ok(plan) => plan,
+            Err(error) => panic!("predicate storage planning must publish: {error:?}"),
+        };
+
+        assert!(
+            predicate
+                .value()
+                .identities()
+                .iter()
+                .any(|identity| matches!(identity, StorageIdentity::PredicateParameter(_)))
+        );
+
+        let main = source_callable_body_key(&compilation);
+
+        let bound = match compilation.bound_unit(main) {
+            Ok(bound) => bound,
+            Err(error) => panic!("source callable must bind: {error:?}"),
+        };
+
+        let [nested] = bound.value().nested_units() else {
+            panic!("source callable must contain one anonymous callable");
+        };
+
+        let anonymous = match compilation.storage_plan(nested.clone()) {
+            Ok(plan) => plan,
+            Err(error) => panic!("anonymous callable storage planning must publish: {error:?}"),
+        };
+
+        assert!(
+            anonymous
+                .value()
+                .identities()
+                .iter()
+                .any(|identity| matches!(identity, StorageIdentity::AnonymousParameter(_)))
+        );
+    }
 
     #[test]
     fn declared_value_type_templates_publish_lazy_source_evidence_and_constraints() {
@@ -1808,7 +2152,7 @@ mod tests {
     }
 
     #[test]
-    fn control_flow_requests_do_not_force_nested_unit_control_flow() {
+    fn unit_fact_requests_do_not_force_nested_units() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main()\n",
@@ -1835,12 +2179,26 @@ mod tests {
             Ok(false)
         );
 
-        if let Err(error) = compilation.control_flow(key) {
+        assert_eq!(
+            compilation.state.storage_plans.is_published(nested),
+            Ok(false)
+        );
+
+        if let Err(error) = compilation.control_flow(key.clone()) {
             panic!("parent control-flow facts must be available: {error:?}");
         }
 
         assert_eq!(
             compilation.state.checked_control_flow.is_published(nested),
+            Ok(false)
+        );
+
+        if let Err(error) = compilation.storage_plan(key) {
+            panic!("parent storage plan must be available: {error:?}");
+        }
+
+        assert_eq!(
+            compilation.state.storage_plans.is_published(nested),
             Ok(false)
         );
     }

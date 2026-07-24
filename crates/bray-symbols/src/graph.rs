@@ -269,6 +269,81 @@ macro_rules! define_symbol_graph {
                 }
             }
 
+            /// Returns one callable's written parameters and optional receiver.
+            pub fn callable_parameters_and_receiver(
+                &self,
+                callable: crate::CallableSymbolId,
+            ) -> Option<(
+                &[crate::CallableParameterSymbolId],
+                Option<ReceiverParameterSymbolId>,
+            )> {
+                match callable {
+                    crate::CallableSymbolId::Function(id) => self
+                        .function(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TypeMember(id) => self
+                        .type_callable_member(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitMember(id) => self
+                        .trait_callable_member(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitFulfillment(id) => self
+                        .trait_callable_fulfillment(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::Constructor(id) => self
+                        .constructor(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::Finalizer(id) => self
+                        .finalizer(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::Destructor(id) => self
+                        .destructor(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::ScopeEnter(id) => self
+                        .scope_enter(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::ScopeExit(id) => self
+                        .scope_exit(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitFinalizer(id) => self
+                        .trait_finalizer_requirement(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitDestructor(id) => self
+                        .trait_destructor_requirement(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitScopeEnter(id) => self
+                        .trait_scope_enter_requirement(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitScopeExit(id) => self
+                        .trait_scope_exit_requirement(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitScopeEnterFulfillment(id) => self
+                        .trait_scope_enter_fulfillment(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                    crate::CallableSymbolId::TraitScopeExitFulfillment(id) => self
+                        .trait_scope_exit_fulfillment(id)
+                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
+                }
+            }
+
+            /// Returns one predicate definition's parameters in declaration order.
+            pub fn predicate_definition_parameters(
+                &self,
+                predicate: crate::PredicateDefinitionSymbolId,
+            ) -> Option<&[crate::PredicateParameterSymbolId]> {
+                match predicate {
+                    crate::PredicateDefinitionSymbolId::Predicate(id) => {
+                        self.predicate(id).map(|symbol| symbol.parameters())
+                    }
+                    crate::PredicateDefinitionSymbolId::TraitMember(id) => self
+                        .trait_predicate_member(id)
+                        .map(|symbol| symbol.parameters()),
+                    crate::PredicateDefinitionSymbolId::TraitFulfillment(id) => self
+                        .trait_predicate_fulfillment(id)
+                        .map(|symbol| symbol.parameters()),
+                }
+            }
+
             /// Returns whether this graph owns an exact stable symbol key.
             pub fn contains_symbol_key(&self, key: &crate::SymbolKey) -> bool {
                 self.symbol_index.contains_key(key)

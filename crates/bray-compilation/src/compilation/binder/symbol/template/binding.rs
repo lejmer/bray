@@ -10,10 +10,10 @@ use bray_symbols::{
     GenericDeclarationTemplateFact, GenericOwnerId, ImplementationHeadTemplate,
     ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
     ImplementationSymbolId, ImplementedTraitApplicationFact, OverloadArmTemplate,
-    OverloadSignatureTemplate, PredicateDefinitionSymbolId, PredicateParameterSymbolId,
-    PredicateParameterTemplate, PredicateSignatureTemplate, PredicateSignatureTemplateFact,
-    StructFieldDefaultTemplateFact, SymbolFactRequest, SymbolFactResult, SymbolGraph,
-    UnevaluatedDefaultTemplate, UnionPayloadFieldDefaultTemplateFact,
+    OverloadSignatureTemplate, PredicateDefinitionSymbolId, PredicateParameterTemplate,
+    PredicateSignatureTemplate, PredicateSignatureTemplateFact, StructFieldDefaultTemplateFact,
+    SymbolFactRequest, SymbolFactResult, UnevaluatedDefaultTemplate,
+    UnionPayloadFieldDefaultTemplateFact,
 };
 use bray_syntax::{
     ExpressionSyntax, PredicateDeclarationSyntax, PredicateParameterListSyntax, SyntaxKind,
@@ -305,7 +305,10 @@ fn bind_predicate_signature_template(
     owner: PredicateDefinitionSymbolId,
 ) -> BinderFactResult<DiagnosticResult<PredicateSignatureTemplate>> {
     let symbol = owner.into_any();
-    let parameters = predicate_parameters(context.symbols, owner)?;
+    let parameters = context
+        .symbols
+        .predicate_definition_parameters(owner)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
 
     with_declaration_root(context, symbol, |root| {
         let list = direct_children::<PredicateParameterListSyntax>(&root)?
@@ -441,24 +444,6 @@ fn overload_template(
         );
 
     OverloadSignatureTemplate::new(owner, arms)
-}
-
-fn predicate_parameters(
-    symbols: &SymbolGraph,
-    owner: PredicateDefinitionSymbolId,
-) -> BinderFactResult<&[PredicateParameterSymbolId]> {
-    match owner {
-        PredicateDefinitionSymbolId::Predicate(owner) => {
-            symbols.predicate(owner).map(|symbol| symbol.parameters())
-        }
-        PredicateDefinitionSymbolId::TraitMember(owner) => symbols
-            .trait_predicate_member(owner)
-            .map(|symbol| symbol.parameters()),
-        PredicateDefinitionSymbolId::TraitFulfillment(owner) => symbols
-            .trait_predicate_fulfillment(owner)
-            .map(|symbol| symbol.parameters()),
-    }
-    .ok_or(BinderFactError::DependencyUnavailable)
 }
 
 fn direct_children<T>(root: &SyntaxNodeView<'_>) -> BinderFactResult<Vec<T>>

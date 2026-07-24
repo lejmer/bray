@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedPatternFacts,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedIterationSource,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedIterationSource, StoragePlan,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_declarations::{
@@ -117,6 +117,7 @@ pub(super) struct CompilationState {
     pub(super) checked_expression_types: UnitFactCache<CheckedExpressionTypes>,
     pub(super) checked_patterns: UnitFactCache<CheckedPatternFacts>,
     pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
+    pub(super) storage_plans: UnitFactCache<StoragePlan>,
     pub(super) constant_template_keys:
         FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
     pub(super) callable_body_keys:
@@ -244,6 +245,7 @@ impl Compilation {
                 checked_expression_types: UnitFactCache::new(),
                 checked_patterns: UnitFactCache::new(),
                 checked_semantic_selections: UnitFactCache::new(),
+                storage_plans: UnitFactCache::new(),
                 constant_template_keys: FactCell::new(),
                 callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),

@@ -4,11 +4,11 @@ use bray_bound_tree::{
     BoundStructuredExpressionKind, BoundTypeReference, BoundUnaryExpression,
 };
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{LocalScopeId, TypeId};
+use bray_symbols::{BorrowKind, LocalScopeId, TypeId};
 use bray_syntax::{
-    ExpressionSyntax, PrimaryExpressionSyntax, SliceIndexOperationSyntax, SourceSyntaxNode,
-    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, TypeExpressionSyntax,
-    walk_syntax_node,
+    BorrowExpressionSyntax, ExpressionSyntax, PrimaryExpressionSyntax, SliceIndexOperationSyntax,
+    SourceSyntaxNode, SyntaxKind, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent,
+    TypeExpressionSyntax, walk_syntax_node,
 };
 
 use super::super::block::BlockBindingOperations;
@@ -148,7 +148,7 @@ impl ExpressionBinder {
                 .any(|operand| binder.expression_is_recovered(*operand))
             || blocks.iter().any(|block| binder.block_is_recovered(*block));
 
-        let expression = BoundStructuredExpression::new(
+        let mut expression = BoundStructuredExpression::new(
             binder.source_origin(&syntax),
             kind,
             operands,
@@ -157,6 +157,20 @@ impl ExpressionBinder {
             None,
             recovered,
         );
+
+        if kind == BoundStructuredExpressionKind::Borrow {
+            let Some(borrow) = syntax.cast::<BorrowExpressionSyntax>() else {
+                return Err(BindingError::UnsupportedSyntax);
+            };
+
+            let borrow_kind = if borrow.mut_keyword().is_some() {
+                BorrowKind::Mutable
+            } else {
+                BorrowKind::Shared
+            };
+
+            expression = expression.with_borrow_kind(borrow_kind);
+        }
 
         self.push(binder, BoundExpression::Structured(expression))
     }
@@ -516,6 +530,8 @@ mod tests {
             "    };\n",
             "    lambda(value: i32) {};\n",
             "    await size;\n",
+            "    &size;\n",
+            "    & mut size;\n",
             "    return size;\n",
             "}",
         ));
@@ -566,6 +582,8 @@ mod tests {
         let mut saw_targeted_return = false;
         let mut saw_lambda = false;
         let mut saw_await = false;
+        let mut saw_shared_borrow = false;
+        let mut saw_mutable_borrow = false;
 
         walk_bound_tree(result.unit().tree(), block, |event| {
             let BoundWalkEvent::Enter(node) = event else {
@@ -681,6 +699,15 @@ mod tests {
 
                     saw_await = true;
                 }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::Borrow =>
+                {
+                    match expression.borrow_kind() {
+                        Some(bray_symbols::BorrowKind::Shared) => saw_shared_borrow = true,
+                        Some(bray_symbols::BorrowKind::Mutable) => saw_mutable_borrow = true,
+                        None => panic!("bound borrow expressions must retain their borrow kind"),
+                    }
+                }
                 _ => {}
             }
 
@@ -705,6 +732,8 @@ mod tests {
         assert!(saw_targeted_return);
         assert!(saw_lambda);
         assert!(saw_await);
+        assert!(saw_shared_borrow);
+        assert!(saw_mutable_borrow);
 
         assert_eq!(result.dependencies().len(), 1);
     }

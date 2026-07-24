@@ -13,6 +13,7 @@ mod representation;
 mod selection;
 mod semantic_context;
 mod service;
+mod storage;
 mod target;
 mod type_check;
 mod unit;
@@ -52,8 +53,8 @@ pub use service::{
     ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
     DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultExpressionSemanticChecker,
     DefaultExpressionTypeChecker, DefaultPatternChecker, DefaultSemanticSelector,
-    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker, PatternChecker,
-    SemanticSelector, TargetValidityChecker,
+    DefaultStoragePlanner, DefaultTargetValidityChecker, ExpressionSemanticChecker,
+    ExpressionTypeChecker, PatternChecker, SemanticSelector, StoragePlanner, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,

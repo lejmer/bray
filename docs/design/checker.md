@@ -703,6 +703,25 @@ earlier malformed-source diagnostic for every affected operation.
 Storage flow follows `docs/language/ownership-and-borrowing.md`, `docs/language/lifecycle.md`,
 `docs/language/expressions/expression-ownership.md`, and the storage behavior specified by each expression form.
 
+### Per-Unit Storage Planning
+
+Each bound semantic unit has one independently demandable immutable storage plan. The plan assigns unit-local identities to
+parameter, receiver, local, result, temporary, allocation, compiler-created, and recovery storage and retains every evaluated
+storage-access occurrence in source evaluation order.
+
+An access plan records the exact expression occurrence, its checked access root and ordered projections, its reached type, and the
+operation performed through it. Operations include reads, writes, moves, borrows, assignments, member access, indexing, slicing,
+and pattern projections. A single expression can produce several projected accesses with the same operation, as with product or
+sequence destructuring.
+
+Planning requests only the exact unit's bound tree, final expression types, semantic selections, checked pattern facts, and selected
+iteration sources. Nested semantic units and unrelated declarations retain independent fact identities and are not scanned or
+materialized by the enclosing request.
+
+The planner does not decide flow legality, storage overlap, borrow duration, initialization state, or ownership validity. It
+preserves checked selections and projections when available. Missing or recovered semantic providers produce conservative
+source-correlated storage and access facts without guessing a target.
+
 ### Dependency-Contract Propagation
 
 The dependency domain infers and normalizes the non-local requirements carried by values, accesses, borrows, callable values, trait

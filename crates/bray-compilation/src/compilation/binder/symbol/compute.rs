@@ -1,12 +1,11 @@
 use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractTypeFact, CallableParameterSymbolId, CallableSignatureFact,
-    CallableSymbolId, ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact,
-    ImplementationCoherenceFact, ImplementationCoherenceKey, ImplementationSubjectFact,
-    ImplementationSubjectTemplate, ImplementationSymbolId, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, ReceiverParameterSymbolId, StructFieldTypeFact,
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    AnySymbolId, CallableContractTypeFact, CallableSignatureFact, CallableSymbolId,
+    ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact, ImplementationCoherenceFact,
+    ImplementationCoherenceKey, ImplementationSubjectFact, ImplementationSubjectTemplate,
+    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
     TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
     TraitTypeFulfillmentValueFact, UnionPayloadFieldTypeFact,
 };
@@ -283,7 +282,10 @@ fn bind_callable_signature(
         return super::imported::imported_callable_signature(context, address);
     }
 
-    let (parameters, receiver) = callable_relationships(context.symbols, callable)?;
+    let (parameters, receiver) = context
+        .symbols
+        .callable_parameters_and_receiver(callable)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
     let surface = declaration_callable_surface(context, symbol)?;
 
     type_binder(context, symbol)?.bind_callable_signature(
@@ -294,63 +296,6 @@ fn bind_callable_signature(
         surface.result.as_ref(),
         surface.qualifiers,
     )
-}
-
-fn callable_relationships(
-    symbols: &SymbolGraph,
-    callable: CallableSymbolId,
-) -> BinderFactResult<(
-    &[CallableParameterSymbolId],
-    Option<ReceiverParameterSymbolId>,
-)> {
-    match callable {
-        CallableSymbolId::Function(id) => symbols
-            .function(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TypeMember(id) => symbols
-            .type_callable_member(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitMember(id) => symbols
-            .trait_callable_member(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitFulfillment(id) => symbols
-            .trait_callable_fulfillment(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::Constructor(id) => symbols
-            .constructor(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::Finalizer(id) => symbols
-            .finalizer(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::Destructor(id) => symbols
-            .destructor(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::ScopeEnter(id) => symbols
-            .scope_enter(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::ScopeExit(id) => symbols
-            .scope_exit(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitFinalizer(id) => symbols
-            .trait_finalizer_requirement(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitDestructor(id) => symbols
-            .trait_destructor_requirement(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitScopeEnter(id) => symbols
-            .trait_scope_enter_requirement(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitScopeExit(id) => symbols
-            .trait_scope_exit_requirement(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitScopeEnterFulfillment(id) => symbols
-            .trait_scope_enter_fulfillment(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        CallableSymbolId::TraitScopeExitFulfillment(id) => symbols
-            .trait_scope_exit_fulfillment(id)
-            .map(|symbol| (symbol.parameters(), symbol.receiver())),
-    }
-    .ok_or(BinderFactError::DependencyUnavailable)
 }
 
 #[cfg(test)]
