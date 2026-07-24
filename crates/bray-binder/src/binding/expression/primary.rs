@@ -3,7 +3,6 @@ use bray_bound_tree::{
     BoundNameExpression, BoundPatternReferenceExpression, BoundStructuredExpressionKind,
     BoundUnresolvedReferenceExpression,
 };
-use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeId, SymbolName};
 use bray_syntax::{
     AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
@@ -134,11 +133,12 @@ impl ExpressionBinder {
                 return self.push_error(binder, Some(recovery_origin));
             };
 
-            return self.bind_generator_iteration(
+            return self.bind_generator_region(
                 binder,
                 scope,
+                &generator,
                 &generator.generator_iteration_expression(),
-                SyntaxAnchor::from_node(&generator),
+                BoundStructuredExpressionKind::GeneralGenerator,
             );
         }
 
@@ -208,6 +208,16 @@ impl ExpressionBinder {
             let Some(array) = root.cast::<ArrayExpressionSyntax>() else {
                 return self.push_error(binder, Some(recovery_origin));
             };
+
+            if let Some(iteration) = array.generator_iteration_expressions().next() {
+                return self.bind_generator_region(
+                    binder,
+                    scope,
+                    &array,
+                    &iteration,
+                    BoundStructuredExpressionKind::ArrayGenerator,
+                );
+            }
 
             let kind = if array.semicolon_token().is_some() {
                 BoundStructuredExpressionKind::RepeatedArray

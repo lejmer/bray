@@ -127,7 +127,12 @@ impl ExpressionBinder {
             binder.push_control_target(target);
         }
 
-        let children = self.bind_semantic_children(binder, scope, syntax);
+        let captures_yield = !matches!(
+            kind,
+            BoundStructuredExpressionKind::While | BoundStructuredExpressionKind::Loop
+        );
+
+        let children = self.bind_semantic_children(binder, scope, syntax, captures_yield);
 
         if let Some(target) = loop_target
             && binder.pop_control_target() != Some(target)
@@ -167,7 +172,7 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
-        let (children, blocks) = self.bind_semantic_children(binder, scope, syntax)?;
+        let (children, blocks) = self.bind_semantic_children(binder, scope, syntax, true)?;
 
         let recovered = syntax.is_recovered()
             || binder.expression_is_recovered(operand)
@@ -204,6 +209,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
+        captures_yield: bool,
     ) -> BindingResult<(Vec<BoundExpressionId>, Vec<bray_bound_tree::BoundBlockId>)>
     where
         C: BinderFactContext + ?Sized,
@@ -250,7 +256,13 @@ impl ExpressionBinder {
                     return SyntaxWalkControl::Stop;
                 };
 
-                match binder.bind_block(scope, &block, self) {
+                let result = if captures_yield {
+                    binder.bind_block(scope, &block, self)
+                } else {
+                    binder.bind_non_yielding_block(scope, &block, self)
+                };
+
+                match result {
                     Ok(block) => blocks.push(block),
                     Err(error) => {
                         failure = Some(error);
@@ -422,7 +434,7 @@ where
         scope: LocalScopeId,
         syntax: &bray_syntax::GeneratorIterationExpressionSyntax,
     ) -> BindingResult<BoundExpressionId> {
-        self.bind_generator_iteration(binder, scope, syntax, SyntaxAnchor::from_node(syntax))
+        self.bind_generator_iteration(binder, scope, syntax)
     }
 
     fn bind_type_expression(
@@ -479,6 +491,18 @@ mod tests {
             "    {\n",
             "        yield none;\n",
             "    };\n",
+            "    {\n",
+            "        each item in size\n",
+            "        {\n",
+            "            yield item;\n",
+            "        }\n",
+            "    };\n",
+            "    [\n",
+            "        each item in size\n",
+            "        {\n",
+            "            yield item;\n",
+            "        }\n",
+            "    ];\n",
             "    match size\n",
             "    {\n",
             "        case size\n",
@@ -535,6 +559,8 @@ mod tests {
         let mut saw_integer_literal = false;
         let mut saw_conditional = false;
         let mut saw_for_pattern = false;
+        let mut saw_general_generator = false;
+        let mut saw_array_generator = false;
         let mut saw_match_pattern = false;
         let mut saw_targeted_break = false;
         let mut saw_targeted_return = false;
@@ -621,6 +647,16 @@ mod tests {
                 BoundExpression::For(_) => {
                     saw_for_pattern = true;
                 }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::GeneralGenerator =>
+                {
+                    saw_general_generator = true;
+                }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::ArrayGenerator =>
+                {
+                    saw_array_generator = true;
+                }
                 BoundExpression::Match(expression) if !expression.arms().is_empty() => {
                     saw_match_pattern = true;
                 }
@@ -662,6 +698,8 @@ mod tests {
         assert!(saw_integer_literal);
         assert!(saw_conditional);
         assert!(saw_for_pattern);
+        assert!(saw_general_generator);
+        assert!(saw_array_generator);
         assert!(saw_match_pattern);
         assert!(saw_targeted_break);
         assert!(saw_targeted_return);
@@ -863,6 +901,7 @@ mod tests {
         let mut explicit_construction = false;
         let mut expected_construction = false;
         let mut trait_qualified = false;
+        let mut generator_iteration = None;
         let mut generator_region = None;
         let mut yield_target = None;
 
@@ -900,7 +939,12 @@ mod tests {
                     trait_qualified = true;
                 }
                 BoundExpression::Generator(expression) => {
-                    generator_region = Some(expression.region());
+                    generator_iteration = Some(expression.region());
+                }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::GeneralGenerator =>
+                {
+                    generator_region = Some(expression.origin().source_anchor().syntax());
                 }
                 BoundExpression::ControlTransfer(expression)
                     if expression.kind() == BoundControlTransferKind::Yield =>
@@ -917,5 +961,6 @@ mod tests {
         assert!(expected_construction);
         assert!(trait_qualified);
         assert_eq!(yield_target, generator_region);
+        assert_ne!(yield_target, generator_iteration);
     }
 }

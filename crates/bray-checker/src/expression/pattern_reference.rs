@@ -21,7 +21,7 @@ pub(super) struct PreparedPatternReferences {
     pub(super) diagnostics: DiagnosticBag,
 }
 
-pub(super) fn pattern_reference_expressions<C>(
+pub(super) fn pattern_binding_reference_expressions<C>(
     request: CheckerUnitView<'_, C>,
 ) -> Result<BTreeSet<bray_bound_tree::BoundExpressionId>, CheckerInfrastructureError>
 where
@@ -37,6 +37,11 @@ where
 
         match request.view().expression(expression) {
             Some(BoundExpression::PatternReference(_)) => {
+                expressions.insert(expression);
+            }
+            Some(BoundExpression::Name(_))
+                if expression_uses_pattern_binding(request, expression) =>
+            {
                 expressions.insert(expression);
             }
             Some(_) => {}
@@ -59,7 +64,7 @@ where
     Ok(expressions)
 }
 
-pub(super) fn prepare_pattern_references<C>(
+pub(super) fn prepare_pattern_binding_references<C>(
     request: CheckerUnitView<'_, C>,
     facts: &CheckedPatternFacts,
     expressions: &BTreeSet<bray_bound_tree::BoundExpressionId>,
@@ -77,25 +82,52 @@ where
     let mut diagnostics = Vec::new();
 
     for expression in expressions {
-        let Some(BoundExpression::PatternReference(reference)) =
-            request.view().expression(*expression)
-        else {
+        let Some(bound) = request.view().expression(*expression) else {
             return Err(CheckerInfrastructureError::InvalidBoundNode {
                 node: (*expression).into(),
             });
         };
 
-        if let Some(binding) = facts.binding_type(reference.binding()) {
-            evidence.push(ExpressionTypeEvidence::new(*expression, binding.ty()));
-            selections.push(SemanticSelectionEntry::new(
-                *expression,
-                SemanticSelection::Reference(BoundReferenceTarget::Local(
-                    reference.binding().into(),
-                )),
-            ));
+        let binding_id = match bound {
+            BoundExpression::Name(name) => {
+                let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) =
+                    name.target()
+                else {
+                    return Err(CheckerInfrastructureError::InvalidBoundNode {
+                        node: (*expression).into(),
+                    });
+                };
+
+                binding
+            }
+            BoundExpression::PatternReference(reference) => reference.binding(),
+            _ => {
+                return Err(CheckerInfrastructureError::InvalidBoundNode {
+                    node: (*expression).into(),
+                });
+            }
+        };
+
+        if let Some(binding_type) = facts.binding_type(binding_id) {
+            evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
+
+            if matches!(bound, BoundExpression::PatternReference(_)) {
+                selections.push(SemanticSelectionEntry::new(
+                    *expression,
+                    SemanticSelection::Reference(BoundReferenceTarget::Local(
+                        binding_type.binding().into(),
+                    )),
+                ));
+            }
 
             continue;
         }
+
+        let BoundExpression::PatternReference(reference) = bound else {
+            evidence.push(ExpressionTypeEvidence::new(*expression, error_type));
+
+            continue;
+        };
 
         let Some(pattern) = facts.pattern(reference.pattern()) else {
             return Err(CheckerInfrastructureError::InvalidBoundNode {
@@ -136,6 +168,23 @@ where
         selections,
         diagnostics: DiagnosticBag::from(diagnostics),
     })
+}
+
+fn expression_uses_pattern_binding<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: bray_bound_tree::BoundExpressionId,
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    matches!(
+        request.view().expression(expression),
+        Some(BoundExpression::Name(name))
+            if matches!(
+                name.target(),
+                BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(_))
+            )
+    )
 }
 
 const fn diagnostic_kind(

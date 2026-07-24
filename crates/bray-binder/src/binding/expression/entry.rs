@@ -28,7 +28,7 @@ where
 
         self.push_control_target(target);
 
-        let result = self.bind_block(parent_scope, syntax, &mut binder);
+        let result = self.bind_non_yielding_block(parent_scope, syntax, &mut binder);
 
         if self.pop_control_target() != Some(target) {
             return Err(crate::binding::BindingError::ControlTargetMismatch);

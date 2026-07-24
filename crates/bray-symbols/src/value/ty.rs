@@ -352,6 +352,8 @@ pub enum TypeData {
     },
     /// A dynamically sized homogeneous slice.
     Slice(TypeId),
+    /// A lazy homogeneous generator value.
+    Generator(TypeId),
     /// A nullable value type.
     Nullable(TypeId),
     /// One borrow layer.

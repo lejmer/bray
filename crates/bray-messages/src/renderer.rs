@@ -216,8 +216,14 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let ambiguous = Diagnostic::new(
+        let generator_cardinality = Diagnostic::new(
             DiagnosticId::new(3),
+            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+            SeverityKind::Error,
+        );
+
+        let ambiguous = Diagnostic::new(
+            DiagnosticId::new(4),
             DiagnosticKind::CheckingAmbiguousCandidate,
             SeverityKind::Error,
         )
@@ -226,7 +232,7 @@ mod tests {
         ));
 
         let target_alignment = Diagnostic::new(
-            DiagnosticId::new(4),
+            DiagnosticId::new(5),
             DiagnosticKind::CheckingTargetAlignmentUnsupported,
             SeverityKind::Error,
         )
@@ -237,7 +243,7 @@ mod tests {
         .with_arg(DiagnosticArg::maximum_alignment(16));
 
         let incompatible_pattern = Diagnostic::new(
-            DiagnosticId::new(5),
+            DiagnosticId::new(6),
             DiagnosticKind::CheckingIncompatiblePattern,
             SeverityKind::Error,
         )
@@ -246,7 +252,7 @@ mod tests {
         ));
 
         let non_exhaustive_match = Diagnostic::new(
-            DiagnosticId::new(6),
+            DiagnosticId::new(7),
             DiagnosticKind::CheckingNonExhaustiveMatch,
             SeverityKind::Error,
         );
@@ -266,6 +272,11 @@ mod tests {
         assert_eq!(
             renderer.render(&array_length).message(),
             "array length must be greater than zero"
+        );
+
+        assert_eq!(
+            renderer.render(&generator_cardinality).message(),
+            "array generator element count cannot be proven"
         );
 
         assert_eq!(

@@ -224,6 +224,8 @@ pub(crate) enum CompilationFactKey {
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
     ExpressionSemantics(BoundUnitKey),
+    /// The private expression fixed point used before iteration element types are selected.
+    ProvisionalExpressionSemantics(BoundUnitKey),
     /// The checked symbolic term produced for one constant definition template.
     SymbolicConstantTerm(BoundUnitKey),
     /// Declaration discovery for one source unit.
@@ -278,6 +280,7 @@ impl CompilationFactKey {
             | Self::CheckedSemanticSelections(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
+            | Self::ProvisionalExpressionSemantics(key)
             | Self::SymbolicConstantTerm(key) => Some(key),
             Self::IterationSource(key) => Some(key.unit()),
             Self::SelectedTarget

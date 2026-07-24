@@ -157,40 +157,106 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<CheckedExpressionSemantics>>, FactQueryError> {
-        // Exact fact dependencies retain the same Arc-backed unit identity independently.
         self.unit_fact(
             &self.state.expression_semantics,
             CompilationFactKey::ExpressionSemantics(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
+                let provisional = self.provisional_expression_semantics_with_cancellation(
+                    key.clone(),
+                    cancellation,
+                )?;
+
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                let declared = self
-                    .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+                let (pattern_input, iteration_sources, iteration_diagnostics, has_iterations) =
+                    self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
 
-                let supplemental =
-                    self.nested_callable_evidence(bound.result().value(), cancellation)?;
+                if !has_iterations {
+                    return Ok((provisional.result().as_ref().clone(), Box::new([])));
+                }
 
-                let facts = self.binder_facts_for(&key, cancellation)?;
-                let candidates = expression_candidates(&facts, bound.result().value())?;
+                let mut result = self.compute_expression_semantics(
+                    &key,
+                    cancellation,
+                    &pattern_input,
+                    &iteration_sources,
+                )?;
 
-                let context = self.checker_context_for(&key, cancellation)?;
+                let (semantics, diagnostics) = result.0.into_parts();
 
-                let semantic_context =
-                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+                result.0 =
+                    DiagnosticResult::new(semantics, diagnostics.merged(&iteration_diagnostics));
 
-                check_expression_semantics(
-                    bound.result().value(),
-                    &semantic_context,
-                    &context,
-                    declared.result().value(),
-                    &supplemental,
-                    candidates.value(),
-                    candidates.diagnostics(),
+                Ok(result)
+            },
+        )
+    }
+
+    pub(in crate::compilation) fn provisional_expression_semantics_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedExpressionSemantics>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.provisional_expression_semantics,
+            CompilationFactKey::ProvisionalExpressionSemantics(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                self.compute_expression_semantics(
+                    &key,
+                    cancellation,
+                    &PatternCheckInput::new(),
+                    &[],
                 )
             },
         )
+    }
+
+    fn compute_expression_semantics(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+        pattern_input: &PatternCheckInput,
+        iteration_sources: &[bray_bound_tree::SelectedIterationSource],
+    ) -> Result<ExpressionSemanticComputation, FactQueryError> {
+        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+        let declared =
+            self.declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+
+        let supplemental = self.nested_callable_evidence(bound.result().value(), cancellation)?;
+
+        let facts = self.binder_facts_for(key, cancellation)?;
+        let candidates = expression_candidates(&facts, bound.result().value())?;
+
+        let context = self.checker_context_for(key, cancellation)?;
+
+        let semantic_context =
+            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+        let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+            .map_err(|error| {
+                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(
+                    error,
+                ))
+            })?;
+
+        let result = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
+            unit,
+            declared.result().value(),
+            &supplemental,
+            candidates.value(),
+            pattern_input,
+            iteration_sources,
+        ))?;
+
+        let (value, diagnostics) = result.into_parts();
+        let result = DiagnosticResult::new(value, candidates.diagnostics().merged(&diagnostics));
+
+        Ok((result, Box::new([])))
     }
 
     fn nested_callable_evidence(
@@ -318,8 +384,8 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
 
-                let (input, dependency_diagnostics) =
-                    self.pattern_check_input(&key, bound.result().value(), cancellation)?;
+                let (input, _, dependency_diagnostics, _) =
+                    self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
 
@@ -342,12 +408,20 @@ impl Compilation {
         )
     }
 
-    fn pattern_check_input(
+    fn iteration_pattern_input(
         &self,
         key: &BoundUnitKey,
         bound: &BoundUnit,
         cancellation: &CancellationToken,
-    ) -> Result<(PatternCheckInput, DiagnosticBag), FactQueryError> {
+    ) -> Result<
+        (
+            PatternCheckInput,
+            Vec<bray_bound_tree::SelectedIterationSource>,
+            DiagnosticBag,
+            bool,
+        ),
+        FactQueryError,
+    > {
         let mut iterations = Vec::new();
 
         let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
@@ -390,6 +464,7 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let mut inputs = Vec::with_capacity(iterations.len());
+        let mut sources = Vec::with_capacity(iterations.len());
         let mut diagnostics = DiagnosticBag::new();
 
         for (expression, pattern) in iterations {
@@ -400,18 +475,25 @@ impl Compilation {
             diagnostics = diagnostics.merged(selection.diagnostics());
 
             match selection.value() {
-                Some(selection) => inputs.push(IterationPatternType::new(
-                    pattern,
-                    selection.element_type(),
-                    false,
-                )),
+                Some(selection) => {
+                    inputs.push(IterationPatternType::new(
+                        pattern,
+                        selection.element_type(),
+                        false,
+                    ));
+                    sources.push(selection.clone());
+                }
                 None => inputs.push(IterationPatternType::new(pattern, error_type, true)),
             }
         }
 
+        let has_iterations = !inputs.is_empty();
+
         Ok((
             PatternCheckInput::new().with_iteration_patterns(inputs),
+            sources,
             diagnostics,
+            has_iterations,
         ))
     }
 
@@ -558,32 +640,6 @@ fn expression_candidates(
             Err(FactQueryError::InfrastructureFailure)
         }
     }
-}
-
-fn check_expression_semantics(
-    bound: &BoundUnit,
-    semantic_context: &SemanticUnitContext,
-    context: &CompilationCheckerContext<'_>,
-    declared_types: &DeclaredValueTypeTemplates,
-    nested_callables: &[NestedCallableEvidence],
-    candidates: &[ExpressionCandidateSet],
-    candidate_diagnostics: &DiagnosticBag,
-) -> Result<ExpressionSemanticComputation, FactQueryError> {
-    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })?;
-
-    let result = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
-        unit,
-        declared_types,
-        nested_callables,
-        candidates,
-    ))?;
-
-    let (value, diagnostics) = result.into_parts();
-    let result = DiagnosticResult::new(value, candidate_diagnostics.merged(&diagnostics));
-
-    Ok((result, Box::new([])))
 }
 
 fn check_patterns(

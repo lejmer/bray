@@ -165,6 +165,7 @@ fn format_english_type(ty: bray_diagnostics::DiagnosticType) -> String {
         DiagnosticType::Tuple(count) => format!("tuple type with {count} elements"),
         DiagnosticType::Array => "array type".to_owned(),
         DiagnosticType::Slice => "slice type".to_owned(),
+        DiagnosticType::Generator => "generator type".to_owned(),
         DiagnosticType::Nullable => "nullable type".to_owned(),
         DiagnosticType::Borrow => "borrow type".to_owned(),
         DiagnosticType::TraitView => "trait view type".to_owned(),

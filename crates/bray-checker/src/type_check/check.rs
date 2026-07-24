@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry};
+use bray_bound_tree::{
+    BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry, SelectedIterationSource,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
@@ -11,6 +13,7 @@ use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeInput;
+use super::cardinality::unproven_array_generators;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -66,13 +69,14 @@ pub(crate) fn finish_expression_types<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    finish_expression_types_with_deferred(request, session, &BTreeSet::new())
+    finish_expression_types_with_deferred(request, session, &BTreeSet::new(), &[])
 }
 
 pub(crate) fn finish_expression_types_with_deferred<C>(
     request: CheckerUnitView<'_, C>,
     session: ExpressionTypeSession<'_, C>,
     deferred: &BTreeSet<BoundExpressionId>,
+    iteration_sources: &[SelectedIterationSource],
 ) -> CheckerOutcome<CheckedExpressionTypes>
 where
     C: CheckerRequestContext + ?Sized,
@@ -157,13 +161,35 @@ where
 
     let entries = finished
         .results
-        .into_iter()
-        .map(|(expression, result)| ExpressionTypeEntry::new(expression, result));
+        .iter()
+        .map(|(expression, result)| ExpressionTypeEntry::new(*expression, *result));
 
-    CheckerOutcome::complete(
-        CheckedExpressionTypes::new(request.view().unit(), request.view().kind(), entries),
-        DiagnosticBag::from(diagnostics),
-    )
+    let checked_types =
+        CheckedExpressionTypes::new(request.view().unit(), request.view().kind(), entries);
+
+    let unproven_generators =
+        match unproven_array_generators(request, &checked_types, iteration_sources) {
+            Ok(expressions) => expressions,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+    for expression in unproven_generators {
+        let span = match expression_span(request, expression) {
+            Ok(span) => span,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+        diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span),
+        );
+    }
+
+    CheckerOutcome::complete(checked_types, DiagnosticBag::from(diagnostics))
 }
 
 pub(crate) fn diagnostic_type<C>(
@@ -191,6 +217,7 @@ where
         }
         TypeData::Array { .. } => DiagnosticType::Array,
         TypeData::Slice(_) => DiagnosticType::Slice,
+        TypeData::Generator(_) => DiagnosticType::Generator,
         TypeData::Nullable(_) => DiagnosticType::Nullable,
         TypeData::Borrow { .. } => DiagnosticType::Borrow,
         TypeData::TraitView(_) => DiagnosticType::TraitView,
@@ -256,19 +283,22 @@ where
 mod tests {
     use bray_bound_tree::{
         BoundAssignmentExpression, BoundBlockItem, BoundControlTransferExpression,
-        BoundControlTransferKind, BoundExpression, BoundNodeOrigin, BoundOperator,
-        BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder,
-        BoundTypeReference, BoundUnitId, ExpressionTypeResult, ExpressionTypeStatus,
+        BoundControlTransferKind, BoundExpression, BoundForExpression, BoundGeneratorExpression,
+        BoundIterationSource, BoundMatchArm, BoundMatchExpression, BoundNodeOrigin, BoundOperator,
+        BoundPattern, BoundPatternKind, BoundPatternMode, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundTypeReference, BoundUnitId,
+        ExpressionTypeResult, ExpressionTypeStatus, IterationSourceMode,
     };
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::TypeData;
+    use bray_symbols::{GenericArgument, TypeData};
 
     use super::super::session::{ExpressionTypeSession, SessionProgress};
     use crate::test_support::{
         callable_entry, callable_key, callable_unit, completed_expression_check as completed_check,
         distinct_source_origins, error_type, expression_unit,
         integer_literal_expression as literal, push_block, push_callable, push_expression,
-        tuple_type, type_data, unselected_name_expression as unselected_name,
+        semantic_values, test_source_origins, tuple_type, type_data,
+        unselected_name_expression as unselected_name,
     };
     use crate::{
         CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, DefaultExpressionTypeChecker,
@@ -1172,6 +1202,471 @@ mod tests {
                 .map(|result| result.ty()),
             Some(unit_type)
         );
+    }
+
+    #[test]
+    fn match_arms_join_yielded_result_types() {
+        let result_type = tuple_type([]);
+
+        let [first_origin, second_origin, root_origin] = test_source_origins();
+
+        let key = callable_key();
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(60));
+        let subject = push_expression(&mut tree, literal(first_origin, Some(result_type)));
+        let first_pattern = push_wildcard_pattern(&mut tree, first_origin);
+        let second_pattern = push_wildcard_pattern(&mut tree, second_origin);
+
+        let first_value = push_expression(&mut tree, literal(first_origin, Some(result_type)));
+
+        let first_yield = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                first_origin,
+                BoundControlTransferKind::Yield,
+                Some(first_value),
+                Some(first_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let first_body = push_block(
+            &mut tree,
+            first_origin,
+            [BoundBlockItem::Expression(first_yield)],
+        );
+
+        let second_value = push_expression(&mut tree, literal(second_origin, Some(result_type)));
+
+        let second_yield = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                second_origin,
+                BoundControlTransferKind::Yield,
+                Some(second_value),
+                Some(second_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let second_body = push_block(
+            &mut tree,
+            second_origin,
+            [BoundBlockItem::Expression(second_yield)],
+        );
+
+        let expression = push_expression(
+            &mut tree,
+            BoundExpression::Match(BoundMatchExpression::new(
+                first_origin,
+                subject,
+                [
+                    BoundMatchArm::new(first_pattern, None, first_body),
+                    BoundMatchArm::new(second_pattern, None, second_body),
+                ],
+                None,
+                false,
+            )),
+        );
+
+        let root_block = push_block(
+            &mut tree,
+            root_origin,
+            [BoundBlockItem::Expression(expression)],
+        );
+
+        let root = push_callable(&mut tree, root_origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        assert_eq!(
+            result
+                .value()
+                .expression(expression)
+                .map(|result| result.ty()),
+            Some(result_type)
+        );
+    }
+
+    #[test]
+    fn for_results_join_break_values_with_else_results() {
+        let result_type = tuple_type([]);
+
+        let [for_origin, body_origin] = distinct_source_origins();
+
+        let key = callable_key();
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(61));
+        let source = push_expression(&mut tree, literal(for_origin, Some(result_type)));
+        let pattern = push_wildcard_pattern(&mut tree, body_origin);
+        let break_value = push_expression(&mut tree, literal(body_origin, Some(result_type)));
+
+        let transfer = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                body_origin,
+                BoundControlTransferKind::Break,
+                Some(break_value),
+                Some(for_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let body = push_block(
+            &mut tree,
+            body_origin,
+            [BoundBlockItem::Expression(transfer)],
+        );
+
+        let else_value = push_expression(&mut tree, literal(for_origin, Some(result_type)));
+
+        let else_yield = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                for_origin,
+                BoundControlTransferKind::Yield,
+                Some(else_value),
+                Some(for_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let else_body = push_block(
+            &mut tree,
+            for_origin,
+            [BoundBlockItem::Expression(else_yield)],
+        );
+
+        let expression = push_expression(
+            &mut tree,
+            BoundExpression::For(BoundForExpression::new(
+                for_origin,
+                BoundIterationSource::new(source, IterationSourceMode::Shared),
+                pattern,
+                body,
+                Some(else_body),
+                None,
+                false,
+            )),
+        );
+
+        let root_block = push_block(
+            &mut tree,
+            body_origin,
+            [BoundBlockItem::Expression(expression)],
+        );
+
+        let root = push_callable(&mut tree, body_origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        assert_eq!(
+            result
+                .value()
+                .expression(expression)
+                .map(|result| result.ty()),
+            Some(result_type)
+        );
+    }
+
+    #[test]
+    fn general_generators_retain_element_types_while_iterations_complete_as_unit() {
+        let element_type = tuple_type([]);
+
+        let fixture = generator_unit(
+            BoundUnitId::new(62),
+            BoundStructuredExpressionKind::GeneralGenerator,
+            element_type,
+            1,
+        );
+
+        let result = completed_check(&fixture.unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        let Some(generator_type) = result.value().expression(fixture.generator) else {
+            panic!("general generator must have a type");
+        };
+
+        assert_eq!(
+            type_data(generator_type.ty()),
+            TypeData::Generator(element_type)
+        );
+
+        let entry = callable_entry(fixture.unit.key());
+        let context = crate::test_support::TestCheckerContext::new(false);
+
+        let request = CheckerUnitView::new(&fixture.unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
+
+        let unit_type = crate::representation::representation_type(
+            request,
+            bray_compiler_known::RepresentationRole::Unit,
+        )
+        .unwrap_or_else(|error| panic!("unit type must be available: {error:?}"));
+
+        assert_eq!(
+            result
+                .value()
+                .expression(fixture.iteration)
+                .map(|result| result.ty()),
+            Some(unit_type)
+        );
+
+        assert_eq!(
+            result
+                .value()
+                .expression(fixture.yields[0])
+                .map(|result| result.ty()),
+            Some(unit_type)
+        );
+    }
+
+    #[test]
+    fn array_generators_infer_fixed_array_types_from_fixed_array_sources() {
+        let element_type = tuple_type([]);
+
+        let fixture = generator_unit(
+            BoundUnitId::new(63),
+            BoundStructuredExpressionKind::ArrayGenerator,
+            element_type,
+            1,
+        );
+
+        let result = completed_check(&fixture.unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        let Some(source_type) = result.value().expression(fixture.source) else {
+            panic!("fixed array source must have a type");
+        };
+
+        assert_eq!(
+            result
+                .value()
+                .expression(fixture.generator)
+                .map(|result| result.ty()),
+            Some(source_type.ty())
+        );
+    }
+
+    #[test]
+    fn array_generators_defer_cardinality_without_selected_iteration_sources() {
+        let fixture = generator_unit(
+            BoundUnitId::new(64),
+            BoundStructuredExpressionKind::ArrayGenerator,
+            tuple_type([]),
+            0,
+        );
+
+        let result = completed_check(&fixture.unit, &ExpressionTypeInput::new());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(bray_diagnostics::Diagnostic::kind)
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::CheckingCannotInferExpressionType]
+        );
+    }
+
+    #[test]
+    fn catch_wraps_success_values_in_result_with_panic_reports() {
+        let success = tuple_type([]);
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(65), |tree, origin| {
+            let operand = push_expression(tree, literal(origin, Some(success)));
+
+            let caught = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Catch,
+                    [operand],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![caught]
+        });
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        let Some(caught) = result.value().expression(expressions[0]) else {
+            panic!("catch expression must have a type");
+        };
+
+        let TypeData::Named { substitution, .. } = type_data(caught.ty()) else {
+            panic!("catch expression must produce a named Result type");
+        };
+
+        let substitution = semantic_values()
+            .generic_substitution_data(substitution)
+            .unwrap_or_else(|error| panic!("Result substitution must be available: {error:?}"));
+
+        let arguments = substitution
+            .bindings()
+            .iter()
+            .map(|binding| binding.argument())
+            .collect::<Vec<_>>();
+
+        assert_eq!(arguments.first(), Some(&GenericArgument::Type(success)));
+
+        let Some(GenericArgument::Type(error)) = arguments.get(1).copied() else {
+            panic!("Result error argument must be a type");
+        };
+
+        let entry = callable_entry(unit.key());
+        let context = crate::test_support::TestCheckerContext::new(false);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
+
+        let panic_report = crate::representation::representation_type(
+            request,
+            bray_compiler_known::RepresentationRole::PanicReport,
+        )
+        .unwrap_or_else(|error| panic!("PanicReport must be available: {error:?}"));
+
+        assert_eq!(error, panic_report);
+    }
+
+    struct GeneratorFixture {
+        unit: bray_bound_tree::BoundUnit,
+        source: bray_bound_tree::BoundExpressionId,
+        iteration: bray_bound_tree::BoundExpressionId,
+        generator: bray_bound_tree::BoundExpressionId,
+        yields: Vec<bray_bound_tree::BoundExpressionId>,
+    }
+
+    fn generator_unit(
+        unit: BoundUnitId,
+        kind: BoundStructuredExpressionKind,
+        element_type: bray_symbols::TypeId,
+        yield_count: usize,
+    ) -> GeneratorFixture {
+        let [region_origin, body_origin] = distinct_source_origins();
+
+        let key = callable_key();
+        let mut tree = BoundTreeBuilder::new(unit);
+
+        let source_elements = (0..2)
+            .map(|_| push_expression(&mut tree, literal(body_origin, Some(element_type))))
+            .collect::<Vec<_>>();
+
+        let source = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                body_origin,
+                BoundStructuredExpressionKind::Array,
+                source_elements,
+                [],
+                [],
+                None,
+                false,
+            )),
+        );
+
+        let pattern = push_wildcard_pattern(&mut tree, body_origin);
+        let mut yields = Vec::with_capacity(yield_count);
+
+        for _ in 0..yield_count {
+            let value = push_expression(&mut tree, literal(body_origin, Some(element_type)));
+
+            let yielded = push_expression(
+                &mut tree,
+                BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                    body_origin,
+                    BoundControlTransferKind::Yield,
+                    Some(value),
+                    Some(region_origin.source_anchor().syntax()),
+                    None,
+                    false,
+                )),
+            );
+
+            yields.push(yielded);
+        }
+
+        let body = push_block(
+            &mut tree,
+            body_origin,
+            yields.iter().copied().map(BoundBlockItem::Expression),
+        );
+
+        let iteration = push_expression(
+            &mut tree,
+            BoundExpression::Generator(BoundGeneratorExpression::new(
+                body_origin,
+                BoundIterationSource::new(source, IterationSourceMode::Shared),
+                pattern,
+                body,
+                body_origin.source_anchor().syntax(),
+                None,
+                false,
+            )),
+        );
+
+        let generator = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                region_origin,
+                kind,
+                [iteration],
+                [],
+                [],
+                None,
+                false,
+            )),
+        );
+
+        let root_block = push_block(
+            &mut tree,
+            region_origin,
+            [BoundBlockItem::Expression(generator)],
+        );
+
+        let root = push_callable(&mut tree, region_origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        GeneratorFixture {
+            unit,
+            source,
+            iteration,
+            generator,
+            yields,
+        }
+    }
+
+    fn push_wildcard_pattern(
+        tree: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+    ) -> bray_bound_tree::BoundPatternId {
+        let pattern = BoundPattern::new(
+            origin,
+            error_type(),
+            BoundPatternMode::Declaration,
+            BoundPatternKind::Discard,
+            [],
+            [],
+        );
+
+        tree.push_pattern(pattern)
+            .unwrap_or_else(|error| panic!("test wildcard pattern must fit: {error:?}"))
     }
 
     #[test]

@@ -575,6 +575,8 @@ where
                 Err(EvaluationFailure::invalid_expression(expression))
             }
             BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ArrayGenerator
+            | BoundStructuredExpressionKind::GeneralGenerator
             | BoundStructuredExpressionKind::Conditional
             | BoundStructuredExpressionKind::While
             | BoundStructuredExpressionKind::Loop

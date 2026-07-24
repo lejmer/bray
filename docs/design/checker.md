@@ -318,10 +318,20 @@ canonical checked or recovery `TypeId` and whether recovery affected that occurr
 bound tree, not another semantic tree. Literal adaptation and semantic selection contribute typed evidence to the same inference
 context before publication.
 
+General generator results use a structural generator type parameterized by the yielded element type. The generator iteration
+expression itself has type `unit`. Fixed-array generator results use the ordinary fixed-array type and require a proof that every
+continuing iteration contributes exactly one element and that the source cardinality equals the result length. Failure to establish
+that proof is a source diagnostic rather than an inferred fallback length.
+
 Type inference and semantic selection cooperate through one task-local fixed point. Selection can inspect currently resolved
 operand types, contribute a selected result type or an additional expected type, and request propagation again. Intermediate
 rounds do not publish diagnostics. Cannot-infer and incompatibility diagnostics are finalized only after the cooperating domains
 reach a stable state.
+
+Iteration source selection first consumes the source expression type, then contributes the selected element type to iteration
+pattern checking and final expression typing. The final expression-semantic fact must depend on those occurrence-specific
+selections without introducing a dependency cycle. Internal provisional inference may supply the source types required for
+selection, but it must not be exposed as a complete checked fact or publish final diagnostics.
 
 The same fixed point resolves source type-expression templates when their embedded constant expressions depend on expression
 typing, callable selection, implementation selection, or a target-sized representation. Each occurrence is keyed by its declaration

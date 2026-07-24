@@ -95,18 +95,20 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<SelectedIterationSource>>, FactQueryError> {
         let bound = self.bound_unit_with_cancellation(key.unit().clone(), cancellation)?;
-        let types = self.expression_types_with_cancellation(key.unit().clone(), cancellation)?;
+
+        let semantics = self
+            .provisional_expression_semantics_with_cancellation(key.unit().clone(), cancellation)?;
+
+        let types = &semantics.result().value().0;
 
         let mut diagnostics = bound
             .result()
             .diagnostics()
-            .merged(types.result().diagnostics());
+            .merged(semantics.result().diagnostics());
 
         let (source, mode) = iteration_source(bound.result().value(), key.expression())?;
 
         let source_type = types
-            .result()
-            .value()
             .expression(source)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -156,7 +158,15 @@ impl Compilation {
         diagnostics.add_range(selection_diagnostics);
 
         let selected = match selection {
-            CandidateSelection::Selected(selection) => Some(selection),
+            CandidateSelection::Selected(selection) => {
+                let exact_count =
+                    iteration_exact_count(facts.semantic_values(), selection.source_type())?;
+
+                Some(match exact_count {
+                    Some(exact_count) => selection.with_exact_count(exact_count),
+                    None => selection,
+                })
+            }
             CandidateSelection::Failed(_) => None,
         };
 
@@ -319,6 +329,20 @@ impl Compilation {
         }
 
         Ok((candidates, is_deferred))
+    }
+}
+
+fn iteration_exact_count(
+    values: &bray_symbols::SemanticValueStore,
+    source_type: TypeId,
+) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
+    let source = values
+        .type_data(source_type)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    match source.as_ref() {
+        TypeData::Array { length, .. } => Ok(Some(*length)),
+        _ => Ok(None),
     }
 }
 
@@ -792,8 +816,11 @@ mod tests {
             "\n",
             "func main()\n",
             "{\n",
-            "    for item in 1\n",
+            "    let items: Items = Items {};\n",
+            "\n",
+            "    for item in items\n",
             "    {\n",
+            "        yield item;\n",
             "    }\n",
             "}\n",
         ));
@@ -966,6 +993,31 @@ mod tests {
             selected.next().definition().symbol().kind(),
             SymbolKind::TraitCallableFulfillment
         );
+
+        let types = compilation
+            .expression_types(key)
+            .unwrap_or_else(|error| panic!("final expression types must publish: {error:?}"));
+
+        let reference = iteration_binding_reference_expression(bound.value());
+
+        let actual = types
+            .value()
+            .expression(reference)
+            .map(|result| result.ty())
+            .unwrap_or_else(|| panic!("iteration binding reference must have a final type"));
+
+        assert_eq!(
+            facts
+                .semantic_values()
+                .type_data(actual)
+                .unwrap_or_else(|error| panic!("actual type must be available: {error:?}")),
+            facts
+                .semantic_values()
+                .type_data(element_type)
+                .unwrap_or_else(|error| panic!("element type must be available: {error:?}")),
+            "{:?}",
+            types.diagnostics()
+        );
     }
 
     fn iteration_expression(
@@ -995,6 +1047,52 @@ mod tests {
         match iteration {
             Some(iteration) => iteration,
             None => panic!("test source must bind one for expression"),
+        }
+    }
+
+    fn iteration_binding_reference_expression(
+        unit: &bray_bound_tree::BoundUnit,
+    ) -> bray_bound_tree::BoundExpressionId {
+        let mut reference = None;
+
+        let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
+            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
+                return BoundWalkControl::Continue;
+            };
+
+            let is_binding_reference = match unit.view().expression(expression) {
+                Some(BoundExpression::PatternReference(reference)) => {
+                    reference.name().as_str() == "item"
+                }
+                Some(BoundExpression::Name(name)) => {
+                    let bray_bound_tree::BoundReferenceTarget::Local(
+                        bray_symbols::AnyLocalSymbolId::Binding(binding),
+                    ) = name.target()
+                    else {
+                        return BoundWalkControl::Continue;
+                    };
+
+                    unit.local_symbols()
+                        .binding(binding)
+                        .is_some_and(|binding| binding.name().as_str() == "item")
+                }
+                _ => false,
+            };
+
+            if is_binding_reference {
+                reference = Some(expression);
+
+                return BoundWalkControl::Stop;
+            }
+
+            BoundWalkControl::Continue
+        });
+
+        assert_eq!(outcome, BoundWalkOutcome::Stopped);
+
+        match reference {
+            Some(reference) => reference,
+            None => panic!("test source must bind one iteration pattern reference"),
         }
     }
 

@@ -38,7 +38,10 @@ pub(super) fn validate_type_data(
             tables.types.get(store, *element)?;
             tables.constant_terms.get(store, *length)?;
         }
-        TypeData::Slice(target) | TypeData::Nullable(target) | TypeData::Borrow { target, .. } => {
+        TypeData::Slice(target)
+        | TypeData::Generator(target)
+        | TypeData::Nullable(target)
+        | TypeData::Borrow { target, .. } => {
             tables.types.get(store, *target)?;
         }
         TypeData::OwnedIndirection { storage, target } => {
@@ -371,6 +374,7 @@ pub(super) fn validate_concrete_substitution(
                         validate_closed_term(tables, store, *length, &mut pending)?;
                     }
                     TypeData::Slice(target)
+                    | TypeData::Generator(target)
                     | TypeData::Nullable(target)
                     | TypeData::Borrow { target, .. } => {
                         pending.push(ConcreteWork::Type(*target));

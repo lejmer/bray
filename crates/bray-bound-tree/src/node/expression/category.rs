@@ -250,6 +250,10 @@ pub enum BoundStructuredExpressionKind {
     Array,
     /// An array that repeats one value by a constant count.
     RepeatedArray,
+    /// A fixed-size array produced by one generator iteration.
+    ArrayGenerator,
+    /// A lazy sequence produced by one generator iteration.
+    GeneralGenerator,
     /// A conditional branch.
     Conditional,
     /// A conditional loop.

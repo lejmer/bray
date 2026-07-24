@@ -79,6 +79,9 @@ impl SemanticValueStore {
             TypeData::Slice(element) => {
                 TypeData::Slice(self.substitute_type_data(*element, substitution)?)
             }
+            TypeData::Generator(element) => {
+                TypeData::Generator(self.substitute_type_data(*element, substitution)?)
+            }
             TypeData::Nullable(target) => {
                 TypeData::Nullable(self.substitute_type_data(*target, substitution)?)
             }

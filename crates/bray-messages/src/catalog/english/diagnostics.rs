@@ -332,6 +332,11 @@ const CHECKING_ARRAY_LENGTH_NOT_POSITIVE: &[MessageTemplatePart] = &[MessageTemp
     "array length must be greater than zero",
 )];
 
+const CHECKING_ARRAY_GENERATOR_CARDINALITY_NOT_PROVABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "array generator element count cannot be proven",
+    )];
+
 const CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "literal value cannot be represented by its selected type",
@@ -626,6 +631,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingArrayLengthNotPositive => {
             MessageTemplate::new(CHECKING_ARRAY_LENGTH_NOT_POSITIVE)
+        }
+        DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable => {
+            MessageTemplate::new(CHECKING_ARRAY_GENERATOR_CARDINALITY_NOT_PROVABLE)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

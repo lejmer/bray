@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, SemanticSelectionEntry,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedIterationSource,
+    SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -10,7 +11,8 @@ use super::built_in_operator;
 use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use super::pattern_reference::{
-    PreparedPatternReferences, pattern_reference_expressions, prepare_pattern_references,
+    PreparedPatternReferences, pattern_binding_reference_expressions,
+    prepare_pattern_binding_references,
 };
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
@@ -26,6 +28,8 @@ pub(crate) fn check_expression_semantics<C>(
     declared_types: &DeclaredValueTypeTemplates,
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
+    pattern_input: &PatternCheckInput,
+    iteration_sources: &[SelectedIterationSource],
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -44,7 +48,7 @@ where
         );
     }
 
-    let pending = match pattern_reference_expressions(request) {
+    let pending = match pattern_binding_reference_expressions(request) {
         Ok(pending) => pending,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
@@ -57,6 +61,7 @@ where
             candidate_sets,
             &pending,
             None,
+            iteration_sources,
         );
     }
 
@@ -75,7 +80,7 @@ where
     };
 
     let provisional_patterns =
-        match crate::pattern::check_patterns(request, &first_types, &PatternCheckInput::new()) {
+        match crate::pattern::check_patterns(request, &first_types, pattern_input) {
             CheckerOutcome::Complete(result) => result.into_parts().0,
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
             CheckerOutcome::InfrastructureFailure(error) => {
@@ -83,10 +88,11 @@ where
             }
         };
 
-    let prepared = match prepare_pattern_references(request, &provisional_patterns, &pending) {
-        Ok(prepared) => prepared,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let prepared =
+        match prepare_pattern_binding_references(request, &provisional_patterns, &pending) {
+            Ok(prepared) => prepared,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
 
     check_expression_semantics_once(
         request,
@@ -95,6 +101,7 @@ where
         candidate_sets,
         &pending,
         Some(prepared),
+        iteration_sources,
     )
 }
 
@@ -121,7 +128,7 @@ where
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    finish_expression_types_with_deferred(request, session, prepared.deferred())
+    finish_expression_types_with_deferred(request, session, prepared.deferred(), &[])
 }
 
 fn check_expression_semantics_once<C>(
@@ -131,6 +138,7 @@ fn check_expression_semantics_once<C>(
     candidate_sets: &[ExpressionCandidateSet],
     supplemental_deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
     supplemental: Option<PreparedPatternReferences>,
+    iteration_sources: &[SelectedIterationSource],
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -160,7 +168,14 @@ where
         |prepared| (prepared.selections, prepared.diagnostics),
     );
 
-    finish_expression_check(request, session, prepared, selections, diagnostics)
+    finish_expression_check(
+        request,
+        session,
+        prepared,
+        selections,
+        diagnostics,
+        iteration_sources,
+    )
 }
 
 fn prepare_expression_check<'view, C>(
@@ -237,6 +252,7 @@ fn finish_expression_check<C>(
     prepared: PreparedExpressions,
     mut supplemental_selections: Vec<SemanticSelectionEntry>,
     supplemental_diagnostics: DiagnosticBag,
+    iteration_sources: &[SelectedIterationSource],
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -244,14 +260,18 @@ fn finish_expression_check<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let type_result =
-        match finish_expression_types_with_deferred(request, session, prepared.deferred()) {
-            CheckerOutcome::Complete(result) => result,
-            CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-            CheckerOutcome::InfrastructureFailure(error) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
-        };
+    let type_result = match finish_expression_types_with_deferred(
+        request,
+        session,
+        prepared.deferred(),
+        iteration_sources,
+    ) {
+        CheckerOutcome::Complete(result) => result,
+        CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+    };
 
     let (types, type_diagnostics) = type_result.into_parts();
 
@@ -314,6 +334,8 @@ mod tests {
             &declared,
             &[],
             &[ExpressionCandidateSet::NotApplicable(foreign)],
+            &crate::PatternCheckInput::new(),
+            &[],
         );
 
         assert_eq!(
