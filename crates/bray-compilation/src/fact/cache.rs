@@ -78,6 +78,7 @@ impl<T> FactCell<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn get(&self) -> Option<&T> {
         self.storage.value.get()
     }

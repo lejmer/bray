@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_binder::BinderDependency;
@@ -13,6 +13,7 @@ use super::FactCellTestObserver;
 #[derive(Debug)]
 pub(crate) struct PublishedUnitFact<T> {
     result: Arc<DiagnosticResult<T>>,
+    #[cfg(test)]
     dependencies: Box<[BinderDependency]>,
 }
 
@@ -21,6 +22,7 @@ impl<T> PublishedUnitFact<T> {
         &self.result
     }
 
+    #[cfg(test)]
     pub(crate) fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
@@ -51,19 +53,6 @@ where
         }
     }
 
-    pub(crate) fn published_dependencies(&self) -> BTreeMap<BoundUnitKey, Box<[BinderDependency]>> {
-        self.cells
-            .ready_entries(|key, published| {
-                // Snapshot invalidation owns stable keys and dependency sets after this lock.
-                (
-                    key.clone(),
-                    published.dependencies().to_vec().into_boxed_slice(),
-                )
-            })
-            .into_iter()
-            .collect()
-    }
-
     pub(crate) fn get_or_compute(
         &self,
         runtime: &FactRuntime,
@@ -81,10 +70,17 @@ where
         let cell = self.cells.cell(unit_key.clone())?;
 
         let published = cell.get_or_compute(runtime, fact_key, cancellation, || {
-            let (result, dependencies) = compute()?;
+            let computation = compute()?;
+
+            #[cfg(test)]
+            let (result, dependencies) = computation;
+
+            #[cfg(not(test))]
+            let (result, _) = computation;
 
             Ok(Arc::new(PublishedUnitFact {
                 result: Arc::new(result),
+                #[cfg(test)]
                 dependencies,
             }))
         })?;

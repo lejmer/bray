@@ -44,17 +44,13 @@ impl FactRuntime {
         &self,
         worker_budget: WorkerBudget,
         invalidation_roots: impl IntoIterator<Item = CompilationFactKey>,
-        preserved: &BTreeSet<CompilationFactKey>,
     ) -> (Self, BTreeSet<CompilationFactKey>) {
         let state = self
             .state
             .lock()
             .unwrap_or_else(|_| panic!("fact dependency state must remain available"));
 
-        let mut invalidated = invalidation_roots
-            .into_iter()
-            .filter(|root| !preserved.contains(root))
-            .collect::<BTreeSet<_>>();
+        let mut invalidated = invalidation_roots.into_iter().collect::<BTreeSet<_>>();
         let mut dependents = BTreeMap::<CompilationFactKey, Vec<CompilationFactKey>>::new();
 
         // The revised runtime owns stable graph keys independently of the previous snapshot.
@@ -75,10 +71,6 @@ impl FactRuntime {
             };
 
             for fact in affected {
-                if preserved.contains(fact) {
-                    continue;
-                }
-
                 if invalidated.insert(fact.clone()) {
                     pending.push_back(fact.clone());
                 }

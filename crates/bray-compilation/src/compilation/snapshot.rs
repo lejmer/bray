@@ -1,7 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use bray_binder::BinderDependency;
 use bray_source::SourceStore;
 use bray_symbols::ImportedInterfaceId;
 
@@ -21,12 +20,10 @@ impl Compilation {
             return Ok(updated);
         }
 
-        let preserved = preserved_facts(self, &updated);
-
         let updated_state = Arc::get_mut(&mut updated.state)
             .unwrap_or_else(|| panic!("new compilation state must be uniquely owned"));
 
-        reuse_published_facts(&self.state, updated_state, &preserved);
+        reuse_published_facts(&self.state, updated_state);
 
         Ok(updated)
     }
@@ -35,16 +32,15 @@ impl Compilation {
 fn reuse_published_facts(
     previous: &super::facts::CompilationState,
     updated: &mut super::facts::CompilationState,
-    preserved: &BTreeSet<CompilationFactKey>,
 ) {
     updated.sources = shared_sources(&previous.sources, &updated.sources);
 
     let invalidation_roots = invalidation_roots(previous, updated);
     let worker_budget = updated.options.worker_budget();
-    let (runtime, reusable) =
-        previous
-            .fact_runtime
-            .updated(worker_budget, invalidation_roots, preserved);
+
+    let (runtime, reusable) = previous
+        .fact_runtime
+        .updated(worker_budget, invalidation_roots);
 
     updated.fact_runtime = runtime;
 
@@ -94,179 +90,14 @@ fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore 
         .unwrap_or_else(|| panic!("loaded source snapshots must remain in source ID order"))
 }
 
-fn preserved_facts(previous: &Compilation, updated: &Compilation) -> BTreeSet<CompilationFactKey> {
-    let mut preserved = BTreeSet::new();
-
-    if previous.state.sources == updated.state.sources {
-        return preserved;
-    }
-
-    if previous.state.options.selected_target() != updated.state.options.selected_target()
-        || previous.state.options.product_kind() != updated.state.options.product_kind()
-        || previous.state.dependency_interfaces != updated.state.dependency_interfaces
-    {
-        return preserved;
-    }
-
-    let Some(Ok(previous_symbols)) = previous.state.symbol_graph.get() else {
-        return preserved;
-    };
-
-    let Ok(updated_symbols) = updated.symbol_graph() else {
-        return preserved;
-    };
-
-    if previous_symbols != updated_symbols {
-        return preserved;
-    }
-
-    preserved.extend([
-        CompilationFactKey::BoundUnitIdentities,
-        CompilationFactKey::SemanticValueStore,
-        CompilationFactKey::SymbolGraph,
-    ]);
-
-    preserve_product_source_graph(previous, updated, &mut preserved);
-    preserve_bound_units(previous, updated, previous_symbols, &mut preserved);
-
-    preserved
-}
-
-fn preserve_product_source_graph(
-    previous: &Compilation,
-    updated: &Compilation,
-    preserved: &mut BTreeSet<CompilationFactKey>,
-) {
-    let Some(Ok(previous_graph)) = previous.state.product_source_graph.get() else {
-        return;
-    };
-
-    let Ok(updated_graph) = updated.product_source_graph() else {
-        return;
-    };
-
-    if previous_graph == updated_graph {
-        preserved.insert(CompilationFactKey::ProductSourceGraph);
-    }
-}
-
-fn preserve_bound_units(
-    previous: &Compilation,
-    updated: &Compilation,
-    symbols: &bray_symbols::SymbolGraph,
-    preserved: &mut BTreeSet<CompilationFactKey>,
-) {
-    let dependencies = previous.state.bound_units.published_dependencies();
-    let mut results = BTreeMap::new();
-    let mut active = BTreeSet::new();
-
-    // Preservation and recursion state own stable unit keys beyond each map lookup.
-    for key in dependencies.keys() {
-        if bound_unit_is_unchanged(
-            previous,
-            updated,
-            symbols,
-            key,
-            &dependencies,
-            &mut results,
-            &mut active,
-        ) {
-            preserved.insert(CompilationFactKey::BoundUnit(key.clone()));
-        }
-    }
-}
-
-fn bound_unit_is_unchanged(
-    previous: &Compilation,
-    updated: &Compilation,
-    symbols: &bray_symbols::SymbolGraph,
-    key: &bray_bound_tree::BoundUnitKey,
-    dependencies: &BTreeMap<bray_bound_tree::BoundUnitKey, Box<[BinderDependency]>>,
-    results: &mut BTreeMap<bray_bound_tree::BoundUnitKey, bool>,
-    active: &mut BTreeSet<bray_bound_tree::BoundUnitKey>,
-) -> bool {
-    if let Some(result) = results.get(key) {
-        return *result;
-    }
-
-    if !active.insert(key.clone()) {
-        return false;
-    }
-
-    let result = unit_source_is_unchanged(previous, updated, key)
-        && dependencies.get(key).is_some_and(|observed| {
-            observed.iter().all(|dependency| match dependency {
-                BinderDependency::Symbol { symbol, .. } => {
-                    symbol_dependency_is_unchanged(previous, updated, symbols, *symbol)
-                }
-                BinderDependency::Target(_) => true,
-                BinderDependency::Unit(unit) => bound_unit_is_unchanged(
-                    previous,
-                    updated,
-                    symbols,
-                    unit,
-                    dependencies,
-                    results,
-                    active,
-                ),
-            })
-        });
-
-    active.remove(key);
-
-    // The memoized result must own its key independently of the dependency map.
-    results.insert(key.clone(), result);
-
-    result
-}
-
-fn symbol_dependency_is_unchanged(
-    previous: &Compilation,
-    updated: &Compilation,
-    symbols: &bray_symbols::SymbolGraph,
-    symbol: bray_symbols::AnySymbolId,
-) -> bool {
-    let Some(key) = symbols.symbol_key(symbol) else {
-        return false;
-    };
-
-    let Some(anchor) = symbols.declaration_syntax_anchor(symbol) else {
-        return key.source_declaration_id().is_none();
-    };
-
-    source_is_unchanged(previous, updated, anchor.source_id())
-}
-
-fn unit_source_is_unchanged(
-    previous: &Compilation,
-    updated: &Compilation,
-    key: &bray_bound_tree::BoundUnitKey,
-) -> bool {
-    let source = key.source();
-    let source_id = source.syntax().source_id();
-
-    source_is_unchanged(previous, updated, source_id)
-        && previous
-            .source(source_id)
-            .is_some_and(|snapshot| snapshot.version() == source.source_version())
-}
-
-fn source_is_unchanged(
-    previous: &Compilation,
-    updated: &Compilation,
-    source_id: bray_source::SourceId,
-) -> bool {
-    previous
-        .source(source_id)
-        .zip(updated.source(source_id))
-        .is_some_and(|(previous, updated)| previous == updated)
-}
-
 fn invalidation_roots(
     previous: &super::facts::CompilationState,
     updated: &super::facts::CompilationState,
 ) -> BTreeSet<CompilationFactKey> {
     let mut roots = BTreeSet::new();
+
+    // Semantic value identities and their mutable interning state are snapshot-local.
+    roots.insert(CompilationFactKey::SemanticValueStore);
 
     let sources_changed = previous.sources != updated.sources;
 
@@ -274,7 +105,6 @@ fn invalidation_roots(
         roots.extend([
             CompilationFactKey::SyntaxTree,
             CompilationFactKey::DeclarationTable,
-            CompilationFactKey::SemanticValueStore,
         ]);
 
         for source in previous.sources.iter() {
@@ -560,7 +390,7 @@ mod tests {
     use crate::{SelectedTarget, WorkerBudget};
 
     #[test]
-    fn source_edits_reuse_unaffected_source_facts() {
+    fn variable_width_source_edits_reuse_only_unaffected_source_facts() {
         let previous = compilation([
             source(10, 0, "module app.changed;\n\nconst value: i32 = 1;\n"),
             source(11, 0, "module app.stable;\n\nfunc stable()\n{\n}\n"),
@@ -579,7 +409,11 @@ mod tests {
         let updated = previous
             .updated(request(
                 [
-                    source(10, 1, "module app.changed;\n\nconst value: i32 = 2;\n"),
+                    source(
+                        10,
+                        1,
+                        "module app.changed;\n\nconst value: i32 = 2_000_000;\n",
+                    ),
                     source(11, 0, "module app.stable;\n\nfunc stable()\n{\n}\n"),
                 ],
                 options(ProductKind::Library, SelectedTarget::baseline()),
@@ -619,14 +453,14 @@ mod tests {
         );
 
         assert!(
-            previous
+            !previous
                 .state
                 .bound_units
                 .shares_cell_with(&updated.state.bound_units, &stable_unit)
         );
 
         assert!(
-            previous
+            !previous
                 .state
                 .checked_control_flow
                 .shares_cell_with(&updated.state.checked_control_flow, &stable_unit)
@@ -634,15 +468,15 @@ mod tests {
     }
 
     #[test]
-    fn declaration_shape_changes_invalidate_semantic_unit_facts() {
+    fn updated_snapshots_do_not_eagerly_demand_semantic_facts() {
         let previous = compilation([
             source(10, 0, "module app.changed;\n\nconst value: i32 = 1;\n"),
             source(11, 0, "module app.stable;\n\nfunc stable()\n{\n}\n"),
         ]);
 
-        let stable_unit = source_callable_body_key(&previous);
-
-        let _ = previous.bound_unit(stable_unit.clone());
+        let _ = previous
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("previous symbol graph must build: {error:?}"));
 
         let updated = previous
             .updated(request(
@@ -658,12 +492,37 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
+        assert!(updated.state.symbol_graph.get().is_none());
+        assert!(updated.state.declaration_table_result.get().is_none());
+    }
+
+    #[test]
+    fn semantic_value_stores_are_snapshot_local() {
+        let previous = compilation([source(10, 0, "module app;\n")]);
+
+        let previous_store = previous
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("previous semantic store must build: {error:?}"));
+
+        let updated = previous
+            .updated(request(
+                [source(10, 0, "module app;\n")],
+                options(ProductKind::Library, SelectedTarget::baseline()),
+            ))
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
         assert!(
             !previous
                 .state
-                .bound_units
-                .shares_cell_with(&updated.state.bound_units, &stable_unit)
+                .semantic_values
+                .shares_storage_with(&updated.state.semantic_values)
         );
+
+        let updated_store = updated
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("updated semantic store must build: {error:?}"));
+
+        assert_ne!(previous_store.id(), updated_store.id());
     }
 
     #[test]

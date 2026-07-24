@@ -73,19 +73,6 @@ where
         cells.keys().cloned().collect()
     }
 
-    pub(crate) fn ready_entries<R>(&self, map: impl Fn(&K, &V) -> R) -> Vec<R> {
-        let cells = self
-            .cells
-            .lock()
-            .unwrap_or_else(|_| panic!("fact cache map must remain available"));
-
-        // Returned entries own everything they need after the cache map lock is released.
-        cells
-            .iter()
-            .filter_map(|(key, cell)| cell.get().map(|value| map(key, value)))
-            .collect()
-    }
-
     #[cfg(test)]
     pub(crate) fn is_published(&self, key: &K) -> Result<bool, FactQueryError> {
         let cells = self
