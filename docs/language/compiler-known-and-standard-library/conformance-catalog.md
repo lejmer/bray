@@ -111,7 +111,7 @@ packages and their declarations.
 
 ## Recognized standard-library entries
 
-The v1 recognized declarations under the `std` root are:
+The recognized declarations under the `std` root are:
 
 - `convert<Target, Source>(source)`,
 - `RoundingRule`,
@@ -127,7 +127,7 @@ The v1 recognized declarations under the `std` root are:
 
 The `RoundingRule` variants have the listed ordinal order from zero through four.
 
-The v1 recognized declarations under `std.string` are:
+The recognized declarations under `std.string` are:
 
 - `Utf8Error`,
 - `Utf8Error.InvalidEncoding`,
@@ -141,7 +141,7 @@ The v1 recognized declarations under `std.string` are:
 
 `Utf8Error.InvalidEncoding` has ordinal zero.
 
-The v1 recognized declarations under `std.memory` are:
+The recognized declarations under `std.memory` are:
 
 - `address_of<T>(value)`,
 - `address_of_mut<T>(value)`,
@@ -189,7 +189,7 @@ provides allocation.
 Layout declarations are available on every target.
 
 Device-memory declarations are target-specific ordinary standard-library APIs and are not part of
-the closed v1 recognized catalog.
+the closed recognized catalog.
 
 Channels, operating-system threads, child processes, parallel algorithms, task combinators, synchronization types, universal run
 and task checkpoints, cancellation observation, and runtime selection types are ordinary standard-library or product declarations.

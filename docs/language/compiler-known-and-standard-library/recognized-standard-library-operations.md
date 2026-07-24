@@ -2,7 +2,7 @@
 
 The standard library can provide operations whose contracts are known to the compiler.
 
-The exact v1 recognized identities are listed by the
+The exact recognized identities are listed by the
 [conformance catalog](conformance-catalog.md).
 
 `std.convert<Target, Source>(source)` returns
@@ -20,7 +20,7 @@ The recognized string operations are `std.string.scalar_count`, `std.string.is_e
 The recognized raw-memory operations, layout declarations, allocation owner, and raw-buffer
 declarations are the exact `std.memory` declarations listed by the conformance catalog.
 
-Device-memory helpers are not recognized in v1.
+Device-memory helpers are not recognized.
 
 These operations are not syntax.
 
