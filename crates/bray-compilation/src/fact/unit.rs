@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_binder::BinderDependency;
@@ -12,14 +13,6 @@ use super::FactCellTestObserver;
 #[derive(Debug)]
 pub(crate) struct PublishedUnitFact<T> {
     result: Arc<DiagnosticResult<T>>,
-    // TODO(BRA-229): Remove this expectation when incremental invalidation traverses edges.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "incremental dependency invalidation is implemented by a subsequent issue"
-        )
-    )]
     dependencies: Box<[BinderDependency]>,
 }
 
@@ -28,14 +21,6 @@ impl<T> PublishedUnitFact<T> {
         &self.result
     }
 
-    // TODO(BRA-229): Remove this expectation when incremental invalidation traverses edges.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "incremental dependency invalidation is implemented by a subsequent issue"
-        )
-    )]
     pub(crate) fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
@@ -54,6 +39,29 @@ where
         Self {
             cells: FactCellMap::new(),
         }
+    }
+
+    pub(crate) fn updated(
+        &self,
+        reusable: &BTreeSet<CompilationFactKey>,
+        fact_key: impl Fn(&BoundUnitKey) -> CompilationFactKey,
+    ) -> Self {
+        Self {
+            cells: self.cells.updated(reusable, fact_key),
+        }
+    }
+
+    pub(crate) fn published_dependencies(&self) -> BTreeMap<BoundUnitKey, Box<[BinderDependency]>> {
+        self.cells
+            .ready_entries(|key, published| {
+                // Snapshot invalidation owns stable keys and dependency sets after this lock.
+                (
+                    key.clone(),
+                    published.dependencies().to_vec().into_boxed_slice(),
+                )
+            })
+            .into_iter()
+            .collect()
     }
 
     pub(crate) fn get_or_compute(
@@ -88,6 +96,11 @@ where
     #[cfg(test)]
     pub(crate) fn is_published(&self, key: &BoundUnitKey) -> Result<bool, FactQueryError> {
         self.cells.is_published(key)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_cell_with(&self, other: &Self, key: &BoundUnitKey) -> bool {
+        self.cells.shares_cell_with(&other.cells, key)
     }
 
     #[cfg(test)]

@@ -49,6 +49,10 @@ impl SourceLoader {
         Self { loaded_count: 0 }
     }
 
+    pub(crate) const fn with_loaded_count(loaded_count: u64) -> Self {
+        Self { loaded_count }
+    }
+
     /// Returns the number of source snapshots loaded so far.
     pub const fn loaded_count(&self) -> u64 {
         self.loaded_count
