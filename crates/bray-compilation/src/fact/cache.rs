@@ -222,6 +222,7 @@ impl<T> FactCell<T> {
                     }
 
                     let task = *task;
+
                     let current_task = runtime
                         .current_task_context()
                         .ok()
@@ -677,12 +678,14 @@ mod tests {
 
         let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
             syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(2_u32))?;
+
             declarations.get_or_compute(
                 &runtime,
                 declaration_key.clone(),
                 &cancellation,
                 || Ok(3_u32),
             )?;
+
             syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(4_u32))?;
 
             Ok(5_u32)
@@ -979,6 +982,7 @@ mod tests {
 
         let first_context = task_context(&runtime, key.clone());
         let observed_owner = first_context.identity();
+
         let first = match runtime.begin(first_context) {
             Ok(evaluation) => evaluation,
             Err(error) => panic!("first evaluation should begin: {error:?}"),
@@ -987,6 +991,7 @@ mod tests {
         drop(first);
 
         let second_context = task_context(&runtime, key.clone());
+
         let second = match runtime.begin(second_context) {
             Ok(evaluation) => evaluation,
             Err(error) => panic!("second evaluation should begin: {error:?}"),
@@ -1054,6 +1059,7 @@ mod tests {
         let child_key = CompilationFactKey::DeclarationTable;
 
         let weak_parent = Arc::downgrade(&parent);
+
         let observer = FactCellTestObserver::new(move |event| {
             if event != FactCellTestEvent::Computed {
                 return;

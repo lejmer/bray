@@ -86,6 +86,7 @@ impl FactRuntime {
             .collect::<BTreeMap<_, _>>();
 
         let reusable = dependencies.keys().cloned().collect();
+
         let runtime = Self {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState {
@@ -197,7 +198,6 @@ impl FactRuntime {
         observed_owner: FactTaskIdentity,
     ) -> Result<Option<WaitingGuard<'_>>, FactQueryError> {
         let requester = self.current_task_context().ok();
-
         let mut state = self.state()?;
 
         let Some(owner) = state.owners.get(key).copied() else {
