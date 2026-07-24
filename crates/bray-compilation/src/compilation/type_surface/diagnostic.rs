@@ -50,7 +50,7 @@ fn source_declaration(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::{NamedTypeSymbolId, StructSymbolId, SymbolOrigin};
+    use bray_symbols::{NamedTypeSymbolId, SymbolOrigin};
 
     use crate::test_support::compilation;
 
@@ -81,7 +81,7 @@ mod tests {
             .structures()
             .iter()
             .find(|symbol| symbol.origin() == SymbolOrigin::Source)
-            .map(|symbol| NamedTypeSymbolId::from(StructSymbolId::from(symbol.id())))
+            .map(|symbol| NamedTypeSymbolId::from(symbol.id()))
         else {
             panic!("test source must declare one structure");
         };
