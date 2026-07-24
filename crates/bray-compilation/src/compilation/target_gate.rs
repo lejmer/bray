@@ -7,15 +7,14 @@ use bray_checker::{
     DefaultConstantEvaluator,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_declarations::{ModulePartId, ModulePartRecord, SyntaxAnchor};
+use bray_declarations::{ModulePartId, ModulePartRecord};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantSymbolId, ConstantValueData, ConstantValueId,
-    ConstantValueKind, IntegerConstant, IntegerSign, ModuleSymbol, ModuleSymbolId,
-    ModuleTargetGate, NamedTypeSymbolId, StructSymbolId, SymbolProvider, TargetFactDependency,
-    TypeId,
+    ConstantValueKind, DirectiveAttachment, DirectiveKind, IntegerConstant, IntegerSign,
+    ModuleSymbol, ModuleSymbolId, ModuleTargetGate, NamedTypeSymbolId, StructSymbolId,
+    SymbolProvider, TargetFactDependency, TypeId,
 };
-use bray_syntax::{SyntaxKind, TargetDirectiveSyntax};
 use bray_target::{TargetFactKind, TargetFactValue};
 
 use super::Compilation;
@@ -107,32 +106,21 @@ impl Compilation {
         part: &ModulePartRecord,
         module: &ModuleSymbol,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        // TODO(BRA-255): Read the typed target directive fact once directive binding is available.
         // TODO(BRA-256): Diagnose duplicate target directives when constructing source graphs.
-        let Some(anchor) = part
-            .surface()
-            .directives()
-            .iter()
-            .find(|anchor| anchor.syntax_kind() == SyntaxKind::TargetDirective)
-            .copied()
-        else {
+        let directives = self.declaration_directives(module.id().into())?;
+
+        let Some(directive) = directives.value().directives().iter().find(|directive| {
+            directive.kind() == DirectiveKind::Target
+                && directive.attachment() == DirectiveAttachment::ModulePart(part.id())
+        }) else {
             return Ok(None);
         };
 
-        let directive = anchor
-            .find_descendant::<TargetDirectiveSyntax>(self.syntax_tree())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let Some(argument) = directive
-            .directive_argument_list()
-            .directive_arguments()
-            .next()
-        else {
+        let Some(argument) = directive.arguments().first() else {
             return Ok(None);
         };
 
-        let expression = SyntaxAnchor::from_node(&argument.expression());
-        let source = self.bound_source(expression)?;
+        let source = self.bound_source(argument.expression().syntax())?;
 
         // The unit key retains the module's Arc-backed identity after this graph lookup.
         BoundUnitKey::target_gate(module.key().clone(), source)

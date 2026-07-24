@@ -122,6 +122,9 @@ const BINDING_INVALID_MODULE_EXPORT_TARGET: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" cannot be re-exported"),
 ];
 
+const BINDING_MALFORMED_DIRECTIVE_ARGUMENT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("directive argument is malformed")];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -678,6 +681,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingInvalidModuleExportTarget => {
             MessageTemplate::new(BINDING_INVALID_MODULE_EXPORT_TARGET)
+        }
+        DiagnosticKind::BindingMalformedDirectiveArgument => {
+            MessageTemplate::new(BINDING_MALFORMED_DIRECTIVE_ARGUMENT)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

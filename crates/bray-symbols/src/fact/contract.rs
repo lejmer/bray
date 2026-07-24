@@ -14,11 +14,11 @@ use crate::{
 use super::{
     CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
-    ConstantDefinitionState, ConstantInstanceKey, GenericConstraintSet, GenericDeclarationTemplate,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceKey,
-    ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
-    ImplementationSelection, ImplementationSubjectTemplate, ModuleSurface,
-    OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
+    ConstantDefinitionState, ConstantInstanceKey, DirectiveSurface, GenericConstraintSet,
+    GenericDeclarationTemplate, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
+    ImplementationCoherenceKey, ImplementationHeadTemplate, ImplementationParticipationSet,
+    ImplementationRequirementKey, ImplementationSelection, ImplementationSubjectTemplate,
+    ModuleSurface, OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
     PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
     UnevaluatedDefaultTemplate,
 };
@@ -131,6 +131,13 @@ define_symbol_fact_contract! {
         value: ModuleSurface,
         kind: Imports,
         erase: |owner: ModuleSymbolId| owner.into(),
+    }
+    /// Source-backed directives attached to one declaration symbol.
+    DeclarationDirectivesFact {
+        owner: AnySymbolId,
+        value: DirectiveSurface,
+        kind: Directives,
+        erase: |owner: AnySymbolId| owner,
     }
     /// Generic parameter identities and unevaluated constraints for one declaration.
     GenericDeclarationTemplateFact {
@@ -449,6 +456,7 @@ mod tests {
         let trait_member = TraitConstantMemberSymbolId::from_symbol_id(raw);
 
         let constant = SymbolFactRequest::<ConstantDefinitionFact>::new(constant);
+
         let trait_member =
             SymbolFactRequest::<TraitConstantMemberDefinitionFact>::new(trait_member);
 

@@ -4,12 +4,12 @@ use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTemplateFact, CallableContractTypeFact,
     CallableContractsFact, CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableParameterSymbolId, CallableSignatureFact,
-    CallableSymbolId, ConstantDeclaredTypeFact, ConstantDefinitionFact, ExactSymbolId,
-    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    GenericOwnerId, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
-    ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementationSymbolId,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, ModuleSurfaceFact,
-    ModuleSymbolId, PredicateDefinitionFact, PredicateDefinitionSymbolId,
+    CallableSymbolId, ConstantDeclaredTypeFact, ConstantDefinitionFact, DeclarationDirectivesFact,
+    ExactSymbolId, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
+    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationCoherenceFact,
+    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
+    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+    ModuleSurfaceFact, ModuleSymbolId, PredicateDefinitionFact, PredicateDefinitionSymbolId,
     PredicateSignatureTemplateFact, StructFieldDefaultFact, StructFieldDefaultTemplateFact,
     StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
     SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
@@ -32,11 +32,13 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
         match request.kind() {
             // These surfaces are frozen into the immutable symbol graph before semantic facts.
             SymbolFactKind::Members
-            | SymbolFactKind::Directives
             | SymbolFactKind::GenericParameters
             | SymbolFactKind::UnionVariantPayload => Ok(DiagnosticBag::new()),
             SymbolFactKind::Imports => {
                 force_exact::<ModuleSurfaceFact, ModuleSymbolId>(self, request.symbol())
+            }
+            SymbolFactKind::Directives => {
+                force_typed::<DeclarationDirectivesFact>(self, request.symbol())
             }
             SymbolFactKind::GenericConstraints => {
                 let owner = GenericOwnerId::try_new(request.symbol())
@@ -389,6 +391,7 @@ mod tests {
         assert!(coherence.value().trait_application().is_some());
 
         let unary = declaration::<CallableContractSymbolId>(symbols, "UnaryCallable");
+
         let unary_type = published_fact(
             &facts,
             SymbolFactRequest::<CallableContractTypeFact>::new(unary),
@@ -400,6 +403,7 @@ mod tests {
         ));
 
         let element = declaration::<StructFieldSymbolId>(symbols, "RawPointerElement");
+
         let element_type = published_fact(
             &facts,
             SymbolFactRequest::<StructFieldTypeFact>::new(element),
@@ -424,6 +428,7 @@ mod tests {
         ));
 
         let start = declaration::<TypeCallableMemberSymbolId>(symbols, "FutureStart");
+
         let start_signature = published_fact(
             &facts,
             SymbolFactRequest::<CallableSignatureFact>::new(start.into()),
@@ -439,6 +444,7 @@ mod tests {
         ));
 
         let join = declaration::<TypeCallableMemberSymbolId>(symbols, "TaskJoin");
+
         let join_signature = published_fact(
             &facts,
             SymbolFactRequest::<CallableSignatureFact>::new(join.into()),

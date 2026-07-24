@@ -5,17 +5,17 @@ use bray_symbols::{
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
-    ConstantDefinitionFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
-    GenericDeclarationTemplateFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
-    ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
-    PredicateSignatureTemplateFact, StructFieldDefaultFact, StructFieldDefaultTemplateFact,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
-    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    ConstantDefinitionFact, DeclarationDirectivesFact, GenericConstParameterDeclaredTypeFact,
+    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCoherenceFact,
+    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, ModuleSurfaceFact,
+    PredicateDefinitionFact, PredicateSignatureTemplateFact, StructFieldDefaultFact,
+    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
+    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 
 use super::super::binder_fact_error;
@@ -25,6 +25,7 @@ use crate::fact::SymbolFactCache;
 
 pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) module_surfaces: SymbolFactCache<ModuleSurfaceFact>,
+    pub(super) declaration_directives: SymbolFactCache<DeclarationDirectivesFact>,
     pub(super) generic_constraints: SymbolFactCache<GenericConstraintsFact>,
     pub(super) generic_declaration_templates: SymbolFactCache<GenericDeclarationTemplateFact>,
     pub(super) callable_signatures: SymbolFactCache<CallableSignatureFact>,
@@ -74,6 +75,7 @@ impl CompilationSymbolFacts {
     pub(in crate::compilation) const fn new() -> Self {
         Self {
             module_surfaces: SymbolFactCache::new(),
+            declaration_directives: SymbolFactCache::new(),
             generic_constraints: SymbolFactCache::new(),
             generic_declaration_templates: SymbolFactCache::new(),
             callable_signatures: SymbolFactCache::new(),

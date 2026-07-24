@@ -2,6 +2,7 @@ mod completion;
 mod constant;
 mod contract;
 mod default;
+mod directive;
 mod execution;
 mod implementation;
 mod module;
@@ -23,9 +24,9 @@ pub use contract::{
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
-    ConstantDefinitionFact, ConstantInstanceValueFact, GenericConstParameterDeclaredTypeFact,
-    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCandidateSetFact,
-    ImplementationCoherenceFact, ImplementationHeadTemplateFact,
+    ConstantDefinitionFact, ConstantInstanceValueFact, DeclarationDirectivesFact,
+    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
+    ImplementationCandidateSetFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationParticipationFact,
     ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
     InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
@@ -47,6 +48,10 @@ pub use default::{
     RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, RuntimeDefaultTrustedObligation,
     StructFieldDefaultSurface, StructFieldDefaultValue, UnionPayloadDefaultSurface,
     UnionPayloadDefaultValue,
+};
+pub use directive::{
+    CallableTypeDirectiveKey, DirectiveArgumentName, DirectiveArgumentTemplate,
+    DirectiveAttachment, DirectiveKind, DirectiveSurface, DirectiveTemplate,
 };
 pub use execution::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,

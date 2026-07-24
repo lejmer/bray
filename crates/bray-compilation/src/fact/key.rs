@@ -4,9 +4,9 @@ use bray_declarations::ModulePartId;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
-    AnySymbolId, CallableInstanceId, ConstantInstanceKey, ConstantValueId,
-    ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
-    ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind, TypeId,
+    AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
+    ConstantValueId, ImplementationCoherenceDomainKey, ImplementationInstanceId,
+    ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -190,6 +190,8 @@ pub(crate) enum CompilationFactKey {
     TargetValidity(TargetValidityRequest),
     /// The selected-target result for one source module contribution.
     ModuleTargetGate(ModulePartId),
+    /// Source-backed directives attached to one callable type occurrence.
+    CallableTypeDirectives(CallableTypeDirectiveKey),
     /// The complete canonical compiler-known symbol and fact provider.
     CompilerKnownSymbols,
     /// Deterministic compact identities for bound-unit source anchors.
@@ -277,6 +279,7 @@ impl CompilationFactKey {
             Self::SelectedTarget
             | Self::TargetValidity(_)
             | Self::ModuleTargetGate(_)
+            | Self::CallableTypeDirectives(_)
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics
