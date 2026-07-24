@@ -4,13 +4,13 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_package_interface::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
-    ExportedLookupKind, InterfaceSemanticFacts, PackageInterfaceExportBuildError,
-    PackageInterfaceExportBundle, PackageInterfaceExportSurfaceError, SymbolRelationshipKind,
-    build_package_interface_surface,
+    ExportedLookupKind, InterfaceProductKind, InterfaceSemanticFacts,
+    PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
+    PackageInterfaceExportSurfaceError, SymbolRelationshipKind, build_package_interface_surface,
 };
 use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, ModuleSurfaceFact, ModuleSymbolId, SymbolFactRequest,
-    SymbolKind, SymbolOrigin,
+    AnySymbolId, ExternalSymbolKey, ModuleSurfaceFact, ModuleSymbolId, ProductKind,
+    SymbolFactRequest, SymbolKind, SymbolOrigin,
 };
 
 use super::Compilation;
@@ -49,9 +49,20 @@ impl Compilation {
         &self,
         request: &crate::PackageInterfaceExportRequest,
     ) -> Result<Arc<PackageInterfaceExportBundle>, PackageInterfaceExportError> {
+        if self.options().product_kind() != ProductKind::Library
+            || request.identity().kind() != InterfaceProductKind::Library
+            || request.identity().package() != self.package_identity()
+        {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        }
+
+        let source_graph = self
+            .product_source_graph()
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
         if self.source_diagnostics().has_errors()
             || self.syntax_tree_result().diagnostics().has_errors()
-            || self.declaration_diagnostics().has_errors()
+            || source_graph.diagnostics().has_errors()
             || self.imported_diagnostics().has_errors()
         {
             return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -61,7 +72,7 @@ impl Compilation {
             .symbol_graph()
             .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
-        reject_unavailable_public_declarations(self, symbols)?;
+        reject_unavailable_public_declarations(source_graph.declarations(), symbols)?;
 
         // Package identities and external keys are Arc-backed values retained by the bundle.
         let package_key = ExternalSymbolKey::package(self.package_identity().clone());
@@ -105,10 +116,6 @@ impl Compilation {
         }
 
         let exports = self.public_module_re_exports(&module_keys)?;
-
-        if request.identity().package() != self.package_identity() {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
-        }
 
         // Package-interface identities are Arc-backed and the frozen surface owns its snapshot.
         let identity = request.identity().clone();
@@ -182,10 +189,10 @@ impl Compilation {
 }
 
 fn reject_unavailable_public_declarations(
-    compilation: &Compilation,
+    declarations: &bray_declarations::DeclarationTable,
     symbols: &bray_symbols::SymbolGraph,
 ) -> Result<(), PackageInterfaceExportError> {
-    for declaration in compilation.declaration_table().declarations() {
+    for declaration in declarations.declarations() {
         if declaration.surface().is_internal() {
             continue;
         }
@@ -194,7 +201,7 @@ fn reject_unavailable_public_declarations(
             continue;
         };
 
-        if symbol_is_publicly_reachable(compilation, symbols, symbol) {
+        if symbol_is_publicly_reachable(declarations, symbols, symbol) {
             return Err(
                 PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()),
             );
@@ -205,7 +212,7 @@ fn reject_unavailable_public_declarations(
 }
 
 fn symbol_is_publicly_reachable(
-    compilation: &Compilation,
+    declarations: &bray_declarations::DeclarationTable,
     symbols: &bray_symbols::SymbolGraph,
     mut symbol: AnySymbolId,
 ) -> bool {
@@ -213,7 +220,7 @@ fn symbol_is_publicly_reachable(
         if let Some(declaration) = symbols
             .symbol_key(symbol)
             .and_then(bray_symbols::SymbolKey::source_declaration_id)
-            .and_then(|declaration| compilation.declaration_table().declaration(declaration))
+            .and_then(|declaration| declarations.declaration(declaration))
             && declaration.surface().is_internal()
         {
             return false;
@@ -241,10 +248,13 @@ mod tests {
         InterfaceLanguageRevision, InterfaceProductIdentity, PackageInterfaceExportBundle,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{PackageIdentity, SymbolKind};
+    use bray_symbols::{PackageIdentity, ProductKind, SymbolKind};
 
     use super::PackageInterfaceExportError;
-    use crate::{Compilation, CompilationRequest, PackageInterfaceExportRequest};
+    use crate::{
+        Compilation, CompilationOptions, CompilationRequest, PackageInterfaceExportRequest,
+        SelectedTarget, WorkerBudget,
+    };
 
     #[test]
     fn module_only_library_exports_are_lazy_cached_facts() {
@@ -323,6 +333,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn non_library_products_cannot_export_package_interfaces() {
+        for product_kind in [ProductKind::Executable, ProductKind::Test] {
+            let compilation = compilation_from_sources_for_product(["module app;"], product_kind);
+
+            assert_eq!(
+                compilation.package_interface_export_bundle(),
+                Some(&Err(PackageInterfaceExportError::InvalidCompilation))
+            );
+        }
+    }
+
     fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {
         match compilation.package_interface_export_bundle() {
             Some(Ok(bundle)) => bundle,
@@ -336,6 +358,13 @@ mod tests {
     }
 
     fn compilation_from_sources<const N: usize>(sources: [&str; N]) -> Compilation {
+        compilation_from_sources_for_product(sources, ProductKind::Library)
+    }
+
+    fn compilation_from_sources_for_product<const N: usize>(
+        sources: [&str; N],
+        product_kind: ProductKind,
+    ) -> Compilation {
         let package = PackageIdentity::try_new("example.package")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
@@ -365,7 +394,13 @@ mod tests {
             )
         });
 
-        let request = CompilationRequest::new(package, sources.collect())
+        let options = CompilationOptions::new(
+            WorkerBudget::default(),
+            product_kind,
+            SelectedTarget::default(),
+        );
+
+        let request = CompilationRequest::with_options(package, sources.collect(), options)
             .with_package_interface_export(export);
 
         Compilation::load(request)

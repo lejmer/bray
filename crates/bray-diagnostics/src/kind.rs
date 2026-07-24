@@ -17,6 +17,8 @@ pub enum DiagnosticKind {
     RequestMissingSourceInput,
     /// A compilation request source input is not valid.
     RequestInvalidSourceInput,
+    /// A compilation request selects one logical source more than once.
+    RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
     RequestInvalidWorkerBudget,
     /// Source input contains a character that the lexer cannot accept.
@@ -163,6 +165,8 @@ pub enum DiagnosticKind {
     CheckingNonExhaustiveMatch,
     /// A match arm cannot be selected because earlier arms already cover it.
     CheckingUnreachableMatchArm,
+    /// A module declaration repeats one contribution-controlling directive.
+    CheckingDuplicateModuleContributionDirective,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -194,6 +198,7 @@ impl DiagnosticKind {
             Self::RequestMissingSourceInput => 1101,
             Self::RequestInvalidSourceInput => 1102,
             Self::RequestInvalidWorkerBudget => 1103,
+            Self::RequestDuplicateSourceInput => 1104,
             Self::LexicalInvalidCharacter => 2001,
             Self::LexicalMisplacedBom => 2002,
             Self::LexicalLoneCarriageReturn => 2003,
@@ -266,6 +271,7 @@ impl DiagnosticKind {
             Self::CheckingRefutablePattern => 7022,
             Self::CheckingNonExhaustiveMatch => 7023,
             Self::CheckingUnreachableMatchArm => 7024,
+            Self::CheckingDuplicateModuleContributionDirective => 7025,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -290,6 +296,7 @@ impl DiagnosticKind {
             Self::RequestMissingSourceInput => "request_missing_source_input",
             Self::RequestInvalidSourceInput => "request_invalid_source_input",
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
+            Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
             Self::LexicalInvalidCharacter => "lexical_invalid_character",
             Self::LexicalMisplacedBom => "lexical_misplaced_bom",
             Self::LexicalLoneCarriageReturn => "lexical_lone_carriage_return",
@@ -384,6 +391,9 @@ impl DiagnosticKind {
             Self::CheckingRefutablePattern => "checking_refutable_pattern",
             Self::CheckingNonExhaustiveMatch => "checking_non_exhaustive_match",
             Self::CheckingUnreachableMatchArm => "checking_unreachable_match_arm",
+            Self::CheckingDuplicateModuleContributionDirective => {
+                "checking_duplicate_module_contribution_directive"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -447,7 +457,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 88] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 90] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -455,6 +465,7 @@ mod tests {
             DiagnosticKind::SourceTextTooLarge,
             DiagnosticKind::RequestMissingSourceInput,
             DiagnosticKind::RequestInvalidSourceInput,
+            DiagnosticKind::RequestDuplicateSourceInput,
             DiagnosticKind::RequestInvalidWorkerBudget,
             DiagnosticKind::LexicalInvalidCharacter,
             DiagnosticKind::LexicalMisplacedBom,
@@ -528,6 +539,7 @@ mod tests {
             DiagnosticKind::CheckingRefutablePattern,
             DiagnosticKind::CheckingNonExhaustiveMatch,
             DiagnosticKind::CheckingUnreachableMatchArm,
+            DiagnosticKind::CheckingDuplicateModuleContributionDirective,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

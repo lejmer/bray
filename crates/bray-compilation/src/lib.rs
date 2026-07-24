@@ -12,7 +12,9 @@ mod worker;
 #[cfg(test)]
 mod test_support;
 
-pub use compilation::{Compilation, CompilationLoadError, PackageInterfaceExportError};
+pub use compilation::{
+    Compilation, CompilationLoadError, PackageInterfaceExportError, ProductSourceGraph,
+};
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
 };

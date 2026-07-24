@@ -10,8 +10,7 @@ use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, ModuleSurface,
-    ModuleSurfaceFact, ModuleTargetGate, SemanticFactResult, SymbolFactRequest, SymbolGraph,
-    SymbolKey, SymbolOrigin,
+    ModuleSurfaceFact, SemanticFactResult, SymbolFactRequest, SymbolGraph, SymbolKey, SymbolOrigin,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -56,7 +55,6 @@ impl Compilation {
                 DiagnosticBag::merged_all([
                     self.source_diagnostics(),
                     self.syntax_tree_result().diagnostics(),
-                    self.declaration_diagnostics(),
                     self.imported_diagnostics(),
                     self.semantic_diagnostics(),
                 ])
@@ -65,14 +63,13 @@ impl Compilation {
     }
 
     fn compute_semantic_diagnostics(&self) -> Result<DiagnosticBag, FactQueryError> {
+        let source_graph = self.product_source_graph()?;
         let mut pending = BTreeSet::new();
 
-        // TODO(BRA-256): Demand units from the active product source graph.
         for key in self.declared_unit_keys()? {
             pending.insert(unit_order_key(key));
         }
 
-        let declarations = self.declaration_table();
         let symbols = self.symbol_graph()?;
         let mut facts = Vec::new();
         let binder = self.binder_facts(&self.state.cancellation)?;
@@ -87,21 +84,6 @@ impl Compilation {
                 .map_err(super::binder::binder_fact_error)?;
 
             facts.push(SemanticDiagnosticFact::ModuleSurface(surface));
-        }
-
-        for part in declarations.module_parts() {
-            let module = symbols
-                .module(self.module_symbol_id_for_part(part)?)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            if self.module_target_gate_key(part, module)?.is_none() {
-                continue;
-            }
-
-            let gate =
-                self.module_target_gate_with_cancellation(part.id(), &self.state.cancellation)?;
-
-            facts.push(SemanticDiagnosticFact::ModuleTargetGate(gate));
         }
 
         while let Some((_, _, _, key)) = pending.pop_first() {
@@ -176,9 +158,10 @@ impl Compilation {
             }
         }
 
-        Ok(DiagnosticBag::merged_all(
-            facts.iter().map(SemanticDiagnosticFact::diagnostics),
-        ))
+        let fact_diagnostics =
+            DiagnosticBag::merged_all(facts.iter().map(SemanticDiagnosticFact::diagnostics));
+
+        Ok(source_graph.diagnostics().merged(&fact_diagnostics))
     }
 
     pub(in crate::compilation) fn declared_unit_keys(
@@ -186,7 +169,7 @@ impl Compilation {
     ) -> Result<Vec<BoundUnitKey>, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let syntax = self.syntax_tree();
-        let declarations = self.declaration_table();
+        let declarations = self.product_source_graph()?.declarations();
         let syntax_index = SemanticSyntaxIndex::new(syntax, declarations.declarations());
 
         let mut keys = Vec::new();
@@ -212,16 +195,6 @@ impl Compilation {
                 symbols,
                 &syntax_index,
             )?;
-        }
-
-        for part in declarations.module_parts() {
-            let module = symbols
-                .module(self.module_symbol_id_for_part(part)?)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            if let Some(key) = self.module_target_gate_key(part, module)? {
-                keys.push(key);
-            }
         }
 
         Ok(keys)
@@ -330,7 +303,6 @@ enum SemanticDiagnosticFact {
     Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
-    ModuleTargetGate(Arc<DiagnosticResult<ModuleTargetGate>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
 }
 
@@ -345,7 +317,6 @@ impl SemanticDiagnosticFact {
             Self::Patterns(result) => result.diagnostics(),
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
-            Self::ModuleTargetGate(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
         }
     }

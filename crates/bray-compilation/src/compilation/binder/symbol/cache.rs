@@ -122,7 +122,7 @@ where
         &self,
         request: SymbolFactRequest<C>,
     ) -> BinderFactResult<Arc<SymbolFactResult<C>>> {
-        let facts = &self.compilation.state.symbol_facts;
+        let facts = self.symbol_facts;
         let cache = facts.cache();
 
         cache
@@ -130,11 +130,7 @@ where
                 &self.compilation.state.fact_runtime,
                 self.cancellation,
                 request,
-                || {
-                    let context = self.compilation.binder_facts(self.cancellation)?;
-
-                    facts.bind(&context, request).map_err(binder_fact_error)
-                },
+                || facts.bind(self, request).map_err(binder_fact_error),
             )
             .map_err(binder_error)
     }

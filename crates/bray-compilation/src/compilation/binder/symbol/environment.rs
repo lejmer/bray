@@ -154,7 +154,7 @@ fn parameter_name(
     match origin {
         SymbolOrigin::Source => {
             let declaration = declaration
-                .and_then(|id| context.compilation.declaration_table().declaration(id))
+                .and_then(|id| context.declarations().declaration(id))
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
             declaration

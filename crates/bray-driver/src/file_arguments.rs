@@ -226,6 +226,7 @@ mod tests {
 
         let options = CompilationOptions::new(
             WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
             bray_compilation::SelectedTarget::baseline(),
         );
 
@@ -284,6 +285,7 @@ mod tests {
             [missing_path.clone()],
             CompilationOptions::new(
                 WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
                 bray_compilation::SelectedTarget::baseline(),
             ),
         ) {

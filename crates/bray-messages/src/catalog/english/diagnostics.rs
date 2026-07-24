@@ -33,6 +33,12 @@ const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
 const REQUEST_INVALID_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("source input is invalid")];
 
+const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("source input "),
+    MessageTemplatePart::Arg(DiagnosticArgName::InputIndex),
+    MessageTemplatePart::Text(" selects a source that is already present"),
+];
+
 const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "worker budget must be greater than zero",
 )];
@@ -124,6 +130,11 @@ const BINDING_INVALID_MODULE_EXPORT_TARGET: &[MessageTemplatePart] = &[
 
 const BINDING_MALFORMED_DIRECTIVE_ARGUMENT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("directive argument is malformed")];
+
+const CHECKING_DUPLICATE_MODULE_CONTRIBUTION_DIRECTIVE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("duplicate "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+];
 
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
@@ -525,6 +536,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::RequestInvalidSourceInput => {
             MessageTemplate::new(REQUEST_INVALID_SOURCE_INPUT)
         }
+        DiagnosticKind::RequestDuplicateSourceInput => {
+            MessageTemplate::new(REQUEST_DUPLICATE_SOURCE_INPUT)
+        }
         DiagnosticKind::RequestInvalidWorkerBudget => {
             MessageTemplate::new(REQUEST_INVALID_WORKER_BUDGET)
         }
@@ -684,6 +698,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingMalformedDirectiveArgument => {
             MessageTemplate::new(BINDING_MALFORMED_DIRECTIVE_ARGUMENT)
+        }
+        DiagnosticKind::CheckingDuplicateModuleContributionDirective => {
+            MessageTemplate::new(CHECKING_DUPLICATE_MODULE_CONTRIBUTION_DIRECTIVE)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)
