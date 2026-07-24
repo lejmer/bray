@@ -301,6 +301,7 @@ impl Compilation {
         fact: TargetFactKind,
     ) -> Result<ConstantValueId, FactQueryError> {
         let fact_value = self.options().selected_target().profile().fact(fact);
+
         let value = match fact_value {
             TargetFactValue::String(value) => ConstantValueKind::String(Arc::from(value)),
             TargetFactValue::Usize(value) => ConstantValueKind::Integer(unsigned_integer(value)),
@@ -438,6 +439,7 @@ mod tests {
     fn target_gate_dependencies_exclude_short_circuited_references() {
         let compilation =
             compilation("@target(target.scalar.u64 || target.atomic.u64) module app;");
+
         let gate = module_gate(&compilation);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
@@ -545,6 +547,7 @@ mod tests {
             provider.symbol_target_fact(dependency.fact()),
             Some(expected)
         );
+
         assert_eq!(
             dependency.value(),
             compilation

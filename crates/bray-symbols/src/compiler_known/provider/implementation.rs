@@ -150,6 +150,7 @@ impl CompilerKnownSymbolProvider {
             modules,
             module_members,
         } = build_scopes(catalog, environment_id, &mut allocator)?;
+
         let declaration_kinds = resolve_declaration_symbol_kinds(catalog)?;
 
         let (declaration_symbols, descriptor_symbols) =

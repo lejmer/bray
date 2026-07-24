@@ -6,9 +6,7 @@ use bray_package_interface::{
     PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
     PackageInterfaceExportSurfaceError, SymbolRelationshipKind, build_package_interface_surface,
 };
-use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, ModuleOwnerId, ModulePathKey, SymbolKind, SymbolOrigin,
-};
+use bray_symbols::{AnySymbolId, ExternalSymbolKey, SymbolKind, SymbolOrigin};
 
 use super::Compilation;
 use crate::fact::CompilationFactKey;
@@ -187,28 +185,9 @@ fn declaration_module_is_public(
     symbols: &bray_symbols::SymbolGraph,
     declaration: &bray_declarations::DeclarationRecord,
 ) -> bool {
-    let Some(container) = compilation
-        .declaration_table()
-        .container(declaration.owning_container())
-    else {
-        return false;
-    };
-
-    let Some(path) = container.module_path() else {
-        return false;
-    };
-
-    let Some(path) = ModulePathKey::try_new(path.segments().iter().map(String::as_str)) else {
-        return false;
-    };
-
-    let Some(package) = symbols.roots().packages().first().copied() else {
-        return false;
-    };
-
-    symbols
-        .module_by_path(ModuleOwnerId::from(package), &path)
-        .is_some_and(|module| {
+    compilation
+        .source_module_for_declaration(symbols, declaration)
+        .is_ok_and(|module| {
             module.origin() == SymbolOrigin::Source && module.visibility().is_public()
         })
 }

@@ -9,6 +9,7 @@ mod implementation;
 mod imported;
 mod iteration;
 mod load;
+mod source_module;
 mod substitution;
 mod target_gate;
 mod unit;

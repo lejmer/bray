@@ -1740,6 +1740,7 @@ mod tests {
             "    recurse();\n",
             "}\n",
         ));
+
         let key = source_callable_body_key(&compilation);
 
         let checked = match compilation.control_flow(key) {
@@ -1761,6 +1762,7 @@ mod tests {
             "    };\n",
             "}\n",
         ));
+
         let key = source_callable_body_key(&compilation);
 
         let bound = match compilation.bound_unit(key.clone()) {

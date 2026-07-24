@@ -48,10 +48,10 @@ pub(super) fn report_lookup_result<C, T>(
     }
 }
 
-pub(crate) fn lookup_diagnostic<T>(
+pub(crate) fn lookup_diagnostic<T, C>(
     reference: &NameReference,
     expected: DiagnosticNameKind,
-    result: &NameLookupResult<T>,
+    result: &MemberLookupResult<T, C>,
 ) -> Option<Diagnostic> {
     let kind = match result {
         MemberLookupResult::Found(_) => return None,

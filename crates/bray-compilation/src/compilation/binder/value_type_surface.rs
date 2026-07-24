@@ -103,6 +103,7 @@ impl DeclaredValueTypeBinding<'_> {
 
         let callable_type =
             type_binder(self.context, self.owner)?.bind_anonymous_callable_type(&syntax)?;
+
         let (callable_type, diagnostics) = callable_type.into_parts();
 
         self.diagnostics.add_range(diagnostics);

@@ -194,7 +194,7 @@ fn package_interface_export_bundle_for(
             default_provider,
             structure,
             trait_definition,
-            implementation,
+            implementation.clone(),
             target_fact,
             opaque_predicate,
             required_predicate,
@@ -208,10 +208,16 @@ fn package_interface_export_bundle_for(
                 ExportSymbolReferenceInput::Local(module.clone()),
             ),
             ExportLookupInput::new(
-                module,
+                module.clone(),
                 symbol_name("run"),
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(function.clone()),
+            ),
+            ExportLookupInput::new(
+                module,
+                symbol_name("RecordContract"),
+                ExportedLookupKind::Direct,
+                ExportSymbolReferenceInput::Local(implementation.clone()),
             ),
         ],
     );

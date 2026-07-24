@@ -865,6 +865,7 @@ mod tests {
             "{:?}",
             coherence.diagnostics()
         );
+
         assert_eq!(coherence.value().subject(), subject_type);
 
         let application = coherence
@@ -946,14 +947,17 @@ mod tests {
             selected.iterate_member().definition().symbol().kind(),
             SymbolKind::TraitCallableMember
         );
+
         assert_eq!(
             selected.iterate().definition().symbol().kind(),
             SymbolKind::TraitCallableFulfillment
         );
+
         assert_eq!(
             selected.next_member().definition().symbol().kind(),
             SymbolKind::TraitCallableMember
         );
+
         assert_eq!(
             selected.next().definition().symbol().kind(),
             SymbolKind::TraitCallableFulfillment

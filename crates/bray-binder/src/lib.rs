@@ -64,7 +64,10 @@ pub use fact::{
     BinderFactContext, BinderFactError, BinderFactResult, BindingSymbolFactProvider,
     ImportedPathRoot, SymbolFactProvider,
 };
-pub use lookup::{NameAccess, bind_named_trait_implementation_path};
+pub use lookup::{
+    BoundImplementationUsing, NameAccess, bind_implementation_using,
+    bind_named_trait_implementation_path,
+};
 pub use result::BoundUnitComputation;
 pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};
 pub use surface::{

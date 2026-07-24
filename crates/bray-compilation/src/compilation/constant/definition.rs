@@ -1385,6 +1385,7 @@ mod tests {
             "unexpected first diagnostics: {:?}",
             first.diagnostics()
         );
+
         assert!(
             second.diagnostics().is_empty(),
             "unexpected second diagnostics: {:?}",

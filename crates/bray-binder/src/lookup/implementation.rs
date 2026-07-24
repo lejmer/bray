@@ -1,11 +1,34 @@
+use bray_declarations::SyntaxAnchor;
+use bray_diagnostics::{DiagnosticBag, DiagnosticNameKind, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, MemberLookupResult, ModuleSymbolId, NamedTraitImplementationSymbolId,
 };
-use bray_syntax::PathSyntax;
+use bray_syntax::{PathSyntax, SourceSyntaxNode, UsingDeclarationSyntax};
 
 use super::ResolvedName;
+use super::diagnostic::lookup_diagnostic;
+use super::path::token_reference;
 use super::path::{NameAccess, bind_module_path};
 use crate::{BinderFactContext, BinderFactResult};
+
+/// A named implementation selected by one explicit source `using` declaration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundImplementationUsing {
+    implementation: NamedTraitImplementationSymbolId,
+    using_declaration: SyntaxAnchor,
+}
+
+impl BoundImplementationUsing {
+    /// Returns the exact named implementation selected by the declaration.
+    pub const fn implementation(self) -> NamedTraitImplementationSymbolId {
+        self.implementation
+    }
+
+    /// Returns the source declaration that selected the implementation.
+    pub const fn using_declaration(self) -> SyntaxAnchor {
+        self.using_declaration
+    }
+}
 
 /// Binds one module-level path as a named trait implementation.
 pub fn bind_named_trait_implementation_path<C>(
@@ -20,6 +43,75 @@ where
     Ok(classify_named_trait_implementation(bind_module_path(
         facts, module, path, access,
     )?))
+}
+
+/// Binds one explicit `using` declaration when it names a trait implementation.
+///
+/// Valid `using` declarations for other symbol categories produce no implementation
+/// activation and no diagnostic.
+pub fn bind_implementation_using<C>(
+    facts: &C,
+    module: ModuleSymbolId,
+    declaration: &UsingDeclarationSyntax,
+) -> BinderFactResult<DiagnosticResult<Option<BoundImplementationUsing>>>
+where
+    C: BinderFactContext + ?Sized,
+{
+    if facts.is_cancelled() {
+        return Err(crate::BinderFactError::Cancelled);
+    }
+
+    let access = if declaration.internal_keyword().is_some() {
+        NameAccess::Internal
+    } else {
+        NameAccess::Public
+    };
+
+    let path = declaration.path();
+    let result = bind_named_trait_implementation_path(facts, module, &path, access)?;
+
+    let value = match &result {
+        MemberLookupResult::Found(implementation) => Some(BoundImplementationUsing {
+            implementation: *implementation,
+            using_declaration: SyntaxAnchor::from_node(declaration),
+        }),
+        MemberLookupResult::NotFound
+        | MemberLookupResult::WrongKind(_)
+        | MemberLookupResult::Ambiguous(_)
+        | MemberLookupResult::Inaccessible(_)
+        | MemberLookupResult::Malformed(_) => None,
+    };
+
+    let diagnostic = match &result {
+        MemberLookupResult::Ambiguous(candidates)
+        | MemberLookupResult::Inaccessible(candidates)
+            if contains_named_trait_implementation(candidates) =>
+        {
+            path.identifier_tokens()
+                .last()
+                .and_then(|token| token_reference(path.source(), token))
+                .and_then(|reference| {
+                    lookup_diagnostic(&reference, DiagnosticNameKind::Member, &result)
+                })
+        }
+        MemberLookupResult::Found(_)
+        | MemberLookupResult::NotFound
+        | MemberLookupResult::WrongKind(_)
+        | MemberLookupResult::Ambiguous(_)
+        | MemberLookupResult::Inaccessible(_)
+        | MemberLookupResult::Malformed(_) => None,
+    };
+
+    Ok(DiagnosticResult::new(
+        value,
+        diagnostic.map_or_else(DiagnosticBag::new, DiagnosticBag::single),
+    ))
+}
+
+fn contains_named_trait_implementation(candidates: &[AnySymbolId]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| matches!(candidate, AnySymbolId::NamedTraitImplementation(_)))
 }
 
 fn classify_named_trait_implementation(
@@ -67,7 +159,8 @@ fn surface_candidates(candidates: Box<[ResolvedName]>) -> Option<Box<[AnySymbolI
 mod tests {
     use bray_symbols::{AnySymbolId, MemberLookupResult, SymbolKind};
 
-    use super::bind_named_trait_implementation_path;
+    use super::{bind_implementation_using, bind_named_trait_implementation_path};
+    use crate::BinderFactContext;
     use crate::fact::test_support::TestFixture;
     use crate::lookup::NameAccess;
     use crate::lookup::test_support::{path, source_module};
@@ -82,6 +175,71 @@ mod tests {
         );
 
         assert_imported_implementation_path(&imported, "dependency.api.DisplayVec");
+    }
+
+    #[test]
+    fn explicit_usings_bind_imported_named_implementations_with_their_source_anchor() {
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "using dependency.api.DisplayVec;\n",
+            "const ready: bool = true;\n",
+        ));
+
+        let imported = bray_symbols::testing::imported_lookup_fixture(
+            "dependency",
+            "api",
+            SymbolKind::NamedTraitImplementation,
+            "DisplayVec",
+        );
+
+        let facts = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&facts).0;
+        let declaration = using_declaration(&facts);
+
+        let result = bind_implementation_using(&facts, module, &declaration)
+            .unwrap_or_else(|error| panic!("implementation using must bind: {error:?}"));
+
+        assert!(result.diagnostics().is_empty());
+
+        let Some(bound) = result.value() else {
+            panic!("named implementation using must publish activation evidence");
+        };
+
+        assert_eq!(
+            bound.implementation(),
+            named_implementation(imported.declaration)
+        );
+
+        assert_eq!(
+            bound.using_declaration(),
+            bray_declarations::SyntaxAnchor::from_node(&declaration)
+        );
+    }
+
+    #[test]
+    fn ordinary_usings_do_not_become_implementation_activation_errors() {
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "using dependency.api.run;\n",
+            "const ready: bool = true;\n",
+        ));
+
+        let imported = bray_symbols::testing::imported_lookup_fixture(
+            "dependency",
+            "api",
+            SymbolKind::Function,
+            "run",
+        );
+
+        let facts = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&facts).0;
+        let declaration = using_declaration(&facts);
+
+        let result = bind_implementation_using(&facts, module, &declaration)
+            .unwrap_or_else(|error| panic!("ordinary using probe must complete: {error:?}"));
+
+        assert!(result.value().is_none());
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -236,6 +394,18 @@ mod tests {
             AnySymbolId::NamedTraitImplementation(implementation) => implementation,
             _ => panic!("test declaration must be a named trait implementation"),
         }
+    }
+
+    fn using_declaration<C>(facts: &C) -> bray_syntax::UsingDeclarationSyntax
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        facts
+            .syntax()
+            .source_units()
+            .first()
+            .and_then(|unit| unit.using_declarations().next())
+            .unwrap_or_else(|| panic!("fixture must contain one using declaration"))
     }
 
     fn assert_imported_implementation_path(
