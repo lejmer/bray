@@ -230,6 +230,7 @@ impl Compilation {
             DiagnosticBag::merged_all([semantics.result().diagnostics(), evaluated.diagnostics()]);
 
         let enabled = self.target_gate_is_enabled(evaluated.value().value(), &diagnostics)?;
+
         let dependencies: Vec<_> = if diagnostics.has_errors() {
             dependencies_by_expression.into_values().collect()
         } else {
@@ -301,6 +302,7 @@ impl Compilation {
         fact: TargetFactKind,
     ) -> Result<ConstantValueId, FactQueryError> {
         let fact_value = self.options().selected_target().profile().fact(fact);
+
         let value = match fact_value {
             TargetFactValue::String(value) => ConstantValueKind::String(Arc::from(value)),
             TargetFactValue::Usize(value) => ConstantValueKind::Integer(unsigned_integer(value)),
@@ -438,6 +440,7 @@ mod tests {
     fn target_gate_dependencies_exclude_short_circuited_references() {
         let compilation =
             compilation("@target(target.scalar.u64 || target.atomic.u64) module app;");
+
         let gate = module_gate(&compilation);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
@@ -453,6 +456,7 @@ mod tests {
     #[test]
     fn repeated_and_concurrent_target_gate_demand_is_stable() {
         let compilation = compilation("@target(target.scalar.u64) module app;");
+
         let [part] = compilation.declaration_table().module_parts() else {
             panic!("fixture must contain one module contribution");
         };
@@ -493,11 +497,13 @@ mod tests {
     fn target_facts_are_ordinary_selected_target_constants() {
         let compilation = compilation("module app;");
         let provider = compilation.available_compiler_known_symbols().provider();
+
         let symbol = provider
             .target_fact_symbol(TargetFactKind::ScalarU64)
             .unwrap_or_else(|| panic!("compiler-known target fact must be available"));
 
         let definition = AnyConstantDefinitionId::Constant(symbol);
+
         let substitution = empty_concrete_substitution(
             compilation
                 .semantic_value_store()
@@ -507,6 +513,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("target fact substitution must be valid: {error:?}"));
 
         let instance = ConstantInstanceKey::new(definition, substitution, None);
+
         let value = compilation
             .constant_instance(instance)
             .unwrap_or_else(|error| panic!("target fact instance must be available: {error:?}"));
@@ -545,6 +552,7 @@ mod tests {
             provider.symbol_target_fact(dependency.fact()),
             Some(expected)
         );
+
         assert_eq!(
             dependency.value(),
             compilation

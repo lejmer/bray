@@ -145,17 +145,20 @@ impl CompilerKnownSymbolProvider {
         let mut allocator = SymbolIdAllocator::new();
 
         let environment_id = CompilerKnownEnvironmentSymbolId::from_symbol_id(allocator.next()?);
+
         let BuiltCompilerKnownScopes {
             scope_symbols,
             modules,
             module_members,
         } = build_scopes(catalog, environment_id, &mut allocator)?;
+
         let declaration_kinds = resolve_declaration_symbol_kinds(catalog)?;
 
         let (declaration_symbols, descriptor_symbols) =
             allocate_declarations(catalog, &declaration_kinds, &mut allocator)?;
 
         let declaration_keys = declaration_keys(catalog, &descriptor_symbols)?;
+
         let signature_symbols = allocate_signature_symbols(
             catalog,
             &descriptor_symbols,
@@ -204,6 +207,7 @@ impl CompilerKnownSymbolProvider {
         // Record construction still needs the relationship index after completion takes ownership
         // of an independently mutable child map.
         let completion_children = relationships.clone().into_completion_children();
+
         let mut completion_children =
             order_completion_children(completion_children, signature_completion_children);
 
@@ -871,6 +875,7 @@ mod tests {
     #[test]
     fn concurrent_provider_construction_and_fact_reads_are_deterministic() {
         let expected = Arc::new(build_provider());
+
         let workers = (0..4)
             .map(|_| {
                 let expected = Arc::clone(&expected);
