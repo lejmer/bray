@@ -1,3 +1,4 @@
+use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
@@ -13,8 +14,8 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    CheckedExpressionTypes, CheckedPatternFacts, DeclaredValueTypeTemplates, SelectedCall,
-    SelectedIterationSource, SelectedOperation, StoragePlan,
+    CheckedExpressionTypes, CheckedPatternFacts, DeclaredValueTypeTemplates, LivenessFacts,
+    SelectedCall, SelectedIterationSource, SelectedOperation, StoragePlan,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -54,6 +55,10 @@ pub struct DefaultTargetValidityChecker;
 /// The standard Bray per-unit storage planner.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultStoragePlanner;
+
+/// The standard Bray storage and obligation liveness analyzer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultLivenessAnalyzer;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -144,6 +149,23 @@ where
 }
 
 impl<C> StoragePlanner<C> for DefaultStoragePlanner where C: CheckerRequestContext + ?Sized {}
+
+/// Storage, access, capability, and obligation liveness over one checked bound unit.
+pub trait LivenessAnalyzer<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Computes durable last-use and lexical scope-boundary decisions.
+    fn analyze_liveness(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
+    ) -> CheckerOutcome<LivenessFacts> {
+        analyze_storage_liveness(request, storage)
+    }
+}
+
+impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where C: CheckerRequestContext + ?Sized {}
 
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync

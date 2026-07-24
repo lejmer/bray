@@ -54,9 +54,10 @@ pub use semantic_context::{
 pub use service::{
     ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
     DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultExpressionSemanticChecker,
-    DefaultExpressionTypeChecker, DefaultPatternChecker, DefaultSemanticSelector,
-    DefaultStoragePlanner, DefaultTargetValidityChecker, ExpressionSemanticChecker,
-    ExpressionTypeChecker, PatternChecker, SemanticSelector, StoragePlanner, TargetValidityChecker,
+    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
+    DefaultSemanticSelector, DefaultStoragePlanner, DefaultTargetValidityChecker,
+    ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer, PatternChecker,
+    SemanticSelector, StoragePlanner, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,

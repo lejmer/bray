@@ -41,7 +41,7 @@ pub enum BoundDependencySubject {
 }
 
 impl BoundDependencySubject {
-    fn is_valid_for(self, unit: BoundUnitId) -> bool {
+    pub(crate) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::Storage(storage) => storage.unit() == unit,
             Self::StorageAccess(access) => access.unit() == unit,

@@ -10,13 +10,14 @@ use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
     CheckedExpressionTypes, CheckedPatternFacts, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, StoragePlan, walk_bound_unit_view,
+    DeclaredValueTypeTemplates, LivenessFacts, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultExpressionSemanticChecker, DefaultPatternChecker, DefaultStoragePlanner,
-    ExpressionCandidateSet, ExpressionSemanticChecker, IterationPatternType,
-    NestedCallableEvidence, PatternCheckInput, PatternChecker, SemanticUnitContext, StoragePlanner,
+    DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
+    DefaultStoragePlanner, ExpressionCandidateSet, ExpressionSemanticChecker, IterationPatternType,
+    LivenessAnalyzer, NestedCallableEvidence, PatternCheckInput, PatternChecker,
+    SemanticUnitContext, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -103,6 +104,16 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<StoragePlan>>, FactQueryError> {
         let published = self.storage_plan_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns durable last-use and lexical scope-boundary decisions for one unit.
+    pub fn liveness(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<LivenessFacts>>, FactQueryError> {
+        let published = self.liveness_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -606,6 +617,46 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn liveness_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<LivenessFacts>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.liveness,
+            CompilationFactKey::Liveness(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let result = analyze_liveness(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                    storage.result().value(),
+                )?;
+
+                let (facts, liveness_diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    &liveness_diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+            },
+        )
+    }
+
     fn declared_value_type_templates_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -759,6 +810,19 @@ fn plan_storage(
     )
 }
 
+fn analyze_liveness(
+    bound: &BoundUnit,
+    semantic_context: &SemanticUnitContext,
+    context: &CompilationCheckerContext<'_>,
+    storage: &StoragePlan,
+) -> Result<DiagnosticResult<LivenessFacts>, FactQueryError> {
+    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
+    })?;
+
+    checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, storage))
+}
+
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
@@ -779,13 +843,13 @@ mod tests {
 
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId,
-        BoundReferenceTarget, BoundUnit, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
-        CheckedExpressionTypes, DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates,
-        DeclaredValueTypeTerm, PatternOperation, PatternPredicate, PatternProjection,
-        SelectedArgument, SemanticSelection, StorageAccessPurpose, StorageAccessRoot,
-        StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
-        walk_bound_unit_view,
+        AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencySubject,
+        BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKind,
+        BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, DeclaredValueTypeConstraintKind,
+        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, PatternOperation, PatternPredicate,
+        PatternProjection, SelectedArgument, SemanticSelection, StorageAccessPurpose,
+        StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
+        StorageProjection, walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
@@ -957,6 +1021,122 @@ mod tests {
     }
 
     #[test]
+    fn liveness_is_demanded_independently_and_reuses_its_publication() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32) -> i32\n",
+            "{\n",
+            "    let result: i32 = value;\n",
+            "    return result;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(compilation.state.liveness.is_published(&key), Ok(false));
+
+        let first = match compilation.liveness(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("liveness analysis must publish: {error:?}"),
+        };
+
+        assert!(!first.value().last_uses().is_empty());
+
+        assert!(
+            first
+                .value()
+                .last_uses()
+                .iter()
+                .all(|last_use| last_use.operation().unit() == first.value().unit())
+        );
+
+        let second = match compilation.liveness(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated liveness analysis must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::Liveness(key.clone()))
+        {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("published liveness must retain dependencies"),
+            Err(error) => panic!("liveness dependencies must be readable: {error:?}"),
+        };
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key)));
+    }
+
+    #[test]
+    fn liveness_converges_conservatively_across_branches_and_loops() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(pos condition: bool, pos value: i32) -> i32\n",
+            "{\n",
+            "    let selected: i32 = if condition\n",
+            "    {\n",
+            "        value\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
+            "        value\n",
+            "    };\n",
+            "    loop\n",
+            "    {\n",
+            "        if condition\n",
+            "        {\n",
+            "            break;\n",
+            "        };\n",
+            "        value;\n",
+            "    };\n",
+            "    return selected;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.liveness(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("cyclic liveness analysis must converge: {error:?}"),
+        };
+
+        assert!(!facts.value().last_uses().is_empty());
+    }
+
+    #[test]
+    fn liveness_retains_storage_required_beyond_nested_scope_exits() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32) -> i32\n",
+            "{\n",
+            "    {\n",
+            "        value;\n",
+            "    };\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.liveness(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("scope liveness analysis must publish: {error:?}"),
+        };
+
+        assert!(
+            facts
+                .value()
+                .live_across_scopes()
+                .iter()
+                .any(|entry| { matches!(entry.subject(), BoundDependencySubject::Storage(_)) })
+        );
+    }
+
+    #[test]
     fn storage_plans_retain_coherent_alternative_bindings_conservatively() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -1016,7 +1196,7 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let plan = match compilation.storage_plan(key) {
+        let plan = match compilation.storage_plan(key.clone()) {
             Ok(plan) => plan,
             Err(error) => panic!("recovered storage planning must publish: {error:?}"),
         };
@@ -1027,6 +1207,13 @@ mod tests {
                 .iter()
                 .any(bray_bound_tree::StorageAccess::is_recovered)
         );
+
+        let liveness = match compilation.liveness(key) {
+            Ok(liveness) => liveness,
+            Err(error) => panic!("recovered liveness analysis must publish: {error:?}"),
+        };
+
+        assert!(liveness.value().is_recovered());
     }
 
     #[test]

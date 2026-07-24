@@ -63,6 +63,8 @@ pub enum CheckerInfrastructureError {
     InvalidPatternCheckInput,
     /// Storage-planning inputs or constructed records violate the requested unit contract.
     InvalidStoragePlan,
+    /// Liveness inputs or durable decisions violate the requested unit contract.
+    InvalidLivenessFacts,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.
