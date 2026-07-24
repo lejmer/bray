@@ -136,6 +136,25 @@ const CHECKING_DUPLICATE_MODULE_CONTRIBUTION_DIRECTIVE: &[MessageTemplatePart] =
     MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
 ];
 
+const CHECKING_INVALID_STORED_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "stored type does not have a finite outer representation",
+)];
+
+const CHECKING_RECURSIVE_TYPE_REPRESENTATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "declared type has an inline recursive representation",
+    )];
+
+const CHECKING_INVALID_LAYOUT_DIRECTIVE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("invalid type layout contract")];
+
+const CHECKING_INVALID_COPY_CONTRACT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "type does not satisfy its copy contract",
+)];
+
+const CHECKING_INVALID_UNION_TAG: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("invalid union tag contract")];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -733,6 +752,19 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable => {
             MessageTemplate::new(CHECKING_ARRAY_GENERATOR_CARDINALITY_NOT_PROVABLE)
         }
+        DiagnosticKind::CheckingInvalidStoredType => {
+            MessageTemplate::new(CHECKING_INVALID_STORED_TYPE)
+        }
+        DiagnosticKind::CheckingRecursiveTypeRepresentation => {
+            MessageTemplate::new(CHECKING_RECURSIVE_TYPE_REPRESENTATION)
+        }
+        DiagnosticKind::CheckingInvalidLayoutDirective => {
+            MessageTemplate::new(CHECKING_INVALID_LAYOUT_DIRECTIVE)
+        }
+        DiagnosticKind::CheckingInvalidCopyContract => {
+            MessageTemplate::new(CHECKING_INVALID_COPY_CONTRACT)
+        }
+        DiagnosticKind::CheckingInvalidUnionTag => MessageTemplate::new(CHECKING_INVALID_UNION_TAG),
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)
         }

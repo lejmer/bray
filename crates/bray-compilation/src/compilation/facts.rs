@@ -23,11 +23,11 @@ use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
-    ConstantTermId, ConstantValueId, DirectiveSurface, GenericConstraintObligationKey,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
-    ImplementationRequirementKey, ImplementationSelection, ImportedSymbolSkeleton,
-    NamedTypeSymbolId, PackageIdentity, ProofOutcome, SemanticFactResult, SemanticValueStore,
-    SemanticValueStoreCreateError, SymbolGraph, TypeAssociatedSurface,
+    ConstantTermId, ConstantValueId, DeclaredTypeRepresentation, DirectiveSurface,
+    GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
+    ImplementationParticipationFact, ImplementationRequirementKey, ImplementationSelection,
+    ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity, ProofOutcome, SemanticFactResult,
+    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -100,6 +100,8 @@ pub(super) struct CompilationState {
     >,
     pub(super) type_associated_surfaces:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
+    pub(super) declared_type_representations:
+        FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<DeclaredTypeRepresentation>>>,
     pub(super) type_associated_implementation_index:
         FactCell<super::type_surface::InherentImplementationAssociationIndex>,
     pub(super) implementation_index:
@@ -244,6 +246,7 @@ impl Compilation {
                 imported_diagnostics: FactCell::new(),
                 implementation_participation: FactCellMap::new(),
                 type_associated_surfaces: FactCellMap::new(),
+                declared_type_representations: FactCellMap::new(),
                 type_associated_implementation_index: FactCell::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),

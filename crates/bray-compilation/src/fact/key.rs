@@ -263,6 +263,8 @@ pub(crate) enum CompilationFactKey {
     ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// The complete declaration-level member surface of one named type.
     TypeAssociatedSurface(NamedTypeSymbolId),
+    /// The checked source-level representation contract of one named type.
+    DeclaredTypeRepresentation(NamedTypeSymbolId),
     /// Inherent implementations grouped by their exact named subject.
     TypeAssociatedImplementationIndex,
     /// The deterministic compilation-local imported symbol identity skeleton.
@@ -325,6 +327,7 @@ impl CompilationFactKey {
             | Self::ImportedSemanticFact(_)
             | Self::ImplementationParticipation(_)
             | Self::TypeAssociatedSurface(_)
+            | Self::DeclaredTypeRepresentation(_)
             | Self::TypeAssociatedImplementationIndex
             | Self::ImportedSymbolSkeleton
             | Self::PackageInterfaceExportBundle

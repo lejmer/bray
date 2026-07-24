@@ -28,7 +28,7 @@ impl Compilation {
         self.type_associated_surface_result_with_cancellation(subject, &self.state.cancellation)
     }
 
-    fn type_associated_surface_result_with_cancellation(
+    pub(in crate::compilation) fn type_associated_surface_result_with_cancellation(
         &self,
         subject: NamedTypeSymbolId,
         cancellation: &CancellationToken,

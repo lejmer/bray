@@ -304,6 +304,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::TypeAssociatedSurface(*key)
     });
 
+    reuse!(declared_type_representations, |key| {
+        CompilationFactKey::DeclaredTypeRepresentation(*key)
+    });
+
     reuse!(implementation_candidate_sets, |key| {
         CompilationFactKey::ImplementationCandidateSet(*key)
     });

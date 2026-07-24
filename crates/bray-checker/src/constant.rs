@@ -18,7 +18,7 @@ pub use evaluation::EvaluatedConstant;
 pub(crate) use evaluation::check_constant_term;
 pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references};
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
-pub(crate) use integer::integer_to_usize;
+pub(crate) use integer::{fits_integer_representation, integer_to_usize, significant_bits};
 pub use limits::ConstantEvaluationLimits;
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub use template::{

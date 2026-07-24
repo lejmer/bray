@@ -7,6 +7,7 @@ mod execution;
 mod implementation;
 mod module;
 mod predicate;
+mod representation;
 mod signature;
 mod target;
 mod template;
@@ -76,6 +77,9 @@ pub use predicate::{
     ErrorPredicateDefinition, GenericConstraintObligationKey, GenericConstraintSet,
     PredicateDefinition, PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome,
     TrustedCapabilityRequirement,
+};
+pub use representation::{
+    DeclaredCopyContract, DeclaredLayoutMode, DeclaredTypeRepresentation, DeclaredUnionTag,
 };
 pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
