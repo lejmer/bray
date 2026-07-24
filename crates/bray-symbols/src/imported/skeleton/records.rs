@@ -97,6 +97,20 @@ macro_rules! define_record_vectors {
                         .insert(module.path().clone(), module.id());
                 }
 
+                let member_names = external_index
+                    .iter()
+                    .filter_map(|(key, member)| match key.data() {
+                        ExternalSymbolKeyData::Declaration {
+                            identity: crate::ExternalDeclarationIdentity::Name(name),
+                            ..
+                        } => {
+                            // The reverse index owns names beyond external-key map borrows.
+                            Some((*member, name.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
                 ImportedSymbolSkeleton {
                     packages: TypedSymbolRecords::new(self.packages, PackageSymbol::id),
                     modules: TypedSymbolRecords::new(modules, ModuleSymbol::id),
@@ -118,6 +132,7 @@ macro_rules! define_record_vectors {
                     ),
                     external_index,
                     lookups,
+                    member_names,
                     module_paths,
                     $($plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),)+
                 }

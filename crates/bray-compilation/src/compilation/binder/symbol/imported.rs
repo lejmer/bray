@@ -6,7 +6,7 @@ use bray_package_interface::{
 };
 use bray_symbols::{
     CallableContractTemplate, CallableSignatureTemplate, GenericDeclarationTemplate,
-    ImportedSymbolFactAddress, UnevaluatedDefaultTemplate,
+    GenericOwnerId, ImportedSymbolFactAddress, UnevaluatedDefaultTemplate,
 };
 
 use crate::compilation::binder::CompilationBinderFacts;
@@ -35,6 +35,7 @@ pub(super) fn imported_callable_signature(
 
 pub(super) fn imported_generic_declaration(
     context: &CompilationBinderFacts<'_>,
+    owner: GenericOwnerId,
     address: ImportedSymbolFactAddress,
 ) -> BinderFactResult<DiagnosticResult<GenericDeclarationTemplate>> {
     let result = imported_facts(
@@ -43,13 +44,15 @@ pub(super) fn imported_generic_declaration(
         InterfaceSemanticFactKind::GenericDeclaration,
     )?;
 
-    let [ImportedSemanticFact::GenericDeclaration(fact)] = result.value().as_ref() else {
-        return Err(BinderFactError::DependencyUnavailable);
+    let declaration = match result.value().as_ref() {
+        [ImportedSemanticFact::GenericDeclaration(fact)] => fact.declaration().clone(),
+        [] => GenericDeclarationTemplate::new(owner, [], []),
+        _ => return Err(BinderFactError::DependencyUnavailable),
     };
 
-    // Candidate-facing facts retain shallow Arc-backed templates and diagnostics.
+    // The returned fact owns immutable declaration data and diagnostics beyond this exact query.
     Ok(DiagnosticResult::new(
-        fact.declaration().clone(),
+        declaration,
         result.diagnostics().clone(),
     ))
 }

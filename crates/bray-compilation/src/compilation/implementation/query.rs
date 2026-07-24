@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
@@ -12,6 +11,9 @@ use bray_symbols::{
 
 use super::index::{ImplementationHeader, ImplementationHeaderIndex};
 use super::matching::{ImplementationMatchError, match_implementation_header};
+use crate::compilation::source_graph::{
+    source_declaration_module_parts, source_symbol_contribution_gate,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl super::super::Compilation {
@@ -66,16 +68,7 @@ impl super::super::Compilation {
         let declarations = source_graph.declarations();
         let symbols = self.symbol_graph()?;
 
-        let source_module_parts = declarations
-            .module_parts()
-            .iter()
-            .flat_map(|part| {
-                part.declarations()
-                    .iter()
-                    .copied()
-                    .map(move |declaration| (declaration, part.id()))
-            })
-            .collect::<BTreeMap<_, _>>();
+        let source_module_parts = source_declaration_module_parts(declarations);
 
         // The coherence-domain key owns its package identity beyond this compilation borrow.
         let domain = ImplementationCoherenceDomainKey::new(self.package_identity().clone());
@@ -127,12 +120,12 @@ impl super::super::Compilation {
                 continue;
             }
 
-            let contribution_gate = symbols
-                .symbol_key(implementation.into_any())
-                .and_then(bray_symbols::SymbolKey::source_declaration_id)
-                .and_then(|declaration| source_module_parts.get(&declaration).copied())
-                .and_then(|part| declarations.module_part(part))
-                .and_then(|part| source_graph.contribution_gate(part.syntax_anchor()));
+            let contribution_gate = source_symbol_contribution_gate(
+                source_graph,
+                symbols,
+                &source_module_parts,
+                implementation.into_any(),
+            );
 
             let head = facts
                 .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(

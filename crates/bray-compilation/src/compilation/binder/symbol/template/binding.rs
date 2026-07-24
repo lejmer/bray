@@ -167,7 +167,7 @@ fn bind_generic_declaration_template(
     let symbol = owner.symbol();
 
     if let Some(address) = context.imported_fact_address(symbol)? {
-        return imported_generic_declaration(context, address);
+        return imported_generic_declaration(context, owner, address);
     }
 
     let parameters = generic_parameter_ids(context.symbols, symbol)?;

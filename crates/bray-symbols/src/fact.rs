@@ -11,6 +11,7 @@ mod signature;
 mod target;
 mod template;
 mod type_expression;
+mod type_surface;
 
 pub use completion::{
     NeverCancelSymbolCompletion, SymbolCompletionLevel, SymbolCompletionPlan,
@@ -90,4 +91,9 @@ pub use type_expression::{
     CallableParameterTypeTemplate, CallableTypeTemplate, ConstantExpressionExpectedType,
     ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey, GenericArgumentTemplate,
     TraitApplicationTemplate, TypeExpressionTemplate,
+};
+pub use type_surface::{
+    TypeAssociatedImplementation, TypeAssociatedLifecycleMember, TypeAssociatedLifecycleSlot,
+    TypeAssociatedMember, TypeAssociatedMemberOrigin, TypeAssociatedSurface,
+    TypeAssociatedSurfaceBuildError,
 };

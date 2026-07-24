@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
 use bray_declarations::{
-    DeclarationKind, DeclarationTable, SyntaxAnchor, merge_selected_declaration_chunks,
+    DeclarationId, DeclarationKind, DeclarationTable, ModulePartId, SyntaxAnchor,
+    merge_selected_declaration_chunks,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{ModuleContributionGate, ProductKind};
+use bray_symbols::{AnySymbolId, ModuleContributionGate, ProductKind, SymbolGraph, SymbolKey};
 
 use super::Compilation;
 use crate::fact::{CompilationFactKey, FactQueryError};
@@ -54,6 +55,35 @@ impl ProductSourceGraph {
     ) -> Option<&ModuleContributionGate> {
         self.contribution_gates.get(&syntax)
     }
+}
+
+pub(super) fn source_declaration_module_parts(
+    declarations: &DeclarationTable,
+) -> BTreeMap<DeclarationId, ModulePartId> {
+    declarations
+        .module_parts()
+        .iter()
+        .flat_map(|part| {
+            part.declarations()
+                .iter()
+                .copied()
+                .map(move |declaration| (declaration, part.id()))
+        })
+        .collect()
+}
+
+pub(super) fn source_symbol_contribution_gate<'graph>(
+    source_graph: &'graph ProductSourceGraph,
+    symbols: &SymbolGraph,
+    module_parts: &BTreeMap<DeclarationId, ModulePartId>,
+    symbol: AnySymbolId,
+) -> Option<&'graph ModuleContributionGate> {
+    symbols
+        .symbol_key(symbol)
+        .and_then(SymbolKey::source_declaration_id)
+        .and_then(|declaration| module_parts.get(&declaration).copied())
+        .and_then(|part| source_graph.declarations().module_part(part))
+        .and_then(|part| source_graph.contribution_gate(part.syntax_anchor()))
 }
 
 impl Compilation {

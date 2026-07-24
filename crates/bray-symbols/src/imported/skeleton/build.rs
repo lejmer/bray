@@ -339,6 +339,15 @@ mod tests {
             forward.symbol_by_external_key(&second.function_key),
             reverse.symbol_by_external_key(&second.function_key)
         );
+
+        let function = forward
+            .symbol_by_external_key(&first.function_key)
+            .unwrap_or_else(|| panic!("fixture function must receive an imported identity"));
+
+        assert_eq!(
+            forward.member_name(function).map(|name| name.as_str()),
+            Some("zeta")
+        );
     }
 
     #[test]

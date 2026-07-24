@@ -131,12 +131,28 @@ fn package_interface_export_bundle_for(
     let function = named_key(module.clone(), SymbolKind::Function, "run");
 
     let structure = named_key(module.clone(), SymbolKind::Struct, "Record");
+
+    let direct_callable = named_key(structure.clone(), SymbolKind::TypeCallableMember, "direct");
+
     let trait_definition = named_key(module.clone(), SymbolKind::Trait, "Contract");
 
     let implementation = named_key(
         module.clone(),
         SymbolKind::NamedTraitImplementation,
         "RecordContract",
+    );
+
+    let inherent_implementation = ExternalSymbolKey::ordinal(
+        module.clone(),
+        SymbolKind::InherentImplementation,
+        SymbolOrdinal::new(0),
+    )
+    .unwrap_or_else(|| panic!("test inherent implementation key must be valid"));
+
+    let inherent_callable = named_key(
+        inherent_implementation.clone(),
+        SymbolKind::TypeCallableMember,
+        "extension",
     );
 
     let target_fact = named_key(module.clone(), SymbolKind::Constant, "pointer_width");
@@ -192,9 +208,12 @@ fn package_interface_export_bundle_for(
             generic_constant,
             parameter,
             default_provider,
-            structure,
+            structure.clone(),
+            direct_callable.clone(),
             trait_definition,
             implementation.clone(),
+            inherent_implementation.clone(),
+            inherent_callable.clone(),
             target_fact,
             opaque_predicate,
             required_predicate,
@@ -206,6 +225,12 @@ fn package_interface_export_bundle_for(
                 symbol_name("templates"),
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(module.clone()),
+            ),
+            ExportLookupInput::new(
+                module.clone(),
+                symbol_name("Record"),
+                ExportedLookupKind::Direct,
+                ExportSymbolReferenceInput::Local(structure.clone()),
             ),
             ExportLookupInput::new(
                 module.clone(),
@@ -226,7 +251,17 @@ fn package_interface_export_bundle_for(
         .symbol_by_external_key(&function)
         .unwrap_or_else(|| panic!("test template owner must be present"));
 
-    let facts = template_facts(&surface, template_owner);
+    let direct_callable = local_by_key(&surface, &direct_callable);
+    let inherent_implementation = local_by_key(&surface, &inherent_implementation);
+    let inherent_callable = local_by_key(&surface, &inherent_callable);
+
+    let facts = template_facts(
+        &surface,
+        template_owner,
+        direct_callable,
+        inherent_implementation,
+        inherent_callable,
+    );
 
     PackageInterfaceExportBundle::try_new(surface, facts, InterfaceLanguageRevision::new(0))
         .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"))
@@ -262,12 +297,23 @@ fn identity_surface(
                 SymbolKind::Function
                 | SymbolKind::Struct
                 | SymbolKind::Trait
+                | SymbolKind::InherentImplementation
                 | SymbolKind::NamedTraitImplementation
                 | SymbolKind::Constant
                 | SymbolKind::Predicate,
             ) => SymbolRelationshipKind::ModuleMember,
+            (SymbolKind::Struct | SymbolKind::Union, member)
+                if SymbolRelationshipKind::TypeMember.supports(owner.kind(), member) =>
+            {
+                SymbolRelationshipKind::TypeMember
+            }
             (SymbolKind::Trait, SymbolKind::TraitPredicateMember) => {
                 SymbolRelationshipKind::TraitMember
+            }
+            (SymbolKind::InherentImplementation, member)
+                if SymbolRelationshipKind::ImplementationMember.supports(owner.kind(), member) =>
+            {
+                SymbolRelationshipKind::ImplementationMember
             }
             (SymbolKind::NamedTraitImplementation, SymbolKind::TraitPredicateFulfillment) => {
                 SymbolRelationshipKind::ImplementationFulfillment
@@ -318,6 +364,9 @@ fn identity_surface(
 fn template_facts(
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
+    direct_callable: InterfaceSymbolReference,
+    inherent_implementation: InterfaceSymbolReference,
+    inherent_callable: InterfaceSymbolReference,
 ) -> InterfaceSemanticFacts {
     let owner = InterfaceSymbolReference::Local(owner);
 
@@ -392,6 +441,16 @@ fn template_facts(
                     invocation_dependency_contract: crate::InterfaceDependencyContractId::new(0),
                     deferred_dependency_contract: None,
                 },
+                InterfaceType::Callable {
+                    parameters: [].into(),
+                    result: InterfaceTypeId::new(1),
+                    constness: bray_symbols::CallableConstness::Runtime,
+                    execution: bray_symbols::CallableExecution::Synchronous,
+                    trust: bray_symbols::CallableTrust::Safe,
+                    abi: bray_symbols::CallableAbi::Bray,
+                    invocation_dependency_contract: crate::InterfaceDependencyContractId::new(0),
+                    deferred_dependency_contract: None,
+                },
             ],
             [InterfaceConstantValue::new(
                 InterfaceTypeId::new(1),
@@ -420,13 +479,29 @@ fn template_facts(
             )],
         )
         .with_declarations(
-            [InterfaceCallableSignature::new(
-                owner.clone(),
-                InterfaceTypeId::new(3),
-                None,
-                [parameter.clone()],
-                InterfaceTypeId::new(0),
-            )],
+            [
+                InterfaceCallableSignature::new(
+                    owner.clone(),
+                    InterfaceTypeId::new(3),
+                    None,
+                    [parameter.clone()],
+                    InterfaceTypeId::new(0),
+                ),
+                InterfaceCallableSignature::new(
+                    direct_callable,
+                    InterfaceTypeId::new(4),
+                    None,
+                    [],
+                    InterfaceTypeId::new(1),
+                ),
+                InterfaceCallableSignature::new(
+                    inherent_callable,
+                    InterfaceTypeId::new(4),
+                    None,
+                    [],
+                    InterfaceTypeId::new(1),
+                ),
+            ],
             [crate::InterfaceGenericDeclaration::new(
                 owner.clone(),
                 [generic_type, generic_constant],
@@ -469,11 +544,18 @@ fn template_facts(
             ],
         )
         .with_implementations(
-            [InterfaceImplementationRecord::new(
-                implementation.clone(),
-                InterfaceTypeId::new(1),
-                Some(InterfaceTraitApplicationId::new(0)),
-            )],
+            [
+                InterfaceImplementationRecord::new(
+                    implementation.clone(),
+                    InterfaceTypeId::new(1),
+                    Some(InterfaceTraitApplicationId::new(0)),
+                ),
+                InterfaceImplementationRecord::new(
+                    inherent_implementation,
+                    InterfaceTypeId::new(1),
+                    None,
+                ),
+            ],
             [InterfaceCoherenceRecord::new(
                 InterfaceTypeId::new(1),
                 InterfaceTraitApplicationId::new(0),
@@ -549,6 +631,16 @@ pub(crate) fn local_by_kind(
         .find(|symbol| symbol.kind() == kind)
         .map(|symbol| InterfaceSymbolReference::Local(symbol.id()))
         .unwrap_or_else(|| panic!("test symbol kind must be present"))
+}
+
+fn local_by_key(
+    surface: &PackageInterfaceSurface,
+    key: &ExternalSymbolKey,
+) -> InterfaceSymbolReference {
+    surface
+        .symbol_by_external_key(key)
+        .map(InterfaceSymbolReference::Local)
+        .unwrap_or_else(|| panic!("test symbol key must be present: {key:?}"))
 }
 
 pub(crate) fn insert_key_and_owners(

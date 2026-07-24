@@ -69,6 +69,22 @@ pub(super) fn record_range(
     payload_start + offset..payload_start + offset + length
 }
 
+pub(super) fn record_range_with_local_owner(
+    payload: &[u8],
+    table_index: usize,
+    owner: bray_symbols::InterfaceSymbolId,
+) -> Range<usize> {
+    let table = table_range(payload, table_index);
+    let count = read_u32(payload, table.start) as usize;
+
+    (0..count)
+        .map(|record| record_range(payload, table_index, record))
+        .find(|range| {
+            read_u32(payload, range.start) == 1 && read_u32(payload, range.start + 4) == owner.raw()
+        })
+        .unwrap_or_else(|| panic!("test record owner must exist"))
+}
+
 pub(super) fn append_record(payload: &mut Vec<u8>, table_index: usize, record: &[u8]) {
     let table = table_range(payload, table_index);
     let count = read_u32(payload, table.start) as usize;

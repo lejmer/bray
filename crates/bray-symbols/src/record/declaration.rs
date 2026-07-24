@@ -680,6 +680,31 @@ macro_rules! impl_implementation_relationships {
                     &self.relationships.types
                 }
 
+                /// Returns constructors in declaration order.
+                pub fn constructors(&self) -> &[crate::ConstructorSymbolId] {
+                    &self.relationships.constructors
+                }
+
+                /// Returns finalizers in declaration order.
+                pub fn finalizers(&self) -> &[crate::FinalizerSymbolId] {
+                    &self.relationships.finalizers
+                }
+
+                /// Returns destructors in declaration order.
+                pub fn destructors(&self) -> &[crate::DestructorSymbolId] {
+                    &self.relationships.destructors
+                }
+
+                /// Returns scope-enter members in declaration order.
+                pub fn scope_enters(&self) -> &[crate::ScopeEnterSymbolId] {
+                    &self.relationships.scope_enters
+                }
+
+                /// Returns scope-exit members in declaration order.
+                pub fn scope_exits(&self) -> &[crate::ScopeExitSymbolId] {
+                    &self.relationships.scope_exits
+                }
+
                 /// Returns trait type fulfillments in declaration order.
                 pub fn type_fulfillments(&self) -> &[crate::TraitTypeFulfillmentSymbolId] {
                     &self.relationships.trait_types
