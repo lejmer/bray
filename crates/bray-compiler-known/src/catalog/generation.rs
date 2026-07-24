@@ -420,6 +420,8 @@ fn collect_surface_elements(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_syntax::SyntaxKind;
 
     use super::{generate_catalog_output, render_catalog};
@@ -457,7 +459,7 @@ mod tests {
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 9);
+        assert_eq!(generator_input_inventory().sources().len(), 11);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
@@ -504,6 +506,125 @@ mod tests {
         assert!(maximum_depth(type_surface.elements()) >= 3);
 
         assert_balanced(type_surface.elements());
+    }
+
+    #[test]
+    fn published_catalog_contains_the_closed_v1_conformance_entries() {
+        let compiler_known = COMPILER_KNOWN_CATALOG
+            .compiler_known_declarations()
+            .iter()
+            .map(|descriptor| descriptor.key().as_str())
+            .collect::<BTreeSet<_>>();
+
+        for key in [
+            "CheckedConvertTo",
+            "CheckedConvertToCall",
+            "CheckedConvertToError",
+            "ConversionError",
+            "Copyable",
+            "HeapStorageImplementation",
+            "Storage",
+            "StorageBorrow",
+            "StorageBorrowMut",
+            "StorageCreate",
+            "StorageDestroy",
+            "StorageRelease",
+            "AddressOf",
+            "AddressOfMut",
+            "Allocate",
+            "Deallocate",
+            "MemoryCopy",
+            "MemoryCopyOverlapping",
+            "RawPointerByteOffset",
+            "RawPointerIsNull",
+            "RawPointerNull",
+            "RawPointerOffset",
+            "RawPointerRead",
+            "RawPointerReinterpret",
+            "RawPointerWrite",
+            "AlignedFor",
+            "InitializedAs",
+            "InitializedRangeAs",
+            "NonOverlapping",
+            "OwnedAllocation",
+            "SameAllocation",
+            "ValidRead",
+            "ValidWrite",
+        ] {
+            assert!(compiler_known.contains(key), "{key} must be compiler-known");
+        }
+
+        let recognized = COMPILER_KNOWN_CATALOG
+            .recognized_standard_library_declarations()
+            .iter()
+            .map(|descriptor| descriptor.key().as_str())
+            .collect::<BTreeSet<_>>();
+
+        let expected = [
+            "StandardConvert",
+            "StandardMemoryAddressOf",
+            "StandardMemoryAddressOfMut",
+            "StandardMemoryAlignOf",
+            "StandardMemoryAllocate",
+            "StandardMemoryByteOffset",
+            "StandardMemoryCapacity",
+            "StandardMemoryCopy",
+            "StandardMemoryCopyOverlapping",
+            "StandardMemoryCreateBuffer",
+            "StandardMemoryDeallocate",
+            "StandardMemoryInitializedCount",
+            "StandardMemoryInitializedSlice",
+            "StandardMemoryInitializedSliceMut",
+            "StandardMemoryIsNull",
+            "StandardMemoryLayout",
+            "StandardMemoryLayoutAlign",
+            "StandardMemoryLayoutBytes",
+            "StandardMemoryLayoutError",
+            "StandardMemoryLayoutErrorVariant0SizeOverflow",
+            "StandardMemoryLayoutErrorVariant1UnsupportedAlignment",
+            "StandardMemoryLayoutOf",
+            "StandardMemoryNull",
+            "StandardMemoryOffset",
+            "StandardMemoryPointer",
+            "StandardMemoryRead",
+            "StandardMemoryReinterpret",
+            "StandardMemorySetInitializedCount",
+            "StandardMemorySizeOf",
+            "StandardMemorySparePointer",
+            "StandardMemoryStrideOf",
+            "StandardMemoryWrite",
+            "StandardRawAllocation",
+            "StandardRawAllocationAlign",
+            "StandardRawAllocationBytes",
+            "StandardRawAllocationPointer",
+            "StandardRawBuffer",
+            "StandardRawBufferCapacity",
+            "StandardRawBufferInitialized",
+            "StandardRawBufferPointer",
+            "StandardRoundTo",
+            "StandardRoundingRule",
+            "StandardRoundingRuleVariant0NearestEven",
+            "StandardRoundingRuleVariant1TowardZero",
+            "StandardRoundingRuleVariant2TowardNegativeInfinity",
+            "StandardRoundingRuleVariant3TowardPositiveInfinity",
+            "StandardRoundingRuleVariant4AwayFromZero",
+            "StandardSaturateTo",
+            "StandardStringEquals",
+            "StandardStringFromUtf8",
+            "StandardStringIsEmpty",
+            "StandardStringScalarAt",
+            "StandardStringScalarCount",
+            "StandardStringScalarSlice",
+            "StandardStringUtf8",
+            "StandardTruncateTo",
+            "StandardUtf8Error",
+            "StandardUtf8ErrorVariant0InvalidEncoding",
+            "StandardWrapTo",
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+
+        assert_eq!(recognized, expected);
     }
 
     fn assert_balanced(elements: &[CatalogSurfaceElement]) {

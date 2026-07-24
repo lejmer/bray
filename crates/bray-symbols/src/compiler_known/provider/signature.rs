@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compiler_known::{
     CatalogDeclarationSignature, CatalogGenericParameterKind, CompilerKnownCatalog,
@@ -10,7 +10,7 @@ use crate::build::{declaration_symbol_id, receiver_owner};
 use crate::record::{DeclarationSymbolIdentity, ReceiverParameterSymbol};
 use crate::{
     AnySymbolId, CompilerKnownSymbolBuildError, ReceiverParameterSymbolId, SymbolKey, SymbolKind,
-    SymbolOrdinal, SymbolOrigin, SynthesizedSymbolKey,
+    SymbolName, SymbolOrdinal, SymbolOrigin, SynthesizedSymbolKey,
 };
 
 pub(super) struct CompilerKnownSignatureSymbols {
@@ -32,6 +32,7 @@ pub(super) fn allocate_signature_symbols(
     let mut declarations = Vec::new();
     let mut receivers = Vec::new();
     let mut completion_children = BTreeMap::new();
+    let declared_names = declared_names(catalog, declaration_symbols)?;
 
     for descriptor in catalog.compiler_known_declarations() {
         let Some(owner) = declaration_symbols.get(&descriptor.id()).copied() else {
@@ -53,35 +54,54 @@ pub(super) fn allocate_signature_symbols(
         };
 
         let signature = surface.signature();
-        let children = signature_children(&signature);
+        let children = signature_children(&signature, &declared_names);
         let origin = declaration_origin(descriptor.implementation_hook().is_some());
 
         let mut generic_children = Vec::new();
         let mut callable_children = Vec::new();
+        let mut predicate_children = Vec::new();
 
         for child in children {
+            let SignatureChild {
+                kind,
+                ordinal,
+                name,
+            } = child;
+
             let raw_id = allocator.next()?;
-            let Some(symbol) = declaration_symbol_id(raw_id, child.kind.symbol_kind()) else {
+            let Some(symbol) = declaration_symbol_id(raw_id, kind.symbol_kind()) else {
                 return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
                     declaration: descriptor.id(),
                 });
             };
 
             // Each child key owns the shared immutable identity of its declaration owner.
-            let key = SymbolKey::synthesized(child.kind.key(owner_key.clone(), child.ordinal));
-            let identity = DeclarationSymbolIdentity::compiler_known(
-                key,
-                owner,
-                descriptor.id(),
-                descriptor.surface(),
-                origin,
-            );
+            let key = SymbolKey::synthesized(kind.key(owner_key.clone(), ordinal));
+            let identity = match name {
+                Some(name) => DeclarationSymbolIdentity::compiler_known_parameter(
+                    key,
+                    owner,
+                    descriptor.id(),
+                    descriptor.surface(),
+                    origin,
+                    name,
+                ),
+                None => DeclarationSymbolIdentity::compiler_known(
+                    key,
+                    owner,
+                    descriptor.id(),
+                    descriptor.surface(),
+                    origin,
+                ),
+            };
 
-            match child.kind {
-                SignatureChildKind::GenericType | SignatureChildKind::GenericConst => {
-                    generic_children.push(symbol);
-                }
+            match kind {
+                SignatureChildKind::GenericType
+                | SignatureChildKind::GenericConst
+                | SignatureChildKind::InferredType
+                | SignatureChildKind::InferredConst => generic_children.push(symbol),
                 SignatureChildKind::Callable => callable_children.push(symbol),
+                SignatureChildKind::Predicate => predicate_children.push(symbol),
             }
 
             declarations.push((descriptor.id(), symbol, identity));
@@ -103,6 +123,7 @@ pub(super) fn allocate_signature_symbols(
 
         generic_children.extend(receiver);
         generic_children.extend(callable_children);
+        generic_children.extend(predicate_children);
 
         if !generic_children.is_empty() {
             completion_children.insert(descriptor.id(), generic_children.into_boxed_slice());
@@ -142,10 +163,11 @@ pub(super) fn order_completion_children(
     completion_children
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct SignatureChild {
     kind: SignatureChildKind,
     ordinal: SymbolOrdinal,
+    name: Option<SymbolName>,
 }
 
 #[derive(Clone, Copy)]
@@ -153,6 +175,9 @@ enum SignatureChildKind {
     GenericType,
     GenericConst,
     Callable,
+    Predicate,
+    InferredType,
+    InferredConst,
 }
 
 impl SignatureChildKind {
@@ -161,6 +186,9 @@ impl SignatureChildKind {
             Self::GenericType => SymbolKind::GenericTypeParameter,
             Self::GenericConst => SymbolKind::GenericConstParameter,
             Self::Callable => SymbolKind::CallableParameter,
+            Self::Predicate => SymbolKind::PredicateParameter,
+            Self::InferredType => SymbolKind::GenericTypeParameter,
+            Self::InferredConst => SymbolKind::GenericConstParameter,
         }
     }
 
@@ -173,11 +201,21 @@ impl SignatureChildKind {
                 SynthesizedSymbolKey::declared_generic_const_parameter(owner, ordinal)
             }
             Self::Callable => SynthesizedSymbolKey::callable_parameter(owner, ordinal),
+            Self::Predicate => SynthesizedSymbolKey::predicate_parameter(owner, ordinal),
+            Self::InferredType => {
+                SynthesizedSymbolKey::inferred_implementation_type_parameter(owner, ordinal)
+            }
+            Self::InferredConst => {
+                SynthesizedSymbolKey::inferred_implementation_const_parameter(owner, ordinal)
+            }
         }
     }
 }
 
-fn signature_children(signature: &CatalogDeclarationSignature) -> Vec<SignatureChild> {
+fn signature_children(
+    signature: &CatalogDeclarationSignature,
+    declared_names: &BTreeSet<SymbolName>,
+) -> Vec<SignatureChild> {
     let mut children = Vec::new();
     let mut generic_ordinal = 0_u32;
 
@@ -190,6 +228,7 @@ fn signature_children(signature: &CatalogDeclarationSignature) -> Vec<SignatureC
         children.push(SignatureChild {
             kind,
             ordinal: SymbolOrdinal::new(generic_ordinal),
+            name: None,
         });
 
         generic_ordinal = generic_ordinal.saturating_add(1);
@@ -199,10 +238,69 @@ fn signature_children(signature: &CatalogDeclarationSignature) -> Vec<SignatureC
         (0..signature.callable_parameters()).map(|ordinal| SignatureChild {
             kind: SignatureChildKind::Callable,
             ordinal: SymbolOrdinal::new(ordinal),
+            name: None,
         }),
     );
 
+    children.extend(
+        (0..signature.predicate_parameters()).map(|ordinal| SignatureChild {
+            kind: SignatureChildKind::Predicate,
+            ordinal: SymbolOrdinal::new(ordinal),
+            name: None,
+        }),
+    );
+
+    for candidate in signature.implementation_parameter_candidates() {
+        let Some(name) = SymbolName::try_new(candidate.name()) else {
+            continue;
+        };
+
+        if declared_names.contains(&name) {
+            continue;
+        }
+
+        let kind = match candidate.kind() {
+            CatalogGenericParameterKind::Type => SignatureChildKind::InferredType,
+            CatalogGenericParameterKind::Const => SignatureChildKind::InferredConst,
+        };
+
+        children.push(SignatureChild {
+            kind,
+            ordinal: SymbolOrdinal::new(generic_ordinal),
+            name: Some(name),
+        });
+
+        generic_ordinal = generic_ordinal.saturating_add(1);
+    }
+
     children
+}
+
+fn declared_names(
+    catalog: &CompilerKnownCatalog,
+    declaration_symbols: &BTreeMap<CompilerKnownDeclarationId, AnySymbolId>,
+) -> Result<BTreeSet<SymbolName>, CompilerKnownSymbolBuildError> {
+    let mut names = BTreeSet::new();
+
+    for descriptor in catalog.compiler_known_declarations() {
+        let Some(symbol) = declaration_symbols.get(&descriptor.id()).copied() else {
+            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
+                declaration: descriptor.id(),
+            });
+        };
+
+        let Some(surface) = catalog.declaration_surface(descriptor.surface()) else {
+            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
+                declaration: descriptor.id(),
+            });
+        };
+
+        if let Some(name) = super::lookup::member_name(surface, symbol.kind()) {
+            names.insert(name);
+        }
+    }
+
+    Ok(names)
 }
 
 const fn declaration_origin(has_implementation_hook: bool) -> SymbolOrigin {
@@ -215,12 +313,15 @@ const fn declaration_origin(has_implementation_hook: bool) -> SymbolOrigin {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_compiler_known::COMPILER_KNOWN_CATALOG;
 
     use super::signature_children;
     use crate::compiler_known::test_support::declaration_key;
     use crate::{
-        CompilerKnownSymbolProvider, FunctionSymbolId, StructSymbolId, SymbolKind, SymbolProvider,
+        CompilerKnownSymbolProvider, FunctionSymbolId, NamedTraitImplementationSymbolId,
+        PredicateSymbolId, StructSymbolId, SymbolKind, SymbolProvider,
     };
 
     #[test]
@@ -242,6 +343,18 @@ mod tests {
             panic!("MemoryCopy should have a function symbol");
         };
 
+        let Some(valid_read) =
+            provider.declaration_symbol::<PredicateSymbolId>(&declaration_key("ValidRead"))
+        else {
+            panic!("ValidRead should have a predicate symbol");
+        };
+
+        let Some(heap_storage) = provider.declaration_symbol::<NamedTraitImplementationSymbolId>(
+            &declaration_key("HeapStorageImplementation"),
+        ) else {
+            panic!("HeapStorageImplementation should have an implementation symbol");
+        };
+
         let Some(pointer) = provider.symbol(pointer) else {
             panic!("RawPointer symbol should resolve");
         };
@@ -250,8 +363,19 @@ mod tests {
             panic!("MemoryCopy symbol should resolve");
         };
 
+        let Some(valid_read) = provider.symbol(valid_read) else {
+            panic!("ValidRead symbol should resolve");
+        };
+
+        let Some(heap_storage) = provider.symbol(heap_storage) else {
+            panic!("HeapStorageImplementation symbol should resolve");
+        };
+
         assert_eq!(pointer.generic_type_parameters().len(), 1);
         assert_eq!(copy.parameters().len(), 3);
+        assert_eq!(valid_read.generic_type_parameters().len(), 1);
+        assert_eq!(valid_read.parameters().len(), 2);
+        assert_eq!(heap_storage.generic_type_parameters().len(), 1);
 
         assert_eq!(
             provider
@@ -275,6 +399,9 @@ mod tests {
             panic!("UnaryCallable surface should exist");
         };
 
-        assert_eq!(signature_children(&surface.signature()).len(), 1);
+        assert_eq!(
+            signature_children(&surface.signature(), &BTreeSet::new()).len(),
+            1
+        );
     }
 }

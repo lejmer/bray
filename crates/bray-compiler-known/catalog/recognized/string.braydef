@@ -1,0 +1,70 @@
+catalog recognized_standard_library;
+
+scope StandardString at std.string {
+    declaration StandardUtf8Error {
+        identity name Utf8Error;
+
+        surface { union Utf8Error {} }
+    }
+
+    declaration StandardUtf8ErrorVariant0InvalidEncoding {
+        owner StandardUtf8Error;
+        identity ordinal 0;
+
+        surface { InvalidEncoding; }
+    }
+
+    declaration StandardStringScalarCount {
+        identity name scalar_count;
+
+        surface { func scalar_count(pos value: &string) -> usize; }
+    }
+
+    declaration StandardStringIsEmpty {
+        identity name is_empty;
+
+        surface { func is_empty(pos value: &string) -> bool; }
+    }
+
+    declaration StandardStringEquals {
+        identity name equals;
+
+        surface {
+            func equals(pos left: &string, pos right: &string) -> bool;
+        }
+    }
+
+    declaration StandardStringScalarAt {
+        identity name scalar_at;
+
+        surface {
+            func scalar_at(pos value: &string, index: usize) -> char?;
+        }
+    }
+
+    declaration StandardStringScalarSlice {
+        identity name scalar_slice;
+
+        surface {
+            func scalar_slice(
+                pos value: &string,
+                start: usize,
+                end: usize,
+            ) -> string;
+        }
+    }
+
+    declaration StandardStringUtf8 {
+        identity name utf8;
+
+        surface { func utf8(pos value: &string) -> &[u8]; }
+    }
+
+    declaration StandardStringFromUtf8 {
+        identity name from_utf8;
+
+        surface {
+            func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+        }
+    }
+}

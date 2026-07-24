@@ -1,19 +1,288 @@
 catalog compiler_known;
 
 scope CoreMemory at core.memory {
+    declaration AddressOf {
+        availability RawMemory;
+        implementation AddressOf;
+
+        surface { func address_of<T>(pos value: &T) -> RawPointer<T>; }
+    }
+
+    declaration AddressOfMut {
+        availability RawMemory;
+        implementation AddressOfMut;
+
+        surface { func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>; }
+    }
+
+    declaration RawPointerNull {
+        availability RawMemory;
+        implementation RawPointerNull;
+
+        surface { func null<T>() -> RawPointer<T>; }
+    }
+
+    declaration RawPointerIsNull {
+        availability RawMemory;
+        implementation RawPointerIsNull;
+
+        surface { func is_null<T>(pos pointer: RawPointer<T>) -> bool; }
+    }
+
+    declaration RawPointerOffset {
+        availability RawMemory;
+        implementation RawPointerOffset;
+
+        surface {
+            func offset<T>(
+                pos pointer: RawPointer<T>,
+                elements: isize,
+            ) -> RawPointer<T>;
+        }
+    }
+
+    declaration RawPointerByteOffset {
+        availability RawMemory;
+        implementation RawPointerByteOffset;
+
+        surface {
+            func byte_offset<T>(
+                pos pointer: RawPointer<T>,
+                bytes: isize,
+            ) -> RawPointer<T>;
+        }
+    }
+
+    declaration RawPointerReinterpret {
+        availability RawMemory;
+        implementation RawPointerReinterpret;
+
+        surface {
+            trusted func reinterpret<Target, Source>(
+                pos pointer: RawPointer<Source>,
+            ) -> RawPointer<Target>
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration RawPointerRead {
+        availability RawMemory;
+        implementation RawPointerRead;
+
+        surface {
+            trusted func read<T>(pos pointer: RawPointer<T>) -> T
+                requires(
+                    trusted core.memory.valid_read(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory);
+        }
+    }
+
+    declaration RawPointerWrite {
+        availability RawMemory;
+        implementation RawPointerWrite;
+
+        surface {
+            trusted func write<T>(
+                pos pointer: RawPointer<T>,
+                pos value: T,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_write(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                )
+                ensures(
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
     declaration MemoryCopy {
         availability RawMemory;
         implementation MemoryCopy;
 
         surface {
-            trusted func copy(
-                destination: RawPointer<u8>,
-                source: RawPointer<u8>,
+            trusted func copy<T>(
+                pos source: RawPointer<T>,
+                pos destination: RawPointer<T>,
                 count: usize,
-            )
-                requires(true)
-                ensures(true)
-                with(true);
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_read(pointer = source, count = count),
+                    trusted core.memory.valid_write(pointer = destination, count = count),
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = source,
+                        count = count,
+                    ),
+                    trusted core.memory.non_overlapping(
+                        left = source,
+                        left_count = count,
+                        right = destination,
+                        right_count = count,
+                    ),
+                )
+                ensures(
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = destination,
+                        count = count,
+                    ),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration MemoryCopyOverlapping {
+        availability RawMemory;
+        implementation MemoryCopyOverlapping;
+
+        surface {
+            trusted func copy_overlapping<T>(
+                pos source: RawPointer<T>,
+                pos destination: RawPointer<T>,
+                count: usize,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_read(pointer = source, count = count),
+                    trusted core.memory.valid_write(pointer = destination, count = count),
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = source,
+                        count = count,
+                    ),
+                )
+                ensures(
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = destination,
+                        count = count,
+                    ),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration Allocate {
+        availability Allocation;
+        implementation Allocate;
+
+        surface {
+            trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
+                ensures(
+                    trusted core.memory.owned_allocation(
+                        pointer = result,
+                        bytes = bytes,
+                        align = align,
+                    ),
+                    trusted core.memory.valid_write(pointer = result, count = bytes),
+                )
+                uses(manual_alloc);
+        }
+    }
+
+    declaration Deallocate {
+        availability Allocation;
+        implementation Deallocate;
+
+        surface {
+            trusted func deallocate(
+                pos pointer: RawPointer<u8>,
+                bytes: usize,
+                align: usize,
+            ) -> unit
+                requires(
+                    trusted core.memory.owned_allocation(
+                        pointer = pointer,
+                        bytes = bytes,
+                        align = align,
+                    ),
+                )
+                uses(manual_alloc);
+        }
+    }
+
+    declaration ValidRead {
+        availability RawMemory;
+
+        surface {
+            trusted predicate valid_read<T>(
+                pointer: RawPointer<T>,
+                count: usize,
+            );
+        }
+    }
+
+    declaration ValidWrite {
+        availability RawMemory;
+
+        surface {
+            trusted predicate valid_write<T>(
+                pointer: RawPointer<T>,
+                count: usize,
+            );
+        }
+    }
+
+    declaration InitializedAs {
+        availability RawMemory;
+
+        surface {
+            trusted predicate initialized_as<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration InitializedRangeAs {
+        availability RawMemory;
+
+        surface {
+            trusted predicate initialized_range_as<T>(
+                pointer: RawPointer<T>,
+                count: usize,
+            );
+        }
+    }
+
+    declaration AlignedFor {
+        availability RawMemory;
+
+        surface {
+            trusted predicate aligned_for<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration NonOverlapping {
+        availability RawMemory;
+
+        surface {
+            trusted predicate non_overlapping<T>(
+                left: RawPointer<T>,
+                left_count: usize,
+                right: RawPointer<T>,
+                right_count: usize,
+            );
+        }
+    }
+
+    declaration OwnedAllocation {
+        availability Allocation;
+
+        surface {
+            trusted predicate owned_allocation(
+                pointer: RawPointer<u8>,
+                bytes: usize,
+                align: usize,
+            );
+        }
+    }
+
+    declaration SameAllocation {
+        availability RawMemory;
+
+        surface {
+            trusted predicate same_allocation<T>(
+                left: RawPointer<T>,
+                right: RawPointer<T>,
+            );
         }
     }
 }

@@ -84,6 +84,7 @@ pub(crate) enum DeclarationSymbolIdentity {
         declaration: CompilerKnownDeclarationId,
         surface: CatalogDeclarationSurface,
         origin: SymbolOrigin,
+        parameter_name: Option<SymbolName>,
     },
     Imported {
         key: SymbolKey,
@@ -136,6 +137,25 @@ impl DeclarationSymbolIdentity {
             declaration,
             surface,
             origin,
+            parameter_name: None,
+        }
+    }
+
+    pub(crate) const fn compiler_known_parameter(
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        declaration: CompilerKnownDeclarationId,
+        surface: CatalogDeclarationSurface,
+        origin: SymbolOrigin,
+        name: SymbolName,
+    ) -> Self {
+        Self::CompilerKnown {
+            key,
+            containing_symbol,
+            declaration,
+            surface,
+            origin,
+            parameter_name: Some(name),
         }
     }
 
@@ -235,7 +255,8 @@ impl DeclarationSymbolIdentity {
     const fn inferred_name(&self) -> Option<&SymbolName> {
         match self {
             Self::InferredImplementationParameter { name, .. } => Some(name),
-            Self::Source { .. } | Self::CompilerKnown { .. } | Self::Imported { .. } => None,
+            Self::CompilerKnown { parameter_name, .. } => parameter_name.as_ref(),
+            Self::Source { .. } | Self::Imported { .. } => None,
         }
     }
 

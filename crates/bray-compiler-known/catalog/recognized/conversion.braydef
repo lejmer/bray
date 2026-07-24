@@ -1,0 +1,89 @@
+catalog recognized_standard_library;
+
+scope StandardRoot at std {
+    declaration StandardConvert {
+        identity name convert;
+
+        surface {
+            func convert<Target, Source>(
+                pos source: Source,
+            ) -> Result<Target, Source(CheckedConvertTo<Target>).Error>;
+        }
+    }
+
+    declaration StandardRoundingRule {
+        identity name RoundingRule;
+
+        surface { union RoundingRule {} }
+    }
+
+    declaration StandardRoundingRuleVariant0NearestEven {
+        owner StandardRoundingRule;
+        identity ordinal 0;
+
+        surface { NearestEven; }
+    }
+
+    declaration StandardRoundingRuleVariant1TowardZero {
+        owner StandardRoundingRule;
+        identity ordinal 1;
+
+        surface { TowardZero; }
+    }
+
+    declaration StandardRoundingRuleVariant2TowardNegativeInfinity {
+        owner StandardRoundingRule;
+        identity ordinal 2;
+
+        surface { TowardNegativeInfinity; }
+    }
+
+    declaration StandardRoundingRuleVariant3TowardPositiveInfinity {
+        owner StandardRoundingRule;
+        identity ordinal 3;
+
+        surface { TowardPositiveInfinity; }
+    }
+
+    declaration StandardRoundingRuleVariant4AwayFromZero {
+        owner StandardRoundingRule;
+        identity ordinal 4;
+
+        surface { AwayFromZero; }
+    }
+
+    declaration StandardRoundTo {
+        identity name round_to;
+
+        surface {
+            func round_to<Target, Source>(
+                pos source: Source,
+                rule: RoundingRule = RoundingRule.NearestEven,
+            ) -> Target;
+        }
+    }
+
+    declaration StandardTruncateTo {
+        identity name truncate_to;
+
+        surface {
+            func truncate_to<Target, Source>(pos source: Source) -> Target;
+        }
+    }
+
+    declaration StandardSaturateTo {
+        identity name saturate_to;
+
+        surface {
+            func saturate_to<Target, Source>(pos source: Source) -> Target;
+        }
+    }
+
+    declaration StandardWrapTo {
+        identity name wrap_to;
+
+        surface {
+            func wrap_to<Target, Source>(pos source: Source) -> Target;
+        }
+    }
+}

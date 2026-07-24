@@ -148,7 +148,7 @@ impl CatalogTokenSpelling {
 }
 
 #[cfg(any(test, feature = "generation"))]
-const SOURCES: [CatalogSource; 9] = [
+const SOURCES: [CatalogSource; 11] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
@@ -200,8 +200,20 @@ const SOURCES: [CatalogSource; 9] = [
     CatalogSource::new(
         CatalogSourceId::new(8),
         CatalogKind::RecognizedStandardLibrary,
-        "catalog/recognized/standard-library.braydef",
-        include_str!("../../catalog/recognized/standard-library.braydef"),
+        "catalog/recognized/conversion.braydef",
+        include_str!("../../catalog/recognized/conversion.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(9),
+        CatalogKind::RecognizedStandardLibrary,
+        "catalog/recognized/memory.braydef",
+        include_str!("../../catalog/recognized/memory.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(10),
+        CatalogKind::RecognizedStandardLibrary,
+        "catalog/recognized/string.braydef",
+        include_str!("../../catalog/recognized/string.braydef"),
     ),
 ];
 
@@ -233,7 +245,7 @@ mod tests {
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 9);
+        assert_eq!(sources.len(), 11);
 
         assert_eq!(
             sources
@@ -257,7 +269,7 @@ mod tests {
                 .iter()
                 .filter(|source| source.kind() == CatalogKind::RecognizedStandardLibrary)
                 .count(),
-            1
+            3
         );
 
         for (index, source) in sources.iter().enumerate() {

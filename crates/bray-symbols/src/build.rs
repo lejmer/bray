@@ -632,7 +632,14 @@ mod tests {
             Some(module)
         );
 
-        assert_eq!(graph.functions().len(), 2);
+        assert_eq!(
+            graph
+                .functions()
+                .iter()
+                .filter(|function| function.origin() == SymbolOrigin::Source)
+                .count(),
+            1
+        );
 
         assert_eq!(
             graph

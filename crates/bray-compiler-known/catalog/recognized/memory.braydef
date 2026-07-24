@@ -1,0 +1,441 @@
+catalog recognized_standard_library;
+
+scope StandardMemory at std.memory {
+    declaration StandardMemoryAddressOf {
+        identity name address_of;
+        availability RawMemory;
+        implementation AddressOf;
+
+        surface { func address_of<T>(pos value: &T) -> RawPointer<T>; }
+    }
+
+    declaration StandardMemoryAddressOfMut {
+        identity name address_of_mut;
+        availability RawMemory;
+        implementation AddressOfMut;
+
+        surface { func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>; }
+    }
+
+    declaration StandardMemoryNull {
+        identity name null;
+        availability RawMemory;
+        implementation RawPointerNull;
+
+        surface { func null<T>() -> RawPointer<T>; }
+    }
+
+    declaration StandardMemoryIsNull {
+        identity name is_null;
+        availability RawMemory;
+        implementation RawPointerIsNull;
+
+        surface { func is_null<T>(pos pointer: RawPointer<T>) -> bool; }
+    }
+
+    declaration StandardMemoryOffset {
+        identity name offset;
+        availability RawMemory;
+        implementation RawPointerOffset;
+
+        surface {
+            func offset<T>(
+                pos pointer: RawPointer<T>,
+                elements: isize,
+            ) -> RawPointer<T>;
+        }
+    }
+
+    declaration StandardMemoryByteOffset {
+        identity name byte_offset;
+        availability RawMemory;
+        implementation RawPointerByteOffset;
+
+        surface {
+            func byte_offset<T>(
+                pos pointer: RawPointer<T>,
+                bytes: isize,
+            ) -> RawPointer<T>;
+        }
+    }
+
+    declaration StandardMemoryReinterpret {
+        identity name reinterpret;
+        availability RawMemory;
+        implementation RawPointerReinterpret;
+
+        surface {
+            trusted func reinterpret<Target, Source>(
+                pos pointer: RawPointer<Source>,
+            ) -> RawPointer<Target>
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration StandardMemoryRead {
+        identity name read;
+        availability RawMemory;
+        implementation RawPointerRead;
+
+        surface {
+            trusted func read<T>(pos pointer: RawPointer<T>) -> T
+                requires(
+                    trusted core.memory.valid_read(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory);
+        }
+    }
+
+    declaration StandardMemoryWrite {
+        identity name write;
+        availability RawMemory;
+        implementation RawPointerWrite;
+
+        surface {
+            trusted func write<T>(
+                pos pointer: RawPointer<T>,
+                pos value: T,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_write(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                )
+                ensures(
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryCopy {
+        identity name copy;
+        availability RawMemory;
+        implementation MemoryCopy;
+
+        surface {
+            trusted func copy<T>(
+                pos source: RawPointer<T>,
+                pos destination: RawPointer<T>,
+                count: usize,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_read(pointer = source, count = count),
+                    trusted core.memory.valid_write(pointer = destination, count = count),
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = source,
+                        count = count,
+                    ),
+                    trusted core.memory.non_overlapping(
+                        left = source,
+                        left_count = count,
+                        right = destination,
+                        right_count = count,
+                    ),
+                )
+                ensures(
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = destination,
+                        count = count,
+                    ),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryCopyOverlapping {
+        identity name copy_overlapping;
+        availability RawMemory;
+        implementation MemoryCopyOverlapping;
+
+        surface {
+            trusted func copy_overlapping<T>(
+                pos source: RawPointer<T>,
+                pos destination: RawPointer<T>,
+                count: usize,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_read(pointer = source, count = count),
+                    trusted core.memory.valid_write(pointer = destination, count = count),
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = source,
+                        count = count,
+                    ),
+                )
+                ensures(
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = destination,
+                        count = count,
+                    ),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryLayout {
+        identity name MemoryLayout;
+
+        surface { struct MemoryLayout {} }
+    }
+
+    declaration StandardMemoryLayoutBytes {
+        owner StandardMemoryLayout;
+        identity name bytes;
+
+        surface { bytes: usize; }
+    }
+
+    declaration StandardMemoryLayoutAlign {
+        owner StandardMemoryLayout;
+        identity name align;
+
+        surface { align: usize; }
+    }
+
+    declaration StandardMemoryLayoutError {
+        identity name MemoryLayoutError;
+
+        surface { union MemoryLayoutError {} }
+    }
+
+    declaration StandardMemoryLayoutErrorVariant0SizeOverflow {
+        owner StandardMemoryLayoutError;
+        identity ordinal 0;
+
+        surface { SizeOverflow; }
+    }
+
+    declaration StandardMemoryLayoutErrorVariant1UnsupportedAlignment {
+        owner StandardMemoryLayoutError;
+        identity ordinal 1;
+
+        surface { UnsupportedAlignment; }
+    }
+
+    declaration StandardMemorySizeOf {
+        identity name size_of;
+        implementation MemorySizeOf;
+
+        surface { const func size_of<T>() -> usize; }
+    }
+
+    declaration StandardMemoryAlignOf {
+        identity name align_of;
+        implementation MemoryAlignOf;
+
+        surface { const func align_of<T>() -> usize; }
+    }
+
+    declaration StandardMemoryStrideOf {
+        identity name stride_of;
+        implementation MemoryStrideOf;
+
+        surface { const func stride_of<T>() -> usize; }
+    }
+
+    declaration StandardMemoryLayoutOf {
+        identity name layout_of;
+        implementation MemoryLayoutOf;
+
+        surface {
+            const func layout_of<T>(
+                count: usize,
+            ) -> Result<MemoryLayout, MemoryLayoutError>;
+        }
+    }
+
+    declaration StandardRawAllocation {
+        identity name RawAllocation;
+        availability Allocation;
+
+        surface { struct RawAllocation {} }
+    }
+
+    declaration StandardRawAllocationPointer {
+        owner StandardRawAllocation;
+        identity name pointer;
+
+        surface { pointer: RawPointer<u8>; }
+    }
+
+    declaration StandardRawAllocationBytes {
+        owner StandardRawAllocation;
+        identity name bytes;
+
+        surface { bytes: usize; }
+    }
+
+    declaration StandardRawAllocationAlign {
+        owner StandardRawAllocation;
+        identity name align;
+
+        surface { align: usize; }
+    }
+
+    declaration StandardMemoryAllocate {
+        identity name allocate;
+        availability Allocation;
+        implementation Allocate;
+
+        surface {
+            trusted func allocate(pos layout: MemoryLayout) -> RawAllocation
+                ensures(
+                    trusted core.memory.owned_allocation(
+                        pointer = result.pointer,
+                        bytes = result.bytes,
+                        align = result.align,
+                    ),
+                    trusted core.memory.valid_write(
+                        pointer = result.pointer,
+                        count = result.bytes,
+                    ),
+                )
+                uses(manual_alloc);
+        }
+    }
+
+    declaration StandardMemoryDeallocate {
+        identity name deallocate;
+        availability Allocation;
+        implementation Deallocate;
+
+        surface {
+            trusted func deallocate(pos allocation: RawAllocation) -> unit
+                uses(manual_alloc);
+        }
+    }
+
+    declaration StandardRawBuffer {
+        identity name RawBuffer;
+        availability Allocation;
+
+        surface { struct RawBuffer<T> {} }
+    }
+
+    declaration StandardRawBufferPointer {
+        owner StandardRawBuffer;
+        identity name pointer;
+
+        surface { pointer: RawPointer<T>; }
+    }
+
+    declaration StandardRawBufferCapacity {
+        owner StandardRawBuffer;
+        identity name capacity;
+
+        surface { capacity: usize; }
+    }
+
+    declaration StandardRawBufferInitialized {
+        owner StandardRawBuffer;
+        identity name initialized;
+
+        surface { initialized: usize; }
+    }
+
+    declaration StandardMemoryCreateBuffer {
+        identity name create_buffer;
+        availability Allocation;
+
+        surface {
+            trusted func create_buffer<T>(
+                capacity: usize,
+            ) -> Result<RawBuffer<T>, MemoryLayoutError>
+                uses(manual_alloc, layout_reinterpret);
+        }
+    }
+
+    declaration StandardMemoryCapacity {
+        identity name capacity;
+        availability Allocation;
+
+        surface {
+            func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
+        }
+    }
+
+    declaration StandardMemoryInitializedCount {
+        identity name initialized_count;
+        availability Allocation;
+
+        surface {
+            func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize;
+        }
+    }
+
+    declaration StandardMemoryPointer {
+        identity name pointer;
+        availability Allocation;
+
+        surface {
+            func pointer<T>(pos buffer: &RawBuffer<T>) -> RawPointer<T>;
+        }
+    }
+
+    declaration StandardMemoryInitializedSlice {
+        identity name initialized_slice;
+        availability Allocation;
+
+        surface {
+            trusted func initialized_slice<T>(
+                pos buffer: &RawBuffer<T>,
+            ) -> &[T]
+                uses(raw_memory);
+        }
+    }
+
+    declaration StandardMemoryInitializedSliceMut {
+        identity name initialized_slice_mut;
+        availability Allocation;
+
+        surface {
+            trusted func initialized_slice_mut<T>(
+                pos buffer: &mut RawBuffer<T>,
+            ) -> &mut [T]
+                uses(raw_memory);
+        }
+    }
+
+    declaration StandardMemorySparePointer {
+        identity name spare_pointer;
+        availability Allocation;
+
+        surface {
+            trusted func spare_pointer<T>(
+                pos buffer: &mut RawBuffer<T>,
+            ) -> RawPointer<T>
+                ensures(
+                    trusted core.memory.valid_write(
+                        pointer = result,
+                        count = buffer.capacity - buffer.initialized,
+                    ),
+                    trusted core.memory.aligned_for<T>(pointer = result),
+                )
+                uses(raw_memory);
+        }
+    }
+
+    declaration StandardMemorySetInitializedCount {
+        identity name set_initialized_count;
+        availability Allocation;
+
+        surface {
+            trusted func set_initialized_count<T>(
+                pos buffer: &mut RawBuffer<T>,
+                count: usize,
+            ) -> unit
+                requires(
+                    count <= buffer.capacity,
+                    trusted core.memory.initialized_range_as<T>(
+                        pointer = buffer.pointer,
+                        count = count,
+                    ),
+                )
+                ensures(
+                    buffer.initialized == count,
+                )
+                uses(unchecked_init);
+        }
+    }
+}

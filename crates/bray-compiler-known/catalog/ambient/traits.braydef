@@ -7,16 +7,63 @@ scope Ambient at ambient {
         surface { trait Storage<T> {} }
     }
 
-    declaration StorageItem {
+    declaration StorageCreate {
         owner Storage;
 
-        surface { type Item; }
+        surface {
+            trusted static func create(pos value: T) -> Self
+                uses(manual_alloc, raw_memory, unchecked_init);
+        }
     }
 
-    declaration StorageLoad {
+    declaration StorageBorrow {
         owner Storage;
 
-        surface { func load() -> T; }
+        surface { static func borrow(pos storage: &Self) -> &T; }
+    }
+
+    declaration StorageBorrowMut {
+        owner Storage;
+
+        surface { static func borrow_mut(pos storage: &mut Self) -> &mut T; }
+    }
+
+    declaration StorageDestroy {
+        owner Storage;
+
+        surface {
+            trusted static func destroy(pos storage: &mut Self)
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StorageRelease {
+        owner Storage;
+
+        surface {
+            trusted static func release(pos storage: Self)
+                uses(manual_alloc);
+        }
+    }
+
+    declaration CheckedConvertTo {
+        surface { trait CheckedConvertTo<Target> {} }
+    }
+
+    declaration CheckedConvertToError {
+        owner CheckedConvertTo;
+
+        surface { type Error; }
+    }
+
+    declaration CheckedConvertToCall {
+        owner CheckedConvertTo;
+
+        surface { consume func convert_checked() -> Result<Target, Error>; }
+    }
+
+    declaration Copyable {
+        surface { trait Copyable {} }
     }
 
     declaration UnaryCallable {
