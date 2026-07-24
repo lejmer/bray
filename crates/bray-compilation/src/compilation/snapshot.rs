@@ -35,7 +35,8 @@ fn reuse_published_facts(
 ) {
     updated.sources = shared_sources(&previous.sources, &updated.sources);
 
-    let invalidation_roots = invalidation_roots(previous, updated);
+    let semantic_values_forked = fork_semantic_values(previous, updated);
+    let invalidation_roots = invalidation_roots(previous, updated, semantic_values_forked);
     let worker_budget = updated.options.worker_budget();
 
     let (runtime, reusable) = previous
@@ -73,6 +74,22 @@ fn reuse_published_facts(
     reuse_mapped_cells(previous, updated, &reusable);
 }
 
+fn fork_semantic_values(
+    previous: &super::facts::CompilationState,
+    updated: &mut super::facts::CompilationState,
+) -> bool {
+    let Some(Ok(previous_store)) = previous.semantic_values.get() else {
+        return false;
+    };
+
+    updated.semantic_values = FactCell::ready(
+        CompilationFactKey::SemanticValueStore,
+        previous_store.fork(),
+    );
+
+    true
+}
+
 fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore {
     // Cloning equal snapshots shares their immutable source-text allocation.
     let snapshots = updated
@@ -93,11 +110,13 @@ fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore 
 fn invalidation_roots(
     previous: &super::facts::CompilationState,
     updated: &super::facts::CompilationState,
+    semantic_values_forked: bool,
 ) -> BTreeSet<CompilationFactKey> {
     let mut roots = BTreeSet::new();
 
-    // Semantic value identities and their mutable interning state are snapshot-local.
-    roots.insert(CompilationFactKey::SemanticValueStore);
+    if !semantic_values_forked {
+        roots.insert(CompilationFactKey::SemanticValueStore);
+    }
 
     let sources_changed = previous.sources != updated.sources;
 
@@ -213,7 +232,6 @@ fn reuse_fixed_cells(
         CompilationFactKey::DiscoverySymbolGraph
     );
     reuse!(symbol_graph, CompilationFactKey::SymbolGraph);
-    reuse!(semantic_values, CompilationFactKey::SemanticValueStore);
     reuse!(
         imported_symbol_skeleton,
         CompilationFactKey::ImportedSymbolSkeleton
@@ -381,7 +399,7 @@ mod tests {
 
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::ProductKind;
+    use bray_symbols::{ProductKind, TypeData};
     use bray_syntax::SyntaxText;
 
     use super::Compilation;
@@ -504,6 +522,10 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("previous semantic store must build: {error:?}"));
 
+        let inherited = previous_store
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("previous semantic type must intern: {error:?}"));
+
         let updated = previous
             .updated(request(
                 [source(10, 0, "module app;\n")],
@@ -523,6 +545,43 @@ mod tests {
             .unwrap_or_else(|error| panic!("updated semantic store must build: {error:?}"));
 
         assert_ne!(previous_store.id(), updated_store.id());
+        assert_eq!(
+            updated_store.type_data(inherited).as_deref(),
+            Ok(&TypeData::Error)
+        );
+    }
+
+    #[test]
+    fn worker_budget_changes_reuse_semantic_facts_with_forked_values() {
+        let source_text = "module app;\n\nfunc stable()\n{\n}\n";
+        let previous = compilation([source(10, 0, source_text)]);
+        let stable_unit = source_callable_body_key(&previous);
+
+        let _ = previous.bound_unit(stable_unit.clone());
+
+        let parallel = WorkerBudget::new(2)
+            .unwrap_or_else(|error| panic!("parallel worker budget must build: {error:?}"));
+
+        let updated = previous
+            .updated(request(
+                [source(10, 0, source_text)],
+                CompilationOptions::new(parallel, ProductKind::Library, SelectedTarget::baseline()),
+            ))
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert!(
+            previous
+                .state
+                .bound_units
+                .shares_cell_with(&updated.state.bound_units, &stable_unit)
+        );
+
+        assert!(
+            !previous
+                .state
+                .semantic_values
+                .shares_storage_with(&updated.state.semantic_values)
+        );
     }
 
     #[test]

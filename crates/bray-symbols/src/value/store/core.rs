@@ -23,10 +23,10 @@ use super::{
 
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
-/// A compilation-scoped thread-safe canonical store for immutable semantic values.
+/// A thread-safe canonical store for immutable semantic values.
 ///
 /// Values are structurally interned. Equal data returns one exact typed ID within this store.
-/// IDs from another store are rejected even when their internal slots happen to match.
+/// A fork accepts inherited IDs while remaining independent from subsequent parent mutations.
 pub struct SemanticValueStore {
     id: SemanticValueStoreId,
     tables: Mutex<SemanticTables>,
@@ -35,19 +35,24 @@ pub struct SemanticValueStore {
 impl SemanticValueStore {
     /// Creates an empty semantic value store with a process-unique checking identity.
     pub fn try_new() -> Result<Self, SemanticValueStoreCreateError> {
-        let raw = NEXT_STORE_ID
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                current.checked_add(1)
-            })
-            .map_err(|_| SemanticValueStoreCreateError::IdentitySpaceExhausted)?;
-
         Ok(Self {
-            id: SemanticValueStoreId::new(raw),
+            id: next_store_id()?,
             tables: Mutex::new(SemanticTables::new()),
         })
     }
 
-    /// Returns this store's opaque checking identity.
+    /// Creates an independent store that can read values inherited from this store.
+    pub fn fork(&self) -> Result<Self, SemanticValueStoreCreateError> {
+        let tables = self.tables();
+
+        Ok(Self {
+            id: next_store_id()?,
+            // Each semantic table remains shared until the child changes that value category.
+            tables: Mutex::new(tables.clone()),
+        })
+    }
+
+    /// Returns the identity used for values first interned by this store.
     pub const fn id(&self) -> SemanticValueStoreId {
         self.id
     }
@@ -58,7 +63,7 @@ impl SemanticValueStore {
 
         validate_type_data(&tables, self.id, &data)?;
 
-        tables.types.intern(self.id, data)
+        Arc::make_mut(&mut tables.types).intern(self.id, data)
     }
 
     /// Returns immutable data for a type issued by this store.
@@ -75,7 +80,7 @@ impl SemanticValueStore {
 
         validate_constant_value_data(&tables, self.id, &data)?;
 
-        tables.constant_values.intern(self.id, data)
+        Arc::make_mut(&mut tables.constant_values).intern(self.id, data)
     }
 
     /// Returns immutable data for a constant value issued by this store.
@@ -95,7 +100,7 @@ impl SemanticValueStore {
 
         validate_constant_term_data(&tables, self.id, &data)?;
 
-        tables.constant_terms.intern(self.id, data)
+        Arc::make_mut(&mut tables.constant_terms).intern(self.id, data)
     }
 
     /// Returns immutable data for a constant term issued by this store.
@@ -115,7 +120,7 @@ impl SemanticValueStore {
 
         validate_substitution_data(&tables, self.id, &data)?;
 
-        tables.substitutions.intern(self.id, data)
+        Arc::make_mut(&mut tables.substitutions).intern(self.id, data)
     }
 
     /// Returns immutable data for a generic substitution issued by this store.
@@ -147,7 +152,7 @@ impl SemanticValueStore {
 
         validate_trait_application_data(&tables, self.id, data)?;
 
-        tables.trait_applications.intern(self.id, data)
+        Arc::make_mut(&mut tables.trait_applications).intern(self.id, data)
     }
 
     /// Returns immutable data for a trait application issued by this store.
@@ -167,7 +172,7 @@ impl SemanticValueStore {
 
         validate_callable_instance_data(&tables, self.id, data)?;
 
-        tables.callable_instances.intern(self.id, data)
+        Arc::make_mut(&mut tables.callable_instances).intern(self.id, data)
     }
 
     /// Returns immutable data for a callable instance issued by this store.
@@ -187,7 +192,7 @@ impl SemanticValueStore {
 
         validate_implementation_instance_data(&tables, self.id, data)?;
 
-        tables.implementation_instances.intern(self.id, data)
+        Arc::make_mut(&mut tables.implementation_instances).intern(self.id, data)
     }
 
     /// Returns immutable data for an implementation instance issued by this store.
@@ -209,7 +214,7 @@ impl SemanticValueStore {
 
         validate_dependency_template_data(&tables, self.id, &data)?;
 
-        tables.dependency_contracts.intern(self.id, data)
+        Arc::make_mut(&mut tables.dependency_contracts).intern(self.id, data)
     }
 
     /// Returns the dependency-contract template with no requirements.
@@ -233,6 +238,16 @@ impl SemanticValueStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+fn next_store_id() -> Result<SemanticValueStoreId, SemanticValueStoreCreateError> {
+    let raw = NEXT_STORE_ID
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| SemanticValueStoreCreateError::IdentitySpaceExhausted)?;
+
+    Ok(SemanticValueStoreId::new(raw))
 }
 
 #[cfg(test)]
@@ -325,6 +340,37 @@ mod tests {
             Err(SemanticValueStoreError::ForeignId {
                 expected: second.id(),
                 actual: first.id(),
+            })
+        );
+    }
+
+    #[test]
+    fn forked_stores_share_inherited_values_without_sharing_mutations() {
+        let parent = store();
+
+        let Ok(inherited) = parent.intern_type(TypeData::Error) else {
+            panic!("inherited type must intern");
+        };
+
+        let child = match parent.fork() {
+            Ok(child) => child,
+            Err(error) => panic!("semantic store fork failed: {error:?}"),
+        };
+
+        assert_eq!(child.type_data(inherited).as_deref(), Ok(&TypeData::Error));
+
+        let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(9));
+
+        let Ok(child_value) = child.intern_type(TypeData::TypeParameter(parameter)) else {
+            panic!("child type must intern");
+        };
+
+        assert_eq!(child_value.store_id(), child.id());
+        assert_eq!(
+            parent.type_data(child_value),
+            Err(SemanticValueStoreError::ForeignId {
+                expected: parent.id(),
+                actual: child.id(),
             })
         );
     }

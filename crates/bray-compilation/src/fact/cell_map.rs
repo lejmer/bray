@@ -91,6 +91,7 @@ where
             .unwrap_or_else(|_| panic!("fact cache map must remain available"))
             .get(key)
             .cloned();
+
         let right = other
             .cells
             .lock()

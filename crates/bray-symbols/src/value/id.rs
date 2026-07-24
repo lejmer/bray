@@ -43,10 +43,6 @@ impl SemanticValueId {
     pub(super) const fn store(self) -> SemanticValueStoreId {
         self.store
     }
-
-    pub(super) fn to_index(self) -> Option<usize> {
-        usize::try_from(self.slot).ok()
-    }
 }
 
 pub(super) trait InternedValueId: Copy {

@@ -78,9 +78,20 @@ impl<T> FactCell<T> {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn get(&self) -> Option<&T> {
         self.storage.value.get()
+    }
+
+    pub(crate) fn ready(key: CompilationFactKey, value: T) -> Self {
+        Self {
+            storage: Arc::new(FactCellStorage {
+                value: OnceLock::from(value),
+                state: Mutex::new(FactCellState::Ready(key)),
+                changed: Condvar::new(),
+                #[cfg(test)]
+                observer: Mutex::new(None),
+            }),
+        }
     }
 
     #[cfg(test)]
