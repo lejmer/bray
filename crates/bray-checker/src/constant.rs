@@ -12,8 +12,9 @@ mod template;
 
 pub use array::{ArrayLengthError, check_array_length};
 pub use call::{ConstantCallRequest, ConstantCallResolution, ConstantCallResolver};
+pub use evaluation::EvaluatedConstant;
 pub(crate) use evaluation::check_constant_term;
-pub(crate) use evaluation::evaluate_constant;
+pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references};
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
 pub(crate) use integer::integer_to_usize;
 pub use limits::ConstantEvaluationLimits;

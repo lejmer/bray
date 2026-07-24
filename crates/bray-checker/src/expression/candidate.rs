@@ -1,18 +1,16 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator, BoundResolvedCall,
-    OperatorTarget, SelectedArgument, SelectedOperation, SelectionKind, SemanticSelection,
-    SemanticSelectionEntry,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundResolvedCall, SelectedArgument,
+    SelectionKind, SemanticSelection, SemanticSelectionEntry,
 };
-use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
+use super::built_in_operator::{self, PreparedBuiltInOperator};
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
 };
-use crate::representation::representation_type;
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
     CallableCandidate, CallableCandidateTemplate, CallableCandidateTemplates,
@@ -28,15 +26,9 @@ struct PreparedCall {
     anonymous_target: Option<bray_symbols::AnonymousCallableSymbolId>,
 }
 
-#[derive(Clone, Copy)]
-struct PreparedLogicalOperator {
-    expression: BoundExpressionId,
-    operator: BoundOperator,
-}
-
 pub(super) struct PreparedExpressions {
     calls: Vec<PreparedCall>,
-    logical_operators: Vec<PreparedLogicalOperator>,
+    built_in_operators: Vec<PreparedBuiltInOperator>,
     deferred: BTreeSet<BoundExpressionId>,
     diagnostics: DiagnosticBag,
 }
@@ -62,6 +54,10 @@ impl PreparedExpressions {
     pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }
+
+    pub(super) fn built_in_operators(&self) -> &[PreparedBuiltInOperator] {
+        &self.built_in_operators
+    }
 }
 
 pub(super) fn prepare_calls<C>(
@@ -73,7 +69,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let mut calls = Vec::new();
-    let mut logical_operators = Vec::new();
+    let mut built_in_operators = Vec::new();
     let mut deferred = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -173,12 +169,10 @@ where
             }
             ExpressionCandidateSet::Operation(source) => {
                 if source.kind() == SelectionKind::Operator
-                    && let Some(operator) = logical_operator(expression)
+                    && let Some(operator) =
+                        PreparedBuiltInOperator::for_expression(source.expression(), expression)
                 {
-                    logical_operators.push(PreparedLogicalOperator {
-                        expression: source.expression(),
-                        operator,
-                    });
+                    built_in_operators.push(operator);
                 } else {
                     deferred.insert(source.expression());
                 }
@@ -188,32 +182,14 @@ where
     }
 
     calls.sort_unstable_by_key(|call| call.expression);
-    logical_operators.sort_unstable_by_key(|operation| operation.expression);
+    built_in_operators.sort_unstable_by_key(|operation| operation.expression());
 
     Ok(SessionProgress::Complete(PreparedExpressions {
         calls,
-        logical_operators,
+        built_in_operators,
         deferred,
         diagnostics,
     }))
-}
-
-fn logical_operator(expression: &BoundExpression) -> Option<BoundOperator> {
-    let operator = match expression {
-        BoundExpression::Unary(expression) if expression.operands().len() == 1 => {
-            expression.operator()
-        }
-        BoundExpression::Binary(expression) if expression.operands().len() == 2 => {
-            expression.operator()
-        }
-        _ => return None,
-    };
-
-    matches!(
-        operator,
-        BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr
-    )
-    .then_some(operator)
 }
 
 fn defer_callable_selection<C>(
@@ -519,6 +495,13 @@ where
 
         let types = session.preview();
 
+        built_in_operator::apply_comparison_expectations(
+            request,
+            &types,
+            prepared.built_in_operators(),
+            session,
+        )?;
+
         if add_candidate_expectations(request, &types, &prepared.calls, session)?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
@@ -535,31 +518,6 @@ where
             return Ok(SessionProgress::Complete(()));
         }
     }
-}
-
-pub(super) fn apply_logical_operator_evidence<C>(
-    request: CheckerUnitView<'_, C>,
-    prepared: &PreparedExpressions,
-    session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
-
-    for operation in &prepared.logical_operators {
-        let Some(expression) = request.view().expression(operation.expression) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-        };
-
-        session.add_evidence(operation.expression, boolean)?;
-
-        for operand in expression.child_expressions() {
-            session.add_expectation(operand, boolean)?;
-        }
-    }
-
-    Ok(())
 }
 
 fn apply_selected_call_evidence<C>(
@@ -704,17 +662,11 @@ where
         }
     }
 
-    let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
-
-    entries.extend(prepared.logical_operators.iter().map(|operation| {
-        SemanticSelectionEntry::new(
-            operation.expression,
-            SemanticSelection::Operation(SelectedOperation::Operator {
-                target: OperatorTarget::BuiltIn(operation.operator),
-                result_type: boolean,
-            }),
-        )
-    }));
+    entries.extend(built_in_operator::selections(
+        request,
+        types,
+        prepared.built_in_operators(),
+    )?);
 
     Ok(Some((entries, diagnostics)))
 }

@@ -65,6 +65,7 @@ impl Compilation {
     fn compute_semantic_diagnostics(&self) -> Result<DiagnosticBag, FactQueryError> {
         let mut pending = BTreeSet::new();
 
+        // TODO(BRA-256): Demand units from the active product source graph.
         for key in self.declared_unit_keys()? {
             pending.insert(unit_order_key(key));
         }

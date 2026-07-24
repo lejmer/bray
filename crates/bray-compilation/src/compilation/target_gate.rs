@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey, BoundUnitKind};
@@ -106,6 +107,8 @@ impl Compilation {
         part: &ModulePartRecord,
         module: &ModuleSymbol,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
+        // TODO(BRA-255): Read the typed target directive fact once directive binding is available.
+        // TODO(BRA-256): Diagnose duplicate target directives when constructing source graphs.
         let Some(anchor) = part
             .surface()
             .directives()
@@ -190,12 +193,20 @@ impl Compilation {
         let semantic_context =
             semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-        let mut dependencies = Vec::new();
+        let mut dependencies_by_expression = BTreeMap::new();
 
         let references = collect_constant_references(
             bound.result().value(),
             &semantics.result().value().1,
-            |_, target| self.target_gate_reference(target, &mut dependencies),
+            |expression, target| {
+                let (resolution, dependency) = self.target_gate_reference(target)?;
+
+                if let Some(dependency) = dependency {
+                    dependencies_by_expression.insert(expression, dependency);
+                }
+
+                Ok(resolution)
+            },
         )?;
 
         let input = ConstantEvaluationInput::new(
@@ -211,12 +222,24 @@ impl Compilation {
                 )
             })?;
 
-        let evaluated = checker_result(DefaultConstantEvaluator.evaluate_constant(unit, &input))?;
+        let evaluated = checker_result(
+            DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
+        )?;
 
         let diagnostics =
             DiagnosticBag::merged_all([semantics.result().diagnostics(), evaluated.diagnostics()]);
 
-        let enabled = self.target_gate_is_enabled(*evaluated.value(), &diagnostics)?;
+        let enabled = self.target_gate_is_enabled(evaluated.value().value(), &diagnostics)?;
+        let dependencies: Vec<_> = if diagnostics.has_errors() {
+            dependencies_by_expression.into_values().collect()
+        } else {
+            evaluated
+                .value()
+                .evaluated_references()
+                .iter()
+                .filter_map(|expression| dependencies_by_expression.get(expression).cloned())
+                .collect()
+        };
 
         Ok(DiagnosticResult::new(
             ModuleTargetGate::new(enabled, dependencies),
@@ -227,16 +250,15 @@ impl Compilation {
     fn target_gate_reference(
         &self,
         target: BoundReferenceTarget,
-        dependencies: &mut Vec<TargetFactDependency>,
-    ) -> Result<ConstantReferenceResolution, FactQueryError> {
+    ) -> Result<(ConstantReferenceResolution, Option<TargetFactDependency>), FactQueryError> {
         let BoundReferenceTarget::Surface(AnySymbolId::Constant(symbol)) = target else {
-            return Ok(ConstantReferenceResolution::Invalid);
+            return Ok((ConstantReferenceResolution::Invalid, None));
         };
 
         let provider = self.available_compiler_known_symbols().provider();
 
         let Some(fact) = provider.symbol_target_fact(symbol) else {
-            return Ok(ConstantReferenceResolution::Invalid);
+            return Ok((ConstantReferenceResolution::Invalid, None));
         };
 
         let value = self.target_fact_value(fact)?;
@@ -247,9 +269,10 @@ impl Compilation {
             .cloned()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        dependencies.push(TargetFactDependency::new(key, symbol, value));
-
-        Ok(ConstantReferenceResolution::Value(value))
+        Ok((
+            ConstantReferenceResolution::Value(value),
+            Some(TargetFactDependency::new(key, symbol, value)),
+        ))
     }
 
     fn target_gate_is_enabled(
@@ -347,6 +370,7 @@ mod tests {
             enabled_gate.diagnostics(),
             enabled_gate.value().dependencies()
         );
+
         assert!(enabled_gate.value().is_enabled());
 
         let [dependency] = enabled_gate.value().dependencies() else {
@@ -363,6 +387,7 @@ mod tests {
             "{:?}",
             disabled_gate.diagnostics()
         );
+
         assert!(!disabled_gate.value().is_enabled());
 
         let [dependency] = disabled_gate.value().dependencies() else {
@@ -392,6 +417,37 @@ mod tests {
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
         assert!(gate.value().is_enabled());
         assert_eq!(gate.value().dependencies().len(), 2);
+    }
+
+    #[test]
+    fn target_gates_use_ordinary_constant_comparisons() {
+        let compilation = compilation("@target(target.pointer.bits == 64) module app;");
+        let gate = module_gate(&compilation);
+
+        assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
+        assert!(gate.value().is_enabled());
+
+        let [dependency] = gate.value().dependencies() else {
+            panic!("target gate must retain one exact target dependency");
+        };
+
+        assert_dependency(&compilation, dependency, TargetFactKind::PointerBits);
+    }
+
+    #[test]
+    fn target_gate_dependencies_exclude_short_circuited_references() {
+        let compilation =
+            compilation("@target(target.scalar.u64 || target.atomic.u64) module app;");
+        let gate = module_gate(&compilation);
+
+        assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
+        assert!(gate.value().is_enabled());
+
+        let [dependency] = gate.value().dependencies() else {
+            panic!("target gate must retain only the evaluated target dependency");
+        };
+
+        assert_dependency(&compilation, dependency, TargetFactKind::ScalarU64);
     }
 
     #[test]

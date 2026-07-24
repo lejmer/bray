@@ -126,18 +126,6 @@ impl super::super::Compilation {
                 continue;
             }
 
-            let head = facts
-                .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
-                    implementation,
-                ))
-                .map_err(super::super::binder::binder_fact_error)?;
-
-            let coherence = facts
-                .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
-                    implementation,
-                ))
-                .map_err(super::super::binder::binder_fact_error)?;
-
             let target_gate = symbols
                 .symbol_key(implementation.into_any())
                 .and_then(bray_symbols::SymbolKey::source_declaration_id)
@@ -151,6 +139,18 @@ impl super::super::Compilation {
             {
                 continue;
             }
+
+            let head = facts
+                .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
+                    implementation,
+                ))
+                .map_err(super::super::binder::binder_fact_error)?;
+
+            let coherence = facts
+                .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+                    implementation,
+                ))
+                .map_err(super::super::binder::binder_fact_error)?;
 
             let diagnostics = DiagnosticBag::merged_all(
                 [head.diagnostics(), coherence.diagnostics()]

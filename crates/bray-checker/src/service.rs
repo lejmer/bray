@@ -204,6 +204,15 @@ where
     ) -> CheckerOutcome<ConstantValueId> {
         evaluate_constant(request, input)
     }
+
+    /// Evaluates the request's constant-expression root and reports references reached.
+    fn evaluate_constant_with_references(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        input: &ConstantEvaluationInput<'_>,
+    ) -> CheckerOutcome<crate::EvaluatedConstant> {
+        crate::constant::evaluate_constant_with_references(request, input)
+    }
 }
 
 impl<C> ConstantEvaluator<C> for DefaultConstantEvaluator where C: CheckerRequestContext + ?Sized {}

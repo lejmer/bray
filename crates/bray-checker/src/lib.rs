@@ -23,7 +23,7 @@ mod test_support;
 pub use constant::{
     ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluationLimits, ConstantLiteralError, ConstantReferenceResolution,
+    ConstantEvaluationLimits, ConstantLiteralError, ConstantReferenceResolution, EvaluatedConstant,
     check_array_length, check_constant_literal, normalize_integer_literal,
     resolve_callable_signature_template, resolve_type_expression_template,
 };
