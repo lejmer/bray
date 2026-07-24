@@ -227,6 +227,38 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a declaration-modifier syntax-kind argument.
+    pub const fn modifier_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ModifierKind,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
+    /// Creates a conflicting declaration-modifier syntax-kind argument.
+    pub const fn conflicting_modifier_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ConflictingModifierKind,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
+    /// Creates a declaration-directive syntax-kind argument.
+    pub const fn directive_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::DirectiveKind,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
+    /// Creates a conflicting declaration-directive syntax-kind argument.
+    pub const fn conflicting_directive_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ConflictingDirectiveKind,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
     /// Creates a declaration-name argument.
     pub fn declaration_name(name: impl Into<String>) -> Self {
         Self::new(
@@ -382,6 +414,14 @@ pub enum DiagnosticArgName {
     ActualSyntaxKind,
     /// Syntax kind that was expected by the compiler phase.
     ExpectedSyntaxKind,
+    /// Declaration modifier involved in a declaration diagnostic.
+    ModifierKind,
+    /// Second modifier that conflicts with another declaration modifier.
+    ConflictingModifierKind,
+    /// Declaration directive involved in a declaration diagnostic.
+    DirectiveKind,
+    /// Second directive that conflicts with another declaration directive.
+    ConflictingDirectiveKind,
     /// Package identity selected by package resolution.
     ExpectedPackageIdentity,
     /// Package-product identity selected by package resolution.
@@ -460,6 +500,10 @@ impl DiagnosticArgName {
             Self::ExpectedArtifactDigest => "expected_artifact_digest",
             Self::ActualSyntaxKind => "actual_syntax_kind",
             Self::ExpectedSyntaxKind => "expected_syntax_kind",
+            Self::ModifierKind => "modifier_kind",
+            Self::ConflictingModifierKind => "conflicting_modifier_kind",
+            Self::DirectiveKind => "directive_kind",
+            Self::ConflictingDirectiveKind => "conflicting_directive_kind",
             Self::ExpectedPackageIdentity => "expected_package_identity",
             Self::ExpectedProductIdentity => "expected_product_identity",
             Self::ExpectedVisibility => "expected_visibility",

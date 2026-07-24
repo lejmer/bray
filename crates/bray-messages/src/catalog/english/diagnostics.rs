@@ -284,6 +284,65 @@ const DECLARATION_CONFLICTING_MODULE_TRUST: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualModuleTrust),
 ];
 
+const DECLARATION_DUPLICATE_MODIFIER: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("duplicate "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ModifierKind),
+    MessageTemplatePart::Text(" modifier"),
+];
+
+const DECLARATION_INCOMPATIBLE_MODIFIERS: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ModifierKind),
+    MessageTemplatePart::Text(" and "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ConflictingModifierKind),
+    MessageTemplatePart::Text(" modifiers cannot be combined"),
+];
+
+const DECLARATION_INVALID_MODIFIER: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ModifierKind),
+    MessageTemplatePart::Text(" modifier is not valid on this declaration"),
+];
+
+const DECLARATION_BODY_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+    MessageTemplatePart::Text(" requires a body"),
+];
+
+const DECLARATION_BODY_NOT_ALLOWED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+    MessageTemplatePart::Text(" cannot have a body"),
+];
+
+const DECLARATION_DUPLICATE_DIRECTIVE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("duplicate "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DirectiveKind),
+    MessageTemplatePart::Text(" directive"),
+];
+
+const DECLARATION_INCOMPATIBLE_DIRECTIVES: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::DirectiveKind),
+    MessageTemplatePart::Text(" and "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ConflictingDirectiveKind),
+    MessageTemplatePart::Text(" directives cannot be combined"),
+];
+
+const DECLARATION_INVALID_DIRECTIVE_TARGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::DirectiveKind),
+    MessageTemplatePart::Text(" directive is not valid on this declaration"),
+];
+
+const DECLARATION_INVALID_PARAMETER_ORDER: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "positional parameters must precede named-only parameters",
+)];
+
+const DECLARATION_INVALID_MEMBER_PLACEMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+    MessageTemplatePart::Text(" is not valid in this container"),
+];
+
+const DECLARATION_DUPLICATE_LIFECYCLE_SLOT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "lifecycle declaration conflicts with an earlier declaration",
+)];
+
 const BINDING_UNRESOLVED_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not resolve "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -601,6 +660,37 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::DeclarationConflictingModuleTrust => {
             MessageTemplate::new(DECLARATION_CONFLICTING_MODULE_TRUST)
+        }
+        DiagnosticKind::DeclarationDuplicateModifier => {
+            MessageTemplate::new(DECLARATION_DUPLICATE_MODIFIER)
+        }
+        DiagnosticKind::DeclarationIncompatibleModifiers => {
+            MessageTemplate::new(DECLARATION_INCOMPATIBLE_MODIFIERS)
+        }
+        DiagnosticKind::DeclarationInvalidModifier => {
+            MessageTemplate::new(DECLARATION_INVALID_MODIFIER)
+        }
+        DiagnosticKind::DeclarationBodyRequired => MessageTemplate::new(DECLARATION_BODY_REQUIRED),
+        DiagnosticKind::DeclarationBodyNotAllowed => {
+            MessageTemplate::new(DECLARATION_BODY_NOT_ALLOWED)
+        }
+        DiagnosticKind::DeclarationDuplicateDirective => {
+            MessageTemplate::new(DECLARATION_DUPLICATE_DIRECTIVE)
+        }
+        DiagnosticKind::DeclarationIncompatibleDirectives => {
+            MessageTemplate::new(DECLARATION_INCOMPATIBLE_DIRECTIVES)
+        }
+        DiagnosticKind::DeclarationInvalidDirectiveTarget => {
+            MessageTemplate::new(DECLARATION_INVALID_DIRECTIVE_TARGET)
+        }
+        DiagnosticKind::DeclarationInvalidParameterOrder => {
+            MessageTemplate::new(DECLARATION_INVALID_PARAMETER_ORDER)
+        }
+        DiagnosticKind::DeclarationInvalidMemberPlacement => {
+            MessageTemplate::new(DECLARATION_INVALID_MEMBER_PLACEMENT)
+        }
+        DiagnosticKind::DeclarationDuplicateLifecycleSlot => {
+            MessageTemplate::new(DECLARATION_DUPLICATE_LIFECYCLE_SLOT)
         }
         DiagnosticKind::BindingUnresolvedName => MessageTemplate::new(BINDING_UNRESOLVED_NAME),
         DiagnosticKind::BindingAmbiguousName => MessageTemplate::new(BINDING_AMBIGUOUS_NAME),

@@ -61,6 +61,28 @@ pub enum DiagnosticKind {
     DeclarationConflictingModuleVisibility,
     /// Split declarations of one module disagree on trusted-module state.
     DeclarationConflictingModuleTrust,
+    /// A declaration repeats one modifier.
+    DeclarationDuplicateModifier,
+    /// A declaration combines modifiers that cannot apply together.
+    DeclarationIncompatibleModifiers,
+    /// A modifier is not valid for the declaration's form or context.
+    DeclarationInvalidModifier,
+    /// A declaration does not provide its required body.
+    DeclarationBodyRequired,
+    /// A declaration provides a body despite requiring an opaque or external surface.
+    DeclarationBodyNotAllowed,
+    /// A declaration repeats one non-repeatable directive.
+    DeclarationDuplicateDirective,
+    /// A declaration combines directives that cannot apply together.
+    DeclarationIncompatibleDirectives,
+    /// A directive is attached to a declaration form that does not accept it.
+    DeclarationInvalidDirectiveTarget,
+    /// A positional parameter appears after a named-only parameter.
+    DeclarationInvalidParameterOrder,
+    /// A declaration appears in a container that does not permit its form.
+    DeclarationInvalidMemberPlacement,
+    /// One declaration container repeats a lifecycle slot.
+    DeclarationDuplicateLifecycleSlot,
     /// A package interface does not start with the required magic bytes.
     InterfaceInvalidMagic,
     /// A package interface uses a wire-format revision this compiler does not implement.
@@ -223,6 +245,17 @@ impl DiagnosticKind {
             Self::DeclarationDuplicateName => 4001,
             Self::DeclarationConflictingModuleVisibility => 4002,
             Self::DeclarationConflictingModuleTrust => 4003,
+            Self::DeclarationDuplicateModifier => 4004,
+            Self::DeclarationIncompatibleModifiers => 4005,
+            Self::DeclarationBodyRequired => 4006,
+            Self::DeclarationBodyNotAllowed => 4007,
+            Self::DeclarationDuplicateDirective => 4008,
+            Self::DeclarationInvalidMemberPlacement => 4009,
+            Self::DeclarationDuplicateLifecycleSlot => 4010,
+            Self::DeclarationInvalidModifier => 4011,
+            Self::DeclarationInvalidDirectiveTarget => 4012,
+            Self::DeclarationInvalidParameterOrder => 4013,
+            Self::DeclarationIncompatibleDirectives => 4014,
             Self::InterfaceInvalidMagic => 5001,
             Self::InterfaceUnsupportedFormatRevision => 5002,
             Self::InterfaceUnsupportedLanguageRevision => 5003,
@@ -325,6 +358,17 @@ impl DiagnosticKind {
                 "declaration_conflicting_module_visibility"
             }
             Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",
+            Self::DeclarationDuplicateModifier => "declaration_duplicate_modifier",
+            Self::DeclarationIncompatibleModifiers => "declaration_incompatible_modifiers",
+            Self::DeclarationBodyRequired => "declaration_body_required",
+            Self::DeclarationBodyNotAllowed => "declaration_body_not_allowed",
+            Self::DeclarationDuplicateDirective => "declaration_duplicate_directive",
+            Self::DeclarationInvalidMemberPlacement => "declaration_invalid_member_placement",
+            Self::DeclarationDuplicateLifecycleSlot => "declaration_duplicate_lifecycle_slot",
+            Self::DeclarationInvalidModifier => "declaration_invalid_modifier",
+            Self::DeclarationInvalidDirectiveTarget => "declaration_invalid_directive_target",
+            Self::DeclarationInvalidParameterOrder => "declaration_invalid_parameter_order",
+            Self::DeclarationIncompatibleDirectives => "declaration_incompatible_directives",
             Self::InterfaceInvalidMagic => "interface_invalid_magic",
             Self::InterfaceUnsupportedFormatRevision => "interface_unsupported_format_revision",
             Self::InterfaceUnsupportedLanguageRevision => "interface_unsupported_language_revision",
@@ -469,7 +513,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 92] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 103] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -499,6 +543,17 @@ mod tests {
             DiagnosticKind::DeclarationDuplicateName,
             DiagnosticKind::DeclarationConflictingModuleVisibility,
             DiagnosticKind::DeclarationConflictingModuleTrust,
+            DiagnosticKind::DeclarationDuplicateModifier,
+            DiagnosticKind::DeclarationIncompatibleModifiers,
+            DiagnosticKind::DeclarationInvalidModifier,
+            DiagnosticKind::DeclarationBodyRequired,
+            DiagnosticKind::DeclarationBodyNotAllowed,
+            DiagnosticKind::DeclarationDuplicateDirective,
+            DiagnosticKind::DeclarationIncompatibleDirectives,
+            DiagnosticKind::DeclarationInvalidDirectiveTarget,
+            DiagnosticKind::DeclarationInvalidParameterOrder,
+            DiagnosticKind::DeclarationInvalidMemberPlacement,
+            DiagnosticKind::DeclarationDuplicateLifecycleSlot,
             DiagnosticKind::InterfaceInvalidMagic,
             DiagnosticKind::InterfaceUnsupportedFormatRevision,
             DiagnosticKind::InterfaceUnsupportedLanguageRevision,

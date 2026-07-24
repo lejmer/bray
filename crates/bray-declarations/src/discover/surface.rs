@@ -17,7 +17,7 @@ use bray_syntax::{
 
 use super::syntax::cast_node;
 use crate::record::DeclarationKind;
-use crate::surface::{DeclarationSurface, SyntaxAnchor};
+use crate::surface::{DeclarationBodyKind, DeclarationSurface, SyntaxAnchor};
 
 pub(super) fn module_surface(view: SyntaxNodeView<'_>) -> DeclarationSurface {
     match view.kind() {
@@ -50,7 +50,12 @@ pub(super) fn declaration_surface(
         DeclarationKind::Constant => {
             let declaration = cast_node::<ConstantDeclarationSyntax>(view, "constant declaration");
 
-            modifier_token_surface(declaration.constant_modifiers().tokens())
+            modifier_token_surface(declaration.constant_modifiers().tokens()).with_body_kind(
+                body_kind(
+                    declaration.expression().is_some(),
+                    DeclarationBodyKind::Expression,
+                ),
+            )
         }
         DeclarationKind::Function => {
             let declaration = cast_node::<FunctionDeclarationSyntax>(view, "function declaration");
@@ -66,12 +71,21 @@ pub(super) fn declaration_surface(
                     declaration.uses_clauses(),
                 ),
             )
+            .with_body_kind(body_kind(
+                declaration.callable_body_block_expression().is_some(),
+                DeclarationBodyKind::Block,
+            ))
         }
         DeclarationKind::Predicate => {
             let declaration =
                 cast_node::<PredicateDeclarationSyntax>(view, "predicate declaration");
 
-            modifier_token_surface(declaration.predicate_modifiers().tokens())
+            modifier_token_surface(declaration.predicate_modifiers().tokens()).with_body_kind(
+                body_kind(
+                    declaration.expression().is_some(),
+                    DeclarationBodyKind::Expression,
+                ),
+            )
         }
         DeclarationKind::CallableContract => {
             let declaration = cast_node::<CallableContractDeclarationSyntax>(
@@ -191,6 +205,10 @@ pub(super) fn declaration_surface(
             );
 
             modifier_token_surface(declaration.trait_predicate_member_modifiers().tokens())
+                .with_body_kind(body_kind(
+                    declaration.expression().is_some(),
+                    DeclarationBodyKind::Expression,
+                ))
         }
         DeclarationKind::TraitCallableMember => {
             let declaration = cast_node::<TraitCallableMemberDeclarationSyntax>(
@@ -209,6 +227,10 @@ pub(super) fn declaration_surface(
                     declaration.uses_clauses(),
                 ),
             )
+            .with_body_kind(body_kind(
+                declaration.callable_body_block_expression().is_some(),
+                DeclarationBodyKind::Block,
+            ))
         }
         DeclarationKind::TraitFinalizerRequirement => {
             let declaration = cast_node::<TraitFinalizerRequirementDeclarationSyntax>(
@@ -287,6 +309,7 @@ pub(super) fn declaration_surface(
                     declaration.uses_clauses(),
                 ),
             )
+            .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::FinalizerMember => {
             let declaration =
@@ -301,6 +324,7 @@ pub(super) fn declaration_surface(
                 declaration.with_clauses(),
                 declaration.uses_clauses(),
             )
+            .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::DestructorMember => {
             let declaration = cast_node::<DestructorMemberDeclarationSyntax>(
@@ -315,6 +339,7 @@ pub(super) fn declaration_surface(
                 declaration.with_clauses(),
                 declaration.uses_clauses(),
             )
+            .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::ScopeEnterMember => {
             let declaration = cast_node::<ScopeEnterMemberDeclarationSyntax>(
@@ -329,6 +354,7 @@ pub(super) fn declaration_surface(
                 declaration.with_clauses(),
                 declaration.uses_clauses(),
             )
+            .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::ScopeExitMember => {
             let declaration = cast_node::<ScopeExitMemberDeclarationSyntax>(
@@ -345,6 +371,7 @@ pub(super) fn declaration_surface(
                 declaration.with_clauses(),
                 declaration.uses_clauses(),
             )
+            .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::TypeCallableMember => {
             let declaration = cast_node::<TypeCallableMemberDeclarationSyntax>(
@@ -363,6 +390,7 @@ pub(super) fn declaration_surface(
                     declaration.uses_clauses(),
                 ),
             )
+            .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::CallableParameter => {
             let declaration = cast_node::<bray_syntax::ParameterSyntax>(view, "parameter");
@@ -485,11 +513,12 @@ fn declaration_surface_from_parts(
     constraints: impl IntoIterator<Item = SyntaxAnchor>,
     contract_clauses: impl IntoIterator<Item = SyntaxAnchor>,
 ) -> DeclarationSurface {
-    let (visibility, modifiers) = split_modifier_tokens(modifier_tokens);
+    let (visibility, modifiers, modifier_occurrences) = split_modifier_tokens(modifier_tokens);
 
     DeclarationSurface::new(
         visibility,
         modifiers,
+        modifier_occurrences,
         sorted_anchors(directives),
         sorted_anchors(constraints),
         sorted_anchors(contract_clauses),
@@ -498,9 +527,10 @@ fn declaration_surface_from_parts(
 
 fn split_modifier_tokens(
     tokens: impl IntoIterator<Item = SyntaxToken>,
-) -> (Option<SyntaxKind>, Vec<SyntaxKind>) {
+) -> (Option<SyntaxKind>, Vec<SyntaxKind>, Vec<SyntaxKind>) {
     let mut visibility = None;
     let mut modifiers = Vec::new();
+    let mut modifier_occurrences = Vec::new();
 
     for token in tokens {
         if token.is_missing() {
@@ -508,6 +538,8 @@ fn split_modifier_tokens(
         }
 
         let kind = token.kind();
+
+        modifier_occurrences.push(kind);
 
         if kind.is_visibility_modifier() {
             if visibility.is_none() {
@@ -520,7 +552,15 @@ fn split_modifier_tokens(
         modifiers.push(kind);
     }
 
-    (visibility, modifiers)
+    (visibility, modifiers, modifier_occurrences)
+}
+
+const fn body_kind(present: bool, kind: DeclarationBodyKind) -> DeclarationBodyKind {
+    if present {
+        kind
+    } else {
+        DeclarationBodyKind::None
+    }
 }
 
 fn module_directives(directives: bray_syntax::ModuleDirectivesSyntax) -> Vec<SyntaxAnchor> {

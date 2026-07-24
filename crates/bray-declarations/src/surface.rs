@@ -4,6 +4,13 @@ use bray_syntax::{
     walk_syntax_node,
 };
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum DeclarationBodyKind {
+    None,
+    Expression,
+    Block,
+}
+
 /// Stable source-backed reference to a syntax node used by later compiler phases.
 ///
 /// The source ID, syntax kind, and range correlate a declaration with parsed syntax.
@@ -78,17 +85,20 @@ impl SyntaxAnchor {
 pub struct DeclarationSurface {
     visibility: Option<SyntaxKind>,
     modifiers: Box<[SyntaxKind]>,
+    modifier_occurrences: Box<[SyntaxKind]>,
     directives: Box<[SyntaxAnchor]>,
     constraints: Box<[SyntaxAnchor]>,
     contract_clauses: Box<[SyntaxAnchor]>,
     runtime_default: Option<SyntaxAnchor>,
     overload_arms: Box<[SyntaxAnchor]>,
+    body_kind: DeclarationBodyKind,
 }
 
 impl DeclarationSurface {
     pub(crate) fn new(
         visibility: Option<SyntaxKind>,
         modifiers: impl IntoIterator<Item = SyntaxKind>,
+        modifier_occurrences: impl IntoIterator<Item = SyntaxKind>,
         directives: impl IntoIterator<Item = SyntaxAnchor>,
         constraints: impl IntoIterator<Item = SyntaxAnchor>,
         contract_clauses: impl IntoIterator<Item = SyntaxAnchor>,
@@ -96,11 +106,13 @@ impl DeclarationSurface {
         Self {
             visibility,
             modifiers: modifiers.into_iter().collect(),
+            modifier_occurrences: modifier_occurrences.into_iter().collect(),
             directives: directives.into_iter().collect(),
             constraints: constraints.into_iter().collect(),
             contract_clauses: contract_clauses.into_iter().collect(),
             runtime_default: None,
             overload_arms: Box::new([]),
+            body_kind: DeclarationBodyKind::None,
         }
     }
 
@@ -114,11 +126,18 @@ impl DeclarationSurface {
         overload_arms: impl IntoIterator<Item = SyntaxAnchor>,
     ) -> Self {
         self.overload_arms = overload_arms.into_iter().collect();
+
+        self
+    }
+
+    pub(crate) const fn with_body_kind(mut self, body_kind: DeclarationBodyKind) -> Self {
+        self.body_kind = body_kind;
+
         self
     }
 
     pub(crate) fn empty() -> Self {
-        Self::new(None, [], [], [], [])
+        Self::new(None, [], [], [], [], [])
     }
 
     /// Returns the declaration visibility token kind when one was present.
@@ -134,6 +153,10 @@ impl DeclarationSurface {
     /// Returns non-visibility modifier token kinds in source order.
     pub fn modifiers(&self) -> &[SyntaxKind] {
         &self.modifiers
+    }
+
+    pub(crate) fn modifier_occurrences(&self) -> &[SyntaxKind] {
+        &self.modifier_occurrences
     }
 
     /// Returns whether the declaration carries the `static` modifier.
@@ -164,6 +187,10 @@ impl DeclarationSurface {
     /// Returns overload arm path anchors in source order.
     pub fn overload_arms(&self) -> &[SyntaxAnchor] {
         &self.overload_arms
+    }
+
+    pub(crate) const fn body_kind(&self) -> DeclarationBodyKind {
+        self.body_kind
     }
 }
 

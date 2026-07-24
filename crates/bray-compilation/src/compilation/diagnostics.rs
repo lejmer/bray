@@ -10,7 +10,8 @@ use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, ModuleSurface,
-    ModuleSurfaceFact, SemanticFactResult, SymbolFactRequest, SymbolGraph, SymbolKey, SymbolOrigin,
+    ModuleSurfaceFact, NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest, SymbolGraph,
+    SymbolKey, SymbolOrigin, TypeAssociatedSurface,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -87,6 +88,24 @@ impl Compilation {
                 .map_err(super::binder::binder_fact_error)?;
 
             facts.push(SemanticDiagnosticFact::ModuleSurface(surface));
+        }
+
+        for subject in symbols
+            .structures()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .map(|symbol| NamedTypeSymbolId::from(symbol.id()))
+            .chain(
+                symbols
+                    .unions()
+                    .iter()
+                    .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+                    .map(|symbol| NamedTypeSymbolId::from(symbol.id())),
+            )
+        {
+            facts.push(SemanticDiagnosticFact::TypeSurface(
+                self.type_associated_surface_result(subject)?,
+            ));
         }
 
         while let Some((_, _, _, key)) = pending.pop_first() {
@@ -310,6 +329,7 @@ enum SemanticDiagnosticFact {
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
+    TypeSurface(Arc<DiagnosticResult<TypeAssociatedSurface>>),
 }
 
 impl SemanticDiagnosticFact {
@@ -325,6 +345,7 @@ impl SemanticDiagnosticFact {
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
+            Self::TypeSurface(result) => result.diagnostics(),
         }
     }
 }

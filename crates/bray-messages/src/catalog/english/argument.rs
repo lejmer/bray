@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use bray_diagnostics::{
-    DiagnosticAlignmentKind, DiagnosticArgValue, DiagnosticArtifactDigest,
+    DiagnosticAlignmentKind, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind, DiagnosticCallableAbi,
     DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticIoErrorKind,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticOutputSink,
@@ -10,7 +10,19 @@ use bray_diagnostics::{
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 use bray_syntax::SyntaxKind;
 
-pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
+pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) -> String {
+    if let DiagnosticArgValue::SyntaxKind(kind) = value {
+        match name {
+            DiagnosticArgName::ModifierKind | DiagnosticArgName::ConflictingModifierKind => {
+                return format_english_syntax_kind_without_suffix(*kind, "_keyword");
+            }
+            DiagnosticArgName::DirectiveKind | DiagnosticArgName::ConflictingDirectiveKind => {
+                return format_english_syntax_kind_without_suffix(*kind, "_directive");
+            }
+            _ => {}
+        }
+    }
+
     match value {
         DiagnosticArgValue::Count(count) => count.to_string(),
         DiagnosticArgValue::Byte(byte) => format!("0x{byte:02X}"),
@@ -279,6 +291,13 @@ fn format_english_character(character: char) -> String {
 
 fn format_english_syntax_kind(kind: SyntaxKind) -> String {
     kind.as_str().replace('_', " ")
+}
+
+fn format_english_syntax_kind_without_suffix(kind: SyntaxKind, suffix: &str) -> String {
+    kind.as_str()
+        .strip_suffix(suffix)
+        .unwrap_or(kind.as_str())
+        .replace('_', " ")
 }
 
 fn format_english_quoted_text(text: &str) -> String {

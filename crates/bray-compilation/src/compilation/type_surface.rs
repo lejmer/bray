@@ -1,4 +1,5 @@
 mod aggregation;
+mod diagnostic;
 mod index;
 mod query;
 

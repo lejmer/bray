@@ -10,6 +10,7 @@ use bray_syntax::SyntaxKind;
 use crate::name::DeclarationName;
 use crate::record::{ContainerKind, DeclarationKind, DeclarationRecord, ModulePartRecord};
 use crate::table::DeclarationTable;
+use crate::validation::{declaration_form_diagnostics, lifecycle_slot};
 
 #[derive(Clone, Copy)]
 pub(crate) enum DirectiveDiagnostics {
@@ -18,7 +19,7 @@ pub(crate) enum DirectiveDiagnostics {
 }
 
 impl DirectiveDiagnostics {
-    const fn validates(self) -> bool {
+    pub(crate) const fn validates(self) -> bool {
         matches!(self, Self::Selected)
     }
 }
@@ -30,6 +31,8 @@ pub(crate) fn declaration_diagnostics(
     let mut diagnostics = duplicate_name_diagnostics(table, directives);
 
     diagnostics.extend(module_surface_diagnostics(table, directives));
+    diagnostics.extend(declaration_form_diagnostics(table, directives));
+
     diagnostics.sort_by_key(|pending| {
         (
             pending.span.source_id(),
@@ -67,6 +70,10 @@ fn duplicate_name_diagnostics(
             let declaration = declaration(table, *declaration_id);
 
             if excluded_declarations.contains(&declaration.id()) {
+                continue;
+            }
+
+            if lifecycle_slot(declaration).is_some() {
                 continue;
             }
 
@@ -108,9 +115,7 @@ fn declaration_diagnostic_exclusions(
         .collect::<BTreeSet<_>>();
 
     for part in table.module_parts() {
-        if part.is_recovered()
-            || (!directives.validates() && !part.surface().directives().is_empty())
-        {
+        if module_part_diagnostics_are_indeterminate(part, directives) {
             declarations.extend(part.declarations());
         }
     }
@@ -122,6 +127,7 @@ fn declaration_diagnostic_exclusions(
 
     loop {
         let previous_len = containers.len();
+
         let descendants = table
             .containers()
             .iter()
@@ -143,12 +149,19 @@ fn declaration_diagnostic_exclusions(
     (declarations, containers)
 }
 
-fn declaration_diagnostics_are_indeterminate(
+pub(crate) fn declaration_diagnostics_are_indeterminate(
     declaration: &DeclarationRecord,
     directives: DirectiveDiagnostics,
 ) -> bool {
     declaration.is_recovered()
         || (!directives.validates() && !declaration.surface().directives().is_empty())
+}
+
+pub(crate) fn module_part_diagnostics_are_indeterminate(
+    part: &ModulePartRecord,
+    directives: DirectiveDiagnostics,
+) -> bool {
+    part.is_recovered() || (!directives.validates() && !part.surface().directives().is_empty())
 }
 
 fn module_surface_diagnostics(
@@ -162,10 +175,7 @@ fn module_surface_diagnostics(
             .module_parts()
             .iter()
             .map(|id| module_part(table, *id))
-            .filter(|part| {
-                !part.is_recovered()
-                    && (directives.validates() || part.surface().directives().is_empty())
-            });
+            .filter(|part| !module_part_diagnostics_are_indeterminate(part, directives));
 
         let Some(first) = parts.next() else {
             continue;
@@ -401,7 +411,10 @@ fn module_trust(part: &ModulePartRecord) -> DiagnosticModuleTrust {
     }
 }
 
-fn declaration(table: &DeclarationTable, id: crate::DeclarationId) -> &DeclarationRecord {
+pub(crate) fn declaration(
+    table: &DeclarationTable,
+    id: crate::DeclarationId,
+) -> &DeclarationRecord {
     match table.declaration(id) {
         Some(declaration) => declaration,
         None => panic!("container declaration ID must exist: {id:?}"),
@@ -415,21 +428,21 @@ fn module_part(table: &DeclarationTable, id: crate::ModulePartId) -> &ModulePart
     }
 }
 
-fn declaration_span(declaration: &DeclarationRecord) -> SourceSpan {
+pub(crate) fn declaration_span(declaration: &DeclarationRecord) -> SourceSpan {
     SourceSpan::new(declaration.source_id(), declaration.full_range())
 }
 
-fn module_part_span(part: &ModulePartRecord) -> SourceSpan {
+pub(crate) fn module_part_span(part: &ModulePartRecord) -> SourceSpan {
     SourceSpan::new(part.source_id(), part.full_range())
 }
 
-struct PendingDiagnostic {
+pub(crate) struct PendingDiagnostic {
     span: SourceSpan,
     diagnostic: Diagnostic,
 }
 
 impl PendingDiagnostic {
-    const fn new(span: SourceSpan, diagnostic: Diagnostic) -> Self {
+    pub(crate) const fn new(span: SourceSpan, diagnostic: Diagnostic) -> Self {
         Self { span, diagnostic }
     }
 }
@@ -445,7 +458,10 @@ mod tests {
     use crate::test_support::{
         parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test,
     };
-    use crate::{discover_source_unit_declarations, merge_declaration_chunks};
+    use crate::{
+        discover_source_unit_declarations, merge_declaration_chunks,
+        merge_selected_declaration_chunks,
+    };
 
     #[test]
     fn table_validation_reports_duplicate_names_in_each_declaration_domain() {
@@ -594,6 +610,145 @@ mod tests {
     }
 
     #[test]
+    fn table_validation_reports_modifier_directive_and_body_form_errors() {
+        let sources = source_store([concat!(
+            "module app;\n",
+            "public public func repeated()\n",
+            "{\n",
+            "}\n",
+            "@entrypoint @entrypoint func directed()\n",
+            "{\n",
+            "}\n",
+            "extern func external_with_body()\n",
+            "{\n",
+            "}\n",
+            "func missing_body();\n",
+            "predicate missing_predicate_body();\n",
+            "trusted predicate trusted_with_body() = true;\n",
+            "struct Resource\n",
+            "{\n",
+            "    static consume func invalid_receiver()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        )]);
+
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [
+                DiagnosticKind::DeclarationDuplicateModifier,
+                DiagnosticKind::DeclarationDuplicateDirective,
+                DiagnosticKind::DeclarationBodyNotAllowed,
+                DiagnosticKind::DeclarationBodyRequired,
+                DiagnosticKind::DeclarationBodyRequired,
+                DiagnosticKind::DeclarationBodyNotAllowed,
+                DiagnosticKind::DeclarationIncompatibleModifiers,
+            ]
+        );
+    }
+
+    #[test]
+    fn table_validation_reports_local_lifecycle_slot_conflicts() {
+        let sources = source_store([concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    finalize()\n",
+            "    {\n",
+            "    }\n",
+            "    finalize()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        )]);
+
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let result = merge_declaration_chunks([&chunk]);
+
+        let [diagnostic] = result.diagnostics().diagnostics() else {
+            panic!(
+                "expected one lifecycle-slot diagnostic: {:?}",
+                result.diagnostics()
+            );
+        };
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::DeclarationDuplicateLifecycleSlot
+        );
+
+        let [duplicate, first] = diagnostic.labels() else {
+            panic!("expected duplicate and first lifecycle labels: {diagnostic:?}");
+        };
+
+        assert_eq!(duplicate.kind(), DiagnosticLabelKind::DuplicateDeclaration);
+        assert_eq!(first.kind(), DiagnosticLabelKind::FirstDeclaration);
+    }
+
+    #[test]
+    fn table_validation_reports_contextual_declaration_form_errors() {
+        let sources = source_store([concat!(
+            "module app;\n",
+            "@link(name = \"native\")\n",
+            "func linked()\n",
+            "{\n",
+            "}\n",
+            "@entrypoint @test\n",
+            "func conflicting()\n",
+            "{\n",
+            "}\n",
+            "func misplaced(first: i32, pos second: i32)\n",
+            "{\n",
+            "}\n",
+            "impl Resource(Display)\n",
+            "{\n",
+            "    public func visible()\n",
+            "    {\n",
+            "    }\n",
+            "    construct() -> Self\n",
+            "    {\n",
+            "    }\n",
+            "    overload grouped = {visible};\n",
+            "}\n",
+        )]);
+
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [
+                DiagnosticKind::DeclarationInvalidDirectiveTarget,
+                DiagnosticKind::DeclarationIncompatibleDirectives,
+                DiagnosticKind::DeclarationInvalidParameterOrder,
+                DiagnosticKind::DeclarationInvalidModifier,
+                DiagnosticKind::DeclarationInvalidMemberPlacement,
+                DiagnosticKind::DeclarationInvalidMemberPlacement,
+            ]
+        );
+    }
+
+    #[test]
     fn table_validation_does_not_report_recovered_or_distinct_domain_names() {
         let sources = source_store([
             "module core; struct Point\nstruct Point {}",
@@ -624,7 +779,12 @@ mod tests {
         let sources = source_store([
             "module core { struct Point {} }",
             "@test internal module core { struct Point {} }",
-            "module other; struct Value {} @test struct Value {}",
+            concat!(
+                "module other;\n",
+                "struct Value {}\n",
+                "@test struct Value {}\n",
+                "@test func missing();\n",
+            ),
         ]);
 
         let ordinary = discover_source_unit_declarations(&parse_valid_source_unit_for_test(

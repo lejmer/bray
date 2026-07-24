@@ -526,6 +526,25 @@ mod tests {
             DiagnosticModuleTrust::Ordinary,
         ));
 
+        let modifier = Diagnostic::new(
+            DiagnosticId::new(14),
+            DiagnosticKind::DeclarationInvalidModifier,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::modifier_kind(SyntaxKind::PublicKeyword));
+
+        let directives = Diagnostic::new(
+            DiagnosticId::new(15),
+            DiagnosticKind::DeclarationIncompatibleDirectives,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::directive_kind(
+            SyntaxKind::EntrypointDirective,
+        ))
+        .with_arg(DiagnosticArg::conflicting_directive_kind(
+            SyntaxKind::TestDirective,
+        ));
+
         let renderer = DiagnosticRenderer::english();
         let duplicate = renderer.render(&duplicate);
 
@@ -546,6 +565,16 @@ mod tests {
         assert_eq!(
             renderer.render(&trust).message(),
             "module 'core' has conflicting trust state: expected trusted, found non-trusted"
+        );
+
+        assert_eq!(
+            renderer.render(&modifier).message(),
+            "public modifier is not valid on this declaration"
+        );
+
+        assert_eq!(
+            renderer.render(&directives).message(),
+            "entrypoint and test directives cannot be combined"
         );
     }
 

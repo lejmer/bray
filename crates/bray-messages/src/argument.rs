@@ -24,7 +24,7 @@ impl ArgumentFormatter {
     ) -> String {
         match args.iter().find(|arg| arg.name() == name) {
             Some(arg) => match self.locale {
-                DiagnosticLocale::English => format_english_value(arg.value()),
+                DiagnosticLocale::English => format_english_value(name, arg.value()),
             },
             None => format_missing_arg(name),
         }
