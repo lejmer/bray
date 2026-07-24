@@ -20,13 +20,13 @@ use super::definition::{
 };
 use crate::fact::{CancellationToken, CompilationFactKey, ConstantCallFactKey, FactQueryError};
 
-pub(super) struct CompilationConstantCallResolver<'compilation> {
+pub(in crate::compilation) struct CompilationConstantCallResolver<'compilation> {
     compilation: &'compilation Compilation,
     cancellation: &'compilation CancellationToken,
 }
 
 impl<'compilation> CompilationConstantCallResolver<'compilation> {
-    pub(super) const fn new(
+    pub(in crate::compilation) const fn new(
         compilation: &'compilation Compilation,
         cancellation: &'compilation CancellationToken,
     ) -> Self {

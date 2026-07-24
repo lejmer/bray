@@ -34,7 +34,9 @@ pub use context::{
 };
 pub use expression::NestedCallableEvidence;
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
-pub use pattern::{IterationPatternType, PatternCheckInput};
+pub use pattern::{
+    GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,
+};
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
     CallableCandidateTemplateState, CallableCandidateTemplates,

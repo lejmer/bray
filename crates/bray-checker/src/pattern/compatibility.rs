@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{BoundPattern, BoundPatternKind, BoundPatternTarget};
+use bray_bound_tree::{BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternTarget};
 use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::{
     AnySymbolId, ConstantTermData, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeFact,
@@ -11,7 +11,7 @@ use super::check::PatternChecker;
 use crate::constant::integer_to_usize;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
 
-impl<C> PatternChecker<'_, C>
+impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<StructFieldTypeFact>
@@ -20,9 +20,11 @@ where
 {
     pub(super) fn pattern_is_compatible(
         &self,
+        id: BoundPatternId,
         pattern: &BoundPattern,
         kind: BoundPatternKind,
         target: Option<BoundPatternTarget>,
+        subject_type: bray_symbols::TypeId,
         subject: &TypeData,
     ) -> Result<bool, CheckerInfrastructureError> {
         let compatible = match kind {
@@ -31,8 +33,13 @@ where
             | BoundPatternKind::Grouped
             | BoundPatternKind::Alternative
             | BoundPatternKind::Remaining
-            | BoundPatternKind::Error
-            | BoundPatternKind::Path => true,
+            | BoundPatternKind::Error => true,
+            BoundPatternKind::Path => {
+                self.constant_pattern_type(id, target)?
+                    .is_none_or(|constant_type| {
+                        matches!(subject, TypeData::Error) || constant_type == subject_type
+                    })
+            }
             BoundPatternKind::Literal => pattern
                 .literal()
                 .is_some_and(|literal| self.type_accepts_literal(subject, literal.kind())),
@@ -49,6 +56,66 @@ where
         };
 
         Ok(compatible)
+    }
+
+    fn constant_pattern_type(
+        &self,
+        pattern: BoundPatternId,
+        target: Option<BoundPatternTarget>,
+    ) -> Result<Option<bray_symbols::TypeId>, CheckerInfrastructureError> {
+        if !target.is_some_and(BoundPatternTarget::is_constant) {
+            return Ok(None);
+        }
+
+        let Some(evidence) = self.constant_patterns.get(&pattern) else {
+            return Ok(None);
+        };
+
+        let term = self
+            .request
+            .semantic_values()
+            .constant_term_data(evidence.term())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let is_error = match term.as_ref() {
+            ConstantTermData::Value(value) => self
+                .request
+                .semantic_values()
+                .constant_value_data(*value)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+                .map(|value| matches!(value.kind(), ConstantValueKind::Error))?,
+            _ => false,
+        };
+
+        Ok((!is_error).then_some(evidence.ty()))
+    }
+
+    pub(super) fn constant_pattern_is_recovered(
+        &self,
+        pattern: BoundPatternId,
+        target: Option<BoundPatternTarget>,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        let Some(evidence) = self.constant_patterns.get(&pattern) else {
+            return Ok(target.is_some_and(BoundPatternTarget::is_constant));
+        };
+
+        let term = self
+            .request
+            .semantic_values()
+            .constant_term_data(evidence.term())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let ConstantTermData::Value(value) = term.as_ref() else {
+            return Ok(false);
+        };
+
+        let value = self
+            .request
+            .semantic_values()
+            .constant_value_data(*value)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        Ok(matches!(value.kind(), ConstantValueKind::Error))
     }
 
     fn product_shape_is_compatible(&self, pattern: &BoundPattern, subject: &TypeData) -> bool {

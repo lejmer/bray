@@ -9,17 +9,19 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{Diagnostic, DiagnosticKind, SeverityKind};
 use bray_source::TextRange;
 use bray_symbols::{
-    AnySymbolId, NamedTypeSymbolId, StructFieldTypeFact, TypeData, UnionPayloadFieldTypeFact,
-    UnionVariantSymbolId,
+    AnySymbolId, ConstantValueData, ConstantValueId, ConstantValueKind, NamedTypeSymbolId,
+    StructFieldTypeFact, TypeData, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
 };
 
 use super::check::{PatternChecker, effective_pattern_kind};
+use crate::constant::check_constant_literal;
 use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::representation::type_representation;
 use crate::{
     CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
 };
 
-impl<C> PatternChecker<'_, C>
+impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<StructFieldTypeFact>
@@ -96,9 +98,11 @@ where
                 .patterns
                 .get(&arm.pattern())
                 .is_none_or(|pattern| pattern.is_recovered());
+
+            recovered |= arm_coverage.is_unknown && guard != GuardTruth::False;
         }
 
-        let exhaustive = covered.is_exhaustive(self.request, subject_data.as_ref());
+        let exhaustive = covered.is_exhaustive(self.request, subject_data.as_ref())?;
 
         if !exhaustive && !recovered && !matches!(subject_data.as_ref(), TypeData::Error) {
             let span = expression_span(self.request, expression_id)?;
@@ -123,7 +127,7 @@ where
         Ok(())
     }
 
-    fn coverage(&self, id: BoundPatternId) -> Result<Coverage, CheckerInfrastructureError> {
+    fn coverage(&mut self, id: BoundPatternId) -> Result<Coverage, CheckerInfrastructureError> {
         let Some(pattern) = self.request.view().pattern(id) else {
             return Err(CheckerInfrastructureError::InvalidBoundNode { node: id.into() });
         };
@@ -143,7 +147,8 @@ where
         let kind = effective_pattern_kind(pattern, checked.target());
 
         let coverage = match kind {
-            BoundPatternKind::Literal => self.literal_coverage(pattern)?,
+            BoundPatternKind::Literal => self.literal_coverage(pattern, checked.input_type())?,
+            BoundPatternKind::Path => self.constant_coverage(id)?,
             BoundPatternKind::NullableAbsent => Coverage::nullable_absent(),
             BoundPatternKind::NullablePresent => {
                 let mut contained = Coverage::default();
@@ -166,7 +171,17 @@ where
                 let mut coverage = Coverage::default();
 
                 for child in pattern.children() {
-                    coverage.merge(&self.coverage(*child)?);
+                    let alternative = self.coverage(*child)?;
+
+                    if coverage.contains(&alternative) {
+                        self.report(
+                            *child,
+                            DiagnosticKind::CheckingUnreachablePatternAlternative,
+                            SeverityKind::Warning,
+                        )?;
+                    } else {
+                        coverage.merge(&alternative);
+                    }
                 }
 
                 coverage
@@ -188,21 +203,71 @@ where
     fn literal_coverage(
         &self,
         pattern: &BoundPattern,
+        input_type: bray_symbols::TypeId,
     ) -> Result<Coverage, CheckerInfrastructureError> {
         let Some(literal) = pattern.literal() else {
-            return Ok(Coverage::default());
+            return Ok(Coverage::unknown());
         };
 
-        if literal.kind() != bray_bound_tree::BoundLiteralKind::Boolean {
-            return Ok(Coverage::default());
+        let source = self.request.source(pattern.origin().source_anchor())?;
+
+        let Some(spelling) = source.text_for_range(literal.range()) else {
+            return Err(CheckerInfrastructureError::InvalidSourceRange {
+                span: bray_source::SourceSpan::new(source.span().source_id(), literal.range()),
+            });
+        };
+
+        let Some(representation) = type_representation(self.request, input_type)? else {
+            return Ok(Coverage::unknown());
+        };
+
+        let Ok(value) = check_constant_literal(literal.kind(), spelling, representation, || {
+            self.request
+                .selected_target()
+                .machine()
+                .pointer_width_bits()
+        }) else {
+            return Ok(Coverage::unknown());
+        };
+
+        let value = self
+            .request
+            .semantic_values()
+            .intern_constant_value(ConstantValueData::new(input_type, value))
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        Ok(Coverage::constant(value))
+    }
+
+    fn constant_coverage(
+        &self,
+        pattern: BoundPatternId,
+    ) -> Result<Coverage, CheckerInfrastructureError> {
+        let Some(evidence) = self.constant_patterns.get(&pattern) else {
+            return Ok(Coverage::unknown());
+        };
+
+        let term = self
+            .request
+            .semantic_values()
+            .constant_term_data(evidence.term())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
+            return Ok(Coverage::unknown());
+        };
+
+        let data = self
+            .request
+            .semantic_values()
+            .constant_value_data(*value)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        if matches!(data.kind(), ConstantValueKind::Error) {
+            return Ok(Coverage::unknown());
         }
 
-        Ok(
-            match self.boolean_literal_value(pattern.origin(), literal.range())? {
-                Some(value) => Coverage::boolean(value),
-                None => Coverage::default(),
-            },
-        )
+        Ok(Coverage::constant(*value))
     }
 
     fn guard_truth(
@@ -212,6 +277,20 @@ where
         let Some(guard) = guard else {
             return Ok(GuardTruth::True);
         };
+
+        if let Some(value) = self.constant_guards.get(&guard) {
+            let value = self
+                .request
+                .semantic_values()
+                .constant_value_data(*value)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+            return Ok(match value.kind() {
+                ConstantValueKind::Boolean(true) => GuardTruth::True,
+                ConstantValueKind::Boolean(false) => GuardTruth::False,
+                _ => GuardTruth::Unknown,
+            });
+        }
 
         let Some(BoundExpression::Literal(literal)) = self.request.view().expression(guard) else {
             return Ok(GuardTruth::Unknown);
@@ -255,16 +334,14 @@ enum GuardTruth {
 #[derive(Clone, Debug, Default)]
 struct Coverage {
     is_total: bool,
-    booleans: u8,
+    is_unknown: bool,
+    constants: BTreeSet<ConstantValueId>,
     nullable_absent: bool,
     nullable_present: Option<Box<Coverage>>,
     variants: BTreeSet<UnionVariantSymbolId>,
 }
 
 impl Coverage {
-    const FALSE: u8 = 1;
-    const TRUE: u8 = 2;
-
     fn total() -> Self {
         Self {
             is_total: true,
@@ -272,9 +349,16 @@ impl Coverage {
         }
     }
 
-    fn boolean(value: bool) -> Self {
+    fn unknown() -> Self {
         Self {
-            booleans: if value { Self::TRUE } else { Self::FALSE },
+            is_unknown: true,
+            ..Self::default()
+        }
+    }
+
+    fn constant(value: ConstantValueId) -> Self {
+        Self {
+            constants: BTreeSet::from([value]),
             ..Self::default()
         }
     }
@@ -302,7 +386,8 @@ impl Coverage {
 
     fn merge(&mut self, other: &Self) {
         self.is_total |= other.is_total;
-        self.booleans |= other.booleans;
+        self.is_unknown |= other.is_unknown;
+        self.constants.extend(other.constants.iter().copied());
         self.nullable_absent |= other.nullable_absent;
 
         match (&mut self.nullable_present, &other.nullable_present) {
@@ -320,14 +405,14 @@ impl Coverage {
     }
 
     fn contains(&self, other: &Self) -> bool {
-        if other.is_empty() {
+        if other.is_empty() || other.is_unknown {
             return false;
         }
 
         other.is_total && self.is_total
             || !other.is_total
                 && (self.is_total
-                    || self.booleans & other.booleans == other.booleans
+                    || other.constants.is_subset(&self.constants)
                         && (!other.nullable_absent || self.nullable_absent)
                         && nullable_contains(
                             self.nullable_present.as_deref(),
@@ -338,30 +423,37 @@ impl Coverage {
 
     fn is_empty(&self) -> bool {
         !self.is_total
-            && self.booleans == 0
+            && !self.is_unknown
+            && self.constants.is_empty()
             && !self.nullable_absent
             && self.nullable_present.is_none()
             && self.variants.is_empty()
     }
 
-    fn is_exhaustive<C>(&self, request: CheckerUnitView<'_, C>, subject: &TypeData) -> bool
+    fn is_exhaustive<C>(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        subject: &TypeData,
+    ) -> Result<bool, CheckerInfrastructureError>
     where
         C: CheckerRequestContext + ?Sized,
     {
         if self.is_total {
-            return true;
+            return Ok(true);
         }
 
-        match subject {
+        let is_exhaustive = match subject {
             TypeData::Nullable(target) => {
-                self.nullable_absent
-                    && self.nullable_present.as_deref().is_some_and(|coverage| {
-                        let Ok(target) = request.semantic_values().type_data(*target) else {
-                            return false;
-                        };
+                let Some(coverage) = self.nullable_present.as_deref() else {
+                    return Ok(false);
+                };
 
-                        coverage.is_exhaustive(request, target.as_ref())
-                    })
+                let target = request
+                    .semantic_values()
+                    .type_data(*target)
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                self.nullable_absent && coverage.is_exhaustive(request, target.as_ref())?
             }
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
@@ -372,17 +464,37 @@ impl Coverage {
                     .iter()
                     .all(|variant| self.variants.contains(variant))
             }),
-            TypeData::Named { definition, .. } => request
-                .available_compiler_known_symbols()
-                .representation_symbol::<bray_symbols::StructSymbolId>(
-                    RepresentationRole::ScalarBool,
-                )
-                .is_some_and(|boolean| {
-                    *definition == NamedTypeSymbolId::Struct(boolean)
-                        && self.booleans == Self::FALSE | Self::TRUE
-                }),
+            TypeData::Named { definition, .. } => {
+                let is_boolean = request
+                    .available_compiler_known_symbols()
+                    .representation_symbol::<bray_symbols::StructSymbolId>(
+                        RepresentationRole::ScalarBool,
+                    )
+                    .is_some_and(|boolean| *definition == NamedTypeSymbolId::Struct(boolean));
+
+                if !is_boolean {
+                    return Ok(false);
+                }
+
+                let mut values = BTreeSet::new();
+
+                for value in &self.constants {
+                    let value = request
+                        .semantic_values()
+                        .constant_value_data(*value)
+                        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                    if let ConstantValueKind::Boolean(value) = value.kind() {
+                        values.insert(*value);
+                    }
+                }
+
+                values == BTreeSet::from([false, true])
+            }
             _ => false,
-        }
+        };
+
+        Ok(is_exhaustive)
     }
 }
 

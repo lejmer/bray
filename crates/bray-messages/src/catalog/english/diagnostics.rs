@@ -321,6 +321,11 @@ const CHECKING_NON_EXHAUSTIVE_MATCH: &[MessageTemplatePart] = &[MessageTemplateP
 const CHECKING_UNREACHABLE_MATCH_ARM: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("match arm is unreachable")];
 
+const CHECKING_UNREACHABLE_PATTERN_ALTERNATIVE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "pattern alternative is unreachable",
+    )];
+
 const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("cannot infer expression type")];
 
@@ -622,6 +627,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingUnreachableMatchArm => {
             MessageTemplate::new(CHECKING_UNREACHABLE_MATCH_ARM)
+        }
+        DiagnosticKind::CheckingUnreachablePatternAlternative => {
+            MessageTemplate::new(CHECKING_UNREACHABLE_PATTERN_ALTERNATIVE)
         }
         DiagnosticKind::CheckingCannotInferExpressionType => {
             MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)

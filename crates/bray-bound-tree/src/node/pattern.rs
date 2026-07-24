@@ -63,6 +63,21 @@ pub enum BoundPatternTarget {
     Surface(AnySymbolId),
 }
 
+impl BoundPatternTarget {
+    /// Returns whether this target denotes a local or declaration-level constant.
+    pub const fn is_constant(self) -> bool {
+        matches!(
+            self,
+            Self::Local(AnyLocalSymbolId::Constant(_))
+                | Self::Surface(
+                    AnySymbolId::Constant(_)
+                        | AnySymbolId::TraitConstantMember(_)
+                        | AnySymbolId::TraitConstantFulfillment(_)
+                )
+        )
+    }
+}
+
 /// A literal retained by a source pattern.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundPatternLiteral {
