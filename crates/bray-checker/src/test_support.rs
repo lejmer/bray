@@ -531,11 +531,21 @@ pub(crate) fn error_type() -> TypeId {
 }
 
 pub(crate) fn distinct_source_origins() -> [BoundNodeOrigin; 2] {
+    let [source, module, _] = test_source_origins();
+
+    [source, module]
+}
+
+pub(crate) fn test_source_origins() -> [BoundNodeOrigin; 3] {
     let parsed = parse_source_unit(source_snapshot());
     let source_unit = parsed.source_unit();
 
     let Some(module) = source_unit.source_unit_module_declaration() else {
         panic!("test source must contain its module declaration");
+    };
+
+    let Some(function) = source_unit.function_declarations().next() else {
+        panic!("test source must contain its function declaration");
     };
 
     let source = BoundSourceAnchor::new(
@@ -548,9 +558,15 @@ pub(crate) fn distinct_source_origins() -> [BoundNodeOrigin; 2] {
         source_snapshot().version(),
     );
 
+    let function = BoundSourceAnchor::new(
+        SyntaxAnchor::from_node(&function),
+        source_snapshot().version(),
+    );
+
     [
         BoundNodeOrigin::source(source),
         BoundNodeOrigin::source(module),
+        BoundNodeOrigin::source(function),
     ]
 }
 
@@ -560,7 +576,7 @@ fn source() -> Result<SourceSnapshot, TextSizeOverflow> {
         SourceIdentity::new(0),
         SourceOrigin::virtual_source("checker-test"),
         SourceVersion::new(1),
-        "module example;",
+        "module example;\nfunc main() {}\n",
     )
 }
 

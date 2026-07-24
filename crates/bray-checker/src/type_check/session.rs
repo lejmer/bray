@@ -16,6 +16,7 @@ use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
 use super::literal::{adapt_contextual_literals, apply_literal_defaults};
 use super::propagation::propagate_dynamic_constraints;
+use super::region::{ResultRegions, initialize_result_regions};
 use super::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 
 pub(crate) enum SessionProgress<T> {
@@ -52,6 +53,7 @@ where
     variables: BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: BTreeMap<BoundBlockId, BoundExpressionId>,
+    result_regions: ResultRegions,
     types: ExpressionTypeDependencies,
     inference: TypeInferenceContext,
 }
@@ -96,11 +98,21 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
+        let result_regions = initialize_result_regions(
+            request,
+            &nodes.expressions,
+            &nodes.blocks,
+            &block_variables,
+            &block_owners,
+            &mut inference,
+        )?;
+
         if !add_relationship_constraints(
             request,
             &nodes.expressions,
             &variables,
             &block_variables,
+            &result_regions,
             &types,
             &mut inference,
         ) {
@@ -121,6 +133,7 @@ where
             variables,
             block_variables,
             block_owners,
+            result_regions,
             types,
             inference,
         }))
@@ -245,6 +258,7 @@ where
                 &self.variables,
                 &self.block_variables,
                 &self.block_owners,
+                &self.result_regions,
                 &self.types,
                 &mut self.inference,
             )?

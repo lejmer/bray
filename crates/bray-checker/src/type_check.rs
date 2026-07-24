@@ -1,3 +1,4 @@
+mod cardinality;
 mod check;
 mod constraints;
 mod dependencies;
@@ -5,6 +6,7 @@ mod inference;
 mod input;
 mod literal;
 mod propagation;
+mod region;
 mod session;
 
 pub(crate) use check::diagnostic_type;

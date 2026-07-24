@@ -61,7 +61,8 @@ pub(crate) enum ExpectedSemanticKind {
 pub(crate) enum ControlTargetKind {
     Callable,
     Loop,
-    Generator,
+    GeneratorIteration,
+    GeneratorRegion,
     Block,
 }
 
@@ -238,11 +239,18 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
     }
 
     pub(crate) fn control_target_of_kind(&self, kind: ControlTargetKind) -> Option<ControlTarget> {
+        self.control_target_of_kinds(&[kind])
+    }
+
+    pub(crate) fn control_target_of_kinds(
+        &self,
+        kinds: &[ControlTargetKind],
+    ) -> Option<ControlTarget> {
         self.control_targets
             .iter()
             .rev()
             .copied()
-            .find(|target| target.kind() == kind)
+            .find(|target| kinds.contains(&target.kind()))
     }
 
     pub(crate) fn record_value_type(&mut self, target: BoundReferenceTarget, ty: TypeId) {

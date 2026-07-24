@@ -99,15 +99,18 @@ where
     C: BinderFactContext + ?Sized,
 {
     let target = match kind {
-        BoundControlTransferKind::Yield => binder
-            .control_target_of_kind(ControlTargetKind::Generator)
-            .or_else(|| binder.control_target_of_kind(ControlTargetKind::Block)),
+        BoundControlTransferKind::Yield => binder.control_target_of_kinds(&[
+            ControlTargetKind::GeneratorRegion,
+            ControlTargetKind::Block,
+        ]),
         BoundControlTransferKind::Return => {
             binder.control_target_of_kind(ControlTargetKind::Callable)
         }
         BoundControlTransferKind::Break | BoundControlTransferKind::Continue => binder
-            .control_target_of_kind(ControlTargetKind::Generator)
-            .or_else(|| binder.control_target_of_kind(ControlTargetKind::Loop)),
+            .control_target_of_kinds(&[
+                ControlTargetKind::GeneratorIteration,
+                ControlTargetKind::Loop,
+            ]),
     };
 
     target.map(ControlTarget::syntax)

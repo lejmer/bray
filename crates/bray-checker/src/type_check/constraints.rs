@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId, BoundLiteralKind,
-    BoundStructuredExpressionKind,
+    BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
+    BoundLiteralKind, BoundStructuredExpressionKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
@@ -13,6 +13,7 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
+use super::region::{ResultRegionKind, ResultRegions};
 
 pub(super) fn add_intrinsic_constraints(
     expression: &BoundExpression,
@@ -42,8 +43,8 @@ pub(super) fn add_intrinsic_constraints(
                 inference.add_evidence(variable, target, expression_id);
             }
         }
-        BoundExpression::ControlTransfer(_) => {
-            inference.add_evidence(variable, types.never, expression_id);
+        BoundExpression::Generator(_) => {
+            inference.add_evidence(variable, types.unit, expression_id);
         }
         BoundExpression::Structured(structured) => match structured.kind() {
             BoundStructuredExpressionKind::Unit | BoundStructuredExpressionKind::Assertion => {
@@ -63,6 +64,7 @@ pub(super) fn add_relationship_constraints<C>(
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
+    result_regions: &ResultRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> bool
@@ -83,9 +85,44 @@ where
         };
 
         match expression {
+            BoundExpression::ControlTransfer(transfer) => {
+                let ty = match transfer.kind() {
+                    BoundControlTransferKind::Yield => transfer
+                        .target()
+                        .and_then(|target| result_regions.get(&target))
+                        .map_or(types.never, |region| match region.kind() {
+                            ResultRegionKind::SingleYield => types.never,
+                            ResultRegionKind::ArrayGenerator
+                            | ResultRegionKind::GeneralGenerator => types.unit,
+                        }),
+                    BoundControlTransferKind::Return
+                    | BoundControlTransferKind::Break
+                    | BoundControlTransferKind::Continue => types.never,
+                };
+
+                inference.add_evidence(variable, ty, expression_id);
+            }
             BoundExpression::Block(block) => {
                 if let Some(block_variable) = block_variables.get(&block.block()).copied() {
                     inference.unify(variable, block_variable, expression_id);
+                }
+            }
+            BoundExpression::Match(expression) => {
+                for arm in expression.arms() {
+                    add_operand_expectation(arm.guard(), Some(types.boolean), variables, inference);
+
+                    if let Some(block_variable) = block_variables.get(&arm.body()).copied() {
+                        inference.unify(variable, block_variable, expression_id);
+                    }
+                }
+            }
+            BoundExpression::For(expression) => {
+                if let Some(else_block) = expression.else_body()
+                    && let Some(block_variable) = block_variables.get(&else_block).copied()
+                {
+                    inference.unify(variable, block_variable, expression_id);
+                } else {
+                    inference.add_evidence(variable, types.unit, expression_id);
                 }
             }
             BoundExpression::Structured(structured)
@@ -132,6 +169,15 @@ where
                 inference.add_evidence(variable, types.never, expression_id);
             }
             BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::With =>
+            {
+                if let Some(block) = structured.blocks().first()
+                    && let Some(block_variable) = block_variables.get(block).copied()
+                {
+                    inference.unify(variable, block_variable, expression_id);
+                }
+            }
+            BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::TrustBoundary =>
             {
                 if let Some(operand) = structured.operands().first()
@@ -154,6 +200,7 @@ where
                     variables,
                     inference,
                 );
+
                 add_operand_expectation(
                     structured.operands().get(1).copied(),
                     Some(types.string),

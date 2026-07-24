@@ -1,9 +1,13 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundGeneratorExpression, BoundIterationSource,
+    BoundStructuredExpression, BoundStructuredExpressionKind,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId};
-use bray_syntax::GeneratorIterationExpressionSyntax;
+use bray_syntax::{
+    GeneratorIterationExpressionSyntax, SourceSyntaxNode, SyntaxNodeView, SyntaxWalkRoot,
+    syntax_node_view,
+};
 
 use super::ExpressionBinder;
 use super::support::iteration_source_mode;
@@ -12,12 +16,37 @@ use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode
 use crate::binding::BindingResult;
 
 impl ExpressionBinder {
+    pub(super) fn bind_generator_region<C, S>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        scope: LocalScopeId,
+        syntax: &S,
+        iteration: &GeneratorIterationExpressionSyntax,
+        kind: BoundStructuredExpressionKind,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+        S: SourceSyntaxNode + SyntaxWalkRoot,
+    {
+        let region = SyntaxAnchor::from_node(syntax);
+        let target = ControlTarget::new(ControlTargetKind::GeneratorRegion, region, None);
+
+        binder.push_control_target(target);
+
+        let iteration = self.bind_generator_iteration(binder, scope, iteration);
+
+        if binder.pop_control_target() != Some(target) {
+            return Err(crate::binding::BindingError::ControlTargetMismatch);
+        }
+
+        self.push_generator_region(binder, syntax_node_view(syntax), iteration?, kind)
+    }
+
     pub(super) fn bind_generator_iteration<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &GeneratorIterationExpressionSyntax,
-        region: SyntaxAnchor,
     ) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
@@ -46,11 +75,12 @@ impl ExpressionBinder {
 
         binder.activate_pattern_bindings(pattern_scope, &pattern)?;
 
-        let target = ControlTarget::new(ControlTargetKind::Generator, region, None);
+        let region = SyntaxAnchor::from_node(syntax);
+        let target = ControlTarget::new(ControlTargetKind::GeneratorIteration, region, None);
 
         binder.push_control_target(target);
 
-        let body = binder.bind_block(pattern_scope, &syntax.block_expression(), self);
+        let body = binder.bind_non_yielding_block(pattern_scope, &syntax.block_expression(), self);
 
         if binder.pop_control_target() != Some(target) {
             return Err(crate::binding::BindingError::ControlTargetMismatch);
@@ -76,5 +106,30 @@ impl ExpressionBinder {
         );
 
         self.push(binder, BoundExpression::Generator(expression))
+    }
+
+    fn push_generator_region<C>(
+        &self,
+        binder: &mut Binder<'_, C>,
+        syntax: SyntaxNodeView<'_>,
+        iteration: BoundExpressionId,
+        kind: BoundStructuredExpressionKind,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let is_recovered = syntax.is_recovered() || binder.expression_is_recovered(iteration);
+
+        let expression = BoundStructuredExpression::new(
+            binder.source_origin(&syntax),
+            kind,
+            [iteration],
+            [],
+            [],
+            None,
+            is_recovered,
+        );
+
+        self.push(binder, BoundExpression::Structured(expression))
     }
 }

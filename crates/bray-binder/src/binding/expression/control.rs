@@ -60,7 +60,7 @@ impl ExpressionBinder {
         for (index, block) in syntax.block_expressions().enumerate() {
             let block_scope = if index == 0 { pattern_scope } else { scope };
 
-            match binder.bind_block(block_scope, &block, self) {
+            match binder.bind_non_yielding_block(block_scope, &block, self) {
                 Ok(block) => blocks.push(block),
                 Err(error) => {
                     failure = Some(error);

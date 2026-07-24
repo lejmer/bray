@@ -313,6 +313,7 @@ impl DiagnosticTypeJson {
             DiagnosticType::Tuple(count) => ("tuple", Some(count)),
             DiagnosticType::Array => ("array", None),
             DiagnosticType::Slice => ("slice", None),
+            DiagnosticType::Generator => ("generator", None),
             DiagnosticType::Nullable => ("nullable", None),
             DiagnosticType::Borrow => ("borrow", None),
             DiagnosticType::TraitView => ("trait_view", None),

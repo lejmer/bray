@@ -4,15 +4,19 @@ use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundStructuredExpressionKind, BoundUnitView,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    ConstantTermData, IntegerConstant, IntegerSign, TargetSizedIntegerType, TypeData, TypeId,
+    ConstantTermData, GenericArgument, IntegerConstant, IntegerSign, TargetSizedIntegerType,
+    TypeData, TypeId,
 };
 
+use crate::representation::{representation_type, representation_union_type, type_representation};
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::constraints::add_operand_expectation;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
+use super::region::{ResultRegionKind, ResultRegions};
 
 pub(super) fn propagate_dynamic_constraints<C>(
     request: CheckerUnitView<'_, C>,
@@ -20,6 +24,7 @@ pub(super) fn propagate_dynamic_constraints<C>(
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
+    result_regions: &ResultRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<Option<bool>, CheckerInfrastructureError>
@@ -61,7 +66,7 @@ where
             request.view(),
             expression_id,
             variables,
-            block_variables,
+            result_regions,
             types,
             inference,
         );
@@ -87,6 +92,31 @@ where
                 expression.operands(),
                 variables,
                 types,
+                inference,
+            )?,
+            BoundStructuredExpressionKind::ArrayGenerator => infer_array_generator(
+                request,
+                expression_id,
+                expression,
+                variables,
+                result_regions,
+                types,
+                inference,
+            )?,
+            BoundStructuredExpressionKind::GeneralGenerator => infer_general_generator(
+                request,
+                expression_id,
+                expression,
+                variables,
+                result_regions,
+                inference,
+            )?,
+            BoundStructuredExpressionKind::Catch => infer_catch(
+                request,
+                expression_id,
+                expression,
+                variables,
+                block_variables,
                 inference,
             )?,
             _ => {}
@@ -145,7 +175,7 @@ fn propagate_control_transfer(
     view: BoundUnitView<'_>,
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
+    result_regions: &ResultRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
@@ -159,35 +189,24 @@ fn propagate_control_transfer(
 
     match transfer.kind() {
         BoundControlTransferKind::Yield => {
-            for (&block_id, &block_variable) in block_variables {
-                let Some(block) = view.block(block_id) else {
-                    continue;
-                };
-
-                if block.origin().source_anchor().syntax() == target {
-                    add_transfer_value(
-                        block_variable,
-                        transfer.operand(),
-                        expression_id,
-                        variables,
-                        types,
-                        inference,
-                    );
-                }
+            if let Some(region) = result_regions.get(&target) {
+                add_transfer_value(
+                    region.variable(),
+                    transfer.operand(),
+                    expression_id,
+                    variables,
+                    types,
+                    inference,
+                );
             }
         }
         BoundControlTransferKind::Break => {
             for (&candidate, &candidate_variable) in variables {
-                let Some(BoundExpression::Structured(loop_expression)) = view.expression(candidate)
-                else {
+                let Some(expression) = view.expression(candidate) else {
                     continue;
                 };
 
-                if matches!(
-                    loop_expression.kind(),
-                    BoundStructuredExpressionKind::Loop | BoundStructuredExpressionKind::While
-                ) && loop_expression.origin().source_anchor().syntax() == target
-                {
+                if break_target(expression) == Some(target) {
                     add_transfer_value(
                         candidate_variable,
                         transfer.operand(),
@@ -200,6 +219,22 @@ fn propagate_control_transfer(
             }
         }
         BoundControlTransferKind::Return | BoundControlTransferKind::Continue => {}
+    }
+}
+
+fn break_target(expression: &BoundExpression) -> Option<bray_declarations::SyntaxAnchor> {
+    match expression {
+        BoundExpression::Structured(expression)
+            if matches!(
+                expression.kind(),
+                BoundStructuredExpressionKind::Loop | BoundStructuredExpressionKind::While
+            ) =>
+        {
+            Some(expression.origin().source_anchor().syntax())
+        }
+        BoundExpression::For(expression) => Some(expression.origin().source_anchor().syntax()),
+        BoundExpression::Generator(expression) => Some(expression.region()),
+        _ => None,
     }
 }
 
@@ -317,6 +352,302 @@ where
     add_aggregate_evidence(expression_id, ty, operands, variables, inference);
 
     Ok(())
+}
+
+fn infer_general_generator<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    result_regions: &ResultRegions,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let Some(region) = result_regions
+        .get(&expression.origin().source_anchor().syntax())
+        .copied()
+        .filter(|region| {
+            region.owner() == expression_id && region.kind() == ResultRegionKind::GeneralGenerator
+        })
+    else {
+        return Ok(());
+    };
+
+    if let Some(expected) = expected_generator_element(request, variable, inference)? {
+        inference.add_expectation(region.variable(), expected, expression_id);
+    }
+
+    let Some(element) = inference.evidence(region.variable()) else {
+        return Ok(());
+    };
+
+    let ty = request
+        .semantic_values()
+        .intern_type(TypeData::Generator(element))
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    inference.add_evidence(variable, ty, expression_id);
+
+    Ok(())
+}
+
+fn infer_catch<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let success = expression
+        .operands()
+        .first()
+        .and_then(|operand| variables.get(operand))
+        .copied()
+        .or_else(|| {
+            expression
+                .blocks()
+                .first()
+                .and_then(|block| block_variables.get(block))
+                .copied()
+        });
+
+    let Some(success) = success else {
+        return Ok(());
+    };
+
+    if let Some(expected) = expected_catch_success(request, variable, inference)? {
+        inference.add_expectation(success, expected, expression_id);
+    }
+
+    let Some(success_type) = inference.evidence(success) else {
+        return Ok(());
+    };
+
+    let panic_report = representation_type(request, RepresentationRole::PanicReport)?;
+
+    let result = representation_union_type(
+        request,
+        RepresentationRole::Result,
+        [success_type, panic_report],
+    )?;
+
+    inference.add_evidence(variable, result, expression_id);
+
+    Ok(())
+}
+
+fn expected_catch_success<C>(
+    request: CheckerUnitView<'_, C>,
+    variable: InferenceTypeId,
+    inference: &mut TypeInferenceContext,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+        type_representation(request, ty).map(|role| role == Some(RepresentationRole::Result))
+    })?;
+
+    let Some(expected) = expected else {
+        return Ok(None);
+    };
+
+    let data = request
+        .semantic_values()
+        .type_data(expected)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Named { substitution, .. } = data.as_ref() else {
+        return Ok(None);
+    };
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(*substitution)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    match substitution
+        .bindings()
+        .first()
+        .map(|binding| binding.argument())
+    {
+        Some(GenericArgument::Type(success)) => Ok(Some(success)),
+        Some(GenericArgument::Constant(_)) | None => Ok(None),
+    }
+}
+
+fn infer_array_generator<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    result_regions: &ResultRegions,
+    types: &ExpressionTypeDependencies,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let Some(region) = result_regions
+        .get(&expression.origin().source_anchor().syntax())
+        .copied()
+        .filter(|region| {
+            region.owner() == expression_id && region.kind() == ResultRegionKind::ArrayGenerator
+        })
+    else {
+        return Ok(());
+    };
+
+    if let Some((ty, element)) = expected_array(request, variable, inference)? {
+        inference.add_expectation(region.variable(), element, expression_id);
+        inference.add_evidence(variable, ty, expression_id);
+
+        return Ok(());
+    }
+
+    let Some(element) = inference.evidence(region.variable()) else {
+        return Ok(());
+    };
+
+    let Some(length) = generator_source_array_length(request, expression, variables, inference)?
+    else {
+        return Ok(());
+    };
+
+    let ty = request
+        .semantic_values()
+        .intern_type(TypeData::Array { element, length })
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    add_aggregate_evidence(
+        expression_id,
+        ty,
+        expression.operands(),
+        variables,
+        inference,
+    );
+
+    if inference.is_recovered(region.variable()) {
+        add_recovered_aggregate(expression_id, variables, types, inference);
+    }
+
+    Ok(())
+}
+
+fn expected_generator_element<C>(
+    request: CheckerUnitView<'_, C>,
+    variable: InferenceTypeId,
+    inference: &mut TypeInferenceContext,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+        request
+            .semantic_values()
+            .type_data(ty)
+            .map(|data| matches!(data.as_ref(), TypeData::Generator(_)))
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
+
+    let Some(expected) = expected else {
+        return Ok(None);
+    };
+
+    let data = request
+        .semantic_values()
+        .type_data(expected)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    match data.as_ref() {
+        TypeData::Generator(element) => Ok(Some(*element)),
+        _ => Ok(None),
+    }
+}
+
+fn expected_array<C>(
+    request: CheckerUnitView<'_, C>,
+    variable: InferenceTypeId,
+    inference: &mut TypeInferenceContext,
+) -> Result<Option<(TypeId, TypeId)>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+        request
+            .semantic_values()
+            .type_data(ty)
+            .map(|data| matches!(data.as_ref(), TypeData::Array { .. }))
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
+
+    let Some(expected) = expected else {
+        return Ok(None);
+    };
+
+    let data = request
+        .semantic_values()
+        .type_data(expected)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    match data.as_ref() {
+        TypeData::Array { element, .. } => Ok(Some((expected, *element))),
+        _ => Ok(None),
+    }
+}
+
+fn generator_source_array_length<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<Option<bray_symbols::ConstantTermId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(iteration) = expression.operands().first().copied() else {
+        return Ok(None);
+    };
+
+    let Some(BoundExpression::Generator(iteration)) = request.view().expression(iteration) else {
+        return Ok(None);
+    };
+
+    let Some(source) = variables.get(&iteration.source()).copied() else {
+        return Ok(None);
+    };
+
+    let Some(source) = inference.evidence(source) else {
+        return Ok(None);
+    };
+
+    let data = request
+        .semantic_values()
+        .type_data(source)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    match data.as_ref() {
+        TypeData::Array { length, .. } => Ok(Some(*length)),
+        _ => Ok(None),
+    }
 }
 
 fn aggregate_elements(

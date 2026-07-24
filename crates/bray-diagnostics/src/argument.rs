@@ -779,6 +779,8 @@ pub enum DiagnosticType {
     Array,
     /// A dynamically sized slice.
     Slice,
+    /// A lazy homogeneous generator.
+    Generator,
     /// A nullable type.
     Nullable,
     /// A borrowed type.

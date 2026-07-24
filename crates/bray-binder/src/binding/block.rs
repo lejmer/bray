@@ -61,7 +61,18 @@ where
         operations: &mut impl BlockBindingOperations<C>,
     ) -> BindingResult<BoundBlockId> {
         self.bind_transaction(|binder| {
-            binder.bind_block_transaction(parent_scope, syntax, operations)
+            binder.bind_block_transaction(parent_scope, syntax, operations, true)
+        })
+    }
+
+    pub(crate) fn bind_non_yielding_block(
+        &mut self,
+        parent_scope: LocalScopeId,
+        syntax: &BlockExpressionSyntax,
+        operations: &mut impl BlockBindingOperations<C>,
+    ) -> BindingResult<BoundBlockId> {
+        self.bind_transaction(|binder| {
+            binder.bind_block_transaction(parent_scope, syntax, operations, false)
         })
     }
 
@@ -70,6 +81,7 @@ where
         parent_scope: LocalScopeId,
         syntax: &BlockExpressionSyntax,
         operations: &mut impl BlockBindingOperations<C>,
+        captures_yield: bool,
     ) -> BindingResult<BoundBlockId> {
         self.check_cancellation()?;
 
@@ -80,13 +92,17 @@ where
             syntax.open_brace_token().range().end(),
         )?;
 
-        let target = ControlTarget::new(
-            ControlTargetKind::Block,
-            SyntaxAnchor::from_node(syntax),
-            None,
-        );
+        let target = captures_yield.then(|| {
+            ControlTarget::new(
+                ControlTargetKind::Block,
+                SyntaxAnchor::from_node(syntax),
+                None,
+            )
+        });
 
-        self.push_control_target(target);
+        if let Some(target) = target {
+            self.push_control_target(target);
+        }
 
         let mut items = Vec::new();
 
@@ -117,7 +133,9 @@ where
             }
         }
 
-        if self.pop_control_target() != Some(target) {
+        if let Some(target) = target
+            && self.pop_control_target() != Some(target)
+        {
             return Err(super::BindingError::ControlTargetMismatch);
         }
 
