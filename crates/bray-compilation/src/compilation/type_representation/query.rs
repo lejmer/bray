@@ -9,6 +9,7 @@ use bray_checker::{
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_package_interface::{ImportedSemanticFact, InterfaceSemanticFactKind};
 use bray_source::SourceSpan;
 use bray_symbols::{
     ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
@@ -23,7 +24,7 @@ use super::super::substitution::named_type;
 use super::support::{
     checked_integer, checked_integer_constant, checker_fact_error, integer_role, symbol_span,
 };
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticFactKey};
 
 impl Compilation {
     /// Returns the checked source-level representation contract of one named type.
@@ -76,8 +77,10 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<DeclaredTypeDefinition>, FactQueryError> {
         let facts = self.binder_facts(cancellation)?;
+
         let surface =
             self.type_associated_surface_result_with_cancellation(subject, cancellation)?;
+
         let directives = self.declaration_directives(subject.into_any())?;
         let mut diagnostics = DiagnosticBag::new();
 
@@ -238,6 +241,62 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
             .map_err(checker_fact_error)
     }
 
+    fn imported_type_representation(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<Option<DeclaredTypeRepresentation>>> {
+        let symbols = self
+            .compilation
+            .symbol_graph()
+            .map_err(checker_fact_error)?;
+
+        if symbols.symbol_key(subject.into_any()).is_some() {
+            return Ok(DiagnosticResult::without_diagnostics(None));
+        }
+
+        let imported = self
+            .compilation
+            .imported_symbol_skeleton_result_with_cancellation(self.cancellation)
+            .map_err(checker_fact_error)?;
+
+        let Some(address) = imported
+            .value()
+            .as_ref()
+            .and_then(|symbols| symbols.imported_fact_address(subject.into_any()))
+        else {
+            return Ok(DiagnosticResult::without_diagnostics(None));
+        };
+
+        let result = self
+            .compilation
+            .imported_semantic_fact_result_with_cancellation(
+                ImportedSemanticFactKey::new(
+                    address.interface(),
+                    address.symbol(),
+                    InterfaceSemanticFactKind::TypeRepresentation,
+                ),
+                self.cancellation,
+            )
+            .map_err(checker_fact_error)?;
+
+        let representation = match result.value().as_ref() {
+            [ImportedSemanticFact::TypeRepresentation(representation)] => {
+                Some(representation.clone())
+            }
+            [] => None,
+            _ => {
+                return Err(CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                ));
+            }
+        };
+
+        Ok(DiagnosticResult::new(
+            representation,
+            result.diagnostics().clone(),
+        ))
+    }
+
     fn source(
         &self,
         syntax: SyntaxAnchor,
@@ -249,6 +308,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         };
 
         let span = SourceSpan::new(source_id, syntax.full_range());
+
         let Some(text) = source.text_slice(span.range()) else {
             return Err(CheckerInfrastructureError::InvalidSourceRange { span });
         };
@@ -385,7 +445,10 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{DeclaredCopyContract, DeclaredLayoutMode, NamedTypeSymbolId, SymbolOrigin};
 
-    use crate::test_support::{compilation, diagnostic_kinds};
+    use crate::test_support::{
+        compilation, diagnostic_kinds, encoded_semantic_dependency, package_identity, source_input,
+    };
+    use crate::{Compilation, CompilationRequest};
 
     #[test]
     fn valid_product_contracts_publish_source_level_representation_facts() {
@@ -426,10 +489,12 @@ mod tests {
         assert!(result.diagnostics().is_empty());
         assert_eq!(result.value().layout(), DeclaredLayoutMode::Stable);
         assert_eq!(result.value().alignment(), Some(16));
+
         assert_eq!(
             result.value().copy_contract(),
             DeclaredCopyContract::Unconditional
         );
+
         assert!(result.value().is_plain_storage());
         assert!(result.value().has_finite_size());
     }
@@ -551,6 +616,7 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
         assert!(result.value().union_tag_type().is_some());
+
         assert_eq!(
             result
                 .value()
@@ -721,9 +787,122 @@ mod tests {
             .unwrap_or_else(|error| panic!("generic representation must check: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
+
         assert_eq!(
             result.value().copy_contract(),
             DeclaredCopyContract::Conditional
         );
+
+        assert_eq!(result.value().copy_dependencies().len(), 1);
+    }
+
+    #[test]
+    fn unused_generic_arguments_do_not_affect_represented_storage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "@copy\n",
+            "struct Phantom<T>\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "\n",
+            "@copy\n",
+            "struct Holder\n",
+            "{\n",
+            "    value: Phantom<box[Heap] i32>;\n",
+            "}\n",
+        ));
+
+        let subject = last_source_structure(&compilation);
+
+        let result = compilation
+            .declared_type_representation(subject)
+            .unwrap_or_else(|error| panic!("generic representation must check: {error:?}"));
+
+        assert!(result.diagnostics().is_empty());
+
+        assert_eq!(
+            result.value().copy_contract(),
+            DeclaredCopyContract::Unconditional
+        );
+
+        assert!(result.value().copy_dependencies().is_empty());
+    }
+
+    #[test]
+    fn used_generic_arguments_determine_concrete_copyability() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "@copy\n",
+            "struct Wrapper<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "}\n",
+            "\n",
+            "@copy\n",
+            "struct Holder\n",
+            "{\n",
+            "    value: Wrapper<box[Heap] i32>;\n",
+            "}\n",
+        ));
+
+        let subject = last_source_structure(&compilation);
+
+        let result = compilation
+            .declared_type_representation(subject)
+            .unwrap_or_else(|error| panic!("generic representation must check: {error:?}"));
+
+        assert_eq!(
+            diagnostic_kinds(result.diagnostics()),
+            [DiagnosticKind::CheckingInvalidCopyContract]
+        );
+
+        assert_eq!(result.value().copy_contract(), DeclaredCopyContract::Absent);
+    }
+
+    #[test]
+    fn imported_types_use_package_interface_representation_facts() {
+        let interface = bray_package_interface::test_support::encoded_semantic_test_interface();
+
+        let request =
+            CompilationRequest::new(package_identity(), vec![source_input("module app;", 0)])
+                .with_dependency_interfaces([encoded_semantic_dependency(&interface)]);
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+        let skeleton = compilation
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("imported skeleton query must complete: {error:?}"));
+
+        let subject = skeleton
+            .value()
+            .as_ref()
+            .and_then(|symbols| symbols.structures().first())
+            .map(|structure| NamedTypeSymbolId::from(structure.id()))
+            .unwrap_or_else(|| panic!("test dependency must publish an imported structure"));
+
+        let result = compilation
+            .declared_type_representation(subject)
+            .unwrap_or_else(|error| panic!("imported representation must load: {error:?}"));
+
+        assert!(result.diagnostics().is_empty());
+        assert_eq!(result.value().subject(), subject);
+        assert!(result.value().is_plain_storage());
+        assert!(result.value().has_finite_size());
+    }
+
+    fn last_source_structure(compilation: &Compilation) -> NamedTypeSymbolId {
+        compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"))
+            .structures()
+            .iter()
+            .rev()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .map(|structure| NamedTypeSymbolId::from(structure.id()))
+            .unwrap_or_else(|| panic!("test source must declare a structure"))
     }
 }

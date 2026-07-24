@@ -369,7 +369,8 @@ For every exported declaration, the interface records the applicable checked sur
 - callable contracts, trusted obligations, capabilities, effects, and ABI,
 - checked implicit abnormal-control summaries such as `may_cancel_current_run`,
 - inferred dependency contracts required by consumers,
-- type layout and representation contracts exposed by the public surface,
+- type layout, union tags, exact generic copy dependencies, and representation contracts exposed
+  by the public surface,
 - constant eligibility, definition template or closed value as required,
 - predicate definitions and callable-contract facts required by consumers,
 - overload family and arm relationships,

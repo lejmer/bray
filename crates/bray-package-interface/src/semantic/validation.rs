@@ -31,7 +31,7 @@ impl InterfaceSemanticFacts {
         self.validate_template_facts(surface, limits)
     }
 
-    fn table_counts(&self) -> [usize; 21] {
+    fn table_counts(&self) -> [usize; 22] {
         [
             self.substitutions.len(),
             self.trait_applications.len(),
@@ -47,6 +47,7 @@ impl InterfaceSemanticFacts {
             self.generic_declarations.len(),
             self.callable_parameter_defaults.len(),
             self.predicate_definitions.len(),
+            self.type_representations.len(),
             self.checked_templates.len(),
             self.declaration_templates.len(),
             self.support_entities.len(),

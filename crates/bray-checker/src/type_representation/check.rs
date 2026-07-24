@@ -6,7 +6,8 @@ use bray_diagnostics::{
 };
 use bray_symbols::{
     AvailableCompilerKnownSymbols, DeclaredCopyContract, DeclaredTypeRepresentation,
-    NamedTypeSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    GenericArgument, GenericArgumentTemplate, GenericParameterSymbolId,
+    GenericTypeParameterSymbolId, NamedTypeSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome};
@@ -41,11 +42,12 @@ pub(super) enum Copyability {
     Never,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct MemberRepresentation {
     pub(super) finite: bool,
     pub(super) plain: bool,
     pub(super) copyable: Copyability,
+    pub(super) copy_dependencies: BTreeSet<GenericTypeParameterSymbolId>,
     pub(super) recovered: bool,
 }
 
@@ -54,6 +56,7 @@ impl MemberRepresentation {
         finite: true,
         plain: true,
         copyable: Copyability::Always,
+        copy_dependencies: BTreeSet::new(),
         recovered: false,
     };
 
@@ -62,16 +65,20 @@ impl MemberRepresentation {
             finite: false,
             plain: false,
             copyable: Copyability::Never,
+            copy_dependencies: BTreeSet::new(),
             recovered,
         }
     }
 
     fn aggregate(values: impl IntoIterator<Item = Self>) -> Self {
-        values.into_iter().fold(Self::SCALAR, |result, value| Self {
-            finite: result.finite && value.finite,
-            plain: result.plain && value.plain,
-            copyable: combine_copyability(result.copyable, value.copyable),
-            recovered: result.recovered || value.recovered,
+        values.into_iter().fold(Self::SCALAR, |mut result, value| {
+            result.finite &= value.finite;
+            result.plain &= value.plain;
+            result.copyable = combine_copyability(result.copyable, value.copyable);
+            result.copy_dependencies.extend(value.copy_dependencies);
+            result.recovered |= value.recovered;
+
+            result
         })
     }
 }
@@ -118,6 +125,20 @@ where
 
         if self.context.cancellation().is_cancelled() {
             return Err(CheckerFactError::Cancelled);
+        }
+
+        let imported = self.context.imported_type_representation(subject)?;
+
+        self.diagnostics
+            .add_range(imported.diagnostics().iter().cloned());
+
+        if let Some(result) = imported.value() {
+            // Imported representation facts own Arc-backed tag storage.
+            let result = result.clone();
+
+            self.completed.insert(subject, result.clone());
+
+            return Ok(result);
         }
 
         // TODO(BRA-272): Replace this local guard with the compilation-wide semantic
@@ -169,10 +190,22 @@ where
         let member_representation = MemberRepresentation::aggregate(members);
         let mut recovered = definition.is_recovered() || member_representation.recovered;
 
-        let layout = self.check_layout(definition, member_representation, &mut recovered)?;
+        let layout = self.check_layout(definition, &member_representation, &mut recovered)?;
+
         let (tags, tag_type) =
             self.check_union_tags(definition, layout.mode, layout.tag_type, &mut recovered)?;
-        let copy = self.check_copy(definition, member_representation, &mut recovered);
+
+        let copy = self.check_copy(definition, &member_representation, &mut recovered);
+
+        let copy_dependencies = if copy == DeclaredCopyContract::Conditional {
+            member_representation
+                .copy_dependencies
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
 
         let plain_storage = !definition.has_lifecycle() && member_representation.plain;
         let finite_size = member_representation.finite;
@@ -194,7 +227,8 @@ where
                 tag_type.map(|tag_type| tag_type.ty()),
             )
             .with_union_tags(tags)
-            .with_properties(copy, plain_storage, finite_size, recovered))
+            .with_properties(copy, plain_storage, finite_size, recovered)
+            .with_copy_dependencies(copy_dependencies))
     }
 
     fn check_member(
@@ -220,37 +254,14 @@ where
             TypeExpressionTemplate::Resolved(ty) => self.check_type(*ty),
             TypeExpressionTemplate::Named {
                 definition,
+                parameters,
                 arguments,
-                ..
-            } => {
-                let definition = self.check(*definition)?;
-                let argument_copy = arguments
-                    .iter()
-                    .filter_map(|argument| match argument {
-                        bray_symbols::GenericArgumentTemplate::Type(ty) => {
-                            Some(self.check_template(ty))
-                        }
-                        bray_symbols::GenericArgumentTemplate::Constant(_) => None,
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let arguments = MemberRepresentation::aggregate(argument_copy);
-
-                Ok(MemberRepresentation {
-                    finite: definition.has_finite_size() && arguments.finite,
-                    plain: definition.is_plain_storage() && arguments.plain,
-                    copyable: match definition.copy_contract() {
-                        DeclaredCopyContract::Absent => Copyability::Never,
-                        DeclaredCopyContract::Unconditional => Copyability::Always,
-                        DeclaredCopyContract::Conditional => arguments.copyable,
-                    },
-                    recovered: definition.is_recovered() || arguments.recovered,
-                })
-            }
+            } => self.check_named_template(*definition, parameters, arguments),
             TypeExpressionTemplate::TypeValuedMemberProjection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
                 copyable: Copyability::Conditional,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
             TypeExpressionTemplate::Tuple(elements) => elements
@@ -270,21 +281,61 @@ where
                     bray_symbols::BorrowKind::Shared => Copyability::Always,
                     bray_symbols::BorrowKind::Mutable => Copyability::Never,
                 },
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
             TypeExpressionTemplate::OwnedIndirection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
                 copyable: Copyability::Never,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
             TypeExpressionTemplate::Callable(_) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
                 copyable: Copyability::Always,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
         }
+    }
+
+    fn check_named_template(
+        &mut self,
+        subject: NamedTypeSymbolId,
+        parameters: &[GenericParameterSymbolId],
+        arguments: &[GenericArgumentTemplate],
+    ) -> CheckerFactResult<MemberRepresentation> {
+        let checked = self.check(subject)?;
+
+        if parameters.is_empty()
+            || !checked.has_finite_size()
+            || checked.copy_dependencies().is_empty()
+        {
+            return Ok(member_representation(&checked));
+        }
+
+        let dependencies = checked
+            .copy_dependencies()
+            .iter()
+            .filter_map(|dependency| {
+                parameters
+                    .iter()
+                    .position(|parameter| *parameter == GenericParameterSymbolId::Type(*dependency))
+                    .and_then(|index| arguments.get(index))
+            })
+            .filter_map(|argument| match argument {
+                GenericArgumentTemplate::Type(ty) => Some(ty),
+                GenericArgumentTemplate::Constant(_) => None,
+            })
+            .map(|argument| self.check_template(argument))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(apply_copy_dependencies(
+            &checked,
+            MemberRepresentation::aggregate(dependencies),
+        ))
     }
 
     fn check_type(&mut self, ty: TypeId) -> CheckerFactResult<MemberRepresentation> {
@@ -294,7 +345,10 @@ where
 
         match data.as_ref() {
             TypeData::Error => Ok(MemberRepresentation::invalid(true)),
-            TypeData::Named { definition, .. } => {
+            TypeData::Named {
+                definition,
+                substitution,
+            } => {
                 if let Some(role) = named_representation_role(
                     self.context.available_compiler_known_symbols(),
                     *definition,
@@ -304,21 +358,43 @@ where
 
                 let representation = self.check(*definition)?;
 
-                Ok(MemberRepresentation {
-                    finite: representation.has_finite_size(),
-                    plain: representation.is_plain_storage(),
-                    copyable: match representation.copy_contract() {
-                        DeclaredCopyContract::Absent => Copyability::Never,
-                        DeclaredCopyContract::Unconditional => Copyability::Always,
-                        DeclaredCopyContract::Conditional => Copyability::Conditional,
-                    },
-                    recovered: representation.is_recovered(),
-                })
+                if representation.copy_dependencies().is_empty() {
+                    return Ok(member_representation(&representation));
+                }
+
+                let substitution = self
+                    .context
+                    .semantic_values()
+                    .generic_substitution_data(*substitution)
+                    .map_err(|_| {
+                        CheckerFactError::Infrastructure(
+                            CheckerInfrastructureError::SemanticValueUnavailable,
+                        )
+                    })?;
+
+                let dependencies = representation
+                    .copy_dependencies()
+                    .iter()
+                    .filter_map(|parameter| {
+                        substitution.argument_for(GenericParameterSymbolId::Type(*parameter))
+                    })
+                    .filter_map(|argument| match argument {
+                        GenericArgument::Type(ty) => Some(ty),
+                        GenericArgument::Constant(_) => None,
+                    })
+                    .map(|ty| self.check_type(ty))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(apply_copy_dependencies(
+                    &representation,
+                    MemberRepresentation::aggregate(dependencies),
+                ))
             }
-            TypeData::TypeParameter(_) => Ok(MemberRepresentation {
+            TypeData::TypeParameter(parameter) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
                 copyable: Copyability::Conditional,
+                copy_dependencies: BTreeSet::from([*parameter]),
                 recovered: false,
             }),
             TypeData::ContextualSelf(_) => Ok(MemberRepresentation::invalid(false)),
@@ -326,6 +402,7 @@ where
                 finite: true,
                 plain: false,
                 copyable: Copyability::Conditional,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
             TypeData::Tuple(elements) => elements
@@ -346,18 +423,21 @@ where
                     bray_symbols::BorrowKind::Shared => Copyability::Always,
                     bray_symbols::BorrowKind::Mutable => Copyability::Never,
                 },
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
             TypeData::OwnedIndirection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
                 copyable: Copyability::Never,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
             TypeData::Callable(_) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
                 copyable: Copyability::Always,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }),
         }
@@ -370,6 +450,37 @@ where
             Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
                 .with_primary_span(span),
         );
+    }
+}
+
+fn member_representation(representation: &DeclaredTypeRepresentation) -> MemberRepresentation {
+    MemberRepresentation {
+        finite: representation.has_finite_size(),
+        plain: representation.is_plain_storage(),
+        copyable: match representation.copy_contract() {
+            DeclaredCopyContract::Absent => Copyability::Never,
+            DeclaredCopyContract::Unconditional => Copyability::Always,
+            DeclaredCopyContract::Conditional => Copyability::Conditional,
+        },
+        copy_dependencies: representation.copy_dependencies().iter().copied().collect(),
+        recovered: representation.is_recovered(),
+    }
+}
+
+fn apply_copy_dependencies(
+    representation: &DeclaredTypeRepresentation,
+    dependencies: MemberRepresentation,
+) -> MemberRepresentation {
+    MemberRepresentation {
+        finite: representation.has_finite_size(),
+        plain: representation.is_plain_storage(),
+        copyable: match representation.copy_contract() {
+            DeclaredCopyContract::Absent => Copyability::Never,
+            DeclaredCopyContract::Unconditional => Copyability::Always,
+            DeclaredCopyContract::Conditional => dependencies.copyable,
+        },
+        copy_dependencies: dependencies.copy_dependencies,
+        recovered: representation.is_recovered() || dependencies.recovered,
     }
 }
 
@@ -401,6 +512,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
             finite: true,
             plain: false,
             copyable: Copyability::Always,
+            copy_dependencies: BTreeSet::new(),
             recovered: false,
         },
         RepresentationRole::Future | RepresentationRole::Task | RepresentationRole::PanicReport => {
@@ -408,6 +520,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
                 finite: true,
                 plain: false,
                 copyable: Copyability::Never,
+                copy_dependencies: BTreeSet::new(),
                 recovered: false,
             }
         }
@@ -417,6 +530,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
             finite: true,
             plain: false,
             copyable: Copyability::Conditional,
+            copy_dependencies: BTreeSet::new(),
             recovered: false,
         },
         RepresentationRole::BooleanTrue

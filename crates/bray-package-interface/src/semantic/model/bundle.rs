@@ -8,7 +8,7 @@ use super::{
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
     InterfacePredicateDefinition, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
     InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceTargetFactDependency,
-    InterfaceTraitApplication, InterfaceType,
+    InterfaceTraitApplication, InterfaceType, InterfaceTypeRepresentation,
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
@@ -28,6 +28,7 @@ pub struct InterfaceSemanticFacts {
     pub(crate) generic_declarations: Arc<[InterfaceGenericDeclaration]>,
     pub(crate) callable_parameter_defaults: Arc<[InterfaceCallableParameterDefault]>,
     pub(crate) predicate_definitions: Arc<[InterfacePredicateDefinition]>,
+    pub(crate) type_representations: Arc<[InterfaceTypeRepresentation]>,
     pub(crate) checked_templates: Arc<[InterfaceCheckedTemplate]>,
     pub(crate) declaration_templates: Arc<[InterfaceDeclarationTemplate]>,
     pub(crate) support_entities: Arc<[InterfaceSupportEntity]>,
@@ -100,6 +101,16 @@ impl InterfaceSemanticFacts {
         self.generic_declarations = generic_declarations.into_iter().collect();
         self.callable_parameter_defaults = callable_parameter_defaults.into_iter().collect();
         self.predicate_definitions = predicate_definitions.into_iter().collect();
+
+        self
+    }
+
+    /// Replaces declared type representation contracts in canonical owner order.
+    pub fn with_type_representations(
+        mut self,
+        type_representations: impl IntoIterator<Item = InterfaceTypeRepresentation>,
+    ) -> Self {
+        self.type_representations = type_representations.into_iter().collect();
 
         self
     }
@@ -195,6 +206,11 @@ impl InterfaceSemanticFacts {
     /// Returns predicate definition states in canonical owner order.
     pub fn predicate_definitions(&self) -> &[InterfacePredicateDefinition] {
         &self.predicate_definitions
+    }
+
+    /// Returns declared type representation contracts in canonical owner order.
+    pub fn type_representations(&self) -> &[InterfaceTypeRepresentation] {
+        &self.type_representations
     }
 
     /// Returns source-independent checked templates in artifact-local ID order.
@@ -306,6 +322,17 @@ impl InterfaceSemanticFacts {
                     record: checked_record(index),
                 });
 
+        let type_representations =
+            self.type_representations
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.owner.clone(),
+                    kind: InterfaceSemanticFactKind::TypeRepresentation,
+                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                    record: checked_record(index),
+                });
+
         let declaration_templates =
             self.declaration_templates
                 .iter()
@@ -356,6 +383,7 @@ impl InterfaceSemanticFacts {
             .chain(generic_declarations)
             .chain(callable_parameter_defaults)
             .chain(predicate_definitions)
+            .chain(type_representations)
             .chain(declaration_templates)
             .chain(implementations)
             .chain(targets)

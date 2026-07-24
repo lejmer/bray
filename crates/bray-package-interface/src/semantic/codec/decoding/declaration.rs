@@ -6,7 +6,7 @@ use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
     InterfaceGenericDeclaration, InterfacePredicateDefinition, InterfaceSemanticFacts,
-    InterfaceTypeId,
+    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -18,6 +18,7 @@ pub(super) struct DeclarationRecordTables<'bytes> {
     pub(super) generic_declarations: RecordTable<'bytes>,
     pub(super) callable_parameter_defaults: RecordTable<'bytes>,
     pub(super) predicate_definitions: RecordTable<'bytes>,
+    pub(super) type_representations: RecordTable<'bytes>,
 }
 
 pub(super) fn decode_declaration_tables<'bytes>(
@@ -35,6 +36,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
     let generic_declarations = RecordTable::read_from(&mut reader, context)?;
     let callable_parameter_defaults = RecordTable::read_from(&mut reader, context)?;
     let predicate_definitions = RecordTable::read_from(&mut reader, context)?;
+    let type_representations = RecordTable::read_from(&mut reader, context)?;
 
     validate_record_count(
         section,
@@ -43,6 +45,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
             generic_declarations.len(),
             callable_parameter_defaults.len(),
             predicate_definitions.len(),
+            type_representations.len(),
         ],
     )?;
 
@@ -53,6 +56,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
         generic_declarations,
         callable_parameter_defaults,
         predicate_definitions,
+        type_representations,
     })
 }
 
@@ -84,12 +88,86 @@ pub(super) fn decode_declarations(
         .predicate_definitions
         .decode_all(context, decode_predicate_definition)?;
 
+    let type_representations = tables
+        .type_representations
+        .decode_all(context, |reader, context| {
+            decode_type_representation(reader, limits, context)
+        })?;
+
     facts.callable_signatures = callable_signatures.into();
     facts.generic_declarations = generic_declarations.into();
     facts.callable_parameter_defaults = callable_parameter_defaults.into();
     facts.predicate_definitions = predicate_definitions.into();
+    facts.type_representations = type_representations.into();
 
     Ok(())
+}
+
+fn decode_type_representation(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceTypeRepresentation, InterfaceValidationError> {
+    let owner = read_symbol_reference(reader, context)?;
+
+    let layout = match read_u32(reader)? {
+        1 => bray_symbols::DeclaredLayoutMode::Default,
+        2 => bray_symbols::DeclaredLayoutMode::Stable,
+        3 => bray_symbols::DeclaredLayoutMode::C,
+        4 => bray_symbols::DeclaredLayoutMode::Transparent,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let alignment = read_optional_u64(reader)?;
+    let packing = read_optional_u64(reader)?;
+
+    let union_tag_type =
+        crate::semantic::codec::common::read_optional_u32(reader)?.map(InterfaceTypeId::new);
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut union_tags = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        union_tags.push(InterfaceUnionTag::new(
+            read_symbol_reference(reader, context)?,
+            super::value::decode_integer(reader, limits)?,
+        ));
+    }
+
+    let copy = match read_u32(reader)? {
+        1 => bray_symbols::DeclaredCopyContract::Absent,
+        2 => bray_symbols::DeclaredCopyContract::Unconditional,
+        3 => bray_symbols::DeclaredCopyContract::Conditional,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let copy_dependencies =
+        crate::semantic::codec::common::read_symbol_references(reader, limits, context)?;
+
+    let plain_storage = decode_bool(reader)?;
+    let finite_size = decode_bool(reader)?;
+
+    Ok(InterfaceTypeRepresentation::new(owner)
+        .with_layout(layout, alignment, packing, union_tag_type)
+        .with_union_tags(union_tags)
+        .with_copy(copy, copy_dependencies)
+        .with_properties(plain_storage, finite_size))
+}
+
+fn read_optional_u64(reader: &mut WireReader<'_>) -> Result<Option<u64>, InterfaceValidationError> {
+    match read_u32(reader)? {
+        0 => Ok(None),
+        1 => reader.read_u64().map(Some).map_err(map_wire_error),
+        _ => Err(InterfaceValidationError::Malformed),
+    }
+}
+
+fn decode_bool(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
+    match read_u32(reader)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(InterfaceValidationError::Malformed),
+    }
 }
 
 pub(super) fn decode_callable_signature(

@@ -636,6 +636,7 @@ mod tests {
                 .selected_target
                 .shares_storage_with(&updated.state.selected_target)
         );
+
         assert_eq!(
             previous.selected_target().target().runtime_abi(),
             RuntimeAbiVersion::new(1, 0)

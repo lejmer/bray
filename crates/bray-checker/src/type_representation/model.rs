@@ -249,6 +249,12 @@ pub trait TypeRepresentationContext: Sync {
         subject: NamedTypeSymbolId,
     ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeDefinition>>;
 
+    /// Returns an imported representation contract when the subject is dependency-owned.
+    fn imported_type_representation(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<Option<bray_symbols::DeclaredTypeRepresentation>>>;
+
     /// Resolves one directive expression to its exact source text.
     fn source(&self, syntax: SyntaxAnchor)
     -> Result<CheckerSource<'_>, CheckerInfrastructureError>;

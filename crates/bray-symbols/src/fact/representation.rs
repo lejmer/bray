@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{IntegerConstant, NamedTypeSymbolId, TypeId, UnionVariantSymbolId};
+use crate::{
+    GenericTypeParameterSymbolId, IntegerConstant, NamedTypeSymbolId, TypeId, UnionVariantSymbolId,
+};
 
 /// The source-level layout policy selected for one declared type.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -64,6 +66,7 @@ pub struct DeclaredTypeRepresentation {
     union_tag_type: Option<TypeId>,
     union_tags: Arc<[DeclaredUnionTag]>,
     copy: DeclaredCopyContract,
+    copy_dependencies: Arc<[GenericTypeParameterSymbolId]>,
     plain_storage: bool,
     finite_size: bool,
     recovered: bool,
@@ -80,6 +83,7 @@ impl DeclaredTypeRepresentation {
             union_tag_type: None,
             union_tags: Arc::from([]),
             copy: DeclaredCopyContract::Absent,
+            copy_dependencies: Arc::from([]),
             plain_storage: false,
             finite_size: false,
             recovered: false,
@@ -128,6 +132,16 @@ impl DeclaredTypeRepresentation {
         self
     }
 
+    /// Returns this contract with the type parameters that determine copyability.
+    pub fn with_copy_dependencies(
+        mut self,
+        dependencies: impl IntoIterator<Item = GenericTypeParameterSymbolId>,
+    ) -> Self {
+        self.copy_dependencies = shared_slice(dependencies);
+
+        self
+    }
+
     /// Returns the named type owning this contract.
     pub const fn subject(&self) -> NamedTypeSymbolId {
         self.subject
@@ -161,6 +175,11 @@ impl DeclaredTypeRepresentation {
     /// Returns the type's checked implicit-copy contract.
     pub const fn copy_contract(&self) -> DeclaredCopyContract {
         self.copy
+    }
+
+    /// Returns the generic type parameters whose arguments must be copyable.
+    pub fn copy_dependencies(&self) -> &[GenericTypeParameterSymbolId] {
+        &self.copy_dependencies
     }
 
     /// Returns whether the representation satisfies Bray's plain-storage contract.

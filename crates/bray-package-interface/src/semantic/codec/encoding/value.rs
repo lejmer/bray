@@ -338,7 +338,7 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
     }
 }
 
-fn encode_integer(encoder: &mut WireEncoder, value: &IntegerConstant) {
+pub(super) fn encode_integer(encoder: &mut WireEncoder, value: &IntegerConstant) {
     encoder.write_u32(match value.sign() {
         IntegerSign::NonNegative => 1,
         IntegerSign::Negative => 2,

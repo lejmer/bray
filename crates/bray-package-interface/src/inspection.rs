@@ -153,6 +153,10 @@ pub enum InterfaceInspectionRecordKind {
     GenericDeclarations,
     /// Callable parameter default-availability facts.
     CallableParameterDefaults,
+    /// Predicate definition-state facts.
+    PredicateDefinitions,
+    /// Declared type representation facts.
+    TypeRepresentations,
     /// Source-independent checked templates.
     CheckedTemplates,
     /// Declaration-owned template facts.
@@ -195,6 +199,8 @@ impl InterfaceInspectionRecordKind {
             Self::CallableSignatures => "callable_signatures",
             Self::GenericDeclarations => "generic_declarations",
             Self::CallableParameterDefaults => "callable_parameter_defaults",
+            Self::PredicateDefinitions => "predicate_definitions",
+            Self::TypeRepresentations => "type_representations",
             Self::CheckedTemplates => "checked_templates",
             Self::DeclarationTemplates => "declaration_templates",
             Self::Implementations => "implementations",
@@ -463,6 +469,8 @@ mod tests {
                 InterfaceInspectionRecordKind::CallableSignatures,
                 InterfaceInspectionRecordKind::GenericDeclarations,
                 InterfaceInspectionRecordKind::CallableParameterDefaults,
+                InterfaceInspectionRecordKind::PredicateDefinitions,
+                InterfaceInspectionRecordKind::TypeRepresentations,
             ]
         );
     }

@@ -378,6 +378,8 @@ pub enum InterfaceSemanticFactKind {
     CallableParameterDefault,
     /// Validated predicate definition form.
     PredicateDefinition,
+    /// Complete declared type representation contract.
+    TypeRepresentation,
     /// Checked generic constraint.
     GenericConstraint,
     /// Complete callable contract set.

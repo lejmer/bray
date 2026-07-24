@@ -21,7 +21,7 @@ where
     pub(super) fn check_layout(
         &mut self,
         definition: &DeclaredTypeDefinition,
-        members: MemberRepresentation,
+        members: &MemberRepresentation,
         recovered: &mut bool,
     ) -> CheckerFactResult<RequestedLayout> {
         let Some(directive) = definition
@@ -231,11 +231,13 @@ where
             // The uniqueness set and published tag share immutable magnitude storage.
             if !values.insert(value.clone()) {
                 self.add_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, variant.span());
+
                 *recovered = true;
             }
 
             if tag_type.is_some_and(|tag_type| !tag_type.accepts(&value)) {
                 self.add_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, variant.span());
+
                 *recovered = true;
             }
 
@@ -289,7 +291,7 @@ where
     pub(super) fn check_copy(
         &mut self,
         definition: &DeclaredTypeDefinition,
-        members: MemberRepresentation,
+        members: &MemberRepresentation,
         recovered: &mut bool,
     ) -> DeclaredCopyContract {
         let Some(directive) = definition
@@ -303,10 +305,14 @@ where
 
         let copy = if definition.has_lifecycle() || !directive.arguments().is_empty() {
             None
-        } else if definition.is_generic() {
-            (members.copyable != Copyability::Never).then_some(DeclaredCopyContract::Conditional)
         } else {
-            (members.copyable == Copyability::Always).then_some(DeclaredCopyContract::Unconditional)
+            match members.copyable {
+                Copyability::Always => Some(DeclaredCopyContract::Unconditional),
+                Copyability::Conditional if definition.is_generic() => {
+                    Some(DeclaredCopyContract::Conditional)
+                }
+                Copyability::Conditional | Copyability::Never => None,
+            }
         };
 
         match copy {

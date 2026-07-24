@@ -517,9 +517,9 @@ type identity. The checker derives this fact from represented fields and payload
 the declaration's `@layout`, `@copy`, and variant `@tag` directives.
 
 The contract records source-level layout mode and options, the selected union tag type and values when source layout fixes them,
-derived copy behavior, plain-storage eligibility, finite outer size, and recovery state. Recursive representation checking must
-memoize completed named types and detect active inline cycles. Indirection can terminate an outer-size cycle, but it does not make
-the representation plain storage.
+derived copy behavior, the exact generic type parameters on which copying depends, plain-storage eligibility, finite outer size,
+and recovery state. Recursive representation checking must memoize completed named types and detect active inline cycles.
+Indirection can terminate an outer-size cycle, but it does not make the representation plain storage.
 
 This fact validates source semantics only. Target-specific offsets, padding, aggregate size, ABI alignment support, and physical
 layout calculation remain separate target-dependent facts. Public contracts must be serializable through compiled package
