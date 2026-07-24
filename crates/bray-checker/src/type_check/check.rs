@@ -1560,6 +1560,7 @@ mod tests {
         yield_count: usize,
     ) -> GeneratorFixture {
         let [region_origin, body_origin] = distinct_source_origins();
+
         let key = callable_key();
         let mut tree = BoundTreeBuilder::new(unit);
 

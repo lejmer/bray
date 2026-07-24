@@ -61,6 +61,7 @@ where
         }
 
         propagate_assignment(request.view(), expression_id, variables, inference);
+
         propagate_control_transfer(
             request.view(),
             expression_id,
@@ -321,6 +322,7 @@ where
     }
 
     let length = array_length(request, operands.len())?;
+
     let ty = request
         .semantic_values()
         .intern_type(TypeData::Array { element, length })
@@ -342,24 +344,23 @@ fn infer_general_generator<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(variable) = variables.get(&expression_id).copied() else {
+    let Some((variable, result_variable)) = generator_inference_variables(
+        expression_id,
+        expression,
+        variables,
+        regions,
+        ResultRegionKind::GeneralGenerator,
+    ) else {
         return Ok(());
     };
 
-    let Some(region) = regions
-        .result(expression.origin().source_anchor().syntax())
-        .filter(|region| {
-            region.owner() == expression_id && region.kind() == ResultRegionKind::GeneralGenerator
-        })
-    else {
-        return Ok(());
-    };
-
-    if let Some(expected) = expected_generator_element(request, variable, inference)? {
-        inference.add_expectation(region.variable(), expected, expression_id);
+    if let Some((_, element)) =
+        expected_container_element(request, variable, inference, generator_element)?
+    {
+        inference.add_expectation(result_variable, element, expression_id);
     }
 
-    let Some(element) = inference.evidence(region.variable()) else {
+    let Some(element) = inference.evidence(result_variable) else {
         return Ok(());
     };
 
@@ -478,27 +479,26 @@ fn infer_array_generator<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(variable) = variables.get(&expression_id).copied() else {
+    let Some((variable, result_variable)) = generator_inference_variables(
+        expression_id,
+        expression,
+        variables,
+        regions,
+        ResultRegionKind::ArrayGenerator,
+    ) else {
         return Ok(());
     };
 
-    let Some(region) = regions
-        .result(expression.origin().source_anchor().syntax())
-        .filter(|region| {
-            region.owner() == expression_id && region.kind() == ResultRegionKind::ArrayGenerator
-        })
-    else {
-        return Ok(());
-    };
-
-    if let Some((ty, element)) = expected_array(request, variable, inference)? {
-        inference.add_expectation(region.variable(), element, expression_id);
+    if let Some((ty, element)) =
+        expected_container_element(request, variable, inference, array_element)?
+    {
+        inference.add_expectation(result_variable, element, expression_id);
         inference.add_evidence(variable, ty, expression_id);
 
         return Ok(());
     }
 
-    let Some(element) = inference.evidence(region.variable()) else {
+    let Some(element) = inference.evidence(result_variable) else {
         return Ok(());
     };
 
@@ -520,48 +520,18 @@ where
         inference,
     );
 
-    if inference.is_recovered(region.variable()) {
+    if inference.is_recovered(result_variable) {
         add_recovered_aggregate(expression_id, variables, types, inference);
     }
 
     Ok(())
 }
 
-fn expected_generator_element<C>(
+fn expected_container_element<C>(
     request: CheckerUnitView<'_, C>,
     variable: InferenceTypeId,
     inference: &mut TypeInferenceContext,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        request
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| matches!(data.as_ref(), TypeData::Generator(_)))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
-    })?;
-
-    let Some(expected) = expected else {
-        return Ok(None);
-    };
-
-    let data = request
-        .semantic_values()
-        .type_data(expected)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    match data.as_ref() {
-        TypeData::Generator(element) => Ok(Some(*element)),
-        _ => Ok(None),
-    }
-}
-
-fn expected_array<C>(
-    request: CheckerUnitView<'_, C>,
-    variable: InferenceTypeId,
-    inference: &mut TypeInferenceContext,
+    element: fn(&TypeData) -> Option<TypeId>,
 ) -> Result<Option<(TypeId, TypeId)>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -570,7 +540,7 @@ where
         request
             .semantic_values()
             .type_data(ty)
-            .map(|data| matches!(data.as_ref(), TypeData::Array { .. }))
+            .map(|data| element(data.as_ref()).is_some())
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
     })?;
 
@@ -583,10 +553,37 @@ where
         .type_data(expected)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    match data.as_ref() {
-        TypeData::Array { element, .. } => Ok(Some((expected, *element))),
-        _ => Ok(None),
+    Ok(element(data.as_ref()).map(|element| (expected, element)))
+}
+
+const fn generator_element(data: &TypeData) -> Option<TypeId> {
+    match data {
+        TypeData::Generator(element) => Some(*element),
+        _ => None,
     }
+}
+
+const fn array_element(data: &TypeData) -> Option<TypeId> {
+    match data {
+        TypeData::Array { element, .. } => Some(*element),
+        _ => None,
+    }
+}
+
+fn generator_inference_variables(
+    expression_id: BoundExpressionId,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    regions: &ExpressionTypeRegions,
+    kind: ResultRegionKind,
+) -> Option<(InferenceTypeId, InferenceTypeId)> {
+    let variable = variables.get(&expression_id).copied()?;
+
+    let result = regions
+        .result(expression.origin().source_anchor().syntax())
+        .filter(|region| region.owner() == expression_id && region.kind() == kind)?;
+
+    Some((variable, result.variable()))
 }
 
 fn generator_source_array_length<C>(
