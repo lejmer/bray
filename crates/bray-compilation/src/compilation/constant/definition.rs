@@ -381,7 +381,7 @@ impl Compilation {
         )
     }
 
-    pub(super) fn concrete_call_references(
+    pub(in crate::compilation) fn concrete_call_references(
         &self,
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,

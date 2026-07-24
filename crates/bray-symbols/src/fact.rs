@@ -26,8 +26,9 @@ pub use contract::{
     CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
     ConstantDefinitionFact, ConstantInstanceValueFact, DeclarationDirectivesFact,
-    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    ImplementationCandidateSetFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
+    GenericConstParameterDeclaredTypeFact, GenericConstraintSatisfactionFact,
+    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCandidateSetFact,
+    ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationParticipationFact,
     ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
     InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
@@ -72,8 +73,9 @@ pub use implementation::{
 pub use module::{ModuleReExport, ModuleSurface, ModuleUsing};
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
-    ErrorPredicateDefinition, GenericConstraintSet, PredicateDefinition, PredicateDefinitionState,
-    PredicateSemanticSummary, TrustedCapabilityRequirement,
+    ErrorPredicateDefinition, GenericConstraintObligationKey, GenericConstraintSet,
+    PredicateDefinition, PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome,
+    TrustedCapabilityRequirement,
 };
 pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,

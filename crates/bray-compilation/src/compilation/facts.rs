@@ -22,11 +22,11 @@ use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
-    ConstantTermId, ConstantValueId, DirectiveSurface, ImplementationCandidateSet,
-    ImplementationCoherenceDomainKey, ImplementationParticipationFact,
-    ImplementationRequirementKey, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
-    SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
-    TypeAssociatedSurface,
+    ConstantTermId, ConstantValueId, DirectiveSurface, GenericConstraintObligationKey,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    ImplementationRequirementKey, ImplementationSelection, ImportedSymbolSkeleton,
+    NamedTypeSymbolId, PackageIdentity, ProofOutcome, SemanticFactResult, SemanticValueStore,
+    SemanticValueStoreCreateError, SymbolGraph, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -107,6 +107,10 @@ pub(super) struct CompilationState {
         ImplementationRequirementKey,
         Arc<DiagnosticResult<ImplementationCandidateSet>>,
     >,
+    pub(super) generic_constraint_satisfaction:
+        FactCellMap<GenericConstraintObligationKey, Arc<DiagnosticResult<ProofOutcome>>>,
+    pub(super) implementation_selections:
+        FactCellMap<ImplementationRequirementKey, Arc<DiagnosticResult<ImplementationSelection>>>,
     pub(super) iteration_sources: FactCellMap<
         crate::fact::IterationSourceFactKey,
         Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
@@ -241,6 +245,8 @@ impl Compilation {
                 type_associated_implementation_index: FactCell::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),
+                generic_constraint_satisfaction: FactCellMap::new(),
+                implementation_selections: FactCellMap::new(),
                 iteration_sources: FactCellMap::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_facts: CompilationSymbolFacts::new(),

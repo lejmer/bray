@@ -308,6 +308,14 @@ fn reuse_mapped_cells(
         CompilationFactKey::ImplementationCandidateSet(*key)
     });
 
+    reuse!(generic_constraint_satisfaction, |key| {
+        CompilationFactKey::GenericConstraintSatisfaction(*key)
+    });
+
+    reuse!(implementation_selections, |key| {
+        CompilationFactKey::ImplementationSelection(*key)
+    });
+
     reuse!(iteration_sources, |key| {
         CompilationFactKey::IterationSource(key.clone())
     });

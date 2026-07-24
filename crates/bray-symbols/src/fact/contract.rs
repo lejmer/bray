@@ -413,6 +413,11 @@ define_semantic_fact_contract! {
         key: ImplementationRequirementKey,
         value: ImplementationSelection,
     }
+    /// Proves every static constraint for one exact generic declaration instance.
+    GenericConstraintSatisfactionFact {
+        key: crate::GenericConstraintObligationKey,
+        value: crate::ProofOutcome,
+    }
     /// Evaluates one concrete constant definition instance.
     ConstantInstanceValueFact {
         key: ConstantInstanceKey,

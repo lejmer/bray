@@ -197,15 +197,20 @@ impl Compilation {
         let mut is_deferred = false;
 
         for iterable in iterable_candidates.value().candidates() {
-            if !iterable.constraints().is_empty() {
-                // TODO(BRA-233): Select constrained implementations from checked predicate facts.
-                is_deferred = true;
+            match self.implementation_candidate_constraint_outcome(
+                iterable,
+                cancellation,
+                diagnostics,
+            )? {
+                bray_symbols::ProofOutcome::Proven => {}
+                bray_symbols::ProofOutcome::Disproven | bray_symbols::ProofOutcome::Recovered => {
+                    continue;
+                }
+                bray_symbols::ProofOutcome::Unknown => {
+                    is_deferred = true;
 
-                continue;
-            }
-
-            if !self.target_dependencies_hold(iterable.target_dependencies())? {
-                continue;
+                    continue;
+                }
             }
 
             let iterable_fulfillments =
@@ -265,15 +270,19 @@ impl Compilation {
             diagnostics.add_range(iterator_candidates.diagnostics().clone());
 
             for iterator in iterator_candidates.value().candidates() {
-                if !iterator.constraints().is_empty() {
-                    // TODO(BRA-233): Select constrained implementations from checked predicate facts.
-                    is_deferred = true;
+                match self.implementation_candidate_constraint_outcome(
+                    iterator,
+                    cancellation,
+                    diagnostics,
+                )? {
+                    bray_symbols::ProofOutcome::Proven => {}
+                    bray_symbols::ProofOutcome::Disproven
+                    | bray_symbols::ProofOutcome::Recovered => continue,
+                    bray_symbols::ProofOutcome::Unknown => {
+                        is_deferred = true;
 
-                    continue;
-                }
-
-                if !self.target_dependencies_hold(iterator.target_dependencies())? {
-                    continue;
+                        continue;
+                    }
                 }
 
                 let iterator_fulfillments =
