@@ -6,23 +6,29 @@ use bray_package_interface::{
     PackageInterfaceIdentity,
 };
 use bray_source::{SourceInput, SourceSpan};
-use bray_symbols::PackageIdentity;
+use bray_symbols::{PackageIdentity, ProductKind};
 
 use crate::SelectedTarget;
 use crate::worker::WorkerBudget;
 
 /// Options for one compiler operation.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilationOptions {
     worker_budget: WorkerBudget,
+    product_kind: ProductKind,
     selected_target: SelectedTarget,
 }
 
 impl CompilationOptions {
     /// Creates compilation options.
-    pub const fn new(worker_budget: WorkerBudget, selected_target: SelectedTarget) -> Self {
+    pub const fn new(
+        worker_budget: WorkerBudget,
+        product_kind: ProductKind,
+        selected_target: SelectedTarget,
+    ) -> Self {
         Self {
             worker_budget,
+            product_kind,
             selected_target,
         }
     }
@@ -32,9 +38,24 @@ impl CompilationOptions {
         self.worker_budget
     }
 
+    /// Returns the selected package-product category.
+    pub const fn product_kind(&self) -> ProductKind {
+        self.product_kind
+    }
+
     /// Returns the selected target for this compiler operation.
     pub const fn selected_target(&self) -> &SelectedTarget {
         &self.selected_target
+    }
+}
+
+impl Default for CompilationOptions {
+    fn default() -> Self {
+        Self::new(
+            WorkerBudget::default(),
+            ProductKind::Library,
+            SelectedTarget::default(),
+        )
     }
 }
 
@@ -245,7 +266,7 @@ mod tests {
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::PackageIdentity;
+    use bray_symbols::{PackageIdentity, ProductKind};
 
     use crate::worker::WorkerBudget;
 
@@ -256,8 +277,11 @@ mod tests {
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {
-        let options =
-            CompilationOptions::new(WorkerBudget::serial(), crate::SelectedTarget::baseline());
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        );
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(1),
@@ -292,6 +316,7 @@ mod tests {
 
         assert_eq!(request.package_identity(), &package_identity);
         assert_eq!(request.options(), &options);
+        assert_eq!(request.options().product_kind(), ProductKind::Library);
         assert_eq!(request.sources().len(), 1);
         assert_eq!(request.dependency_interfaces().len(), 1);
 

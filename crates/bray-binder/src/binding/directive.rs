@@ -45,7 +45,10 @@ pub fn bind_directive_template(
         };
 
         if directive_argument_is_malformed(&argument) {
-            diagnostics.add(malformed_directive_argument(&argument));
+            diagnostics.add(malformed_directive_argument_diagnostic(SourceSpan::new(
+                argument.source().source_id(),
+                argument.full_range(),
+            )));
         }
 
         arguments.push(bind_directive_argument(owner, &argument));
@@ -140,9 +143,8 @@ fn directive_argument_is_malformed(syntax: &DirectiveArgumentSyntax) -> bool {
     name_is_malformed || syntax.expression().is_recovered()
 }
 
-fn malformed_directive_argument(syntax: &DirectiveArgumentSyntax) -> Diagnostic {
-    let span = SourceSpan::new(syntax.source().source_id(), syntax.full_range());
-
+/// Creates the diagnostic for one malformed directive argument surface.
+pub fn malformed_directive_argument_diagnostic(span: SourceSpan) -> Diagnostic {
     Diagnostic::new(
         DiagnosticId::new(span.range().start().bytes()),
         DiagnosticKind::BindingMalformedDirectiveArgument,

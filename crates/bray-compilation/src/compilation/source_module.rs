@@ -11,7 +11,8 @@ impl Compilation {
         declaration: &DeclarationRecord,
     ) -> Result<&'symbols ModuleSymbol, FactQueryError> {
         let container = self
-            .declaration_table()
+            .product_source_graph()?
+            .declarations()
             .container(declaration.owning_container())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 

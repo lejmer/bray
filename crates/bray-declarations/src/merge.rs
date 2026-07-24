@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bray_diagnostics::DiagnosticBag;
 
 use crate::chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
-use crate::diagnostic::declaration_diagnostics;
+use crate::diagnostic::{DirectiveDiagnostics, declaration_diagnostics};
 use crate::id::{ContainerId, DeclarationId, ModulePartId};
 use crate::name::{DeclarationName, ModulePath};
 use crate::record::{
@@ -17,18 +17,53 @@ use crate::table::DeclarationTable;
 pub fn merge_declaration_chunks<'chunk>(
     chunks: impl IntoIterator<Item = &'chunk DeclarationChunkResult>,
 ) -> DeclarationTableResult {
+    merge_declaration_chunks_with_selection(
+        chunks,
+        |_| true,
+        |_| true,
+        DirectiveDiagnostics::Indeterminate,
+    )
+}
+
+/// Merges selected module contributions into one deterministic table result.
+///
+/// Diagnostics produced while discovering source units are retained even when
+/// none of their module contributions are selected.
+pub fn merge_selected_declaration_chunks<'chunk>(
+    chunks: impl IntoIterator<Item = &'chunk DeclarationChunkResult>,
+    include_module_part: impl FnMut(&DiscoveredModulePart) -> bool,
+    include_declaration: impl FnMut(&DiscoveredDeclaration) -> bool,
+) -> DeclarationTableResult {
+    merge_declaration_chunks_with_selection(
+        chunks,
+        include_module_part,
+        include_declaration,
+        DirectiveDiagnostics::Selected,
+    )
+}
+
+fn merge_declaration_chunks_with_selection<'chunk>(
+    chunks: impl IntoIterator<Item = &'chunk DeclarationChunkResult>,
+    mut include_module_part: impl FnMut(&DiscoveredModulePart) -> bool,
+    mut include_declaration: impl FnMut(&DiscoveredDeclaration) -> bool,
+    directives: DirectiveDiagnostics,
+) -> DeclarationTableResult {
     let mut builder = TableBuilder::new();
     let ordered_chunks = source_order_chunks(chunks);
 
     for result in &ordered_chunks {
-        builder.push_chunk(result.chunk());
+        builder.push_chunk(
+            result.chunk(),
+            &mut include_module_part,
+            &mut include_declaration,
+        );
     }
 
     let chunk_diagnostics =
         DiagnosticBag::merged_all(ordered_chunks.iter().map(|result| result.diagnostics()));
 
     let table = builder.finish();
-    let table_diagnostics = declaration_diagnostics(&table);
+    let table_diagnostics = declaration_diagnostics(&table, directives);
     let diagnostics = chunk_diagnostics.merged(&table_diagnostics);
 
     DeclarationTableResult::new(table, diagnostics)
@@ -63,13 +98,24 @@ impl TableBuilder {
         }
     }
 
-    fn push_chunk(&mut self, chunk: &DeclarationChunk) {
+    fn push_chunk(
+        &mut self,
+        chunk: &DeclarationChunk,
+        include_module_part: &mut impl FnMut(&DiscoveredModulePart) -> bool,
+        include_declaration: &mut impl FnMut(&DiscoveredDeclaration) -> bool,
+    ) {
         for part in chunk.module_parts() {
-            self.push_module_part(part);
+            if include_module_part(part) {
+                self.push_module_part(part, include_declaration);
+            }
         }
     }
 
-    fn push_module_part(&mut self, part: &DiscoveredModulePart) {
+    fn push_module_part(
+        &mut self,
+        part: &DiscoveredModulePart,
+        include_declaration: &mut impl FnMut(&DiscoveredDeclaration) -> bool,
+    ) {
         let module_container = self.module_container_for(&part.path);
 
         // ModulePath clones share immutable segment storage across records and indexes.
@@ -96,7 +142,15 @@ impl TableBuilder {
         let mut part_declarations = Vec::with_capacity(part.declarations.len());
 
         for declaration in &part.declarations {
-            let declaration_id = self.push_discovered_declaration(module_container, declaration);
+            if !include_declaration(declaration) {
+                continue;
+            }
+
+            let declaration_id = self.push_discovered_declaration(
+                module_container,
+                declaration,
+                include_declaration,
+            );
 
             part_declarations.push(declaration_id);
         }
@@ -122,6 +176,7 @@ impl TableBuilder {
         &mut self,
         owning_container: ContainerId,
         declaration: &DiscoveredDeclaration,
+        include_declaration: &mut impl FnMut(&DiscoveredDeclaration) -> bool,
     ) -> DeclarationId {
         let child_container =
             self.child_container_for_declaration(declaration.kind, owning_container);
@@ -146,7 +201,9 @@ impl TableBuilder {
 
         if let Some(child_container) = child_container {
             for child in &declaration.children {
-                self.push_discovered_declaration(child_container, child);
+                if include_declaration(child) {
+                    self.push_discovered_declaration(child_container, child, include_declaration);
+                }
             }
         }
 
@@ -284,11 +341,12 @@ impl ContainerBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::{TextRange, TextSize};
     use bray_syntax::SyntaxKind;
     use bray_testing::{test_source_at as source, test_source_store as source_store};
 
-    use super::merge_declaration_chunks;
+    use super::{merge_declaration_chunks, merge_selected_declaration_chunks};
     use crate::discover_source_unit_declarations;
     use crate::name::ModulePath;
     use crate::record::{ContainerKind, DeclarationKind};
@@ -349,6 +407,73 @@ mod tests {
                 source(&sources, 0).source_id(),
                 source(&sources, 1).source_id()
             ]
+        );
+    }
+
+    #[test]
+    fn selected_merge_retains_only_enabled_module_contributions() {
+        let sources = source_store([
+            "module app.enabled;\nfunc present() {}\n",
+            "module app.disabled;\nfunc absent() {}\n",
+        ]);
+
+        let enabled = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let disabled = discover_source_unit_declarations(&parse_valid_source_unit_for_test(
+            source(&sources, 1),
+        ));
+
+        let result = merge_selected_declaration_chunks(
+            [&disabled, &enabled],
+            |part| part.path().dotted() == "app.enabled",
+            |_| true,
+        );
+
+        assert!(result.diagnostics().is_empty());
+
+        let names = result
+            .table()
+            .declarations()
+            .iter()
+            .filter_map(|declaration| declaration.name())
+            .filter_map(crate::DeclarationName::as_identifier)
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["present"]);
+
+        assert!(
+            result
+                .table()
+                .module_container(&ModulePath::new(["app", "disabled"]))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn selected_merge_validates_enabled_directive_bearing_declarations() {
+        let sources = source_store([concat!(
+            "module app;\n",
+            "@test\n",
+            "func duplicate() {}\n",
+            "@test\n",
+            "func duplicate() {}\n",
+        )]);
+
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::DeclarationDuplicateName]
         );
     }
 

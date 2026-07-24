@@ -188,8 +188,8 @@ pub(crate) enum CompilationFactKey {
     SelectedTarget,
     /// Post-selection validity of one exact target requirement.
     TargetValidity(TargetValidityRequest),
-    /// The selected-target result for one source module contribution.
-    ModuleTargetGate(ModulePartId),
+    /// The selected product and target result for one source module contribution.
+    ModuleContributionGate(ModulePartId),
     /// Source-backed directives attached to one callable type occurrence.
     CallableTypeDirectives(CallableTypeDirectiveKey),
     /// The complete canonical compiler-known symbol and fact provider.
@@ -230,6 +230,10 @@ pub(crate) enum CompilationFactKey {
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
     DeclarationTable,
+    /// Enabled declaration contributions for the selected product and target.
+    ProductSourceGraph,
+    /// The complete source identity skeleton used while selecting contributions.
+    DiscoverySymbolGraph,
     /// Structural validation and identity decoding for one compiled dependency interface.
     DependencyInterface(ImportedInterfaceId),
     /// Diagnostics owned by all selected compiled dependency interfaces.
@@ -278,7 +282,7 @@ impl CompilationFactKey {
             Self::IterationSource(key) => Some(key.unit()),
             Self::SelectedTarget
             | Self::TargetValidity(_)
-            | Self::ModuleTargetGate(_)
+            | Self::ModuleContributionGate(_)
             | Self::CallableTypeDirectives(_)
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
@@ -291,6 +295,8 @@ impl CompilationFactKey {
             | Self::ConstantCallCycle(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
+            | Self::ProductSourceGraph
+            | Self::DiscoverySymbolGraph
             | Self::DependencyInterface(_)
             | Self::ImportedDiagnostics
             | Self::ImplementationHeaderIndex

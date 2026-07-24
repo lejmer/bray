@@ -10,32 +10,43 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 
 use super::super::Compilation;
+use super::CompilationSymbolFacts;
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(in crate::compilation) struct CompilationBinderFacts<'compilation> {
     pub(super) compilation: &'compilation Compilation,
+    declarations: &'compilation DeclarationTable,
     pub(super) symbols: &'compilation SymbolGraph,
     pub(super) semantic_values: &'compilation SemanticValueStore,
+    pub(super) symbol_facts: &'compilation CompilationSymbolFacts,
     pub(super) cancellation: &'compilation CancellationToken,
 }
 
 impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(super) const fn new(
         compilation: &'compilation Compilation,
+        declarations: &'compilation DeclarationTable,
         symbols: &'compilation SymbolGraph,
         semantic_values: &'compilation SemanticValueStore,
+        symbol_facts: &'compilation CompilationSymbolFacts,
         cancellation: &'compilation CancellationToken,
     ) -> Self {
         Self {
             compilation,
+            declarations,
             symbols,
             semantic_values,
+            symbol_facts,
             cancellation,
         }
     }
 
     pub(in crate::compilation) const fn compilation(&self) -> &'compilation Compilation {
         self.compilation
+    }
+
+    pub(in crate::compilation) const fn declarations(&self) -> &'compilation DeclarationTable {
+        self.declarations
     }
 
     pub(super) fn imported_path_root(
@@ -122,7 +133,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
     }
 
     fn declarations(&self) -> &DeclarationTable {
-        self.compilation.declaration_table()
+        self.declarations
     }
 
     fn symbols(&self) -> &SymbolGraph {
@@ -204,7 +215,11 @@ impl Compilation {
         key: &bray_bound_tree::BoundUnitKey,
         cancellation: &'compilation CancellationToken,
     ) -> Result<CompilationBinderFacts<'compilation>, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let facts = if key.kind() == bray_bound_tree::BoundUnitKind::TargetGate {
+            self.discovery_binder_facts(cancellation)?
+        } else {
+            self.binder_facts(cancellation)?
+        };
 
         if !facts.symbols.contains_symbol_key(key.declared_owner()) {
             return Err(FactQueryError::InfrastructureFailure);
@@ -219,11 +234,31 @@ impl Compilation {
     ) -> Result<CompilationBinderFacts<'compilation>, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let semantic_values = self.semantic_value_store()?;
+        let declarations = self.product_source_graph()?.declarations();
 
         Ok(CompilationBinderFacts::new(
             self,
+            declarations,
             symbols,
             semantic_values,
+            &self.state.symbol_facts,
+            cancellation,
+        ))
+    }
+
+    pub(in crate::compilation) fn discovery_binder_facts<'compilation>(
+        &'compilation self,
+        cancellation: &'compilation CancellationToken,
+    ) -> Result<CompilationBinderFacts<'compilation>, FactQueryError> {
+        let symbols = self.discovery_symbol_graph()?;
+        let semantic_values = self.semantic_value_store()?;
+
+        Ok(CompilationBinderFacts::new(
+            self,
+            self.declaration_table(),
+            symbols,
+            semantic_values,
+            &self.state.discovery_symbol_facts,
             cancellation,
         ))
     }

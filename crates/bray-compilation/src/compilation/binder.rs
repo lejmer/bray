@@ -9,8 +9,9 @@ use crate::fact::FactQueryError;
 
 pub(super) use context::CompilationBinderFacts;
 pub(in crate::compilation) use symbol::{
-    CompilationSymbolFacts, has_visible_generic_parameters, imported_declaration_template,
-    imported_implementation, type_scope,
+    CompilationSymbolFacts, bind_module_part_directives_for_selection,
+    has_visible_generic_parameters, imported_declaration_template, imported_implementation,
+    type_scope,
 };
 pub(in crate::compilation) use value_type::bind_declared_value_type_templates;
 

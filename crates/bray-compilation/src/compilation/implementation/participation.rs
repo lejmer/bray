@@ -118,7 +118,7 @@ impl Compilation {
         symbols: &bray_symbols::SymbolGraph,
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<(Vec<ParticipatingImplementation>, DiagnosticBag), FactQueryError> {
-        let declarations = self.declaration_table();
+        let declarations = self.product_source_graph()?.declarations();
         let facts = self.binder_facts(cancellation)?;
 
         let mut anchors_by_implementation =

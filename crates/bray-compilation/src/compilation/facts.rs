@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -41,9 +41,10 @@ use crate::worker::WorkerBudget;
 
 use super::binder::CompilationSymbolFacts;
 use super::load::{
-    CompilationLoadError, SourceInputDiagnosticContext, missing_source_input_diagnostic,
-    next_diagnostic_id, source_load_diagnostic,
+    CompilationLoadError, SourceInputDiagnosticContext, duplicate_source_input_diagnostic,
+    missing_source_input_diagnostic, next_diagnostic_id, source_load_diagnostic,
 };
+use super::source_graph::ProductSourceGraph;
 
 pub(super) type CheckedExpressionSemantics = (CheckedExpressionTypes, CheckedSemanticSelections);
 
@@ -66,16 +67,18 @@ pub(super) struct CompilationState {
     syntax_tree_result: FactCell<SyntaxTreeResult>,
     declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
     declaration_table_result: FactCell<DeclarationTableResult>,
+    pub(super) product_source_graph: FactCell<Result<ProductSourceGraph, FactQueryError>>,
     compiler_known_symbols:
         FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
     selected_target: FactCell<crate::SelectedTargetContext>,
     pub(super) target_validity:
         FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
-    pub(super) module_target_gates:
-        FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleTargetGate>>>,
+    pub(super) module_contribution_gates:
+        FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleContributionGate>>>,
     pub(super) callable_type_directives:
         FactCellMap<CallableTypeDirectiveKey, Arc<DiagnosticResult<DirectiveSurface>>>,
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
+    discovery_symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) loaded_dependency_interfaces:
@@ -105,6 +108,7 @@ pub(super) struct CompilationState {
     >,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) symbol_facts: CompilationSymbolFacts,
+    pub(super) discovery_symbol_facts: CompilationSymbolFacts,
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) declared_value_type_templates: UnitFactCache<DeclaredValueTypeTemplates>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
@@ -150,6 +154,7 @@ impl Compilation {
         });
 
         let mut sources = SourceStore::with_capacity(source_inputs.len());
+        let mut source_identities = BTreeSet::new();
         let mut diagnostics = DiagnosticBag::new();
 
         if source_inputs.is_empty() {
@@ -163,6 +168,15 @@ impl Compilation {
             // the loader so source-load diagnostics can identify the input.
             let diagnostic_context =
                 SourceInputDiagnosticContext::from_input(source_index, &source_input);
+
+            if !source_identities.insert(source_input.identity()) {
+                diagnostics.add(duplicate_source_input_diagnostic(
+                    next_diagnostic_id(&diagnostics)?,
+                    diagnostic_context,
+                ));
+
+                continue;
+            }
 
             match sources.insert_input(source_input) {
                 Ok(_) => {}
@@ -199,12 +213,14 @@ impl Compilation {
                 syntax_tree_result: FactCell::new(),
                 declaration_chunks: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
+                product_source_graph: FactCell::new(),
                 compiler_known_symbols: FactCell::new(),
                 selected_target: FactCell::new(),
                 target_validity: FactCellMap::new(),
-                module_target_gates: FactCellMap::new(),
+                module_contribution_gates: FactCellMap::new(),
                 callable_type_directives: FactCellMap::new(),
                 bound_unit_identities: FactCell::new(),
+                discovery_symbol_graph: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),
                 loaded_dependency_interfaces: empty_fact_caches(dependency_count),
@@ -218,6 +234,7 @@ impl Compilation {
                 iteration_sources: FactCellMap::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_facts: CompilationSymbolFacts::new(),
+                discovery_symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),
                 declared_value_type_templates: UnitFactCache::new(),
                 checked_control_flow: UnitFactCache::new(),
@@ -388,6 +405,26 @@ impl Compilation {
                 let provider = self.compiler_known_provider().map(Arc::clone)?;
 
                 // The graph owns the Arc-backed package identity after compilation retains its input.
+                SymbolGraph::build_source_with_provider(
+                    self.package_identity().clone(),
+                    self.product_source_graph()?.declarations(),
+                    self.syntax_tree(),
+                    provider,
+                )
+                .map_err(|_| FactQueryError::InfrastructureFailure)
+            },
+        )
+        .as_ref()
+        .map_err(Clone::clone)
+    }
+
+    pub(super) fn discovery_symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
+        self.fact(
+            CompilationFactKey::DiscoverySymbolGraph,
+            &self.state.discovery_symbol_graph,
+            || {
+                let provider = self.compiler_known_provider().map(Arc::clone)?;
+
                 SymbolGraph::build_source_with_provider(
                     self.package_identity().clone(),
                     self.declaration_table(),
@@ -594,8 +631,11 @@ mod tests {
 
     #[test]
     fn compilations_load_source_inputs_in_request_order() {
-        let options =
-            CompilationOptions::new(WorkerBudget::serial(), crate::SelectedTarget::baseline());
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        );
 
         let request = CompilationRequest::with_options(
             package_identity(),
@@ -756,6 +796,49 @@ mod tests {
         );
 
         assert_eq!(diagnostic.notes().len(), 1);
+    }
+
+    #[test]
+    fn compilations_reject_duplicate_logical_source_inputs() {
+        let first = SourceInput::virtual_text(
+            SourceIdentity::new(10),
+            "first.bray",
+            SourceVersion::new(1),
+            "module first;",
+        );
+
+        let duplicate = SourceInput::virtual_text(
+            SourceIdentity::new(10),
+            "duplicate.bray",
+            SourceVersion::new(2),
+            "module duplicate;",
+        );
+
+        let compilation = Compilation::load_sources(package_identity(), vec![first, duplicate])
+            .unwrap_or_else(|error| {
+                panic!("duplicate source input must become a diagnostic: {error:?}")
+            });
+
+        assert_eq!(compilation.source_count(), 1);
+
+        let [diagnostic] = compilation.source_diagnostics().diagnostics() else {
+            panic!("duplicate source input must produce one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::RequestDuplicateSourceInput
+        );
+
+        assert_eq!(
+            diagnostic.args(),
+            &[
+                DiagnosticArg::input_index(1)
+                    .unwrap_or_else(|| panic!("test input index must fit in diagnostics")),
+                DiagnosticArg::source_input_kind(SourceInputKind::VirtualText),
+                DiagnosticArg::source_name("duplicate.bray"),
+            ]
+        );
     }
 
     #[test]
@@ -1395,7 +1478,11 @@ mod tests {
         };
 
         let target = crate::SelectedTarget::new(profile, baseline.runtime_abi());
-        let options = CompilationOptions::new(WorkerBudget::serial(), target);
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            target,
+        );
 
         let request = CompilationRequest::with_options(
             package_identity(),

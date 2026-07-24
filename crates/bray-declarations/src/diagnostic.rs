@@ -11,10 +11,25 @@ use crate::name::DeclarationName;
 use crate::record::{ContainerKind, DeclarationKind, DeclarationRecord, ModulePartRecord};
 use crate::table::DeclarationTable;
 
-pub(crate) fn declaration_diagnostics(table: &DeclarationTable) -> DiagnosticBag {
-    let mut diagnostics = duplicate_name_diagnostics(table);
+#[derive(Clone, Copy)]
+pub(crate) enum DirectiveDiagnostics {
+    Indeterminate,
+    Selected,
+}
 
-    diagnostics.extend(module_surface_diagnostics(table));
+impl DirectiveDiagnostics {
+    const fn validates(self) -> bool {
+        matches!(self, Self::Selected)
+    }
+}
+
+pub(crate) fn declaration_diagnostics(
+    table: &DeclarationTable,
+    directives: DirectiveDiagnostics,
+) -> DiagnosticBag {
+    let mut diagnostics = duplicate_name_diagnostics(table, directives);
+
+    diagnostics.extend(module_surface_diagnostics(table, directives));
     diagnostics.sort_by_key(|pending| {
         (
             pending.span.source_id(),
@@ -32,9 +47,14 @@ pub(crate) fn declaration_diagnostics(table: &DeclarationTable) -> DiagnosticBag
     )
 }
 
-fn duplicate_name_diagnostics(table: &DeclarationTable) -> Vec<PendingDiagnostic> {
+fn duplicate_name_diagnostics(
+    table: &DeclarationTable,
+    directives: DirectiveDiagnostics,
+) -> Vec<PendingDiagnostic> {
     let mut diagnostics = Vec::new();
-    let (excluded_declarations, excluded_containers) = declaration_diagnostic_exclusions(table);
+
+    let (excluded_declarations, excluded_containers) =
+        declaration_diagnostic_exclusions(table, directives);
 
     for container in table.containers() {
         if excluded_containers.contains(&container.id()) {
@@ -78,16 +98,19 @@ fn duplicate_name_diagnostics(table: &DeclarationTable) -> Vec<PendingDiagnostic
 
 fn declaration_diagnostic_exclusions(
     table: &DeclarationTable,
+    directives: DirectiveDiagnostics,
 ) -> (BTreeSet<crate::DeclarationId>, BTreeSet<crate::ContainerId>) {
     let mut declarations = table
         .declarations()
         .iter()
-        .filter(|declaration| declaration_diagnostics_are_indeterminate(declaration))
+        .filter(|declaration| declaration_diagnostics_are_indeterminate(declaration, directives))
         .map(DeclarationRecord::id)
         .collect::<BTreeSet<_>>();
 
     for part in table.module_parts() {
-        if part.is_recovered() || !part.surface().directives().is_empty() {
+        if part.is_recovered()
+            || (!directives.validates() && !part.surface().directives().is_empty())
+        {
             declarations.extend(part.declarations());
         }
     }
@@ -120,11 +143,18 @@ fn declaration_diagnostic_exclusions(
     (declarations, containers)
 }
 
-fn declaration_diagnostics_are_indeterminate(declaration: &DeclarationRecord) -> bool {
-    declaration.is_recovered() || !declaration.surface().directives().is_empty()
+fn declaration_diagnostics_are_indeterminate(
+    declaration: &DeclarationRecord,
+    directives: DirectiveDiagnostics,
+) -> bool {
+    declaration.is_recovered()
+        || (!directives.validates() && !declaration.surface().directives().is_empty())
 }
 
-fn module_surface_diagnostics(table: &DeclarationTable) -> Vec<PendingDiagnostic> {
+fn module_surface_diagnostics(
+    table: &DeclarationTable,
+    directives: DirectiveDiagnostics,
+) -> Vec<PendingDiagnostic> {
     let mut diagnostics = Vec::new();
 
     for module in table.module_containers() {
@@ -132,7 +162,10 @@ fn module_surface_diagnostics(table: &DeclarationTable) -> Vec<PendingDiagnostic
             .module_parts()
             .iter()
             .map(|id| module_part(table, *id))
-            .filter(|part| !part.is_recovered() && part.surface().directives().is_empty());
+            .filter(|part| {
+                !part.is_recovered()
+                    && (directives.validates() || part.surface().directives().is_empty())
+            });
 
         let Some(first) = parts.next() else {
             continue;

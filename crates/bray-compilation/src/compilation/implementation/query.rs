@@ -62,7 +62,8 @@ impl super::super::Compilation {
     ) -> Result<DiagnosticResult<Arc<ImplementationHeaderIndex>>, FactQueryError> {
         let values = self.semantic_value_store()?;
         let facts = self.binder_facts(cancellation)?;
-        let declarations = self.declaration_table();
+        let source_graph = self.product_source_graph()?;
+        let declarations = source_graph.declarations();
         let symbols = self.symbol_graph()?;
 
         let source_module_parts = declarations
@@ -126,19 +127,12 @@ impl super::super::Compilation {
                 continue;
             }
 
-            let target_gate = symbols
+            let contribution_gate = symbols
                 .symbol_key(implementation.into_any())
                 .and_then(bray_symbols::SymbolKey::source_declaration_id)
                 .and_then(|declaration| source_module_parts.get(&declaration).copied())
-                .map(|part| self.module_target_gate_with_cancellation(part, cancellation))
-                .transpose()?;
-
-            if target_gate
-                .as_ref()
-                .is_some_and(|gate| !gate.value().is_enabled())
-            {
-                continue;
-            }
+                .and_then(|part| declarations.module_part(part))
+                .and_then(|part| source_graph.contribution_gate(part.syntax_anchor()));
 
             let head = facts
                 .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
@@ -152,11 +146,8 @@ impl super::super::Compilation {
                 ))
                 .map_err(super::super::binder::binder_fact_error)?;
 
-            let diagnostics = DiagnosticBag::merged_all(
-                [head.diagnostics(), coherence.diagnostics()]
-                    .into_iter()
-                    .chain(target_gate.as_ref().map(|gate| gate.diagnostics())),
-            );
+            let diagnostics =
+                DiagnosticBag::merged_all([head.diagnostics(), coherence.diagnostics()]);
 
             let Some(trait_application) = coherence.value().trait_application() else {
                 continue;
@@ -165,16 +156,16 @@ impl super::super::Compilation {
             // The index owns the immutable generic template beyond the borrowed fact result.
             let generic = head.value().generic().clone();
 
-            // Header records retain their stable key independently of participation evidence.
+            // Headers retain their stable key and Arc-backed target dependencies.
             headers.push(ImplementationHeader::new(
                 participant.key().clone(),
                 implementation,
                 coherence.value().subject(),
                 trait_application,
                 generic,
-                target_gate
-                    .iter()
-                    .flat_map(|gate| gate.value().dependencies().iter().cloned()),
+                contribution_gate
+                    .into_iter()
+                    .flat_map(|gate| gate.dependencies().iter().cloned()),
                 diagnostics,
             ));
         }
@@ -379,17 +370,28 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
     }
 
     #[test]
-    fn source_target_dependencies_exclude_inapplicable_implementations() {
+    fn target_disabled_implementations_do_not_enter_active_source_identity() {
         let source = target_gated_implementations("target.atomic.u64");
         let compilation = compilation(&source);
-        let fixture = CandidateFixture::new(&compilation);
+        let requirement = candidate_requirement(&compilation);
 
         let candidates = compilation
-            .implementation_candidate_set_result(fixture.requirement)
+            .implementation_candidate_set_result(requirement.key)
             .unwrap_or_else(|error| panic!("candidate query must complete: {error:?}"));
 
         assert!(candidates.diagnostics().is_empty());
         assert!(candidates.value().candidates().is_empty());
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        assert!(
+            symbols
+                .named_trait_implementations()
+                .iter()
+                .all(|symbol| symbol.origin() != SymbolOrigin::Source)
+        );
     }
 
     #[test]
@@ -557,33 +559,11 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
 
     impl CandidateFixture {
         fn new(compilation: &crate::Compilation) -> Self {
+            let requirement = candidate_requirement(compilation);
+
             let symbols = compilation
                 .symbol_graph()
                 .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
-
-            let values = compilation
-                .semantic_value_store()
-                .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
-
-            let structures = symbols
-                .structures()
-                .iter()
-                .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
-                .collect::<Vec<_>>();
-
-            let [structure] = structures.as_slice() else {
-                panic!("fixture must declare one source structure: {structures:?}");
-            };
-
-            let traits = symbols
-                .traits()
-                .iter()
-                .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
-                .collect::<Vec<_>>();
-
-            let [trait_symbol] = traits.as_slice() else {
-                panic!("fixture must declare one source trait: {traits:?}");
-            };
 
             let implementations = symbols
                 .named_trait_implementations()
@@ -599,49 +579,89 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
                 panic!("fixture implementation must infer one type parameter");
             };
 
-            let boolean_symbol = symbols
-                .compiler_known_provider()
-                .role_registry()
-                .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool)
-                .unwrap_or_else(|| panic!("compiler-known bool must be available"));
-
-            let boolean = named_type(values, boolean_symbol, [], []);
-
-            let subject = named_type(
-                values,
-                structure.id(),
-                structure
-                    .generic_type_parameters()
-                    .iter()
-                    .copied()
-                    .map(GenericParameterSymbolId::Type),
-                [GenericArgument::Type(boolean)],
-            );
-
-            let trait_substitution = substitution(
-                values,
-                trait_symbol.id().into(),
-                trait_symbol
-                    .generic_type_parameters()
-                    .iter()
-                    .copied()
-                    .map(GenericParameterSymbolId::Type),
-                [GenericArgument::Type(boolean)],
-            );
-
-            let trait_application = values
-                .intern_trait_application(TraitApplicationData::new(
-                    trait_symbol.id(),
-                    trait_substitution,
-                ))
-                .unwrap_or_else(|error| panic!("trait application must be valid: {error:?}"));
-
             Self {
-                requirement: ImplementationRequirementKey::new(subject, trait_application),
+                requirement: requirement.key,
                 implementation: implementation.id().into(),
                 implementation_parameter: GenericParameterSymbolId::Type(*implementation_parameter),
-                boolean,
+                boolean: requirement.boolean,
             }
+        }
+    }
+
+    struct CandidateRequirement {
+        key: ImplementationRequirementKey,
+        boolean: bray_symbols::TypeId,
+    }
+
+    fn candidate_requirement(compilation: &crate::Compilation) -> CandidateRequirement {
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let structures = symbols
+            .structures()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [structure] = structures.as_slice() else {
+            panic!("fixture must declare one source structure: {structures:?}");
+        };
+
+        let traits = symbols
+            .traits()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [trait_symbol] = traits.as_slice() else {
+            panic!("fixture must declare one source trait: {traits:?}");
+        };
+
+        let boolean_symbol = symbols
+            .compiler_known_provider()
+            .role_registry()
+            .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool)
+            .unwrap_or_else(|| panic!("compiler-known bool must be available"));
+
+        let boolean = named_type(values, boolean_symbol, [], []);
+
+        let subject = named_type(
+            values,
+            structure.id(),
+            structure
+                .generic_type_parameters()
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Type),
+            [GenericArgument::Type(boolean)],
+        );
+
+        let trait_substitution = substitution(
+            values,
+            trait_symbol.id().into(),
+            trait_symbol
+                .generic_type_parameters()
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Type),
+            [GenericArgument::Type(boolean)],
+        );
+
+        let trait_application = values
+            .intern_trait_application(TraitApplicationData::new(
+                trait_symbol.id(),
+                trait_substitution,
+            ))
+            .unwrap_or_else(|error| panic!("trait application must be valid: {error:?}"));
+
+        CandidateRequirement {
+            key: ImplementationRequirementKey::new(subject, trait_application),
+            boolean,
         }
     }
 
@@ -681,18 +701,22 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
     fn target_gated_implementations(target_fact: &str) -> String {
         format!(
             r#"@target({target_fact})
-module app;
-
-trait Converts<T>
+module app
 {{
+    impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
+    {{
+    }}
 }}
 
-struct Wrapper<T>
+module app
 {{
-}}
+    trait Converts<T>
+    {{
+    }}
 
-impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
-{{
+    struct Wrapper<T>
+    {{
+    }}
 }}
 "#
         )
