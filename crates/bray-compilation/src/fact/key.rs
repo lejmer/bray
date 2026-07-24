@@ -5,9 +5,9 @@ use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
-    ConstantValueId, ImplementationCoherenceDomainKey, ImplementationInstanceId,
-    ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId,
-    SymbolFactKind, TypeId,
+    ConstantValueId, GenericConstraintObligationKey, ImplementationCoherenceDomainKey,
+    ImplementationInstanceId, ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId,
+    NamedTypeSymbolId, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -247,6 +247,10 @@ pub(crate) enum CompilationFactKey {
     ImplementationHeaderIndex,
     /// Uncommitted implementation candidates for one exact requirement.
     ImplementationCandidateSet(ImplementationRequirementKey),
+    /// Static constraints for one exact generic declaration instance.
+    GenericConstraintSatisfaction(GenericConstraintObligationKey),
+    /// The selected implementation witness for one exact requirement.
+    ImplementationSelection(ImplementationRequirementKey),
     /// The exact protocol operations selected for one iteration source occurrence.
     IterationSource(IterationSourceFactKey),
     /// Decoded and remapped semantic facts for one compiled dependency interface.
@@ -312,6 +316,8 @@ impl CompilationFactKey {
             | Self::ImportedDiagnostics
             | Self::ImplementationHeaderIndex
             | Self::ImplementationCandidateSet(_)
+            | Self::GenericConstraintSatisfaction(_)
+            | Self::ImplementationSelection(_)
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImplementationParticipation(_)

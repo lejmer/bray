@@ -176,9 +176,12 @@ fn bind_generic_declaration_template(
         let mut constraints = Vec::new();
 
         for clause in direct_children::<WithClauseSyntax>(&root)? {
+            let unit = SyntaxAnchor::from_node(&clause);
+
             for expression in clause.expressions() {
                 constraints.push(GenericConstraintTemplate::new(
                     symbol_ordinal(constraints.len())?,
+                    unit,
                     DeclarationExpressionTemplate::new(
                         symbol,
                         SyntaxAnchor::from_node(&expression),

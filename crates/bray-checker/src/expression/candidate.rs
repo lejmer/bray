@@ -5,7 +5,7 @@ use bray_bound_tree::{
     SelectionKind, SemanticSelection, SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::TypeId;
+use bray_symbols::{GenericConstraintObligationKey, ProofOutcome, TypeId};
 
 use super::built_in_operator::{self, PreparedBuiltInOperator};
 use super::template::{
@@ -118,11 +118,14 @@ where
 
                             match materialized {
                                 TemplateResolution::Resolved(candidate) => {
-                                    if candidate.generic_constraints().is_empty() {
-                                        resolved.push(candidate);
-                                    } else {
-                                        // TODO(BRA-233): Select constrained candidates from checked predicate facts.
-                                        defer_call = true;
+                                    match generic_constraint_outcome(
+                                        request,
+                                        &candidate,
+                                        &mut diagnostics,
+                                    )? {
+                                        ProofOutcome::Proven => resolved.push(candidate),
+                                        ProofOutcome::Disproven | ProofOutcome::Recovered => {}
+                                        ProofOutcome::Unknown => defer_call = true,
                                     }
                                 }
                                 TemplateResolution::Unsupported => defer_call = true,
@@ -190,6 +193,41 @@ where
         deferred,
         diagnostics,
     }))
+}
+
+fn generic_constraint_outcome<C>(
+    request: CheckerUnitView<'_, C>,
+    candidate: &CallableCandidate,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<ProofOutcome, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if candidate.generic_constraints().is_empty() {
+        return Ok(ProofOutcome::Proven);
+    }
+
+    let BoundCallableTarget::Declaration(instance) = candidate.resolution().target() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(instance.substitution())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let obligation =
+        GenericConstraintObligationKey::new(substitution.owner(), instance.substitution());
+
+    let result = match request.generic_constraints(obligation) {
+        Ok(result) => result,
+        Err(crate::CheckerFactError::Cancelled) => return Ok(ProofOutcome::Unknown),
+        Err(crate::CheckerFactError::Infrastructure(error)) => return Err(error),
+    };
+
+    diagnostics.extend(result.diagnostics().iter().cloned());
+
+    Ok(*result.value())
 }
 
 fn defer_callable_selection<C>(

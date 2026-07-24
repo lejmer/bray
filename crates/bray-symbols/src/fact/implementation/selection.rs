@@ -9,6 +9,8 @@ use crate::{ImplementationInstanceId, SymbolKey};
 pub enum ImplementationSelection {
     /// One exact implementation witness was selected.
     Selected(ImplementationInstanceId),
+    /// Applicability cannot yet be decided from the available semantic facts.
+    Deferred,
     /// No applicable implementation exists.
     Unavailable,
     /// Several equally applicable implementation witnesses remain.
@@ -27,7 +29,7 @@ impl ImplementationSelection {
     pub fn ambiguous_candidates(&self) -> &[ImplementationSelectionCandidate] {
         match self {
             Self::Ambiguous(ambiguity) => ambiguity.candidates(),
-            Self::Selected(_) | Self::Unavailable => &[],
+            Self::Selected(_) | Self::Deferred | Self::Unavailable => &[],
         }
     }
 }

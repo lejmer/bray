@@ -144,6 +144,14 @@ where
         self.context.checked_constant_expression(occurrence)
     }
 
+    /// Proves static constraints for one exact generic declaration instance.
+    pub(crate) fn generic_constraints(
+        self,
+        obligation: bray_symbols::GenericConstraintObligationKey,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
+        self.context.generic_constraints(obligation)
+    }
+
     /// Checks every source constant expression embedded in one type template.
     pub(crate) fn checked_constant_terms(
         self,

@@ -269,9 +269,9 @@ mod tests {
     use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_symbols::{
         GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-        ImplementationCoherenceDomainKey, ImplementationRequirementKey, ImplementationSymbolId,
-        NamedTraitImplementationSymbolId, NamedTypeSymbolId, StructSymbolId, SymbolOrigin,
-        TraitApplicationData, TypeData,
+        ImplementationCoherenceDomainKey, ImplementationRequirementKey, ImplementationSelection,
+        ImplementationSymbolId, NamedTraitImplementationSymbolId, NamedTypeSymbolId,
+        StructSymbolId, SymbolOrigin, TraitApplicationData, TypeData,
     };
     use bray_target::TargetFactKind;
 
@@ -333,6 +333,47 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
             substitution.argument_for(fixture.implementation_parameter),
             Some(GenericArgument::Type(fixture.boolean))
         );
+    }
+
+    #[test]
+    fn implementation_selection_proves_constraints_before_committing_a_witness() {
+        let accepted = compilation(IMPLEMENTATIONS);
+        let fixture = CandidateFixture::new(&accepted);
+
+        let first = accepted
+            .implementation_selection_result(fixture.requirement)
+            .unwrap_or_else(|error| panic!("implementation selection must complete: {error:?}"));
+
+        let second = accepted
+            .implementation_selection_result(fixture.requirement)
+            .unwrap_or_else(|error| {
+                panic!("implementation selection must remain available: {error:?}")
+            });
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(first.diagnostics().is_empty());
+
+        let ImplementationSelection::Selected(instance) = first.value() else {
+            panic!("satisfied implementation constraints must select one witness");
+        };
+
+        let values = accepted
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let instance = values
+            .implementation_instance_data(*instance)
+            .unwrap_or_else(|error| panic!("selected witness must be available: {error:?}"));
+
+        assert_eq!(instance.definition(), fixture.implementation);
+
+        let rejected = compilation(&IMPLEMENTATIONS.replace("with(true)", "with(false)"));
+        let rejected_fixture = CandidateFixture::new(&rejected);
+        let selection = rejected
+            .implementation_selection_result(rejected_fixture.requirement)
+            .unwrap_or_else(|error| panic!("rejected selection must complete: {error:?}"));
+
+        assert_eq!(*selection.value(), ImplementationSelection::Unavailable);
     }
 
     #[test]

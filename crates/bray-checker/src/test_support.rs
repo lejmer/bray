@@ -139,6 +139,15 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn generic_constraints(
+        &self,
+        _obligation: bray_symbols::GenericConstraintObligationKey,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            bray_symbols::ProofOutcome::Proven,
+        ))
+    }
+
     fn source(
         &self,
         anchor: BoundSourceAnchor,

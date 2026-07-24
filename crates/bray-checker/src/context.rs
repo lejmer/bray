@@ -6,8 +6,9 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
-    AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
-    SymbolFactKind, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    AnySymbolId, AvailableCompilerKnownSymbols, GenericConstraintObligationKey, ProofOutcome,
+    SemanticValueStore, SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
+    SymbolGraph,
 };
 use bray_target::TargetProfile;
 
@@ -147,6 +148,12 @@ pub trait CheckerRequestContext: Sync {
         &self,
         occurrence: bray_symbols::ConstantExpressionOccurrence,
     ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ConstantTermId>>;
+
+    /// Proves the static constraints for one exact generic declaration instance.
+    fn generic_constraints(
+        &self,
+        obligation: GenericConstraintObligationKey,
+    ) -> CheckerFactResult<DiagnosticResult<ProofOutcome>>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(
