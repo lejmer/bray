@@ -1,6 +1,6 @@
 use bray_binder::{
-    BinderFactError, BinderFactResult, PredicateClauseBindingContext, SymbolFactProvider,
-    bind_predicate_clause, bind_trusted_capability_clause,
+    BinderFactContext, BinderFactError, BinderFactResult, PredicateClauseBindingContext,
+    SymbolFactProvider, bind_predicate_clause, bind_trusted_capability_clause,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -94,7 +94,7 @@ fn bind_callable_contracts(
     })?;
 
     let mut predicates = Vec::new();
-    let mut capabilities = Vec::new();
+    let mut uses_clauses = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
     for clause in clauses {
@@ -126,19 +126,12 @@ fn bind_callable_contracts(
                 &mut predicates,
                 &mut diagnostics,
             )?,
-            ContractClauseSyntax::Uses(clause) => {
-                let result = bind_trusted_capability_clause(context, owner.into_any(), &clause)?;
-                let (symbols, clause_diagnostics) = result.into_parts();
-                diagnostics = diagnostics.merged(&clause_diagnostics);
-
-                for symbol in symbols {
-                    let ordinal = symbol_ordinal(capabilities.len())?;
-
-                    capabilities.push(TrustedCapabilityRequirement::new(ordinal, symbol));
-                }
-            }
+            ContractClauseSyntax::Uses(clause) => uses_clauses.push(clause),
         }
     }
+
+    let capabilities = bind_trusted_capability_clauses(context, owner, uses_clauses)?;
+    diagnostics = diagnostics.merged(capabilities.diagnostics());
 
     let dependency = context
         .semantic_values
@@ -163,8 +156,35 @@ fn bind_callable_contracts(
         _ => return Err(BinderFactError::DependencyUnavailable),
     };
 
-    let (invocation_behavior, deferred_execution_behavior) =
-        callable_phase_behaviors(execution, capabilities, dependency);
+    let definition = bray_symbols::CallableDefinitionId::try_new(owner.into_any())
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let body_behavior = match context
+        .compilation()
+        .callable_body_key(definition)
+        .map_err(super::binding::binder_error)?
+    {
+        Some(key) => {
+            let behavior = context
+                .compilation()
+                .body_behavior_with_cancellation(key, context.cancellation())
+                .map_err(super::binding::binder_error)?;
+
+            diagnostics = diagnostics.merged(behavior.result().diagnostics());
+
+            Some(behavior)
+        }
+        None => None,
+    };
+
+    let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
+        execution,
+        capabilities.value().iter().copied(),
+        dependency,
+        body_behavior
+            .as_ref()
+            .map(|behavior| behavior.result().value()),
+    );
 
     publish_catalog_result(
         CallableContractSet::new(predicates, invocation_behavior, deferred_execution_behavior),
@@ -172,19 +192,89 @@ fn bind_callable_contracts(
     )
 }
 
+pub(in crate::compilation) fn bind_declared_trusted_capabilities(
+    context: &CompilationBinderFacts<'_>,
+    owner: CallableSymbolId,
+) -> BinderFactResult<DiagnosticResult<Vec<TrustedCapabilityRequirement>>> {
+    let clauses = with_declaration_root(context, owner.into_any(), |root| {
+        Ok(direct_contract_clauses(root))
+    })?;
+
+    bind_trusted_capability_clauses(
+        context,
+        owner,
+        clauses.into_iter().filter_map(|clause| match clause {
+            ContractClauseSyntax::Uses(clause) => Some(clause),
+            ContractClauseSyntax::Requires(_)
+            | ContractClauseSyntax::Ensures(_)
+            | ContractClauseSyntax::With(_) => None,
+        }),
+    )
+}
+
+fn bind_trusted_capability_clauses(
+    context: &CompilationBinderFacts<'_>,
+    owner: CallableSymbolId,
+    clauses: impl IntoIterator<Item = UsesClauseSyntax>,
+) -> BinderFactResult<DiagnosticResult<Vec<TrustedCapabilityRequirement>>> {
+    let mut capabilities = Vec::new();
+    let mut diagnostics = DiagnosticBag::new();
+
+    for clause in clauses {
+        let result = bind_trusted_capability_clause(context, owner.into_any(), &clause)?;
+        let (symbols, clause_diagnostics) = result.into_parts();
+
+        diagnostics = diagnostics.merged(&clause_diagnostics);
+
+        for symbol in symbols {
+            let ordinal = symbol_ordinal(capabilities.len())?;
+
+            capabilities.push(TrustedCapabilityRequirement::new(ordinal, symbol));
+        }
+    }
+
+    Ok(DiagnosticResult::new(capabilities, diagnostics))
+}
+
 fn callable_phase_behaviors(
     execution: CallableExecution,
-    trusted_capabilities: Vec<TrustedCapabilityRequirement>,
+    trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
+    body: Option<&bray_bound_tree::CheckedBodyBehavior>,
 ) -> (CallablePhaseBehavior, Option<CallablePhaseBehavior>) {
-    let body_behavior = CallablePhaseBehavior::new(
-        [],
-        [],
-        trusted_capabilities,
-        [],
-        [],
-        dependencies,
+    let effects = body
+        .into_iter()
+        .flat_map(bray_bound_tree::CheckedBodyBehavior::effects)
+        .copied();
+
+    let capabilities = body
+        .into_iter()
+        .flat_map(bray_bound_tree::CheckedBodyBehavior::capabilities)
+        .copied();
+
+    let execution_requirements = body
+        .into_iter()
+        .flat_map(bray_bound_tree::CheckedBodyBehavior::execution_requirements)
+        .copied();
+
+    let lifecycle_obligations = body
+        .into_iter()
+        .flat_map(bray_bound_tree::CheckedBodyBehavior::lifecycle_obligations)
+        .copied();
+
+    let current_run_cancellation = body.map_or(
         CurrentRunCancellation::NotEntered,
+        bray_bound_tree::CheckedBodyBehavior::current_run_cancellation,
+    );
+
+    let body_behavior = CallablePhaseBehavior::new(
+        effects,
+        capabilities,
+        trusted_capabilities,
+        execution_requirements,
+        lifecycle_obligations,
+        dependencies,
+        current_run_cancellation,
     );
 
     match execution {

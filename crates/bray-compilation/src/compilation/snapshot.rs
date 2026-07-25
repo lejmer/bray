@@ -443,6 +443,14 @@ fn reuse_mapped_cells(
         CompilationFactKey::DependencyContracts(key.clone())
     });
 
+    reuse!(body_behavior_contributions, |key| {
+        CompilationFactKey::BodyBehaviorContributions(key.clone())
+    });
+
+    reuse!(checked_body_behaviors, |key| {
+        CompilationFactKey::CheckedBodyBehavior(key.clone())
+    });
+
     reuse!(symbolic_constant_terms, |key| {
         CompilationFactKey::SymbolicConstantTerm(key.clone())
     });

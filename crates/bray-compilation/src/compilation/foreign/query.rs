@@ -4,8 +4,9 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableAbi, CallableSignatureFact, CallableSymbolId, DirectiveKind, ForeignCallableContract,
-    ForeignCallableDirection, FunctionSymbolId, SymbolFactRequest, SymbolOrigin,
+    CallableAbi, CallableContractsFact, CallableSignatureFact, CallableSymbolId, DirectiveKind,
+    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, SymbolFactRequest,
+    SymbolOrigin,
 };
 use bray_syntax::{FunctionDeclarationSyntax, SyntaxKind};
 
@@ -157,7 +158,15 @@ impl Compilation {
         };
 
         if abi != CallableAbi::Bray && direction == ForeignCallableDirection::Import {
-            validate_foreign_import_requirements(anchor, &syntax, &mut diagnostics);
+            let contracts = facts
+                .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
+                    function.into(),
+                ))
+                .map_err(binder_fact_error)?;
+
+            diagnostics.add_range(contracts.diagnostics().iter().cloned());
+
+            validate_foreign_import_requirements(self, anchor, contracts.value(), &mut diagnostics);
         }
 
         let contract = if diagnostics.has_errors() {
@@ -446,6 +455,35 @@ extern func native_read(pos value: &i32) -> i32;
         assert!(kinds.contains(&DiagnosticKind::CheckingForeignCallableRequiresCapability));
         assert!(kinds.contains(&DiagnosticKind::CheckingForeignAbiTypeUnsupported));
         assert!(kinds.contains(&DiagnosticKind::CheckingMissingForeignCallableDirective));
+        assert!(result.value().is_none());
+    }
+
+    #[test]
+    fn foreign_imports_require_the_exact_compiler_known_capability() {
+        let compilation = compilation_with_link(
+            r#"trusted module app;
+
+trusted predicate foreign_call();
+
+@link(name = "native")
+@symbol(name = "native_read")
+@abi(c)
+extern trusted func native_read() -> i32
+    uses(app.foreign_call);
+"#,
+            "native",
+        );
+
+        let function = source_function(&compilation, "native_read");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("foreign contract query must complete: {error:?}"));
+
+        assert!(result.diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingForeignCallableRequiresCapability
+        }));
+
         assert!(result.value().is_none());
     }
 

@@ -541,7 +541,7 @@ impl Compilation {
         Ok(self.constant_template_keys()?.get(&definition).cloned())
     }
 
-    pub(super) fn callable_body_key(
+    pub(in crate::compilation) fn callable_body_key(
         &self,
         definition: CallableDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {

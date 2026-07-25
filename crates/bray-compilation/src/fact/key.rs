@@ -232,6 +232,10 @@ pub(crate) enum CompilationFactKey {
     StorageFlowFacts(BoundUnitKey),
     /// Normalized dependency contracts for semantic occurrences in one bound unit.
     DependencyContracts(BoundUnitKey),
+    /// Direct callable and runtime-default behavior contributions from one bound unit.
+    BodyBehaviorContributions(BoundUnitKey),
+    /// Reachable normalized behavior of one checked semantic body.
+    CheckedBodyBehavior(BoundUnitKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -315,6 +319,8 @@ impl CompilationFactKey {
             | Self::RefinementFacts(key)
             | Self::StorageFlowFacts(key)
             | Self::DependencyContracts(key)
+            | Self::BodyBehaviorContributions(key)
+            | Self::CheckedBodyBehavior(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)

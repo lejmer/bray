@@ -1,3 +1,4 @@
+mod behavior;
 mod binder;
 mod checker;
 mod constant;
