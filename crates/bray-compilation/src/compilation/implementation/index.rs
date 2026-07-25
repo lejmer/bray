@@ -19,6 +19,30 @@ enum SubjectBucket {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum ImplementationFamilySubject {
+    Named(NamedTypeSymbolId),
+    Borrowed(BorrowKind, NamedTypeSymbolId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct ImplementationFamilyKey {
+    subject: ImplementationFamilySubject,
+    trait_definition: TraitSymbolId,
+}
+
+impl ImplementationFamilyKey {
+    pub(super) const fn new(
+        subject: ImplementationFamilySubject,
+        trait_definition: TraitSymbolId,
+    ) -> Self {
+        Self {
+            subject,
+            trait_definition,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct HeaderBucket {
     trait_definition: TraitSymbolId,
     subject: SubjectBucket,
@@ -87,6 +111,16 @@ impl ImplementationHeader {
     pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }
+
+    pub(super) fn family_key(
+        &self,
+        values: &SemanticValueStore,
+    ) -> Result<Option<ImplementationFamilyKey>, SemanticValueStoreError> {
+        let application = values.trait_application_data(self.trait_application)?;
+
+        Ok(family_subject(self.subject, values)?
+            .map(|subject| ImplementationFamilyKey::new(subject, application.definition())))
+    }
 }
 
 #[derive(Debug)]
@@ -140,6 +174,10 @@ impl ImplementationHeaderIndex {
         ))
     }
 
+    pub(super) fn headers(&self) -> Vec<&ImplementationHeader> {
+        merge_headers(self.buckets.values().map(Arc::as_ref))
+    }
+
     fn bucket(
         &self,
         trait_definition: TraitSymbolId,
@@ -152,6 +190,30 @@ impl ImplementationHeaderIndex {
             })
             .map(Arc::as_ref)
             .unwrap_or(&[])
+    }
+}
+
+fn family_subject(
+    subject: TypeId,
+    values: &SemanticValueStore,
+) -> Result<Option<ImplementationFamilySubject>, SemanticValueStoreError> {
+    let subject = values.type_data(subject)?;
+
+    match subject.as_ref() {
+        TypeData::Named { definition, .. } => {
+            Ok(Some(ImplementationFamilySubject::Named(*definition)))
+        }
+        TypeData::Borrow { kind, target } => {
+            let target = values.type_data(*target)?;
+
+            match target.as_ref() {
+                TypeData::Named { definition, .. } => Ok(Some(
+                    ImplementationFamilySubject::Borrowed(*kind, *definition),
+                )),
+                _ => Ok(None),
+            }
+        }
+        _ => Ok(None),
     }
 }
 

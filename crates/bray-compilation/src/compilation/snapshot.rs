@@ -245,6 +245,10 @@ fn reuse_fixed_cells(
         CompilationFactKey::ImplementationHeaderIndex
     );
     reuse!(
+        implementation_coherence,
+        CompilationFactKey::ImplementationCoherence
+    );
+    reuse!(
         type_associated_implementation_index,
         CompilationFactKey::TypeAssociatedImplementationIndex
     );

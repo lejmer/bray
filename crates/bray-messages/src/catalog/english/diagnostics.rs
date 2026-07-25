@@ -182,6 +182,7 @@ const CHECKING_TYPE_IS_NOT_COPYABLE: &[MessageTemplatePart] = &[MessageTemplateP
 const CHECKING_MISSING_STORAGE_OWNERSHIP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "operation requires ownership of the reached storage",
 )];
+
 const CHECKING_INACTIVE_STORAGE_PROJECTION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "selected storage is not active on this control-flow path",
 )];
@@ -205,6 +206,25 @@ const CHECKING_DUPLICATE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("trait member is fulfilled more than once: "),
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
 ];
+
+const CHECKING_OVERLAPPING_IMPLEMENTATION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "implementation overlaps another participating implementation",
+)];
+
+const CHECKING_UNGROUPED_IMPLEMENTATION_OVERLOADS: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "implementations sharing a subject and trait must belong to one overload family",
+    )];
+
+const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_HEADER: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "implementation overload header must name a supported subject and trait",
+    )];
+
+const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "implementation overload arm is duplicated or incompatible with its family",
+    )];
 
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
@@ -851,6 +871,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingDuplicateTraitFulfillment => {
             MessageTemplate::new(CHECKING_DUPLICATE_TRAIT_FULFILLMENT)
+        }
+        DiagnosticKind::CheckingOverlappingImplementation => {
+            MessageTemplate::new(CHECKING_OVERLAPPING_IMPLEMENTATION)
+        }
+        DiagnosticKind::CheckingUngroupedImplementationOverloads => {
+            MessageTemplate::new(CHECKING_UNGROUPED_IMPLEMENTATION_OVERLOADS)
+        }
+        DiagnosticKind::CheckingInvalidImplementationOverloadHeader => {
+            MessageTemplate::new(CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_HEADER)
+        }
+        DiagnosticKind::CheckingInvalidImplementationOverloadArm => {
+            MessageTemplate::new(CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

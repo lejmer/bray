@@ -192,7 +192,13 @@ impl Compilation {
         let fact_diagnostics =
             DiagnosticBag::merged_all(facts.iter().map(SemanticDiagnosticFact::diagnostics));
 
-        Ok(source_graph.diagnostics().merged(&fact_diagnostics))
+        let coherence = self.implementation_coherence_diagnostics(cancellation)?;
+
+        Ok(DiagnosticBag::merged_all([
+            source_graph.diagnostics(),
+            &fact_diagnostics,
+            coherence,
+        ]))
     }
 
     pub(super) fn semantic_unit_diagnostics_with_cancellation(

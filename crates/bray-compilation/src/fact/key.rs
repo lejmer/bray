@@ -267,6 +267,8 @@ pub(crate) enum CompilationFactKey {
     ImportedSemanticFact(ImportedSemanticFactKey),
     /// Implementations participating in one package coherence domain.
     ImplementationParticipation(ImplementationCoherenceDomainKey),
+    /// Declaration-level coherence and overload-family validity for the source package.
+    ImplementationCoherence,
     /// The complete declaration-level member surface of one named type.
     TypeAssociatedSurface(NamedTypeSymbolId),
     /// The checked source-level representation contract of one named type.
@@ -335,6 +337,7 @@ impl CompilationFactKey {
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImplementationParticipation(_)
+            | Self::ImplementationCoherence
             | Self::TypeAssociatedSurface(_)
             | Self::DeclaredTypeRepresentation(_)
             | Self::TypeAssociatedImplementationIndex

@@ -1,3 +1,4 @@
+mod coherence;
 mod conformance;
 mod index;
 mod matching;

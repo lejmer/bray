@@ -227,6 +227,14 @@ pub enum DiagnosticKind {
     CheckingIncompatibleTraitFulfillment,
     /// A trait implementation declares one fulfillment slot more than once.
     CheckingDuplicateTraitFulfillment,
+    /// Two participating implementation declarations can produce the same coherence key.
+    CheckingOverlappingImplementation,
+    /// Several trait applications share a subject and trait without one overload family.
+    CheckingUngroupedImplementationOverloads,
+    /// An implementation overload header does not name a supported subject and trait.
+    CheckingInvalidImplementationOverloadHeader,
+    /// An implementation overload arm is duplicated or incompatible with its family.
+    CheckingInvalidImplementationOverloadArm,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -362,6 +370,10 @@ impl DiagnosticKind {
             Self::CheckingExtraTraitFulfillment => 7041,
             Self::CheckingIncompatibleTraitFulfillment => 7042,
             Self::CheckingDuplicateTraitFulfillment => 7043,
+            Self::CheckingOverlappingImplementation => 7045,
+            Self::CheckingUngroupedImplementationOverloads => 7046,
+            Self::CheckingInvalidImplementationOverloadHeader => 7047,
+            Self::CheckingInvalidImplementationOverloadArm => 7048,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -518,6 +530,16 @@ impl DiagnosticKind {
             Self::CheckingExtraTraitFulfillment => "checking_extra_trait_fulfillment",
             Self::CheckingIncompatibleTraitFulfillment => "checking_incompatible_trait_fulfillment",
             Self::CheckingDuplicateTraitFulfillment => "checking_duplicate_trait_fulfillment",
+            Self::CheckingOverlappingImplementation => "checking_overlapping_implementation",
+            Self::CheckingUngroupedImplementationOverloads => {
+                "checking_ungrouped_implementation_overloads"
+            }
+            Self::CheckingInvalidImplementationOverloadHeader => {
+                "checking_invalid_implementation_overload_header"
+            }
+            Self::CheckingInvalidImplementationOverloadArm => {
+                "checking_invalid_implementation_overload_arm"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -581,7 +603,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 120] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 124] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -694,6 +716,10 @@ mod tests {
             DiagnosticKind::CheckingExtraTraitFulfillment,
             DiagnosticKind::CheckingIncompatibleTraitFulfillment,
             DiagnosticKind::CheckingDuplicateTraitFulfillment,
+            DiagnosticKind::CheckingOverlappingImplementation,
+            DiagnosticKind::CheckingUngroupedImplementationOverloads,
+            DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
+            DiagnosticKind::CheckingInvalidImplementationOverloadArm,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,
