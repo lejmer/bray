@@ -698,9 +698,7 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -837,9 +835,7 @@ impl Compilation {
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-
                 let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
-
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -1366,7 +1362,6 @@ mod tests {
         ));
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
-
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StorageFlowFacts(key)));
     }
 

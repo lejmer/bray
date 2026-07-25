@@ -183,6 +183,7 @@ mod tests {
     #[test]
     fn selected_calls_instantiate_direct_and_guarded_dependency_templates() {
         let unit_id = BoundUnitId::new(29);
+
         let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
             vec![
                 push_expression(
@@ -195,6 +196,7 @@ mod tests {
                 ),
             ]
         });
+
         let [argument, call_expression] = expressions.as_slice() else {
             panic!("test unit must contain an argument and call expression");
         };
@@ -226,6 +228,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test nullable access must build: {error:?}"));
 
         let storage = storage.finish();
+
         let parameter =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
 

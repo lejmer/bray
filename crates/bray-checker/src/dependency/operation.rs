@@ -227,6 +227,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(source);
 
         let mut tree = BoundTreeBuilder::new(unit);
+
         let expression = push_expression(
             &mut tree,
             BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
