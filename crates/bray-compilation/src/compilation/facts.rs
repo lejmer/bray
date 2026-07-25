@@ -24,11 +24,12 @@ use bray_symbols::{
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
     ConstantTermId, ConstantValueId, DeclaredTypeRepresentation, DirectiveSurface,
-    GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
-    ImplementationParticipationFact, ImplementationRequirementKey, ImplementationSelection,
-    ImplementationSymbolId, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
-    ProofOutcome, SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError,
-    SymbolGraph, TraitImplementationConformanceFact, TypeAssociatedSurface,
+    ForeignCallableContract, FunctionSymbolId, GenericConstraintObligationKey,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
+    ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity, ProofOutcome, SemanticFactResult,
+    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+    TraitImplementationConformanceFact, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -101,6 +102,9 @@ pub(super) struct CompilationState {
     >,
     pub(super) implementation_coherence: FactCell<DiagnosticBag>,
     pub(super) callable_overload_validation: FactCell<DiagnosticBag>,
+    pub(super) foreign_callable_contracts:
+        FactCellMap<FunctionSymbolId, Arc<DiagnosticResult<Option<ForeignCallableContract>>>>,
+    pub(super) foreign_callable_validation: FactCell<DiagnosticBag>,
     pub(super) type_associated_surfaces:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
     pub(super) declared_type_representations:
@@ -256,6 +260,8 @@ impl Compilation {
                 implementation_participation: FactCellMap::new(),
                 implementation_coherence: FactCell::new(),
                 callable_overload_validation: FactCell::new(),
+                foreign_callable_contracts: FactCellMap::new(),
+                foreign_callable_validation: FactCell::new(),
                 type_associated_surfaces: FactCellMap::new(),
                 declared_type_representations: FactCellMap::new(),
                 type_associated_implementation_index: FactCell::new(),

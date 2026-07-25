@@ -141,7 +141,17 @@ pub(crate) fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKin
 }
 
 pub(crate) fn compilation(source: &str) -> Compilation {
-    match Compilation::load_sources(package_identity(), vec![source_input(source, 0)]) {
+    compilation_with_options(source, CompilationOptions::default())
+}
+
+pub(crate) fn compilation_with_options(source: &str, options: CompilationOptions) -> Compilation {
+    let request = CompilationRequest::with_options(
+        package_identity(),
+        vec![source_input(source, 0)],
+        options,
+    );
+
+    match Compilation::load(request) {
         Ok(compilation) => compilation,
         Err(error) => panic!("test compilation must load: {error:?}"),
     }

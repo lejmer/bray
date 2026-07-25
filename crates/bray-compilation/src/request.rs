@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use bray_base::shared_slice;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
 };
 use bray_source::{SourceInput, SourceSpan};
-use bray_symbols::{PackageIdentity, ProductKind};
+use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
 use crate::SelectedTarget;
 use crate::worker::WorkerBudget;
@@ -17,11 +18,12 @@ pub struct CompilationOptions {
     worker_budget: WorkerBudget,
     product_kind: ProductKind,
     selected_target: SelectedTarget,
+    native_link_inputs: Arc<[NativeLinkRequirement]>,
 }
 
 impl CompilationOptions {
     /// Creates compilation options.
-    pub const fn new(
+    pub fn new(
         worker_budget: WorkerBudget,
         product_kind: ProductKind,
         selected_target: SelectedTarget,
@@ -30,7 +32,17 @@ impl CompilationOptions {
             worker_budget,
             product_kind,
             selected_target,
+            native_link_inputs: Arc::from([]),
         }
+    }
+
+    /// Returns these options with the native link inputs supplied by the host.
+    pub fn with_native_link_inputs(
+        mut self,
+        inputs: impl IntoIterator<Item = NativeLinkRequirement>,
+    ) -> Self {
+        self.native_link_inputs = shared_slice(inputs);
+        self
     }
 
     /// Returns the compiler-owned CPU worker budget.
@@ -46,6 +58,11 @@ impl CompilationOptions {
     /// Returns the selected target for this compiler operation.
     pub const fn selected_target(&self) -> &SelectedTarget {
         &self.selected_target
+    }
+
+    /// Returns native link inputs available to the selected package and target.
+    pub fn native_link_inputs(&self) -> &[NativeLinkRequirement] {
+        &self.native_link_inputs
     }
 }
 

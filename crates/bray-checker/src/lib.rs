@@ -33,6 +33,7 @@ pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, CheckerSource,
 };
+pub use diagnostic::diagnostic_type;
 pub use expression::NestedCallableEvidence;
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{

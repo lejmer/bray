@@ -221,12 +221,20 @@ impl Compilation {
         &self,
         request: TargetValidityRequest,
     ) -> Result<Arc<DiagnosticResult<TargetValidity>>, FactQueryError> {
+        self.target_validity_with_cancellation(request, &self.state.cancellation)
+    }
+
+    pub(in crate::compilation) fn target_validity_with_cancellation(
+        &self,
+        request: TargetValidityRequest,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<DiagnosticResult<TargetValidity>>, FactQueryError> {
         let cell = self.state.target_validity.cell(request.clone())?;
 
         let published = self.query_fact_with_cancellation(
             crate::fact::CompilationFactKey::TargetValidity(request.clone()),
             &cell,
-            &self.state.cancellation,
+            cancellation,
             |cancellation| {
                 let context = CompilationTargetValidityContext {
                     compilation: self,

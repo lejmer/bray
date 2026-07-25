@@ -168,6 +168,17 @@ fn invalidation_roots(
         roots.insert(CompilationFactKey::ProductSourceGraph);
     }
 
+    if previous.options.native_link_inputs() != updated.options.native_link_inputs() {
+        roots.insert(CompilationFactKey::ForeignCallableValidation);
+        roots.extend(
+            previous
+                .foreign_callable_contracts
+                .keys()
+                .into_iter()
+                .map(CompilationFactKey::ForeignCallableContract),
+        );
+    }
+
     if previous.dependency_interfaces != updated.dependency_interfaces {
         roots.extend([
             CompilationFactKey::ImportedSymbolSkeleton,
@@ -253,6 +264,10 @@ fn reuse_fixed_cells(
         CompilationFactKey::CallableOverloadValidation
     );
     reuse!(
+        foreign_callable_validation,
+        CompilationFactKey::ForeignCallableValidation
+    );
+    reuse!(
         type_associated_implementation_index,
         CompilationFactKey::TypeAssociatedImplementationIndex
     );
@@ -298,6 +313,10 @@ fn reuse_mapped_cells(
 
     reuse!(callable_type_directives, |key| {
         CompilationFactKey::CallableTypeDirectives(*key)
+    });
+
+    reuse!(foreign_callable_contracts, |key| {
+        CompilationFactKey::ForeignCallableContract(*key)
     });
 
     reuse!(imported_semantic_facts, |key| {

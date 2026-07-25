@@ -1,7 +1,8 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundMemberSelector, BoundOperator, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget, SelectedConstructionInput,
-    SelectedOperation, SemanticSelection,
+    BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId, BoundMemberSelector,
+    BoundOperator, ConstructionInputId, ConstructionTarget, ConversionTarget, IndexTarget,
+    OperatorTarget, SelectedArgument, SelectedConstructionInput, SelectedOperation,
+    SemanticSelection,
 };
 use bray_compiler_known::NumericRepresentationKind;
 use bray_symbols::{
@@ -21,6 +22,64 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn evaluate_selected_call(
+        &mut self,
+        expression: BoundExpressionId,
+        ty: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let Some(SemanticSelection::Call(call)) =
+            self.input.semantic_selections().expression(expression)
+        else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let BoundCallableTarget::Declaration(callable) = call.target() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        if !matches!(call.resolution().result(), BoundCallResult::Immediate(_)) {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        }
+
+        let mut arguments = Vec::with_capacity(call.arguments().len());
+
+        for argument in call.arguments() {
+            let SelectedArgument::Explicit {
+                expression,
+                ordinal,
+                ..
+            } = argument
+            else {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            };
+
+            arguments.push((*ordinal, *expression));
+        }
+
+        arguments.sort_unstable_by_key(|(ordinal, _)| *ordinal);
+
+        let arguments = arguments
+            .into_iter()
+            .map(|(_, expression)| expression)
+            .collect::<Vec<_>>();
+
+        let witnesses = call.resolution().implementation_witnesses();
+
+        let selected_implementation = match witnesses {
+            [] => None,
+            [witness] => Some(*witness),
+            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+        };
+
+        self.evaluate_call(
+            expression,
+            callable,
+            selected_implementation,
+            &arguments,
+            ty,
+        )
+    }
+
     pub(super) fn evaluate_operator(
         &mut self,
         expression: BoundExpressionId,
