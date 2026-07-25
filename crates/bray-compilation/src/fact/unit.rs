@@ -5,7 +5,9 @@ use bray_binder::BinderDependency;
 use bray_bound_tree::BoundUnitKey;
 use bray_diagnostics::DiagnosticResult;
 
-use super::{CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime};
+use super::{
+    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime, QueryPriority,
+};
 
 #[cfg(test)]
 use super::FactCellTestObserver;
@@ -37,7 +39,7 @@ impl<T> UnitFactCache<T>
 where
     T: Send + Sync,
 {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cells: FactCellMap::new(),
         }
@@ -53,6 +55,7 @@ where
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn get_or_compute(
         &self,
         runtime: &FactRuntime,
@@ -62,6 +65,31 @@ where
         compute: impl FnOnce() -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
+        let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
+
+        self.get_or_compute_with_priority(
+            runtime,
+            cancellation,
+            priority,
+            fact_key,
+            unit_key,
+            |_| compute(),
+        )
+    }
+
+    pub(crate) fn get_or_compute_with_priority(
+        &self,
+        runtime: &FactRuntime,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+        fact_key: CompilationFactKey,
+        unit_key: BoundUnitKey,
+        compute: impl FnOnce(
+            &CancellationToken,
+        )
+            -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
+        + Send,
+    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
         if fact_key.bound_unit_key() != Some(&unit_key) {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -69,21 +97,27 @@ where
         // The map owns the immutable unit identity independently of the caller's request.
         let cell = self.cells.cell(unit_key.clone())?;
 
-        let published = cell.get_or_compute(runtime, fact_key, cancellation, || {
-            let computation = compute()?;
+        let published = cell.get_or_compute_requested(
+            runtime,
+            fact_key,
+            cancellation,
+            priority,
+            |shared_cancellation| {
+                let computation = compute(shared_cancellation)?;
 
-            #[cfg(test)]
-            let (result, dependencies) = computation;
-
-            #[cfg(not(test))]
-            let (result, _) = computation;
-
-            Ok(Arc::new(PublishedUnitFact {
-                result: Arc::new(result),
                 #[cfg(test)]
-                dependencies,
-            }))
-        })?;
+                let (result, dependencies) = computation;
+
+                #[cfg(not(test))]
+                let (result, _) = computation;
+
+                Ok(Arc::new(PublishedUnitFact {
+                    result: Arc::new(result),
+                    #[cfg(test)]
+                    dependencies,
+                }))
+            },
+        )?;
 
         // Publication must outlive the short-lived map and cell borrows returned by this query.
         Ok(Arc::clone(published))

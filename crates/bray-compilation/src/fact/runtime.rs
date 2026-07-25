@@ -9,7 +9,7 @@ use super::task::{
     FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, current_context,
     current_cycle, record_request_with_cycle_key, run_with_evaluations,
 };
-use super::{CompilationFactKey, FactCycle, FactQueryError};
+use super::{CompilationFactKey, FactCycle, FactQueryError, QueryPriority, QueryPriorityDemand};
 
 #[derive(Debug)]
 pub(crate) struct FactRuntime {
@@ -99,14 +99,27 @@ impl FactRuntime {
         (runtime, reusable)
     }
 
-    pub(crate) fn run<T>(
+    pub(crate) fn run_demand<T>(
         &self,
+        priority: &QueryPriorityDemand,
         operation: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<T, FactQueryError>
     where
         T: Send,
     {
-        self.scheduler.run(operation)?
+        self.scheduler.run_demand(priority, operation)?
+    }
+
+    pub(crate) fn current_priority(&self) -> Result<Option<QueryPriority>, FactQueryError> {
+        self.scheduler.current_priority()
+    }
+
+    pub(crate) fn promote_priority(
+        &self,
+        priority: &QueryPriorityDemand,
+        requested: QueryPriority,
+    ) {
+        self.scheduler.promote(priority, requested);
     }
 
     pub(crate) fn map_indexed<T>(
