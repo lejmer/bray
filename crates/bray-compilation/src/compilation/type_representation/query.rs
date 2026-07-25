@@ -20,10 +20,9 @@ use bray_symbols::{
 
 use super::super::Compilation;
 use super::super::binder::{self, CompilationBinderFacts};
+use super::super::checker::checker_fact_error;
 use super::super::substitution::named_type;
-use super::support::{
-    checked_integer, checked_integer_constant, checker_fact_error, integer_role, symbol_span,
-};
+use super::support::{checked_integer, checked_integer_constant, integer_role, symbol_span};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticFactKey};
 
 impl Compilation {

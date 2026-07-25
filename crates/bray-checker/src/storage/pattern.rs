@@ -1,7 +1,8 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternTarget,
-    BoundReferenceTarget, PatternOperation, PatternProjection, StorageAccess, StorageAccessId,
-    StorageAccessPurpose, StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
+    BoundExpressionId, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
+    BoundPatternTarget, BoundReferenceTarget, PatternOperation, PatternProjection, StorageAccess,
+    StorageAccessId, StorageAccessPurpose, StorageBinding, StorageBindingTarget, StorageIdentity,
+    StorageProjection,
 };
 
 use super::plan::{PlanError, Planner, invalid_node};
@@ -126,25 +127,52 @@ where
         let target = StorageBindingTarget::Local(binding);
 
         if !self.conservative_pattern_bindings.contains(&binding) {
-            match checked.operation() {
+            let binding = match checked.operation() {
                 PatternOperation::Consume
                 | PatternOperation::Copy
                 | PatternOperation::Recovered => {
                     self.bind_identity(target, StorageIdentity::LocalOwned(pattern.into()))?;
+
+                    None
                 }
-                PatternOperation::Observe
-                | PatternOperation::SharedBorrow
-                | PatternOperation::MutableBorrow => {
-                    self.builder_mut()?
-                        .bind(target, StorageBinding::Access(access))
-                        .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                PatternOperation::Observe => Some(StorageBinding::Access(access)),
+                PatternOperation::SharedBorrow => {
+                    Some(StorageBinding::Access(self.borrow_access(
+                        subject_expression,
+                        access,
+                        bray_symbols::BorrowKind::Shared,
+                    )?))
                 }
+                PatternOperation::MutableBorrow => {
+                    Some(StorageBinding::Access(self.borrow_access(
+                        subject_expression,
+                        access,
+                        bray_symbols::BorrowKind::Mutable,
+                    )?))
+                }
+            };
+
+            if let Some(binding) = binding {
+                self.builder_mut()?
+                    .bind(target, binding)
+                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
             }
         }
 
         let purpose = match checked.operation() {
-            PatternOperation::Consume => StorageAccessPurpose::Move,
-            PatternOperation::Copy | PatternOperation::Observe => StorageAccessPurpose::Read,
+            PatternOperation::Consume => {
+                match self.request.view().pattern(pattern).map(BoundPattern::mode) {
+                    Some(BoundPatternMode::MatchConsume) => StorageAccessPurpose::Move,
+                    Some(
+                        BoundPatternMode::Declaration
+                        | BoundPatternMode::Assignment
+                        | BoundPatternMode::MatchObserve,
+                    )
+                    | None => StorageAccessPurpose::ValueTransfer,
+                }
+            }
+            PatternOperation::Copy => StorageAccessPurpose::Copy,
+            PatternOperation::Observe => StorageAccessPurpose::Read,
             PatternOperation::SharedBorrow => {
                 StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Shared)
             }
@@ -234,7 +262,7 @@ where
 
         self.record_purpose(
             subject_expression,
-            Some(StorageAccessPurpose::Write),
+            Some(StorageAccessPurpose::Initialize),
             access,
         )
     }

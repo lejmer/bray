@@ -227,6 +227,8 @@ pub(crate) enum CompilationFactKey {
     Liveness(BoundUnitKey),
     /// Durable flow-sensitive facts available at checked operation occurrences.
     RefinementFacts(BoundUnitKey),
+    /// Checked storage, ownership, movement, and borrow decisions for one bound unit.
+    StorageFlowFacts(BoundUnitKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -300,6 +302,7 @@ impl CompilationFactKey {
             | Self::StoragePlan(key)
             | Self::Liveness(key)
             | Self::RefinementFacts(key)
+            | Self::StorageFlowFacts(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)

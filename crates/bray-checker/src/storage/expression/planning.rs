@@ -137,7 +137,7 @@ where
                 if transfer.kind() == BoundControlTransferKind::Return {
                     let access = self.result_access(id, transfer.operand())?;
 
-                    self.record_purpose(id, Some(StorageAccessPurpose::Write), access)?;
+                    self.record_purpose(id, Some(StorageAccessPurpose::Initialize), access)?;
 
                     access
                 } else {
@@ -171,8 +171,6 @@ where
     ) -> Result<StorageAccessId, PlanError> {
         self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
 
-        // TODO(BRA-268): Resolve each transfer to an exact copy, move, or borrow once selected
-        // calls retain instantiated parameter ownership and borrowing modes.
         for argument in arguments {
             self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
         }
@@ -234,9 +232,7 @@ where
                     })
                     .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
-                // TODO(BRA-208): Materialize the dependency-backed borrow capability when
-                // composite borrow checking establishes it.
-                let access = self.copy_access(id, operand_access)?;
+                let access = self.borrow_access(id, operand_access, borrow_kind)?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
 

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
-    StoragePlan,
+    BorrowCapabilityId, BoundUnitId, BoundUnitKind, PlannedBorrowCapability, StorageAccess,
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageBinding, StorageBindingTarget,
+    StorageIdentity, StorageIdentityId, StoragePlan,
 };
 
 /// A contract violation that prevents construction of one storage plan.
@@ -31,6 +31,7 @@ pub struct StoragePlanBuilder {
     kind: BoundUnitKind,
     identities: Vec<StorageIdentity>,
     accesses: Vec<StorageAccess>,
+    borrow_capabilities: Vec<PlannedBorrowCapability>,
     bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
     plans: Vec<StorageAccessPlan>,
     planned_accesses: BTreeSet<(
@@ -48,6 +49,7 @@ impl StoragePlanBuilder {
             kind,
             identities: Vec::new(),
             accesses: Vec::new(),
+            borrow_capabilities: Vec::new(),
             bindings: BTreeMap::new(),
             plans: Vec::new(),
             planned_accesses: BTreeSet::new(),
@@ -67,6 +69,39 @@ impl StoragePlanBuilder {
         let id = StorageIdentityId::from_storage_slot(self.unit, slot);
 
         self.identities.push(identity);
+
+        Ok(id)
+    }
+
+    /// Adds one planned borrow or reborrow capability.
+    pub fn push_borrow_capability(
+        &mut self,
+        capability: PlannedBorrowCapability,
+    ) -> Result<BorrowCapabilityId, StoragePlanBuildError> {
+        if capability.expression().unit() != self.unit
+            || capability.access().unit() != self.unit
+            || capability
+                .parent()
+                .is_some_and(|parent| parent.unit() != self.unit)
+        {
+            return Err(StoragePlanBuildError::ForeignUnit);
+        }
+
+        if self.access(capability.access()).is_none() {
+            return Err(StoragePlanBuildError::MissingAccess);
+        }
+
+        if capability
+            .parent()
+            .is_some_and(|parent| self.borrow_capability(parent).is_none())
+        {
+            return Err(StoragePlanBuildError::MissingBorrowCapability);
+        }
+
+        let slot = next_slot(self.borrow_capabilities.len())?;
+        let id = BorrowCapabilityId::from_storage_slot(self.unit, slot);
+
+        self.borrow_capabilities.push(capability);
 
         Ok(id)
     }
@@ -155,6 +190,16 @@ impl StoragePlanBuilder {
         checked_entry(self.unit, id.unit(), id.storage_index(), &self.identities)
     }
 
+    /// Returns a previously established borrow capability.
+    pub fn borrow_capability(&self, id: BorrowCapabilityId) -> Option<&PlannedBorrowCapability> {
+        checked_entry(
+            self.unit,
+            id.unit(),
+            id.storage_index(),
+            &self.borrow_capabilities,
+        )
+    }
+
     /// Completes the immutable storage plan.
     pub fn finish(self) -> StoragePlan {
         StoragePlan::new(
@@ -162,6 +207,7 @@ impl StoragePlanBuilder {
             self.kind,
             self.identities,
             self.accesses,
+            self.borrow_capabilities,
             self.bindings.into_iter().collect(),
             self.plans,
         )
@@ -179,8 +225,10 @@ impl StoragePlanBuilder {
                     return Err(StoragePlanBuildError::MissingIdentity);
                 }
             }
-            crate::StorageAccessRoot::Borrow(_) => {
-                return Err(StoragePlanBuildError::MissingBorrowCapability);
+            crate::StorageAccessRoot::Borrow(capability) => {
+                if self.borrow_capability(capability).is_none() {
+                    return Err(StoragePlanBuildError::MissingBorrowCapability);
+                }
             }
         }
 

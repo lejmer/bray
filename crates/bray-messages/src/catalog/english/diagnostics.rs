@@ -159,6 +159,26 @@ const CHECKING_REFINEMENT_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageT
     "program requires too many flow-sensitive facts",
 )];
 
+const CHECKING_USE_OF_UNINITIALIZED_STORAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "storage is used before it is initialized",
+)];
+
+const CHECKING_USE_OF_MOVED_STORAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "storage is used after its value was moved",
+)];
+
+const CHECKING_CONFLICTING_BORROW: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "operation conflicts with an active borrow",
+)];
+
+const CHECKING_MISSING_MUTATION_AUTHORITY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "operation requires mutable access to storage",
+)];
+
+const CHECKING_TYPE_IS_NOT_COPYABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "value type does not support implicit copying",
+)];
+
 const CHECKING_MISSING_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("trait implementation does not fulfill "),
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
@@ -791,6 +811,21 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingInvalidUnionTag => MessageTemplate::new(CHECKING_INVALID_UNION_TAG),
         DiagnosticKind::CheckingRefinementCapacityExceeded => {
             MessageTemplate::new(CHECKING_REFINEMENT_CAPACITY_EXCEEDED)
+        }
+        DiagnosticKind::CheckingUseOfUninitializedStorage => {
+            MessageTemplate::new(CHECKING_USE_OF_UNINITIALIZED_STORAGE)
+        }
+        DiagnosticKind::CheckingUseOfMovedStorage => {
+            MessageTemplate::new(CHECKING_USE_OF_MOVED_STORAGE)
+        }
+        DiagnosticKind::CheckingConflictingBorrow => {
+            MessageTemplate::new(CHECKING_CONFLICTING_BORROW)
+        }
+        DiagnosticKind::CheckingMissingMutationAuthority => {
+            MessageTemplate::new(CHECKING_MISSING_MUTATION_AUTHORITY)
+        }
+        DiagnosticKind::CheckingTypeIsNotCopyable => {
+            MessageTemplate::new(CHECKING_TYPE_IS_NOT_COPYABLE)
         }
         DiagnosticKind::CheckingMissingTraitFulfillment => {
             MessageTemplate::new(CHECKING_MISSING_TRAIT_FULFILLMENT)

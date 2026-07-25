@@ -76,8 +76,10 @@ pub use selection::{
 };
 pub use storage::{
     BorrowCapabilityId, LastUse, LiveAcrossScope, LivenessFacts, LivenessFactsBuildError,
-    StorageAccess, StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
-    StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId, StoragePlan,
+    PlannedBorrowCapability, StorageAccess, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
+    StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError, StorageIdentity,
+    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
     StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
 };
 pub use template::{

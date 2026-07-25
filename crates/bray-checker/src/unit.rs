@@ -152,6 +152,16 @@ where
         self.context.generic_constraints(obligation)
     }
 
+    /// Returns the checked representation contract for one declared type.
+    pub(crate) fn declared_type_representation(
+        self,
+        subject: bray_symbols::NamedTypeSymbolId,
+    ) -> CheckerFactResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
+    > {
+        self.context.declared_type_representation(subject)
+    }
+
     /// Checks every source constant expression embedded in one type template.
     pub(crate) fn checked_constant_terms(
         self,

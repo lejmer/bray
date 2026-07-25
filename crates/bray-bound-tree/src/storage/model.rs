@@ -39,6 +39,7 @@ macro_rules! impl_storage_id {
 
 impl_storage_id!(StorageIdentityId);
 impl_storage_id!(StorageAccessId);
+impl_storage_id!(BorrowCapabilityId);
 
 /// One exact or symbolic storage origin and its semantic provenance.
 ///

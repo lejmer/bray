@@ -11,8 +11,8 @@ use bray_checker::{
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult,
+    AvailableCompilerKnownSymbols, DeclaredTypeRepresentation, NamedTypeSymbolId,
+    SemanticValueStore, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
 };
 use bray_target::TargetProfile;
 
@@ -76,17 +76,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .compilation()
             .embedded_constant_term_with_cancellation(occurrence, self.facts.cancellation())
             .map(|result| (*result).clone())
-            .map_err(|error| match error {
-                FactQueryError::Cancelled => CheckerFactError::Cancelled,
-                FactQueryError::CheckerInfrastructure(error) => {
-                    CheckerFactError::Infrastructure(error)
-                }
-                FactQueryError::Cycle(_)
-                | FactQueryError::InfrastructureFailure
-                | FactQueryError::SemanticUnitContext(_) => CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                ),
-            })
+            .map_err(checker_fact_error)
     }
 
     fn generic_constraints(
@@ -104,19 +94,20 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             Err(FactQueryError::Cycle(_)) => Ok(DiagnosticResult::without_diagnostics(
                 bray_symbols::ProofOutcome::Unknown,
             )),
-            Err(error) => Err(match error {
-                FactQueryError::Cancelled => CheckerFactError::Cancelled,
-                FactQueryError::CheckerInfrastructure(error) => {
-                    CheckerFactError::Infrastructure(error)
-                }
-                FactQueryError::Cycle(_) => unreachable!("cycles are handled above"),
-                FactQueryError::InfrastructureFailure | FactQueryError::SemanticUnitContext(_) => {
-                    CheckerFactError::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
-                    )
-                }
-            }),
+            Err(error) => Err(checker_fact_error(error)),
         }
+    }
+
+    fn declared_type_representation(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>> {
+        // The checker request contract returns an owned result across the crate boundary.
+        self.facts
+            .compilation()
+            .declared_type_representation_with_cancellation(subject, self.facts.cancellation())
+            .map(|result| (*result).clone())
+            .map_err(checker_fact_error)
     }
 
     fn source(
@@ -128,6 +119,18 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
         self.facts.cancellation()
+    }
+}
+
+pub(in crate::compilation) fn checker_fact_error(error: FactQueryError) -> CheckerFactError {
+    match error {
+        FactQueryError::Cancelled => CheckerFactError::Cancelled,
+        FactQueryError::CheckerInfrastructure(error) => CheckerFactError::Infrastructure(error),
+        FactQueryError::Cycle(_)
+        | FactQueryError::InfrastructureFailure
+        | FactQueryError::SemanticUnitContext(_) => {
+            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        }
     }
 }
 

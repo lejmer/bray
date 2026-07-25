@@ -1,6 +1,7 @@
 use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
 use crate::analysis::check_refinements;
+use crate::analysis::check_storage_flow;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
 use crate::pattern::check_patterns;
@@ -17,9 +18,9 @@ use crate::{
 use bray_bound_tree::{
     CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts,
     DeclaredValueTypeTemplates, LivenessFacts, SelectedCall, SelectedIterationSource,
-    SelectedOperation, StoragePlan,
+    SelectedOperation, StorageFlowFacts, StoragePlan,
 };
-use bray_symbols::{ConstantTermId, ConstantValueId};
+use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
 /// The standard Bray control-flow checker implementation.
@@ -65,6 +66,10 @@ pub struct DefaultLivenessAnalyzer;
 /// The standard Bray flow-sensitive fact analyzer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultRefinementAnalyzer;
+
+/// The standard Bray storage, ownership, and borrow checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultStorageFlowChecker;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -190,6 +195,28 @@ where
 }
 
 impl<C> RefinementAnalyzer<C> for DefaultRefinementAnalyzer where C: CheckerRequestContext + ?Sized {}
+
+/// Composite storage, ownership, movement, and borrow checking over one unit.
+pub trait StorageFlowChecker<C>: Sync
+where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    /// Computes durable per-operation storage decisions.
+    fn check_storage_flow(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
+        liveness: &LivenessFacts,
+        refinements: &CheckedRefinementFacts,
+    ) -> CheckerOutcome<StorageFlowFacts> {
+        check_storage_flow(request, storage, liveness, refinements)
+    }
+}
+
+impl<C> StorageFlowChecker<C> for DefaultStorageFlowChecker where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
 
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync

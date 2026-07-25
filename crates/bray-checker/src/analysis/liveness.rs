@@ -90,8 +90,6 @@ impl OperationEffects {
     fn from_storage_plan(storage: &StoragePlan) -> Self {
         let mut effects = Self::default();
 
-        // TODO(BRA-208): Add planned borrow, scoped-capability, and lifecycle-obligation
-        // definitions and uses when composite storage setup allocates those identities.
         for (identity, provenance) in storage.identity_entries() {
             let subject = BoundDependencySubject::Storage(identity);
 
@@ -131,6 +129,27 @@ impl OperationEffects {
             for subject in access_root_subjects(access.root()) {
                 effect.uses.insert(subject);
                 effects.universe.insert(subject);
+            }
+        }
+
+        for (capability, planned) in storage.borrow_capability_entries() {
+            let subject = BoundDependencySubject::BorrowCapability(capability);
+
+            effects.universe.insert(subject);
+
+            let node = AnyBoundNodeId::Expression(planned.expression());
+            let effect = effects.by_node.entry(node).or_default();
+
+            effect.definitions.insert(subject);
+            effect
+                .uses
+                .insert(BoundDependencySubject::StorageAccess(planned.access()));
+
+            if let Some(parent) = planned.parent() {
+                let parent = BoundDependencySubject::BorrowCapability(parent);
+
+                effect.uses.insert(parent);
+                effects.universe.insert(parent);
             }
         }
 

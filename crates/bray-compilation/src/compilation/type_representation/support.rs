@@ -1,4 +1,3 @@
-use bray_checker::{CheckerFactError, CheckerInfrastructureError};
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_source::SourceSpan;
@@ -76,16 +75,4 @@ pub(super) fn symbol_span(syntax: Option<SyntaxAnchor>) -> Result<SourceSpan, Fa
     let syntax = syntax.ok_or(FactQueryError::InfrastructureFailure)?;
 
     Ok(SourceSpan::new(syntax.source_id(), syntax.full_range()))
-}
-
-pub(super) fn checker_fact_error(error: FactQueryError) -> CheckerFactError {
-    match error {
-        FactQueryError::Cancelled => CheckerFactError::Cancelled,
-        FactQueryError::CheckerInfrastructure(error) => CheckerFactError::Infrastructure(error),
-        FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::SemanticUnitContext(_) => {
-            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
-        }
-    }
 }
