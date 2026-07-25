@@ -539,6 +539,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("parameter default must be reusable: {error:?}"));
 
         assert!(Arc::ptr_eq(&parameter_default, &repeated_parameter_default));
+
         assert!(
             parameter_default.diagnostics().is_empty(),
             "parameter default diagnostics: {:?}",
@@ -613,6 +614,7 @@ mod tests {
             payload_surface.template_reference(),
             RuntimeDefaultTemplateReference::Source(_)
         ));
+
         assert_eq!(parameter_surface.result(), field_surface.result());
         assert_eq!(field_surface.result(), payload_surface.result());
     }
@@ -687,6 +689,46 @@ mod tests {
     }
 
     #[test]
+    fn expression_created_borrow_defaults_require_the_active_borrow() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func choose(first: i32, second: &i32 = &first)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must build: {error:?}"));
+
+        let parameter = symbols
+            .callable_parameters()
+            .iter()
+            .filter(|parameter| parameter.origin() == SymbolOrigin::Source)
+            .nth(1)
+            .unwrap_or_else(|| panic!("defaulted source parameter must exist"));
+
+        let default = compilation
+            .callable_parameter_default(parameter.id())
+            .unwrap_or_else(|error| panic!("borrowed parameter default must publish: {error:?}"));
+
+        let CallableParameterDefaultValue::Valid(surface) = default.value().value() else {
+            panic!("borrowed parameter default must be valid");
+        };
+
+        assert_parameter_dependency_contract(
+            &compilation,
+            surface.behavior().dependency_contract(),
+            0,
+            &[
+                DependencyRequirementKind::StorageAlive,
+                DependencyRequirementKind::StorageInitialized,
+                DependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),
+            ],
+        );
+    }
+
+    #[test]
     fn recovered_runtime_defaults_publish_error_values_with_diagnostics() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -710,6 +752,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("recovered default must publish: {error:?}"));
 
         assert!(default.diagnostics().has_errors());
+
         assert!(matches!(
             default.value().value(),
             CallableParameterDefaultValue::Error(_)

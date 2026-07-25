@@ -9,16 +9,18 @@ use bray_binder::{
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
-    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, LivenessFacts, StorageFlowFacts, StoragePlan, walk_bound_unit_view,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
+    StorageFlowFacts, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
-    DefaultRefinementAnalyzer, DefaultStorageFlowChecker, DefaultStoragePlanner,
-    ExpressionCandidateSet, ExpressionSemanticChecker, IterationPatternType, LivenessAnalyzer,
-    NestedCallableEvidence, PatternCheckInput, PatternChecker, RefinementAnalyzer,
-    SemanticUnitContext, StorageFlowChecker, StoragePlanner,
+    DefaultDependencyContractChecker, DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer,
+    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultStorageFlowChecker,
+    DefaultStoragePlanner, DependencyContractChecker, ExpressionCandidateSet,
+    ExpressionSemanticChecker, IterationPatternType, LivenessAnalyzer, NestedCallableEvidence,
+    PatternCheckInput, PatternChecker, RefinementAnalyzer, SemanticUnitContext, StorageFlowChecker,
+    StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -150,6 +152,17 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<StorageFlowFacts>>, FactQueryError> {
         let published = self.storage_flow_facts_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns normalized dependency contracts for semantic occurrences in one unit.
+    pub fn dependency_contracts(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedDependencyContracts>>, FactQueryError> {
+        let published =
+            self.dependency_contracts_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -807,6 +820,62 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn dependency_contracts_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedDependencyContracts>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.dependency_contracts,
+            CompilationFactKey::DependencyContracts(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+
+                let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let unit =
+                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+                        .map_err(|error| {
+                            FactQueryError::CheckerInfrastructure(
+                                CheckerInfrastructureError::InvalidUnitView(error),
+                            )
+                        })?;
+
+                let result =
+                    checker_result(DefaultDependencyContractChecker.check_dependency_contracts(
+                        unit,
+                        selections.result().value(),
+                        storage.result().value(),
+                        flow.result().value(),
+                    ))?;
+
+                let (contracts, dependency_diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    selections.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    flow.result().diagnostics(),
+                    &dependency_diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(contracts, diagnostics), Box::new([])))
+            },
+        )
+    }
+
     pub(super) fn declared_value_type_templates_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -1253,6 +1322,52 @@ mod tests {
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key)));
+    }
+
+    #[test]
+    fn dependency_contracts_are_demanded_independently_and_reuse_their_publication() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32) -> i32\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.dependency_contracts.is_published(&key),
+            Ok(false)
+        );
+
+        let first = match compilation.dependency_contracts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("dependency contracts must publish: {error:?}"),
+        };
+
+        let second = match compilation.dependency_contracts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated dependency contracts must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let dependencies = match compilation.state.fact_runtime.dependencies(
+            &crate::fact::CompilationFactKey::DependencyContracts(key.clone()),
+        ) {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("published dependency contracts must retain dependencies"),
+            Err(error) => panic!("dependency contract dependencies must be readable: {error:?}"),
+        };
+
+        assert!(dependencies.contains(
+            &crate::fact::CompilationFactKey::CheckedSemanticSelections(key.clone())
+        ));
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StorageFlowFacts(key)));
     }
 
     #[test]

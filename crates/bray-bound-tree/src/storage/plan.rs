@@ -282,6 +282,19 @@ impl StoragePlan {
         &self.accesses
     }
 
+    /// Returns evaluated accesses with their unit-local identities.
+    pub fn access_entries(&self) -> impl Iterator<Item = (StorageAccessId, &StorageAccess)> {
+        self.accesses
+            .iter()
+            .enumerate()
+            .filter_map(|(index, access)| {
+                let slot = u32::try_from(index).ok()?;
+                let id = StorageAccessId::from_storage_slot(self.unit, slot);
+
+                Some((id, access))
+            })
+    }
+
     /// Returns planned borrow capabilities in deterministic allocation order.
     pub fn borrow_capabilities(&self) -> &[PlannedBorrowCapability] {
         &self.borrow_capabilities

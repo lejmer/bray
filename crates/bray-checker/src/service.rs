@@ -3,6 +3,7 @@ use crate::analysis::check_control_flow;
 use crate::analysis::check_refinements;
 use crate::analysis::check_storage_flow;
 use crate::constant::{check_constant_term, evaluate_constant};
+use crate::dependency::check_dependency_contracts;
 use crate::expression::check_expression_semantics;
 use crate::pattern::check_patterns;
 use crate::selection::{select_callable, select_iteration_source, select_operation};
@@ -16,9 +17,9 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts,
-    DeclaredValueTypeTemplates, LivenessFacts, SelectedCall, SelectedIterationSource,
-    SelectedOperation, StorageFlowFacts, StoragePlan,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedRefinementFacts, DeclaredValueTypeTemplates, LivenessFacts, SelectedCall,
+    SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -70,6 +71,10 @@ pub struct DefaultRefinementAnalyzer;
 /// The standard Bray storage, ownership, and borrow checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultStorageFlowChecker;
+
+/// The standard Bray dependency-contract checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultDependencyContractChecker;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -225,6 +230,28 @@ where
 }
 
 impl<C> StorageFlowChecker<C> for DefaultStorageFlowChecker where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
+
+/// Value, access, borrow, witness, and selected-call dependency propagation over one unit.
+pub trait DependencyContractChecker<C>: Sync
+where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    /// Computes durable normalized contracts without repeating storage analysis.
+    fn check_dependency_contracts(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        storage: &StoragePlan,
+        flow: &StorageFlowFacts,
+    ) -> CheckerOutcome<CheckedDependencyContracts> {
+        check_dependency_contracts(request, selections, storage, flow)
+    }
+}
+
+impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
     C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
 {
 }

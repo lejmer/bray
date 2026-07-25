@@ -362,10 +362,12 @@ mod tests {
             missing.value(),
             PredicateDefinitionState::Error(_)
         ));
+
         assert!(matches!(
             defined.value(),
             PredicateDefinitionState::Error(_)
         ));
+
         assert!(missing.diagnostics().is_empty());
         assert!(defined.diagnostics().is_empty());
 

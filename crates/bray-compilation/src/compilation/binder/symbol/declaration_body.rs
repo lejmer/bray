@@ -17,6 +17,7 @@ macro_rules! impl_declaration_body_fact {
 }
 
 mod default;
+mod dependency;
 mod lookup;
 mod predicate;
 mod shared;
