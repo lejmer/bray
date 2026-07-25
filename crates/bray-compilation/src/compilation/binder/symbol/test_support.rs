@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_symbols::{
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph, SymbolOrigin, TypeData,
-    TypeExpressionTemplate, TypeId,
+    DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
+    DependencySubjectRoot, SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    SymbolOrdinal, SymbolOrigin, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -64,6 +65,33 @@ pub(super) fn type_data(compilation: &Compilation, ty: impl ResolvedTestType) ->
         Ok(data) => data,
         Err(error) => panic!("semantic type must be interned: {error:?}"),
     }
+}
+
+pub(super) fn assert_parameter_dependency_contract(
+    compilation: &Compilation,
+    contract: DependencyContractTemplateId,
+    ordinal: u32,
+    expected: &[DependencyRequirementKind],
+) {
+    let data = semantic_values(compilation)
+        .dependency_contract_template_data(contract)
+        .unwrap_or_else(|error| panic!("dependency contract must be interned: {error:?}"));
+
+    let actual = data
+        .requirements()
+        .iter()
+        .filter_map(|requirement| match requirement {
+            DependencyRequirement::Direct { subject, kind }
+                if subject.subject_root()
+                    == DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal)) =>
+            {
+                Some(*kind)
+            }
+            DependencyRequirement::Direct { .. } | DependencyRequirement::Guarded(_) => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
 }
 
 pub(super) trait ResolvedTestType {

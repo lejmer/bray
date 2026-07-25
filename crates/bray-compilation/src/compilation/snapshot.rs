@@ -439,6 +439,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::StorageFlowFacts(key.clone())
     });
 
+    reuse!(dependency_contracts, |key| {
+        CompilationFactKey::DependencyContracts(key.clone())
+    });
+
     reuse!(symbolic_constant_terms, |key| {
         CompilationFactKey::SymbolicConstantTerm(key.clone())
     });

@@ -1,12 +1,14 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult};
+use bray_binder::{BinderFactError, BinderFactResult};
 use bray_bound_tree::{BoundUnitKey, BoundUnitRoot};
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::TypeId;
+use bray_symbols::{DependencyContractTemplateId, TypeId};
 
+use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBinderFacts;
 
 pub(super) struct CheckedSourceExpression {
     pub(super) result: TypeId,
+    pub(super) dependency_contract: DependencyContractTemplateId,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) is_recovered: bool,
 }
@@ -29,8 +31,12 @@ pub(super) fn checked_source_expression(
         .expression_semantics_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let control_flow = compilation
-        .control_flow_with_cancellation(key, context.cancellation)
+    let storage = compilation
+        .storage_plan_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let dependencies = compilation
+        .dependency_contracts_with_cancellation(key, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
     let (types, _) = semantics.result().value();
@@ -46,26 +52,31 @@ pub(super) fn checked_source_expression(
         .expression(root)
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
+    let contract = dependencies
+        .result()
+        .value()
+        .expression(root)
+        .and_then(|contract| dependencies.result().value().contract(contract))
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let dependency_contract =
+        portable_dependency_contract(context, storage.result().value(), contract)?;
+
     let diagnostics = DiagnosticBag::merged_all([
         bound.result().diagnostics(),
         semantics.result().diagnostics(),
-        control_flow.result().diagnostics(),
+        storage.result().diagnostics(),
+        dependencies.result().diagnostics(),
     ]);
 
     Ok(CheckedSourceExpression {
         result: result.ty(),
+        dependency_contract,
         diagnostics,
-        is_recovered: expression.is_recovered() || result.is_recovered(),
+        is_recovered: expression.is_recovered()
+            || result.is_recovered()
+            || dependencies.result().value().is_recovered(),
     })
-}
-
-pub(super) fn empty_dependency_contract(
-    context: &CompilationBinderFacts<'_>,
-) -> BinderFactResult<bray_symbols::DependencyContractTemplateId> {
-    context
-        .semantic_values()
-        .empty_dependency_contract_template()
-        .map_err(|_| BinderFactError::DependencyUnavailable)
 }
 
 pub(super) fn syntax_diagnostics(

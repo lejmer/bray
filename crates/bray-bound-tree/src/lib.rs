@@ -6,6 +6,7 @@ mod bound_unit;
 mod control;
 mod declared_type;
 mod dependency;
+mod dependency_table;
 mod identity;
 mod node;
 mod origin;
@@ -35,6 +36,7 @@ pub use dependency::{
     DependencyContractInstantiationContext, DependencyContractInstantiationError,
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
+pub use dependency_table::{CheckedDependencyContracts, DependencyContractsBuildError};
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
     BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression, BoundBlock,

@@ -23,6 +23,16 @@ define_unit_scoped_id!(
     "Identifies one lifecycle obligation in a checked semantic unit."
 );
 
+impl BoundDependencyContractId {
+    pub(crate) const fn from_contract_slot(unit: BoundUnitId, slot: u32) -> Self {
+        Self { unit, slot }
+    }
+
+    pub(crate) const fn contract_slot(self) -> u32 {
+        self.slot
+    }
+}
+
 /// An exact bound-unit subject referenced by an instantiated dependency contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundDependencySubject {
@@ -68,6 +78,44 @@ pub enum BoundDependencyRequirementKind {
     ScopedCapabilityLive,
     /// A lifecycle obligation of the exact kind must remain attached.
     LifecycleObligationAttached(LifecycleObligationKind),
+}
+
+impl From<DependencyRequirementKind> for BoundDependencyRequirementKind {
+    fn from(kind: DependencyRequirementKind) -> Self {
+        match kind {
+            DependencyRequirementKind::StorageAlive => Self::StorageAlive,
+            DependencyRequirementKind::StorageInitialized => Self::StorageInitialized,
+            DependencyRequirementKind::BorrowCapabilityActive(kind) => {
+                Self::BorrowCapabilityActive(kind)
+            }
+            DependencyRequirementKind::ExclusiveMutationAuthority => {
+                Self::ExclusiveMutationAuthority
+            }
+            DependencyRequirementKind::ScopedCapabilityLive => Self::ScopedCapabilityLive,
+            DependencyRequirementKind::LifecycleObligation(kind) => {
+                Self::LifecycleObligationAttached(kind)
+            }
+        }
+    }
+}
+
+impl From<BoundDependencyRequirementKind> for DependencyRequirementKind {
+    fn from(kind: BoundDependencyRequirementKind) -> Self {
+        match kind {
+            BoundDependencyRequirementKind::StorageAlive => Self::StorageAlive,
+            BoundDependencyRequirementKind::StorageInitialized => Self::StorageInitialized,
+            BoundDependencyRequirementKind::BorrowCapabilityActive(kind) => {
+                Self::BorrowCapabilityActive(kind)
+            }
+            BoundDependencyRequirementKind::ExclusiveMutationAuthority => {
+                Self::ExclusiveMutationAuthority
+            }
+            BoundDependencyRequirementKind::ScopedCapabilityLive => Self::ScopedCapabilityLive,
+            BoundDependencyRequirementKind::LifecycleObligationAttached(kind) => {
+                Self::LifecycleObligation(kind)
+            }
+        }
+    }
 }
 
 /// Resolves portable dependency-template subjects into exact bound-unit facts.
@@ -163,7 +211,6 @@ impl GuardedBoundDependencyRequirement {
         &self.requirements
     }
 
-    #[cfg(test)]
     fn is_valid_for(&self, unit: BoundUnitId) -> bool {
         self.guard.is_valid_for(unit)
             && self
@@ -204,7 +251,6 @@ impl BoundDependencyRequirement {
         Self::Guarded(GuardedBoundDependencyRequirement::new(guard, requirements))
     }
 
-    #[cfg(test)]
     fn is_valid_for(&self, unit: BoundUnitId) -> bool {
         match self {
             Self::Direct { subject, .. } => subject.is_valid_for(unit),
@@ -252,7 +298,6 @@ impl BoundDependencyContract {
         &self.requirements
     }
 
-    #[cfg(test)]
     pub(crate) fn is_valid_for(&self, unit: BoundUnitId) -> bool {
         self.requirements
             .iter()
@@ -290,10 +335,7 @@ where
                 return Err(DependencyContractInstantiationError::ForeignUnit);
             }
 
-            Ok(BoundDependencyRequirement::direct(
-                subject,
-                instantiate_requirement_kind(*kind),
-            ))
+            Ok(BoundDependencyRequirement::direct(subject, (*kind).into()))
         }
         DependencyRequirement::Guarded(guarded) => {
             let guard = context
@@ -307,29 +349,6 @@ where
             let requirements = instantiate_requirements(guarded.requirements(), context)?;
 
             Ok(BoundDependencyRequirement::guarded(guard, requirements))
-        }
-    }
-}
-
-const fn instantiate_requirement_kind(
-    kind: DependencyRequirementKind,
-) -> BoundDependencyRequirementKind {
-    match kind {
-        DependencyRequirementKind::StorageAlive => BoundDependencyRequirementKind::StorageAlive,
-        DependencyRequirementKind::StorageInitialized => {
-            BoundDependencyRequirementKind::StorageInitialized
-        }
-        DependencyRequirementKind::BorrowCapabilityActive(kind) => {
-            BoundDependencyRequirementKind::BorrowCapabilityActive(kind)
-        }
-        DependencyRequirementKind::ExclusiveMutationAuthority => {
-            BoundDependencyRequirementKind::ExclusiveMutationAuthority
-        }
-        DependencyRequirementKind::ScopedCapabilityLive => {
-            BoundDependencyRequirementKind::ScopedCapabilityLive
-        }
-        DependencyRequirementKind::LifecycleObligation(kind) => {
-            BoundDependencyRequirementKind::LifecycleObligationAttached(kind)
         }
     }
 }

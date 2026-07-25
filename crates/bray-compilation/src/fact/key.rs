@@ -230,6 +230,8 @@ pub(crate) enum CompilationFactKey {
     RefinementFacts(BoundUnitKey),
     /// Checked storage, ownership, movement, and borrow decisions for one bound unit.
     StorageFlowFacts(BoundUnitKey),
+    /// Normalized dependency contracts for semantic occurrences in one bound unit.
+    DependencyContracts(BoundUnitKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -312,6 +314,7 @@ impl CompilationFactKey {
             | Self::Liveness(key)
             | Self::RefinementFacts(key)
             | Self::StorageFlowFacts(key)
+            | Self::DependencyContracts(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)

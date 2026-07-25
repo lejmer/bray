@@ -5,6 +5,7 @@
 mod analysis;
 mod constant;
 mod context;
+mod dependency;
 mod diagnostic;
 mod expression;
 mod outcome;
@@ -55,12 +56,13 @@ pub use semantic_context::{
 };
 pub use service::{
     ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
-    DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultExpressionSemanticChecker,
-    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
-    DefaultRefinementAnalyzer, DefaultSemanticSelector, DefaultStorageFlowChecker,
-    DefaultStoragePlanner, DefaultTargetValidityChecker, ExpressionSemanticChecker,
-    ExpressionTypeChecker, LivenessAnalyzer, PatternChecker, RefinementAnalyzer, SemanticSelector,
-    StorageFlowChecker, StoragePlanner, TargetValidityChecker,
+    DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultDependencyContractChecker,
+    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultLivenessAnalyzer,
+    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
+    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
+    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
+    PatternChecker, RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
+    TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,

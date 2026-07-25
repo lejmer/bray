@@ -4,9 +4,10 @@ use std::sync::{Arc, Mutex};
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
-    BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedPatternFacts,
-    CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
-    SelectedIterationSource, StorageFlowFacts, StoragePlan,
+    BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedDependencyContracts,
+    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
+    DeclaredValueTypeTemplates, LivenessFacts, SelectedIterationSource, StorageFlowFacts,
+    StoragePlan,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_declarations::{
@@ -144,6 +145,7 @@ pub(super) struct CompilationState {
     pub(super) liveness: UnitFactCache<LivenessFacts>,
     pub(super) refinement_facts: UnitFactCache<CheckedRefinementFacts>,
     pub(super) storage_flow_facts: UnitFactCache<StorageFlowFacts>,
+    pub(super) dependency_contracts: UnitFactCache<CheckedDependencyContracts>,
     pub(super) constant_template_keys:
         FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
     pub(super) callable_body_keys:
@@ -286,6 +288,7 @@ impl Compilation {
                 liveness: UnitFactCache::new(),
                 refinement_facts: UnitFactCache::new(),
                 storage_flow_facts: UnitFactCache::new(),
+                dependency_contracts: UnitFactCache::new(),
                 constant_template_keys: FactCell::new(),
                 callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),

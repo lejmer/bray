@@ -282,6 +282,19 @@ impl StoragePlan {
         &self.accesses
     }
 
+    /// Returns evaluated accesses with their unit-local identities.
+    pub fn access_entries(&self) -> impl Iterator<Item = (StorageAccessId, &StorageAccess)> {
+        self.accesses
+            .iter()
+            .enumerate()
+            .filter_map(|(index, access)| {
+                let slot = u32::try_from(index).ok()?;
+                let id = StorageAccessId::from_storage_slot(self.unit, slot);
+
+                Some((id, access))
+            })
+    }
+
     /// Returns planned borrow capabilities in deterministic allocation order.
     pub fn borrow_capabilities(&self) -> &[PlannedBorrowCapability] {
         &self.borrow_capabilities
@@ -374,6 +387,12 @@ impl StoragePlan {
     /// Returns the persistent storage root reached by one access.
     pub fn root_identity(&self, access: StorageAccessId) -> Option<StorageIdentityId> {
         self.resolved_access(access).map(|access| access.root)
+    }
+
+    /// Returns the complete resolved projection path reached by one access.
+    pub fn resolved_projections(&self, access: StorageAccessId) -> Option<&[StorageProjection]> {
+        self.resolved_access(access)
+            .map(|access| access.projections.as_ref())
     }
 
     /// Returns whether the first access contains the complete second access.
@@ -638,6 +657,17 @@ mod tests {
         assert!(plan.access_contains(first, nested));
         assert!(!plan.access_contains(nested, first));
         assert!(!plan.access_contains(first, second));
+
+        assert_eq!(
+            plan.resolved_projections(nested),
+            Some(
+                [
+                    StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+                    StorageProjection::Element(BoundExpressionId::from_slot(unit, 0)),
+                ]
+                .as_slice()
+            )
+        );
 
         assert_eq!(
             plan.relationship(first, StorageAccessId::from_slot(BoundUnitId::new(9), 0)),
