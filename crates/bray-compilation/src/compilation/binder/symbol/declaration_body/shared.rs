@@ -13,6 +13,12 @@ pub(super) struct CheckedSourceExpression {
     pub(super) is_recovered: bool,
 }
 
+pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
+    pub(in crate::compilation::binder::symbol) dependency_contracts:
+        Vec<DependencyContractTemplateId>,
+    pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
+}
+
 pub(super) fn checked_source_expression(
     context: &CompilationBinderFacts<'_>,
     key: BoundUnitKey,
@@ -76,6 +82,69 @@ pub(super) fn checked_source_expression(
         is_recovered: expression.is_recovered()
             || result.is_recovered()
             || dependencies.result().value().is_recovered(),
+    })
+}
+
+pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
+    context: &CompilationBinderFacts<'_>,
+    key: BoundUnitKey,
+) -> BinderFactResult<CheckedSourcePredicateSequence> {
+    let compilation = context.compilation();
+
+    let bound = compilation
+        .bound_unit_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let BoundUnitRoot::ExpressionSequence(root) = bound.result().value().root() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    let semantics = compilation
+        .expression_semantics_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let storage = compilation
+        .storage_plan_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let dependencies = compilation
+        .dependency_contracts_with_cancellation(key, context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let block = bound
+        .result()
+        .value()
+        .view()
+        .block(root)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let mut dependency_contracts = Vec::new();
+
+    for expression in block.items().iter().filter_map(|item| item.expression()) {
+        let contract = dependencies
+            .result()
+            .value()
+            .expression(expression)
+            .and_then(|contract| dependencies.result().value().contract(contract))
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        dependency_contracts.push(portable_dependency_contract(
+            context,
+            storage.result().value(),
+            contract,
+        )?);
+    }
+
+    let diagnostics = DiagnosticBag::merged_all([
+        bound.result().diagnostics(),
+        semantics.result().diagnostics(),
+        storage.result().diagnostics(),
+        dependencies.result().diagnostics(),
+    ]);
+
+    Ok(CheckedSourcePredicateSequence {
+        dependency_contracts,
+        diagnostics,
     })
 }
 

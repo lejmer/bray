@@ -11,7 +11,7 @@ use bray_symbols::{
 
 use crate::compilation::binder::CompilationBinderFacts;
 
-pub(super) fn portable_dependency_contract(
+pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
     context: &CompilationBinderFacts<'_>,
     storage: &StoragePlan,
     contract: &BoundDependencyContract,

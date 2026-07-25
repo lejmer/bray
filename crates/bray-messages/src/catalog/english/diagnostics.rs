@@ -293,6 +293,21 @@ const CHECKING_UNAVAILABLE_NATIVE_LINK_INPUT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const CHECKING_UNDECLARED_TRUSTED_CAPABILITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trusted capability is used but not declared: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const CHECKING_UNUSED_TRUSTED_CAPABILITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trusted capability is declared but not used: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const CHECKING_TRUSTED_CAPABILITY_REQUIRES_TRUSTED_CALLABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trusted capability requires a trusted callable: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -989,6 +1004,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingUnavailableNativeLinkInput => {
             MessageTemplate::new(CHECKING_UNAVAILABLE_NATIVE_LINK_INPUT)
+        }
+        DiagnosticKind::CheckingUndeclaredTrustedCapability => {
+            MessageTemplate::new(CHECKING_UNDECLARED_TRUSTED_CAPABILITY)
+        }
+        DiagnosticKind::CheckingUnusedTrustedCapability => {
+            MessageTemplate::new(CHECKING_UNUSED_TRUSTED_CAPABILITY)
+        }
+        DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable => {
+            MessageTemplate::new(CHECKING_TRUSTED_CAPABILITY_REQUIRES_TRUSTED_CALLABLE)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

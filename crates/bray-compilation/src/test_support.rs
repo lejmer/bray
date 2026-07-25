@@ -13,7 +13,8 @@ use bray_source::{
     SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceSnapshot, SourceVersion,
 };
 use bray_symbols::{
-    ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey, SymbolKind, SymbolOrigin, SymbolRootKey,
+    FunctionSymbolId, ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey, SymbolKind,
+    SymbolOrigin, SymbolRootKey,
 };
 
 use crate::fact::{FactCellTestEvent, FactCellTestObserver};
@@ -229,6 +230,24 @@ pub(crate) fn source_callable_body_key(compilation: &Compilation) -> BoundUnitKe
     };
 
     source_callable_body_key_from_symbols(compilation, symbols)
+}
+
+pub(crate) fn source_function(compilation: &Compilation, name: &str) -> FunctionSymbolId {
+    let symbols = compilation
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+    symbols
+        .functions()
+        .iter()
+        .find(|function| {
+            function.origin() == SymbolOrigin::Source
+                && symbols
+                    .member_name(function.id().into())
+                    .is_some_and(|member_name| member_name.as_str() == name)
+        })
+        .map(bray_symbols::FunctionSymbol::id)
+        .unwrap_or_else(|| panic!("source function {name} must exist"))
 }
 
 pub(crate) fn source_callable_body_key_from_symbols(

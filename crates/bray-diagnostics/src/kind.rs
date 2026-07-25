@@ -261,6 +261,12 @@ pub enum DiagnosticKind {
     CheckingDuplicateNativeSymbol,
     /// A native link requirement has no input supplied for the selected target.
     CheckingUnavailableNativeLinkInput,
+    /// A callable body uses a trusted capability omitted from its declaration.
+    CheckingUndeclaredTrustedCapability,
+    /// A callable declaration names a trusted capability its body does not use.
+    CheckingUnusedTrustedCapability,
+    /// Trusted implementation capability use occurs outside a trusted callable.
+    CheckingTrustedCapabilityRequiresTrustedCallable,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -413,6 +419,9 @@ impl DiagnosticKind {
             Self::CheckingInvalidNativeSymbolDirective => 7059,
             Self::CheckingDuplicateNativeSymbol => 7060,
             Self::CheckingUnavailableNativeLinkInput => 7061,
+            Self::CheckingUndeclaredTrustedCapability => 7062,
+            Self::CheckingUnusedTrustedCapability => 7063,
+            Self::CheckingTrustedCapabilityRequiresTrustedCallable => 7064,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -608,6 +617,11 @@ impl DiagnosticKind {
             }
             Self::CheckingDuplicateNativeSymbol => "checking_duplicate_native_symbol",
             Self::CheckingUnavailableNativeLinkInput => "checking_unavailable_native_link_input",
+            Self::CheckingUndeclaredTrustedCapability => "checking_undeclared_trusted_capability",
+            Self::CheckingUnusedTrustedCapability => "checking_unused_trusted_capability",
+            Self::CheckingTrustedCapabilityRequiresTrustedCallable => {
+                "checking_trusted_capability_requires_trusted_callable"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -671,7 +685,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 137] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 140] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -801,6 +815,9 @@ mod tests {
             DiagnosticKind::CheckingInvalidNativeSymbolDirective,
             DiagnosticKind::CheckingDuplicateNativeSymbol,
             DiagnosticKind::CheckingUnavailableNativeLinkInput,
+            DiagnosticKind::CheckingUndeclaredTrustedCapability,
+            DiagnosticKind::CheckingUnusedTrustedCapability,
+            DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

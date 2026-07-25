@@ -10,7 +10,8 @@ use bray_symbols::TypeId;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::constraints::{
-    add_expectations, add_intrinsic_constraints, add_relationship_constraints, block_expectations,
+    add_expectations, add_intrinsic_constraints, add_relationship_constraints,
+    add_semantic_context_constraints, block_expectations,
 };
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
@@ -118,6 +119,8 @@ where
         ) {
             return Ok(SessionProgress::Cancelled);
         }
+
+        add_semantic_context_constraints(request, &variables, types.boolean, &mut inference);
 
         let Some(local_expectations) = block_expectations(request, &nodes.blocks) else {
             return Ok(SessionProgress::Cancelled);

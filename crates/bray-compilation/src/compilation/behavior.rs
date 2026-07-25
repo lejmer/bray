@@ -302,7 +302,7 @@ impl Compilation {
                 None => builder.is_recovered = true,
             },
             BoundCallableTarget::Indirect(_) => {
-                // TODO(BRA-233): Merge phase behavior carried by indirect callable contracts.
+                // TODO(BRA-267): Merge phase behavior carried by indirect callable contracts.
                 builder.is_recovered = true;
             }
         }
