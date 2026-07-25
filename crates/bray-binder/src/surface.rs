@@ -168,7 +168,7 @@ where
     let builder = BoundUnitLocalBuilder::new(unit, key, region, syntax.full_range().start())
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-    let mut binder = Binder::new(facts, context, builder);
+    let mut binder = Binder::new(facts, builder);
     let scope = binder.unit().root_scope();
 
     let path = match symbols.containing_module(owner) {
@@ -207,7 +207,7 @@ const fn binding_error(error: BindingError) -> BinderFactError {
         | BindingError::Construction(_)
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
-        | BindingError::CandidateContextMismatch
+        | BindingError::TransactionContextMismatch
         | BindingError::ControlTargetMismatch
         | BindingError::UnsupportedSyntax => BinderFactError::DependencyUnavailable,
     }

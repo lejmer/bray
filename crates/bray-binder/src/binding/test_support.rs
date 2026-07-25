@@ -4,7 +4,7 @@ use bray_symbols::{LocalSymbolRegionId, SymbolOrigin};
 use bray_syntax::{BlockExpressionSyntax, SourceSyntaxNode, SyntaxCast, SyntaxWalkRoot};
 
 use crate::BinderFactContext;
-use crate::binder::{Binder, BindingContext};
+use crate::binder::Binder;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::unit::BoundUnitLocalBuilder;
 
@@ -67,7 +67,7 @@ where
         Err(error) => panic!("test bound unit must build: {error:?}"),
     };
 
-    Binder::new(facts, BindingContext::CallableBody, unit)
+    Binder::new(facts, unit)
 }
 
 pub(crate) fn internal_path_context<C>(

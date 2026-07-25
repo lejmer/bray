@@ -6,7 +6,7 @@ use bray_symbols::{
 };
 
 use super::BoundUnitBindingError;
-use crate::binder::{Binder, BindingContext};
+use crate::binder::Binder;
 use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::publication::BoundUnitAssemblyError;
@@ -17,7 +17,6 @@ pub(super) fn create_binder<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<Binder<'_, C>, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
@@ -28,7 +27,7 @@ where
     let unit = BoundUnitLocalBuilder::new(unit, key, region, start)
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    Ok(Binder::new(facts, context, unit))
+    Ok(Binder::new(facts, unit))
 }
 
 pub(super) fn path_context<C>(
@@ -204,7 +203,7 @@ pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
         BindingError::DependencyUnavailable
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
-        | BindingError::CandidateContextMismatch
+        | BindingError::TransactionContextMismatch
         | BindingError::ControlTargetMismatch
         | BindingError::UnsupportedSyntax => BoundUnitBindingError::Binding,
     }

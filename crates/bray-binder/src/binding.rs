@@ -8,6 +8,7 @@ mod error;
 mod expression;
 mod name;
 mod pattern;
+mod transaction;
 mod type_expression;
 
 #[cfg(test)]

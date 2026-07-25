@@ -96,7 +96,7 @@ mod tests {
     use bray_syntax::LambdaExpressionSyntax;
 
     use crate::BinderFactContext;
-    use crate::binder::{Binder, BindingContext};
+    use crate::binder::Binder;
     use crate::fact::test_support::TestFixture;
     use crate::unit::BoundUnitLocalBuilder;
 
@@ -172,7 +172,7 @@ mod tests {
             Err(error) => panic!("nested lambda unit must build: {error:?}"),
         };
 
-        let mut binder = Binder::new(&facts, BindingContext::CallableBody, nested_unit);
+        let mut binder = Binder::new(&facts, nested_unit);
         let root = binder.unit().root_scope();
 
         let boundary = match binder.bind_anonymous_callable_boundary(root, &lambda) {

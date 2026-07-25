@@ -1,6 +1,6 @@
 use bray_symbols::{
-    AnySymbolId, LocalScopeBoundary, LocalScopeId, MemberLookupIndex, MemberLookupResult,
-    MemberVisibility, ModuleSymbolId, SymbolGraph,
+    AnySymbolId, LocalScopeBoundary, LocalScopeId, MemberLookupResult, MemberVisibility,
+    ModuleSymbolId, SymbolGraph,
 };
 
 use super::category::ResolvedName;
@@ -171,10 +171,11 @@ pub(crate) fn lookup_surface_name(
         .map(ResolvedName::Surface, ResolvedName::Surface)
 }
 
+#[cfg(test)]
 pub(super) fn lookup_member_index(
-    index: &MemberLookupIndex<AnySymbolId>,
+    index: &bray_symbols::MemberLookupIndex<AnySymbolId>,
     name: &str,
-    is_accessible: impl FnMut(AnySymbolId, MemberVisibility) -> bool,
+    is_accessible: impl FnMut(AnySymbolId, bray_symbols::MemberVisibility) -> bool,
 ) -> NameLookupResult<ResolvedName> {
     index
         .lookup_with_access(name, is_accessible)

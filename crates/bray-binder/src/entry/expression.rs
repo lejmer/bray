@@ -297,7 +297,7 @@ fn bind_expression_root_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
+    _context: BindingContext,
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
     bind_root: impl FnOnce(
         &mut ExpressionBinder,
@@ -308,7 +308,7 @@ fn bind_expression_root_unit<C>(
 where
     C: BinderFactContext + ?Sized,
 {
-    let mut binder = create_binder(facts, unit, key, context)?;
+    let mut binder = create_binder(facts, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     configure_scope(&mut binder, root_scope)?;
@@ -434,7 +434,7 @@ where
     let origin = BoundNodeOrigin::source(source);
     let is_recovered = syntax.is_recovered();
 
-    let mut binder = create_binder(facts, unit, key, context)?;
+    let mut binder = create_binder(facts, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     configure_scope(&mut binder, root_scope)?;

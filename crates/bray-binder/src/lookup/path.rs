@@ -2,22 +2,28 @@ use bray_bound_tree::BoundPatternTarget;
 use bray_diagnostics::{DiagnosticBag, DiagnosticNameKind, DiagnosticResult};
 use bray_source::SourceSnapshot;
 use bray_symbols::{
-    AnySymbolId, CallableOverloadSymbolId, ImportedSymbolSkeleton, MemberLookupIndex,
-    MemberLookupResult, MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbol,
-    ModuleSymbolId, SymbolGraph, TraitSymbolId,
+    AnySymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleOwnerId, ModulePathKey,
+    ModuleSymbol, ModuleSymbolId, SymbolGraph,
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxToken};
 
 use super::binding::{
-    NameLookupResult, combine_name_lookups, lookup_member_index, lookup_surface_name,
-    lookup_unqualified_name,
+    NameLookupResult, combine_name_lookups, lookup_surface_name, lookup_unqualified_name,
 };
 use super::category::{
-    ResolvedMemberName, ResolvedName, ResolvedTypeName, ResolvedValueName,
-    classify_callable_overload, classify_member, classify_trait, classify_type, classify_value,
+    ResolvedMemberName, ResolvedName, ResolvedValueName, classify_member, classify_value,
 };
 use super::diagnostic::{NameReference, lookup_diagnostic, malformed_lookup, report_lookup_result};
 use crate::{BinderFactContext, BinderFactResult, ImportedPathRoot, binder::Binder};
+
+#[cfg(test)]
+use super::binding::lookup_member_index;
+#[cfg(test)]
+use super::category::{
+    ResolvedTypeName, classify_callable_overload, classify_trait, classify_type,
+};
+#[cfg(test)]
+use bray_symbols::{CallableOverloadSymbolId, MemberLookupIndex, MemberVisibility, TraitSymbolId};
 
 /// Visibility policy for one source name reference.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -297,6 +303,7 @@ where
         Ok(result)
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_module_path(
         &mut self,
         context: PathBindingContext,
@@ -316,6 +323,7 @@ where
         Ok(result)
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_type_path(
         &mut self,
         context: PathBindingContext,
@@ -324,6 +332,7 @@ where
         self.bind_classified_path(context, path, DiagnosticNameKind::Type, classify_type)
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_trait_path(
         &mut self,
         context: PathBindingContext,
@@ -400,6 +409,7 @@ where
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_callable_overload_path(
         &mut self,
         context: PathBindingContext,
@@ -432,6 +442,7 @@ where
         result
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_member_from_index(
         &mut self,
         index: &MemberLookupIndex<AnySymbolId>,
@@ -851,7 +862,7 @@ mod tests {
 
     use super::{NameAccess, PathBindingContext};
     use crate::BinderFactContext;
-    use crate::binder::{Binder, BindingContext};
+    use crate::binder::Binder;
     use crate::fact::test_support::TestFixture as FactFixture;
     use crate::lookup::category::{ResolvedName, ResolvedTypeName, ResolvedValueName};
     use crate::lookup::test_support::{path, source_module, text_range};
@@ -887,7 +898,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_module_path(context, &path("app")),
@@ -1026,7 +1037,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert_eq!(
             binder.bind_value_path(context, &path("value")),
@@ -1050,7 +1061,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_type_path(context, &path("bool")),
@@ -1085,7 +1096,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_module_path(context, &path("core.memory")),
@@ -1133,7 +1144,7 @@ mod tests {
         assert_eq!(unit.insert_surface_name(root, name, recovered), Ok(()));
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_value_path(context, &path("broken")),
@@ -1170,7 +1181,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_value_path(context, &path("value")),
@@ -1213,7 +1224,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let public = PathBindingContext::new(root, module, owner, NameAccess::Public);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert_eq!(
             binder.bind_type_path(public, &path("Missing")),
@@ -1292,11 +1303,7 @@ mod tests {
             NameAccess::Public,
         );
 
-        let mut internal_request = Binder::new(
-            &internal_facts,
-            BindingContext::TypeExpression,
-            internal_unit,
-        );
+        let mut internal_request = Binder::new(&internal_facts, internal_unit);
 
         assert!(matches!(
             internal_request.bind_module_path(public, &path("hidden")),
@@ -1321,11 +1328,7 @@ mod tests {
             NameAccess::Internal,
         );
 
-        let mut recovered_request = Binder::new(
-            &recovered_facts,
-            BindingContext::TypeExpression,
-            recovered_unit,
-        );
+        let mut recovered_request = Binder::new(&recovered_facts, recovered_unit);
 
         assert!(matches!(
             recovered_request.bind_module_path(internal, &path("broken")),
@@ -1352,7 +1355,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_value_path(context, &path("app.Point")),
@@ -1387,7 +1390,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_module_path(context, &path("foo.bar")),
@@ -1418,7 +1421,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert_eq!(
             binder.bind_module_path(context, &path("foo.bar")),
@@ -1458,7 +1461,7 @@ mod tests {
         };
 
         let context = PathBindingContext::new(root, public_module.id(), owner, NameAccess::Public);
-        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert_eq!(
             binder.bind_module_path(context, &path("foo.bar")),
@@ -1507,7 +1510,7 @@ mod tests {
             Err(error) => panic!("test member index must build: {error:?}"),
         };
 
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         assert!(matches!(
             binder.bind_member_from_index(
@@ -1532,7 +1535,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         let sources = test_source_store([""]);
         let snapshot = test_source_at(&sources, 0).clone();
@@ -1571,7 +1574,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         let malformed = path_with_missing_middle();
 
@@ -1622,7 +1625,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Public);
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         let implementation_path = path("dependency.api.DisplayVec");
 

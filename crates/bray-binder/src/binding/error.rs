@@ -6,7 +6,7 @@ pub(crate) enum BindingError {
     DependencyUnavailable,
     IdentityCapacityExceeded,
     RollbackFailed,
-    CandidateContextMismatch,
+    TransactionContextMismatch,
     ControlTargetMismatch,
     UnsupportedSyntax,
     Construction(BoundUnitConstructionError),
