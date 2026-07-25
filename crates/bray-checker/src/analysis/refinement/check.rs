@@ -299,7 +299,7 @@ fn transfer_operation(
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..
-        } => universe.remove_storage_facts(&mut state.facts),
+        } => {}
         AnalysisOperationKind::Bound(node) => {
             universe.invalidate_for_operation(&mut state.facts, node, storage);
             universe.finish_operation(&mut state.facts, node);

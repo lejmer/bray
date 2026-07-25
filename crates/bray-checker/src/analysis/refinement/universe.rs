@@ -20,6 +20,7 @@ pub(super) struct RefinementUniverse {
     edge_facts: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     normal_completion: BTreeMap<BoundExpressionId, usize>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
+    invalidating_accesses: BTreeMap<BoundExpressionId, Box<[StorageAccessId]>>,
 }
 
 impl RefinementUniverse {
@@ -44,6 +45,7 @@ impl RefinementUniverse {
         }
 
         let direct_dependencies = direct_expression_dependencies(storage);
+        let invalidating_accesses = invalidating_expression_accesses(storage);
 
         let mut universe = Self {
             facts: Vec::new(),
@@ -51,6 +53,7 @@ impl RefinementUniverse {
             edge_facts: BTreeMap::new(),
             normal_completion: BTreeMap::new(),
             trust_boundaries: BTreeMap::new(),
+            invalidating_accesses,
         };
 
         universe
@@ -105,11 +108,22 @@ impl RefinementUniverse {
 
         let words = universe.len().div_ceil(u64::BITS as usize);
 
-        let cells = words
-            .checked_mul(graph.blocks().len())
+        let retained_states = graph
+            .blocks()
+            .len()
+            .checked_add(graph.operations().len())
             .ok_or(RefinementUniverseError::CapacityExceeded)?;
 
-        if cells > MAX_REFINEMENT_CELLS {
+        let bitset_cells = words
+            .checked_mul(retained_states)
+            .ok_or(RefinementUniverseError::CapacityExceeded)?;
+
+        let published_facts = universe
+            .len()
+            .checked_mul(graph.operations().len())
+            .ok_or(RefinementUniverseError::CapacityExceeded)?;
+
+        if bitset_cells > MAX_REFINEMENT_CELLS || published_facts > MAX_REFINEMENT_CELLS {
             return Err(RefinementUniverseError::CapacityExceeded);
         }
 
@@ -215,15 +229,9 @@ impl RefinementUniverse {
             return;
         };
 
-        let mutations = storage
-            .expression_plans(expression)
-            .filter(|plan| access_invalidates_facts(plan.purpose()))
-            .map(|plan| plan.access())
-            .collect::<Vec<_>>();
-
-        if mutations.is_empty() {
+        let Some(mutations) = self.invalidating_accesses.get(&expression) else {
             return;
-        }
+        };
 
         set.retain(|index| {
             self.facts.get(index).is_none_or(|fact| {
@@ -250,14 +258,6 @@ impl RefinementUniverse {
             self.remove_conflicts(set, *index);
             set.insert(*index);
         }
-    }
-
-    pub(super) fn remove_storage_facts(&self, set: &mut FactSet) {
-        set.retain(|index| {
-            self.facts
-                .get(index)
-                .is_some_and(|fact| fact.dependencies().is_empty())
-        });
     }
 }
 
@@ -342,6 +342,28 @@ fn direct_expression_dependencies(
     }
 
     dependencies
+}
+
+fn invalidating_expression_accesses(
+    storage: &StoragePlan,
+) -> BTreeMap<BoundExpressionId, Box<[StorageAccessId]>> {
+    let mut accesses = BTreeMap::<BoundExpressionId, Vec<StorageAccessId>>::new();
+
+    for plan in storage
+        .access_plans()
+        .iter()
+        .filter(|plan| access_invalidates_facts(plan.purpose()))
+    {
+        accesses
+            .entry(plan.expression())
+            .or_default()
+            .push(plan.access());
+    }
+
+    accesses
+        .into_iter()
+        .map(|(expression, accesses)| (expression, accesses.into_boxed_slice()))
+        .collect()
 }
 
 fn expression_completes_normally(
