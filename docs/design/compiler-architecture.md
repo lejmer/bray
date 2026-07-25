@@ -277,6 +277,14 @@ Scheduler queues and internal caches can use synchronization, but they must not 
 
 Hidden mutable global state is not allowed in compiler logic.
 
+Request priority is scheduling policy, not semantic identity. Interactive tooling requests may receive bounded preference over
+ordinary and background work, but ordinary work must continue to make progress under sustained interactive demand. Priority,
+waiter count, worker assignment, and completion order must not enter fact keys or change published results.
+
+Cancellation belongs to an interested request. Cancelling a waiter stops that waiter without cancelling a shared computation still
+needed by another request. Work with no remaining interested request may be abandoned, but abandoned work publishes no partial fact
+or partial diagnostic bag.
+
 ---
 
 ## Worker Budget
@@ -973,6 +981,15 @@ Query inputs and outputs should be suitable for parallel scheduling.
 
 A query should not rely on worker-local mutable state unless that state is an implementation cache that cannot affect observable
 compiler behavior.
+
+Variable-size fact caches must have an explicit finite retention policy. Retention order and eviction are performance choices, not
+semantic state. Completed immutable facts may be reclaimed and recomputed, while in-flight single-flight entries must remain
+coordinated until they publish or are abandoned. Snapshot invalidation removes obsolete entries through the ordinary dependency
+graph.
+
+Resource limits that can change a semantic answer or diagnostic are part of the corresponding request and fact identity.
+Cancellation, priority, worker count, and cache retention are not result-affecting resource limits and must not enter that
+identity.
 
 ---
 

@@ -30,7 +30,7 @@ macro_rules! define_compilation_symbol_facts {
         }
 
         impl CompilationSymbolFacts {
-            pub(in crate::compilation) const fn new() -> Self {
+            pub(in crate::compilation) fn new() -> Self {
                 Self {
                     $($field: SymbolFactCache::new(),)+
                 }

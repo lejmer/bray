@@ -4,6 +4,7 @@ mod cell_map;
 mod completion;
 mod error;
 mod key;
+mod priority;
 mod runtime;
 mod scheduler;
 mod symbol;
@@ -17,6 +18,7 @@ pub use completion::SymbolCompletionError;
 pub(crate) use completion::force_complete_symbol;
 pub use error::{FactCycle, FactQueryError};
 pub use key::ImportedSemanticFactKey;
+pub use priority::QueryPriority;
 
 pub(crate) use cache::FactCell;
 #[cfg(test)]

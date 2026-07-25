@@ -37,7 +37,7 @@ impl<T> UnitFactCache<T>
 where
     T: Send + Sync,
 {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cells: FactCellMap::new(),
         }

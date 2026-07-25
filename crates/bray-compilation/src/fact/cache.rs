@@ -6,7 +6,7 @@ use std::fmt;
 
 use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
-    FactTaskIdentity,
+    FactTaskIdentity, QueryPriority,
 };
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -139,7 +139,34 @@ impl<T> FactCell<T> {
     where
         T: Send,
     {
-        self.get_or_compute_with_cycle_key(runtime, key.clone(), key, cancellation, compute)
+        self.get_or_compute_with_priority(
+            runtime,
+            key,
+            cancellation,
+            QueryPriority::Normal,
+            compute,
+        )
+    }
+
+    pub(crate) fn get_or_compute_with_priority(
+        &self,
+        runtime: &FactRuntime,
+        key: CompilationFactKey,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+        compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
+    ) -> Result<&T, FactQueryError>
+    where
+        T: Send,
+    {
+        self.get_or_compute_with_cycle_key_and_priority(
+            runtime,
+            key.clone(),
+            key,
+            cancellation,
+            compute,
+            priority,
+        )
     }
 
     pub(crate) fn get_or_compute_with_cycle_key(
@@ -149,6 +176,28 @@ impl<T> FactCell<T> {
         cycle_key: CompilationFactKey,
         cancellation: &CancellationToken,
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
+    ) -> Result<&T, FactQueryError>
+    where
+        T: Send,
+    {
+        self.get_or_compute_with_cycle_key_and_priority(
+            runtime,
+            key,
+            cycle_key,
+            cancellation,
+            compute,
+            QueryPriority::Normal,
+        )
+    }
+
+    fn get_or_compute_with_cycle_key_and_priority(
+        &self,
+        runtime: &FactRuntime,
+        key: CompilationFactKey,
+        cycle_key: CompilationFactKey,
+        cancellation: &CancellationToken,
+        compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
+        priority: QueryPriority,
     ) -> Result<&T, FactQueryError>
     where
         T: Send,
@@ -198,7 +247,7 @@ impl<T> FactCell<T> {
                         .take()
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let value = runtime.run(|| evaluation.run(compute))?;
+                    let value = runtime.run(priority, || evaluation.run(compute))?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
@@ -472,6 +521,42 @@ mod tests {
             }
         });
 
+        assert_eq!(computations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn request_priority_does_not_change_fact_identity_or_value() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let computations = AtomicUsize::new(0);
+
+        let first = cell.get_or_compute_with_priority(
+            &runtime,
+            CompilationFactKey::SyntaxTree,
+            &cancellation,
+            crate::QueryPriority::Background,
+            || {
+                computations.fetch_add(1, Ordering::SeqCst);
+
+                Ok(7_u32)
+            },
+        );
+
+        let second = cell.get_or_compute_with_priority(
+            &runtime,
+            CompilationFactKey::SyntaxTree,
+            &cancellation,
+            crate::QueryPriority::Interactive,
+            || {
+                computations.fetch_add(1, Ordering::SeqCst);
+
+                Ok(9_u32)
+            },
+        );
+
+        assert_eq!(first, Ok(&7));
+        assert_eq!(second, Ok(&7));
         assert_eq!(computations.load(Ordering::SeqCst), 1);
     }
 

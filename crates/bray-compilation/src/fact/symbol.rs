@@ -19,7 +19,7 @@ impl<C> SymbolFactCache<C>
 where
     C: SymbolFactContract,
 {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cells: FactCellMap::new(),
             marker: PhantomData,

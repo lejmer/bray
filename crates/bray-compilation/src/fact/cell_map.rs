@@ -3,32 +3,79 @@ use std::sync::{Arc, Mutex};
 
 use super::{CompilationFactKey, FactCell, FactQueryError};
 
+const MAX_RETAINED_FACTS_PER_KIND: usize = 4_096;
+
 #[derive(Debug)]
 pub(crate) struct FactCellMap<K, V> {
-    cells: Mutex<BTreeMap<K, Arc<FactCell<V>>>>,
+    retention_limit: usize,
+    state: Mutex<FactCellMapState<K, V>>,
+}
+
+#[derive(Debug)]
+struct FactCellMapState<K, V> {
+    cells: BTreeMap<K, FactCellMapEntry<V>>,
+    next_access: u64,
+}
+
+#[derive(Debug)]
+struct FactCellMapEntry<V> {
+    cell: Arc<FactCell<V>>,
+    last_access: u64,
 }
 
 impl<K, V> FactCellMap<K, V>
 where
     K: Ord,
 {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
+        Self::with_retention_limit(MAX_RETAINED_FACTS_PER_KIND)
+    }
+
+    fn with_retention_limit(retention_limit: usize) -> Self {
+        assert!(retention_limit > 0, "fact retention limit must be positive");
+
         Self {
-            cells: Mutex::new(BTreeMap::new()),
+            retention_limit,
+            state: Mutex::new(FactCellMapState {
+                cells: BTreeMap::new(),
+                next_access: 0,
+            }),
         }
     }
 
     pub(crate) fn cell(&self, key: K) -> Result<Arc<FactCell<V>>, FactQueryError> {
-        let mut cells = self
-            .cells
+        let mut state = self
+            .state
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        Ok(Arc::clone(
-            cells
-                .entry(key)
-                .or_insert_with(|| Arc::new(FactCell::new())),
-        ))
+        let access = state.next_access;
+        state.next_access = state
+            .next_access
+            .checked_add(1)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        if let Some(entry) = state.cells.get_mut(&key) {
+            entry.last_access = access;
+
+            return Ok(Arc::clone(&entry.cell));
+        }
+
+        if state.cells.len() >= self.retention_limit {
+            evict_oldest_ready(&mut state.cells);
+        }
+
+        let cell = Arc::new(FactCell::new());
+
+        state.cells.insert(
+            key,
+            FactCellMapEntry {
+                cell: Arc::clone(&cell),
+                last_access: access,
+            },
+        );
+
+        Ok(cell)
     }
 
     pub(crate) fn updated(
@@ -39,24 +86,40 @@ where
     where
         K: Clone,
     {
-        let cells = self
-            .cells
+        let state = self
+            .state
             .lock()
             .unwrap_or_else(|_| panic!("fact cache map must remain available"));
 
         // The new map owns its keys while ready cells share their immutable publication storage.
-        let cells = cells
+        let mut cells = state
+            .cells
             .iter()
-            .filter(|(key, cell)| {
+            .filter(|(key, entry)| {
                 let fact_key = fact_key(key);
 
-                reusable.contains(&fact_key) && cell.is_ready_for(&fact_key)
+                reusable.contains(&fact_key) && entry.cell.is_ready_for(&fact_key)
             })
-            .map(|(key, cell)| (key.clone(), Arc::clone(cell)))
-            .collect();
+            .map(|(key, entry)| (key.clone(), entry.last_access, Arc::clone(&entry.cell)))
+            .collect::<Vec<_>>();
+
+        cells.sort_by_key(|(_, access, _)| std::cmp::Reverse(*access));
+        cells.truncate(self.retention_limit);
 
         Self {
-            cells: Mutex::new(cells),
+            retention_limit: self.retention_limit,
+            state: Mutex::new(FactCellMapState {
+                next_access: cells
+                    .iter()
+                    .map(|(_, access, _)| *access)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1),
+                cells: cells
+                    .into_iter()
+                    .map(|(key, last_access, cell)| (key, FactCellMapEntry { cell, last_access }))
+                    .collect(),
+            }),
         }
     }
 
@@ -64,44 +127,109 @@ where
     where
         K: Clone,
     {
-        let cells = self
-            .cells
+        let state = self
+            .state
             .lock()
             .unwrap_or_else(|_| panic!("fact cache map must remain available"));
 
         // Snapshot invalidation owns stable cache keys after releasing the map lock.
-        cells.keys().cloned().collect()
+        state.cells.keys().cloned().collect()
     }
 
     #[cfg(test)]
     pub(crate) fn is_published(&self, key: &K) -> Result<bool, FactQueryError> {
-        let cells = self
-            .cells
+        let state = self
+            .state
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        Ok(cells.get(key).is_some_and(|cell| cell.get().is_some()))
+        Ok(state
+            .cells
+            .get(key)
+            .is_some_and(|entry| entry.cell.get().is_some()))
     }
 
     #[cfg(test)]
     pub(crate) fn shares_cell_with(&self, other: &Self, key: &K) -> bool {
         let left = self
-            .cells
+            .state
             .lock()
             .unwrap_or_else(|_| panic!("fact cache map must remain available"))
+            .cells
             .get(key)
-            .cloned();
+            .map(|entry| Arc::clone(&entry.cell));
 
         let right = other
-            .cells
+            .state
             .lock()
             .unwrap_or_else(|_| panic!("fact cache map must remain available"))
+            .cells
             .get(key)
-            .cloned();
+            .map(|entry| Arc::clone(&entry.cell));
 
         match (left, right) {
             (Some(left), Some(right)) => Arc::ptr_eq(&left, &right),
             _ => false,
         }
+    }
+}
+
+fn evict_oldest_ready<K, V>(cells: &mut BTreeMap<K, FactCellMapEntry<V>>)
+where
+    K: Ord,
+{
+    let oldest_access = cells
+        .iter()
+        .filter(|(_, entry)| entry.cell.get().is_some())
+        .min_by_key(|(_, entry)| entry.last_access)
+        .map(|(_, entry)| entry.last_access);
+
+    let Some(oldest_access) = oldest_access else {
+        return;
+    };
+
+    cells.retain(|_, entry| entry.last_access != oldest_access);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FactCellMap;
+    use crate::fact::{CancellationToken, CompilationFactKey, FactRuntime};
+
+    #[test]
+    fn completed_entries_are_reclaimed_by_recent_use() {
+        let cache = FactCellMap::with_retention_limit(2);
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        publish(&cache, &runtime, &cancellation, 1);
+        publish(&cache, &runtime, &cancellation, 2);
+
+        let _ = cache
+            .cell(1)
+            .unwrap_or_else(|error| panic!("cached fact must remain readable: {error:?}"));
+
+        publish(&cache, &runtime, &cancellation, 3);
+
+        assert_eq!(cache.keys(), [1, 3]);
+    }
+
+    fn publish(
+        cache: &FactCellMap<u32, u32>,
+        runtime: &FactRuntime,
+        cancellation: &CancellationToken,
+        key: u32,
+    ) {
+        let cell = cache
+            .cell(key)
+            .unwrap_or_else(|error| panic!("fact cell must be available: {error:?}"));
+
+        cell.get_or_compute(
+            runtime,
+            CompilationFactKey::SyntaxTree,
+            cancellation,
+            || Ok(key),
+        )
+        .unwrap_or_else(|error| panic!("fact must publish: {error:?}"));
     }
 }
