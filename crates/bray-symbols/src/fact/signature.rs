@@ -97,6 +97,7 @@ pub struct CallableSignatureTemplate {
     receiver: Option<ReceiverParameterSignature>,
     parameters: Arc<[CallableParameterSymbolId]>,
     result: TypeExpressionTemplate,
+    has_body: bool,
 }
 
 /// A canonical callable signature template could not expose its parameter type templates.
@@ -125,7 +126,14 @@ impl CallableSignatureTemplate {
             receiver,
             parameters: shared_slice(parameters),
             result,
+            has_body: false,
         }
+    }
+
+    /// Returns a signature with its declaration-body presence set.
+    pub fn with_body(mut self, has_body: bool) -> Self {
+        self.has_body = has_body;
+        self
     }
 
     /// Returns the complete callable type template.
@@ -146,6 +154,11 @@ impl CallableSignatureTemplate {
     /// Returns the declared result type template.
     pub const fn result(&self) -> &TypeExpressionTemplate {
         &self.result
+    }
+
+    /// Returns whether the declaration supplies an executable body.
+    pub const fn has_body(&self) -> bool {
+        self.has_body
     }
 
     /// Returns whether calls through this signature are allowed in constant contexts.

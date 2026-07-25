@@ -3,8 +3,10 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
+    CallableOverloadSymbolId, ConstructorSymbolId, DestructorSymbolId, FinalizerSymbolId,
     ImplementationSymbolId, TraitApplicationId, TraitCallableFulfillmentSymbolId,
     TraitCallableMemberSymbolId, TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
+    TraitDestructorRequirementSymbolId, TraitFinalizerRequirementSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId,
     TraitScopeEnterFulfillmentSymbolId, TraitScopeEnterRequirementSymbolId,
     TraitScopeExitFulfillmentSymbolId, TraitScopeExitRequirementSymbolId,
@@ -22,6 +24,10 @@ pub enum TraitMemberRequirementId {
     Type(TraitTypeMemberSymbolId),
     /// A predicate member requirement.
     Predicate(TraitPredicateMemberSymbolId),
+    /// A finalizer lifecycle requirement.
+    Finalizer(TraitFinalizerRequirementSymbolId),
+    /// A destructor lifecycle requirement.
+    Destructor(TraitDestructorRequirementSymbolId),
     /// A scope-entry lifecycle requirement.
     ScopeEnter(TraitScopeEnterRequirementSymbolId),
     /// A scope-exit lifecycle requirement.
@@ -36,6 +42,8 @@ impl TraitMemberRequirementId {
             Self::Constant(id) => crate::AnySymbolId::TraitConstantMember(id),
             Self::Type(id) => crate::AnySymbolId::TraitTypeMember(id),
             Self::Predicate(id) => crate::AnySymbolId::TraitPredicateMember(id),
+            Self::Finalizer(id) => crate::AnySymbolId::TraitFinalizerRequirement(id),
+            Self::Destructor(id) => crate::AnySymbolId::TraitDestructorRequirement(id),
             Self::ScopeEnter(id) => crate::AnySymbolId::TraitScopeEnterRequirement(id),
             Self::ScopeExit(id) => crate::AnySymbolId::TraitScopeExitRequirement(id),
         }
@@ -53,6 +61,14 @@ pub enum TraitMemberFulfillmentId {
     Type(TraitTypeFulfillmentSymbolId),
     /// A predicate member fulfillment.
     Predicate(TraitPredicateFulfillmentSymbolId),
+    /// A constructor declared where no trait slot can exist.
+    Constructor(ConstructorSymbolId),
+    /// A callable overload declaration declared where no trait slot can exist.
+    CallableOverload(CallableOverloadSymbolId),
+    /// A finalizer lifecycle fulfillment.
+    Finalizer(FinalizerSymbolId),
+    /// A destructor lifecycle fulfillment.
+    Destructor(DestructorSymbolId),
     /// A scope-entry lifecycle fulfillment.
     ScopeEnter(TraitScopeEnterFulfillmentSymbolId),
     /// A scope-exit lifecycle fulfillment.
@@ -67,6 +83,10 @@ impl TraitMemberFulfillmentId {
             Self::Constant(id) => crate::AnySymbolId::TraitConstantFulfillment(id),
             Self::Type(id) => crate::AnySymbolId::TraitTypeFulfillment(id),
             Self::Predicate(id) => crate::AnySymbolId::TraitPredicateFulfillment(id),
+            Self::Constructor(id) => crate::AnySymbolId::Constructor(id),
+            Self::CallableOverload(id) => crate::AnySymbolId::CallableOverload(id),
+            Self::Finalizer(id) => crate::AnySymbolId::Finalizer(id),
+            Self::Destructor(id) => crate::AnySymbolId::Destructor(id),
             Self::ScopeEnter(id) => crate::AnySymbolId::TraitScopeEnterFulfillment(id),
             Self::ScopeExit(id) => crate::AnySymbolId::TraitScopeExitFulfillment(id),
         }
@@ -78,12 +98,14 @@ impl TraitMemberFulfillmentId {
 pub enum TraitRequirementResolution {
     /// The implementation declares a compatible fulfillment.
     Explicit(TraitMemberFulfillmentId),
+    /// The implementing subject supplies compatible type-wide lifecycle behavior.
+    SubjectLifecycle(crate::AnySymbolId),
     /// The implementation uses behavior declared by the trait.
     TraitDefault,
     /// No usable fulfillment or trait default exists.
     Missing,
     /// A same-named fulfillment exists but is incompatible.
-    Incompatible(TraitMemberFulfillmentId),
+    Incompatible(crate::AnySymbolId),
 }
 
 /// The resolution of one exact requirement.
@@ -123,6 +145,7 @@ pub struct TraitImplementationConformance {
     trait_application: TraitApplicationId,
     requirements: Arc<[TraitRequirementConformance]>,
     extra_fulfillments: Arc<[TraitMemberFulfillmentId]>,
+    duplicate_fulfillments: Arc<[TraitMemberFulfillmentId]>,
 }
 
 impl TraitImplementationConformance {
@@ -132,12 +155,14 @@ impl TraitImplementationConformance {
         trait_application: TraitApplicationId,
         requirements: impl IntoIterator<Item = TraitRequirementConformance>,
         extra_fulfillments: impl IntoIterator<Item = TraitMemberFulfillmentId>,
+        duplicate_fulfillments: impl IntoIterator<Item = TraitMemberFulfillmentId>,
     ) -> Self {
         Self {
             implementation,
             trait_application,
             requirements: shared_slice(requirements),
             extra_fulfillments: shared_slice(extra_fulfillments),
+            duplicate_fulfillments: shared_slice(duplicate_fulfillments),
         }
     }
 
@@ -161,13 +186,20 @@ impl TraitImplementationConformance {
         &self.extra_fulfillments
     }
 
+    /// Returns repeated fulfillments after each slot's first declaration.
+    pub fn duplicate_fulfillments(&self) -> &[TraitMemberFulfillmentId] {
+        &self.duplicate_fulfillments
+    }
+
     /// Returns whether every requirement is satisfied and no extra member was declared.
     pub fn is_valid(&self) -> bool {
         self.extra_fulfillments.is_empty()
+            && self.duplicate_fulfillments.is_empty()
             && self.requirements.iter().all(|entry| {
                 matches!(
                     entry.resolution(),
                     TraitRequirementResolution::Explicit(_)
+                        | TraitRequirementResolution::SubjectLifecycle(_)
                         | TraitRequirementResolution::TraitDefault
                 )
             })

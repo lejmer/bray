@@ -174,6 +174,11 @@ const CHECKING_INCOMPATIBLE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
 ];
 
+const CHECKING_DUPLICATE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trait member is fulfilled more than once: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
+];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -795,6 +800,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleTraitFulfillment => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_TRAIT_FULFILLMENT)
+        }
+        DiagnosticKind::CheckingDuplicateTraitFulfillment => {
+            MessageTemplate::new(CHECKING_DUPLICATE_TRAIT_FULFILLMENT)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

@@ -119,6 +119,26 @@ pub(super) fn imported_callable_contract(
     ))
 }
 
+pub(super) fn imported_callable_contracts(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<bray_symbols::CallableContractSet>> {
+    let result = imported_facts(
+        context,
+        address,
+        InterfaceSemanticFactKind::CallableContracts,
+    )?;
+
+    let [ImportedSemanticFact::CallableContracts(fact)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    Ok(DiagnosticResult::new(
+        fact.contract().clone(),
+        result.diagnostics().clone(),
+    ))
+}
+
 pub(in crate::compilation) fn imported_declaration_template(
     context: &CompilationBinderFacts<'_>,
     address: ImportedSymbolFactAddress,

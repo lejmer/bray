@@ -37,6 +37,7 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
             }
 
             encoder.write_u32(signature.result.raw());
+            encoder.write_u32(u32::from(signature.has_body));
         },
     );
 

@@ -20,6 +20,17 @@ impl SemanticValueStore {
         self.substitute_type_data(ty, &substitution)
     }
 
+    /// Applies one generic substitution throughout a dependency contract.
+    pub fn substitute_dependency_contract(
+        &self,
+        contract: super::DependencyContractTemplateId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution)?;
+
+        self.substitute_dependency_contract_data(contract, &substitution)
+    }
+
     fn substitute_type_data(
         &self,
         ty: TypeId,
@@ -304,18 +315,18 @@ impl SemanticValueStore {
         substitution: &GenericSubstitutionData,
     ) -> Result<CallableDependencyContracts, SemanticValueStoreError> {
         let invocation =
-            self.substitute_dependency_contract_template(contracts.invocation(), substitution)?;
+            self.substitute_dependency_contract_data(contracts.invocation(), substitution)?;
 
         match contracts.deferred_execution() {
             Some(deferred) => Ok(CallableDependencyContracts::asynchronous(
                 invocation,
-                self.substitute_dependency_contract_template(deferred, substitution)?,
+                self.substitute_dependency_contract_data(deferred, substitution)?,
             )),
             None => Ok(CallableDependencyContracts::synchronous(invocation)),
         }
     }
 
-    fn substitute_dependency_contract_template(
+    fn substitute_dependency_contract_data(
         &self,
         template: super::DependencyContractTemplateId,
         substitution: &GenericSubstitutionData,

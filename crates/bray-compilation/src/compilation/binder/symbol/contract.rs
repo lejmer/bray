@@ -7,7 +7,7 @@ use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
     CallableSymbolId, CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateId,
-    GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest, SymbolFactResult,
     TrustedCapabilityRequirement, TypeData,
 };
 use bray_syntax::{
@@ -17,7 +17,7 @@ use bray_syntax::{
 
 use super::binding::CompilationSymbolFactBinding;
 use super::cache::CompilationSymbolFacts;
-use super::surface::{compiler_known_surface, symbol_ordinal, with_declaration_root};
+use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::SymbolFactCache;
 
@@ -85,8 +85,13 @@ fn bind_callable_contracts(
     context: &CompilationBinderFacts<'_>,
     owner: CallableSymbolId,
 ) -> BinderFactResult<SymbolFactResult<CallableContractsFact>> {
-    let fragment = compiler_known_fragment(context.symbols, owner.into_any())?;
-    let clauses = direct_contract_clauses(fragment.root());
+    if let Some(address) = context.imported_fact_address(owner.into_any())? {
+        return super::imported::imported_callable_contracts(context, address);
+    }
+
+    let clauses = with_declaration_root(context, owner.into_any(), |root| {
+        Ok(direct_contract_clauses(root))
+    })?;
 
     let mut predicates = Vec::new();
     let mut capabilities = Vec::new();
@@ -285,39 +290,27 @@ fn publish_catalog_result<T>(
     value: T,
     diagnostics: DiagnosticBag,
 ) -> BinderFactResult<DiagnosticResult<T>> {
-    if !diagnostics.is_empty() {
-        return Err(BinderFactError::DependencyUnavailable);
-    }
-
-    Ok(DiagnosticResult::without_diagnostics(value))
-}
-
-fn compiler_known_fragment(
-    symbols: &SymbolGraph,
-    symbol: AnySymbolId,
-) -> BinderFactResult<bray_syntax::PreparsedSyntaxFragment> {
-    compiler_known_surface(symbols, symbol)?
-        .syntax_fragment()
-        .map_err(|_| BinderFactError::DependencyUnavailable)
+    Ok(DiagnosticResult::new(value, diagnostics))
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_binder::BinderFactError;
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
     use super::publish_catalog_result;
 
     #[test]
-    fn catalog_binding_diagnostics_do_not_enter_user_fact_results() {
+    fn binding_diagnostics_remain_owned_by_the_published_fact() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(1),
             DiagnosticKind::BindingUnresolvedName,
             SeverityKind::Error,
         );
 
-        let result = publish_catalog_result((), DiagnosticBag::single(diagnostic));
+        let result = publish_catalog_result((), DiagnosticBag::single(diagnostic.clone()));
 
-        assert_eq!(result, Err(BinderFactError::DependencyUnavailable));
+        let result = result.unwrap_or_else(|error| panic!("fact must publish: {error:?}"));
+
+        assert_eq!(result.diagnostics(), &DiagnosticBag::single(diagnostic));
     }
 }

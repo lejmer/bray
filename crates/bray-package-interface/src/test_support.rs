@@ -486,21 +486,24 @@ fn template_facts(
                     None,
                     [parameter.clone()],
                     InterfaceTypeId::new(0),
-                ),
+                )
+                .with_body(true),
                 InterfaceCallableSignature::new(
                     direct_callable,
                     InterfaceTypeId::new(4),
                     None,
                     [],
                     InterfaceTypeId::new(1),
-                ),
+                )
+                .with_body(true),
                 InterfaceCallableSignature::new(
                     inherent_callable,
                     InterfaceTypeId::new(4),
                     None,
                     [],
                     InterfaceTypeId::new(1),
-                ),
+                )
+                .with_body(true),
             ],
             [crate::InterfaceGenericDeclaration::new(
                 owner.clone(),
