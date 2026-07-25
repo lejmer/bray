@@ -119,11 +119,19 @@ pub(crate) enum AnalysisEdgeKind {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum AnalysisRefinement {
+    Condition {
+        expression: BoundExpressionId,
+        value: bool,
+    },
     NullablePresence {
         expression: BoundExpressionId,
         is_present: bool,
     },
-    PatternSuccess(BoundPatternId),
+    PatternSuccess {
+        subject: BoundExpressionId,
+        pattern: BoundPatternId,
+    },
+    TrustBoundary(BoundExpressionId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -351,10 +359,14 @@ impl ControlFlowGraph {
         });
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
-            Some(AnalysisRefinement::NullablePresence { expression, .. }) => {
-                expression.unit() == self.unit
+            Some(
+                AnalysisRefinement::Condition { expression, .. }
+                | AnalysisRefinement::NullablePresence { expression, .. }
+                | AnalysisRefinement::TrustBoundary(expression),
+            ) => expression.unit() == self.unit,
+            Some(AnalysisRefinement::PatternSuccess { subject, pattern }) => {
+                subject.unit() == self.unit && pattern.unit() == self.unit
             }
-            Some(AnalysisRefinement::PatternSuccess(pattern)) => pattern.unit() == self.unit,
             None => true,
         });
 

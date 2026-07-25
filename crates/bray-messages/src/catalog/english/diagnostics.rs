@@ -155,6 +155,10 @@ const CHECKING_INVALID_COPY_CONTRACT: &[MessageTemplatePart] = &[MessageTemplate
 const CHECKING_INVALID_UNION_TAG: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid union tag contract")];
 
+const CHECKING_REFINEMENT_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "program requires too many flow-sensitive facts",
+)];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -765,6 +769,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(CHECKING_INVALID_COPY_CONTRACT)
         }
         DiagnosticKind::CheckingInvalidUnionTag => MessageTemplate::new(CHECKING_INVALID_UNION_TAG),
+        DiagnosticKind::CheckingRefinementCapacityExceeded => {
+            MessageTemplate::new(CHECKING_REFINEMENT_CAPACITY_EXCEEDED)
+        }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)
         }

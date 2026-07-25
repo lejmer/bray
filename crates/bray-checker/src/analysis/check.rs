@@ -2,7 +2,6 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView, ControlFlowC
 
 use super::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
 use super::reachability::analyze_reachability;
-use super::refinement::analyze_refinements;
 
 pub(crate) fn check_control_flow<C>(
     request: CheckerUnitView<'_, C>,
@@ -20,10 +19,6 @@ where
     }
 
     let Some(reachability) = analyze_reachability(&graph, request) else {
-        return CheckerOutcome::Cancelled;
-    };
-
-    let Some(_refinements) = analyze_refinements(&graph, &reachability, request) else {
         return CheckerOutcome::Cancelled;
     };
 

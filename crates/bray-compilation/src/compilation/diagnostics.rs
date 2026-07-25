@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts, CheckedPatternFacts,
-    DeclaredValueTypeTemplates, StoragePlan,
+    CheckedRefinementFacts, DeclaredValueTypeTemplates, StoragePlan,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -135,6 +135,7 @@ impl Compilation {
             let control_flow = self.control_flow(key.clone())?;
             let patterns = self.pattern_facts(key.clone())?;
             let storage = self.storage_plan(key.clone())?;
+            let refinements = self.refinement_facts(key.clone())?;
 
             // TODO(BRA-199): Finalized invocation and layout facts must request their exact
             // target-validity facts and retain those diagnostics in their semantic results.
@@ -152,6 +153,7 @@ impl Compilation {
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
             facts.push(SemanticDiagnosticFact::Patterns(patterns));
             facts.push(SemanticDiagnosticFact::Storage(storage));
+            facts.push(SemanticDiagnosticFact::Refinements(refinements));
 
             if key.kind() == BoundUnitKind::ConstantTemplate {
                 let symbols = self.symbol_graph()?;
@@ -326,6 +328,7 @@ enum SemanticDiagnosticFact {
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
     Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
     Storage(Arc<DiagnosticResult<StoragePlan>>),
+    Refinements(Arc<DiagnosticResult<CheckedRefinementFacts>>),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
@@ -342,6 +345,7 @@ impl SemanticDiagnosticFact {
             Self::ControlFlow(result) => result.diagnostics(),
             Self::Patterns(result) => result.diagnostics(),
             Self::Storage(result) => result.diagnostics(),
+            Self::Refinements(result) => result.diagnostics(),
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),

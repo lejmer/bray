@@ -10,6 +10,7 @@ mod identity;
 mod node;
 mod origin;
 mod pattern;
+mod refinement;
 mod selection;
 mod storage;
 mod template;
@@ -60,6 +61,10 @@ pub use origin::{
 pub use pattern::{
     CheckedPatternFacts, MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry,
     PatternOperation, PatternPredicate, PatternProjection, PatternRefutability,
+};
+pub use refinement::{
+    CheckedRefinementFacts, RefinementFact, RefinementFactKind, RefinementFactsBuildError,
+    RefinementOccurrence,
 };
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,

@@ -203,6 +203,8 @@ pub enum DiagnosticKind {
     CheckingInvalidCopyContract,
     /// A union tag contract is incomplete, duplicated, or otherwise invalid.
     CheckingInvalidUnionTag,
+    /// Flow-sensitive fact analysis exceeded its deterministic capacity.
+    CheckingRefinementCapacityExceeded,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -326,6 +328,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidLayoutDirective => 7030,
             Self::CheckingInvalidCopyContract => 7031,
             Self::CheckingInvalidUnionTag => 7032,
+            Self::CheckingRefinementCapacityExceeded => 7033,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -470,6 +473,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidLayoutDirective => "checking_invalid_layout_directive",
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
+            Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -533,7 +537,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 108] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 109] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -634,6 +638,7 @@ mod tests {
             DiagnosticKind::CheckingInvalidLayoutDirective,
             DiagnosticKind::CheckingInvalidCopyContract,
             DiagnosticKind::CheckingInvalidUnionTag,
+            DiagnosticKind::CheckingRefinementCapacityExceeded,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

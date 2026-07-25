@@ -8,7 +8,7 @@ use bray_symbols::{
 
 use crate::{
     BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId, StorageIdentity,
-    StorageIdentityId,
+    StorageIdentityId, StorageProjection, StorageRelationship,
 };
 
 /// A semantic identity that names storage within one bound unit.
@@ -216,6 +216,33 @@ impl StoragePlan {
             .filter(move |plan| plan.expression() == expression)
     }
 
+    /// Returns the proven overlap relationship between two evaluated accesses.
+    pub fn relationship(
+        &self,
+        left: StorageAccessId,
+        right: StorageAccessId,
+    ) -> StorageRelationship {
+        let (Some(left), Some(right)) = (self.access(left), self.access(right)) else {
+            return StorageRelationship::Error;
+        };
+
+        if left.is_recovered() || right.is_recovered() {
+            return StorageRelationship::Error;
+        }
+
+        let (Some(left_root), Some(right_root)) =
+            (storage_root(left.root()), storage_root(right.root()))
+        else {
+            return StorageRelationship::PotentiallyOverlapping;
+        };
+
+        if left_root != right_root {
+            return StorageRelationship::Disjoint;
+        }
+
+        projection_relationship(left.projections(), right.projections())
+    }
+
     fn entry<'plan, T>(
         &self,
         unit: BoundUnitId,
@@ -230,14 +257,142 @@ impl StoragePlan {
     }
 }
 
+fn storage_root(root: crate::StorageAccessRoot) -> Option<StorageIdentityId> {
+    match root {
+        crate::StorageAccessRoot::Storage(storage)
+        | crate::StorageAccessRoot::OwnedIndirection { storage, .. } => Some(storage),
+        crate::StorageAccessRoot::Borrow(_) | crate::StorageAccessRoot::Recovery(_) => None,
+    }
+}
+
+fn projection_relationship(
+    left: &[StorageProjection],
+    right: &[StorageProjection],
+) -> StorageRelationship {
+    for (left, right) in left.iter().zip(right) {
+        if left == right {
+            continue;
+        }
+
+        return if projections_are_disjoint(*left, *right) {
+            StorageRelationship::Disjoint
+        } else {
+            StorageRelationship::PotentiallyOverlapping
+        };
+    }
+
+    if left == right {
+        StorageRelationship::Identical
+    } else {
+        StorageRelationship::PotentiallyOverlapping
+    }
+}
+
+fn projections_are_disjoint(left: StorageProjection, right: StorageProjection) -> bool {
+    match (left, right) {
+        (StorageProjection::ProductField(left), StorageProjection::ProductField(right)) => {
+            left != right
+        }
+        (StorageProjection::TupleElement(left), StorageProjection::TupleElement(right))
+        | (StorageProjection::ElementFromStart(left), StorageProjection::ElementFromStart(right))
+        | (StorageProjection::ElementFromEnd(left), StorageProjection::ElementFromEnd(right)) => {
+            left != right
+        }
+        (
+            StorageProjection::ActiveUnionPayloadField {
+                variant: left_variant,
+                field: left_field,
+            },
+            StorageProjection::ActiveUnionPayloadField {
+                variant: right_variant,
+                field: right_field,
+            },
+        ) => left_variant != right_variant || left_field != right_field,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bray_symbols::SymbolOrdinal;
+
     use super::StoragePlan;
+    use crate::{
+        BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId,
+        StorageAccessRoot, StorageIdentity, StorageIdentityId, StorageProjection,
+        StorageRelationship,
+    };
 
     #[test]
     fn storage_plans_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<StoragePlan>();
+    }
+
+    #[test]
+    fn storage_relationships_distinguish_disjoint_and_overlapping_substorage() {
+        let unit = BoundUnitId::new(4);
+        let root = StorageIdentityId::from_slot(unit, 0);
+        let source = crate::test_support::source_anchor();
+        let ty = crate::test_support::error_type();
+
+        let first = StorageAccess::new(
+            StorageAccessRoot::Storage(root),
+            [StorageProjection::TupleElement(SymbolOrdinal::new(0))],
+            ty,
+            source,
+            false,
+        );
+
+        let second = StorageAccess::new(
+            StorageAccessRoot::Storage(root),
+            [StorageProjection::TupleElement(SymbolOrdinal::new(1))],
+            ty,
+            source,
+            false,
+        );
+
+        let nested = StorageAccess::new(
+            StorageAccessRoot::Storage(root),
+            [
+                StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+                StorageProjection::Element(BoundExpressionId::from_slot(unit, 0)),
+            ],
+            ty,
+            source,
+            false,
+        );
+
+        let plan = StoragePlan::new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [StorageIdentity::Temporary(BoundExpressionId::from_slot(
+                unit, 1,
+            ))]
+            .into(),
+            vec![first, second, nested],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        let first = StorageAccessId::from_slot(unit, 0);
+        let second = StorageAccessId::from_slot(unit, 1);
+        let nested = StorageAccessId::from_slot(unit, 2);
+
+        assert_eq!(
+            plan.relationship(first, second),
+            StorageRelationship::Disjoint
+        );
+
+        assert_eq!(
+            plan.relationship(first, nested),
+            StorageRelationship::PotentiallyOverlapping
+        );
+
+        assert_eq!(
+            plan.relationship(first, StorageAccessId::from_slot(BoundUnitId::new(9), 0)),
+            StorageRelationship::Error
+        );
     }
 }
