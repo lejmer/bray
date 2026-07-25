@@ -56,10 +56,10 @@ pub use service::{
     ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
     DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultExpressionSemanticChecker,
     DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
-    DefaultRefinementAnalyzer, DefaultSemanticSelector, DefaultStoragePlanner,
-    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
-    LivenessAnalyzer, PatternChecker, RefinementAnalyzer, SemanticSelector, StoragePlanner,
-    TargetValidityChecker,
+    DefaultRefinementAnalyzer, DefaultSemanticSelector, DefaultStorageFlowChecker,
+    DefaultStoragePlanner, DefaultTargetValidityChecker, ExpressionSemanticChecker,
+    ExpressionTypeChecker, LivenessAnalyzer, PatternChecker, RefinementAnalyzer, SemanticSelector,
+    StorageFlowChecker, StoragePlanner, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,

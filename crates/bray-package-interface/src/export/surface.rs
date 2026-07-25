@@ -86,12 +86,20 @@ fn resolve_relationships(
     relationships
         .into_iter()
         .map(|relationship| {
-            Ok(SymbolRelationship::new(
+            let allows_mutation = relationship.allows_mutation();
+
+            let resolved = SymbolRelationship::new(
                 relationship.kind(),
                 resolve_symbol(symbols, relationship.owner())?,
                 resolve_symbol(symbols, relationship.member())?,
                 relationship.ordinal(),
-            ))
+            );
+
+            Ok(if allows_mutation {
+                resolved.with_mutation()
+            } else {
+                resolved
+            })
         })
         .collect()
 }

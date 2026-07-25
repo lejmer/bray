@@ -144,10 +144,15 @@ pub struct AnonymousCallableParameterSymbol {
     scope: LocalScopeId,
     name: SymbolName,
     ordinal: SymbolOrdinal,
+    mode: crate::CallableParameterMode,
     is_recovered: bool,
 }
 
 impl AnonymousCallableParameterSymbol {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument initializes one required immutable parameter field"
+    )]
     pub(super) const fn new(
         id: AnonymousCallableParameterSymbolId,
         key: LocalSymbolKey,
@@ -155,6 +160,7 @@ impl AnonymousCallableParameterSymbol {
         scope: LocalScopeId,
         name: SymbolName,
         ordinal: SymbolOrdinal,
+        mode: crate::CallableParameterMode,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -164,6 +170,7 @@ impl AnonymousCallableParameterSymbol {
             scope,
             name,
             ordinal,
+            mode,
             is_recovered,
         }
     }
@@ -196,6 +203,11 @@ impl AnonymousCallableParameterSymbol {
     /// Returns this parameter's declaration-order ordinal.
     pub const fn ordinal(&self) -> SymbolOrdinal {
         self.ordinal
+    }
+
+    /// Returns the owned binding's local mutation mode.
+    pub const fn mode(&self) -> crate::CallableParameterMode {
+        self.mode
     }
 
     /// Returns whether recovery contributed to this parameter identity.

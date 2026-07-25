@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundMemberSelector, BoundReferenceTarget, SelectedOperation,
-    SemanticSelection, StorageAccess, StorageAccessId, StorageAccessRoot, StorageBinding,
-    StorageBindingTarget, StorageIdentity, StorageProjection,
+    BorrowCapabilityOrigin, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget,
+    PlannedBorrowCapability, SelectedOperation, SemanticSelection, StorageAccess, StorageAccessId,
+    StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
 };
 use bray_symbols::{AnyLocalSymbolId, AnySymbolId, SymbolOrdinal};
 
@@ -182,6 +182,52 @@ where
             expression,
             root,
             projections,
+            self.expression_type(expression)?,
+        )
+    }
+
+    pub(in crate::storage) fn borrow_access(
+        &mut self,
+        expression: BoundExpressionId,
+        access: StorageAccessId,
+        kind: bray_symbols::BorrowKind,
+    ) -> Result<StorageAccessId, PlanError> {
+        let borrowed = self
+            .builder()?
+            .access(access)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let parent = match borrowed.root() {
+            StorageAccessRoot::Borrow(parent) => Some(parent),
+            StorageAccessRoot::Storage(_)
+            | StorageAccessRoot::OwnedIndirection { .. }
+            | StorageAccessRoot::Recovery(_) => None,
+        };
+
+        let node = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or_else(|| invalid_node(expression))?;
+
+        let capability = PlannedBorrowCapability::new(
+            BorrowCapabilityOrigin::Expression(expression),
+            kind,
+            access,
+            parent,
+            node.origin().source_anchor(),
+            borrowed.is_recovered() || node.is_recovered(),
+        );
+
+        let capability = self
+            .builder_mut()?
+            .push_borrow_capability(capability)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        self.push_expression_access(
+            expression,
+            StorageAccessRoot::Borrow(capability),
+            [],
             self.expression_type(expression)?,
         )
     }

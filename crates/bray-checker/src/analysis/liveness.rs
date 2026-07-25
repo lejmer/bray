@@ -90,8 +90,6 @@ impl OperationEffects {
     fn from_storage_plan(storage: &StoragePlan) -> Self {
         let mut effects = Self::default();
 
-        // TODO(BRA-208): Add planned borrow, scoped-capability, and lifecycle-obligation
-        // definitions and uses when composite storage setup allocates those identities.
         for (identity, provenance) in storage.identity_entries() {
             let subject = BoundDependencySubject::Storage(identity);
 
@@ -128,9 +126,34 @@ impl OperationEffects {
                 effects.recovered_nodes.insert(node);
             }
 
-            for subject in access_root_subjects(access.root()) {
+            for subject in access_root_subjects(storage, access.root()) {
                 effect.uses.insert(subject);
                 effects.universe.insert(subject);
+            }
+        }
+
+        for (capability, planned) in storage.borrow_capability_entries() {
+            let subject = BoundDependencySubject::BorrowCapability(capability);
+
+            effects.universe.insert(subject);
+
+            let Some(expression) = planned.expression() else {
+                continue;
+            };
+
+            let node = AnyBoundNodeId::Expression(expression);
+            let effect = effects.by_node.entry(node).or_default();
+
+            effect.definitions.insert(subject);
+            effect
+                .uses
+                .insert(BoundDependencySubject::StorageAccess(planned.access()));
+
+            if let Some(parent) = planned.parent() {
+                let parent = BoundDependencySubject::BorrowCapability(parent);
+
+                effect.uses.insert(parent);
+                effects.universe.insert(parent);
             }
         }
 
@@ -162,19 +185,30 @@ const fn identity_definition(identity: StorageIdentity) -> Option<AnyBoundNodeId
     }
 }
 
-fn access_root_subjects(root: StorageAccessRoot) -> impl Iterator<Item = BoundDependencySubject> {
-    let subject = match root {
+fn access_root_subjects(
+    storage: &StoragePlan,
+    root: StorageAccessRoot,
+) -> Vec<BoundDependencySubject> {
+    match root {
         StorageAccessRoot::Storage(storage)
         | StorageAccessRoot::Recovery(storage)
         | StorageAccessRoot::OwnedIndirection { storage, .. } => {
-            BoundDependencySubject::Storage(storage)
+            vec![BoundDependencySubject::Storage(storage)]
         }
         StorageAccessRoot::Borrow(capability) => {
-            BoundDependencySubject::BorrowCapability(capability)
-        }
-    };
+            let mut subjects = Vec::new();
+            let mut current = Some(capability);
 
-    std::iter::once(subject)
+            while let Some(capability) = current {
+                subjects.push(BoundDependencySubject::BorrowCapability(capability));
+                current = storage
+                    .borrow_capability(capability)
+                    .and_then(|planned| planned.parent());
+            }
+
+            subjects
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -239,16 +273,34 @@ impl FixedPointDomain for LivenessDomain<'_> {
         false
     }
 
+    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
+        if !self.reachability.is_block_reachable(block.id()) {
+            return BTreeSet::new();
+        }
+
+        let Some(transfer) = self.transfer(block) else {
+            return BTreeSet::new();
+        };
+
+        let mut output = transfer.generated.clone();
+
+        output.extend(
+            source
+                .iter()
+                .filter(|subject| !transfer.killed.contains(subject))
+                .copied(),
+        );
+
+        output
+    }
+
     fn propagate(
         &self,
-        block: &AnalysisBlock,
         source: &Self::State,
         edge: &AnalysisEdge,
         target: &mut Self::State,
     ) -> bool {
-        if !self.reachability.is_block_reachable(block.id())
-            || !self.reachability.is_edge_reachable(edge.id())
-        {
+        if !self.reachability.is_edge_reachable(edge.id()) {
             return false;
         }
 
@@ -256,34 +308,7 @@ impl FixedPointDomain for LivenessDomain<'_> {
             return merge_state(target, self.universe());
         }
 
-        let Some(transfer) = self.transfer(block) else {
-            return false;
-        };
-
-        merge_transfer(target, source, transfer)
-    }
-
-    fn propagate_self(
-        &self,
-        block: &AnalysisBlock,
-        state: &mut Self::State,
-        edge: &AnalysisEdge,
-    ) -> bool {
-        if !self.reachability.is_block_reachable(block.id())
-            || !self.reachability.is_edge_reachable(edge.id())
-        {
-            return false;
-        }
-
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            return merge_state(state, self.universe());
-        }
-
-        let Some(transfer) = self.transfer(block) else {
-            return false;
-        };
-
-        merge_state(state, &transfer.generated)
+        merge_state(target, source)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
@@ -359,25 +384,6 @@ fn merge_state(
     target.len() != previous_len
 }
 
-fn merge_transfer(
-    target: &mut BTreeSet<BoundDependencySubject>,
-    source: &BTreeSet<BoundDependencySubject>,
-    transfer: &BlockTransfer,
-) -> bool {
-    let previous_len = target.len();
-
-    target.extend(
-        source
-            .iter()
-            .filter(|subject| !transfer.killed.contains(subject))
-            .copied(),
-    );
-
-    target.extend(transfer.generated.iter().copied());
-
-    target.len() != previous_len
-}
-
 fn collect_facts(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
@@ -426,7 +432,22 @@ fn collect_facts(
                     effect
                         .uses
                         .iter()
-                        .filter(|subject| !state.contains(subject))
+                        .filter(|subject| {
+                            !effect.definitions.contains(subject) && !state.contains(subject)
+                        })
+                        .copied()
+                        .map(|subject| LastUse::new(subject, operation.kind().node())),
+                );
+
+                last_uses.extend(
+                    effect
+                        .definitions
+                        .iter()
+                        .filter(|subject| {
+                            matches!(subject, BoundDependencySubject::BorrowCapability(_))
+                                && !effect.uses.contains(subject)
+                                && !state.contains(subject)
+                        })
                         .copied()
                         .map(|subject| LastUse::new(subject, operation.kind().node())),
                 );
@@ -555,6 +576,7 @@ mod tests {
         }
 
         let effects = OperationEffects::from_storage_plan(&builder.finish());
+
         let operation = AnalysisOperation::new(
             AnalysisOperationId::from_slot(unit, 0),
             AnalysisOperationKind::Bound(expression.into()),
@@ -586,6 +608,7 @@ mod tests {
         let identity = StorageIdentity::CompilerCreated(origin);
 
         assert_eq!(super::identity_definition(identity), None);
+
         assert_eq!(
             super::identity_definition(StorageIdentity::Temporary(expression)),
             Some(expression.into())

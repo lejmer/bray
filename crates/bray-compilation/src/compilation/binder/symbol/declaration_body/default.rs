@@ -192,7 +192,7 @@ fn checked_runtime_default(
             let key = source_runtime_default_key(context, provider, expression.syntax())?;
             let checked = checked_source_expression(context, key)?;
             let generic_context = source_generic_context(context, owner)?;
-            let behavior = empty_runtime_default_behavior(context)?;
+            let behavior = empty_runtime_default_behavior(context, checked.result)?;
             let syntax_diagnostics = syntax_diagnostics(context, expression.syntax());
 
             let diagnostics = DiagnosticBag::merged_all([
@@ -234,7 +234,7 @@ fn checked_runtime_default(
             let checked = template_fact.template();
             let result = checked_template_result(checked)?;
             let generic_context = imported_generic_context(context, owner, checked)?;
-            let behavior = imported_runtime_default_behavior(context, checked)?;
+            let behavior = imported_runtime_default_behavior(context, checked, result)?;
             let diagnostics = template_diagnostics.merged(imported.diagnostics());
 
             Ok(DiagnosticResult::new(
@@ -390,14 +390,15 @@ fn runtime_default_declaration(
 
 fn empty_runtime_default_behavior(
     context: &CompilationBinderFacts<'_>,
+    result: TypeId,
 ) -> BinderFactResult<RuntimeDefaultBehavior> {
-    // TODO(BRA-208): Derive the result ownership from checked storage and borrow facts.
     // TODO(BRA-224): Publish the default expression's propagated dependency contract.
     // TODO(BRA-225): Populate effects, capabilities, trust, and lifecycle obligations.
     let dependency = empty_dependency_contract(context)?;
+    let ownership = runtime_default_ownership(context, result)?;
 
     Ok(RuntimeDefaultBehavior::new(
-        RuntimeDefaultOwnership::Owned,
+        ownership,
         [],
         [],
         [],
@@ -409,6 +410,7 @@ fn empty_runtime_default_behavior(
 fn imported_runtime_default_behavior(
     context: &CompilationBinderFacts<'_>,
     template: &CheckedTemplate,
+    result: TypeId,
 ) -> BinderFactResult<RuntimeDefaultBehavior> {
     let imported = context
         .imported_symbols()?
@@ -449,15 +451,31 @@ fn imported_runtime_default_behavior(
         })
         .collect::<BinderFactResult<Vec<_>>>()?;
 
-    // TODO(BRA-208): Preserve imported result ownership once interfaces encode it.
+    let ownership = runtime_default_ownership(context, result)?;
+
     Ok(RuntimeDefaultBehavior::new(
-        RuntimeDefaultOwnership::Owned,
+        ownership,
         effects,
         capabilities,
         trusted,
         behavior.lifecycle_obligations().iter().copied(),
         behavior.dependency_contract(),
     ))
+}
+
+fn runtime_default_ownership(
+    context: &CompilationBinderFacts<'_>,
+    result: TypeId,
+) -> BinderFactResult<RuntimeDefaultOwnership> {
+    let result = context
+        .semantic_values()
+        .type_data(result)
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    Ok(match result.as_ref() {
+        TypeData::Borrow { kind, .. } => RuntimeDefaultOwnership::Borrowed(*kind),
+        _ => RuntimeDefaultOwnership::Owned,
+    })
 }
 
 fn checked_template_result(template: &CheckedTemplate) -> BinderFactResult<TypeId> {
@@ -473,9 +491,9 @@ mod tests {
     use std::sync::Arc;
 
     use bray_symbols::{
-        CallableParameterDefaultValue, RuntimeDefaultProviderInput,
-        RuntimeDefaultTemplateReference, StructFieldDefaultValue, SymbolOrigin,
-        UnionPayloadDefaultValue,
+        BorrowKind, CallableParameterDefaultValue, RuntimeDefaultOwnership,
+        RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, StructFieldDefaultValue,
+        SymbolOrigin, UnionPayloadDefaultValue,
     };
 
     use crate::test_support::compilation;
@@ -536,6 +554,7 @@ mod tests {
             parameter_surface.inputs(),
             [RuntimeDefaultProviderInput::EarlierParameter(first.id())]
         );
+
         assert!(matches!(
             parameter_surface.template_reference(),
             RuntimeDefaultTemplateReference::Source(_)
@@ -620,6 +639,40 @@ mod tests {
 
         assert_eq!(surface.generic_context().parameters().len(), 1);
         assert!(surface.generic_context().substitution().is_some());
+    }
+
+    #[test]
+    fn borrowed_runtime_defaults_retain_result_ownership() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func choose(first: &i32, second: &i32 = first)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must build: {error:?}"));
+
+        let parameter = symbols
+            .callable_parameters()
+            .iter()
+            .filter(|parameter| parameter.origin() == SymbolOrigin::Source)
+            .nth(1)
+            .unwrap_or_else(|| panic!("defaulted source parameter must exist"));
+
+        let default = compilation
+            .callable_parameter_default(parameter.id())
+            .unwrap_or_else(|error| panic!("borrowed parameter default must publish: {error:?}"));
+
+        let CallableParameterDefaultValue::Valid(surface) = default.value().value() else {
+            panic!("borrowed parameter default must be valid");
+        };
+
+        assert_eq!(
+            surface.behavior().ownership(),
+            RuntimeDefaultOwnership::Borrowed(BorrowKind::Shared)
+        );
     }
 
     #[test]

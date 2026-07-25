@@ -668,6 +668,10 @@ fn build_declarations(
 
         relationships.add_symbol(symbol, owner);
 
+        if surface.signature().is_mutable() {
+            relationships.allow_mutation(symbol);
+        }
+
         add_member_entry(&mut member_entries, surface, symbol, owner);
 
         identities.push((

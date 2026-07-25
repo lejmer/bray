@@ -380,6 +380,7 @@ const fn access_invalidates_facts(purpose: StorageAccessPurpose) -> bool {
     matches!(
         purpose,
         StorageAccessPurpose::Write
+            | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Move
             | StorageAccessPurpose::ValueTransfer
             | StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)

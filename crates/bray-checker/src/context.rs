@@ -6,9 +6,9 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
-    AnySymbolId, AvailableCompilerKnownSymbols, GenericConstraintObligationKey, ProofOutcome,
-    SemanticValueStore, SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
-    SymbolGraph,
+    AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
+    GenericConstraintObligationKey, NamedTypeSymbolId, ProofOutcome, SemanticValueStore,
+    SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult, SymbolGraph,
 };
 use bray_target::TargetProfile;
 
@@ -67,6 +67,8 @@ pub enum CheckerInfrastructureError {
     InvalidLivenessFacts,
     /// Refinement inputs do not describe the requested bound unit.
     InvalidRefinementInput,
+    /// Storage-flow inputs or durable decisions violate the requested unit contract.
+    InvalidStorageFlowFacts,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.
@@ -158,6 +160,12 @@ pub trait CheckerRequestContext: Sync {
         &self,
         obligation: GenericConstraintObligationKey,
     ) -> CheckerFactResult<DiagnosticResult<ProofOutcome>>;
+
+    /// Returns the checked representation contract for one declared type.
+    fn declared_type_representation(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(

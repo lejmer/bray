@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_base::shared_slice;
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, BorrowKind, CallableParameterSymbolId,
     LocalBindingSymbolId, PostconditionResultSymbolId, PredicateParameterSymbolId,
@@ -7,9 +8,97 @@ use bray_symbols::{
 };
 
 use crate::{
-    BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId, StorageIdentity,
-    StorageIdentityId, StorageProjection, StorageRelationship,
+    BorrowCapabilityId, BoundExpressionId, BoundSourceAnchor, BoundUnitId, BoundUnitKind,
+    StorageAccess, StorageAccessId, StorageIdentity, StorageIdentityId, StorageProjection,
+    StorageRelationship,
 };
+
+/// The semantic construct that establishes a borrow capability.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BorrowCapabilityOrigin {
+    /// A borrow or reborrow expression evaluated inside the unit.
+    Expression(BoundExpressionId),
+    /// A borrow supplied by the caller when the unit begins.
+    Entry(StorageBindingTarget),
+}
+
+/// One borrow capability established by an evaluated storage access.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PlannedBorrowCapability {
+    origin: BorrowCapabilityOrigin,
+    kind: BorrowKind,
+    access: StorageAccessId,
+    parent: Option<BorrowCapabilityId>,
+    source: BoundSourceAnchor,
+    is_recovered: bool,
+}
+
+impl PlannedBorrowCapability {
+    /// Creates one planned borrow or reborrow capability.
+    pub const fn new(
+        origin: BorrowCapabilityOrigin,
+        kind: BorrowKind,
+        access: StorageAccessId,
+        parent: Option<BorrowCapabilityId>,
+        source: BoundSourceAnchor,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            origin,
+            kind,
+            access,
+            parent,
+            source,
+            is_recovered,
+        }
+    }
+
+    /// Returns the semantic construct that establishes the capability.
+    pub const fn origin(self) -> BorrowCapabilityOrigin {
+        self.origin
+    }
+
+    /// Returns the expression that establishes the capability, when evaluated in the unit.
+    pub const fn expression(self) -> Option<BoundExpressionId> {
+        match self.origin {
+            BorrowCapabilityOrigin::Expression(expression) => Some(expression),
+            BorrowCapabilityOrigin::Entry(_) => None,
+        }
+    }
+
+    /// Returns the entry binding that supplies the capability, when any.
+    pub const fn entry_binding(self) -> Option<StorageBindingTarget> {
+        match self.origin {
+            BorrowCapabilityOrigin::Expression(_) => None,
+            BorrowCapabilityOrigin::Entry(target) => Some(target),
+        }
+    }
+
+    /// Returns the shared or mutable borrow category.
+    pub const fn kind(self) -> BorrowKind {
+        self.kind
+    }
+
+    /// Returns the storage access from which the capability is derived.
+    pub const fn access(self) -> StorageAccessId {
+        self.access
+    }
+
+    /// Returns the parent capability when this is a reborrow.
+    pub const fn parent(self) -> Option<BorrowCapabilityId> {
+        self.parent
+    }
+
+    /// Returns the construct that establishes the capability.
+    pub const fn source(self) -> BoundSourceAnchor {
+        self.source
+    }
+
+    /// Returns whether recovery affected this capability.
+    pub const fn is_recovered(self) -> bool {
+        self.is_recovered
+    }
+}
 
 /// A semantic identity that names storage within one bound unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -53,10 +142,14 @@ impl StorageBinding {
 pub enum StorageAccessPurpose {
     /// Observe the reached value.
     Read,
-    /// Mutate the reached storage.
+    /// Establish an initialized value in newly produced storage.
+    Initialize,
+    /// Evaluate a destination that requires mutation authority.
     Write,
     /// Transfer ownership out of the reached storage.
     Move,
+    /// Copy the reached value without transferring ownership.
+    Copy,
     /// Transfer a value before its copy-or-move behavior has been resolved.
     ValueTransfer,
     /// Establish a borrow capability over the reached storage.
@@ -117,8 +210,16 @@ pub struct StoragePlan {
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
     accesses: Arc<[StorageAccess]>,
+    resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
+    borrow_capabilities: Arc<[PlannedBorrowCapability]>,
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
     plans: Arc<[StorageAccessPlan]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResolvedStorageAccess {
+    root: StorageIdentityId,
+    projections: Arc<[StorageProjection]>,
 }
 
 impl StoragePlan {
@@ -127,14 +228,19 @@ impl StoragePlan {
         kind: BoundUnitKind,
         identities: Vec<StorageIdentity>,
         accesses: Vec<StorageAccess>,
+        borrow_capabilities: Vec<PlannedBorrowCapability>,
         bindings: Vec<(StorageBindingTarget, StorageBinding)>,
         plans: Vec<StorageAccessPlan>,
     ) -> Self {
+        let resolved_accesses = resolve_accesses(unit, &accesses, &borrow_capabilities);
+
         Self {
             unit,
             kind,
             identities: identities.into(),
             accesses: accesses.into(),
+            resolved_accesses: resolved_accesses.into(),
+            borrow_capabilities: borrow_capabilities.into(),
             bindings: bindings.into(),
             plans: plans.into(),
         }
@@ -176,6 +282,27 @@ impl StoragePlan {
         &self.accesses
     }
 
+    /// Returns planned borrow capabilities in deterministic allocation order.
+    pub fn borrow_capabilities(&self) -> &[PlannedBorrowCapability] {
+        &self.borrow_capabilities
+    }
+
+    /// Returns planned borrow capabilities with their unit-local identities.
+    pub fn borrow_capability_entries(
+        &self,
+    ) -> impl Iterator<Item = (BorrowCapabilityId, PlannedBorrowCapability)> + '_ {
+        self.borrow_capabilities
+            .iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(index, capability)| {
+                let slot = u32::try_from(index).ok()?;
+                let id = BorrowCapabilityId::from_storage_slot(self.unit, slot);
+
+                Some((id, capability))
+            })
+    }
+
     /// Returns semantic identity relationships in canonical target order.
     pub fn bindings(&self) -> &[(StorageBindingTarget, StorageBinding)] {
         &self.bindings
@@ -195,6 +322,12 @@ impl StoragePlan {
     /// Returns one evaluated storage access.
     pub fn access(&self, id: StorageAccessId) -> Option<&StorageAccess> {
         self.entry(id.unit(), id.storage_index(), &self.accesses)
+    }
+
+    /// Returns one planned borrow capability.
+    pub fn borrow_capability(&self, id: BorrowCapabilityId) -> Option<PlannedBorrowCapability> {
+        self.entry(id.unit(), id.storage_index(), &self.borrow_capabilities)
+            .copied()
     }
 
     /// Returns the storage or access named by a semantic identity.
@@ -222,25 +355,49 @@ impl StoragePlan {
         left: StorageAccessId,
         right: StorageAccessId,
     ) -> StorageRelationship {
-        let (Some(left), Some(right)) = (self.access(left), self.access(right)) else {
-            return StorageRelationship::Error;
-        };
-
-        if left.is_recovered() || right.is_recovered() {
-            return StorageRelationship::Error;
-        }
-
-        let (Some(left_root), Some(right_root)) =
-            (storage_root(left.root()), storage_root(right.root()))
+        let (Some(left), Some(right)) = (self.resolved_access(left), self.resolved_access(right))
         else {
-            return StorageRelationship::PotentiallyOverlapping;
+            return StorageRelationship::Error;
         };
 
-        if left_root != right_root {
-            return StorageRelationship::Disjoint;
+        if left.root != right.root {
+            return if self.roots_are_proven_disjoint(left.root, right.root) {
+                StorageRelationship::Disjoint
+            } else {
+                StorageRelationship::PotentiallyOverlapping
+            };
         }
 
-        projection_relationship(left.projections(), right.projections())
+        projection_relationship(&left.projections, &right.projections)
+    }
+
+    /// Returns the persistent storage root reached by one access.
+    pub fn root_identity(&self, access: StorageAccessId) -> Option<StorageIdentityId> {
+        self.resolved_access(access).map(|access| access.root)
+    }
+
+    /// Returns whether the first access contains the complete second access.
+    pub fn access_contains(&self, container: StorageAccessId, contained: StorageAccessId) -> bool {
+        let (Some(container), Some(contained)) = (
+            self.resolved_access(container),
+            self.resolved_access(contained),
+        ) else {
+            return false;
+        };
+
+        container.root == contained.root
+            && container.projections.len() <= contained.projections.len()
+            && container
+                .projections
+                .iter()
+                .zip(contained.projections.iter())
+                .all(|(container, contained)| container == contained)
+    }
+
+    /// Returns whether an access names its complete persistent storage root.
+    pub fn is_root_access(&self, access: StorageAccessId) -> bool {
+        self.resolved_access(access)
+            .is_some_and(|access| access.projections.is_empty())
     }
 
     fn entry<'plan, T>(
@@ -255,14 +412,101 @@ impl StoragePlan {
 
         index.and_then(|index| entries.get(index))
     }
+
+    fn resolved_access(&self, access: StorageAccessId) -> Option<&ResolvedStorageAccess> {
+        self.entry(
+            access.unit(),
+            access.storage_index(),
+            &self.resolved_accesses,
+        )?
+        .as_ref()
+    }
+
+    fn roots_are_proven_disjoint(&self, left: StorageIdentityId, right: StorageIdentityId) -> bool {
+        let (Some(left), Some(right)) = (self.identity(left), self.identity(right)) else {
+            return false;
+        };
+
+        identity_is_distinct_storage(left) || identity_is_distinct_storage(right)
+    }
 }
 
-fn storage_root(root: crate::StorageAccessRoot) -> Option<StorageIdentityId> {
-    match root {
-        crate::StorageAccessRoot::Storage(storage)
-        | crate::StorageAccessRoot::OwnedIndirection { storage, .. } => Some(storage),
-        crate::StorageAccessRoot::Borrow(_) | crate::StorageAccessRoot::Recovery(_) => None,
+fn resolve_accesses(
+    unit: BoundUnitId,
+    accesses: &[StorageAccess],
+    capabilities: &[PlannedBorrowCapability],
+) -> Vec<Option<ResolvedStorageAccess>> {
+    let mut resolved = Vec::with_capacity(accesses.len());
+
+    for access in accesses {
+        if access.is_recovered() {
+            resolved.push(None);
+
+            continue;
+        }
+
+        let current = match access.root() {
+            crate::StorageAccessRoot::Storage(root)
+            | crate::StorageAccessRoot::OwnedIndirection { storage: root, .. } => {
+                Some(ResolvedStorageAccess {
+                    root,
+                    projections: shared_slice(access.projections().iter().copied()),
+                })
+            }
+            crate::StorageAccessRoot::Recovery(_) => None,
+            crate::StorageAccessRoot::Borrow(capability) => {
+                resolve_borrowed_access(unit, access, capability, capabilities, &resolved)
+            }
+        };
+
+        resolved.push(current);
     }
+
+    resolved
+}
+
+fn resolve_borrowed_access(
+    unit: BoundUnitId,
+    access: &StorageAccess,
+    capability: BorrowCapabilityId,
+    capabilities: &[PlannedBorrowCapability],
+    resolved: &[Option<ResolvedStorageAccess>],
+) -> Option<ResolvedStorageAccess> {
+    if capability.unit() != unit {
+        return None;
+    }
+
+    let capability = capabilities.get(capability.storage_index()?)?;
+
+    if capability.is_recovered() || capability.access().unit() != unit {
+        return None;
+    }
+
+    let inherited = resolved
+        .get(capability.access().storage_index()?)?
+        .as_ref()?;
+
+    let projections = inherited
+        .projections
+        .iter()
+        .chain(access.projections())
+        .copied();
+
+    Some(ResolvedStorageAccess {
+        root: inherited.root,
+        projections: shared_slice(projections),
+    })
+}
+
+const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
+    matches!(
+        identity,
+        StorageIdentity::LocalOwned(_)
+            | StorageIdentity::Result(_)
+            | StorageIdentity::Temporary(_)
+            | StorageIdentity::Allocation(_)
+            | StorageIdentity::CompilerCreated(_)
+    )
 }
 
 fn projection_relationship(
@@ -374,6 +618,7 @@ mod tests {
             vec![first, second, nested],
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
 
         let first = StorageAccessId::from_slot(unit, 0);
@@ -390,9 +635,63 @@ mod tests {
             StorageRelationship::PotentiallyOverlapping
         );
 
+        assert!(plan.access_contains(first, nested));
+        assert!(!plan.access_contains(nested, first));
+        assert!(!plan.access_contains(first, second));
+
         assert_eq!(
             plan.relationship(first, StorageAccessId::from_slot(BoundUnitId::new(9), 0)),
             StorageRelationship::Error
+        );
+    }
+
+    #[test]
+    fn unique_storage_is_disjoint_from_symbolic_storage() {
+        let unit = BoundUnitId::new(5);
+        let source = crate::test_support::source_anchor();
+        let ty = crate::test_support::error_type();
+
+        let parameter = StorageAccess::new(
+            StorageAccessRoot::Storage(StorageIdentityId::from_slot(unit, 0)),
+            [],
+            ty,
+            source,
+            false,
+        );
+
+        let result = StorageAccess::new(
+            StorageAccessRoot::Storage(StorageIdentityId::from_slot(unit, 1)),
+            [],
+            ty,
+            source,
+            false,
+        );
+
+        let plan = StoragePlan::new(
+            unit,
+            BoundUnitKind::CallableBody,
+            vec![
+                StorageIdentity::Parameter(
+                    bray_symbols::CallableParameterSymbolId::from_symbol_id(
+                        bray_symbols::SymbolId::new(1),
+                    ),
+                ),
+                StorageIdentity::Result(crate::AnyBoundNodeId::Expression(
+                    BoundExpressionId::from_slot(unit, 0),
+                )),
+            ],
+            vec![parameter, result],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(
+            plan.relationship(
+                StorageAccessId::from_slot(unit, 0),
+                StorageAccessId::from_slot(unit, 1)
+            ),
+            StorageRelationship::Disjoint
         );
     }
 }

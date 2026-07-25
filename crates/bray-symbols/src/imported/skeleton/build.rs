@@ -211,6 +211,21 @@ fn build_relationships(
             .checked_add(1)
             .ok_or(ImportedSymbolSkeletonBuildError::SymbolIdOverflow)?;
 
+        if relationship.allows_mutation() {
+            if !matches!(
+                member,
+                AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_)
+            ) {
+                return Err(ImportedSymbolSkeletonBuildError::InvalidRelationshipKinds {
+                    relationship: relationship.kind(),
+                    owner: owner.kind(),
+                    member: member.kind(),
+                });
+            }
+
+            index.allow_mutation(member);
+        }
+
         if relationship.kind() != SymbolRelationshipKind::OverloadArm {
             if containers.get(&member).copied().flatten() != Some(owner) {
                 return Err(

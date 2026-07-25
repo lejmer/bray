@@ -14,6 +14,7 @@ pub struct ImportedSymbolRelationship {
     owner: InterfaceSymbolId,
     member: InterfaceSymbolId,
     ordinal: u32,
+    allows_mutation: bool,
 }
 
 impl ImportedSymbolRelationship {
@@ -29,7 +30,15 @@ impl ImportedSymbolRelationship {
             owner,
             member,
             ordinal,
+            allows_mutation: false,
         }
+    }
+
+    /// Marks the related field as permitting mutation after initialization.
+    pub const fn with_mutation(mut self) -> Self {
+        self.allows_mutation = true;
+
+        self
     }
 
     /// Returns the relationship category.
@@ -50,6 +59,11 @@ impl ImportedSymbolRelationship {
     /// Returns the owner-relative position.
     pub const fn ordinal(self) -> u32 {
         self.ordinal
+    }
+
+    /// Returns whether the related field permits mutation after initialization.
+    pub const fn allows_mutation(self) -> bool {
+        self.allows_mutation
     }
 }
 

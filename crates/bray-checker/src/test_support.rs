@@ -148,6 +148,17 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn declared_type_representation(
+        &self,
+        subject: bray_symbols::NamedTypeSymbolId,
+    ) -> CheckerFactResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
+    > {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            bray_symbols::DeclaredTypeRepresentation::new(subject),
+        ))
+    }
+
     fn source(
         &self,
         anchor: BoundSourceAnchor,

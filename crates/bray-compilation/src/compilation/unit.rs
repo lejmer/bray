@@ -10,14 +10,15 @@ use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
     CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, LivenessFacts, StoragePlan, walk_bound_unit_view,
+    DeclaredValueTypeTemplates, LivenessFacts, StorageFlowFacts, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
     DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
-    DefaultRefinementAnalyzer, DefaultStoragePlanner, ExpressionCandidateSet,
-    ExpressionSemanticChecker, IterationPatternType, LivenessAnalyzer, NestedCallableEvidence,
-    PatternCheckInput, PatternChecker, RefinementAnalyzer, SemanticUnitContext, StoragePlanner,
+    DefaultRefinementAnalyzer, DefaultStorageFlowChecker, DefaultStoragePlanner,
+    ExpressionCandidateSet, ExpressionSemanticChecker, IterationPatternType, LivenessAnalyzer,
+    NestedCallableEvidence, PatternCheckInput, PatternChecker, RefinementAnalyzer,
+    SemanticUnitContext, StorageFlowChecker, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -139,6 +140,16 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<CheckedRefinementFacts>>, FactQueryError> {
         let published = self.refinement_facts_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns checked storage, ownership, movement, and borrow decisions for one unit.
+    pub fn storage_flow_facts(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<StorageFlowFacts>>, FactQueryError> {
+        let published = self.storage_flow_facts_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -618,6 +629,8 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let declared = self
+                    .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
                 let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
 
@@ -636,6 +649,7 @@ impl Compilation {
                     bound.result().value(),
                     &semantic_context,
                     &context,
+                    declared.result().value(),
                     types.result().value(),
                     patterns.result().value(),
                     selections.result().value(),
@@ -646,6 +660,7 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
+                    declared.result().diagnostics(),
                     types.result().diagnostics(),
                     patterns.result().diagnostics(),
                     selections.result().diagnostics(),
@@ -732,6 +747,59 @@ impl Compilation {
                     patterns.result().diagnostics(),
                     storage.result().diagnostics(),
                     &refinement_diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+            },
+        )
+    }
+
+    pub(in crate::compilation) fn storage_flow_facts_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<StorageFlowFacts>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.storage_flow_facts,
+            CompilationFactKey::StorageFlowFacts(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+                let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
+
+                let refinements =
+                    self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
+
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let unit =
+                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+                        .map_err(|error| {
+                            FactQueryError::CheckerInfrastructure(
+                                CheckerInfrastructureError::InvalidUnitView(error),
+                            )
+                        })?;
+
+                let result = checker_result(DefaultStorageFlowChecker.check_storage_flow(
+                    unit,
+                    storage.result().value(),
+                    liveness.result().value(),
+                    refinements.result().value(),
+                ))?;
+
+                let (facts, flow_diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    liveness.result().diagnostics(),
+                    refinements.result().diagnostics(),
+                    &flow_diagnostics,
                 ]);
 
                 Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
@@ -874,10 +942,15 @@ fn check_patterns(
     checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "storage planning consumes each independently demandable prerequisite directly"
+)]
 fn plan_storage(
     bound: &BoundUnit,
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
+    declared_types: &DeclaredValueTypeTemplates,
     types: &CheckedExpressionTypes,
     patterns: &CheckedPatternFacts,
     selections: &CheckedSemanticSelections,
@@ -887,9 +960,14 @@ fn plan_storage(
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    checker_result(
-        DefaultStoragePlanner.plan_storage(unit, types, patterns, selections, iterations),
-    )
+    checker_result(DefaultStoragePlanner.plan_storage(
+        unit,
+        declared_types,
+        types,
+        patterns,
+        selections,
+        iterations,
+    ))
 }
 
 fn analyze_liveness(
@@ -1057,10 +1135,20 @@ mod tests {
                 .any(|projection| matches!(projection, StorageProjection::ProductField(_)))
         }));
 
+        assert!(!first.value().borrow_capabilities().is_empty());
+
+        assert!(
+            first
+                .value()
+                .accesses()
+                .iter()
+                .any(|access| { matches!(access.root(), StorageAccessRoot::Borrow(_)) })
+        );
+
         for purpose in [
             StorageAccessPurpose::Read,
+            StorageAccessPurpose::Initialize,
             StorageAccessPurpose::Write,
-            StorageAccessPurpose::Move,
             StorageAccessPurpose::ValueTransfer,
             StorageAccessPurpose::Assignment,
             StorageAccessPurpose::Member,
@@ -1165,6 +1253,311 @@ mod tests {
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key)));
+    }
+
+    #[test]
+    fn storage_flow_is_lazy_and_reports_overlapping_borrows() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let mut value: i32 = 1;\n",
+            "    let shared: &i32 = &value;\n",
+            "    let exclusive: & mut i32 = & mut value;\n",
+            "    shared;\n",
+            "    exclusive;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.storage_flow_facts.is_published(&key),
+            Ok(false)
+        );
+
+        let facts = match compilation.storage_flow_facts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts.value().operations().iter().any(|operation| {
+                operation.status() == bray_bound_tree::StorageOperationStatus::ConflictingBorrow
+            }),
+            "{facts:?}"
+        );
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)
+                .next()
+                .is_some()
+        );
+
+        let repeated = match compilation.storage_flow_facts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&facts, &repeated));
+
+        let dependencies = match compilation.state.fact_runtime.dependencies(
+            &crate::fact::CompilationFactKey::StorageFlowFacts(key.clone()),
+        ) {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("published storage flow must retain dependencies"),
+            Err(error) => panic!("storage-flow dependencies must be readable: {error:?}"),
+        };
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::Liveness(key.clone())));
+
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::RefinementFacts(
+                key.clone()
+            ))
+        );
+    }
+
+    #[test]
+    fn storage_flow_rejects_mutation_without_parameter_authority() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32)\n",
+            "{\n",
+            "    value = 2;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(facts.value().operations().iter().any(|operation| {
+            operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+        }));
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn storage_flow_rejects_mutable_borrow_without_parameter_authority() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32)\n",
+            "{\n",
+            "    let borrowed: & mut i32 = & mut value;\n",
+            "    borrowed;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(facts.value().operations().iter().any(|operation| {
+            operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+        }));
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn storage_flow_accepts_mutation_through_mutable_borrow_parameter() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: & mut i32)\n",
+            "{\n",
+            "    value = 2;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts.value().operations().iter().all(|operation| {
+                !matches!(
+                    operation.status(),
+                    bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+                        | bray_bound_tree::StorageOperationStatus::ConflictingBorrow
+                )
+            }),
+            "{facts:?}"
+        );
+    }
+
+    #[test]
+    fn storage_flow_rejects_mutation_through_shared_borrow_parameter() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: &i32)\n",
+            "{\n",
+            "    value = 2;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(facts.value().operations().iter().any(|operation| {
+            operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+        }));
+    }
+
+    #[test]
+    fn storage_flow_rejects_use_after_move() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "func main(resource: Resource)\n",
+            "{\n",
+            "    let moved: Resource = resource;\n",
+            "    resource;\n",
+            "    moved;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts
+                .value()
+                .operations()
+                .iter()
+                .any(|operation| operation.status()
+                    == bray_bound_tree::StorageOperationStatus::Moved),
+            "{facts:?}"
+        );
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage)
+                .next()
+                .is_some()
+        );
+
+        assert!(
+            facts
+                .value()
+                .exits()
+                .iter()
+                .any(|exit| !exit.moved().is_empty())
+        );
+    }
+
+    #[test]
+    fn storage_flow_allows_assignment_to_reinitialize_moved_storage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let mut resource: Resource = Resource { value = 1 };\n",
+            "    let moved: Resource = resource;\n",
+            "    resource = Resource { value = 2 };\n",
+            "    resource;\n",
+            "    moved;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts.value().operations().iter().all(|operation| {
+                !matches!(
+                    operation.status(),
+                    bray_bound_tree::StorageOperationStatus::Uninitialized
+                        | bray_bound_tree::StorageOperationStatus::Moved
+                )
+            }),
+            "{facts:?}"
+        );
+    }
+
+    #[test]
+    fn storage_flow_copies_copyable_value_transfers() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32) -> i32\n",
+            "{\n",
+            "    let copied: i32 = value;\n",
+            "    value;\n",
+            "    return copied;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts
+                .value()
+                .operations()
+                .iter()
+                .any(|operation| operation.purpose() == StorageAccessPurpose::Copy),
+            "{facts:?}"
+        );
+
+        assert!(
+            facts
+                .value()
+                .operations()
+                .iter()
+                .all(|operation| operation.status()
+                    != bray_bound_tree::StorageOperationStatus::Moved),
+            "{facts:?}"
+        );
     }
 
     #[test]

@@ -5,8 +5,8 @@ use bray_bound_tree::{
     BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitRoot, BoundUnitView,
 };
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph,
+    AvailableCompilerKnownSymbols, CallableSymbolId, SemanticValueStore, SymbolFactContract,
+    SymbolFactRequest, SymbolFactResult, SymbolGraph,
 };
 use bray_target::TargetProfile;
 
@@ -116,6 +116,29 @@ where
         self.semantic_context
     }
 
+    /// Returns the callable declaration that semantically contains this unit, when any.
+    pub(crate) fn containing_callable(self) -> Option<CallableSymbolId> {
+        let mut symbol = match self.semantic_context {
+            SemanticUnitContext::CallableBody(context)
+            | SemanticUnitContext::RuntimeDefault(context)
+            | SemanticUnitContext::ConstantTemplate(context)
+            | SemanticUnitContext::EmbeddedConstant(context)
+            | SemanticUnitContext::PredicateDefinition(context)
+            | SemanticUnitContext::Constraint(context)
+            | SemanticUnitContext::TargetGate(context) => context.declaration(),
+            SemanticUnitContext::ContractClause(context) => context.declaration().declaration(),
+            SemanticUnitContext::AnonymousCallable(_) => return None,
+        };
+
+        loop {
+            if let Some(callable) = CallableSymbolId::try_from_any(symbol) {
+                return Some(callable);
+            }
+
+            symbol = self.symbols().containing_symbol(symbol)?;
+        }
+    }
+
     /// Returns the canonical semantic values referenced by the bound unit.
     pub fn semantic_values(self) -> &'view SemanticValueStore {
         self.context.semantic_values()
@@ -150,6 +173,16 @@ where
         obligation: bray_symbols::GenericConstraintObligationKey,
     ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
         self.context.generic_constraints(obligation)
+    }
+
+    /// Returns the checked representation contract for one declared type.
+    pub(crate) fn declared_type_representation(
+        self,
+        subject: bray_symbols::NamedTypeSymbolId,
+    ) -> CheckerFactResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
+    > {
+        self.context.declared_type_representation(subject)
     }
 
     /// Checks every source constant expression embedded in one type template.

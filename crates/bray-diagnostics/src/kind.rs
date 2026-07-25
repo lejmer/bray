@@ -205,6 +205,20 @@ pub enum DiagnosticKind {
     CheckingInvalidUnionTag,
     /// Flow-sensitive fact analysis exceeded its deterministic capacity.
     CheckingRefinementCapacityExceeded,
+    /// Storage is used before it is initialized on every incoming path.
+    CheckingUseOfUninitializedStorage,
+    /// Storage or substorage is used after ownership was moved from it.
+    CheckingUseOfMovedStorage,
+    /// An operation conflicts with an active overlapping borrow.
+    CheckingConflictingBorrow,
+    /// An operation requires mutation authority that is not available.
+    CheckingMissingMutationAuthority,
+    /// A copy operation was requested for a non-copyable type.
+    CheckingTypeIsNotCopyable,
+    /// An operation requires ownership of storage reached only through a borrow.
+    CheckingMissingStorageOwnership,
+    /// A nullable or union projection is inactive on the current control-flow path.
+    CheckingInactiveStorageProjection,
     /// A trait implementation omits a required member fulfillment.
     CheckingMissingTraitFulfillment,
     /// A trait implementation declares a member that does not fulfill its trait.
@@ -337,6 +351,13 @@ impl DiagnosticKind {
             Self::CheckingInvalidCopyContract => 7031,
             Self::CheckingInvalidUnionTag => 7032,
             Self::CheckingRefinementCapacityExceeded => 7033,
+            Self::CheckingUseOfUninitializedStorage => 7034,
+            Self::CheckingUseOfMovedStorage => 7035,
+            Self::CheckingConflictingBorrow => 7036,
+            Self::CheckingMissingMutationAuthority => 7037,
+            Self::CheckingTypeIsNotCopyable => 7038,
+            Self::CheckingMissingStorageOwnership => 7039,
+            Self::CheckingInactiveStorageProjection => 7044,
             Self::CheckingMissingTraitFulfillment => 7040,
             Self::CheckingExtraTraitFulfillment => 7041,
             Self::CheckingIncompatibleTraitFulfillment => 7042,
@@ -486,6 +507,13 @@ impl DiagnosticKind {
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
+            Self::CheckingUseOfUninitializedStorage => "checking_use_of_uninitialized_storage",
+            Self::CheckingUseOfMovedStorage => "checking_use_of_moved_storage",
+            Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
+            Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
+            Self::CheckingTypeIsNotCopyable => "checking_type_is_not_copyable",
+            Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",
+            Self::CheckingInactiveStorageProjection => "checking_inactive_storage_projection",
             Self::CheckingMissingTraitFulfillment => "checking_missing_trait_fulfillment",
             Self::CheckingExtraTraitFulfillment => "checking_extra_trait_fulfillment",
             Self::CheckingIncompatibleTraitFulfillment => "checking_incompatible_trait_fulfillment",
@@ -553,7 +581,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 113] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 120] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -655,6 +683,13 @@ mod tests {
             DiagnosticKind::CheckingInvalidCopyContract,
             DiagnosticKind::CheckingInvalidUnionTag,
             DiagnosticKind::CheckingRefinementCapacityExceeded,
+            DiagnosticKind::CheckingUseOfUninitializedStorage,
+            DiagnosticKind::CheckingUseOfMovedStorage,
+            DiagnosticKind::CheckingConflictingBorrow,
+            DiagnosticKind::CheckingMissingMutationAuthority,
+            DiagnosticKind::CheckingTypeIsNotCopyable,
+            DiagnosticKind::CheckingMissingStorageOwnership,
+            DiagnosticKind::CheckingInactiveStorageProjection,
             DiagnosticKind::CheckingMissingTraitFulfillment,
             DiagnosticKind::CheckingExtraTraitFulfillment,
             DiagnosticKind::CheckingIncompatibleTraitFulfillment,

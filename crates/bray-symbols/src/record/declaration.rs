@@ -844,6 +844,11 @@ macro_rules! impl_defaultable_field {
                 self.relationships.ordinal
             }
 
+            /// Returns whether the field permits mutation after initialization.
+            pub const fn allows_mutation(&self) -> bool {
+                self.relationships.allows_mutation
+            }
+
             /// Returns the cheap syntax-level default state.
             pub const fn default_presence(&self) -> RuntimeDefaultPresence {
                 self.relationships.default_presence

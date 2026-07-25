@@ -52,6 +52,7 @@ impl PackageInterfaceSurface {
             .collect();
 
         let relationships = canonical_relationships(&symbols, relationships)?;
+
         let (exports, export_index) =
             canonical_exports(&symbols, &dependencies, &dependency_remap, exports)?;
 
@@ -132,6 +133,17 @@ fn canonical_relationships(
         };
 
         if !relationship.kind().supports(owner.kind(), member.kind()) {
+            return Err(PackageInterfaceSurfaceBuildError::InvalidRelationship(
+                *relationship,
+            ));
+        }
+
+        if relationship.allows_mutation()
+            && !matches!(
+                member.kind(),
+                SymbolKind::StructField | SymbolKind::UnionPayloadField
+            )
+        {
             return Err(PackageInterfaceSurfaceBuildError::InvalidRelationship(
                 *relationship,
             ));

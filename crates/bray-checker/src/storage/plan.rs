@@ -1,27 +1,34 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundBlockId, BoundBlockItem, BoundCallableBodyKind, BoundExpressionId, BoundPatternId,
-    CheckedExpressionTypes, CheckedPatternFacts, CheckedSemanticSelections, ExpressionTypeResult,
-    SelectedIterationSource, StorageAccessId, StorageAccessPurpose, StorageBinding,
-    StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
+    BorrowCapabilityOrigin, BoundBlockId, BoundBlockItem, BoundCallableBodyKind, BoundExpressionId,
+    BoundPatternId, BoundReferenceTarget, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+    ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource, StorageAccess,
+    StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
+    StorageIdentity, StoragePlan, StoragePlanBuilder,
 };
-use bray_symbols::{AnySymbolId, CallableSymbolId, PredicateDefinitionSymbolId};
+use bray_symbols::{
+    AnySymbolId, BorrowKind, CallableSignatureFact, CallableSymbolId, PredicateDefinitionSymbolId,
+    ReceiverMode, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
+};
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitRoot,
-    CheckerUnitView, SemanticUnitContext,
+    CheckerFactError, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticFactProvider, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext,
+    resolve_type_expression_template,
 };
 
 pub(crate) fn plan_storage<C>(
     request: CheckerUnitView<'_, C>,
+    declared_types: &DeclaredValueTypeTemplates,
     types: &CheckedExpressionTypes,
     patterns: &CheckedPatternFacts,
     selections: &CheckedSemanticSelections,
     iterations: &[SelectedIterationSource],
 ) -> CheckerOutcome<StoragePlan>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -30,7 +37,9 @@ where
     let unit = request.unit().unit();
     let kind = request.unit().key().kind();
 
-    if types.unit() != unit
+    if declared_types.unit() != unit
+        || declared_types.kind() != kind
+        || types.unit() != unit
         || types.kind() != kind
         || patterns.unit() != unit
         || patterns.kind() != kind
@@ -45,7 +54,21 @@ where
         );
     }
 
-    let mut planner = match Planner::new(request, types, patterns, selections, iterations) {
+    let mut planner = match Planner::new(
+        request,
+        declared_types,
+        types,
+        patterns,
+        selections,
+        iterations,
+        match receiver_entry(request) {
+            Ok(receiver) => receiver,
+            Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerFactError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+        },
+    ) {
         Ok(planner) => planner,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
@@ -62,6 +85,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     pub(super) request: CheckerUnitView<'view, C>,
+    pub(super) declared_types: &'view DeclaredValueTypeTemplates,
     pub(super) types: &'view CheckedExpressionTypes,
     pub(super) patterns: &'view CheckedPatternFacts,
     pub(super) selections: &'view CheckedSemanticSelections,
@@ -73,6 +97,10 @@ where
     pub(super) conservative_pattern_bindings: BTreeSet<bray_symbols::LocalBindingSymbolId>,
     pub(super) result_storage: bray_bound_tree::StorageIdentityId,
     pub(super) receiver_storage: Option<bray_bound_tree::StorageIdentityId>,
+    receiver_entry: Option<(
+        bray_symbols::ReceiverParameterSymbolId,
+        Option<(BorrowKind, TypeId)>,
+    )>,
 }
 
 pub(super) enum PlanError {
@@ -86,16 +114,30 @@ impl From<CheckerInfrastructureError> for PlanError {
     }
 }
 
+impl From<CheckerFactError> for PlanError {
+    fn from(error: CheckerFactError) -> Self {
+        match error {
+            CheckerFactError::Cancelled => Self::Cancelled,
+            CheckerFactError::Infrastructure(error) => Self::Infrastructure(error),
+        }
+    }
+}
+
 impl<C> Planner<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     fn new<'view>(
         request: CheckerUnitView<'view, C>,
+        declared_types: &'view DeclaredValueTypeTemplates,
         types: &'view CheckedExpressionTypes,
         patterns: &'view CheckedPatternFacts,
         selections: &'view CheckedSemanticSelections,
         iterations: &'view [SelectedIterationSource],
+        receiver_entry: Option<(
+            bray_symbols::ReceiverParameterSymbolId,
+            Option<(BorrowKind, TypeId)>,
+        )>,
     ) -> Result<Planner<'view, C>, CheckerInfrastructureError> {
         let unit = request.unit().unit();
         let root = request.unit().root().into();
@@ -114,6 +156,7 @@ where
 
         Ok(Planner {
             request,
+            declared_types,
             types,
             patterns,
             selections,
@@ -128,6 +171,7 @@ where
             conservative_pattern_bindings: BTreeSet::new(),
             result_storage,
             receiver_storage: None,
+            receiver_entry,
         })
     }
 
@@ -170,9 +214,16 @@ where
         match self.request.semantic_context() {
             SemanticUnitContext::AnonymousCallable(context) => {
                 for parameter in context.parameters() {
-                    self.bind_identity(
-                        StorageBindingTarget::AnonymousParameter(*parameter),
+                    let target = StorageBindingTarget::AnonymousParameter(*parameter);
+
+                    let reference = BoundReferenceTarget::Local(
+                        bray_symbols::AnyLocalSymbolId::from(*parameter),
+                    );
+
+                    self.bind_entry(
+                        target,
                         StorageIdentity::AnonymousParameter(*parameter),
+                        self.entry_borrow(reference)?,
                     )?;
                 }
             }
@@ -227,16 +278,26 @@ where
                 let parameters = parameters.to_vec();
 
                 for parameter in parameters {
-                    self.bind_identity(
-                        StorageBindingTarget::Parameter(parameter),
+                    let target = StorageBindingTarget::Parameter(parameter);
+
+                    self.bind_entry(
+                        target,
                         StorageIdentity::Parameter(parameter),
+                        self.entry_borrow(BoundReferenceTarget::Surface(parameter.into()))?,
                     )?;
                 }
 
                 if let Some(receiver) = receiver {
-                    self.bind_identity(
+                    let borrow = self
+                        .receiver_entry
+                        .filter(|(parameter, _)| parameter == &receiver)
+                        .map(|(_, borrow)| borrow)
+                        .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+                    self.bind_entry(
                         StorageBindingTarget::Receiver(receiver),
                         StorageIdentity::Receiver(receiver),
+                        borrow,
                     )?;
                 }
 
@@ -255,9 +316,12 @@ where
                 let parameters = parameters.to_vec();
 
                 for parameter in parameters {
-                    self.bind_identity(
-                        StorageBindingTarget::PredicateParameter(parameter),
+                    let target = StorageBindingTarget::PredicateParameter(parameter);
+
+                    self.bind_entry(
+                        target,
                         StorageIdentity::PredicateParameter(parameter),
+                        self.entry_borrow(BoundReferenceTarget::Surface(parameter.into()))?,
                     )?;
                 }
 
@@ -295,6 +359,134 @@ where
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
 
         Ok(())
+    }
+
+    fn bind_entry(
+        &mut self,
+        target: StorageBindingTarget,
+        identity: StorageIdentity,
+        borrow: Option<(BorrowKind, TypeId)>,
+    ) -> Result<(), PlanError> {
+        let Some((kind, reached_type)) = borrow else {
+            return self.bind_identity(target, identity);
+        };
+
+        if self.builder()?.binding(target).is_some() {
+            return Ok(());
+        }
+
+        let storage = self
+            .builder_mut()?
+            .push_identity(identity)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let source = bray_bound_tree::BoundSourceAnchor::new(
+            self.request.unit().key().source().syntax(),
+            self.request.unit().key().source().source_version(),
+        );
+
+        let borrowed = StorageAccess::new(
+            StorageAccessRoot::Storage(storage),
+            [],
+            reached_type,
+            source,
+            false,
+        );
+
+        let borrowed = self
+            .builder_mut()?
+            .push_access(borrowed)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let capability = PlannedBorrowCapability::new(
+            BorrowCapabilityOrigin::Entry(target),
+            kind,
+            borrowed,
+            None,
+            source,
+            false,
+        );
+
+        let capability = self
+            .builder_mut()?
+            .push_borrow_capability(capability)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let access = StorageAccess::new(
+            StorageAccessRoot::Borrow(capability),
+            [],
+            reached_type,
+            source,
+            false,
+        );
+
+        let access = self
+            .builder_mut()?
+            .push_access(access)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        self.builder_mut()?
+            .bind(target, StorageBinding::Access(access))
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+    }
+
+    fn entry_borrow(
+        &self,
+        target: BoundReferenceTarget,
+    ) -> Result<Option<(BorrowKind, TypeId)>, PlanError> {
+        let Some(template) = self
+            .declared_types
+            .evidence()
+            .iter()
+            .find(|evidence| evidence.term() == DeclaredValueTypeTerm::Value(target))
+            .map(|evidence| evidence.template())
+        else {
+            return Ok(None);
+        };
+
+        match template {
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = self
+                    .request
+                    .semantic_values()
+                    .type_data(*ty)
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                match data.as_ref() {
+                    TypeData::Borrow { kind, target } => Ok(Some((*kind, *target))),
+                    _ => Ok(None),
+                }
+            }
+            TypeExpressionTemplate::Borrow { kind, target } => {
+                let terms = self.request.checked_constant_terms(target)?;
+
+                let reached_type = resolve_type_expression_template(
+                    self.request.semantic_values(),
+                    target,
+                    terms.value(),
+                )?;
+
+                let reached_type = match reached_type {
+                    Some(ty) => ty,
+                    None => self
+                        .request
+                        .semantic_values()
+                        .intern_type(TypeData::Error)
+                        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?,
+                };
+
+                Ok(Some((*kind, reached_type)))
+            }
+            TypeExpressionTemplate::Named { .. }
+            | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
+            | TypeExpressionTemplate::Tuple(_)
+            | TypeExpressionTemplate::Array { .. }
+            | TypeExpressionTemplate::Slice(_)
+            | TypeExpressionTemplate::Nullable(_)
+            | TypeExpressionTemplate::TraitView(_)
+            | TypeExpressionTemplate::OwnedIndirection { .. }
+            | TypeExpressionTemplate::Callable(_) => Ok(None),
+        }
     }
 
     fn install_recovered_local_storage(&mut self) -> Result<(), PlanError> {
@@ -398,6 +590,40 @@ where
             Ok(())
         }
     }
+}
+
+#[expect(
+    clippy::type_complexity,
+    reason = "the tuple directly represents the receiver identity and optional borrow capability"
+)]
+fn receiver_entry<C>(
+    request: CheckerUnitView<'_, C>,
+) -> Result<
+    Option<(
+        bray_symbols::ReceiverParameterSymbolId,
+        Option<(BorrowKind, TypeId)>,
+    )>,
+    CheckerFactError,
+>
+where
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    let Some(callable) = request.containing_callable() else {
+        return Ok(None);
+    };
+
+    let signature =
+        request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
+
+    Ok(signature.value().receiver().map(|receiver| {
+        let borrow = match receiver.mode() {
+            ReceiverMode::Shared => Some((BorrowKind::Shared, receiver.ty())),
+            ReceiverMode::Mutable => Some((BorrowKind::Mutable, receiver.ty())),
+            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => None,
+        };
+
+        (receiver.parameter(), borrow)
+    }))
 }
 
 pub(super) fn invalid_node(id: impl Into<bray_bound_tree::AnyBoundNodeId>) -> PlanError {

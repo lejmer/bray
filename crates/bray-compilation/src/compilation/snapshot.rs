@@ -381,6 +381,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::RefinementFacts(key.clone())
     });
 
+    reuse!(storage_flow_facts, |key| {
+        CompilationFactKey::StorageFlowFacts(key.clone())
+    });
+
     reuse!(symbolic_constant_terms, |key| {
         CompilationFactKey::SymbolicConstantTerm(key.clone())
     });

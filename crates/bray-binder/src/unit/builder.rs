@@ -331,6 +331,7 @@ impl BoundUnitLocalBuilder {
         name: SymbolName,
         anchors: impl IntoIterator<Item = SyntaxAnchor>,
         ordinal: SymbolOrdinal,
+        mode: bray_symbols::CallableParameterMode,
         is_recovered: bool,
     ) -> Result<AnonymousCallableParameterSymbolId, BoundUnitConstructionError> {
         self.validate_anonymous_boundary(boundary)?;
@@ -352,6 +353,7 @@ impl BoundUnitLocalBuilder {
             name,
             anchors,
             ordinal,
+            mode,
             is_recovered,
         )?;
 
@@ -628,6 +630,7 @@ mod tests {
                 symbol_name("wrong_unit"),
                 [fixture.first],
                 SymbolOrdinal::new(0),
+                bray_symbols::CallableParameterMode::Immutable,
                 true,
             ),
             Err(BoundUnitConstructionError::LocalSymbol(
@@ -665,6 +668,7 @@ mod tests {
                 symbol_name("wrong_region"),
                 [fixture.first],
                 SymbolOrdinal::new(0),
+                bray_symbols::CallableParameterMode::Immutable,
                 true,
             ),
             Err(BoundUnitConstructionError::LocalSymbol(
@@ -696,6 +700,7 @@ mod tests {
             symbol_name("parameter"),
             [fixture.first],
             SymbolOrdinal::new(0),
+            bray_symbols::CallableParameterMode::Immutable,
             false,
         ) {
             Ok(parameter) => parameter,
@@ -708,6 +713,7 @@ mod tests {
                 symbol_name("duplicate"),
                 [fixture.second],
                 SymbolOrdinal::new(0),
+                bray_symbols::CallableParameterMode::Immutable,
                 true,
             ),
             Err(
