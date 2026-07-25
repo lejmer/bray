@@ -1,13 +1,15 @@
 use bray_binder::{
-    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
+    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, NameAccess,
+    SymbolFactProvider, bind_surface_path_with_re_exports,
 };
 use bray_declarations::DeclarationTable;
+use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
     ImportedSymbolFactAddress, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceFact,
     ModuleSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
 };
-use bray_syntax::SyntaxTree;
+use bray_syntax::{PathSyntax, SyntaxTree};
 
 use super::super::Compilation;
 use super::CompilationSymbolFacts;
@@ -43,6 +45,21 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
 
     pub(in crate::compilation) const fn compilation(&self) -> &'compilation Compilation {
         self.compilation
+    }
+
+    pub(in crate::compilation) fn bind_surface_path(
+        &self,
+        module: ModuleSymbolId,
+        path: &PathSyntax,
+        access: NameAccess,
+    ) -> BinderFactResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
+        bind_surface_path_with_re_exports(
+            self,
+            module,
+            path,
+            access,
+            &mut |module, name, access| self.module_re_export_lookup(module, name, access),
+        )
     }
 
     pub(in crate::compilation) const fn declarations(&self) -> &'compilation DeclarationTable {

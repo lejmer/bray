@@ -99,6 +99,8 @@ pub(super) struct CompilationState {
         ImplementationCoherenceDomainKey,
         Arc<SemanticFactResult<ImplementationParticipationFact>>,
     >,
+    pub(super) implementation_coherence: FactCell<DiagnosticBag>,
+    pub(super) callable_overload_validation: FactCell<DiagnosticBag>,
     pub(super) type_associated_surfaces:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
     pub(super) declared_type_representations:
@@ -252,6 +254,8 @@ impl Compilation {
                 imported_semantic_facts: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 implementation_participation: FactCellMap::new(),
+                implementation_coherence: FactCell::new(),
+                callable_overload_validation: FactCell::new(),
                 type_associated_surfaces: FactCellMap::new(),
                 declared_type_representations: FactCellMap::new(),
                 type_associated_implementation_index: FactCell::new(),
