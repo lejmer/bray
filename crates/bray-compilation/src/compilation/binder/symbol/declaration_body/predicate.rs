@@ -15,7 +15,7 @@ use bray_symbols::{
 use super::super::binding::CompilationSymbolFactBinding;
 use super::super::cache::CompilationSymbolFacts;
 use super::super::imported::{imported_declaration_template, imported_predicate_definition_state};
-use super::shared::{checked_source_expression, empty_dependency_contract, syntax_diagnostics};
+use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::{CompilationFactKey, SymbolFactCache};
 
@@ -103,9 +103,8 @@ fn predicate_definition(
     let state = if checked.is_recovered || diagnostics.has_errors() {
         PredicateDefinitionState::Error(ErrorPredicateDefinition)
     } else {
-        // TODO(BRA-224): Publish the predicate body's propagated dependency contract.
         PredicateDefinitionState::Defined(PredicateDefinition::new(PredicateSemanticSummary::new(
-            empty_dependency_contract(context)?,
+            checked.dependency_contract,
         )))
     };
 
@@ -231,8 +230,12 @@ mod tests {
     use std::sync::Arc;
 
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::{PredicateDefinitionState, PredicateDefinitionSymbolId, SymbolOrigin};
+    use bray_symbols::{
+        DependencyRequirementKind, PredicateDefinitionState, PredicateDefinitionSymbolId,
+        SymbolOrigin,
+    };
 
+    use super::super::super::test_support::assert_parameter_dependency_contract;
     use crate::test_support::compilation;
 
     #[test]
@@ -274,10 +277,19 @@ mod tests {
 
         assert!(Arc::ptr_eq(&defined, &repeated));
         assert!(defined.diagnostics().is_empty());
-        assert!(matches!(
-            defined.value(),
-            PredicateDefinitionState::Defined(_)
-        ));
+        let PredicateDefinitionState::Defined(definition) = defined.value() else {
+            panic!("source predicate must publish a defined state");
+        };
+
+        assert_parameter_dependency_contract(
+            &compilation,
+            definition.semantic().dependency_contract(),
+            0,
+            &[
+                DependencyRequirementKind::StorageAlive,
+                DependencyRequirementKind::StorageInitialized,
+            ],
+        );
 
         let opaque = compilation
             .predicate_definition(PredicateDefinitionSymbolId::Predicate(opaque.id()))

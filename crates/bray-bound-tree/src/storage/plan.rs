@@ -376,6 +376,12 @@ impl StoragePlan {
         self.resolved_access(access).map(|access| access.root)
     }
 
+    /// Returns the complete resolved projection path reached by one access.
+    pub fn resolved_projections(&self, access: StorageAccessId) -> Option<&[StorageProjection]> {
+        self.resolved_access(access)
+            .map(|access| access.projections.as_ref())
+    }
+
     /// Returns whether the first access contains the complete second access.
     pub fn access_contains(&self, container: StorageAccessId, contained: StorageAccessId) -> bool {
         let (Some(container), Some(contained)) = (
@@ -638,6 +644,17 @@ mod tests {
         assert!(plan.access_contains(first, nested));
         assert!(!plan.access_contains(nested, first));
         assert!(!plan.access_contains(first, second));
+
+        assert_eq!(
+            plan.resolved_projections(nested),
+            Some(
+                [
+                    StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+                    StorageProjection::Element(BoundExpressionId::from_slot(unit, 0)),
+                ]
+                .as_slice()
+            )
+        );
 
         assert_eq!(
             plan.relationship(first, StorageAccessId::from_slot(BoundUnitId::new(9), 0)),

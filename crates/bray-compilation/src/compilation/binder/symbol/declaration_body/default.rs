@@ -22,7 +22,7 @@ use super::super::imported::imported_declaration_template;
 use super::lookup::{
     callable_parameter, runtime_default_provider, struct_field, union_payload_field, union_variant,
 };
-use super::shared::{checked_source_expression, empty_dependency_contract, syntax_diagnostics};
+use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::SymbolFactCache;
 
@@ -192,7 +192,8 @@ fn checked_runtime_default(
             let key = source_runtime_default_key(context, provider, expression.syntax())?;
             let checked = checked_source_expression(context, key)?;
             let generic_context = source_generic_context(context, owner)?;
-            let behavior = empty_runtime_default_behavior(context, checked.result)?;
+            let behavior =
+                runtime_default_behavior(context, checked.result, checked.dependency_contract)?;
             let syntax_diagnostics = syntax_diagnostics(context, expression.syntax());
 
             let diagnostics = DiagnosticBag::merged_all([
@@ -388,13 +389,12 @@ fn runtime_default_declaration(
     }
 }
 
-fn empty_runtime_default_behavior(
+fn runtime_default_behavior(
     context: &CompilationBinderFacts<'_>,
     result: TypeId,
+    dependency: bray_symbols::DependencyContractTemplateId,
 ) -> BinderFactResult<RuntimeDefaultBehavior> {
-    // TODO(BRA-224): Publish the default expression's propagated dependency contract.
     // TODO(BRA-225): Populate effects, capabilities, trust, and lifecycle obligations.
-    let dependency = empty_dependency_contract(context)?;
     let ownership = runtime_default_ownership(context, result)?;
 
     Ok(RuntimeDefaultBehavior::new(
@@ -491,11 +491,12 @@ mod tests {
     use std::sync::Arc;
 
     use bray_symbols::{
-        BorrowKind, CallableParameterDefaultValue, RuntimeDefaultOwnership,
-        RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, StructFieldDefaultValue,
-        SymbolOrigin, UnionPayloadDefaultValue,
+        BorrowKind, CallableParameterDefaultValue, DependencyRequirementKind,
+        RuntimeDefaultOwnership, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
+        StructFieldDefaultValue, SymbolOrigin, UnionPayloadDefaultValue,
     };
 
+    use super::super::super::test_support::assert_parameter_dependency_contract;
     use crate::test_support::compilation;
 
     #[test]
@@ -553,6 +554,16 @@ mod tests {
         assert_eq!(
             parameter_surface.inputs(),
             [RuntimeDefaultProviderInput::EarlierParameter(first.id())]
+        );
+
+        assert_parameter_dependency_contract(
+            &compilation,
+            parameter_surface.behavior().dependency_contract(),
+            0,
+            &[
+                DependencyRequirementKind::StorageAlive,
+                DependencyRequirementKind::StorageInitialized,
+            ],
         );
 
         assert!(matches!(
