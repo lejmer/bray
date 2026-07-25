@@ -124,6 +124,7 @@ impl SharedCancellation {
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+        // Shared demand retains the caller's Arc-backed request signal until interest ends.
         interests.insert(identity, cancellation.clone());
 
         Ok(CancellationInterest {

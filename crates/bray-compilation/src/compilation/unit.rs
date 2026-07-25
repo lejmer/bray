@@ -739,7 +739,7 @@ impl Compilation {
         )
     }
 
-    fn declared_value_type_templates_with_cancellation(
+    pub(super) fn declared_value_type_templates_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,

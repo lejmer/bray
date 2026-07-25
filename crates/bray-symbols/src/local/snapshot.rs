@@ -1,8 +1,10 @@
+use bray_declarations::SyntaxAnchor;
+
 use super::{
     AnonymousCallableParameterSymbol, AnonymousCallableParameterSymbolId, AnonymousCallableSymbol,
-    AnonymousCallableSymbolId, LocalBindingSymbol, LocalBindingSymbolId, LocalConstantSymbol,
-    LocalConstantSymbolId, LocalScope, LocalScopeId, LocalSymbolRegionId, LocalSymbolRegionKey,
-    PostconditionResultSymbol, PostconditionResultSymbolId,
+    AnonymousCallableSymbolId, AnyLocalSymbolId, LocalBindingSymbol, LocalBindingSymbolId,
+    LocalConstantSymbol, LocalConstantSymbolId, LocalScope, LocalScopeId, LocalSymbolRegionId,
+    LocalSymbolRegionKey, PostconditionResultSymbol, PostconditionResultSymbolId,
 };
 
 /// An immutable symbol and lexical-scope snapshot for one checked semantic region.
@@ -96,6 +98,29 @@ impl LocalSymbolSnapshot {
         id: PostconditionResultSymbolId,
     ) -> Option<&PostconditionResultSymbol> {
         self.get(id.region(), id.to_index(), &self.postcondition_results)
+    }
+
+    /// Returns the source construct that introduced a local symbol.
+    pub fn syntax_anchor(&self, id: AnyLocalSymbolId) -> Option<SyntaxAnchor> {
+        match id {
+            AnyLocalSymbolId::Binding(id) => self.binding(id)?.key().anchors().first().copied(),
+            AnyLocalSymbolId::Constant(id) => self.constant(id)?.key().anchors().first().copied(),
+            AnyLocalSymbolId::AnonymousCallable(id) => self
+                .anonymous_callable(id)?
+                .key()
+                .anchors()
+                .first()
+                .copied(),
+            AnyLocalSymbolId::AnonymousCallableParameter(id) => self
+                .anonymous_parameter(id)?
+                .key()
+                .anchors()
+                .first()
+                .copied(),
+            AnyLocalSymbolId::PostconditionResult(id) => {
+                Some(self.postcondition_result(id)?.syntax_anchor())
+            }
+        }
     }
 
     fn get<'a, T>(

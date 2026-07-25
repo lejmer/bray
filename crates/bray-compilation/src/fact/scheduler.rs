@@ -32,7 +32,6 @@ impl FactScheduler {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn run<T>(
         &self,
         priority: QueryPriority,

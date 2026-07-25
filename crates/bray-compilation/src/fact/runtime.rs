@@ -99,6 +99,17 @@ impl FactRuntime {
         (runtime, reusable)
     }
 
+    pub(crate) fn run<T>(
+        &self,
+        priority: QueryPriority,
+        operation: impl FnOnce() -> Result<T, FactQueryError> + Send,
+    ) -> Result<T, FactQueryError>
+    where
+        T: Send,
+    {
+        self.scheduler.run(priority, operation)?
+    }
+
     pub(crate) fn run_demand<T>(
         &self,
         priority: &QueryPriorityDemand,
