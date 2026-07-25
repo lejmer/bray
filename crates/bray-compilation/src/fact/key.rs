@@ -5,9 +5,10 @@ use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
-    ConstantValueId, GenericConstraintObligationKey, ImplementationCoherenceDomainKey,
-    ImplementationInstanceId, ImplementationRequirementKey, ImplementationSymbolId,
-    ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId, SymbolFactKind, TypeId,
+    ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
+    ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
+    ImplementationSymbolId, ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId,
+    SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -271,6 +272,10 @@ pub(crate) enum CompilationFactKey {
     ImplementationCoherence,
     /// Declaration-level callable overload-family validity for the source package.
     CallableOverloadValidation,
+    /// The validated native boundary contract of one source function.
+    ForeignCallableContract(FunctionSymbolId),
+    /// Whole-package native symbol identity validity.
+    ForeignCallableValidation,
     /// The complete declaration-level member surface of one named type.
     TypeAssociatedSurface(NamedTypeSymbolId),
     /// The checked source-level representation contract of one named type.
@@ -341,6 +346,8 @@ impl CompilationFactKey {
             | Self::ImplementationParticipation(_)
             | Self::ImplementationCoherence
             | Self::CallableOverloadValidation
+            | Self::ForeignCallableContract(_)
+            | Self::ForeignCallableValidation
             | Self::TypeAssociatedSurface(_)
             | Self::DeclaredTypeRepresentation(_)
             | Self::TypeAssociatedImplementationIndex

@@ -1,0 +1,84 @@
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticCallableAbi, DiagnosticId, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticType, SeverityKind,
+};
+use bray_source::SourceSpan;
+use bray_symbols::{CallableAbi, TypeExpressionTemplate};
+use bray_syntax::SyntaxKind;
+
+use super::super::Compilation;
+use crate::fact::FactQueryError;
+
+pub(super) fn source_diagnostic(
+    anchor: bray_declarations::SyntaxAnchor,
+    kind: DiagnosticKind,
+) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticId::new(anchor.full_range().start().bytes()),
+        kind,
+        SeverityKind::Error,
+    )
+    .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+}
+
+pub(super) fn missing_directive(
+    anchor: bray_declarations::SyntaxAnchor,
+    expected: SyntaxKind,
+) -> Diagnostic {
+    source_diagnostic(
+        anchor,
+        DiagnosticKind::CheckingMissingForeignCallableDirective,
+    )
+    .with_arg(DiagnosticArg::expected_syntax_kind(expected))
+}
+
+pub(super) fn duplicate_native_symbol(
+    anchor: bray_declarations::SyntaxAnchor,
+    symbol: &str,
+    previous: bray_declarations::SyntaxAnchor,
+) -> Diagnostic {
+    source_diagnostic(anchor, DiagnosticKind::CheckingDuplicateNativeSymbol)
+        .with_arg(DiagnosticArg::declaration_name(symbol))
+        .with_label(DiagnosticLabel::secondary(
+            DiagnosticLabelKind::FirstDeclaration,
+            SourceSpan::new(previous.source_id(), previous.full_range()),
+        ))
+}
+
+pub(super) fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
+    match abi {
+        CallableAbi::C => DiagnosticCallableAbi::C,
+        CallableAbi::System => DiagnosticCallableAbi::System,
+        CallableAbi::Bray => unreachable!("Bray ABI is not a foreign boundary"),
+    }
+}
+
+pub(super) fn template_diagnostic_type(
+    compilation: &Compilation,
+    template: &TypeExpressionTemplate,
+) -> Result<DiagnosticType, FactQueryError> {
+    let diagnostic = match template {
+        TypeExpressionTemplate::Resolved(ty) => bray_checker::diagnostic_type(
+            compilation.semantic_value_store()?,
+            compilation.available_compiler_known_symbols(),
+            *ty,
+        )
+        .map_err(FactQueryError::CheckerInfrastructure)?,
+        TypeExpressionTemplate::Named { .. } => DiagnosticType::Named,
+        TypeExpressionTemplate::TypeValuedMemberProjection { .. } => {
+            DiagnosticType::TypeValuedMember
+        }
+        TypeExpressionTemplate::Tuple(elements) => {
+            DiagnosticType::Tuple(u64::try_from(elements.len()).unwrap_or(u64::MAX))
+        }
+        TypeExpressionTemplate::Array { .. } => DiagnosticType::Array,
+        TypeExpressionTemplate::Slice(_) => DiagnosticType::Slice,
+        TypeExpressionTemplate::Nullable(_) => DiagnosticType::Nullable,
+        TypeExpressionTemplate::Borrow { .. } => DiagnosticType::Borrow,
+        TypeExpressionTemplate::TraitView(_) => DiagnosticType::TraitView,
+        TypeExpressionTemplate::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
+        TypeExpressionTemplate::Callable(_) => DiagnosticType::Callable,
+    };
+
+    Ok(diagnostic)
+}

@@ -5,6 +5,7 @@ mod contract;
 mod default;
 mod directive;
 mod execution;
+mod foreign;
 mod implementation;
 mod module;
 mod predicate;
@@ -64,6 +65,9 @@ pub use directive::{
 pub use execution::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
     CallablePhaseBehavior, CurrentRunCancellation,
+};
+pub use foreign::{
+    ForeignCallableContract, ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement,
 };
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,

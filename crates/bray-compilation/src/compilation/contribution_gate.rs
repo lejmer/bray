@@ -26,6 +26,7 @@ use super::Compilation;
 use super::binder::bind_module_part_directives_for_selection;
 use super::checker::checker_result;
 use super::constant::collect_constant_references;
+use super::directive::first_directive;
 use super::substitution::named_type;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -342,16 +343,6 @@ impl Compilation {
             NamedTypeSymbolId::Struct(definition),
         )
     }
-}
-
-fn first_directive(
-    directives: &DirectiveSurface,
-    kind: DirectiveKind,
-) -> Option<&DirectiveTemplate> {
-    directives
-        .directives()
-        .iter()
-        .find(|directive| directive.kind() == kind)
 }
 
 fn add_duplicate_gate_diagnostics(directives: &DirectiveSurface, diagnostics: &mut DiagnosticBag) {

@@ -246,6 +246,53 @@ const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE: &[MessageTemplatePart] =
         "callable overload arms have indistinguishable selection signatures",
     )];
 
+const CHECKING_MISSING_FOREIGN_CALLABLE_DIRECTIVE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("foreign callable requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
+];
+
+const CHECKING_FOREIGN_CALLABLE_REQUIRES_TRUSTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "foreign callable must establish a trusted boundary",
+    )];
+
+const CHECKING_FOREIGN_CALLABLE_REQUIRES_CAPABILITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("foreign callable requires capability "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const CHECKING_FOREIGN_CALLABLE_EXECUTION_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "asynchronous callable cannot cross a foreign ABI boundary",
+    )];
+
+const CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+    MessageTemplatePart::Text(" cannot cross the "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
+    MessageTemplatePart::Text(" ABI boundary"),
+];
+
+const CHECKING_INVALID_NATIVE_LINK_DIRECTIVE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "link directive must provide a non-empty constant string name and a supported link kind",
+    )];
+
+const CHECKING_INVALID_NATIVE_SYMBOL_DIRECTIVE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "symbol directive must provide a non-empty constant string name",
+    )];
+
+const CHECKING_DUPLICATE_NATIVE_SYMBOL: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native symbol is declared more than once: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+];
+
+const CHECKING_UNAVAILABLE_NATIVE_LINK_INPUT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native link input is unavailable for the selected target: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -915,6 +962,33 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingConflictingCallableOverloadSignature => {
             MessageTemplate::new(CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE)
+        }
+        DiagnosticKind::CheckingMissingForeignCallableDirective => {
+            MessageTemplate::new(CHECKING_MISSING_FOREIGN_CALLABLE_DIRECTIVE)
+        }
+        DiagnosticKind::CheckingForeignCallableRequiresTrusted => {
+            MessageTemplate::new(CHECKING_FOREIGN_CALLABLE_REQUIRES_TRUSTED)
+        }
+        DiagnosticKind::CheckingForeignCallableRequiresCapability => {
+            MessageTemplate::new(CHECKING_FOREIGN_CALLABLE_REQUIRES_CAPABILITY)
+        }
+        DiagnosticKind::CheckingForeignCallableExecutionUnsupported => {
+            MessageTemplate::new(CHECKING_FOREIGN_CALLABLE_EXECUTION_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingForeignAbiTypeUnsupported => {
+            MessageTemplate::new(CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingInvalidNativeLinkDirective => {
+            MessageTemplate::new(CHECKING_INVALID_NATIVE_LINK_DIRECTIVE)
+        }
+        DiagnosticKind::CheckingInvalidNativeSymbolDirective => {
+            MessageTemplate::new(CHECKING_INVALID_NATIVE_SYMBOL_DIRECTIVE)
+        }
+        DiagnosticKind::CheckingDuplicateNativeSymbol => {
+            MessageTemplate::new(CHECKING_DUPLICATE_NATIVE_SYMBOL)
+        }
+        DiagnosticKind::CheckingUnavailableNativeLinkInput => {
+            MessageTemplate::new(CHECKING_UNAVAILABLE_NATIVE_LINK_INPUT)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

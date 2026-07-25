@@ -243,6 +243,24 @@ pub enum DiagnosticKind {
     CheckingConflictingCallableOverloadFamily,
     /// Two callable overload arms have indistinguishable selection signatures.
     CheckingConflictingCallableOverloadSignature,
+    /// A foreign callable omits one directive required by its boundary contract.
+    CheckingMissingForeignCallableDirective,
+    /// A foreign callable declaration does not establish a trusted boundary.
+    CheckingForeignCallableRequiresTrusted,
+    /// A foreign callable declaration omits a required trusted capability.
+    CheckingForeignCallableRequiresCapability,
+    /// A callable execution mode cannot cross the selected foreign ABI.
+    CheckingForeignCallableExecutionUnsupported,
+    /// A declared value type cannot cross the selected foreign ABI.
+    CheckingForeignAbiTypeUnsupported,
+    /// A native link directive does not provide a valid dependency requirement.
+    CheckingInvalidNativeLinkDirective,
+    /// A native symbol directive does not provide a valid external symbol name.
+    CheckingInvalidNativeSymbolDirective,
+    /// More than one source callable declares the same native symbol.
+    CheckingDuplicateNativeSymbol,
+    /// A native link requirement has no input supplied for the selected target.
+    CheckingUnavailableNativeLinkInput,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -386,6 +404,15 @@ impl DiagnosticKind {
             Self::CheckingDuplicateCallableOverloadArm => 7050,
             Self::CheckingConflictingCallableOverloadFamily => 7051,
             Self::CheckingConflictingCallableOverloadSignature => 7052,
+            Self::CheckingMissingForeignCallableDirective => 7053,
+            Self::CheckingForeignCallableRequiresTrusted => 7054,
+            Self::CheckingForeignCallableRequiresCapability => 7055,
+            Self::CheckingForeignCallableExecutionUnsupported => 7056,
+            Self::CheckingForeignAbiTypeUnsupported => 7057,
+            Self::CheckingInvalidNativeLinkDirective => 7058,
+            Self::CheckingInvalidNativeSymbolDirective => 7059,
+            Self::CheckingDuplicateNativeSymbol => 7060,
+            Self::CheckingUnavailableNativeLinkInput => 7061,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -562,6 +589,25 @@ impl DiagnosticKind {
             Self::CheckingConflictingCallableOverloadSignature => {
                 "checking_conflicting_callable_overload_signature"
             }
+            Self::CheckingMissingForeignCallableDirective => {
+                "checking_missing_foreign_callable_directive"
+            }
+            Self::CheckingForeignCallableRequiresTrusted => {
+                "checking_foreign_callable_requires_trusted"
+            }
+            Self::CheckingForeignCallableRequiresCapability => {
+                "checking_foreign_callable_requires_capability"
+            }
+            Self::CheckingForeignCallableExecutionUnsupported => {
+                "checking_foreign_callable_execution_unsupported"
+            }
+            Self::CheckingForeignAbiTypeUnsupported => "checking_foreign_abi_type_unsupported",
+            Self::CheckingInvalidNativeLinkDirective => "checking_invalid_native_link_directive",
+            Self::CheckingInvalidNativeSymbolDirective => {
+                "checking_invalid_native_symbol_directive"
+            }
+            Self::CheckingDuplicateNativeSymbol => "checking_duplicate_native_symbol",
+            Self::CheckingUnavailableNativeLinkInput => "checking_unavailable_native_link_input",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -625,7 +671,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 128] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 137] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -746,6 +792,15 @@ mod tests {
             DiagnosticKind::CheckingDuplicateCallableOverloadArm,
             DiagnosticKind::CheckingConflictingCallableOverloadFamily,
             DiagnosticKind::CheckingConflictingCallableOverloadSignature,
+            DiagnosticKind::CheckingMissingForeignCallableDirective,
+            DiagnosticKind::CheckingForeignCallableRequiresTrusted,
+            DiagnosticKind::CheckingForeignCallableRequiresCapability,
+            DiagnosticKind::CheckingForeignCallableExecutionUnsupported,
+            DiagnosticKind::CheckingForeignAbiTypeUnsupported,
+            DiagnosticKind::CheckingInvalidNativeLinkDirective,
+            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+            DiagnosticKind::CheckingDuplicateNativeSymbol,
+            DiagnosticKind::CheckingUnavailableNativeLinkInput,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

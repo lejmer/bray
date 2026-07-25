@@ -372,7 +372,7 @@ impl Compilation {
             bound,
             selections,
             ConcreteReferenceContext {
-                substitution: instance.substitution().substitution(),
+                substitution: Some(instance.substitution().substitution()),
                 selected_implementation: instance.selected_implementation(),
                 parameters: &BTreeMap::new(),
                 current_constant: Some(instance),
@@ -400,9 +400,34 @@ impl Compilation {
             bound,
             selections,
             ConcreteReferenceContext {
-                substitution,
+                substitution: Some(substitution),
                 selected_implementation,
                 parameters,
+                current_constant: None,
+            },
+            cancellation,
+        )
+    }
+
+    pub(in crate::compilation) fn concrete_embedded_references(
+        &self,
+        bound: &BoundUnit,
+        selections: &CheckedSemanticSelections,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            Vec<(BoundExpressionId, ConstantReferenceResolution)>,
+            DiagnosticBag,
+        ),
+        FactQueryError,
+    > {
+        self.collect_concrete_references(
+            bound,
+            selections,
+            ConcreteReferenceContext {
+                substitution: None,
+                selected_implementation: None,
+                parameters: &BTreeMap::new(),
                 current_constant: None,
             },
             cancellation,
@@ -424,9 +449,14 @@ impl Compilation {
     > {
         let values = self.semantic_value_store()?;
 
-        let substitution = values
-            .generic_substitution_data(context.substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let substitution = context
+            .substitution
+            .map(|substitution| {
+                values
+                    .generic_substitution_data(substitution)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)
+            })
+            .transpose()?;
 
         let mut dependency_diagnostics = DiagnosticBag::new();
 
@@ -443,6 +473,10 @@ impl Compilation {
                         .ok_or(FactQueryError::InfrastructureFailure)
                 }
                 BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
+                    let Some(substitution) = &substitution else {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    };
+
                     let Some(bray_symbols::GenericArgument::Constant(term)) = substitution
                         .argument_for(bray_symbols::GenericParameterSymbolId::Const(parameter))
                     else {
@@ -655,7 +689,7 @@ pub(super) fn call_parameter_values(
 }
 
 struct ConcreteReferenceContext<'parameters> {
-    substitution: GenericSubstitutionId,
+    substitution: Option<GenericSubstitutionId>,
     selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
     parameters: &'parameters BTreeMap<AnySymbolId, ConstantValueId>,
     current_constant: Option<ConstantInstanceKey>,

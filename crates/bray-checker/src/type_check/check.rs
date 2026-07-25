@@ -3,11 +3,10 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{
     BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry, SelectedIterationSource,
 };
-use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
 };
-use bray_symbols::{NamedTypeSymbolId, StructSymbolId, TypeData, TypeId};
+use bray_symbols::TypeId;
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -199,84 +198,11 @@ pub(crate) fn diagnostic_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    let diagnostic = match data.as_ref() {
-        TypeData::Error => DiagnosticType::Error,
-        TypeData::Named { definition, .. } => diagnostic_named_type(request, *definition),
-        TypeData::TypeParameter(_) => DiagnosticType::TypeParameter,
-        TypeData::ContextualSelf(_) => DiagnosticType::ContextualSelf,
-        TypeData::TypeValuedMemberProjection { .. } => DiagnosticType::TypeValuedMember,
-        TypeData::Tuple(elements) => {
-            let count = u64::try_from(elements.len()).unwrap_or(u64::MAX);
-
-            DiagnosticType::Tuple(count)
-        }
-        TypeData::Array { .. } => DiagnosticType::Array,
-        TypeData::Slice(_) => DiagnosticType::Slice,
-        TypeData::Generator(_) => DiagnosticType::Generator,
-        TypeData::Nullable(_) => DiagnosticType::Nullable,
-        TypeData::Borrow { .. } => DiagnosticType::Borrow,
-        TypeData::TraitView(_) => DiagnosticType::TraitView,
-        TypeData::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
-        TypeData::Callable(_) => DiagnosticType::Callable,
-    };
-
-    Ok(diagnostic)
-}
-
-fn diagnostic_named_type<C>(
-    request: CheckerUnitView<'_, C>,
-    definition: NamedTypeSymbolId,
-) -> DiagnosticType
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let roles = [
-        (RepresentationRole::ScalarBool, DiagnosticType::Boolean),
-        (RepresentationRole::ScalarChar, DiagnosticType::Character),
-        (RepresentationRole::ScalarI8, DiagnosticType::I8),
-        (RepresentationRole::ScalarI16, DiagnosticType::I16),
-        (RepresentationRole::ScalarI32, DiagnosticType::I32),
-        (RepresentationRole::ScalarI64, DiagnosticType::I64),
-        (RepresentationRole::ScalarI128, DiagnosticType::I128),
-        (RepresentationRole::ScalarU8, DiagnosticType::U8),
-        (RepresentationRole::ScalarU16, DiagnosticType::U16),
-        (RepresentationRole::ScalarU32, DiagnosticType::U32),
-        (RepresentationRole::ScalarU64, DiagnosticType::U64),
-        (RepresentationRole::ScalarU128, DiagnosticType::U128),
-        (RepresentationRole::ScalarIsize, DiagnosticType::Isize),
-        (RepresentationRole::ScalarUsize, DiagnosticType::Usize),
-        (RepresentationRole::ScalarR16, DiagnosticType::R16),
-        (RepresentationRole::ScalarR32, DiagnosticType::R32),
-        (RepresentationRole::ScalarR64, DiagnosticType::R64),
-        (RepresentationRole::ScalarR128, DiagnosticType::R128),
-        (RepresentationRole::ScalarC32, DiagnosticType::C32),
-        (RepresentationRole::ScalarC64, DiagnosticType::C64),
-        (RepresentationRole::ScalarC128, DiagnosticType::C128),
-        (RepresentationRole::ScalarC256, DiagnosticType::C256),
-        (RepresentationRole::Unit, DiagnosticType::Unit),
-        (RepresentationRole::Never, DiagnosticType::Never),
-        (RepresentationRole::String, DiagnosticType::String),
-    ];
-
-    for (role, diagnostic) in roles {
-        let Some(candidate) = request
-            .available_compiler_known_symbols()
-            .representation_symbol::<StructSymbolId>(role)
-        else {
-            continue;
-        };
-
-        if definition == NamedTypeSymbolId::Struct(candidate) {
-            return diagnostic;
-        }
-    }
-
-    DiagnosticType::Named
+    crate::diagnostic::diagnostic_type(
+        request.semantic_values(),
+        request.available_compiler_known_symbols(),
+        ty,
+    )
 }
 
 #[cfg(test)]
