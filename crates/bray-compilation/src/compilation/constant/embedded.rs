@@ -48,6 +48,7 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let syntax = occurrence.key().syntax();
+
         let source = self
             .source(syntax.source_id())
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -131,6 +132,7 @@ impl Compilation {
                 })?;
 
         let evaluated = checker_result(DefaultConstantEvaluator.evaluate_constant(unit, &input))?;
+
         let diagnostics = DiagnosticBag::merged_all([
             semantics.result().diagnostics(),
             &dependency_diagnostics,

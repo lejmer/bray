@@ -37,6 +37,7 @@ fn reuse_published_facts(
 
     let semantic_values_forked = fork_semantic_values(previous, updated);
     let invalidation_roots = invalidation_roots(previous, updated, semantic_values_forked);
+
     let worker_budget = updated.options.worker_budget();
 
     let (runtime, reusable) = previous
@@ -51,18 +52,21 @@ fn reuse_published_facts(
         &reusable,
         |index| CompilationFactKey::SourceUnitSyntax(bray_source::SourceId::new(index)),
     );
+
     reuse_indexed_cells(
         &previous.declaration_chunks,
         &mut updated.declaration_chunks,
         &reusable,
         |index| CompilationFactKey::DeclarationChunk(bray_source::SourceId::new(index)),
     );
+
     reuse_indexed_cells(
         &previous.loaded_dependency_interfaces,
         &mut updated.loaded_dependency_interfaces,
         &reusable,
         dependency_interface_key,
     );
+
     reuse_indexed_cells(
         &previous.imported_semantic_graphs,
         &mut updated.imported_semantic_graphs,
@@ -148,6 +152,7 @@ fn invalidation_roots(
                 .into_iter()
                 .map(CompilationFactKey::TargetValidity),
         );
+
         roots.extend(
             previous
                 .constant_instances
@@ -155,6 +160,7 @@ fn invalidation_roots(
                 .into_iter()
                 .map(CompilationFactKey::ConstantInstance),
         );
+
         roots.extend(
             previous
                 .constant_calls
@@ -170,6 +176,7 @@ fn invalidation_roots(
 
     if previous.options.native_link_inputs() != updated.options.native_link_inputs() {
         roots.insert(CompilationFactKey::ForeignCallableValidation);
+
         roots.extend(
             previous
                 .foreign_callable_contracts
@@ -224,67 +231,87 @@ fn reuse_fixed_cells(
     }
 
     reuse!(syntax_tree_result, CompilationFactKey::SyntaxTree);
+
     reuse!(
         declaration_table_result,
         CompilationFactKey::DeclarationTable
     );
+
     reuse!(product_source_graph, CompilationFactKey::ProductSourceGraph);
+
     reuse!(
         compiler_known_symbols,
         CompilationFactKey::CompilerKnownSymbols
     );
+
     reuse!(selected_target, CompilationFactKey::SelectedTarget);
+
     reuse!(
         bound_unit_identities,
         CompilationFactKey::BoundUnitIdentities
     );
+
     reuse!(
         discovery_symbol_graph,
         CompilationFactKey::DiscoverySymbolGraph
     );
+
     reuse!(symbol_graph, CompilationFactKey::SymbolGraph);
+
     reuse!(
         imported_symbol_skeleton,
         CompilationFactKey::ImportedSymbolSkeleton
     );
+
     reuse!(
         imported_diagnostics,
         CompilationFactKey::ImportedDiagnostics
     );
+
     reuse!(
         implementation_index,
         CompilationFactKey::ImplementationHeaderIndex
     );
+
     reuse!(
         implementation_coherence,
         CompilationFactKey::ImplementationCoherence
     );
+
     reuse!(
         callable_overload_validation,
         CompilationFactKey::CallableOverloadValidation
     );
+
     reuse!(
         foreign_callable_validation,
         CompilationFactKey::ForeignCallableValidation
     );
+
     reuse!(
         type_associated_implementation_index,
         CompilationFactKey::TypeAssociatedImplementationIndex
     );
+
     reuse!(
         semantic_diagnostics,
         CompilationFactKey::SemanticDiagnostics
     );
+
     reuse!(
         constant_template_keys,
         CompilationFactKey::ConstantTemplateKeys
     );
+
     reuse!(callable_body_keys, CompilationFactKey::CallableBodyKeys);
+
     reuse!(
         predicate_definition_keys,
         CompilationFactKey::PredicateDefinitionKeys
     );
+
     reuse!(check_diagnostics, CompilationFactKey::CheckDiagnostics);
+
     reuse!(
         package_interface_export_bundle,
         CompilationFactKey::PackageInterfaceExportBundle
@@ -606,6 +633,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("updated semantic store must build: {error:?}"));
 
         assert_ne!(previous_store.id(), updated_store.id());
+
         assert_eq!(
             updated_store.type_data(inherited).as_deref(),
             Ok(&TypeData::Error)

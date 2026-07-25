@@ -83,6 +83,7 @@ pub(super) fn validate_callable_surface(
     }
 
     let symbols = compilation.symbol_graph()?;
+
     let record = symbols
         .function(function)
         .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -148,6 +149,7 @@ pub(super) fn validate_callable_surface(
     );
 
     let target = compilation.target_validity_with_cancellation(request, cancellation)?;
+
     diagnostics.add_range(target.diagnostics().iter().cloned());
 
     if syntax.function_modifiers().extern_token().is_some()

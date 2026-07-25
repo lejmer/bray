@@ -66,6 +66,7 @@ impl Compilation {
         cancellation.check()?;
 
         let symbols = self.symbol_graph()?;
+
         let record = symbols
             .function(function)
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -83,6 +84,7 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let facts = self.binder_facts(cancellation)?;
+
         let signature = facts
             .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
                 CallableSymbolId::from(function),
@@ -90,10 +92,12 @@ impl Compilation {
             .map_err(binder_fact_error)?;
 
         let mut diagnostics = signature.diagnostics().clone();
+
         let callable = callable_surface(self.semantic_value_store()?, signature.value())?;
         let abi = callable.abi;
 
         let declaration_directives = self.declaration_directives(function.into())?;
+
         diagnostics.add_range(declaration_directives.diagnostics().iter().cloned());
 
         let symbol_directive =
