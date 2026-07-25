@@ -41,16 +41,20 @@ struct BodyBehaviorBuilder {
 impl BodyBehaviorBuilder {
     fn merge_phase(&mut self, behavior: &CallablePhaseBehavior) {
         self.effects.extend(behavior.effects().iter().copied());
+
         self.capabilities
             .extend(behavior.capabilities().iter().copied());
+
         self.trusted_capabilities.extend(
             behavior
                 .trusted_capabilities()
                 .iter()
                 .map(|capability| capability.capability()),
         );
+
         self.execution_requirements
             .extend(behavior.execution_requirements().iter().copied());
+
         self.lifecycle_obligations
             .extend(behavior.lifecycle_obligations().iter().copied());
 
@@ -64,18 +68,21 @@ impl BodyBehaviorBuilder {
                 .iter()
                 .map(|requirement| CallableEffectRequirement::new(requirement.declaration())),
         );
+
         self.capabilities.extend(
             behavior
                 .capabilities()
                 .iter()
                 .map(|requirement| CallableCapabilityRequirement::new(requirement.declaration())),
         );
+
         self.trusted_capabilities.extend(
             behavior
                 .trusted_obligations()
                 .iter()
                 .map(|obligation| obligation.declaration()),
         );
+
         self.lifecycle_obligations
             .extend(behavior.lifecycle_obligations().iter().copied());
     }
@@ -150,10 +157,13 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let control = self.control_flow_with_cancellation(key.clone(), cancellation)?;
+
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
                 let semantic_context =
                     semantic_unit_context_for(self.symbol_graph()?, bound.result().value())?;
+
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let request =
@@ -210,6 +220,7 @@ impl Compilation {
                 self.body_behavior_contributions_with_cancellation(key, cancellation)?;
 
             diagnostics = diagnostics.merged(contributions.result().diagnostics());
+
             builder.merge_contributions(contributions.result().value());
 
             for call in contributions.result().value().calls() {
@@ -267,6 +278,7 @@ impl Compilation {
                                 .iter()
                                 .map(|capability| capability.capability()),
                         );
+
                         pending.push(body);
                     }
 
@@ -517,6 +529,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("body behavior must remain available: {error:?}"));
 
         assert!(Arc::ptr_eq(&first, &second));
+
         assert_eq!(
             compilation.state.checked_body_behaviors.is_published(&key),
             Ok(true)

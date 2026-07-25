@@ -189,6 +189,7 @@ fn checked_runtime_default(
         UnevaluatedDefaultTemplate::Absent => Err(BinderFactError::DependencyUnavailable),
         UnevaluatedDefaultTemplate::Present(expression) => {
             let provider = runtime_default_provider(context, owner)?;
+
             let key = context
                 .compilation()
                 .source_runtime_default_key(provider, expression.syntax())

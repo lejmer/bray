@@ -44,6 +44,7 @@ where
             SemanticSelection::Call(call) => {
                 let mut contribution =
                     BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::Invocation);
+
                 let async_anonymous = matches!(
                     (call.target(), call.resolution().result()),
                     (
@@ -308,6 +309,7 @@ mod tests {
         };
 
         assert_eq!(result.value().calls().len(), 2);
+
         assert_eq!(
             result.value().current_run_cancellation(),
             CurrentRunCancellation::MayEnter
