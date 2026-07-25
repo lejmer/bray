@@ -235,6 +235,14 @@ pub enum DiagnosticKind {
     CheckingInvalidImplementationOverloadHeader,
     /// An implementation overload arm is duplicated or incompatible with its family.
     CheckingInvalidImplementationOverloadArm,
+    /// A callable overload arm does not name an accessible callable valid for its family.
+    CheckingInvalidCallableOverloadArm,
+    /// A callable declaration occurs more than once in one overload family.
+    CheckingDuplicateCallableOverloadArm,
+    /// A callable declaration belongs to more than one overload family.
+    CheckingConflictingCallableOverloadFamily,
+    /// Two callable overload arms have indistinguishable selection signatures.
+    CheckingConflictingCallableOverloadSignature,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -374,6 +382,10 @@ impl DiagnosticKind {
             Self::CheckingUngroupedImplementationOverloads => 7046,
             Self::CheckingInvalidImplementationOverloadHeader => 7047,
             Self::CheckingInvalidImplementationOverloadArm => 7048,
+            Self::CheckingInvalidCallableOverloadArm => 7049,
+            Self::CheckingDuplicateCallableOverloadArm => 7050,
+            Self::CheckingConflictingCallableOverloadFamily => 7051,
+            Self::CheckingConflictingCallableOverloadSignature => 7052,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -540,6 +552,16 @@ impl DiagnosticKind {
             Self::CheckingInvalidImplementationOverloadArm => {
                 "checking_invalid_implementation_overload_arm"
             }
+            Self::CheckingInvalidCallableOverloadArm => "checking_invalid_callable_overload_arm",
+            Self::CheckingDuplicateCallableOverloadArm => {
+                "checking_duplicate_callable_overload_arm"
+            }
+            Self::CheckingConflictingCallableOverloadFamily => {
+                "checking_conflicting_callable_overload_family"
+            }
+            Self::CheckingConflictingCallableOverloadSignature => {
+                "checking_conflicting_callable_overload_signature"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -603,7 +625,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 124] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 128] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -720,6 +742,10 @@ mod tests {
             DiagnosticKind::CheckingUngroupedImplementationOverloads,
             DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
             DiagnosticKind::CheckingInvalidImplementationOverloadArm,
+            DiagnosticKind::CheckingInvalidCallableOverloadArm,
+            DiagnosticKind::CheckingDuplicateCallableOverloadArm,
+            DiagnosticKind::CheckingConflictingCallableOverloadFamily,
+            DiagnosticKind::CheckingConflictingCallableOverloadSignature,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

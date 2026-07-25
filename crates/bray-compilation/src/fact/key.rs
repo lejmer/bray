@@ -269,6 +269,8 @@ pub(crate) enum CompilationFactKey {
     ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// Declaration-level coherence and overload-family validity for the source package.
     ImplementationCoherence,
+    /// Declaration-level callable overload-family validity for the source package.
+    CallableOverloadValidation,
     /// The complete declaration-level member surface of one named type.
     TypeAssociatedSurface(NamedTypeSymbolId),
     /// The checked source-level representation contract of one named type.
@@ -338,6 +340,7 @@ impl CompilationFactKey {
             | Self::ImportedSemanticFact(_)
             | Self::ImplementationParticipation(_)
             | Self::ImplementationCoherence
+            | Self::CallableOverloadValidation
             | Self::TypeAssociatedSurface(_)
             | Self::DeclaredTypeRepresentation(_)
             | Self::TypeAssociatedImplementationIndex

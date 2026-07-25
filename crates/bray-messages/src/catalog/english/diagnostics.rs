@@ -226,6 +226,26 @@ const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM: &[MessageTemplatePart] =
         "implementation overload arm is duplicated or incompatible with its family",
     )];
 
+const CHECKING_INVALID_CALLABLE_OVERLOAD_ARM: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "callable overload arm must name an accessible callable with a compatible call context",
+    )];
+
+const CHECKING_DUPLICATE_CALLABLE_OVERLOAD_ARM: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "callable declaration occurs more than once in this overload family",
+    )];
+
+const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_FAMILY: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "callable declaration cannot belong to more than one overload family",
+    )];
+
+const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "callable overload arms have indistinguishable selection signatures",
+    )];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -883,6 +903,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingInvalidImplementationOverloadArm => {
             MessageTemplate::new(CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM)
+        }
+        DiagnosticKind::CheckingInvalidCallableOverloadArm => {
+            MessageTemplate::new(CHECKING_INVALID_CALLABLE_OVERLOAD_ARM)
+        }
+        DiagnosticKind::CheckingDuplicateCallableOverloadArm => {
+            MessageTemplate::new(CHECKING_DUPLICATE_CALLABLE_OVERLOAD_ARM)
+        }
+        DiagnosticKind::CheckingConflictingCallableOverloadFamily => {
+            MessageTemplate::new(CHECKING_CONFLICTING_CALLABLE_OVERLOAD_FAMILY)
+        }
+        DiagnosticKind::CheckingConflictingCallableOverloadSignature => {
+            MessageTemplate::new(CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

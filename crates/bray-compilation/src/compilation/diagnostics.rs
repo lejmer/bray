@@ -7,7 +7,10 @@ use bray_bound_tree::{
     CheckedRefinementFacts, DeclaredValueTypeTemplates, StorageFlowFacts, StoragePlan,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, DeclaredTypeRepresentation,
     ImplementationSymbolId, ModuleSurface, ModuleSurfaceFact, NamedTypeSymbolId,
@@ -20,6 +23,15 @@ use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::facts::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
+
+pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticId::new(anchor.full_range().start().bytes()),
+        kind,
+        SeverityKind::Error,
+    )
+    .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+}
 
 impl Compilation {
     /// Returns diagnostics produced by binding and semantic analysis of this package.
@@ -193,11 +205,13 @@ impl Compilation {
             DiagnosticBag::merged_all(facts.iter().map(SemanticDiagnosticFact::diagnostics));
 
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
+        let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
 
         Ok(DiagnosticBag::merged_all([
             source_graph.diagnostics(),
             &fact_diagnostics,
             coherence,
+            callable_overloads,
         ]))
     }
 

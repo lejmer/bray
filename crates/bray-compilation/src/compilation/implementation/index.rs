@@ -49,7 +49,7 @@ struct HeaderBucket {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ImplementationHeader {
+pub(in crate::compilation) struct ImplementationHeader {
     key: SymbolKey,
     implementation: ImplementationSymbolId,
     subject: TypeId,
@@ -88,16 +88,20 @@ impl ImplementationHeader {
         self.implementation
     }
 
-    pub(super) const fn subject(&self) -> TypeId {
+    pub(in crate::compilation) const fn subject(&self) -> TypeId {
         self.subject
     }
 
-    pub(super) const fn trait_application(&self) -> TraitApplicationId {
+    pub(in crate::compilation) const fn trait_application(&self) -> TraitApplicationId {
         self.trait_application
     }
 
-    pub(super) fn parameters(&self) -> &[GenericParameterSymbolId] {
+    pub(in crate::compilation) fn parameters(&self) -> &[GenericParameterSymbolId] {
         self.generic.parameters()
+    }
+
+    pub(super) const fn generic(&self) -> &GenericDeclarationTemplate {
+        &self.generic
     }
 
     pub(super) fn constraints(&self) -> &[GenericConstraintTemplate] {

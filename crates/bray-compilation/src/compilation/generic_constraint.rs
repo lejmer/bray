@@ -10,9 +10,11 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    ConstantValueKind, GenericConstraintObligationKey, GenericConstraintSatisfactionFact,
-    GenericConstraintTemplate, GenericDeclarationTemplateFact, GenericSubstitutionId,
-    ImplementationCandidate, ProofOutcome, SemanticFactResult, SymbolFactRequest,
+    ConstantTermData, ConstantValueKind, GenericArgument, GenericConstraintObligationKey,
+    GenericConstraintSatisfactionFact, GenericConstraintTemplate, GenericDeclarationTemplate,
+    GenericDeclarationTemplateFact, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericSubstitutionId, ImplementationCandidate, ProofOutcome, SemanticFactResult,
+    SymbolFactRequest, TypeData,
 };
 
 use super::Compilation;
@@ -115,6 +117,58 @@ impl Compilation {
             Err(FactQueryError::Cycle(_)) => Ok(ProofOutcome::Unknown),
             Err(error) => Err(error),
         }
+    }
+
+    pub(in crate::compilation) fn generic_declaration_may_be_satisfied(
+        &self,
+        template: &GenericDeclarationTemplate,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        if template.constraints().is_empty() {
+            return Ok(true);
+        }
+
+        let values = self.semantic_value_store()?;
+        let mut arguments = Vec::with_capacity(template.parameters().len());
+
+        for parameter in template.parameters() {
+            let argument = match parameter {
+                GenericParameterSymbolId::Type(parameter) => {
+                    let ty = values
+                        .intern_type(TypeData::TypeParameter(*parameter))
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    GenericArgument::Type(ty)
+                }
+                GenericParameterSymbolId::Const(parameter) => {
+                    let term = values
+                        .intern_constant_term(ConstantTermData::Parameter(*parameter))
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    GenericArgument::Constant(term)
+                }
+            };
+
+            arguments.push(argument);
+        }
+
+        let substitution = GenericSubstitutionData::try_new(
+            template.owner(),
+            template.parameters().iter().copied(),
+            arguments,
+        )
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let obligation = GenericConstraintObligationKey::new(template.owner(), substitution);
+
+        let outcome =
+            self.generic_constraint_satisfaction_with_cancellation(obligation, cancellation)?;
+
+        Ok(*outcome.value() != ProofOutcome::Disproven)
     }
 
     fn evaluate_constraint(

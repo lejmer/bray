@@ -249,6 +249,10 @@ fn reuse_fixed_cells(
         CompilationFactKey::ImplementationCoherence
     );
     reuse!(
+        callable_overload_validation,
+        CompilationFactKey::CallableOverloadValidation
+    );
+    reuse!(
         type_associated_implementation_index,
         CompilationFactKey::TypeAssociatedImplementationIndex
     );
