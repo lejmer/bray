@@ -203,13 +203,8 @@ impl<'graph> ReachabilityDomain<'graph> {
         }
     }
 
-    fn transfer(
-        &self,
-        block: &AnalysisBlock,
-        state: ReachabilityState,
-        edge: &AnalysisEdge,
-    ) -> ReachabilityState {
-        if self.block_has_recovery(block) || edge.kind() == AnalysisEdgeKind::Recovery {
+    fn transfer(&self, block: &AnalysisBlock, state: ReachabilityState) -> ReachabilityState {
+        if self.block_has_recovery(block) {
             return state.after_recovery();
         }
 
@@ -247,23 +242,23 @@ impl FixedPointDomain for ReachabilityDomain<'_> {
         merge_state(target, *incoming)
     }
 
+    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
+        self.transfer(block, *source)
+    }
+
     fn propagate(
         &self,
-        block: &AnalysisBlock,
         source: &Self::State,
         edge: &AnalysisEdge,
         target: &mut Self::State,
     ) -> bool {
-        merge_state(target, self.transfer(block, *source, edge))
-    }
+        let incoming = if edge.kind() == AnalysisEdgeKind::Recovery {
+            source.after_recovery()
+        } else {
+            *source
+        };
 
-    fn propagate_self(
-        &self,
-        block: &AnalysisBlock,
-        state: &mut Self::State,
-        edge: &AnalysisEdge,
-    ) -> bool {
-        merge_state(state, self.transfer(block, *state, edge))
+        merge_state(target, incoming)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

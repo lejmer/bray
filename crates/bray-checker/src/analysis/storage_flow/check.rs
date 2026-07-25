@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, CheckedRefinementFacts,
-    LivenessFacts, StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
-    StorageExitDecision, StorageFlowFacts, StorageIdentity, StorageIdentityId,
-    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageRelationship,
+    LivenessFacts, PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageExitDecision,
+    StorageFlowFacts, StorageIdentity, StorageIdentityId, StorageOperationDecision,
+    StorageOperationStatus, StoragePlan, StorageProjection, StorageRelationship,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::{BorrowKind, CallableSignatureFact};
@@ -20,6 +21,7 @@ use super::super::model::{AnalysisOperation, AnalysisOperationKind, AnalysisScop
 use super::super::reachability::analyze_reachability;
 use super::authority::mutable_storage;
 use super::copyability::CopyabilityResolver;
+use super::decision::{diagnostic_kind, more_conservative};
 use super::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
 
 pub(crate) fn check_storage_flow<C>(
@@ -74,6 +76,7 @@ where
     }
 
     let (copyable_types, copyability_diagnostics) = copyability.into_parts();
+
     let (mutable_storage, authority_diagnostics) = match mutable_storage(request, storage) {
         Ok(result) => result,
         Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -84,7 +87,15 @@ where
 
     let input = StorageFlowInput::new(storage, copyable_types, mutable_storage);
 
-    let domain = StorageFlowDomain::new(&graph, &reachability, storage, liveness, &input, request);
+    let domain = StorageFlowDomain::new(
+        &graph,
+        &reachability,
+        storage,
+        liveness,
+        refinements,
+        &input,
+        request,
+    );
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => result,
@@ -94,7 +105,7 @@ where
         }
     };
 
-    let mut collector = StorageFlowCollector::new(request, storage, liveness, &input);
+    let mut collector = StorageFlowCollector::new(request, storage, liveness, refinements, &input);
 
     collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
@@ -148,6 +159,7 @@ where
     request: CheckerUnitView<'analysis, C>,
     storage: &'analysis StoragePlan,
     liveness: &'analysis LivenessFacts,
+    refinements: &'analysis CheckedRefinementFacts,
     input: &'analysis StorageFlowInput,
     statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
@@ -166,12 +178,14 @@ where
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
         liveness: &'analysis LivenessFacts,
+        refinements: &'analysis CheckedRefinementFacts,
         input: &'analysis StorageFlowInput,
     ) -> Self {
         Self {
             request,
             storage,
             liveness,
+            refinements,
             input,
             statuses: BTreeMap::new(),
             borrows: BTreeMap::new(),
@@ -187,11 +201,12 @@ where
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
         liveness: &'analysis LivenessFacts,
+        refinements: &'analysis CheckedRefinementFacts,
         input: &'analysis StorageFlowInput,
     ) -> Self {
         Self {
             publish: false,
-            ..Self::new(request, storage, liveness, input)
+            ..Self::new(request, storage, liveness, refinements, input)
         }
     }
 
@@ -207,8 +222,10 @@ where
 
         self.initialize_operation_storage(state, operation.kind().node());
 
+        let refinements = self.refinements.facts_before(operation.kind().node());
+
         for plan in self.input.plans(operation.kind().node()) {
-            self.apply_plan(state, *plan);
+            self.apply_plan(state, *plan, refinements);
         }
 
         self.end_last_use_borrows(state, operation.kind().node());
@@ -222,9 +239,14 @@ where
         }
     }
 
-    fn apply_plan(&mut self, state: &mut StorageFlowState, plan: StorageAccessPlan) {
+    fn apply_plan(
+        &mut self,
+        state: &mut StorageFlowState,
+        plan: StorageAccessPlan,
+        refinements: &[RefinementFact],
+    ) {
         let purpose = self.effective_purpose(plan);
-        let status = self.operation_status(state, plan, purpose);
+        let status = self.operation_status(state, plan, purpose, refinements);
         let borrow = self.input.borrow(plan);
 
         if matches!(status, StorageOperationStatus::Valid) {
@@ -256,13 +278,18 @@ where
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
+        refinements: &[RefinementFact],
     ) -> StorageOperationStatus {
         let Some(access) = self.storage.access(plan.access()) else {
             return StorageOperationStatus::Recovered;
         };
 
-        if state.recovered || access.is_recovered() {
+        if access.is_recovered() {
             return StorageOperationStatus::Recovered;
+        }
+
+        if !self.refinements_allow_access(plan.access(), refinements) {
+            return StorageOperationStatus::InactiveProjection;
         }
 
         let Some(root) = self.storage.root_identity(plan.access()) else {
@@ -272,7 +299,6 @@ where
         let requires_value = matches!(
             purpose,
             StorageAccessPurpose::Read
-                | StorageAccessPurpose::Write
                 | StorageAccessPurpose::Copy
                 | StorageAccessPurpose::Move
                 | StorageAccessPurpose::Borrow(_)
@@ -286,14 +312,22 @@ where
             return StorageOperationStatus::Moved;
         }
 
+        let operation_access = self.operation_access(plan, purpose);
+
+        if purpose == StorageAccessPurpose::Move
+            && self.access_uses_borrow(operation_access)
+            && !self.type_is_borrow(access.reached_type())
+        {
+            return StorageOperationStatus::MissingOwnership;
+        }
+
         if self.has_borrow_conflict(state, plan, purpose) {
             return StorageOperationStatus::ConflictingBorrow;
         }
 
-        if matches!(
-            purpose,
-            StorageAccessPurpose::Write | StorageAccessPurpose::Assignment
-        ) && !self.has_mutation_authority(plan.access())
+        if let Some(authority_access) = self.mutation_authority_access(plan, purpose)
+            && (!self.has_mutation_authority(authority_access)
+                || !self.fields_allow_mutation(authority_access))
         {
             return StorageOperationStatus::MissingMutationAuthority;
         }
@@ -399,14 +433,20 @@ where
             return false;
         };
 
-        let own_parent = self
-            .input
-            .borrow(plan)
-            .and_then(|borrow| self.storage.borrow_capability(borrow))
-            .and_then(|borrow| borrow.parent());
+        let access = self.operation_access(plan, purpose);
+        let Some(authorizing_borrows) = self.borrow_chain(access) else {
+            return true;
+        };
+
+        if authorizing_borrows
+            .iter()
+            .any(|borrow| !state.active_borrows.contains(borrow))
+        {
+            return true;
+        }
 
         state.active_borrows.iter().copied().any(|active| {
-            if Some(active) == own_parent {
+            if authorizing_borrows.contains(&active) {
                 return false;
             }
 
@@ -418,27 +458,160 @@ where
                 return false;
             }
 
-            self.storage
-                .relationship(capability.access(), plan.access())
-                != StorageRelationship::Disjoint
+            self.storage.relationship(capability.access(), access) != StorageRelationship::Disjoint
         })
     }
 
     fn has_mutation_authority(&self, access: StorageAccessId) -> bool {
-        let Some(access) = self.storage.access(access) else {
+        let Some(storage_access) = self.storage.access(access) else {
             return false;
         };
 
-        match access.root() {
-            StorageAccessRoot::Borrow(capability) => self
-                .storage
-                .borrow_capability(capability)
-                .is_some_and(|capability| capability.kind() == BorrowKind::Mutable),
+        match storage_access.root() {
+            StorageAccessRoot::Borrow(_) => self.borrow_chain(access).is_some_and(|borrows| {
+                !borrows.is_empty()
+                    && borrows.iter().all(|borrow| {
+                        self.storage
+                            .borrow_capability(*borrow)
+                            .is_some_and(|borrow| borrow.kind() == BorrowKind::Mutable)
+                    })
+            }),
             StorageAccessRoot::Recovery(_) => false,
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => {
                 self.owned_storage_is_mutable(storage)
             }
+        }
+    }
+
+    fn fields_allow_mutation(&self, access: StorageAccessId) -> bool {
+        let Some(access) = self.storage.access(access) else {
+            return false;
+        };
+
+        access
+            .projections()
+            .iter()
+            .all(|projection| match projection {
+                StorageProjection::ProductField(field) => self
+                    .request
+                    .symbols()
+                    .struct_field(*field)
+                    .is_some_and(bray_symbols::StructFieldSymbol::allows_mutation),
+                StorageProjection::ActiveUnionPayloadField { field, .. } => self
+                    .request
+                    .symbols()
+                    .union_payload_field(*field)
+                    .is_some_and(bray_symbols::UnionPayloadFieldSymbol::allows_mutation),
+                StorageProjection::TupleElement(_)
+                | StorageProjection::ElementFromStart(_)
+                | StorageProjection::ElementFromEnd(_)
+                | StorageProjection::Element(_)
+                | StorageProjection::SliceRange { .. }
+                | StorageProjection::NullableValue
+                | StorageProjection::OwnedTarget => true,
+            })
+    }
+
+    fn operation_access(
+        &self,
+        plan: StorageAccessPlan,
+        purpose: StorageAccessPurpose,
+    ) -> StorageAccessId {
+        match purpose {
+            StorageAccessPurpose::Borrow(_) => self
+                .input
+                .borrow(plan)
+                .and_then(|borrow| self.storage.borrow_capability(borrow))
+                .map(|borrow| borrow.access())
+                .unwrap_or_else(|| plan.access()),
+            StorageAccessPurpose::Read
+            | StorageAccessPurpose::Write
+            | StorageAccessPurpose::Initialize
+            | StorageAccessPurpose::Assignment
+            | StorageAccessPurpose::Copy
+            | StorageAccessPurpose::Move
+            | StorageAccessPurpose::ValueTransfer
+            | StorageAccessPurpose::Member
+            | StorageAccessPurpose::Index
+            | StorageAccessPurpose::Slice
+            | StorageAccessPurpose::Projection => plan.access(),
+        }
+    }
+
+    fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
+        self.storage
+            .access(access)
+            .is_some_and(|access| matches!(access.root(), StorageAccessRoot::Borrow(_)))
+    }
+
+    fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> bool {
+        self.request
+            .semantic_values()
+            .type_data(ty)
+            .is_ok_and(|data| matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }))
+    }
+
+    fn refinements_allow_access(
+        &self,
+        access: StorageAccessId,
+        refinements: &[RefinementFact],
+    ) -> bool {
+        let Some(storage_access) = self.storage.access(access) else {
+            return false;
+        };
+
+        for projection in storage_access.projections() {
+            if !projection_is_available(self.storage, access, *projection, refinements) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn borrow_chain(&self, access: StorageAccessId) -> Option<Vec<BorrowCapabilityId>> {
+        let mut capability = match self.storage.access(access)?.root() {
+            StorageAccessRoot::Borrow(capability) => Some(capability),
+            StorageAccessRoot::Storage(_)
+            | StorageAccessRoot::OwnedIndirection { .. }
+            | StorageAccessRoot::Recovery(_) => None,
+        };
+
+        let mut chain = Vec::new();
+
+        while let Some(current) = capability {
+            let borrow = self.storage.borrow_capability(current)?;
+
+            chain.push(current);
+            capability = borrow.parent();
+        }
+
+        Some(chain)
+    }
+
+    fn mutation_authority_access(
+        &self,
+        plan: StorageAccessPlan,
+        purpose: StorageAccessPurpose,
+    ) -> Option<StorageAccessId> {
+        match purpose {
+            StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => Some(plan.access()),
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => self
+                .input
+                .borrow(plan)
+                .and_then(|borrow| self.storage.borrow_capability(borrow))
+                .map(|borrow| borrow.access()),
+            StorageAccessPurpose::Read
+            | StorageAccessPurpose::Initialize
+            | StorageAccessPurpose::Copy
+            | StorageAccessPurpose::Move
+            | StorageAccessPurpose::Borrow(BorrowKind::Shared)
+            | StorageAccessPurpose::ValueTransfer
+            | StorageAccessPurpose::Member
+            | StorageAccessPurpose::Index
+            | StorageAccessPurpose::Slice
+            | StorageAccessPurpose::Projection => None,
         }
     }
 
@@ -484,6 +657,7 @@ where
         self.exits.push(StorageExitDecision::new(
             block,
             state.initialized.iter().copied(),
+            state.moved.iter().copied(),
             state.active_borrows.iter().copied(),
             state.recovered,
         ));
@@ -544,42 +718,48 @@ fn storage_is_recovered(storage: &StoragePlan) -> bool {
             .any(|capability| capability.is_recovered())
 }
 
-const fn diagnostic_kind(status: StorageOperationStatus) -> Option<DiagnosticKind> {
-    match status {
-        StorageOperationStatus::Uninitialized => {
-            Some(DiagnosticKind::CheckingUseOfUninitializedStorage)
-        }
-        StorageOperationStatus::Moved => Some(DiagnosticKind::CheckingUseOfMovedStorage),
-        StorageOperationStatus::ConflictingBorrow => {
-            Some(DiagnosticKind::CheckingConflictingBorrow)
-        }
-        StorageOperationStatus::MissingMutationAuthority => {
-            Some(DiagnosticKind::CheckingMissingMutationAuthority)
-        }
-        StorageOperationStatus::NotCopyable => Some(DiagnosticKind::CheckingTypeIsNotCopyable),
-        StorageOperationStatus::Valid | StorageOperationStatus::Recovered => None,
-    }
-}
+fn projection_is_available(
+    storage: &StoragePlan,
+    access: StorageAccessId,
+    projection: StorageProjection,
+    refinements: &[RefinementFact],
+) -> bool {
+    let related = refinements.iter().filter(|fact| {
+        fact.dependencies().iter().any(|dependency| {
+            storage.relationship(*dependency, access) != StorageRelationship::Disjoint
+        })
+    });
 
-const fn more_conservative(
-    current: StorageOperationStatus,
-    incoming: StorageOperationStatus,
-) -> StorageOperationStatus {
-    if status_rank(incoming) > status_rank(current) {
-        incoming
-    } else {
-        current
-    }
-}
-
-const fn status_rank(status: StorageOperationStatus) -> u8 {
-    match status {
-        StorageOperationStatus::Valid => 0,
-        StorageOperationStatus::Recovered => 1,
-        StorageOperationStatus::Uninitialized => 2,
-        StorageOperationStatus::Moved => 3,
-        StorageOperationStatus::MissingMutationAuthority => 4,
-        StorageOperationStatus::NotCopyable => 5,
-        StorageOperationStatus::ConflictingBorrow => 6,
+    match projection {
+        StorageProjection::NullableValue => related.into_iter().any(|fact| {
+            matches!(
+                fact.kind(),
+                RefinementFactKind::NullablePresence {
+                    is_present: true,
+                    ..
+                } | RefinementFactKind::Pattern {
+                    predicate: PatternPredicate::NullablePresent,
+                    ..
+                }
+            )
+        }),
+        StorageProjection::ActiveUnionPayloadField { variant, .. } => {
+            related.into_iter().any(|fact| {
+                matches!(
+                    fact.kind(),
+                    RefinementFactKind::Pattern {
+                        predicate: PatternPredicate::ActiveUnionVariant(active),
+                        ..
+                    } if active == variant
+                )
+            })
+        }
+        StorageProjection::ProductField(_)
+        | StorageProjection::TupleElement(_)
+        | StorageProjection::ElementFromStart(_)
+        | StorageProjection::ElementFromEnd(_)
+        | StorageProjection::Element(_)
+        | StorageProjection::SliceRange { .. }
+        | StorageProjection::OwnedTarget => true,
     }
 }

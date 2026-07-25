@@ -161,6 +161,7 @@ pub struct SymbolRelationship {
     owner: InterfaceSymbolId,
     member: InterfaceSymbolId,
     ordinal: u32,
+    allows_mutation: bool,
 }
 
 impl SymbolRelationship {
@@ -176,7 +177,15 @@ impl SymbolRelationship {
             owner,
             member,
             ordinal,
+            allows_mutation: false,
         }
+    }
+
+    /// Marks the related field as permitting mutation after initialization.
+    pub const fn with_mutation(mut self) -> Self {
+        self.allows_mutation = true;
+
+        self
     }
 
     /// Returns the closed relationship category.
@@ -197,6 +206,11 @@ impl SymbolRelationship {
     /// Returns the stable owner-relative position.
     pub const fn ordinal(self) -> u32 {
         self.ordinal
+    }
+
+    /// Returns whether the related field permits mutation after initialization.
+    pub const fn allows_mutation(self) -> bool {
+        self.allows_mutation
     }
 }
 

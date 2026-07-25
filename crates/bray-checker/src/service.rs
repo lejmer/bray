@@ -144,22 +144,33 @@ impl<C> PatternChecker<C> for DefaultPatternChecker where
 /// Storage identity and occurrence-specific access planning over one checked bound unit.
 pub trait StoragePlanner<C>: Sync
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     /// Constructs persistent storage identities and evaluated access plans.
     fn plan_storage(
         &self,
         request: CheckerUnitView<'_, C>,
+        declared_types: &DeclaredValueTypeTemplates,
         types: &CheckedExpressionTypes,
         patterns: &CheckedPatternFacts,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         iterations: &[SelectedIterationSource],
     ) -> CheckerOutcome<StoragePlan> {
-        plan_storage(request, types, patterns, selections, iterations)
+        plan_storage(
+            request,
+            declared_types,
+            types,
+            patterns,
+            selections,
+            iterations,
+        )
     }
 }
 
-impl<C> StoragePlanner<C> for DefaultStoragePlanner where C: CheckerRequestContext + ?Sized {}
+impl<C> StoragePlanner<C> for DefaultStoragePlanner where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
 
 /// Storage, access, capability, and obligation liveness over one checked bound unit.
 pub trait LivenessAnalyzer<C>: Sync

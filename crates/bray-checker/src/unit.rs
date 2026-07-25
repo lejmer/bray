@@ -5,8 +5,8 @@ use bray_bound_tree::{
     BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitRoot, BoundUnitView,
 };
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph,
+    AvailableCompilerKnownSymbols, CallableSymbolId, SemanticValueStore, SymbolFactContract,
+    SymbolFactRequest, SymbolFactResult, SymbolGraph,
 };
 use bray_target::TargetProfile;
 
@@ -114,6 +114,29 @@ where
     /// Returns the category-specific semantic inputs active at unit entry.
     pub const fn semantic_context(self) -> &'view SemanticUnitContext {
         self.semantic_context
+    }
+
+    /// Returns the callable declaration that semantically contains this unit, when any.
+    pub(crate) fn containing_callable(self) -> Option<CallableSymbolId> {
+        let mut symbol = match self.semantic_context {
+            SemanticUnitContext::CallableBody(context)
+            | SemanticUnitContext::RuntimeDefault(context)
+            | SemanticUnitContext::ConstantTemplate(context)
+            | SemanticUnitContext::EmbeddedConstant(context)
+            | SemanticUnitContext::PredicateDefinition(context)
+            | SemanticUnitContext::Constraint(context)
+            | SemanticUnitContext::TargetGate(context) => context.declaration(),
+            SemanticUnitContext::ContractClause(context) => context.declaration().declaration(),
+            SemanticUnitContext::AnonymousCallable(_) => return None,
+        };
+
+        loop {
+            if let Some(callable) = CallableSymbolId::try_from_any(symbol) {
+                return Some(callable);
+            }
+
+            symbol = self.symbols().containing_symbol(symbol)?;
+        }
     }
 
     /// Returns the canonical semantic values referenced by the bound unit.

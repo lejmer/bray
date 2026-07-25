@@ -221,12 +221,18 @@ fn construction_input(
     package_index: &BTreeMap<PackageIdentity, LoadedInterfaceSurface<'_>>,
 ) -> Result<ImportedSymbolSkeletonInput, ImportedSymbolConstructionError> {
     let relationships = loaded.surface().relationships().iter().map(|relationship| {
-        ImportedSymbolRelationship::new(
+        let imported = ImportedSymbolRelationship::new(
             relationship.kind(),
             relationship.owner(),
             relationship.member(),
             relationship.ordinal(),
-        )
+        );
+
+        if relationship.allows_mutation() {
+            imported.with_mutation()
+        } else {
+            imported
+        }
     });
 
     let lookups = loaded

@@ -15,6 +15,6 @@ pub use model::{
     StorageIdentityId, StorageProjection, StorageRelationship,
 };
 pub use plan::{
-    PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose, StorageBinding,
-    StorageBindingTarget, StoragePlan,
+    BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose,
+    StorageBinding, StorageBindingTarget, StoragePlan,
 };

@@ -179,6 +179,13 @@ const CHECKING_TYPE_IS_NOT_COPYABLE: &[MessageTemplatePart] = &[MessageTemplateP
     "value type does not support implicit copying",
 )];
 
+const CHECKING_MISSING_STORAGE_OWNERSHIP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "operation requires ownership of the reached storage",
+)];
+const CHECKING_INACTIVE_STORAGE_PROJECTION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected storage is not active on this control-flow path",
+)];
+
 const CHECKING_MISSING_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("trait implementation does not fulfill "),
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
@@ -826,6 +833,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTypeIsNotCopyable => {
             MessageTemplate::new(CHECKING_TYPE_IS_NOT_COPYABLE)
+        }
+        DiagnosticKind::CheckingMissingStorageOwnership => {
+            MessageTemplate::new(CHECKING_MISSING_STORAGE_OWNERSHIP)
+        }
+        DiagnosticKind::CheckingInactiveStorageProjection => {
+            MessageTemplate::new(CHECKING_INACTIVE_STORAGE_PROJECTION)
         }
         DiagnosticKind::CheckingMissingTraitFulfillment => {
             MessageTemplate::new(CHECKING_MISSING_TRAIT_FULFILLMENT)

@@ -629,6 +629,8 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let declared = self
+                    .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
                 let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
 
@@ -647,6 +649,7 @@ impl Compilation {
                     bound.result().value(),
                     &semantic_context,
                     &context,
+                    declared.result().value(),
                     types.result().value(),
                     patterns.result().value(),
                     selections.result().value(),
@@ -657,6 +660,7 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
+                    declared.result().diagnostics(),
                     types.result().diagnostics(),
                     patterns.result().diagnostics(),
                     selections.result().diagnostics(),
@@ -764,6 +768,7 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
+
                 let refinements =
                     self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
 
@@ -937,10 +942,15 @@ fn check_patterns(
     checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "storage planning consumes each independently demandable prerequisite directly"
+)]
 fn plan_storage(
     bound: &BoundUnit,
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
+    declared_types: &DeclaredValueTypeTemplates,
     types: &CheckedExpressionTypes,
     patterns: &CheckedPatternFacts,
     selections: &CheckedSemanticSelections,
@@ -950,9 +960,14 @@ fn plan_storage(
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    checker_result(
-        DefaultStoragePlanner.plan_storage(unit, types, patterns, selections, iterations),
-    )
+    checker_result(DefaultStoragePlanner.plan_storage(
+        unit,
+        declared_types,
+        types,
+        patterns,
+        selections,
+        iterations,
+    ))
 }
 
 fn analyze_liveness(
@@ -1338,6 +1353,88 @@ mod tests {
     }
 
     #[test]
+    fn storage_flow_rejects_mutable_borrow_without_parameter_authority() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: i32)\n",
+            "{\n",
+            "    let borrowed: & mut i32 = & mut value;\n",
+            "    borrowed;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(facts.value().operations().iter().any(|operation| {
+            operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+        }));
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn storage_flow_accepts_mutation_through_mutable_borrow_parameter() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: & mut i32)\n",
+            "{\n",
+            "    value = 2;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts.value().operations().iter().all(|operation| {
+                !matches!(
+                    operation.status(),
+                    bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+                        | bray_bound_tree::StorageOperationStatus::ConflictingBorrow
+                )
+            }),
+            "{facts:?}"
+        );
+    }
+
+    #[test]
+    fn storage_flow_rejects_mutation_through_shared_borrow_parameter() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(value: &i32)\n",
+            "{\n",
+            "    value = 2;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(facts.value().operations().iter().any(|operation| {
+            operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+        }));
+    }
+
+    #[test]
     fn storage_flow_rejects_use_after_move() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -1376,6 +1473,51 @@ mod tests {
                 .by_kind(bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage)
                 .next()
                 .is_some()
+        );
+
+        assert!(
+            facts
+                .value()
+                .exits()
+                .iter()
+                .any(|exit| !exit.moved().is_empty())
+        );
+    }
+
+    #[test]
+    fn storage_flow_allows_assignment_to_reinitialize_moved_storage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let mut resource: Resource = Resource { value = 1 };\n",
+            "    let moved: Resource = resource;\n",
+            "    resource = Resource { value = 2 };\n",
+            "    resource;\n",
+            "    moved;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.storage_flow_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("storage-flow checking must publish: {error:?}"),
+        };
+
+        assert!(
+            facts.value().operations().iter().all(|operation| {
+                !matches!(
+                    operation.status(),
+                    bray_bound_tree::StorageOperationStatus::Uninitialized
+                        | bray_bound_tree::StorageOperationStatus::Moved
+                )
+            }),
+            "{facts:?}"
         );
     }
 

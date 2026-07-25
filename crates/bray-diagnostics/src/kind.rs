@@ -215,6 +215,10 @@ pub enum DiagnosticKind {
     CheckingMissingMutationAuthority,
     /// A copy operation was requested for a non-copyable type.
     CheckingTypeIsNotCopyable,
+    /// An operation requires ownership of storage reached only through a borrow.
+    CheckingMissingStorageOwnership,
+    /// A nullable or union projection is inactive on the current control-flow path.
+    CheckingInactiveStorageProjection,
     /// A trait implementation omits a required member fulfillment.
     CheckingMissingTraitFulfillment,
     /// A trait implementation declares a member that does not fulfill its trait.
@@ -352,6 +356,8 @@ impl DiagnosticKind {
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
             Self::CheckingTypeIsNotCopyable => 7038,
+            Self::CheckingMissingStorageOwnership => 7039,
+            Self::CheckingInactiveStorageProjection => 7044,
             Self::CheckingMissingTraitFulfillment => 7040,
             Self::CheckingExtraTraitFulfillment => 7041,
             Self::CheckingIncompatibleTraitFulfillment => 7042,
@@ -506,6 +512,8 @@ impl DiagnosticKind {
             Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
             Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
             Self::CheckingTypeIsNotCopyable => "checking_type_is_not_copyable",
+            Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",
+            Self::CheckingInactiveStorageProjection => "checking_inactive_storage_projection",
             Self::CheckingMissingTraitFulfillment => "checking_missing_trait_fulfillment",
             Self::CheckingExtraTraitFulfillment => "checking_extra_trait_fulfillment",
             Self::CheckingIncompatibleTraitFulfillment => "checking_incompatible_trait_fulfillment",
@@ -573,7 +581,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 118] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 120] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -680,6 +688,8 @@ mod tests {
             DiagnosticKind::CheckingConflictingBorrow,
             DiagnosticKind::CheckingMissingMutationAuthority,
             DiagnosticKind::CheckingTypeIsNotCopyable,
+            DiagnosticKind::CheckingMissingStorageOwnership,
+            DiagnosticKind::CheckingInactiveStorageProjection,
             DiagnosticKind::CheckingMissingTraitFulfillment,
             DiagnosticKind::CheckingExtraTraitFulfillment,
             DiagnosticKind::CheckingIncompatibleTraitFulfillment,

@@ -210,12 +210,20 @@ pub(crate) fn decode_relationships(
     let mut relationships = budget.allocate_items(&reader, count)?;
 
     for _ in 0..count {
-        relationships.push(SymbolRelationship::new(
+        let relationship = SymbolRelationship::new(
             read_tag(&mut reader)?,
             InterfaceSymbolId::new(read_u32(&mut reader)?),
             InterfaceSymbolId::new(read_u32(&mut reader)?),
             read_u32(&mut reader)?,
-        ));
+        );
+
+        let relationship = match read_u32(&mut reader)? {
+            0 => relationship,
+            1 => relationship.with_mutation(),
+            _ => return Err(InterfaceValidationError::Malformed),
+        };
+
+        relationships.push(relationship);
     }
 
     reader.finish().map_err(map_wire_error)?;

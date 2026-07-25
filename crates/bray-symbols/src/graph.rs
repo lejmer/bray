@@ -688,6 +688,10 @@ macro_rules! define_symbol_graph {
                 self.relationship_index.add_runtime_default(owner, syntax);
             }
 
+            pub(crate) fn allow_member_mutation(&mut self, member: AnySymbolId) {
+                self.relationship_index.allow_mutation(member);
+            }
+
             pub(crate) fn add_overload_arms(
                 &mut self,
                 owner: AnySymbolId,

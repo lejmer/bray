@@ -27,9 +27,10 @@ pub(crate) trait FixedPointDomain {
 
     fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool;
 
+    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State;
+
     fn propagate(
         &self,
-        block: &AnalysisBlock,
         source: &Self::State,
         edge: &AnalysisEdge,
         target: &mut Self::State,
@@ -37,10 +38,12 @@ pub(crate) trait FixedPointDomain {
 
     fn propagate_self(
         &self,
-        block: &AnalysisBlock,
+        source: &Self::State,
         state: &mut Self::State,
         edge: &AnalysisEdge,
-    ) -> bool;
+    ) -> bool {
+        self.propagate(source, edge, state)
+    }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize;
 }
@@ -117,6 +120,12 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
             continue;
         };
 
+        let Some(source) = states.get(block_index) else {
+            continue;
+        };
+
+        let output = domain.transfer(block, source);
+
         for edge_id in traversal_edges(block, domain.direction()) {
             if cancellation.is_cancelled() {
                 return FixedPointOutcome::Cancelled;
@@ -136,7 +145,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
                     continue;
                 };
 
-                if domain.propagate_self(block, state, edge) {
+                if domain.propagate_self(&output, state, edge) {
                     updates = updates.saturating_add(1);
 
                     if updates > convergence_bound {
@@ -149,13 +158,11 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
                 continue;
             }
 
-            let Some((source_state, target_state)) =
-                two_states(&mut states, block_index, target_index)
-            else {
+            let Some(target_state) = states.get_mut(target_index) else {
                 continue;
             };
 
-            if domain.propagate(block, source_state, edge, target_state) {
+            if domain.propagate(&output, edge, target_state) {
                 updates = updates.saturating_add(1);
 
                 if updates > convergence_bound {
@@ -171,22 +178,6 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         unit: graph.unit(),
         states: states.into_boxed_slice(),
     })
-}
-
-fn two_states<State>(
-    states: &mut [State],
-    source: usize,
-    target: usize,
-) -> Option<(&State, &mut State)> {
-    if source < target {
-        let (before_target, from_target) = states.split_at_mut(target);
-
-        return Some((before_target.get(source)?, from_target.first_mut()?));
-    }
-
-    let (before_source, from_source) = states.split_at_mut(source);
-
-    Some((from_source.first()?, before_source.get_mut(target)?))
 }
 
 fn boundary_blocks(
@@ -333,9 +324,12 @@ mod tests {
             changed
         }
 
+        fn transfer(&self, _: &AnalysisBlock, source: &Self::State) -> Self::State {
+            (*source).min(3)
+        }
+
         fn propagate(
             &self,
-            _: &AnalysisBlock,
             source: &Self::State,
             _: &AnalysisEdge,
             target: &mut Self::State,
@@ -345,7 +339,7 @@ mod tests {
 
         fn propagate_self(
             &self,
-            _: &AnalysisBlock,
+            _: &Self::State,
             state: &mut Self::State,
             _: &AnalysisEdge,
         ) -> bool {

@@ -43,6 +43,7 @@ pub struct ExportRelationshipInput {
     owner: ExternalSymbolKey,
     member: ExternalSymbolKey,
     ordinal: u32,
+    allows_mutation: bool,
 }
 
 impl ExportRelationshipInput {
@@ -58,7 +59,15 @@ impl ExportRelationshipInput {
             owner,
             member,
             ordinal,
+            allows_mutation: false,
         }
+    }
+
+    /// Marks the related field as permitting mutation after initialization.
+    pub const fn with_mutation(mut self) -> Self {
+        self.allows_mutation = true;
+
+        self
     }
 
     pub(super) const fn kind(&self) -> SymbolRelationshipKind {
@@ -75,6 +84,10 @@ impl ExportRelationshipInput {
 
     pub(super) const fn ordinal(&self) -> u32 {
         self.ordinal
+    }
+
+    pub(super) const fn allows_mutation(&self) -> bool {
+        self.allows_mutation
     }
 }
 

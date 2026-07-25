@@ -201,6 +201,7 @@ impl LocalSymbolSnapshotBuilder {
         }
 
         let key = local_key(&self.key, SymbolKind::AnonymousCallable, anchors, ordinal)?;
+
         let id = AnonymousCallableSymbolId::new(
             self.region,
             checked_slot(self.anonymous_callables.len())?,
@@ -220,6 +221,10 @@ impl LocalSymbolSnapshotBuilder {
     }
 
     /// Adds one parameter to its anonymous callable's exact boundary scope.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument establishes part of the parameter identity or declared surface"
+    )]
     pub fn push_anonymous_parameter(
         &mut self,
         callable: AnonymousCallableSymbolId,
@@ -227,6 +232,7 @@ impl LocalSymbolSnapshotBuilder {
         name: SymbolName,
         anchors: impl IntoIterator<Item = SyntaxAnchor>,
         ordinal: SymbolOrdinal,
+        mode: crate::CallableParameterMode,
         is_recovered: bool,
     ) -> Result<AnonymousCallableParameterSymbolId, LocalSymbolBuildError> {
         let (callable_index, callable_record) = self.checked_anonymous_callable(callable)?;
@@ -264,6 +270,7 @@ impl LocalSymbolSnapshotBuilder {
                 scope,
                 name,
                 ordinal,
+                mode,
                 is_recovered,
             ));
 
@@ -868,6 +875,7 @@ mod tests {
             symbol_name("item"),
             [syntax],
             SymbolOrdinal::new(0),
+            crate::CallableParameterMode::Immutable,
             false,
         ) {
             Ok(parameter) => parameter,
@@ -1029,6 +1037,7 @@ mod tests {
                 symbol_name("unrelated"),
                 [syntax],
                 SymbolOrdinal::new(0),
+                crate::CallableParameterMode::Immutable,
                 false,
             ),
             Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch)
@@ -1041,6 +1050,7 @@ mod tests {
                 symbol_name("block"),
                 [syntax],
                 SymbolOrdinal::new(1),
+                crate::CallableParameterMode::Immutable,
                 false,
             ),
             Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch)
@@ -1363,6 +1373,7 @@ mod tests {
             symbol_name("parameter"),
             [syntax],
             SymbolOrdinal::new(0),
+            crate::CallableParameterMode::Immutable,
             false,
         ) {
             Ok(parameter) => parameter,

@@ -13,10 +13,19 @@ use crate::{
     StorageRelationship,
 };
 
+/// The semantic construct that establishes a borrow capability.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BorrowCapabilityOrigin {
+    /// A borrow or reborrow expression evaluated inside the unit.
+    Expression(BoundExpressionId),
+    /// A borrow supplied by the caller when the unit begins.
+    Entry(StorageBindingTarget),
+}
+
 /// One borrow capability established by an evaluated storage access.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PlannedBorrowCapability {
-    expression: BoundExpressionId,
+    origin: BorrowCapabilityOrigin,
     kind: BorrowKind,
     access: StorageAccessId,
     parent: Option<BorrowCapabilityId>,
@@ -27,7 +36,7 @@ pub struct PlannedBorrowCapability {
 impl PlannedBorrowCapability {
     /// Creates one planned borrow or reborrow capability.
     pub const fn new(
-        expression: BoundExpressionId,
+        origin: BorrowCapabilityOrigin,
         kind: BorrowKind,
         access: StorageAccessId,
         parent: Option<BorrowCapabilityId>,
@@ -35,7 +44,7 @@ impl PlannedBorrowCapability {
         is_recovered: bool,
     ) -> Self {
         Self {
-            expression,
+            origin,
             kind,
             access,
             parent,
@@ -44,9 +53,25 @@ impl PlannedBorrowCapability {
         }
     }
 
-    /// Returns the expression that establishes the capability.
-    pub const fn expression(self) -> BoundExpressionId {
-        self.expression
+    /// Returns the semantic construct that establishes the capability.
+    pub const fn origin(self) -> BorrowCapabilityOrigin {
+        self.origin
+    }
+
+    /// Returns the expression that establishes the capability, when evaluated in the unit.
+    pub const fn expression(self) -> Option<BoundExpressionId> {
+        match self.origin {
+            BorrowCapabilityOrigin::Expression(expression) => Some(expression),
+            BorrowCapabilityOrigin::Entry(_) => None,
+        }
+    }
+
+    /// Returns the entry binding that supplies the capability, when any.
+    pub const fn entry_binding(self) -> Option<StorageBindingTarget> {
+        match self.origin {
+            BorrowCapabilityOrigin::Expression(_) => None,
+            BorrowCapabilityOrigin::Entry(target) => Some(target),
+        }
     }
 
     /// Returns the shared or mutable borrow category.

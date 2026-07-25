@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableParameterMode, CallableSignatureFact, CallableSymbolId, ReceiverMode,
-    SymbolFactRequest, TypeData, TypeExpressionTemplate,
+    CallableParameterMode, CallableSignatureFact, ReceiverMode, SymbolFactRequest, TypeData,
+    TypeExpressionTemplate,
 };
 
 use crate::{
@@ -19,7 +19,26 @@ pub(super) fn mutable_storage<C>(
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
-    let Some(callable) = containing_callable(request) else {
+    if matches!(
+        request.semantic_context(),
+        SemanticUnitContext::AnonymousCallable(_)
+    ) {
+        let mut mutable = BTreeSet::new();
+
+        for parameter in request.unit().local_symbols().anonymous_parameters() {
+            if parameter.mode() == CallableParameterMode::Mutable {
+                insert_identity(
+                    &mut mutable,
+                    storage,
+                    StorageBindingTarget::AnonymousParameter(parameter.id()),
+                );
+            }
+        }
+
+        return Ok((mutable, DiagnosticBag::new()));
+    }
+
+    let Some(callable) = request.containing_callable() else {
         return Ok((BTreeSet::new(), DiagnosticBag::new()));
     };
 
@@ -61,31 +80,6 @@ where
 
     // The storage fact owns diagnostics independently of the shared symbol fact.
     Ok((mutable, signature.diagnostics().clone()))
-}
-
-fn containing_callable<C>(request: CheckerUnitView<'_, C>) -> Option<CallableSymbolId>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut symbol = match request.semantic_context() {
-        SemanticUnitContext::CallableBody(context)
-        | SemanticUnitContext::RuntimeDefault(context)
-        | SemanticUnitContext::ConstantTemplate(context)
-        | SemanticUnitContext::EmbeddedConstant(context)
-        | SemanticUnitContext::PredicateDefinition(context)
-        | SemanticUnitContext::Constraint(context)
-        | SemanticUnitContext::TargetGate(context) => context.declaration(),
-        SemanticUnitContext::ContractClause(context) => context.declaration().declaration(),
-        SemanticUnitContext::AnonymousCallable(_) => return None,
-    };
-
-    loop {
-        if let Some(callable) = CallableSymbolId::try_from_any(symbol) {
-            return Some(callable);
-        }
-
-        symbol = request.symbols().containing_symbol(symbol)?;
-    }
 }
 
 fn parameter_modes<C>(

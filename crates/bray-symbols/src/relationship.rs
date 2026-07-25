@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_declarations::SyntaxAnchor;
 
@@ -149,6 +149,7 @@ pub(crate) struct GenericParameterRelationships {
 pub(crate) struct StructFieldRelationships {
     pub(crate) owner: StructSymbolId,
     pub(crate) ordinal: u32,
+    pub(crate) allows_mutation: bool,
     pub(crate) default_presence: RuntimeDefaultPresence,
     pub(crate) default_provider: Option<crate::StructFieldDefaultProviderSymbolId>,
 }
@@ -157,6 +158,7 @@ pub(crate) struct StructFieldRelationships {
 pub(crate) struct UnionPayloadFieldRelationships {
     pub(crate) owner: UnionVariantSymbolId,
     pub(crate) ordinal: u32,
+    pub(crate) allows_mutation: bool,
     pub(crate) default_presence: RuntimeDefaultPresence,
     pub(crate) default_provider: Option<UnionPayloadDefaultProviderSymbolId>,
 }
@@ -174,6 +176,7 @@ pub(crate) struct RelationshipIndex {
     overload_arms: BTreeMap<AnySymbolId, Box<[SyntaxAnchor]>>,
     imported_overload_arms: BTreeMap<AnySymbolId, Vec<AnySymbolId>>,
     providers: BTreeMap<AnySymbolId, AnySymbolId>,
+    mutable_members: BTreeSet<AnySymbolId>,
 }
 
 pub(crate) trait BuildRelationships<I>: Sized {
@@ -195,6 +198,10 @@ impl RelationshipIndex {
 
     pub(crate) fn add_provider(&mut self, owner: AnySymbolId, provider: AnySymbolId) {
         self.providers.insert(owner, provider);
+    }
+
+    pub(crate) fn allow_mutation(&mut self, member: AnySymbolId) {
+        self.mutable_members.insert(member);
     }
 
     pub(crate) fn add_imported_overload_arm(&mut self, owner: AnySymbolId, arm: AnySymbolId) {
@@ -419,6 +426,7 @@ impl StructFieldRelationships {
         Some(Self {
             owner,
             ordinal: ordinal_within_kind(erased, index),
+            allows_mutation: index.mutable_members.contains(&erased),
             default_presence: index.runtime_default(erased),
             default_provider: match index.providers.get(&erased) {
                 Some(AnySymbolId::StructFieldDefaultProvider(provider)) => Some(*provider),
@@ -441,6 +449,7 @@ impl UnionPayloadFieldRelationships {
         Some(Self {
             owner,
             ordinal: ordinal_within_kind(erased, index),
+            allows_mutation: index.mutable_members.contains(&erased),
             default_presence: index.runtime_default(erased),
             default_provider: match index.providers.get(&erased) {
                 Some(AnySymbolId::UnionPayloadDefaultProvider(provider)) => Some(*provider),

@@ -135,6 +135,7 @@ pub struct CatalogDeclarationSignature {
     callable_parameters: u32,
     predicate_parameters: u32,
     is_static: bool,
+    is_mutable: bool,
 }
 
 impl CatalogDeclarationSignature {
@@ -161,6 +162,11 @@ impl CatalogDeclarationSignature {
     /// Returns whether the declaration carries a static modifier.
     pub const fn is_static(&self) -> bool {
         self.is_static
+    }
+
+    /// Returns whether the declaration carries a direct `mut` modifier.
+    pub const fn is_mutable(&self) -> bool {
+        self.is_mutable
     }
 }
 
@@ -233,7 +239,9 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
     let mut implementation_parameter_kind = None;
     let mut parameter_list_depth = None;
     let mut predicate_parameter_list_depth = None;
+    let mut mutable_modifier_depth = None;
     let mut is_static = false;
+    let mut is_mutable = false;
 
     for element in elements {
         match element {
@@ -263,6 +271,9 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                     (SyntaxKind::PredicateParameterList, 2) => {
                         predicate_parameter_list_depth = Some(depth);
                     }
+                    (SyntaxKind::FieldModifiers | SyntaxKind::PayloadFieldModifiers, _) => {
+                        mutable_modifier_depth = Some(depth);
+                    }
                     (SyntaxKind::GenericTypeParameter, 3) if generic_list_depth == Some(2) => {
                         generic_parameter = Some((CatalogGenericParameterKind::Type, depth));
                     }
@@ -282,6 +293,8 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
             }
             CatalogSurfaceElement::Token(token) => {
                 is_static |= depth <= 2 && token.kind() == SyntaxKind::StaticKeyword;
+                is_mutable |=
+                    mutable_modifier_depth == Some(depth) && token.kind() == SyntaxKind::MutKeyword;
 
                 if token.is_identifier()
                     && let Some((kind, _)) = generic_parameter.take()
@@ -321,6 +334,14 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                     predicate_parameter_list_depth = None;
                 }
 
+                if matches!(
+                    kind,
+                    SyntaxKind::FieldModifiers | SyntaxKind::PayloadFieldModifiers
+                ) && mutable_modifier_depth == Some(depth)
+                {
+                    mutable_modifier_depth = None;
+                }
+
                 if *kind == SyntaxKind::GenericArgument && generic_argument_depth == Some(depth) {
                     generic_argument_depth = None;
                     implementation_parameter_kind = None;
@@ -347,6 +368,7 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
         callable_parameters,
         predicate_parameters,
         is_static,
+        is_mutable,
     }
 }
 
@@ -398,6 +420,28 @@ mod tests {
 
         assert!(direct.is_static());
         assert!(!nested.is_static());
+    }
+
+    #[test]
+    fn signature_scanning_distinguishes_field_mutability_from_nested_borrows() {
+        let mutable_field = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::StructFieldDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::FieldModifiers),
+            token(SyntaxKind::MutKeyword, "mut"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::FieldModifiers),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::StructFieldDeclaration),
+        ]);
+
+        let borrowed_field = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::StructFieldDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression),
+            token(SyntaxKind::MutKeyword, "mut"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::StructFieldDeclaration),
+        ]);
+
+        assert!(mutable_field.is_mutable());
+        assert!(!borrowed_field.is_mutable());
     }
 
     #[test]

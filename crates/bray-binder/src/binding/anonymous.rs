@@ -1,6 +1,6 @@
 use bray_bound_tree::BoundSourceAnchor;
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{LocalScopeId, SymbolOrdinal};
+use bray_symbols::{CallableParameterMode, LocalScopeId, SymbolOrdinal};
 use bray_syntax::{LambdaExpressionSyntax, SourceSyntaxNode};
 
 use super::name::symbol_name;
@@ -68,11 +68,18 @@ where
                 continue;
             };
 
+            let mode = if parameter.parameter_modifiers().mut_token().is_some() {
+                CallableParameterMode::Mutable
+            } else {
+                CallableParameterMode::Immutable
+            };
+
             self.unit_mut().push_anonymous_parameter(
                 &boundary,
                 name,
                 [SyntaxAnchor::from_node(&parameter)],
                 ordinal,
+                mode,
                 parameter.is_recovered() || token.is_missing(),
             )?;
         }

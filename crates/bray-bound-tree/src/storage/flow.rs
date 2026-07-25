@@ -22,6 +22,10 @@ pub enum StorageOperationStatus {
     ConflictingBorrow,
     /// The operation requires mutation authority that is not available.
     MissingMutationAuthority,
+    /// The operation requires ownership of storage reached only through a borrow.
+    MissingOwnership,
+    /// The selected nullable or union substorage is inactive on this control-flow path.
+    InactiveProjection,
     /// The operation requires implicit copying for a non-copyable type.
     NotCopyable,
 }
@@ -85,6 +89,7 @@ impl StorageOperationDecision {
 pub struct StorageExitDecision {
     scope: BoundBlockId,
     initialized: Arc<[StorageIdentityId]>,
+    moved: Arc<[StorageAccessId]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
     is_recovered: bool,
 }
@@ -94,12 +99,14 @@ impl StorageExitDecision {
     pub fn new(
         scope: BoundBlockId,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
+        moved: impl IntoIterator<Item = StorageAccessId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
         is_recovered: bool,
     ) -> Self {
         Self {
             scope,
             initialized: sorted_unique_shared_slice(initialized),
+            moved: sorted_unique_shared_slice(moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
             is_recovered,
         }
@@ -113,6 +120,11 @@ impl StorageExitDecision {
     /// Returns storage known to remain initialized.
     pub fn initialized(&self) -> &[StorageIdentityId] {
         &self.initialized
+    }
+
+    /// Returns storage accesses whose reached values were moved before this exit.
+    pub fn moved(&self) -> &[StorageAccessId] {
+        &self.moved
     }
 
     /// Returns borrows still active at the exit.
@@ -167,6 +179,7 @@ impl StorageFlowFacts {
                     .initialized()
                     .iter()
                     .any(|storage| storage.unit() != unit)
+                || exit.moved().iter().any(|access| access.unit() != unit)
                 || exit
                     .active_borrows()
                     .iter()
@@ -237,7 +250,7 @@ mod tests {
             StorageOperationStatus::Valid,
         );
 
-        let exit = StorageExitDecision::new(scope, [storage, storage], [], false);
+        let exit = StorageExitDecision::new(scope, [storage, storage], [access, access], [], false);
 
         let facts = StorageFlowFacts::try_new(
             unit,
@@ -250,6 +263,7 @@ mod tests {
 
         assert_eq!(facts.operations(), &[operation]);
         assert_eq!(facts.exits()[0].initialized(), &[storage]);
+        assert_eq!(facts.exits()[0].moved(), &[access]);
         assert!(!facts.is_recovered());
     }
 

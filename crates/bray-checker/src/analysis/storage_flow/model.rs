@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, LivenessFacts, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId, StoragePlan,
+    AnyBoundNodeId, BorrowCapabilityId, CheckedRefinementFacts, LivenessFacts, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+    StoragePlan,
 };
 use bray_symbols::TypeId;
 
@@ -36,15 +37,10 @@ impl StorageFlowInput {
 
         let planned_borrows = storage
             .borrow_capability_entries()
-            .map(|(id, capability)| {
-                (
-                    (
-                        capability.expression(),
-                        capability.kind(),
-                        capability.access(),
-                    ),
-                    id,
-                )
+            .filter_map(|(id, capability)| {
+                capability
+                    .expression()
+                    .map(|expression| ((expression, capability.kind(), capability.access()), id))
             })
             .collect::<BTreeMap<_, _>>();
 
@@ -68,11 +64,10 @@ impl StorageFlowInput {
                     | StorageAccessRoot::Recovery(_) => None,
                 });
 
-            let capability = direct.or_else(|| {
-                planned_borrows
-                    .get(&(plan.expression(), kind, plan.access()))
-                    .copied()
-            });
+            let capability = planned_borrows
+                .get(&(plan.expression(), kind, plan.access()))
+                .copied()
+                .or(direct);
 
             if let Some(capability) = capability {
                 input.borrows.insert(plan, capability);
@@ -130,11 +125,16 @@ impl StorageFlowState {
             .filter_map(|(id, identity)| identity_is_initialized_at_entry(identity).then_some(id))
             .collect();
 
+        let active_borrows = storage
+            .borrow_capability_entries()
+            .filter_map(|(id, capability)| capability.entry_binding().is_some().then_some(id))
+            .collect();
+
         Self {
             reachable: true,
             initialized,
             moved: BTreeSet::new(),
-            active_borrows: BTreeSet::new(),
+            active_borrows,
             recovered: false,
         }
     }
@@ -178,6 +178,7 @@ where
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
     liveness: &'analysis LivenessFacts,
+    refinements: &'analysis CheckedRefinementFacts,
     input: &'analysis StorageFlowInput,
     request: CheckerUnitView<'analysis, C>,
 }
@@ -191,6 +192,7 @@ where
         reachability: &'analysis ReachabilityResult,
         storage: &'analysis StoragePlan,
         liveness: &'analysis LivenessFacts,
+        refinements: &'analysis CheckedRefinementFacts,
         input: &'analysis StorageFlowInput,
         request: CheckerUnitView<'analysis, C>,
     ) -> Self {
@@ -199,18 +201,21 @@ where
             reachability,
             storage,
             liveness,
+            refinements,
             input,
             request,
         }
     }
 
-    fn transfer(&self, block: &AnalysisBlock, source: &StorageFlowState) -> StorageFlowState {
+    fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowState) -> StorageFlowState {
         // Transfer owns an independent task-local successor state.
         let mut state = source.clone();
+
         let mut collector = StorageFlowCollector::without_publication(
             self.request,
             self.storage,
             self.liveness,
+            self.refinements,
             self.input,
         );
 
@@ -248,9 +253,12 @@ where
         target.merge(boundary)
     }
 
+    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
+        self.transfer_block(block, source)
+    }
+
     fn propagate(
         &self,
-        block: &AnalysisBlock,
         source: &Self::State,
         edge: &AnalysisEdge,
         target: &mut Self::State,
@@ -259,32 +267,14 @@ where
             return false;
         }
 
-        let mut incoming = self.transfer(block, source);
-
         if edge.kind() == AnalysisEdgeKind::Recovery {
+            let mut incoming = source.clone();
             incoming.recovered = true;
+
+            return target.merge(&incoming);
         }
 
-        target.merge(&incoming)
-    }
-
-    fn propagate_self(
-        &self,
-        block: &AnalysisBlock,
-        state: &mut Self::State,
-        edge: &AnalysisEdge,
-    ) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
-        }
-
-        let mut incoming = self.transfer(block, state);
-
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            incoming.recovered = true;
-        }
-
-        state.merge(&incoming)
+        target.merge(source)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

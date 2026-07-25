@@ -221,9 +221,12 @@ impl FixedPointDomain for RefinementDomain<'_> {
         target.facts.replace(&boundary.facts)
     }
 
+    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
+        self.transfer(block, source)
+    }
+
     fn propagate(
         &self,
-        block: &AnalysisBlock,
         source: &Self::State,
         edge: &AnalysisEdge,
         target: &mut Self::State,
@@ -232,24 +235,16 @@ impl FixedPointDomain for RefinementDomain<'_> {
             return false;
         }
 
-        let incoming = self.transfer(block, source, edge);
+        let mut incoming = source.clone();
 
-        target.facts.intersect(&incoming.facts)
-    }
-
-    fn propagate_self(
-        &self,
-        block: &AnalysisBlock,
-        state: &mut Self::State,
-        edge: &AnalysisEdge,
-    ) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
+        if edge.kind() == AnalysisEdgeKind::Recovery {
+            incoming.facts.clear();
+        } else if let Some(refinement) = edge.refinement() {
+            self.universe
+                .insert_refinement(&mut incoming.facts, refinement);
         }
 
-        let incoming = self.transfer(block, state, edge);
-
-        state.facts.intersect(&incoming.facts)
+        target.facts.intersect(&incoming.facts)
     }
 
     fn convergence_bound(&self, _: &ControlFlowGraph) -> usize {
@@ -261,12 +256,7 @@ impl FixedPointDomain for RefinementDomain<'_> {
 }
 
 impl RefinementDomain<'_> {
-    fn transfer(
-        &self,
-        block: &AnalysisBlock,
-        source: &RefinementState,
-        edge: &AnalysisEdge,
-    ) -> RefinementState {
+    fn transfer(&self, block: &AnalysisBlock, source: &RefinementState) -> RefinementState {
         let mut incoming = source.clone();
 
         for operation in block.operations() {
@@ -275,13 +265,6 @@ impl RefinementDomain<'_> {
             };
 
             transfer_operation(&mut incoming, operation, self.universe, self.storage);
-        }
-
-        if edge.kind() == AnalysisEdgeKind::Recovery {
-            incoming.facts.clear();
-        } else if let Some(refinement) = edge.refinement() {
-            self.universe
-                .insert_refinement(&mut incoming.facts, refinement);
         }
 
         incoming

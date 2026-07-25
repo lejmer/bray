@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundMemberSelector, BoundReferenceTarget, PlannedBorrowCapability,
-    SelectedOperation, SemanticSelection, StorageAccess, StorageAccessId, StorageAccessRoot,
-    StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
+    BorrowCapabilityOrigin, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget,
+    PlannedBorrowCapability, SelectedOperation, SemanticSelection, StorageAccess, StorageAccessId,
+    StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
 };
 use bray_symbols::{AnyLocalSymbolId, AnySymbolId, SymbolOrdinal};
 
@@ -211,7 +211,7 @@ where
             .ok_or_else(|| invalid_node(expression))?;
 
         let capability = PlannedBorrowCapability::new(
-            expression,
+            BorrowCapabilityOrigin::Expression(expression),
             kind,
             access,
             parent,

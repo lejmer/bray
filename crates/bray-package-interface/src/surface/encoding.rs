@@ -237,6 +237,7 @@ fn encode_relationships(surface: &PackageInterfaceSurface) -> EncodedSurfaceSect
         encoder.write_u32(relationship.owner().raw());
         encoder.write_u32(relationship.member().raw());
         encoder.write_u32(relationship.ordinal());
+        encoder.write_u32(u32::from(relationship.allows_mutation()));
     }
 
     encoded_section(
@@ -510,7 +511,8 @@ mod tests {
                 InterfaceSymbolId::new(2),
                 InterfaceSymbolId::new(3),
                 0,
-            ),
+            )
+            .with_mutation(),
             SymbolRelationship::new(
                 SymbolRelationshipKind::ModuleMember,
                 InterfaceSymbolId::new(1),

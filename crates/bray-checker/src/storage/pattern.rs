@@ -102,7 +102,7 @@ where
         }
 
         if let Some(target) = pattern.target() {
-            self.plan_pattern_target(subject_expression, target)?;
+            self.plan_pattern_target(subject_expression, pattern.mode(), target)?;
         }
 
         for child in pattern.children() {
@@ -251,6 +251,7 @@ where
     fn plan_pattern_target(
         &mut self,
         subject_expression: BoundExpressionId,
+        mode: BoundPatternMode,
         target: BoundPatternTarget,
     ) -> Result<(), PlanError> {
         let target = match target {
@@ -260,11 +261,14 @@ where
 
         let access = self.reference_access(subject_expression, target)?;
 
-        self.record_purpose(
-            subject_expression,
-            Some(StorageAccessPurpose::Initialize),
-            access,
-        )
+        let purpose = match mode {
+            BoundPatternMode::Assignment => StorageAccessPurpose::Assignment,
+            BoundPatternMode::Declaration
+            | BoundPatternMode::MatchObserve
+            | BoundPatternMode::MatchConsume => StorageAccessPurpose::Read,
+        };
+
+        self.record_purpose(subject_expression, Some(purpose), access)
     }
 
     fn project_pattern_access(

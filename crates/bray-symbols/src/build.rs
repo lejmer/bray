@@ -5,6 +5,7 @@ use bray_declarations::{
     ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord,
     DeclarationSurface, DeclarationTable,
 };
+use bray_syntax::SyntaxKind;
 use bray_syntax::SyntaxTree;
 
 use crate::allocator::SymbolIdAllocator;
@@ -247,8 +248,20 @@ fn push_source_symbols(
             });
         }
 
+        if matches!(
+            declaration.kind(),
+            DeclarationKind::StructField | DeclarationKind::UnionPayloadField
+        ) && declaration
+            .surface()
+            .modifiers()
+            .contains(&SyntaxKind::MutKeyword)
+        {
+            graph.allow_member_mutation(id);
+        }
+
         if let Some(owner) = receiver_owner(id, declaration.surface().has_static_modifier()) {
             let receiver_id = ReceiverParameterSymbolId::from_symbol_id(allocator.next()?);
+
             let receiver_key = SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(
                 synthesized_subject_key.clone(),
             ));
@@ -322,6 +335,7 @@ fn default_provider_record(
     let provider = match subject {
         AnySymbolId::CallableParameter(subject) => {
             let id = CallableParameterDefaultProviderSymbolId::from_symbol_id(raw_id);
+
             let key = SymbolKey::synthesized(
                 SynthesizedSymbolKey::callable_parameter_default_provider(subject_key),
             );
@@ -335,6 +349,7 @@ fn default_provider_record(
         }
         AnySymbolId::StructField(subject) => {
             let id = StructFieldDefaultProviderSymbolId::from_symbol_id(raw_id);
+
             let key = SymbolKey::synthesized(SynthesizedSymbolKey::struct_field_default_provider(
                 subject_key,
             ));
@@ -348,6 +363,7 @@ fn default_provider_record(
         }
         AnySymbolId::UnionPayloadField(subject) => {
             let id = UnionPayloadDefaultProviderSymbolId::from_symbol_id(raw_id);
+
             let key = SymbolKey::synthesized(SynthesizedSymbolKey::union_payload_default_provider(
                 subject_key,
             ));
@@ -743,8 +759,8 @@ mod tests {
     fn nested_declarations_retain_immediate_semantic_containment() {
         let table = declaration_table(&[concat!(
             "module app; ",
-            "struct Point<T> { x: T; } ",
-            "union Maybe { Some(value: Int); } ",
+            "struct Point<T> { mut x: T; } ",
+            "union Maybe { Some(mut value: Int); } ",
             "func make(value: Int) {}",
         )]);
 
@@ -769,6 +785,7 @@ mod tests {
         };
 
         assert_eq!(field.containing_symbol(), structure.id().into());
+        assert!(field.allows_mutation());
         assert_eq!(generic.containing_symbol(), structure.id().into());
 
         let Some(union) = graph.union(module.unions()[0]) else {
@@ -793,6 +810,7 @@ mod tests {
 
         assert_eq!(variant.containing_symbol(), union.id().into());
         assert_eq!(payload.containing_symbol(), variant.id().into());
+        assert!(payload.allows_mutation());
 
         let function = source_function(&graph);
         let Some(parameter) = graph

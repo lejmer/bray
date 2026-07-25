@@ -78,7 +78,9 @@ impl StoragePlanBuilder {
         &mut self,
         capability: PlannedBorrowCapability,
     ) -> Result<BorrowCapabilityId, StoragePlanBuildError> {
-        if capability.expression().unit() != self.unit
+        if capability
+            .expression()
+            .is_some_and(|expression| expression.unit() != self.unit)
             || capability.access().unit() != self.unit
             || capability
                 .parent()
@@ -257,7 +259,14 @@ impl StoragePlanBuilder {
         binding: StorageBinding,
     ) -> bool {
         let StorageBinding::Identity(storage) = binding else {
-            return matches!(target, StorageBindingTarget::Local(_));
+            return matches!(
+                target,
+                StorageBindingTarget::Parameter(_)
+                    | StorageBindingTarget::Receiver(_)
+                    | StorageBindingTarget::AnonymousParameter(_)
+                    | StorageBindingTarget::PredicateParameter(_)
+                    | StorageBindingTarget::Local(_)
+            );
         };
 
         match (target, self.identity(storage).copied()) {
