@@ -19,55 +19,106 @@ use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, wa
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::facts::{CheckedExpressionSemantics, Compilation};
-use crate::fact::{CompilationFactKey, FactQueryError, PublishedUnitFact};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 impl Compilation {
     /// Returns diagnostics produced by binding and semantic analysis of this package.
     pub fn semantic_diagnostics(&self) -> &DiagnosticBag {
-        self.fact(
+        match self.semantic_diagnostics_with_cancellation(&self.state.cancellation) {
+            Ok(diagnostics) => diagnostics,
+            Err(FactQueryError::Cancelled) => {
+                panic!("uncancellable semantic diagnostics were unexpectedly cancelled")
+            }
+            Err(FactQueryError::Cycle(cycle)) => {
+                panic!("semantic diagnostic dependencies formed a cycle: {cycle:?}")
+            }
+            Err(FactQueryError::InfrastructureFailure) => {
+                panic!("semantic diagnostic infrastructure failed")
+            }
+            Err(FactQueryError::SemanticUnitContext(error)) => {
+                panic!("semantic unit context failed: {error:?}")
+            }
+            Err(FactQueryError::CheckerInfrastructure(error)) => {
+                panic!("semantic checker infrastructure failed: {error:?}")
+            }
+        }
+    }
+
+    pub(super) fn semantic_diagnostics_with_cancellation(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<&DiagnosticBag, FactQueryError> {
+        self.query_fact_with_cancellation(
             CompilationFactKey::SemanticDiagnostics,
             &self.state.semantic_diagnostics,
-            || match self.compute_semantic_diagnostics() {
-                Ok(diagnostics) => diagnostics,
-                Err(FactQueryError::Cancelled) => {
-                    panic!("uncancellable semantic diagnostics were unexpectedly cancelled")
-                }
-                Err(FactQueryError::Cycle(cycle)) => {
-                    panic!("semantic diagnostic dependencies formed a cycle: {cycle:?}")
-                }
-                Err(FactQueryError::InfrastructureFailure) => {
-                    panic!("semantic diagnostic infrastructure failed")
-                }
-                Err(FactQueryError::SemanticUnitContext(error)) => {
-                    panic!("semantic unit context failed: {error:?}")
-                }
-                Err(FactQueryError::CheckerInfrastructure(error)) => {
-                    panic!("semantic checker infrastructure failed: {error:?}")
-                }
-            },
+            cancellation,
+            |cancellation| self.compute_semantic_diagnostics(cancellation),
         )
     }
 
     /// Returns diagnostics for the current whole-package check request.
     pub fn check_diagnostics(&self) -> &DiagnosticBag {
-        self.fact(
+        match self.check_diagnostics_with_cancellation(&self.state.cancellation) {
+            Ok(diagnostics) => diagnostics,
+            Err(FactQueryError::Cancelled) => {
+                panic!("uncancellable check diagnostics were unexpectedly cancelled")
+            }
+            Err(FactQueryError::Cycle(cycle)) => {
+                panic!("check diagnostic dependencies formed a cycle: {cycle:?}")
+            }
+            Err(FactQueryError::InfrastructureFailure) => {
+                panic!("check diagnostic infrastructure failed")
+            }
+            Err(FactQueryError::SemanticUnitContext(error)) => {
+                panic!("check diagnostic semantic unit context failed: {error:?}")
+            }
+            Err(FactQueryError::CheckerInfrastructure(error)) => {
+                panic!("check diagnostic checker infrastructure failed: {error:?}")
+            }
+        }
+    }
+
+    pub(super) fn check_diagnostics_with_cancellation(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<&DiagnosticBag, FactQueryError> {
+        self.query_fact_with_cancellation(
             CompilationFactKey::CheckDiagnostics,
             &self.state.check_diagnostics,
-            || {
-                let diagnostics = self.map_facts(4, |index| match index {
-                    0 => self.source_diagnostics(),
-                    1 => self.syntax_tree_result().diagnostics(),
-                    2 => self.imported_diagnostics(),
-                    3 => self.semantic_diagnostics(),
-                    _ => unreachable!("scheduled diagnostic index must be in range"),
-                });
-
-                DiagnosticBag::merged_all(diagnostics)
-            },
+            cancellation,
+            |cancellation| self.compute_check_diagnostics(cancellation),
         )
     }
 
-    fn compute_semantic_diagnostics(&self) -> Result<DiagnosticBag, FactQueryError> {
+    fn compute_check_diagnostics(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticBag, FactQueryError> {
+        let diagnostics = self.state.fact_runtime.map_indexed(4, |index| {
+            cancellation.check()?;
+
+            let diagnostics = match index {
+                0 => self.source_diagnostics(),
+                1 => self.syntax_tree_result().diagnostics(),
+                2 => self.imported_diagnostics(),
+                3 => self.semantic_diagnostics_with_cancellation(cancellation)?,
+                _ => unreachable!("scheduled diagnostic index must be in range"),
+            };
+
+            cancellation.check()?;
+
+            Ok(diagnostics)
+        })?;
+
+        let diagnostics = diagnostics.into_iter().collect::<Result<Vec<_>, _>>()?;
+
+        Ok(DiagnosticBag::merged_all(diagnostics))
+    }
+
+    fn compute_semantic_diagnostics(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticBag, FactQueryError> {
         let source_graph = self.product_source_graph()?;
         let mut pending = BTreeSet::new();
 
@@ -77,7 +128,7 @@ impl Compilation {
 
         let symbols = self.symbol_graph()?;
         let mut facts = Vec::new();
-        let binder = self.binder_facts(&self.state.cancellation)?;
+        let binder = self.binder_facts(cancellation)?;
 
         for module in symbols
             .modules()
@@ -128,85 +179,113 @@ impl Compilation {
         }
 
         while let Some((_, _, _, key)) = pending.pop_first() {
-            let bound = self.bound_unit(key.clone())?;
+            let (bound, unit_facts) = self.semantic_unit_diagnostic_facts(key, cancellation)?;
 
-            for nested in bound.value().nested_units() {
+            for nested in bound.result().value().nested_units() {
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
                 pending.insert(unit_order_key(nested.clone()));
             }
 
-            let declared_types = self.declared_value_type_templates(key.clone())?;
-
-            let embedded_constants = self.checked_constant_terms_for_templates_with_cancellation(
-                declared_types
-                    .value()
-                    .evidence()
-                    .iter()
-                    .map(|evidence| evidence.template())
-                    .chain(declared_types.value().callable_type())
-                    .chain(declared_types.value().callable_result()),
-                &self.state.cancellation,
-            )?;
-
-            let expression_semantics =
-                self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
-
-            let control_flow = self.control_flow(key.clone())?;
-            let patterns = self.pattern_facts(key.clone())?;
-            let storage = self.storage_plan(key.clone())?;
-            let refinements = self.refinement_facts(key.clone())?;
-
-            // TODO(BRA-199): Finalized invocation and layout facts must request their exact
-            // target-validity facts and retain those diagnostics in their semantic results.
-
-            facts.push(SemanticDiagnosticFact::Bound(bound));
-            facts.push(SemanticDiagnosticFact::DeclaredTypes(declared_types));
-            facts.push(SemanticDiagnosticFact::EmbeddedConstants(
-                embedded_constants,
-            ));
-
-            facts.push(SemanticDiagnosticFact::ExpressionSemantics(
-                expression_semantics,
-            ));
-
-            facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
-            facts.push(SemanticDiagnosticFact::Patterns(patterns));
-            facts.push(SemanticDiagnosticFact::Storage(storage));
-            facts.push(SemanticDiagnosticFact::Refinements(refinements));
-
-            if key.kind() == BoundUnitKind::ConstantTemplate {
-                let symbols = self.symbol_graph()?;
-
-                let owner = symbols
-                    .symbol_for_key(key.declared_owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let definition =
-                    constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let template = self.constant_definition(definition)?;
-
-                facts.push(SemanticDiagnosticFact::ConstantTemplate(template));
-
-                if !has_visible_generic_parameters(symbols, owner) {
-                    let substitution =
-                        empty_concrete_substitution(self.semantic_value_store()?, definition)?;
-
-                    let instance =
-                        bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
-
-                    let value = self
-                        .constant_instance_with_cancellation(instance, &self.state.cancellation)?;
-
-                    facts.push(SemanticDiagnosticFact::ConstantInstance(value));
-                }
-            }
+            facts.extend(unit_facts);
         }
 
         let fact_diagnostics =
             DiagnosticBag::merged_all(facts.iter().map(SemanticDiagnosticFact::diagnostics));
 
         Ok(source_graph.diagnostics().merged(&fact_diagnostics))
+    }
+
+    pub(super) fn semantic_unit_diagnostics_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticBag, FactQueryError> {
+        let (_, facts) = self.semantic_unit_diagnostic_facts(key, cancellation)?;
+
+        Ok(DiagnosticBag::merged_all(
+            facts.iter().map(SemanticDiagnosticFact::diagnostics),
+        ))
+    }
+
+    fn semantic_unit_diagnostic_facts(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            Arc<PublishedUnitFact<BoundUnit>>,
+            Vec<SemanticDiagnosticFact>,
+        ),
+        FactQueryError,
+    > {
+        // Each fact request owns the same Arc-backed unit identity independently.
+        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+        let declared_types =
+            self.declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+
+        let embedded_constants = self.checked_constant_terms_for_templates_with_cancellation(
+            declared_types
+                .result()
+                .value()
+                .evidence()
+                .iter()
+                .map(|evidence| evidence.template())
+                .chain(declared_types.result().value().callable_type())
+                .chain(declared_types.result().value().callable_result()),
+            cancellation,
+        )?;
+
+        let expression_semantics =
+            self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
+        let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+        let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+        let refinements = self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
+
+        // TODO(BRA-199): Finalized invocation and layout facts must request their exact
+        // target-validity facts and retain those diagnostics in their semantic results.
+
+        let mut facts = vec![
+            SemanticDiagnosticFact::Bound(Arc::clone(bound.result())),
+            SemanticDiagnosticFact::DeclaredTypes(Arc::clone(declared_types.result())),
+            SemanticDiagnosticFact::EmbeddedConstants(embedded_constants),
+            SemanticDiagnosticFact::ExpressionSemantics(expression_semantics),
+            SemanticDiagnosticFact::ControlFlow(Arc::clone(control_flow.result())),
+            SemanticDiagnosticFact::Patterns(Arc::clone(patterns.result())),
+            SemanticDiagnosticFact::Storage(Arc::clone(storage.result())),
+            SemanticDiagnosticFact::Refinements(Arc::clone(refinements.result())),
+        ];
+
+        if key.kind() == BoundUnitKind::ConstantTemplate {
+            let symbols = self.symbol_graph()?;
+
+            let owner = symbols
+                .symbol_for_key(key.declared_owner())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let definition =
+                constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let template = self.constant_definition(definition)?;
+
+            facts.push(SemanticDiagnosticFact::ConstantTemplate(template));
+
+            if !has_visible_generic_parameters(symbols, owner) {
+                let substitution =
+                    empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+
+                let instance =
+                    bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
+
+                let value = self.constant_instance_with_cancellation(instance, cancellation)?;
+
+                facts.push(SemanticDiagnosticFact::ConstantInstance(value));
+            }
+        }
+
+        Ok((bound, facts))
     }
 
     pub(in crate::compilation) fn declared_unit_keys(

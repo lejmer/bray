@@ -62,13 +62,14 @@ impl FactScheduler {
 
     pub(crate) fn map_indexed<T>(
         &self,
+        priority: QueryPriority,
         len: usize,
         operation: impl Fn(usize) -> T + Send + Sync,
     ) -> Result<Vec<T>, FactQueryError>
     where
         T: Send,
     {
-        let pool = self.pool(QueryPriority::Normal)?;
+        let pool = self.pool(priority)?;
 
         let slots = (0..len)
             .map(|_| Mutex::new(None))
@@ -79,7 +80,7 @@ impl FactScheduler {
                 let operation = &operation;
 
                 scope.spawn(move |_| {
-                    let priority = QueryPriorityDemand::new(QueryPriority::Normal);
+                    let priority = QueryPriorityDemand::new(priority);
                     let value = self.execute(&priority, || operation(index));
 
                     let mut slot = slot
@@ -407,7 +408,7 @@ mod tests {
         let maximum = AtomicUsize::new(0);
 
         let results = scheduler
-            .map_indexed(8, |index| {
+            .map_indexed(QueryPriority::Normal, 8, |index| {
                 let current = active.fetch_add(1, Ordering::SeqCst) + 1;
 
                 maximum.fetch_max(current, Ordering::SeqCst);

@@ -2,8 +2,8 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey,
-    ExpressionTypeResult, SemanticSelection,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundSourceAnchor, BoundUnit,
+    BoundUnitKey, ExpressionTypeResult, SemanticSelection,
 };
 use bray_declarations::{DeclarationId, DeclarationRecord, DeclarationTable, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -36,8 +36,12 @@ impl Compilation {
         position: TextSize,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<Option<SyntaxAnchor>, FactQueryError> {
+    ) -> Result<Option<BoundSourceAnchor>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
+            let Some(source) = self.source(source_id) else {
+                return Ok(None);
+            };
+
             let Some(syntax) = self.source_unit_syntax(source_id) else {
                 return Ok(None);
             };
@@ -69,7 +73,7 @@ impl Compilation {
                 SyntaxWalkControl::Continue
             });
 
-            Ok(result)
+            Ok(result.map(|syntax| BoundSourceAnchor::new(syntax, source.version())))
         })
     }
 
@@ -91,11 +95,15 @@ impl Compilation {
     /// Returns the innermost declaration containing a syntax identity.
     pub fn declaration_for_syntax(
         &self,
-        syntax: SyntaxAnchor,
+        source: BoundSourceAnchor,
         cancellation: &CancellationToken,
         priority: QueryPriority,
     ) -> Result<SemanticAvailability<DeclarationId>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
+            let Some(syntax) = self.current_syntax(source, cancellation)? else {
+                return Ok(SemanticAvailability::Unavailable);
+            };
+
             let Some(declaration) = declaration_for_syntax(self.declaration_table(), syntax) else {
                 return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
             };
@@ -125,37 +133,16 @@ impl Compilation {
     /// Returns the semantic reference or declaration associated with a syntax identity.
     pub fn symbol_for_syntax(
         &self,
-        syntax: SyntaxAnchor,
+        source: BoundSourceAnchor,
         cancellation: &CancellationToken,
         priority: QueryPriority,
     ) -> Result<SemanticAvailability<BoundReferenceTarget>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
-            if let Some((bound, expression)) =
-                self.bound_expression_for_syntax(syntax, cancellation)?
-            {
-                return self.expression_symbol(bound.value(), expression, syntax, cancellation);
-            }
-
-            let declarations = self.product_source_graph()?.declarations();
-
-            let Some(declaration) = declaration_for_syntax(declarations, syntax) else {
-                return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
+            let Some(syntax) = self.current_syntax(source, cancellation)? else {
+                return Ok(SemanticAvailability::Unavailable);
             };
 
-            let Some(symbol) = self
-                .symbol_graph()?
-                .symbol_for_declaration(declaration.id())
-            else {
-                return Ok(recovery_or_unavailable(
-                    syntax.is_recovered() || declaration.is_recovered(),
-                    None,
-                ));
-            };
-
-            Ok(availability(
-                syntax.is_recovered() || declaration.is_recovered(),
-                BoundReferenceTarget::Surface(symbol),
-            ))
+            self.symbol_for_current_syntax(syntax, cancellation)
         })
     }
 
@@ -166,7 +153,7 @@ impl Compilation {
         position: TextSize,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<SemanticAvailability<SyntaxAnchor>, FactQueryError> {
+    ) -> Result<SemanticAvailability<BoundSourceAnchor>, FactQueryError> {
         let Some(syntax) = self.syntax_at(source_id, position, cancellation, priority)? else {
             return Ok(SemanticAvailability::Unavailable);
         };
@@ -177,12 +164,16 @@ impl Compilation {
     /// Returns the source definition reached from a syntax identity.
     pub fn definition_for_syntax(
         &self,
-        syntax: SyntaxAnchor,
+        source: BoundSourceAnchor,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<SemanticAvailability<SyntaxAnchor>, FactQueryError> {
+    ) -> Result<SemanticAvailability<BoundSourceAnchor>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
-            let symbol = self.symbol_for_syntax(syntax, cancellation, priority)?;
+            let Some(syntax) = self.current_syntax(source, cancellation)? else {
+                return Ok(SemanticAvailability::Unavailable);
+            };
+
+            let symbol = self.symbol_for_current_syntax(syntax, cancellation)?;
 
             Ok(match symbol {
                 SemanticAvailability::Available(symbol) => self
@@ -220,11 +211,15 @@ impl Compilation {
     /// Returns the checked expression type associated with a syntax identity.
     pub fn expression_type_for_syntax(
         &self,
-        syntax: SyntaxAnchor,
+        source: BoundSourceAnchor,
         cancellation: &CancellationToken,
         priority: QueryPriority,
     ) -> Result<SemanticAvailability<ExpressionTypeResult>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
+            let Some(syntax) = self.current_syntax(source, cancellation)? else {
+                return Ok(SemanticAvailability::Unavailable);
+            };
+
             let Some((bound, expression)) =
                 self.bound_expression_for_syntax(syntax, cancellation)?
             else {
@@ -254,6 +249,7 @@ impl Compilation {
         priority: QueryPriority,
     ) -> Result<DiagnosticBag, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
+            // The scoped result owns diagnostics independently of the compilation cache.
             let source_diagnostics = self
                 .source_diagnostics()
                 .iter()
@@ -262,7 +258,6 @@ impl Compilation {
                         .primary_span()
                         .is_some_and(|span| span.source_id() == source_id)
                 })
-                // The scoped result owns diagnostics independently of the compilation cache.
                 .cloned()
                 .collect::<DiagnosticBag>();
 
@@ -290,29 +285,7 @@ impl Compilation {
         priority: QueryPriority,
     ) -> Result<DiagnosticBag, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
-            // Each fact owns the same Arc-backed unit identity independently.
-            let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-
-            let declared =
-                self.declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
-
-            let expressions =
-                self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
-
-            let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
-            let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
-            let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-            let refinements = self.refinement_facts_with_cancellation(key, cancellation)?;
-
-            Ok(DiagnosticBag::merged_all([
-                bound.result().diagnostics(),
-                declared.result().diagnostics(),
-                expressions.result().diagnostics(),
-                control_flow.result().diagnostics(),
-                patterns.result().diagnostics(),
-                storage.result().diagnostics(),
-                refinements.result().diagnostics(),
-            ]))
+            self.semantic_unit_diagnostics_with_cancellation(key, cancellation)
         })
     }
 
@@ -324,9 +297,9 @@ impl Compilation {
     ) -> Result<DiagnosticBag, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
             // The returned bag remains owned after the package fact cache is released.
-            let diagnostics = self.check_diagnostics().clone();
-
-            cancellation.check()?;
+            let diagnostics = self
+                .check_diagnostics_with_cancellation(cancellation)?
+                .clone();
 
             Ok(diagnostics)
         })
@@ -359,18 +332,104 @@ impl Compilation {
         syntax: SyntaxAnchor,
         cancellation: &CancellationToken,
     ) -> Result<Option<SyntaxBoundExpression>, FactQueryError> {
-        let Some((key, bound)) = self.bound_unit_for_syntax(syntax, cancellation)? else {
+        let Some((_, bound)) = self.bound_unit_for_syntax(syntax, cancellation)? else {
             return Ok(None);
         };
 
-        let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
-        let expression = expression_for_syntax(
-            bound.value(),
-            semantics.result().value().0.entries(),
-            syntax,
-        );
+        let expression = expression_for_syntax(bound.value(), syntax);
 
         Ok(expression.map(|expression| (bound, expression)))
+    }
+
+    fn current_syntax(
+        &self,
+        source: BoundSourceAnchor,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<SyntaxAnchor>, FactQueryError> {
+        let syntax = source.syntax();
+
+        let Some(snapshot) = self.source(syntax.source_id()) else {
+            return Ok(None);
+        };
+
+        if snapshot.version() != source.source_version() {
+            return Ok(None);
+        }
+
+        let Some(source_unit) = self.source_unit_syntax(syntax.source_id()) else {
+            return Ok(None);
+        };
+
+        let mut found = false;
+
+        walk_syntax_node(source_unit.source_unit(), |event| {
+            if cancellation.is_cancelled() {
+                return SyntaxWalkControl::Stop;
+            }
+
+            let SyntaxWalkEvent::EnterNode(node) = event else {
+                return SyntaxWalkControl::Continue;
+            };
+
+            let anchor = SyntaxAnchor::from_node(&node);
+
+            if anchor == syntax {
+                found = true;
+
+                return SyntaxWalkControl::Stop;
+            }
+
+            if !syntax_contains(anchor, syntax) {
+                return SyntaxWalkControl::SkipChildren;
+            }
+
+            SyntaxWalkControl::Continue
+        });
+
+        cancellation.check()?;
+
+        Ok(found.then_some(syntax))
+    }
+
+    fn symbol_for_current_syntax(
+        &self,
+        syntax: SyntaxAnchor,
+        cancellation: &CancellationToken,
+    ) -> Result<SemanticAvailability<BoundReferenceTarget>, FactQueryError> {
+        let declarations = self.product_source_graph()?.declarations();
+
+        if let Some(declaration) = declaration_at_syntax(declarations, syntax) {
+            let Some(symbol) = self
+                .symbol_graph()?
+                .symbol_for_declaration(declaration.id())
+            else {
+                return Ok(recovery_or_unavailable(
+                    syntax.is_recovered() || declaration.is_recovered(),
+                    None,
+                ));
+            };
+
+            return Ok(availability(
+                syntax.is_recovered() || declaration.is_recovered(),
+                BoundReferenceTarget::Surface(symbol),
+            ));
+        }
+
+        let Some((_, bound)) = self.bound_unit_for_syntax(syntax, cancellation)? else {
+            return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
+        };
+
+        if let Some(expression) = expression_for_syntax(bound.value(), syntax) {
+            return self.expression_symbol(bound.value(), expression, syntax, cancellation);
+        }
+
+        let local = bound
+            .value()
+            .local_symbols()
+            .symbol_for_syntax(syntax)
+            .map(BoundReferenceTarget::Local);
+
+        Ok(recovery_or_unavailable(syntax.is_recovered(), local))
     }
 
     fn bound_unit_for_syntax(
@@ -432,6 +491,7 @@ impl Compilation {
             BoundExpression::PatternReference(_) => {
                 // The semantic fact owns its Arc-backed unit key independently of `bound`.
                 let key = bound.key().clone();
+
                 let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
                 match semantics.result().value().1.expression(expression) {
@@ -453,19 +513,35 @@ impl Compilation {
         symbol: BoundReferenceTarget,
         syntax: SyntaxAnchor,
         cancellation: &CancellationToken,
-    ) -> Result<Option<SyntaxAnchor>, FactQueryError> {
+    ) -> Result<Option<BoundSourceAnchor>, FactQueryError> {
         match symbol {
-            BoundReferenceTarget::Surface(symbol) => {
-                Ok(self.symbol_graph()?.declaration_syntax_anchor(symbol))
-            }
+            BoundReferenceTarget::Surface(symbol) => Ok(self
+                .symbol_graph()?
+                .declaration_syntax_anchor(symbol)
+                .and_then(|syntax| self.versioned_syntax(syntax))),
             BoundReferenceTarget::Local(symbol) => {
                 let Some((_, bound)) = self.bound_unit_for_syntax(syntax, cancellation)? else {
                     return Ok(None);
                 };
 
-                Ok(bound.value().local_symbols().syntax_anchor(symbol))
+                Ok(bound
+                    .value()
+                    .local_symbols()
+                    .syntax_anchor(symbol)
+                    .map(|syntax| {
+                        BoundSourceAnchor::new(
+                            syntax,
+                            bound.value().key().source().source_version(),
+                        )
+                    }))
             }
         }
+    }
+
+    fn versioned_syntax(&self, syntax: SyntaxAnchor) -> Option<BoundSourceAnchor> {
+        let version = self.source(syntax.source_id())?.version();
+
+        Some(BoundSourceAnchor::new(syntax, version))
     }
 }
 
@@ -483,20 +559,26 @@ fn declaration_for_syntax(
         })
 }
 
-fn expression_for_syntax(
-    bound: &BoundUnit,
-    entries: &[bray_bound_tree::ExpressionTypeEntry],
+fn declaration_at_syntax(
+    declarations: &DeclarationTable,
     syntax: SyntaxAnchor,
-) -> Option<BoundExpressionId> {
-    entries
+) -> Option<&DeclarationRecord> {
+    declarations
+        .declarations()
         .iter()
-        .filter_map(|entry| {
-            let expression = bound.view().expression(entry.expression())?;
+        .find(|declaration| declaration.syntax_anchor() == syntax)
+}
+
+fn expression_for_syntax(bound: &BoundUnit, syntax: SyntaxAnchor) -> Option<BoundExpressionId> {
+    bound
+        .tree()
+        .expressions()
+        .filter_map(|(expression_id, expression)| {
             let origin = expression.origin();
             let anchor = origin.source_anchor().syntax();
 
             syntax_contains(anchor, syntax).then_some((
-                entry.expression(),
+                expression_id,
                 anchor,
                 origin.synthesized_origin().is_some(),
             ))
@@ -544,13 +626,13 @@ fn recovery_or_unavailable<T>(recovered: bool, value: Option<T>) -> SemanticAvai
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundReferenceTarget, BoundUnitKind};
+    use bray_bound_tree::{BoundReferenceTarget, BoundSourceAnchor, BoundUnitKind};
     use bray_diagnostics::DiagnosticKind;
-    use bray_source::{SourceId, TextSize};
+    use bray_source::{SourceId, SourceVersion, TextSize};
 
     use super::SemanticAvailability;
-    use crate::fact::{CancellationToken, QueryPriority};
-    use crate::test_support::compilation;
+    use crate::fact::{CancellationToken, FactCellTestEvent, QueryPriority};
+    use crate::test_support::{FactTestGate, compilation};
 
     const SOURCE: &str = concat!(
         "module app;\n",
@@ -612,6 +694,7 @@ mod tests {
 
         assert!(
             definition
+                .syntax()
                 .full_range()
                 .contains(position(SOURCE, "func identity"))
         );
@@ -626,6 +709,7 @@ mod tests {
         ));
 
         let local_position = position_after(SOURCE, "return ");
+
         let local_symbol = compilation
             .symbol_at(
                 source_id,
@@ -655,6 +739,7 @@ mod tests {
 
         assert!(
             local_definition
+                .syntax()
                 .full_range()
                 .contains(position(SOURCE, "copy: i32"))
         );
@@ -683,6 +768,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"));
 
         let identity_position = position(SOURCE, "return copy");
+
         let identity = keys
             .iter()
             .find(|key| {
@@ -704,6 +790,10 @@ mod tests {
         );
 
         assert_eq!(compilation.state.bound_units.is_published(main), Ok(true));
+        assert_eq!(
+            compilation.state.expression_semantics.is_published(main),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -733,6 +823,50 @@ mod tests {
                 .is_published(key)
                 .is_ok_and(|published| !published)
         }));
+    }
+
+    #[test]
+    fn syntax_identity_queries_reject_other_source_revisions() {
+        let compilation = compilation(SOURCE);
+        let cancellation = CancellationToken::new();
+
+        let syntax = compilation
+            .syntax_at(
+                SourceId::new(0),
+                position(SOURCE, "identity(1)"),
+                &cancellation,
+                QueryPriority::Interactive,
+            )
+            .unwrap_or_else(|error| panic!("syntax query must complete: {error:?}"))
+            .unwrap_or_else(|| panic!("call syntax must be available"));
+
+        let stale = BoundSourceAnchor::new(
+            syntax.syntax(),
+            SourceVersion::new(syntax.source_version().raw() + 1),
+        );
+
+        let symbol = compilation
+            .symbol_for_syntax(stale, &cancellation, QueryPriority::Interactive)
+            .unwrap_or_else(|error| panic!("stale symbol query must complete: {error:?}"));
+
+        assert_eq!(symbol, SemanticAvailability::Unavailable);
+    }
+
+    #[test]
+    fn symbol_queries_do_not_use_enclosing_declarations_as_fallbacks() {
+        let compilation = compilation(SOURCE);
+        let cancellation = CancellationToken::new();
+
+        let symbol = compilation
+            .symbol_at(
+                SourceId::new(0),
+                position(SOURCE, "i32 = identity"),
+                &cancellation,
+                QueryPriority::Interactive,
+            )
+            .unwrap_or_else(|error| panic!("type syntax symbol query must complete: {error:?}"));
+
+        assert_eq!(symbol, SemanticAvailability::Unavailable);
     }
 
     #[test]
@@ -792,6 +926,36 @@ mod tests {
         assert!(compilation.state.check_diagnostics.get().is_some());
     }
 
+    #[test]
+    fn cancelled_package_diagnostics_publish_no_partial_result() {
+        let compilation = compilation(SOURCE);
+        let cancellation = CancellationToken::new();
+        let gate = FactTestGate::holding(FactCellTestEvent::Computing);
+
+        compilation
+            .state
+            .check_diagnostics
+            .set_test_observer(gate.observer())
+            .unwrap_or_else(|error| panic!("diagnostic fact must accept an observer: {error:?}"));
+
+        let result = std::thread::scope(|scope| {
+            let request = scope.spawn(|| {
+                compilation.diagnostics_for_package(&cancellation, QueryPriority::Interactive)
+            });
+
+            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+            cancellation.cancel();
+            gate.release();
+
+            request
+                .join()
+                .unwrap_or_else(|_| panic!("cancelled diagnostic query must not panic"))
+        });
+
+        assert!(matches!(result, Err(crate::FactQueryError::Cancelled)));
+        assert!(compilation.state.check_diagnostics.get().is_none());
+    }
+
     fn position(source: &str, text: &str) -> TextSize {
         let offset = source
             .find(text)
@@ -803,6 +967,7 @@ mod tests {
 
     fn position_after(source: &str, text: &str) -> TextSize {
         let position = position(source, text);
+
         let length = TextSize::try_from(text.len())
             .unwrap_or_else(|_| panic!("test text length must fit in TextSize"));
 

@@ -123,6 +123,43 @@ impl LocalSymbolSnapshot {
         }
     }
 
+    /// Returns the local symbol introduced by an exact source construct.
+    pub fn symbol_for_syntax(&self, syntax: SyntaxAnchor) -> Option<AnyLocalSymbolId> {
+        let mut symbols = self
+            .bindings
+            .iter()
+            .filter(|symbol| symbol.key().anchors().contains(&syntax))
+            .map(|symbol| AnyLocalSymbolId::from(symbol.id()))
+            .chain(
+                self.constants
+                    .iter()
+                    .filter(|symbol| symbol.key().anchors().contains(&syntax))
+                    .map(|symbol| AnyLocalSymbolId::from(symbol.id())),
+            )
+            .chain(
+                self.anonymous_callables
+                    .iter()
+                    .filter(|symbol| symbol.key().anchors().contains(&syntax))
+                    .map(|symbol| AnyLocalSymbolId::from(symbol.id())),
+            )
+            .chain(
+                self.anonymous_parameters
+                    .iter()
+                    .filter(|symbol| symbol.key().anchors().contains(&syntax))
+                    .map(|symbol| AnyLocalSymbolId::from(symbol.id())),
+            )
+            .chain(
+                self.postcondition_results
+                    .iter()
+                    .filter(|symbol| symbol.syntax_anchor() == syntax)
+                    .map(|symbol| AnyLocalSymbolId::from(symbol.id())),
+            );
+
+        let symbol = symbols.next()?;
+
+        symbols.next().is_none().then_some(symbol)
+    }
+
     fn get<'a, T>(
         &self,
         region: LocalSymbolRegionId,
