@@ -57,6 +57,42 @@ impl SymbolGraphRoots {
     }
 }
 
+macro_rules! map_callable_symbol {
+    ($graph:expr, $callable:expr, $map:expr) => {
+        match $callable {
+            crate::CallableSymbolId::Function(id) => $graph.function(id).map($map),
+            crate::CallableSymbolId::TypeMember(id) => $graph.type_callable_member(id).map($map),
+            crate::CallableSymbolId::TraitMember(id) => $graph.trait_callable_member(id).map($map),
+            crate::CallableSymbolId::TraitFulfillment(id) => {
+                $graph.trait_callable_fulfillment(id).map($map)
+            }
+            crate::CallableSymbolId::Constructor(id) => $graph.constructor(id).map($map),
+            crate::CallableSymbolId::Finalizer(id) => $graph.finalizer(id).map($map),
+            crate::CallableSymbolId::Destructor(id) => $graph.destructor(id).map($map),
+            crate::CallableSymbolId::ScopeEnter(id) => $graph.scope_enter(id).map($map),
+            crate::CallableSymbolId::ScopeExit(id) => $graph.scope_exit(id).map($map),
+            crate::CallableSymbolId::TraitFinalizer(id) => {
+                $graph.trait_finalizer_requirement(id).map($map)
+            }
+            crate::CallableSymbolId::TraitDestructor(id) => {
+                $graph.trait_destructor_requirement(id).map($map)
+            }
+            crate::CallableSymbolId::TraitScopeEnter(id) => {
+                $graph.trait_scope_enter_requirement(id).map($map)
+            }
+            crate::CallableSymbolId::TraitScopeExit(id) => {
+                $graph.trait_scope_exit_requirement(id).map($map)
+            }
+            crate::CallableSymbolId::TraitScopeEnterFulfillment(id) => {
+                $graph.trait_scope_enter_fulfillment(id).map($map)
+            }
+            crate::CallableSymbolId::TraitScopeExitFulfillment(id) => {
+                $graph.trait_scope_exit_fulfillment(id).map($map)
+            }
+        }
+    };
+}
+
 macro_rules! define_symbol_graph {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         /// An immutable deterministic identity graph for compilation-wide surface symbols.
@@ -290,53 +326,18 @@ macro_rules! define_symbol_graph {
                 &[crate::CallableParameterSymbolId],
                 Option<ReceiverParameterSymbolId>,
             )> {
-                match callable {
-                    crate::CallableSymbolId::Function(id) => self
-                        .function(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TypeMember(id) => self
-                        .type_callable_member(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitMember(id) => self
-                        .trait_callable_member(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitFulfillment(id) => self
-                        .trait_callable_fulfillment(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::Constructor(id) => self
-                        .constructor(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::Finalizer(id) => self
-                        .finalizer(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::Destructor(id) => self
-                        .destructor(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::ScopeEnter(id) => self
-                        .scope_enter(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::ScopeExit(id) => self
-                        .scope_exit(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitFinalizer(id) => self
-                        .trait_finalizer_requirement(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitDestructor(id) => self
-                        .trait_destructor_requirement(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitScopeEnter(id) => self
-                        .trait_scope_enter_requirement(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitScopeExit(id) => self
-                        .trait_scope_exit_requirement(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitScopeEnterFulfillment(id) => self
-                        .trait_scope_enter_fulfillment(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                    crate::CallableSymbolId::TraitScopeExitFulfillment(id) => self
-                        .trait_scope_exit_fulfillment(id)
-                        .map(|symbol| (symbol.parameters(), symbol.receiver())),
-                }
+                map_callable_symbol!(self, callable, |symbol| (
+                    symbol.parameters(),
+                    symbol.receiver()
+                ))
+            }
+
+            /// Returns how one callable entered the compilation.
+            pub fn callable_origin(
+                &self,
+                callable: crate::CallableSymbolId,
+            ) -> Option<crate::SymbolOrigin> {
+                map_callable_symbol!(self, callable, |symbol| symbol.origin())
             }
 
             /// Returns one predicate definition's parameters in declaration order.

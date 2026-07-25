@@ -43,7 +43,7 @@ where
         match entry.selection() {
             SemanticSelection::Call(call) => {
                 let mut contribution =
-                    BodyBehaviorCall::source_call(call.target(), BodyBehaviorPhase::Invocation);
+                    BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::Invocation);
 
                 let async_anonymous = matches!(
                     (call.target(), call.resolution().result()),
@@ -95,10 +95,7 @@ where
 
         if matches!(call.resolution().result(), BoundCallResult::LazyFuture(_)) {
             let mut contribution =
-                BodyBehaviorCall::source_call(
-                    call.target(),
-                    BodyBehaviorPhase::DeferredExecution,
-                );
+                BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::DeferredExecution);
 
             if matches!(call.target(), BoundCallableTarget::Anonymous(_))
                 && let Some(unit) = anonymous_callable_unit(request, await_expression.operand())
@@ -213,7 +210,7 @@ fn collect_conversion_behavior(conversion: &SelectedConversion, calls: &mut Vec<
 }
 
 fn invocation(callable: bray_symbols::CallableInstanceData) -> BodyBehaviorCall {
-    BodyBehaviorCall::selected_operation(
+    BodyBehaviorCall::new(
         BoundCallableTarget::Declaration(callable),
         BodyBehaviorPhase::Invocation,
     )

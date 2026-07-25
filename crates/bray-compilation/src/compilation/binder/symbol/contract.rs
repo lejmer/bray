@@ -185,15 +185,19 @@ fn bind_callable_contracts(
         None => None,
     };
 
-    let (used_capabilities, capability_diagnostics, capability_recovered) = match body_key {
-        Some(key) => context
-            .compilation()
-            .direct_trusted_capability_use_with_cancellation(key, context.cancellation())
-            .map_err(super::binding::binder_error)?,
-        None => (BTreeSet::new(), DiagnosticBag::new(), false),
-    };
+    let used_capabilities = body_behavior.as_ref().map(|behavior| {
+        behavior
+            .result()
+            .value()
+            .trusted_capabilities()
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+    });
 
-    diagnostics = diagnostics.merged(&capability_diagnostics);
+    let capability_recovered = body_behavior
+        .as_ref()
+        .is_some_and(|behavior| behavior.result().value().is_recovered());
 
     let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
         execution,
@@ -209,9 +213,8 @@ fn bind_callable_contracts(
         owner,
         trust,
         capabilities.value(),
-        &used_capabilities,
+        used_capabilities.as_ref(),
         capability_recovered,
-        body_behavior.is_some(),
         &mut diagnostics,
     )?;
 
@@ -320,15 +323,18 @@ fn validate_trusted_capabilities(
     owner: CallableSymbolId,
     trust: CallableTrust,
     declared: &[TrustedCapabilityRequirement],
-    used: &BTreeSet<AnySymbolId>,
+    used: Option<&BTreeSet<AnySymbolId>>,
     is_recovered: bool,
-    has_body: bool,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
     let declared = declared
         .iter()
         .map(|requirement| requirement.capability())
         .collect::<BTreeSet<_>>();
+
+    let has_body = used.is_some();
+    let empty = BTreeSet::new();
+    let used = used.unwrap_or(&empty);
 
     if declared.is_empty() && used.is_empty() {
         return Ok(());
@@ -340,7 +346,7 @@ fn validate_trusted_capabilities(
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
     if trust != CallableTrust::Trusted {
-        for capability in declared.union(&used) {
+        for capability in declared.union(used) {
             diagnostics.add(trusted_capability_diagnostic(
                 context,
                 anchor,
@@ -369,7 +375,7 @@ fn validate_trusted_capabilities(
         return Ok(());
     }
 
-    for capability in declared.difference(&used) {
+    for capability in declared.difference(used) {
         diagnostics.add(trusted_capability_diagnostic(
             context,
             anchor,
@@ -514,17 +520,20 @@ mod tests {
 
     use bray_base::NonEmptySharedStr;
     use bray_binder::SymbolFactProvider;
+    use bray_bound_tree::SemanticSelection;
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
     };
     use bray_symbols::{
-        CallableContractsFact, CallableSymbolId, NativeLinkKind, NativeLinkRequirement,
-        SymbolFactRequest, SymbolFactResult,
+        CallableContractTemplate, CallableContractsFact, CallableSymbolId,
+        DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolFactRequest,
+        SymbolFactResult,
     };
 
     use super::publish_catalog_result;
     use crate::test_support::{
-        compilation, compilation_with_options, diagnostic_kinds, source_function,
+        compilation, compilation_with_options, diagnostic_kinds, source_callable_body_key,
+        source_function,
     };
     use crate::{Compilation, CompilationOptions, WorkerBudget};
 
@@ -665,6 +674,53 @@ mod tests {
     }
 
     #[test]
+    fn selected_calls_retain_preconditions_and_normal_completion_postconditions() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func caller()\n",
+            "{\n",
+            "    checked(true);\n",
+            "}\n",
+            "func checked(pos value: bool) -> bool\n",
+            "    requires(value)\n",
+            "    ensures(result)\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let selections = compilation
+            .semantic_selections(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("call selection must publish: {error:?}"));
+
+        let [selection] = selections.value().entries() else {
+            panic!("caller must publish one selected call");
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("caller selection must be a call");
+        };
+
+        let Some(CallableContractTemplate::Source(contract)) = call.contract() else {
+            panic!("source call must retain its contract template");
+        };
+
+        let [precondition, postcondition] = contract.expressions() else {
+            panic!("selected call must retain both contract predicates");
+        };
+
+        assert_eq!(
+            precondition.kind(),
+            DeclarationPredicateClauseKind::Requires
+        );
+
+        assert_eq!(
+            postcondition.kind(),
+            DeclarationPredicateClauseKind::Ensures
+        );
+    }
+
+    #[test]
     fn callable_contract_predicates_must_be_boolean() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -709,10 +765,7 @@ mod tests {
             bray_symbols::ProductKind::Library,
             crate::SelectedTarget::baseline(),
         )
-        .with_native_link_inputs([NativeLinkRequirement::new(
-            link,
-            NativeLinkKind::Dynamic,
-        )]);
+        .with_native_link_inputs([NativeLinkRequirement::new(link, NativeLinkKind::Dynamic)]);
 
         compilation_with_options(&source, options)
     }

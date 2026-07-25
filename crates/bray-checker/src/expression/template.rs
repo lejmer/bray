@@ -89,7 +89,7 @@ where
         defaults.push((default.parameter(), provider));
     }
 
-    // Selection owns its candidate key while binder templates remain reusable.
+    // Selection owns Arc-backed candidate data while binder templates remain reusable.
     let key = template.key().clone();
 
     Ok(TemplateResolution::Resolved(
@@ -100,6 +100,7 @@ where
             defaults,
             candidate_state(template.state()),
         )
+        .with_contract(template.contract().clone())
         .with_generic_constraints(template.generic().constraints().iter().copied()),
     ))
 }

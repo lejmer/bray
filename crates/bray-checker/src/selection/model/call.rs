@@ -6,8 +6,9 @@ use bray_bound_tree::{
     DeclaredValueTypeTerm, MemberTarget,
 };
 use bray_symbols::{
-    CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
-    GenericConstraintTemplate, ImplementationRequirementKey, ImplementationSelection, TypeId,
+    CallableContractTemplate, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    CallableSignature, GenericConstraintTemplate, ImplementationRequirementKey,
+    ImplementationSelection, TypeId,
 };
 
 use super::SelectionCandidateKey;
@@ -102,6 +103,7 @@ pub struct CallableCandidate {
     resolution: BoundResolvedCall,
     callable_type: TypeId,
     declaration_signature: Option<CallableSignature>,
+    contract: Option<Arc<CallableContractTemplate>>,
     result: TypeId,
     defaults: Arc<
         [(
@@ -138,6 +140,7 @@ impl CallableCandidate {
             callable_type: signature.callable_type(),
             result: signature.result(),
             declaration_signature: Some(signature),
+            contract: None,
             defaults: defaults.into(),
             generic_constraints: Arc::new([]),
             implementation_selections: Arc::new([]),
@@ -158,6 +161,7 @@ impl CallableCandidate {
             resolution,
             callable_type,
             declaration_signature: None,
+            contract: None,
             result,
             defaults: Arc::new([]),
             generic_constraints: Arc::new([]),
@@ -172,6 +176,13 @@ impl CallableCandidate {
         constraints: impl IntoIterator<Item = GenericConstraintTemplate>,
     ) -> Self {
         self.generic_constraints = shared_slice(constraints);
+
+        self
+    }
+
+    /// Supplies source or imported contract clauses for a declaration candidate.
+    pub(crate) fn with_contract(mut self, contract: CallableContractTemplate) -> Self {
+        self.contract = Some(Arc::new(contract));
 
         self
     }
@@ -207,6 +218,13 @@ impl CallableCandidate {
     /// Returns the declaration signature when the candidate names a declaration.
     pub(crate) const fn declaration_signature(&self) -> Option<&CallableSignature> {
         self.declaration_signature.as_ref()
+    }
+
+    pub(crate) fn contract(&self) -> Option<&CallableContractTemplate> {
+        match &self.contract {
+            Some(contract) => Some(contract.as_ref()),
+            None => None,
+        }
     }
 
     /// Returns the callable's checked result type before asynchronous wrapping.

@@ -26,8 +26,7 @@ mod unit;
 mod view;
 
 pub use behavior::{
-    BodyBehaviorCall, BodyBehaviorCallKind, BodyBehaviorContributions, BodyBehaviorPhase,
-    CheckedBodyBehavior,
+    BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
 };
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
 pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
