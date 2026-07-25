@@ -17,15 +17,6 @@ use crate::unit::{
     BoundUnitLocalCheckpoint,
 };
 
-/// The semantic category whose rules govern one binding operation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BindingContext {
-    Expression,
-    ConstantExpression,
-    PredicateExpression,
-    ContractClause,
-}
-
 /// The operation performed by one pattern binder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatternBindingMode {

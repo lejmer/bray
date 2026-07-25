@@ -16,7 +16,7 @@ use super::support::{
     anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_source_surface,
     map_assembly_error, map_binding_error, map_fact_error, path_context, push_callable_inputs,
 };
-use crate::binder::{Binder, BinderOutput, BindingContext};
+use crate::binder::{Binder, BinderOutput};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
 use crate::publication::{
     assemble_constant_template, assemble_constraint, assemble_contract_clause,
@@ -32,7 +32,6 @@ macro_rules! define_pending_expression_unit {
         $assemble:ident,
         $bind_helper:ident,
         $root:ty,
-        $context:expr,
         [$($fact_contract:ty),* $(,)?],
         $pending_description:literal,
         $bind_description:literal
@@ -66,7 +65,7 @@ macro_rules! define_pending_expression_unit {
             C: BinderFactContext + ?Sized,
             $(C::SymbolFacts: SymbolFactProvider<$fact_contract>,)*
         {
-            let (output, root) = $bind_helper(facts, unit, key, $context)?;
+            let (output, root) = $bind_helper(facts, unit, key)?;
 
             let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
@@ -85,7 +84,6 @@ define_pending_expression_unit!(
     assemble_runtime_default,
     bind_runtime_default_unit,
     BoundExpressionId,
-    BindingContext::Expression,
     [CallableSignatureFact],
     "A bound runtime-default expression ready to complete its semantic unit.",
     "Binds one runtime-default expression into committed task-local state."
@@ -96,7 +94,6 @@ define_pending_expression_unit!(
     assemble_constant_template,
     bind_expression_unit,
     BoundExpressionId,
-    BindingContext::ConstantExpression,
     [],
     "A bound constant-template expression ready to complete its semantic unit.",
     "Binds one constant-template expression into committed task-local state."
@@ -107,7 +104,6 @@ define_pending_expression_unit!(
     assemble_embedded_constant,
     bind_embedded_constant_unit,
     BoundExpressionId,
-    BindingContext::ConstantExpression,
     [],
     "A bound embedded constant expression ready to complete its semantic unit.",
     "Binds one embedded constant expression into committed task-local state."
@@ -118,7 +114,6 @@ define_pending_expression_unit!(
     assemble_predicate_definition,
     bind_predicate_definition_unit,
     BoundExpressionId,
-    BindingContext::PredicateExpression,
     [PredicateSignatureTemplateFact],
     "A bound predicate-definition expression ready to complete its semantic unit.",
     "Binds one predicate-definition expression into committed task-local state."
@@ -129,7 +124,6 @@ define_pending_expression_unit!(
     assemble_constraint,
     bind_constraint_unit,
     BoundBlockId,
-    BindingContext::PredicateExpression,
     [],
     "A bound constraint expression sequence ready to complete its semantic unit.",
     "Binds one constraint expression sequence into committed task-local state."
@@ -140,7 +134,6 @@ define_pending_expression_unit!(
     assemble_contract_clause,
     bind_contract_clause_unit,
     BoundBlockId,
-    BindingContext::ContractClause,
     [CallableSignatureFact],
     "A bound contract-clause expression sequence ready to complete its semantic unit.",
     "Binds one contract-clause expression sequence into committed task-local state."
@@ -151,7 +144,6 @@ define_pending_expression_unit!(
     assemble_target_gate,
     bind_expression_unit,
     BoundExpressionId,
-    BindingContext::ConstantExpression,
     [],
     "A bound module target-selection expression ready to complete its semantic unit.",
     "Binds one module target-selection expression into committed task-local state."
@@ -161,19 +153,17 @@ fn bind_constraint_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
-    bind_expression_sequence_unit(facts, unit, key, context, false, |_, _| Ok(()))
+    bind_expression_sequence_unit(facts, unit, key, false, false, |_, _| Ok(()))
 }
 
 fn bind_contract_clause_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
@@ -190,26 +180,24 @@ where
         false
     };
 
-    bind_expression_sequence_unit(facts, unit, key, context, has_result, push_callable_inputs)
+    bind_expression_sequence_unit(facts, unit, key, true, has_result, push_callable_inputs)
 }
 
 fn bind_expression_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
-    bind_expression_unit_with_scope(facts, unit, key, context, |_, _| Ok(()))
+    bind_expression_unit_with_scope(facts, unit, key, |_, _| Ok(()))
 }
 
 fn bind_embedded_constant_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
@@ -219,7 +207,6 @@ where
             facts,
             unit,
             key,
-            context,
             |_, _| Ok(()),
             move |expression_binder, binder, scope| {
                 expression_binder.bind_expression(binder, scope, Some(&syntax))
@@ -234,7 +221,6 @@ where
         facts,
         unit,
         key,
-        context,
         |_, _| Ok(()),
         move |expression_binder, binder, scope| {
             expression_binder.bind_type_expression_value(binder, scope, &syntax)
@@ -246,33 +232,30 @@ fn bind_runtime_default_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
 {
-    bind_expression_unit_with_scope(facts, unit, key, context, push_runtime_default_inputs)
+    bind_expression_unit_with_scope(facts, unit, key, push_runtime_default_inputs)
 }
 
 fn bind_predicate_definition_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
 {
-    bind_expression_unit_with_scope(facts, unit, key, context, push_predicate_inputs)
+    bind_expression_unit_with_scope(facts, unit, key, push_predicate_inputs)
 }
 
 fn bind_expression_unit_with_scope<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
@@ -285,7 +268,6 @@ where
         facts,
         unit,
         key,
-        context,
         configure_scope,
         move |expression_binder, binder, scope| {
             expression_binder.bind_expression(binder, scope, Some(&syntax))
@@ -297,7 +279,6 @@ fn bind_expression_root_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    _context: BindingContext,
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
     bind_root: impl FnOnce(
         &mut ExpressionBinder,
@@ -414,7 +395,7 @@ fn bind_expression_sequence_unit<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    context: BindingContext,
+    uses_contract_scope: bool,
     has_contract_result: bool,
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
@@ -439,7 +420,7 @@ where
 
     configure_scope(&mut binder, root_scope)?;
 
-    let expression_scope = if context == BindingContext::ContractClause {
+    let expression_scope = if uses_contract_scope {
         push_contract_scope(&mut binder, root_scope, syntax, has_contract_result)
             .map_err(map_binding_error)?
     } else {
