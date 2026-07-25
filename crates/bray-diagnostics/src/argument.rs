@@ -267,6 +267,22 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a named trait-member argument.
+    pub fn trait_member_name(name: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::TraitMemberName,
+            DiagnosticArgValue::DeclarationName(name.into()),
+        )
+    }
+
+    /// Creates a fixed-keyword trait-member argument.
+    pub const fn trait_member_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::TraitMemberName,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
     /// Creates a referenced-name argument.
     pub fn referenced_name(name: impl Into<String>) -> Self {
         Self::new(
@@ -402,6 +418,8 @@ pub enum DiagnosticArgName {
     ConstructStart,
     /// Source-level declaration name.
     DeclarationName,
+    /// Named or fixed-keyword trait member.
+    TraitMemberName,
     /// Name spelling used by a semantic reference.
     ReferencedName,
     /// Semantic category required at a name reference.
@@ -494,6 +512,7 @@ impl DiagnosticArgName {
             Self::Character => "character",
             Self::ConstructStart => "construct_start",
             Self::DeclarationName => "declaration_name",
+            Self::TraitMemberName => "trait_member_name",
             Self::ReferencedName => "referenced_name",
             Self::ExpectedNameKind => "expected_name_kind",
             Self::ExpectedByteCount => "expected_byte_count",
@@ -1147,6 +1166,8 @@ mod tests {
     #[test]
     fn declaration_args_keep_names_and_module_surface_values_typed() {
         let name = DiagnosticArg::declaration_name("Point");
+        let named_member = DiagnosticArg::trait_member_name("get");
+        let lifecycle_member = DiagnosticArg::trait_member_kind(SyntaxKind::EnterKeyword);
         let visibility = DiagnosticArg::expected_visibility(super::DiagnosticVisibility::Public);
         let trust = DiagnosticArg::actual_module_trust(super::DiagnosticModuleTrust::Ordinary);
 
@@ -1156,6 +1177,19 @@ mod tests {
         assert_eq!(
             name.value(),
             &DiagnosticArgValue::DeclarationName(String::from("Point"))
+        );
+
+        assert_eq!(named_member.name(), DiagnosticArgName::TraitMemberName);
+        assert_eq!(named_member.name().as_str(), "trait_member_name");
+
+        assert_eq!(
+            named_member.value(),
+            &DiagnosticArgValue::DeclarationName(String::from("get"))
+        );
+
+        assert_eq!(
+            lifecycle_member.value(),
+            &DiagnosticArgValue::SyntaxKind(SyntaxKind::EnterKeyword)
         );
 
         assert_eq!(

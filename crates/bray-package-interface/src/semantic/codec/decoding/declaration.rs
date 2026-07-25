@@ -196,14 +196,12 @@ pub(super) fn decode_callable_signature(
     }
 
     let result = InterfaceTypeId::new(read_u32(reader)?);
+    let has_body = decode_bool(reader)?;
 
-    Ok(InterfaceCallableSignature::new(
-        owner,
-        callable_type,
-        receiver,
-        parameters,
-        result,
-    ))
+    Ok(
+        InterfaceCallableSignature::new(owner, callable_type, receiver, parameters, result)
+            .with_body(has_body),
+    )
 }
 
 pub(super) fn decode_generic_declaration(

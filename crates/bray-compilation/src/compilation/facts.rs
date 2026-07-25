@@ -26,8 +26,9 @@ use bray_symbols::{
     ConstantTermId, ConstantValueId, DeclaredTypeRepresentation, DirectiveSurface,
     GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
     ImplementationParticipationFact, ImplementationRequirementKey, ImplementationSelection,
-    ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity, ProofOutcome, SemanticFactResult,
-    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph, TypeAssociatedSurface,
+    ImplementationSymbolId, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
+    ProofOutcome, SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError,
+    SymbolGraph, TraitImplementationConformanceFact, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -109,6 +110,10 @@ pub(super) struct CompilationState {
     pub(super) implementation_candidate_sets: FactCellMap<
         ImplementationRequirementKey,
         Arc<DiagnosticResult<ImplementationCandidateSet>>,
+    >,
+    pub(super) trait_implementation_conformance: FactCellMap<
+        ImplementationSymbolId,
+        Arc<SemanticFactResult<TraitImplementationConformanceFact>>,
     >,
     pub(super) generic_constraint_satisfaction:
         FactCellMap<GenericConstraintObligationKey, Arc<DiagnosticResult<ProofOutcome>>>,
@@ -251,6 +256,7 @@ impl Compilation {
                 type_associated_implementation_index: FactCell::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),
+                trait_implementation_conformance: FactCellMap::new(),
                 generic_constraint_satisfaction: FactCellMap::new(),
                 implementation_selections: FactCellMap::new(),
                 iteration_sources: FactCellMap::new(),

@@ -10,8 +10,9 @@ use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, DeclaredTypeRepresentation,
-    ModuleSurface, ModuleSurfaceFact, NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest,
-    SymbolGraph, SymbolKey, SymbolOrigin,
+    ImplementationSymbolId, ModuleSurface, ModuleSurfaceFact, NamedTypeSymbolId,
+    SemanticFactResult, SymbolFactRequest, SymbolGraph, SymbolKey, SymbolOrigin,
+    TraitImplementationConformanceFact,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -105,6 +106,24 @@ impl Compilation {
         {
             facts.push(SemanticDiagnosticFact::TypeRepresentation(
                 self.declared_type_representation(subject)?,
+            ));
+        }
+
+        for implementation in symbols
+            .unnamed_trait_implementations()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .map(|symbol| ImplementationSymbolId::from(symbol.id()))
+            .chain(
+                symbols
+                    .named_trait_implementations()
+                    .iter()
+                    .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+                    .map(|symbol| ImplementationSymbolId::from(symbol.id())),
+            )
+        {
+            facts.push(SemanticDiagnosticFact::TraitConformance(
+                self.trait_implementation_conformance(implementation)?,
             ));
         }
 
@@ -333,6 +352,7 @@ enum SemanticDiagnosticFact {
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),
+    TraitConformance(Arc<SemanticFactResult<TraitImplementationConformanceFact>>),
 }
 
 impl SemanticDiagnosticFact {
@@ -350,6 +370,7 @@ impl SemanticDiagnosticFact {
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
             Self::TypeRepresentation(result) => result.diagnostics(),
+            Self::TraitConformance(result) => result.diagnostics(),
         }
     }
 }

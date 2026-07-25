@@ -289,14 +289,16 @@ fn bind_callable_signature(
 
     let surface = declaration_callable_surface(context, symbol)?;
 
-    type_binder(context, symbol)?.bind_callable_signature(
+    let result = type_binder(context, symbol)?.bind_callable_signature(
         callable,
         parameters,
         receiver,
         &surface.parameters,
         surface.result.as_ref(),
         surface.qualifiers,
-    )
+    )?;
+
+    Ok(result.map(|signature| signature.with_body(surface.has_body)))
 }
 
 #[cfg(test)]

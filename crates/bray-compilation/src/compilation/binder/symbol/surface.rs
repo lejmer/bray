@@ -17,6 +17,7 @@ pub(super) struct CallableSurface {
     pub(super) parameters: ParameterListSyntax,
     pub(super) result: Option<TypeExpressionSyntax>,
     pub(super) qualifiers: DiagnosticResult<CallableTypeQualifiers>,
+    pub(super) has_body: bool,
 }
 
 pub(super) fn declaration_callable_surface(
@@ -34,6 +35,7 @@ fn callable_surface(
     let mut result = None;
     let mut abi_directives = Vec::new();
     let mut modifiers = CallableModifierPresence::default();
+    let mut has_body = false;
 
     walk_direct_child_nodes(&root, |child| {
         match child.kind() {
@@ -53,6 +55,7 @@ fn callable_surface(
                     .cast::<CallableResultClauseSyntax>()
                     .map(|clause| clause.type_expression());
             }
+            SyntaxKind::CallableBodyBlockExpression => has_body = true,
             kind if is_callable_modifier_kind(kind) => collect_modifiers(child, &mut modifiers),
             _ => {}
         }
@@ -70,6 +73,7 @@ fn callable_surface(
         parameters,
         result,
         qualifiers: abi.map(|abi| callable_qualifiers(symbol, modifiers, abi)),
+        has_body,
     })
 }
 

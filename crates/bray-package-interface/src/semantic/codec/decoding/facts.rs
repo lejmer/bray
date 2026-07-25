@@ -429,6 +429,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("callable default must decode: {error:?}"));
 
         assert_eq!(signature.callable_signatures().len(), 1);
+        assert!(signature.callable_signatures()[0].has_body());
         assert_eq!(signature.types().len(), 3);
         assert_eq!(signature.constant_terms().len(), 1);
         assert_eq!(generic.generic_declarations().len(), 1);
@@ -609,7 +610,8 @@ mod tests {
             signature.receiver().cloned(),
             signature.parameters().iter().cloned(),
             signature.result(),
-        );
+        )
+        .with_body(signature.has_body());
 
         let invalid_signature_facts = base.clone().with_declarations(
             [invalid_signature],

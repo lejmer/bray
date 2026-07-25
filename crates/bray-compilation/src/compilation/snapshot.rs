@@ -312,6 +312,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::ImplementationCandidateSet(*key)
     });
 
+    reuse!(trait_implementation_conformance, |key| {
+        CompilationFactKey::TraitImplementationConformance(*key)
+    });
+
     reuse!(generic_constraint_satisfaction, |key| {
         CompilationFactKey::GenericConstraintSatisfaction(*key)
     });

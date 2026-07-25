@@ -159,6 +159,26 @@ const CHECKING_REFINEMENT_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageT
     "program requires too many flow-sensitive facts",
 )];
 
+const CHECKING_MISSING_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trait implementation does not fulfill "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
+];
+
+const CHECKING_EXTRA_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trait has no member named "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
+];
+
+const CHECKING_INCOMPATIBLE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trait fulfillment is incompatible with "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
+];
+
+const CHECKING_DUPLICATE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("trait member is fulfilled more than once: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
+];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -771,6 +791,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingInvalidUnionTag => MessageTemplate::new(CHECKING_INVALID_UNION_TAG),
         DiagnosticKind::CheckingRefinementCapacityExceeded => {
             MessageTemplate::new(CHECKING_REFINEMENT_CAPACITY_EXCEEDED)
+        }
+        DiagnosticKind::CheckingMissingTraitFulfillment => {
+            MessageTemplate::new(CHECKING_MISSING_TRAIT_FULFILLMENT)
+        }
+        DiagnosticKind::CheckingExtraTraitFulfillment => {
+            MessageTemplate::new(CHECKING_EXTRA_TRAIT_FULFILLMENT)
+        }
+        DiagnosticKind::CheckingIncompatibleTraitFulfillment => {
+            MessageTemplate::new(CHECKING_INCOMPATIBLE_TRAIT_FULFILLMENT)
+        }
+        DiagnosticKind::CheckingDuplicateTraitFulfillment => {
+            MessageTemplate::new(CHECKING_DUPLICATE_TRAIT_FULFILLMENT)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

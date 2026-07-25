@@ -204,6 +204,7 @@ pub struct InterfaceCallableSignature {
     pub(crate) receiver: Option<InterfaceCallableReceiver>,
     pub(crate) parameters: Arc<[InterfaceSymbolReference]>,
     pub(crate) result: InterfaceTypeId,
+    pub(crate) has_body: bool,
 }
 
 impl InterfaceCallableSignature {
@@ -221,7 +222,14 @@ impl InterfaceCallableSignature {
             receiver,
             parameters: parameters.into_iter().collect(),
             result,
+            has_body: false,
         }
+    }
+
+    /// Returns a signature with its declaration-body presence set.
+    pub fn with_body(mut self, has_body: bool) -> Self {
+        self.has_body = has_body;
+        self
     }
 
     /// Returns the callable declaration that owns this signature.
@@ -247,6 +255,11 @@ impl InterfaceCallableSignature {
     /// Returns the callable's checked declared result type.
     pub const fn result(&self) -> InterfaceTypeId {
         self.result
+    }
+
+    /// Returns whether the declaration supplies an executable body.
+    pub const fn has_body(&self) -> bool {
+        self.has_body
     }
 }
 

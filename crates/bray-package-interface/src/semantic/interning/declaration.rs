@@ -65,7 +65,8 @@ impl InternState {
                         receiver,
                         parameters,
                         TypeExpressionTemplate::Resolved(result),
-                    ),
+                    )
+                    .with_body(input.has_body()),
                 })
             })
             .collect()
