@@ -46,11 +46,7 @@ impl ExpressionBinder {
 
         binder.activate_pattern_bindings(pattern_scope, &pattern)?;
 
-        let target = ControlTarget::new(
-            ControlTargetKind::Loop,
-            SyntaxAnchor::from_node(syntax),
-            None,
-        );
+        let target = ControlTarget::new(ControlTargetKind::Loop, SyntaxAnchor::from_node(syntax));
 
         binder.push_control_target(target);
 

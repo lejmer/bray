@@ -7,7 +7,7 @@ use bray_symbols::{
 };
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
 
-use crate::binder::{Binder, BindingContext};
+use crate::binder::Binder;
 use crate::binding::{
     BindingError, ExpressionBinder, callable_normal_completion_has_value, push_contract_scope,
 };
@@ -22,6 +22,12 @@ pub enum PredicateClauseBindingContext {
     GenericConstraint,
     /// A callable precondition, postcondition, or static contract clause.
     CallableContract(CallableContractClauseKind),
+}
+
+#[derive(Clone, Copy)]
+enum SurfaceUnitKind {
+    Constraint,
+    ContractClause,
 }
 
 /// Binds one generated declaration-surface predicate clause through the ordinary expression binder.
@@ -52,7 +58,10 @@ where
         facts,
         owner,
         clause,
-        binding_context(context),
+        match context {
+            PredicateClauseBindingContext::GenericConstraint => SurfaceUnitKind::Constraint,
+            PredicateClauseBindingContext::CallableContract(_) => SurfaceUnitKind::ContractClause,
+        },
         move |binder, path| {
             let path = match context {
                 PredicateClauseBindingContext::GenericConstraint => path,
@@ -101,7 +110,7 @@ where
         facts,
         owner,
         syntax_node_view(clause),
-        BindingContext::ContractClause,
+        SurfaceUnitKind::ContractClause,
         |binder, path| {
             let mut capabilities = Vec::new();
 
@@ -125,7 +134,7 @@ fn bind_surface<C, T>(
     facts: &C,
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
-    context: BindingContext,
+    unit_kind: SurfaceUnitKind,
     bind: impl FnOnce(&mut Binder<'_, C>, PathBindingContext) -> Result<T, BindingError>,
 ) -> BinderFactResult<DiagnosticResult<T>>
 where
@@ -155,10 +164,9 @@ where
     // The transient bound unit owns its immutable key independently of the symbol graph.
     let owner_key = owner_key.clone();
 
-    let key = match context {
-        BindingContext::PredicateExpression => BoundUnitKey::constraint(owner_key, source),
-        BindingContext::ContractClause => BoundUnitKey::contract_clause(owner_key, source),
-        _ => None,
+    let key = match unit_kind {
+        SurfaceUnitKind::Constraint => BoundUnitKey::constraint(owner_key, source),
+        SurfaceUnitKind::ContractClause => BoundUnitKey::contract_clause(owner_key, source),
     }
     .ok_or(BinderFactError::DependencyUnavailable)?;
 
@@ -168,7 +176,7 @@ where
     let builder = BoundUnitLocalBuilder::new(unit, key, region, syntax.full_range().start())
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-    let mut binder = Binder::new(facts, context, builder);
+    let mut binder = Binder::new(facts, builder);
     let scope = binder.unit().root_scope();
 
     let path = match symbols.containing_module(owner) {
@@ -193,13 +201,6 @@ where
     Ok(DiagnosticResult::new(value, diagnostics))
 }
 
-const fn binding_context(context: PredicateClauseBindingContext) -> BindingContext {
-    match context {
-        PredicateClauseBindingContext::GenericConstraint => BindingContext::PredicateExpression,
-        PredicateClauseBindingContext::CallableContract(_) => BindingContext::ContractClause,
-    }
-}
-
 const fn binding_error(error: BindingError) -> BinderFactError {
     match error {
         BindingError::Cancelled => BinderFactError::Cancelled,
@@ -207,7 +208,7 @@ const fn binding_error(error: BindingError) -> BinderFactError {
         | BindingError::Construction(_)
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
-        | BindingError::CandidateContextMismatch
+        | BindingError::TransactionContextMismatch
         | BindingError::ControlTargetMismatch
         | BindingError::UnsupportedSyntax => BinderFactError::DependencyUnavailable,
     }

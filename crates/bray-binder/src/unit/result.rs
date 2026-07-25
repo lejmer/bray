@@ -1,5 +1,8 @@
-use bray_bound_tree::{BoundTree, BoundUnitKey, BoundUnitView};
+use bray_bound_tree::{BoundTree, BoundUnitKey};
 use bray_symbols::{LocalScopeId, LocalSymbolSnapshot};
+
+#[cfg(test)]
+use bray_bound_tree::BoundUnitView;
 
 /// Completed bound-tree and local-symbol state for one unit.
 #[derive(Debug, Eq, PartialEq)]
@@ -29,18 +32,22 @@ impl BoundUnitConstructionResult {
         &self.key
     }
 
+    #[cfg(test)]
     pub(crate) const fn tree(&self) -> &BoundTree {
         &self.tree
     }
 
+    #[cfg(test)]
     pub(crate) const fn local_symbols(&self) -> &LocalSymbolSnapshot {
         &self.local_symbols
     }
 
+    #[cfg(test)]
     pub(crate) const fn root_scope(&self) -> LocalScopeId {
         self.root_scope
     }
 
+    #[cfg(test)]
     pub(crate) fn view(&self) -> BoundUnitView<'_> {
         self.tree.view(&self.key)
     }

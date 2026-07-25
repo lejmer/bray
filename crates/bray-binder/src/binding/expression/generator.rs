@@ -29,7 +29,7 @@ impl ExpressionBinder {
         S: SourceSyntaxNode + SyntaxWalkRoot,
     {
         let region = SyntaxAnchor::from_node(syntax);
-        let target = ControlTarget::new(ControlTargetKind::GeneratorRegion, region, None);
+        let target = ControlTarget::new(ControlTargetKind::GeneratorRegion, region);
 
         binder.push_control_target(target);
 
@@ -76,7 +76,7 @@ impl ExpressionBinder {
         binder.activate_pattern_bindings(pattern_scope, &pattern)?;
 
         let region = SyntaxAnchor::from_node(syntax);
-        let target = ControlTarget::new(ControlTargetKind::GeneratorIteration, region, None);
+        let target = ControlTarget::new(ControlTargetKind::GeneratorIteration, region);
 
         binder.push_control_target(target);
 

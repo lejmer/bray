@@ -92,13 +92,8 @@ where
             syntax.open_brace_token().range().end(),
         )?;
 
-        let target = captures_yield.then(|| {
-            ControlTarget::new(
-                ControlTargetKind::Block,
-                SyntaxAnchor::from_node(syntax),
-                None,
-            )
-        });
+        let target = captures_yield
+            .then(|| ControlTarget::new(ControlTargetKind::Block, SyntaxAnchor::from_node(syntax)));
 
         if let Some(target) = target {
             self.push_control_target(target);

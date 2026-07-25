@@ -17,19 +17,6 @@ use crate::unit::{
     BoundUnitLocalCheckpoint,
 };
 
-/// The semantic category whose rules govern one binding operation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BindingContext {
-    Expression,
-    TypeExpression,
-    ConstantExpression,
-    PredicateExpression,
-    Pattern(PatternBindingMode),
-    CallableBody,
-    ContractClause,
-    TrustedBoundary,
-}
-
 /// The operation performed by one pattern binder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatternBindingMode {
@@ -37,23 +24,6 @@ pub(crate) enum PatternBindingMode {
     Assignment,
     MatchObserve,
     MatchConsume,
-}
-
-/// One contextual expectation active while binding a nested construct.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ExpectedContext {
-    Type(TypeId),
-    Semantic(ExpectedSemanticKind),
-}
-
-/// A non-type semantic category expected from a nested construct.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ExpectedSemanticKind {
-    Value,
-    Type,
-    Constant,
-    Predicate,
-    Pattern,
 }
 
 /// The category of one active source-level control target.
@@ -71,20 +41,11 @@ pub(crate) enum ControlTargetKind {
 pub(crate) struct ControlTarget {
     kind: ControlTargetKind,
     syntax: SyntaxAnchor,
-    expected_value: Option<TypeId>,
 }
 
 impl ControlTarget {
-    pub(crate) const fn new(
-        kind: ControlTargetKind,
-        syntax: SyntaxAnchor,
-        expected_value: Option<TypeId>,
-    ) -> Self {
-        Self {
-            kind,
-            syntax,
-            expected_value,
-        }
+    pub(crate) const fn new(kind: ControlTargetKind, syntax: SyntaxAnchor) -> Self {
+        Self { kind, syntax }
     }
 
     pub(crate) const fn kind(self) -> ControlTargetKind {
@@ -93,10 +54,6 @@ impl ControlTarget {
 
     pub(crate) const fn syntax(self) -> SyntaxAnchor {
         self.syntax
-    }
-
-    pub(crate) const fn expected_value(self) -> Option<TypeId> {
-        self.expected_value
     }
 }
 
@@ -116,18 +73,10 @@ pub enum BinderDependency {
     Unit(BoundUnitKey),
 }
 
-/// How an abandoned candidate classifies facts observed after its checkpoint.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum AbandonedDependencyRelevance {
-    Relevant,
-    ProvenIrrelevant,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BinderCheckpoint {
     unit: BoundUnitLocalCheckpoint,
     diagnostics: usize,
-    expected_contexts: Box<[ExpectedContext]>,
     control_targets: Box<[ControlTarget]>,
     known_value_type_log: usize,
     contextual_pattern_bindings: usize,
@@ -138,10 +87,8 @@ pub(crate) struct BinderCheckpoint {
 #[derive(Debug)]
 pub(crate) struct Binder<'facts, C: BinderFactContext + ?Sized> {
     facts: &'facts C,
-    binding_context: BindingContext,
     unit: BoundUnitLocalBuilder,
     diagnostics: Vec<Diagnostic>,
-    expected_contexts: Vec<ExpectedContext>,
     control_targets: Vec<ControlTarget>,
     known_value_types: BTreeMap<BoundReferenceTarget, TypeId>,
     known_value_type_log: Vec<(BoundReferenceTarget, Option<TypeId>)>,
@@ -156,17 +103,11 @@ pub(crate) struct Binder<'facts, C: BinderFactContext + ?Sized> {
 }
 
 impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
-    pub(crate) fn new(
-        facts: &'facts C,
-        binding_context: BindingContext,
-        unit: BoundUnitLocalBuilder,
-    ) -> Self {
+    pub(crate) fn new(facts: &'facts C, unit: BoundUnitLocalBuilder) -> Self {
         Self {
             facts,
-            binding_context,
             unit,
             diagnostics: Vec::new(),
-            expected_contexts: Vec::new(),
             control_targets: Vec::new(),
             known_value_types: BTreeMap::new(),
             known_value_type_log: Vec::new(),
@@ -178,10 +119,6 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
 
     pub(crate) const fn facts(&self) -> &'facts C {
         self.facts
-    }
-
-    pub(crate) const fn binding_context(&self) -> BindingContext {
-        self.binding_context
     }
 
     pub(crate) const fn unit_mut(&mut self) -> &mut BoundUnitLocalBuilder {
@@ -214,18 +151,6 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
             .is_none_or(|is_recovered| is_recovered)
     }
 
-    pub(crate) fn push_expected(&mut self, expected: ExpectedContext) {
-        self.expected_contexts.push(expected);
-    }
-
-    pub(crate) fn pop_expected(&mut self) -> Option<ExpectedContext> {
-        self.expected_contexts.pop()
-    }
-
-    pub(crate) fn expected(&self) -> Option<ExpectedContext> {
-        self.expected_contexts.last().copied()
-    }
-
     pub(crate) fn push_control_target(&mut self, target: ControlTarget) {
         self.control_targets.push(target);
     }
@@ -234,6 +159,7 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         self.control_targets.pop()
     }
 
+    #[cfg(test)]
     pub(crate) fn control_target(&self) -> Option<ControlTarget> {
         self.control_targets.last().copied()
     }
@@ -323,8 +249,7 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
     }
 
     pub(crate) fn record_dependency(&mut self, dependency: BinderDependency) {
-        // The ordered set owns canonical publication order while the trail independently owns
-        // rollback history, so a newly observed immutable key must be retained in both.
+        // The set defines publication order while the log lets failed transactions undo inserts.
         if self.dependencies.insert(dependency.clone()) {
             self.dependency_log.push(dependency);
         }
@@ -334,10 +259,6 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         BinderCheckpoint {
             unit: self.unit.checkpoint(),
             diagnostics: self.diagnostics.len(),
-            // Candidates may pop an enclosing context or replace one at the same depth. These
-            // shallow Copy-only stacks therefore need exact snapshots while arena state uses
-            // compact lengths and rollback trails.
-            expected_contexts: self.expected_contexts.clone().into_boxed_slice(),
             control_targets: self.control_targets.clone().into_boxed_slice(),
             known_value_type_log: self.known_value_type_log.len(),
             contextual_pattern_bindings: self.contextual_pattern_bindings.len(),
@@ -345,11 +266,7 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         }
     }
 
-    pub(crate) fn rollback(
-        &mut self,
-        checkpoint: BinderCheckpoint,
-        dependency_relevance: AbandonedDependencyRelevance,
-    ) -> bool {
+    pub(crate) fn rollback(&mut self, checkpoint: BinderCheckpoint) -> bool {
         if checkpoint.diagnostics > self.diagnostics.len()
             || checkpoint.known_value_type_log > self.known_value_type_log.len()
             || checkpoint.contextual_pattern_bindings > self.contextual_pattern_bindings.len()
@@ -363,8 +280,6 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         }
 
         self.diagnostics.truncate(checkpoint.diagnostics);
-
-        self.expected_contexts = checkpoint.expected_contexts.into_vec();
         self.control_targets = checkpoint.control_targets.into_vec();
 
         for (target, previous) in self
@@ -385,18 +300,15 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         self.contextual_pattern_bindings
             .truncate(checkpoint.contextual_pattern_bindings);
 
-        if dependency_relevance == AbandonedDependencyRelevance::ProvenIrrelevant {
-            for dependency in self.dependency_log.drain(checkpoint.dependency_log..) {
-                self.dependencies.remove(&dependency);
-            }
+        for dependency in self.dependency_log.drain(checkpoint.dependency_log..) {
+            self.dependencies.remove(&dependency);
         }
 
         true
     }
 
-    pub(crate) fn candidate_context_is_balanced(&self, checkpoint: &BinderCheckpoint) -> bool {
-        *checkpoint.expected_contexts == self.expected_contexts
-            && *checkpoint.control_targets == self.control_targets
+    pub(crate) fn transaction_context_is_balanced(&self, checkpoint: &BinderCheckpoint) -> bool {
+        *checkpoint.control_targets == self.control_targets
     }
 
     pub(crate) fn finish(self) -> Result<BinderOutput, BoundUnitConstructionError> {
@@ -430,6 +342,7 @@ impl BinderOutput {
         &self.unit
     }
 
+    #[cfg(test)]
     pub(crate) const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }
@@ -455,55 +368,33 @@ mod tests {
     use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
     use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolFactKind, TypeData};
 
-    use super::{
-        AbandonedDependencyRelevance, Binder, BinderDependency, BindingContext, ControlTarget,
-        ControlTargetKind, ExpectedContext, ExpectedSemanticKind,
-    };
+    use super::{Binder, BinderDependency, ControlTarget, ControlTargetKind};
     use crate::BinderFactContext;
     use crate::fact::test_support::{TestContext, TestFixture as FactFixture};
     use crate::unit::test_support::{builder, fixture, push_binding};
 
     #[test]
-    fn binders_expose_typed_inputs_and_nested_expectations() {
+    fn binders_expose_typed_inputs_and_control_targets() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(20));
 
-        let mut binder = Binder::new(&facts, BindingContext::CallableBody, unit);
+        let mut binder = Binder::new(&facts, unit);
 
-        let target = ControlTarget::new(
-            ControlTargetKind::Callable,
-            unit_fixture.first,
-            Some(fact_fixture.declared_type),
-        );
+        let target = ControlTarget::new(ControlTargetKind::Callable, unit_fixture.first);
 
-        binder.push_expected(ExpectedContext::Semantic(ExpectedSemanticKind::Value));
-        binder.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
         binder.push_control_target(target);
-
-        assert_eq!(binder.binding_context(), BindingContext::CallableBody);
 
         assert_eq!(
             binder.facts().semantic_values().id(),
             fact_fixture.semantic_values.id()
         );
 
-        assert_eq!(
-            binder.expected(),
-            Some(ExpectedContext::Type(fact_fixture.declared_type))
-        );
-
         assert_eq!(binder.control_target(), Some(target));
         assert_eq!(target.kind(), ControlTargetKind::Callable);
         assert_eq!(target.syntax(), unit_fixture.first);
-        assert_eq!(target.expected_value(), Some(fact_fixture.declared_type));
-
-        assert_eq!(
-            binder.pop_expected(),
-            Some(ExpectedContext::Type(fact_fixture.declared_type))
-        );
 
         assert_eq!(binder.pop_control_target(), Some(target));
     }
@@ -516,7 +407,7 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(21));
 
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         let root = binder.unit_mut().root_scope();
         let checkpoint = binder.checkpoint();
@@ -535,20 +426,16 @@ mod tests {
 
         assert_eq!(binder.value_type(abandoned_target), Some(known_type));
 
-        binder.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
-
         binder.push_control_target(ControlTarget::new(
             ControlTargetKind::Loop,
             unit_fixture.first,
-            None,
         ));
 
         binder.add_diagnostic(diagnostic(0));
         binder.record_dependency(BinderDependency::Target(fact_fixture.constant));
 
-        assert!(binder.rollback(checkpoint, AbandonedDependencyRelevance::ProvenIrrelevant));
+        assert!(binder.rollback(checkpoint));
 
-        assert_eq!(binder.expected(), None);
         assert_eq!(binder.control_target(), None);
         assert_eq!(binder.value_type(abandoned_target), None);
 
@@ -576,14 +463,14 @@ mod tests {
     }
 
     #[test]
-    fn observed_dependencies_are_deduplicated_sorted_and_retained_when_relevant() {
+    fn observed_dependencies_are_deduplicated_sorted_and_rolled_back_with_failed_work() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(22));
 
-        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, unit);
 
         let symbol = fact_fixture.constant.into();
         let symbol_dependency = BinderDependency::Symbol {
@@ -606,7 +493,7 @@ mod tests {
         binder.add_diagnostic(diagnostic(1));
         binder.record_dependency(candidate_dependency.clone());
 
-        assert!(binder.rollback(checkpoint, AbandonedDependencyRelevance::Relevant));
+        assert!(binder.rollback(checkpoint));
 
         let result = match binder.finish() {
             Ok(result) => result,
@@ -615,7 +502,7 @@ mod tests {
 
         assert_eq!(
             result.dependencies(),
-            &[symbol_dependency, candidate_dependency, target_dependency]
+            &[symbol_dependency, target_dependency]
         );
 
         assert!(result.diagnostics().is_empty());

@@ -23,7 +23,6 @@ where
         let target = ControlTarget::new(
             ControlTargetKind::Callable,
             self.unit().key().source().syntax(),
-            None,
         );
 
         self.push_control_target(target);

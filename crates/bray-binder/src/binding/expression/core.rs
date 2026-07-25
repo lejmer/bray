@@ -115,13 +115,7 @@ impl ExpressionBinder {
             kind,
             BoundStructuredExpressionKind::While | BoundStructuredExpressionKind::Loop
         )
-        .then(|| {
-            ControlTarget::new(
-                ControlTargetKind::Loop,
-                SyntaxAnchor::from_node(&syntax),
-                None,
-            )
-        });
+        .then(|| ControlTarget::new(ControlTargetKind::Loop, SyntaxAnchor::from_node(&syntax)));
 
         if let Some(target) = loop_target {
             binder.push_control_target(target);

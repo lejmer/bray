@@ -8,7 +8,7 @@ use super::BoundUnitBindingError;
 use super::support::{
     anchored_descendant, error_type, map_assembly_error, map_binding_error, push_callable_inputs,
 };
-use crate::binder::{BinderOutput, BindingContext};
+use crate::binder::BinderOutput;
 use crate::publication::{
     assemble_anonymous_callable, assemble_callable_body, direct_nested_units,
 };
@@ -69,7 +69,7 @@ where
         anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(facts, key.source().syntax())
             .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut binder = super::support::create_binder(facts, unit, key, BindingContext::CallableBody)?;
+    let mut binder = super::support::create_binder(facts, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     push_callable_inputs(&mut binder, root_scope)?;
@@ -125,7 +125,7 @@ where
     let syntax = anchored_descendant::<_, LambdaExpressionSyntax>(facts, key.source().syntax())
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut binder = super::support::create_binder(facts, unit, key, BindingContext::CallableBody)?;
+    let mut binder = super::support::create_binder(facts, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     let boundary = binder

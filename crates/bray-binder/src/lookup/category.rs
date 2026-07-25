@@ -5,9 +5,9 @@ use bray_symbols::{
     NamedTypeSymbolId, PredicateParameterSymbolId, PredicateSymbolId, ReceiverParameterSymbolId,
     StructFieldSymbolId, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
-    TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitSymbolId,
-    TraitTypeFulfillmentSymbolId, TraitTypeMemberSymbolId, TypeCallableMemberSymbolId,
-    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
+    TraitTypeMemberSymbolId, TypeCallableMemberSymbolId, UnionPayloadFieldSymbolId,
+    UnionVariantSymbolId,
 };
 
 /// One candidate in the ordinary namespace visible to a binder request.
@@ -107,7 +107,8 @@ pub(crate) fn classify_type(name: ResolvedName) -> Option<ResolvedTypeName> {
     }
 }
 
-pub(super) fn classify_trait(name: ResolvedName) -> Option<TraitSymbolId> {
+#[cfg(test)]
+pub(super) fn classify_trait(name: ResolvedName) -> Option<bray_symbols::TraitSymbolId> {
     match name {
         ResolvedName::Surface(AnySymbolId::Trait(id)) => Some(id),
         ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
@@ -172,6 +173,7 @@ pub(super) fn classify_value(name: ResolvedName) -> Option<ResolvedValueName> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn classify_callable_overload(name: ResolvedName) -> Option<CallableOverloadSymbolId> {
     match name {
         ResolvedName::Surface(AnySymbolId::CallableOverload(id)) => Some(id),
