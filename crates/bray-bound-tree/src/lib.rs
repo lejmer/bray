@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod behavior;
 mod bound_unit;
 mod control;
 mod declared_type;
@@ -24,6 +25,9 @@ mod typing;
 mod unit;
 mod view;
 
+pub use behavior::{
+    BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
+};
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
 pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
 pub use declared_type::{

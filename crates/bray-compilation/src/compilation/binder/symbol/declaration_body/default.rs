@@ -189,16 +189,32 @@ fn checked_runtime_default(
         UnevaluatedDefaultTemplate::Absent => Err(BinderFactError::DependencyUnavailable),
         UnevaluatedDefaultTemplate::Present(expression) => {
             let provider = runtime_default_provider(context, owner)?;
-            let key = source_runtime_default_key(context, provider, expression.syntax())?;
-            let checked = checked_source_expression(context, key)?;
+            let key = context
+                .compilation()
+                .source_runtime_default_key(provider, expression.syntax())
+                .map_err(super::super::binding::binder_error)?;
+
+            let checked = checked_source_expression(context, key.clone())?;
             let generic_context = source_generic_context(context, owner)?;
-            let behavior =
-                runtime_default_behavior(context, checked.result, checked.dependency_contract)?;
+
+            let body_behavior = context
+                .compilation()
+                .body_behavior_with_cancellation(key, context.cancellation())
+                .map_err(super::super::binding::binder_error)?;
+
+            let behavior = runtime_default_behavior(
+                context,
+                checked.result,
+                checked.dependency_contract,
+                body_behavior.result().value(),
+            )?;
+
             let syntax_diagnostics = syntax_diagnostics(context, expression.syntax());
 
             let diagnostics = DiagnosticBag::merged_all([
                 template_diagnostics,
                 &checked.diagnostics,
+                body_behavior.result().diagnostics(),
                 &syntax_diagnostics,
             ]);
 
@@ -256,25 +272,26 @@ fn checked_runtime_default(
     }
 }
 
-fn source_runtime_default_key(
-    context: &CompilationBinderFacts<'_>,
-    provider: AnySymbolId,
-    syntax: bray_declarations::SyntaxAnchor,
-) -> BinderFactResult<BoundUnitKey> {
-    let source = context
-        .compilation()
-        .source(syntax.source_id())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+impl crate::compilation::Compilation {
+    pub(in crate::compilation) fn source_runtime_default_key(
+        &self,
+        provider: AnySymbolId,
+        syntax: bray_declarations::SyntaxAnchor,
+    ) -> Result<BoundUnitKey, crate::fact::FactQueryError> {
+        let source = self
+            .source(syntax.source_id())
+            .ok_or(crate::fact::FactQueryError::InfrastructureFailure)?;
 
-    // Bound unit keys own their Arc-backed provider identity independently of the symbol graph.
-    let provider = context
-        .symbols()
-        .symbol_key(provider)
-        .cloned()
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        // Bound unit keys own their Arc-backed provider identity independently of the symbol graph.
+        let provider = self
+            .symbol_graph()?
+            .symbol_key(provider)
+            .cloned()
+            .ok_or(crate::fact::FactQueryError::InfrastructureFailure)?;
 
-    BoundUnitKey::runtime_default(provider, BoundSourceAnchor::new(syntax, source.version()))
-        .ok_or(BinderFactError::DependencyUnavailable)
+        BoundUnitKey::runtime_default(provider, BoundSourceAnchor::new(syntax, source.version()))
+            .ok_or(crate::fact::FactQueryError::InfrastructureFailure)
+    }
 }
 
 fn source_generic_context(
@@ -393,16 +410,23 @@ fn runtime_default_behavior(
     context: &CompilationBinderFacts<'_>,
     result: TypeId,
     dependency: bray_symbols::DependencyContractTemplateId,
+    body: &bray_bound_tree::CheckedBodyBehavior,
 ) -> BinderFactResult<RuntimeDefaultBehavior> {
-    // TODO(BRA-225): Populate effects, capabilities, trust, and lifecycle obligations.
     let ownership = runtime_default_ownership(context, result)?;
 
     Ok(RuntimeDefaultBehavior::new(
         ownership,
-        [],
-        [],
-        [],
-        [],
+        body.effects()
+            .iter()
+            .map(|effect| bray_symbols::RuntimeDefaultEffectRequirement::new(effect.declaration())),
+        body.capabilities().iter().map(|capability| {
+            bray_symbols::RuntimeDefaultCapabilityRequirement::new(capability.declaration())
+        }),
+        body.trusted_capabilities()
+            .iter()
+            .copied()
+            .map(bray_symbols::RuntimeDefaultTrustedObligation::new),
+        body.lifecycle_obligations().iter().copied(),
         dependency,
     ))
 }

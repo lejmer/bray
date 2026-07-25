@@ -2,15 +2,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind};
 use bray_symbols::{
-    ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
-    DirectiveArgumentName, DirectiveArgumentTemplate, DirectiveKind, DirectiveSurface,
-    DirectiveTemplate, FunctionSymbolId, NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement,
-    StructSymbolId,
+    AnySymbolId, CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
+    ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
+    DirectiveKind, DirectiveSurface, DirectiveTemplate, FunctionSymbolId, NamedTypeSymbolId,
+    NativeLinkKind, NativeLinkRequirement, PredicateSymbolId, StructSymbolId,
 };
-use bray_syntax::{FunctionDeclarationSyntax, SyntaxText};
 
 use super::super::Compilation;
 use super::diagnostic::{missing_directive, source_diagnostic};
@@ -19,15 +18,26 @@ use crate::compilation::substitution::named_type;
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) fn validate_foreign_import_requirements(
+    compilation: &Compilation,
     anchor: bray_declarations::SyntaxAnchor,
-    syntax: &FunctionDeclarationSyntax,
+    contracts: &CallableContractSet,
     diagnostics: &mut DiagnosticBag,
 ) {
-    // TODO(BRA-225): Use checked capability identities once capability summaries are published.
-    let has_foreign_call = syntax.uses_clauses().any(|clause| {
-        clause
-            .paths()
-            .any(|path| path.full_text().trim() == "foreign_call")
+    let foreign_call = CompilerKnownDeclarationKey::try_new("ForeignCall")
+        .and_then(|key| {
+            compilation
+                .available_compiler_known_symbols()
+                .declaration_symbol::<PredicateSymbolId>(&key)
+        })
+        .map(AnySymbolId::from);
+
+    let has_foreign_call = foreign_call.is_some_and(|foreign_call| {
+        contract_phases(contracts).any(|phase| {
+            phase
+                .trusted_capabilities()
+                .iter()
+                .any(|capability| capability.capability() == foreign_call)
+        })
     });
 
     if !has_foreign_call {
@@ -39,6 +49,12 @@ pub(super) fn validate_foreign_import_requirements(
             .with_arg(DiagnosticArg::referenced_name("foreign_call")),
         );
     }
+}
+
+fn contract_phases(
+    contracts: &CallableContractSet,
+) -> impl Iterator<Item = &bray_symbols::CallablePhaseBehavior> {
+    std::iter::once(contracts.invocation_behavior()).chain(contracts.deferred_execution_behavior())
 }
 
 pub(super) fn foreign_link_requirements(

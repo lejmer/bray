@@ -2,6 +2,7 @@ use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
 use crate::analysis::check_refinements;
 use crate::analysis::check_storage_flow;
+use crate::behavior::collect_body_behavior;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::dependency::check_dependency_contracts;
 use crate::expression::check_expression_semantics;
@@ -17,9 +18,10 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
-    CheckedRefinementFacts, DeclaredValueTypeTemplates, LivenessFacts, SelectedCall,
-    SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
+    BodyBehaviorContributions, CheckedControlFlowFacts, CheckedDependencyContracts,
+    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts,
+    DeclaredValueTypeTemplates, LivenessFacts, SelectedCall, SelectedIterationSource,
+    SelectedOperation, StorageFlowFacts, StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -75,6 +77,10 @@ pub struct DefaultStorageFlowChecker;
 /// The standard Bray dependency-contract checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultDependencyContractChecker;
+
+/// The standard Bray direct body-behavior collector.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultBodyBehaviorCollector;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -253,6 +259,27 @@ where
 
 impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
     C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
+
+/// Direct effect, capability, lifecycle, and callable contributions from one checked unit.
+pub trait BodyBehaviorCollector<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Collects direct contributions without traversing into other semantic units.
+    fn collect_body_behavior(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        control_flow: &CheckedControlFlowFacts,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+    ) -> CheckerOutcome<BodyBehaviorContributions> {
+        collect_body_behavior(request, control_flow, selections)
+    }
+}
+
+impl<C> BodyBehaviorCollector<C> for DefaultBodyBehaviorCollector where
+    C: CheckerRequestContext + ?Sized
 {
 }
 

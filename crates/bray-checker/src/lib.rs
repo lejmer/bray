@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod analysis;
+mod behavior;
 mod constant;
 mod context;
 mod dependency;
@@ -55,13 +56,14 @@ pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
 pub use service::{
-    ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
-    DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultDependencyContractChecker,
-    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultLivenessAnalyzer,
-    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
-    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
-    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
-    PatternChecker, RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
+    BodyBehaviorCollector, ConstantChecker, ConstantEvaluator, ControlFlowChecker,
+    DefaultBodyBehaviorCollector, DefaultConstantChecker, DefaultConstantEvaluator,
+    DefaultControlFlowChecker, DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
+    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
+    DefaultRefinementAnalyzer, DefaultSemanticSelector, DefaultStorageFlowChecker,
+    DefaultStoragePlanner, DefaultTargetValidityChecker, DependencyContractChecker,
+    ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer, PatternChecker,
+    RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
     TargetValidityChecker,
 };
 pub use target::{

@@ -30,7 +30,7 @@ enum SurfaceUnitKind {
     ContractClause,
 }
 
-/// Binds one generated declaration-surface predicate clause through the ordinary expression binder.
+/// Binds one declaration-surface predicate clause through the ordinary expression binder.
 pub fn bind_predicate_clause<C>(
     facts: &C,
     owner: AnySymbolId,
@@ -97,7 +97,7 @@ where
     )
 }
 
-/// Resolves one generated callable `uses(...)` clause through ordinary symbol lookup.
+/// Resolves one callable `uses(...)` clause through ordinary symbol lookup.
 pub fn bind_trusted_capability_clause<C>(
     facts: &C,
     owner: AnySymbolId,
@@ -145,14 +145,6 @@ where
     }
 
     let symbols = facts.symbols();
-
-    if symbols
-        .compiler_known_provider()
-        .declaration_fact_for_symbol(owner)
-        .is_none()
-    {
-        return Err(BinderFactError::DependencyUnavailable);
-    }
 
     let Some(owner_key) = symbols.symbol_key(owner) else {
         return Err(BinderFactError::DependencyUnavailable);

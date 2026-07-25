@@ -606,7 +606,7 @@ impl Compilation {
         ))
     }
 
-    fn semantic_selections_with_cancellation(
+    pub(in crate::compilation) fn semantic_selections_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
