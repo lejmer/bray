@@ -205,6 +205,12 @@ pub enum DiagnosticKind {
     CheckingInvalidUnionTag,
     /// Flow-sensitive fact analysis exceeded its deterministic capacity.
     CheckingRefinementCapacityExceeded,
+    /// A trait implementation omits a required member fulfillment.
+    CheckingMissingTraitFulfillment,
+    /// A trait implementation declares a member that does not fulfill its trait.
+    CheckingExtraTraitFulfillment,
+    /// A trait implementation member is incompatible with its requirement.
+    CheckingIncompatibleTraitFulfillment,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -329,6 +335,9 @@ impl DiagnosticKind {
             Self::CheckingInvalidCopyContract => 7031,
             Self::CheckingInvalidUnionTag => 7032,
             Self::CheckingRefinementCapacityExceeded => 7033,
+            Self::CheckingMissingTraitFulfillment => 7040,
+            Self::CheckingExtraTraitFulfillment => 7041,
+            Self::CheckingIncompatibleTraitFulfillment => 7042,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -474,6 +483,9 @@ impl DiagnosticKind {
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
+            Self::CheckingMissingTraitFulfillment => "checking_missing_trait_fulfillment",
+            Self::CheckingExtraTraitFulfillment => "checking_extra_trait_fulfillment",
+            Self::CheckingIncompatibleTraitFulfillment => "checking_incompatible_trait_fulfillment",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -537,7 +549,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 109] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 112] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -639,6 +651,9 @@ mod tests {
             DiagnosticKind::CheckingInvalidCopyContract,
             DiagnosticKind::CheckingInvalidUnionTag,
             DiagnosticKind::CheckingRefinementCapacityExceeded,
+            DiagnosticKind::CheckingMissingTraitFulfillment,
+            DiagnosticKind::CheckingExtraTraitFulfillment,
+            DiagnosticKind::CheckingIncompatibleTraitFulfillment,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

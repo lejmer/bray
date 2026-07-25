@@ -6,8 +6,8 @@ use bray_source::SourceId;
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
     ConstantValueId, GenericConstraintObligationKey, ImplementationCoherenceDomainKey,
-    ImplementationInstanceId, ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId,
-    NamedTypeSymbolId, SymbolFactKind, TypeId,
+    ImplementationInstanceId, ImplementationRequirementKey, ImplementationSymbolId,
+    ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -251,6 +251,8 @@ pub(crate) enum CompilationFactKey {
     ImplementationHeaderIndex,
     /// Uncommitted implementation candidates for one exact requirement.
     ImplementationCandidateSet(ImplementationRequirementKey),
+    /// Checked member fulfillment validity for one trait implementation.
+    TraitImplementationConformance(ImplementationSymbolId),
     /// Static constraints for one exact generic declaration instance.
     GenericConstraintSatisfaction(GenericConstraintObligationKey),
     /// The selected implementation witness for one exact requirement.
@@ -324,6 +326,7 @@ impl CompilationFactKey {
             | Self::ImportedDiagnostics
             | Self::ImplementationHeaderIndex
             | Self::ImplementationCandidateSet(_)
+            | Self::TraitImplementationConformance(_)
             | Self::GenericConstraintSatisfaction(_)
             | Self::ImplementationSelection(_)
             | Self::ImportedSemanticGraph(_)

@@ -413,6 +413,11 @@ define_semantic_fact_contract! {
         key: ImplementationRequirementKey,
         value: ImplementationSelection,
     }
+    /// Checks member fulfillment validity for one trait implementation.
+    TraitImplementationConformanceFact {
+        key: ImplementationSymbolId,
+        value: crate::TraitImplementationConformance,
+    }
     /// Proves every static constraint for one exact generic declaration instance.
     GenericConstraintSatisfactionFact {
         key: crate::GenericConstraintObligationKey,

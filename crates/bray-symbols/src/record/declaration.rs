@@ -710,6 +710,20 @@ macro_rules! impl_implementation_relationships {
                     &self.relationships.trait_types
                 }
 
+                /// Returns trait scope-enter fulfillments in declaration order.
+                pub fn scope_enter_fulfillments(
+                    &self,
+                ) -> &[crate::TraitScopeEnterFulfillmentSymbolId] {
+                    &self.relationships.trait_scope_enters
+                }
+
+                /// Returns trait scope-exit fulfillments in declaration order.
+                pub fn scope_exit_fulfillments(
+                    &self,
+                ) -> &[crate::TraitScopeExitFulfillmentSymbolId] {
+                    &self.relationships.trait_scope_exits
+                }
+
                 /// Returns callable overload families in declaration order.
                 pub fn callable_overloads(&self) -> &[crate::CallableOverloadSymbolId] {
                     &self.relationships.overloads

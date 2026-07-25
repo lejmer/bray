@@ -19,6 +19,11 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
             DiagnosticArgName::DirectiveKind | DiagnosticArgName::ConflictingDirectiveKind => {
                 return format_english_syntax_kind_without_suffix(*kind, "_directive");
             }
+            DiagnosticArgName::TraitMemberName => {
+                return format_english_quoted_text(&format_english_syntax_kind_without_suffix(
+                    *kind, "_keyword",
+                ));
+            }
             _ => {}
         }
     }
@@ -407,6 +412,7 @@ mod tests {
                 DiagnosticArgValue::SourceInputKind(SourceInputKind::GeneratedText),
             ),
             DiagnosticArg::expected_syntax_kind(SyntaxKind::FuncKeyword),
+            DiagnosticArg::trait_member_kind(SyntaxKind::EnterKeyword),
             DiagnosticArg::token_text("main\n"),
             DiagnosticArg::new(
                 DiagnosticArgName::SourceSpan,
@@ -443,6 +449,11 @@ mod tests {
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::ExpectedSyntaxKind),
             "func keyword"
+        );
+
+        assert_eq!(
+            formatter.format_named_arg(&args, DiagnosticArgName::TraitMemberName),
+            "'enter'"
         );
 
         assert_eq!(

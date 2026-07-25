@@ -1,4 +1,5 @@
 mod completion;
+mod conformance;
 mod constant;
 mod contract;
 mod default;
@@ -19,6 +20,10 @@ pub use completion::{
     SymbolCompletionPlanError, SymbolCompletionUnit, SymbolFactCompletionRequest, SymbolFactForcer,
     SymbolFactKind,
 };
+pub use conformance::{
+    TraitImplementationConformance, TraitMemberFulfillmentId, TraitMemberRequirementId,
+    TraitRequirementConformance, TraitRequirementResolution,
+};
 pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };
@@ -38,9 +43,9 @@ pub use contract::{
     SymbolFactContract, SymbolFactRequest, SymbolFactResult,
     TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
     TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
-    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    TraitImplementationConformanceFact, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
