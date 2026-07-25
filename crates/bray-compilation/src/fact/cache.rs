@@ -6,7 +6,7 @@ use std::fmt;
 
 use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
-    FactTaskIdentity, QueryPriority,
+    FactTaskIdentity, QueryPriority, QueryPriorityDemand, SharedCancellation,
 };
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -55,12 +55,14 @@ impl fmt::Debug for FactCellTestObserver {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 enum FactCellState {
     Vacant,
     Computing {
         task: FactTaskIdentity,
         key: CompilationFactKey,
+        cancellation: SharedCancellation,
+        priority: QueryPriorityDemand,
     },
     Ready(CompilationFactKey),
 }
@@ -139,13 +141,9 @@ impl<T> FactCell<T> {
     where
         T: Send,
     {
-        self.get_or_compute_with_priority(
-            runtime,
-            key,
-            cancellation,
-            QueryPriority::Normal,
-            compute,
-        )
+        let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
+
+        self.get_or_compute_with_priority(runtime, key, cancellation, priority, compute)
     }
 
     pub(crate) fn get_or_compute_with_priority(
@@ -159,13 +157,34 @@ impl<T> FactCell<T> {
     where
         T: Send,
     {
-        self.get_or_compute_with_cycle_key_and_priority(
+        self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
             key.clone(),
             key,
             cancellation,
-            compute,
             priority,
+            |_| compute(),
+        )
+    }
+
+    pub(crate) fn get_or_compute_requested(
+        &self,
+        runtime: &FactRuntime,
+        key: CompilationFactKey,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
+    ) -> Result<&T, FactQueryError>
+    where
+        T: Send,
+    {
+        self.get_or_compute_requested_with_cycle_key_and_priority(
+            runtime,
+            key.clone(),
+            key,
+            cancellation,
+            priority,
+            compute,
         )
     }
 
@@ -180,24 +199,26 @@ impl<T> FactCell<T> {
     where
         T: Send,
     {
-        self.get_or_compute_with_cycle_key_and_priority(
+        let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
+
+        self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
             key,
             cycle_key,
             cancellation,
-            compute,
-            QueryPriority::Normal,
+            priority,
+            |_| compute(),
         )
     }
 
-    fn get_or_compute_with_cycle_key_and_priority(
+    fn get_or_compute_requested_with_cycle_key_and_priority(
         &self,
         runtime: &FactRuntime,
         key: CompilationFactKey,
         cycle_key: CompilationFactKey,
         cancellation: &CancellationToken,
-        compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
         priority: QueryPriority,
+        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
         T: Send,
@@ -227,10 +248,15 @@ impl<T> FactCell<T> {
                     // The task, cell state, and rollback guard independently retain this key.
                     let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
                     let task = context.identity();
+                    let shared_cancellation = SharedCancellation::new();
+                    let _interest = shared_cancellation.register(cancellation)?;
+                    let shared_priority = QueryPriorityDemand::new(priority);
 
                     *state = FactCellState::Computing {
                         task,
                         key: key.clone(),
+                        cancellation: shared_cancellation.clone(),
+                        priority: shared_priority.clone(),
                     };
 
                     drop(state);
@@ -241,18 +267,18 @@ impl<T> FactCell<T> {
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computing)?;
 
-                    cancellation.check()?;
-
                     let compute = compute
                         .take()
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let value = runtime.run(priority, || evaluation.run(compute))?;
+                    let value = runtime.run_demand(&shared_priority, || {
+                        evaluation.run(|| compute(shared_cancellation.token()))
+                    })?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
 
-                    cancellation.check()?;
+                    shared_cancellation.token().check()?;
 
                     let commit = evaluation.prepare()?;
 
@@ -260,17 +286,23 @@ impl<T> FactCell<T> {
 
                     publication.disarm();
 
+                    cancellation.check()?;
+
                     return self.ready_value();
                 }
                 FactCellState::Computing {
                     task,
                     key: computing_key,
+                    cancellation: shared_cancellation,
+                    priority: shared_priority,
                 } => {
                     if computing_key != &key {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
                     let task = *task;
+                    let shared_cancellation = shared_cancellation.clone();
+                    let shared_priority = shared_priority.clone();
 
                     let current_task = runtime
                         .current_task_context()
@@ -282,6 +314,10 @@ impl<T> FactCell<T> {
                     }
 
                     drop(state);
+
+                    let _interest = shared_cancellation.register(cancellation)?;
+
+                    runtime.promote_priority(&shared_priority, priority);
 
                     let Some(waiting) = runtime.wait_for(&key, task)? else {
                         continue;
@@ -341,6 +377,7 @@ impl<T> FactCell<T> {
             FactCellState::Computing {
                 task: active_task,
                 key: active_key,
+                ..
             } if *active_task == task && active_key == &key
         ) {
             return Err(FactQueryError::InfrastructureFailure);
@@ -409,6 +446,7 @@ impl<T> FactCell<T> {
             FactCellState::Computing {
                 task: active_task,
                 key: active_key,
+                ..
             } if *active_task == task && active_key == key
         ) {
             return;
@@ -1333,6 +1371,92 @@ mod tests {
         });
 
         assert_eq!(observed, Ok(Err(FactQueryError::Cancelled)));
+        assert_eq!(cell.get(), Some(&5));
+    }
+
+    #[test]
+    fn cancelling_the_owner_keeps_shared_work_needed_by_a_waiter() {
+        let runtime = runtime(2);
+        let owner_cancellation = CancellationToken::new();
+        let waiter_cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let key = CompilationFactKey::SyntaxTree;
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (waiting_sender, waiting_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::channel();
+        let release_receiver = Mutex::new(release_receiver);
+
+        let observer = FactCellTestObserver::new(move |event| {
+            if event == FactCellTestEvent::Waiting {
+                let _ = waiting_sender.try_send(());
+            }
+        });
+
+        assert_eq!(cell.set_test_observer(observer), Ok(()));
+
+        let (owner_result, waiter_result) = std::thread::scope(|scope| {
+            let owner_cell = &cell;
+            let owner_runtime = &runtime;
+            let owner_key = key.clone();
+            let owner_token = &owner_cancellation;
+            let owner_release = &release_receiver;
+
+            let owner = scope.spawn(move || {
+                owner_cell
+                    .get_or_compute_requested(
+                        owner_runtime,
+                        owner_key,
+                        owner_token,
+                        crate::QueryPriority::Background,
+                        |shared_cancellation| {
+                            started_sender
+                                .send(())
+                                .unwrap_or_else(|_| panic!("test must observe shared work"));
+
+                            owner_release
+                                .lock()
+                                .unwrap_or_else(|_| panic!("release channel must remain available"))
+                                .recv()
+                                .unwrap_or_else(|_| panic!("test must release shared work"));
+
+                            shared_cancellation.check()?;
+
+                            Ok(5_u32)
+                        },
+                    )
+                    .copied()
+            });
+
+            started_receiver
+                .recv()
+                .unwrap_or_else(|_| panic!("shared work must start"));
+
+            let waiter = scope.spawn(|| {
+                cell.get_or_compute_with_priority(
+                    &runtime,
+                    key,
+                    &waiter_cancellation,
+                    crate::QueryPriority::Interactive,
+                    || Ok(9_u32),
+                )
+                .copied()
+            });
+
+            waiting_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap_or_else(|_| panic!("interactive request must wait for shared work"));
+
+            owner_cancellation.cancel();
+
+            release_sender
+                .send(())
+                .unwrap_or_else(|_| panic!("test must release shared work"));
+
+            (join(owner), join(waiter))
+        });
+
+        assert_eq!(owner_result, Err(FactQueryError::Cancelled));
+        assert_eq!(waiter_result, Ok(5));
         assert_eq!(cell.get(), Some(&5));
     }
 

@@ -25,7 +25,9 @@ use bray_symbols::SymbolGraph;
 use super::binder::{CompilationBinderFacts, bind_declared_value_type_templates, type_scope};
 use super::checker::{CompilationCheckerContext, checker_result};
 use super::facts::{CheckedExpressionSemantics, Compilation};
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact, QueryPriority,
+};
 
 type ExpressionSemanticComputation = (
     DiagnosticResult<CheckedExpressionSemantics>,
@@ -53,6 +55,19 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<BoundUnit>>, FactQueryError> {
         let published = self.bound_unit_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns one bound semantic unit for a cancellable prioritized request.
+    pub fn bound_unit_with_priority(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Arc<DiagnosticResult<BoundUnit>>, FactQueryError> {
+        let published =
+            self.bound_unit_with_cancellation_and_priority(key, cancellation, priority)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -144,11 +159,27 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<BoundUnit>>, FactQueryError> {
-        self.unit_fact(
+        let priority = self
+            .state
+            .fact_runtime
+            .current_priority()?
+            .unwrap_or(QueryPriority::Normal);
+
+        self.bound_unit_with_cancellation_and_priority(key, cancellation, priority)
+    }
+
+    fn bound_unit_with_cancellation_and_priority(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Arc<PublishedUnitFact<BoundUnit>>, FactQueryError> {
+        self.unit_fact_with_priority(
             &self.state.bound_units,
             CompilationFactKey::BoundUnit(key.clone()),
             key.clone(),
             cancellation,
+            priority,
             |cancellation| {
                 let facts = self.binder_facts_for(&key, cancellation)?;
                 let unit = self.bound_unit_id(&key)?;
@@ -923,7 +954,7 @@ mod tests {
     };
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
-    use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
+    use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError, QueryPriority};
     use crate::test_support::{
         FactTestGate, compilation, compilation_with_sources_and_worker_budget,
         source_callable_body_key,
@@ -2420,7 +2451,11 @@ func main()
             let request_key = key.clone();
 
             let request = scope.spawn(|| {
-                compilation.bound_unit_with_cancellation(request_key, &bound_cancellation)
+                compilation.bound_unit_with_priority(
+                    request_key,
+                    &bound_cancellation,
+                    QueryPriority::Interactive,
+                )
             });
 
             bound_gate.wait_until_observed(FactCellTestEvent::Computed, 1);

@@ -50,6 +50,7 @@ where
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let access = state.next_access;
+
         state.next_access = state
             .next_access
             .checked_add(1)
@@ -58,12 +59,18 @@ where
         if let Some(entry) = state.cells.get_mut(&key) {
             entry.last_access = access;
 
-            return Ok(Arc::clone(&entry.cell));
+            let cell = Arc::clone(&entry.cell);
+
+            reclaim_ready_entries(&mut state.cells, self.retention_limit, Some(access));
+
+            return Ok(cell);
         }
 
-        if state.cells.len() >= self.retention_limit {
-            evict_oldest_ready(&mut state.cells);
-        }
+        reclaim_ready_entries(
+            &mut state.cells,
+            self.retention_limit.saturating_sub(1),
+            None,
+        );
 
         let cell = Arc::new(FactCell::new());
 
@@ -174,21 +181,28 @@ where
     }
 }
 
-fn evict_oldest_ready<K, V>(cells: &mut BTreeMap<K, FactCellMapEntry<V>>)
-where
+fn reclaim_ready_entries<K, V>(
+    cells: &mut BTreeMap<K, FactCellMapEntry<V>>,
+    retained: usize,
+    protected_access: Option<u64>,
+) where
     K: Ord,
 {
-    let oldest_access = cells
-        .iter()
-        .filter(|(_, entry)| entry.cell.get().is_some())
-        .min_by_key(|(_, entry)| entry.last_access)
-        .map(|(_, entry)| entry.last_access);
+    while cells.len() > retained {
+        let oldest_access = cells
+            .values()
+            .filter(|entry| {
+                entry.cell.get().is_some() && Some(entry.last_access) != protected_access
+            })
+            .min_by_key(|entry| entry.last_access)
+            .map(|entry| entry.last_access);
 
-    let Some(oldest_access) = oldest_access else {
-        return;
-    };
+        let Some(oldest_access) = oldest_access else {
+            return;
+        };
 
-    cells.retain(|_, entry| entry.last_access != oldest_access);
+        cells.retain(|_, entry| entry.last_access != oldest_access);
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +226,36 @@ mod tests {
         publish(&cache, &runtime, &cancellation, 3);
 
         assert_eq!(cache.keys(), [1, 3]);
+    }
+
+    #[test]
+    fn completed_in_flight_bursts_converge_to_the_retention_limit() {
+        let cache = FactCellMap::with_retention_limit(2);
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let cells = [1, 2, 3].map(|key| {
+            cache
+                .cell(key)
+                .unwrap_or_else(|error| panic!("fact cell must be available: {error:?}"))
+        });
+
+        for (key, cell) in [1, 2, 3].into_iter().zip(cells) {
+            cell.get_or_compute(
+                &runtime,
+                CompilationFactKey::SyntaxTree,
+                &cancellation,
+                || Ok(key),
+            )
+            .unwrap_or_else(|error| panic!("fact must publish: {error:?}"));
+        }
+
+        let _ = cache
+            .cell(3)
+            .unwrap_or_else(|error| panic!("cached fact must remain readable: {error:?}"));
+
+        assert_eq!(cache.keys().len(), 2);
+        assert!(cache.keys().contains(&3));
     }
 
     fn publish(

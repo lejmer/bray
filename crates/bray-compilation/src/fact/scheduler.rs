@@ -3,13 +3,13 @@ use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
-use super::{FactQueryError, QueryPriority};
+use super::{FactQueryError, QueryPriority, QueryPriorityDemand};
 use crate::WorkerBudget;
 
 const MAX_INTERACTIVE_STREAK: usize = 8;
 
 thread_local! {
-    static ACTIVE_SCHEDULERS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static ACTIVE_SCHEDULERS: RefCell<Vec<ActiveScheduler>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Debug)]
@@ -32,9 +32,21 @@ impl FactScheduler {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn run<T>(
         &self,
         priority: QueryPriority,
+        operation: impl FnOnce() -> T + Send,
+    ) -> Result<T, FactQueryError>
+    where
+        T: Send,
+    {
+        self.run_demand(&QueryPriorityDemand::new(priority), operation)
+    }
+
+    pub(crate) fn run_demand<T>(
+        &self,
+        priority: &QueryPriorityDemand,
         operation: impl FnOnce() -> T + Send,
     ) -> Result<T, FactQueryError>
     where
@@ -44,7 +56,7 @@ impl FactScheduler {
             return Ok(operation());
         }
 
-        let pool = self.pool(priority)?;
+        let pool = self.pool(priority.current())?;
 
         Ok(pool.install(|| self.execute(priority, operation)))
     }
@@ -68,7 +80,8 @@ impl FactScheduler {
                 let operation = &operation;
 
                 scope.spawn(move |_| {
-                    let value = self.execute(QueryPriority::Normal, || operation(index));
+                    let priority = QueryPriorityDemand::new(QueryPriority::Normal);
+                    let value = self.execute(&priority, || operation(index));
 
                     let mut slot = slot
                         .lock()
@@ -96,7 +109,28 @@ impl FactScheduler {
         self.worker_count
     }
 
-    fn execute<T>(&self, priority: QueryPriority, operation: impl FnOnce() -> T) -> T {
+    pub(crate) fn current_priority(&self) -> Result<Option<QueryPriority>, FactQueryError> {
+        ACTIVE_SCHEDULERS
+            .try_with(|active| {
+                let active = active
+                    .try_borrow()
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                Ok(active
+                    .iter()
+                    .rev()
+                    .find(|active| active.identity == self.identity())
+                    .map(|active| active.priority))
+            })
+            .map_err(|_| FactQueryError::InfrastructureFailure)?
+    }
+
+    pub(crate) fn promote(&self, priority: &QueryPriorityDemand, requested: QueryPriority) {
+        priority.promote(requested);
+        self.slots.priority_changed();
+    }
+
+    fn execute<T>(&self, priority: &QueryPriorityDemand, operation: impl FnOnce() -> T) -> T {
         if self
             .is_active()
             .unwrap_or_else(|_| panic!("scheduler-local state must remain available"))
@@ -109,7 +143,7 @@ impl FactScheduler {
             .acquire(priority)
             .unwrap_or_else(|_| panic!("scheduler slots must remain available"));
 
-        let _active = ActiveSchedulerGuard::enter(self.identity())
+        let _active = ActiveSchedulerGuard::enter(self.identity(), priority.current())
             .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
 
         operation()
@@ -130,7 +164,9 @@ impl FactScheduler {
                     .try_borrow()
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                Ok(active.contains(&self.identity()))
+                Ok(active
+                    .iter()
+                    .any(|active| active.identity == self.identity()))
             })
             .map_err(|_| FactQueryError::InfrastructureFailure)?
     }
@@ -181,28 +217,38 @@ impl ExecutionSlots {
         }
     }
 
-    fn acquire(&self, priority: QueryPriority) -> Result<ExecutionSlot<'_>, FactQueryError> {
-        let interactive = priority == QueryPriority::Interactive;
+    fn acquire(&self, priority: &QueryPriorityDemand) -> Result<ExecutionSlot<'_>, FactQueryError> {
+        let mut interactive = priority.current() == QueryPriority::Interactive;
         let mut state = self.state()?;
 
-        if interactive {
-            state.interactive_waiters += 1;
-        } else {
-            state.ordinary_waiters += 1;
-        }
+        register_waiter(&mut state, interactive);
+        self.available.notify_all();
 
-        while !self.can_acquire(&state, interactive) {
+        loop {
+            let promoted = priority.current() == QueryPriority::Interactive;
+
+            if promoted != interactive {
+                unregister_waiter(&mut state, interactive);
+                interactive = promoted;
+                register_waiter(&mut state, interactive);
+                self.available.notify_all();
+            }
+
+            if self.can_acquire(&state, interactive) {
+                break;
+            }
+
             state = self
                 .available
                 .wait(state)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
         }
 
+        unregister_waiter(&mut state, interactive);
+
         if interactive {
-            state.interactive_waiters -= 1;
             state.interactive_streak += 1;
         } else {
-            state.ordinary_waiters -= 1;
             state.interactive_streak = 0;
         }
 
@@ -229,6 +275,60 @@ impl ExecutionSlots {
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)
     }
+
+    fn priority_changed(&self) {
+        self.available.notify_all();
+    }
+
+    #[cfg(test)]
+    fn wait_until_queued(&self, interactive: usize, ordinary: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let mut state = self
+            .state()
+            .unwrap_or_else(|_| panic!("scheduler slots must remain available"));
+
+        while state.interactive_waiters < interactive || state.ordinary_waiters < ordinary {
+            let now = std::time::Instant::now();
+
+            assert!(
+                now < deadline,
+                "scheduled requests did not reach the slot queue"
+            );
+
+            let waited = self
+                .available
+                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .unwrap_or_else(|_| panic!("scheduler slots must remain available"));
+
+            state = waited.0;
+        }
+    }
+}
+
+fn register_waiter(state: &mut SlotState, interactive: bool) {
+    if interactive {
+        state.interactive_waiters += 1;
+    } else {
+        state.ordinary_waiters += 1;
+    }
+}
+
+fn unregister_waiter(state: &mut SlotState, interactive: bool) {
+    if interactive {
+        assert!(
+            state.interactive_waiters > 0,
+            "interactive waiter registration must remain balanced"
+        );
+
+        state.interactive_waiters -= 1;
+    } else {
+        assert!(
+            state.ordinary_waiters > 0,
+            "ordinary waiter registration must remain balanced"
+        );
+
+        state.ordinary_waiters -= 1;
+    }
 }
 
 struct ExecutionSlot<'a> {
@@ -251,14 +351,14 @@ struct ActiveSchedulerGuard {
 }
 
 impl ActiveSchedulerGuard {
-    fn enter(identity: usize) -> Result<Self, FactQueryError> {
+    fn enter(identity: usize, priority: QueryPriority) -> Result<Self, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
                 let mut active = active
                     .try_borrow_mut()
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                active.push(identity);
+                active.push(ActiveScheduler { identity, priority });
 
                 Ok(())
             })
@@ -275,11 +375,20 @@ impl Drop for ActiveSchedulerGuard {
                 return;
             };
 
-            if active.last().copied() == Some(self.identity) {
+            if active
+                .last()
+                .is_some_and(|active| active.identity == self.identity)
+            {
                 active.pop();
             }
         });
     }
+}
+
+#[derive(Clone, Copy)]
+struct ActiveScheduler {
+    identity: usize,
+    priority: QueryPriority,
 }
 
 #[cfg(test)]
@@ -288,7 +397,8 @@ mod tests {
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
-    use super::FactScheduler;
+    use super::{ExecutionSlots, FactScheduler};
+    use crate::fact::QueryPriorityDemand;
     use crate::{QueryPriority, WorkerBudget};
 
     #[test]
@@ -316,82 +426,50 @@ mod tests {
 
     #[test]
     fn interactive_work_precedes_queued_background_work() {
-        let scheduler = Arc::new(FactScheduler::new(worker_budget(2)));
-        let (started_sender, started_receiver) = mpsc::channel();
-        let (first_release_sender, first_release_receiver) = mpsc::channel();
-        let (second_release_sender, second_release_receiver) = mpsc::channel();
+        let slots = Arc::new(ExecutionSlots::new(2));
+        let occupied = QueryPriorityDemand::new(QueryPriority::Normal);
+        let first = slots
+            .acquire(&occupied)
+            .unwrap_or_else(|error| panic!("test must occupy one slot: {error:?}"));
+
+        let second = slots
+            .acquire(&occupied)
+            .unwrap_or_else(|error| panic!("test must occupy another slot: {error:?}"));
+
         let (order_sender, order_receiver) = mpsc::channel();
 
         std::thread::scope(|scope| {
-            let first_scheduler = Arc::clone(&scheduler);
-            let first_started = started_sender.clone();
-
-            scope.spawn(move || {
-                first_scheduler
-                    .run(QueryPriority::Background, move || {
-                        first_started
-                            .send(())
-                            .unwrap_or_else(|_| panic!("test must observe occupied work"));
-
-                        first_release_receiver
-                            .recv()
-                            .unwrap_or_else(|_| panic!("test must release occupied work"));
-                    })
-                    .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
-            });
-
-            let second_scheduler = Arc::clone(&scheduler);
-
-            scope.spawn(move || {
-                second_scheduler
-                    .run(QueryPriority::Background, move || {
-                        started_sender
-                            .send(())
-                            .unwrap_or_else(|_| panic!("test must observe occupied work"));
-
-                        second_release_receiver
-                            .recv()
-                            .unwrap_or_else(|_| panic!("test must release occupied work"));
-                    })
-                    .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
-            });
-
-            for _ in 0..2 {
-                started_receiver
-                    .recv()
-                    .unwrap_or_else(|_| panic!("test must occupy every execution slot"));
-            }
-
-            let background_scheduler = Arc::clone(&scheduler);
+            let background_slots = Arc::clone(&slots);
             let background_sender = order_sender.clone();
 
             scope.spawn(move || {
-                background_scheduler
-                    .run(QueryPriority::Background, || {
-                        background_sender
-                            .send(QueryPriority::Background)
-                            .unwrap_or_else(|_| panic!("test must observe background work"));
-                    })
-                    .unwrap_or_else(|error| panic!("queued background work must run: {error:?}"));
+                let priority = QueryPriorityDemand::new(QueryPriority::Background);
+                let _slot = background_slots
+                    .acquire(&priority)
+                    .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
+
+                background_sender
+                    .send(QueryPriority::Background)
+                    .unwrap_or_else(|_| panic!("test must observe background work"));
             });
 
-            let interactive_scheduler = Arc::clone(&scheduler);
+            let interactive_slots = Arc::clone(&slots);
             let interactive_sender = order_sender.clone();
 
             scope.spawn(move || {
-                interactive_scheduler
-                    .run(QueryPriority::Interactive, || {
-                        interactive_sender
-                            .send(QueryPriority::Interactive)
-                            .unwrap_or_else(|_| panic!("test must observe interactive work"));
-                    })
+                let priority = QueryPriorityDemand::new(QueryPriority::Interactive);
+                let _slot = interactive_slots
+                    .acquire(&priority)
                     .unwrap_or_else(|error| panic!("interactive work must run: {error:?}"));
+
+                interactive_sender
+                    .send(QueryPriority::Interactive)
+                    .unwrap_or_else(|_| panic!("test must observe interactive work"));
             });
 
-            std::thread::sleep(Duration::from_millis(10));
-            first_release_sender
-                .send(())
-                .unwrap_or_else(|_| panic!("test must release one execution slot"));
+            slots.wait_until_queued(1, 1);
+
+            drop(first);
 
             assert_eq!(
                 order_receiver
@@ -400,9 +478,63 @@ mod tests {
                 QueryPriority::Interactive
             );
 
-            second_release_sender
-                .send(())
-                .unwrap_or_else(|_| panic!("test must release the other execution slot"));
+            drop(second);
+        });
+    }
+
+    #[test]
+    fn queued_shared_work_observes_later_priority_promotion() {
+        let slots = Arc::new(ExecutionSlots::new(1));
+        let occupied_priority = QueryPriorityDemand::new(QueryPriority::Normal);
+        let occupied = slots
+            .acquire(&occupied_priority)
+            .unwrap_or_else(|error| panic!("test must occupy the execution slot: {error:?}"));
+
+        let shared_priority = QueryPriorityDemand::new(QueryPriority::Background);
+        let (order_sender, order_receiver) = mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let shared_slots = Arc::clone(&slots);
+            let shared_demand = shared_priority.clone();
+            let shared_sender = order_sender.clone();
+
+            scope.spawn(move || {
+                let _slot = shared_slots
+                    .acquire(&shared_demand)
+                    .unwrap_or_else(|error| panic!("shared work must run: {error:?}"));
+
+                shared_sender
+                    .send(shared_demand.current())
+                    .unwrap_or_else(|_| panic!("test must observe shared work"));
+            });
+
+            let background_slots = Arc::clone(&slots);
+            let background_sender = order_sender.clone();
+
+            scope.spawn(move || {
+                let priority = QueryPriorityDemand::new(QueryPriority::Background);
+                let _slot = background_slots
+                    .acquire(&priority)
+                    .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
+
+                background_sender
+                    .send(QueryPriority::Background)
+                    .unwrap_or_else(|_| panic!("test must observe background work"));
+            });
+
+            slots.wait_until_queued(0, 2);
+            shared_priority.promote(QueryPriority::Interactive);
+            slots.priority_changed();
+            slots.wait_until_queued(1, 1);
+
+            drop(occupied);
+
+            assert_eq!(
+                order_receiver
+                    .recv_timeout(Duration::from_secs(1))
+                    .unwrap_or_else(|_| panic!("promoted work must complete")),
+                QueryPriority::Interactive
+            );
         });
     }
 

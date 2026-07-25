@@ -604,9 +604,19 @@ impl Compilation {
     where
         T: Send,
     {
-        cache.get_or_compute(&self.state.fact_runtime, key, cancellation, || {
-            compute(cancellation)
-        })
+        let priority = self
+            .state
+            .fact_runtime
+            .current_priority()?
+            .unwrap_or(crate::QueryPriority::Normal);
+
+        cache.get_or_compute_requested(
+            &self.state.fact_runtime,
+            key,
+            cancellation,
+            priority,
+            compute,
+        )
     }
 
     pub(super) fn unit_fact<T>(
@@ -624,12 +634,38 @@ impl Compilation {
     where
         T: Send + Sync,
     {
-        cache.get_or_compute(
+        let priority = self
+            .state
+            .fact_runtime
+            .current_priority()?
+            .unwrap_or(crate::QueryPriority::Normal);
+
+        self.unit_fact_with_priority(cache, fact_key, key, cancellation, priority, compute)
+    }
+
+    pub(super) fn unit_fact_with_priority<T>(
+        &self,
+        cache: &UnitFactCache<T>,
+        fact_key: CompilationFactKey,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+        priority: crate::QueryPriority,
+        compute: impl FnOnce(
+            &CancellationToken,
+        )
+            -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
+        + Send,
+    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
+    where
+        T: Send + Sync,
+    {
+        cache.get_or_compute_with_priority(
             &self.state.fact_runtime,
             cancellation,
+            priority,
             fact_key,
             key,
-            || compute(cancellation),
+            compute,
         )
     }
 }
