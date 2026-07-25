@@ -38,6 +38,7 @@ impl Compilation {
     ) -> Result<DiagnosticBag, FactQueryError> {
         // The domain key independently retains the Arc-backed package identity.
         let domain = ImplementationCoherenceDomainKey::new(self.package_identity().clone());
+
         let participation =
             self.implementation_participation_with_cancellation(domain, cancellation)?;
 
@@ -53,6 +54,7 @@ impl Compilation {
         diagnostics.add_range(families.diagnostics.iter().cloned());
 
         let headers = index.value().headers();
+
         let participants = participation
             .value()
             .implementations()
@@ -146,6 +148,7 @@ impl Compilation {
     ) -> Result<ResolvedImplementationFamilies, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let values = self.semantic_value_store()?;
+
         let headers = index
             .headers()
             .into_iter()
@@ -297,6 +300,7 @@ fn bind_family_header(
     };
 
     let subject_syntax = declaration.implementation_overload_subject();
+
     let subject = if subject_syntax.ampersand_token().is_some() {
         let kind = if subject_syntax.mut_token().is_some() {
             bray_symbols::BorrowKind::Mutable

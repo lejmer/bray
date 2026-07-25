@@ -55,6 +55,7 @@ impl Compilation {
         let symbols = self.symbol_graph()?;
         let facts = self.binder_facts(cancellation)?;
         let values = self.semantic_value_store()?;
+
         let mut diagnostics = DiagnosticBag::new();
         let mut memberships = BTreeMap::new();
         let mut reported_membership_conflicts = BTreeSet::new();
