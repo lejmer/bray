@@ -826,6 +826,9 @@ mod tests {
 
         assert!(snapshot.constant(constant).is_some());
 
+        assert_eq!(snapshot.syntax_anchor(first.into()), Some(syntax));
+        assert_eq!(snapshot.syntax_anchor(constant.into()), Some(syntax));
+
         assert_eq!(
             snapshot
                 .scope(root)
@@ -938,6 +941,10 @@ mod tests {
         );
 
         assert!(snapshot.postcondition_result(result).is_some());
+
+        assert_eq!(snapshot.syntax_anchor(callable.into()), Some(syntax));
+        assert_eq!(snapshot.syntax_anchor(parameter.into()), Some(syntax));
+        assert_eq!(snapshot.syntax_anchor(result.into()), Some(syntax));
     }
 
     #[test]

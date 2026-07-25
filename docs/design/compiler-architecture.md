@@ -977,6 +977,10 @@ A query should represent a meaningful compiler fact with a clear invalidation st
 Language-server entry points should request the narrow result they need. Intermediate compiler facts should be computed internally
 by the lazy APIs that own those facts.
 
+Language-tooling accessors should accept a source position or source-versioned syntax identity and return explicit available,
+recovered, or unavailable states. Position-based accessors should resolve a syntax identity and delegate to the same semantic path.
+Diagnostics should be requestable at source, semantic-unit, and package scope without introducing protocol or rendering concerns.
+
 Query inputs and outputs should be suitable for parallel scheduling.
 
 A query should not rely on worker-local mutable state unless that state is an implementation cache that cannot affect observable
