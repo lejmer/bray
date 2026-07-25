@@ -29,7 +29,7 @@ impl Compilation {
         self.foreign_callable_contract_with_cancellation(function, &self.state.cancellation)
     }
 
-    fn foreign_callable_contract_with_cancellation(
+    pub(in crate::compilation) fn foreign_callable_contract_with_cancellation(
         &self,
         function: FunctionSymbolId,
         cancellation: &CancellationToken,

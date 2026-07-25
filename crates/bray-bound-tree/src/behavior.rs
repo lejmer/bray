@@ -19,20 +19,44 @@ pub enum BodyBehaviorPhase {
     DeferredExecution,
 }
 
+/// How one callable contribution entered a checked body.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BodyBehaviorCallKind {
+    /// An explicit call expression in source.
+    SourceCall,
+    /// A callable selected to implement another source operation.
+    SelectedOperation,
+}
+
 /// One selected callable whose checked behavior contributes to a body summary.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BodyBehaviorCall {
     target: BoundCallableTarget,
     phase: BodyBehaviorPhase,
+    kind: BodyBehaviorCallKind,
     anonymous_unit: Option<BoundUnitKey>,
 }
 
 impl BodyBehaviorCall {
-    /// Creates one exact callable-phase contribution.
-    pub const fn new(target: BoundCallableTarget, phase: BodyBehaviorPhase) -> Self {
+    /// Creates one explicit source-call contribution.
+    pub const fn source_call(target: BoundCallableTarget, phase: BodyBehaviorPhase) -> Self {
         Self {
             target,
             phase,
+            kind: BodyBehaviorCallKind::SourceCall,
+            anonymous_unit: None,
+        }
+    }
+
+    /// Creates one callable contribution selected for another source operation.
+    pub const fn selected_operation(
+        target: BoundCallableTarget,
+        phase: BodyBehaviorPhase,
+    ) -> Self {
+        Self {
+            target,
+            phase,
+            kind: BodyBehaviorCallKind::SelectedOperation,
             anonymous_unit: None,
         }
     }
@@ -52,6 +76,11 @@ impl BodyBehaviorCall {
     /// Returns the evaluated callable phase.
     pub const fn phase(&self) -> BodyBehaviorPhase {
         self.phase
+    }
+
+    /// Returns how the callable contribution entered the body.
+    pub const fn kind(&self) -> BodyBehaviorCallKind {
+        self.kind
     }
 
     /// Returns the selected anonymous body when the target is body-local.

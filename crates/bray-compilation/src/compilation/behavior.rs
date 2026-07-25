@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_bound_tree::{
-    BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallableTarget,
-    BoundUnitKey, CheckedBodyBehavior,
+    BodyBehaviorCall, BodyBehaviorCallKind, BodyBehaviorContributions, BodyBehaviorPhase,
+    BoundCallableTarget, BoundUnitKey, CheckedBodyBehavior,
 };
 use bray_checker::{
     BodyBehaviorCollector, CheckerInfrastructureError, CheckerUnitView,
@@ -15,7 +15,7 @@ use bray_symbols::{
     AnySymbolId, CallableCapabilityRequirement, CallableContractsFact, CallableEffectRequirement,
     CallableExecution, CallableExecutionRequirement, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
-    CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
+    CallableSymbolId, CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
     StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldDefaultValue,
     SymbolFactRequest, TypeData, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
     UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact,
@@ -195,6 +195,63 @@ impl Compilation {
                 ))
             },
         )
+    }
+
+    pub(in crate::compilation) fn direct_trusted_capability_use_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<(BTreeSet<AnySymbolId>, DiagnosticBag, bool), FactQueryError> {
+        let contributions =
+            self.body_behavior_contributions_with_cancellation(key, cancellation)?;
+
+        let mut capabilities = BTreeSet::new();
+        let mut diagnostics = contributions.result().diagnostics().clone();
+        let mut is_recovered = contributions.result().value().is_recovered();
+        let facts = self.binder_facts(cancellation)?;
+
+        for call in contributions.result().value().calls() {
+            if call.kind() != BodyBehaviorCallKind::SourceCall
+                || call.phase() != BodyBehaviorPhase::Invocation
+            {
+                continue;
+            }
+
+            let BoundCallableTarget::Declaration(instance) = call.target() else {
+                continue;
+            };
+
+            let bray_symbols::CallableSymbolId::Function(function) =
+                instance.definition().callable_symbol()
+            else {
+                continue;
+            };
+
+            let foreign =
+                self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+
+            diagnostics = diagnostics.merged(foreign.diagnostics());
+
+            if foreign.value().is_none() {
+                continue;
+            }
+
+            let declared =
+                bind_declared_trusted_capabilities(&facts, CallableSymbolId::Function(function))
+                    .map_err(binder_fact_error)?;
+
+            diagnostics = diagnostics.merged(declared.diagnostics());
+            is_recovered |= declared.diagnostics().has_errors();
+
+            capabilities.extend(
+                declared
+                    .value()
+                    .iter()
+                    .map(|requirement| requirement.capability()),
+            );
+        }
+
+        Ok((capabilities, diagnostics, is_recovered))
     }
 
     fn compute_reachable_body_behavior(

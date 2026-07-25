@@ -166,15 +166,16 @@ fn bind_callable_contracts(
     let definition = bray_symbols::CallableDefinitionId::try_new(owner.into_any())
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    let body_behavior = match context
+    let body_key = context
         .compilation()
         .callable_body_key(definition)
-        .map_err(super::binding::binder_error)?
-    {
+        .map_err(super::binding::binder_error)?;
+
+    let body_behavior = match &body_key {
         Some(key) => {
             let behavior = context
                 .compilation()
-                .body_behavior_with_cancellation(key, context.cancellation())
+                .body_behavior_with_cancellation(key.clone(), context.cancellation())
                 .map_err(super::binding::binder_error)?;
 
             diagnostics = diagnostics.merged(behavior.result().diagnostics());
@@ -183,6 +184,16 @@ fn bind_callable_contracts(
         }
         None => None,
     };
+
+    let (used_capabilities, capability_diagnostics, capability_recovered) = match body_key {
+        Some(key) => context
+            .compilation()
+            .direct_trusted_capability_use_with_cancellation(key, context.cancellation())
+            .map_err(super::binding::binder_error)?,
+        None => (BTreeSet::new(), DiagnosticBag::new(), false),
+    };
+
+    diagnostics = diagnostics.merged(&capability_diagnostics);
 
     let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
         execution,
@@ -198,9 +209,9 @@ fn bind_callable_contracts(
         owner,
         trust,
         capabilities.value(),
-        body_behavior
-            .as_ref()
-            .map(|behavior| behavior.result().value()),
+        &used_capabilities,
+        capability_recovered,
+        body_behavior.is_some(),
         &mut diagnostics,
     )?;
 
@@ -309,18 +320,14 @@ fn validate_trusted_capabilities(
     owner: CallableSymbolId,
     trust: CallableTrust,
     declared: &[TrustedCapabilityRequirement],
-    body: Option<&bray_bound_tree::CheckedBodyBehavior>,
+    used: &BTreeSet<AnySymbolId>,
+    is_recovered: bool,
+    has_body: bool,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
     let declared = declared
         .iter()
         .map(|requirement| requirement.capability())
-        .collect::<BTreeSet<_>>();
-
-    let used = body
-        .into_iter()
-        .flat_map(bray_bound_tree::CheckedBodyBehavior::trusted_capabilities)
-        .copied()
         .collect::<BTreeSet<_>>();
 
     if declared.is_empty() && used.is_empty() {
@@ -345,9 +352,9 @@ fn validate_trusted_capabilities(
         return Ok(());
     }
 
-    let Some(body) = body else {
+    if !has_body {
         return Ok(());
-    };
+    }
 
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(
@@ -358,7 +365,7 @@ fn validate_trusted_capabilities(
         )?);
     }
 
-    if body.is_recovered() {
+    if is_recovered {
         return Ok(());
     }
 
@@ -505,17 +512,21 @@ fn publish_catalog_result<T>(
 mod tests {
     use std::sync::Arc;
 
+    use bray_base::NonEmptySharedStr;
     use bray_binder::SymbolFactProvider;
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
     };
     use bray_symbols::{
-        CallableContractsFact, CallableSymbolId, SymbolFactRequest, SymbolFactResult,
+        CallableContractsFact, CallableSymbolId, NativeLinkKind, NativeLinkRequirement,
+        SymbolFactRequest, SymbolFactResult,
     };
 
     use super::publish_catalog_result;
-    use crate::Compilation;
-    use crate::test_support::{compilation, diagnostic_kinds, source_function};
+    use crate::test_support::{
+        compilation, compilation_with_options, diagnostic_kinds, source_function,
+    };
+    use crate::{Compilation, CompilationOptions, WorkerBudget};
 
     #[test]
     fn binding_diagnostics_remain_owned_by_the_published_fact() {
@@ -610,6 +621,25 @@ mod tests {
     }
 
     #[test]
+    fn wrappers_do_not_inherit_callee_implementation_capabilities() {
+        let compilation = compilation(concat!(
+            "trusted module app;\n",
+            "trusted func outer()\n",
+            "{\n",
+            "    inner();\n",
+            "}\n",
+            "trusted func inner()\n",
+            "    uses(foreign_call)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let contracts = callable_contracts(&compilation, "outer");
+
+        assert!(contracts.diagnostics().is_empty());
+    }
+
+    #[test]
     fn callable_contracts_retain_checked_predicate_dependencies() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -653,21 +683,38 @@ mod tests {
     }
 
     fn trusted_capability_compilation(outer_contract: &str) -> Compilation {
-        compilation(&format!(
+        let source = format!(
             concat!(
                 "trusted module app;\n",
+                "@link(name = \"native\")\n",
+                "@symbol(name = \"native_call\")\n",
+                "@abi(c)\n",
+                "extern trusted func native_call()\n",
+                "    uses(foreign_call);\n",
                 "trusted func outer()\n",
                 "{outer_contract}",
                 "{{\n",
-                "    inner();\n",
-                "}}\n",
-                "trusted func inner()\n",
-                "    uses(foreign_call)\n",
-                "{{\n",
+                "    native_call();\n",
                 "}}\n",
             ),
             outer_contract = outer_contract,
-        ))
+        );
+
+        let Some(link) = NonEmptySharedStr::try_new("native") else {
+            panic!("test link name must be valid");
+        };
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        )
+        .with_native_link_inputs([NativeLinkRequirement::new(
+            link,
+            NativeLinkKind::Dynamic,
+        )]);
+
+        compilation_with_options(&source, options)
     }
 
     fn callable_contracts(
