@@ -310,10 +310,13 @@ func main()
     fn invalid_entry_contracts_remain_diagnostic_product_facts() {
         let compilation = compilation_with_product(
             concat!(
-                "module app;\n",
+                "trusted module app;\n",
+                "\n",
+                "trusted predicate permitted();\n",
                 "\n",
                 "@entrypoint\n",
-                "trusted const func start<T>(pos value: i32) -> bool\n",
+                "const func start<T>(pos value: i32) -> bool\n",
+                "    requires(trusted permitted())\n",
                 "{\n",
                 "    false\n",
                 "}\n",
@@ -331,6 +334,26 @@ func main()
         assert!(kinds.contains(&DiagnosticKind::CheckingEntryCannotRequireTrust));
         assert!(facts.value().entrypoint().is_none());
         assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn trusted_implementation_without_caller_obligations_is_a_valid_entry() {
+        let compilation = compilation_with_product(
+            concat!(
+                "trusted module app;\n",
+                "\n",
+                "@entrypoint\n",
+                "trusted func start()\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Executable,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert!(facts.diagnostics().is_empty());
+        assert!(facts.value().entrypoint().is_some());
     }
 
     #[test]
@@ -369,6 +392,58 @@ func main()
         );
 
         assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn public_trait_views_cannot_expose_internal_traits() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "internal trait Hidden\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "public struct Exposed\n",
+                "{\n",
+                "    value: view Hidden;\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert!(
+            diagnostic_kinds(facts.diagnostics())
+                .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
+        );
+    }
+
+    #[test]
+    fn public_trait_predicates_cannot_expose_internal_types() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "internal struct Hidden\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "public trait Visible\n",
+                "{\n",
+                "    predicate accepts(value: Hidden);\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert!(
+            diagnostic_kinds(facts.diagnostics())
+                .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
+        );
     }
 
     fn product_facts(

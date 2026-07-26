@@ -3,11 +3,13 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::{
-    AnySymbolId, AvailableCompilerKnownSymbols, CallableConstness, CallableExecution,
-    CallableSignatureFact, CallableSignatureTemplate, CallableTrust, FunctionSymbolId,
-    GenericArgument, GenericArgumentTemplate, NamedTypeSymbolId, SemanticValueStore,
-    SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate,
+    AnySymbolId, AvailableCompilerKnownSymbols, CallableConstness, CallableContractTemplate,
+    CallableContractTemplateFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
+    CallableSignatureTemplate, DeclarationPredicateClauseKind, FunctionSymbolId, GenericArgument,
+    GenericArgumentTemplate, NamedTypeSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
+    TypeData, TypeExpressionTemplate,
 };
+use bray_syntax::TrustBoundaryExpressionSyntax;
 
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
 use crate::compilation::diagnostics::source_diagnostic;
@@ -217,8 +219,7 @@ pub(super) fn validate_entry(
         is_valid = false;
     }
 
-    let Some((constness, execution, trust)) =
-        callable_properties(signature.value(), semantic_values)
+    let Some((constness, execution)) = callable_properties(signature.value(), semantic_values)
     else {
         return Ok(None);
     };
@@ -232,7 +233,23 @@ pub(super) fn validate_entry(
         is_valid = false;
     }
 
-    if trust == CallableTrust::Trusted {
+    let contracts = binder
+        .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
+            function.into(),
+        ))
+        .map_err(binder_fact_error)?;
+
+    diagnostics.add_range(contracts.diagnostics().iter().cloned());
+
+    let contract_template = binder
+        .symbol_fact(SymbolFactRequest::<CallableContractTemplateFact>::new(
+            function.into(),
+        ))
+        .map_err(binder_fact_error)?;
+
+    diagnostics.add_range(contract_template.diagnostics().iter().cloned());
+
+    if exposes_trusted_caller_obligation(contract_template.value(), binder) {
         diagnostics.add(source_diagnostic(
             anchor,
             DiagnosticKind::CheckingEntryCannotRequireTrust,
@@ -275,10 +292,10 @@ pub(super) fn validate_entry(
 fn callable_properties(
     signature: &CallableSignatureTemplate,
     semantic_values: &SemanticValueStore,
-) -> Option<(CallableConstness, CallableExecution, CallableTrust)> {
+) -> Option<(CallableConstness, CallableExecution)> {
     match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => {
-            Some((callable.constness(), callable.execution(), callable.trust()))
+            Some((callable.constness(), callable.execution()))
         }
         TypeExpressionTemplate::Resolved(ty) => {
             let data = semantic_values.type_data(*ty).ok()?;
@@ -287,10 +304,30 @@ fn callable_properties(
                 return None;
             };
 
-            Some((callable.constness(), callable.execution(), callable.trust()))
+            Some((callable.constness(), callable.execution()))
         }
         _ => None,
     }
+}
+
+fn exposes_trusted_caller_obligation(
+    template: &CallableContractTemplate,
+    binder: &CompilationBinderFacts<'_>,
+) -> bool {
+    let Some(template) = template.source_template() else {
+        return false;
+    };
+
+    let syntax = binder.compilation().syntax_tree_result().syntax_tree();
+
+    template.expressions().iter().any(|expression| {
+        expression.kind() == DeclarationPredicateClauseKind::Requires
+            && expression
+                .expression()
+                .syntax()
+                .find_descendant::<TrustBoundaryExpressionSyntax>(syntax)
+                .is_some()
+    })
 }
 
 fn is_result_of_unit(

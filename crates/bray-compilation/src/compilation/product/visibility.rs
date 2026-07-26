@@ -7,9 +7,9 @@ use bray_symbols::{
     AnySymbolId, CallableContractTypeFact, CallableSignatureFact, CallableSymbolId,
     ConstantDeclaredTypeFact, GenericArgument, GenericArgumentTemplate,
     GenericConstParameterDeclaredTypeFact, InherentTypeMemberValueFact,
-    PredicateSignatureTemplateFact, SemanticValueStore, StructFieldTypeFact, SymbolFactContract,
-    SymbolFactRequest, SymbolGraph, SymbolKey, SymbolOrigin,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
+    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, SemanticValueStore,
+    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolGraph, SymbolKey,
+    SymbolOrigin, TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
     TraitTypeFulfillmentValueFact, TypeData, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
 };
 
@@ -113,14 +113,6 @@ pub(super) fn validate_public_surface(
                 declarations,
                 diagnostics,
             )?,
-            AnySymbolId::Predicate(owner) => validate_predicate_signature(
-                binder,
-                owner.into(),
-                semantic_values,
-                symbols,
-                declarations,
-                diagnostics,
-            )?,
             _ => false,
         };
 
@@ -137,6 +129,22 @@ pub(super) fn validate_public_surface(
             exposes_internal
         };
 
+        let exposes_internal =
+            if let Some(predicate) = PredicateDefinitionSymbolId::try_from_any(*symbol) {
+                validate_predicate_signature(
+                    binder,
+                    predicate,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                    diagnostics,
+                )? || exposes_internal
+            } else {
+                exposes_internal
+            };
+
+        // TODO(BRA-199): Include exact generic-constraint and callable-contract references once
+        // complete checked expression facts retain their selected declaration dependencies.
         if exposes_internal {
             add_internal_dependency_diagnostic(*symbol, symbols, diagnostics);
 
@@ -260,8 +268,23 @@ fn template_exposes_internal(
                     GenericArgumentTemplate::Constant(_) => None,
                 }));
             }
-            TypeExpressionTemplate::TypeValuedMemberProjection { subject, .. } => {
+            TypeExpressionTemplate::TypeValuedMemberProjection {
+                subject,
+                application,
+                ..
+            } => {
+                if source_symbol_is_internal(application.definition().into(), declarations, symbols)
+                {
+                    return true;
+                }
+
                 pending.push(subject);
+                pending.extend(application.arguments().iter().filter_map(
+                    |argument| match argument {
+                        GenericArgumentTemplate::Type(ty) => Some(ty),
+                        GenericArgumentTemplate::Constant(_) => None,
+                    },
+                ));
             }
             TypeExpressionTemplate::Tuple(elements) => pending.extend(elements.iter()),
             TypeExpressionTemplate::Array { element, .. }
@@ -276,7 +299,19 @@ fn template_exposes_internal(
                 pending.extend(callable.parameters().iter().map(|parameter| parameter.ty()));
                 pending.push(callable.result());
             }
-            TypeExpressionTemplate::TraitView(_) => {}
+            TypeExpressionTemplate::TraitView(application) => {
+                if source_symbol_is_internal(application.definition().into(), declarations, symbols)
+                {
+                    return true;
+                }
+
+                pending.extend(application.arguments().iter().filter_map(
+                    |argument| match argument {
+                        GenericArgumentTemplate::Type(ty) => Some(ty),
+                        GenericArgumentTemplate::Constant(_) => None,
+                    },
+                ));
+            }
         }
     }
 
@@ -336,13 +371,70 @@ fn resolved_type_exposes_internal(
                 pending.extend(callable.parameters().iter().map(|parameter| parameter.ty()));
                 pending.push(callable.result());
             }
-            TypeData::Error
-            | TypeData::TypeParameter(_)
-            | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::TraitView(_) => {}
+            TypeData::TypeValuedMemberProjection {
+                subject,
+                application,
+                ..
+            } => {
+                if resolved_application_exposes_internal(
+                    *application,
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
+                    return true;
+                }
+
+                pending.push(*subject);
+            }
+            TypeData::TraitView(application) => {
+                if resolved_application_exposes_internal(
+                    *application,
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
+                    return true;
+                }
+            }
+            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {}
         }
     }
+
+    false
+}
+
+fn resolved_application_exposes_internal(
+    application: bray_symbols::TraitApplicationId,
+    pending: &mut Vec<bray_symbols::TypeId>,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    let Ok(application) = semantic_values.trait_application_data(application) else {
+        return false;
+    };
+
+    if source_symbol_is_internal(application.definition().into(), declarations, symbols) {
+        return true;
+    }
+
+    let Ok(substitution) = semantic_values.generic_substitution_data(application.substitution())
+    else {
+        return false;
+    };
+
+    pending.extend(
+        substitution
+            .bindings()
+            .iter()
+            .filter_map(|binding| match binding.argument() {
+                GenericArgument::Type(ty) => Some(ty),
+                GenericArgument::Constant(_) => None,
+            }),
+    );
 
     false
 }
