@@ -14,6 +14,7 @@ use bray_symbols::{
 };
 
 use super::Compilation;
+use super::product::symbol_is_publicly_reachable;
 use crate::fact::CompilationFactKey;
 
 /// Failure while producing the current library product's public interface.
@@ -209,35 +210,6 @@ fn reject_unavailable_public_declarations(
     }
 
     Ok(())
-}
-
-fn symbol_is_publicly_reachable(
-    declarations: &bray_declarations::DeclarationTable,
-    symbols: &bray_symbols::SymbolGraph,
-    mut symbol: AnySymbolId,
-) -> bool {
-    loop {
-        if let Some(declaration) = symbols
-            .symbol_key(symbol)
-            .and_then(bray_symbols::SymbolKey::source_declaration_id)
-            .and_then(|declaration| declarations.declaration(declaration))
-            && declaration.surface().is_internal()
-        {
-            return false;
-        }
-
-        if let AnySymbolId::Module(module) = symbol {
-            return symbols.module(module).is_some_and(|module| {
-                module.origin() == SymbolOrigin::Source && module.visibility().is_public()
-            });
-        }
-
-        let Some(owner) = symbols.containing_symbol(symbol) else {
-            return false;
-        };
-
-        symbol = owner;
-    }
 }
 
 #[cfg(test)]

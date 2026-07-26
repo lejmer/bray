@@ -252,6 +252,8 @@ pub(crate) enum CompilationFactKey {
     DeclarationTable,
     /// Enabled declaration contributions for the selected product and target.
     ProductSourceGraph,
+    /// Selected product roots and validated public semantic surface.
+    ProductSemantics,
     /// The complete source identity skeleton used while selecting contributions.
     DiscoverySymbolGraph,
     /// Structural validation and identity decoding for one compiled dependency interface.
@@ -345,6 +347,7 @@ impl CompilationFactKey {
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::ProductSourceGraph
+            | Self::ProductSemantics
             | Self::DiscoverySymbolGraph
             | Self::DependencyInterface(_)
             | Self::ImportedDiagnostics

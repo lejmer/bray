@@ -155,7 +155,7 @@ pub use member::{
 };
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
-pub use product::{ProductIdentity, ProductKind};
+pub use product::{ProductIdentity, ProductKind, ProductSemanticFacts};
 pub use provider::{SymbolProvider, SymbolRecordId};
 pub use recognized::{
     RecognizedStandardLibraryDeclarationMatch, RecognizedStandardLibraryDeclarations,

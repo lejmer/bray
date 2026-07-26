@@ -233,6 +233,7 @@ impl Compilation {
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
         let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
+        let product = self.product_semantic_facts_with_cancellation(cancellation)?;
 
         Ok(DiagnosticBag::merged_all([
             source_graph.diagnostics(),
@@ -240,6 +241,7 @@ impl Compilation {
             coherence,
             callable_overloads,
             foreign_callables,
+            product.diagnostics(),
         ]))
     }
 

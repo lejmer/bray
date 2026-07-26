@@ -317,6 +317,47 @@ const CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] =
         "a future can only be started from an asynchronous callable body",
     )];
 
+const CHECKING_ENTRYPOINT_NOT_ALLOWED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "entrypoint directive is not allowed for this product",
+)];
+
+const CHECKING_MISSING_ENTRYPOINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "executable product requires an entry point",
+)];
+
+const CHECKING_DUPLICATE_ENTRYPOINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "executable product has more than one entry point",
+)];
+
+const CHECKING_ENTRY_CANNOT_BE_GENERIC: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "product entry function cannot declare generic parameters",
+)];
+
+const CHECKING_ENTRY_CANNOT_TAKE_PARAMETERS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "product entry function cannot require caller-supplied parameters",
+)];
+
+const CHECKING_INVALID_ENTRYPOINT_RESULT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "entry point result must be unit, Result<unit, E>, or i32",
+)];
+
+const CHECKING_INVALID_TEST_RESULT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "test entry result must be unit or Result<unit, E>",
+)];
+
+const CHECKING_ENTRY_CANNOT_BE_CONSTANT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "product entry function cannot be constant",
+)];
+
+const CHECKING_ENTRY_CANNOT_REQUIRE_TRUST: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "product entry function cannot expose trusted caller obligations",
+)];
+
+const CHECKING_EXPORT_DEPENDS_ON_INTERNAL_DECLARATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "public signature exposes an internal declaration",
+    )];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -1028,6 +1069,36 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTaskStartOutsideAsyncCallable => {
             MessageTemplate::new(CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE)
+        }
+        DiagnosticKind::CheckingEntrypointNotAllowed => {
+            MessageTemplate::new(CHECKING_ENTRYPOINT_NOT_ALLOWED)
+        }
+        DiagnosticKind::CheckingMissingEntrypoint => {
+            MessageTemplate::new(CHECKING_MISSING_ENTRYPOINT)
+        }
+        DiagnosticKind::CheckingDuplicateEntrypoint => {
+            MessageTemplate::new(CHECKING_DUPLICATE_ENTRYPOINT)
+        }
+        DiagnosticKind::CheckingEntryCannotBeGeneric => {
+            MessageTemplate::new(CHECKING_ENTRY_CANNOT_BE_GENERIC)
+        }
+        DiagnosticKind::CheckingEntryCannotTakeParameters => {
+            MessageTemplate::new(CHECKING_ENTRY_CANNOT_TAKE_PARAMETERS)
+        }
+        DiagnosticKind::CheckingInvalidEntrypointResult => {
+            MessageTemplate::new(CHECKING_INVALID_ENTRYPOINT_RESULT)
+        }
+        DiagnosticKind::CheckingInvalidTestResult => {
+            MessageTemplate::new(CHECKING_INVALID_TEST_RESULT)
+        }
+        DiagnosticKind::CheckingEntryCannotBeConstant => {
+            MessageTemplate::new(CHECKING_ENTRY_CANNOT_BE_CONSTANT)
+        }
+        DiagnosticKind::CheckingEntryCannotRequireTrust => {
+            MessageTemplate::new(CHECKING_ENTRY_CANNOT_REQUIRE_TRUST)
+        }
+        DiagnosticKind::CheckingExportDependsOnInternalDeclaration => {
+            MessageTemplate::new(CHECKING_EXPORT_DEPENDS_ON_INTERNAL_DECLARATION)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

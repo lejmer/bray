@@ -271,6 +271,26 @@ pub enum DiagnosticKind {
     CheckingAwaitOutsideAsyncCallable,
     /// A future is started outside an active asynchronous callable body.
     CheckingTaskStartOutsideAsyncCallable,
+    /// The selected product category does not permit an explicit executable entrypoint.
+    CheckingEntrypointNotAllowed,
+    /// An executable product has no valid entrypoint.
+    CheckingMissingEntrypoint,
+    /// An executable product has more than one possible entrypoint.
+    CheckingDuplicateEntrypoint,
+    /// A product entry declares generic parameters.
+    CheckingEntryCannotBeGeneric,
+    /// A product entry requires caller-supplied parameters.
+    CheckingEntryCannotTakeParameters,
+    /// An executable entrypoint has an unsupported result type.
+    CheckingInvalidEntrypointResult,
+    /// A test entry has an unsupported result type.
+    CheckingInvalidTestResult,
+    /// A product entry is eligible for constant evaluation.
+    CheckingEntryCannotBeConstant,
+    /// A product entry exposes trusted caller obligations.
+    CheckingEntryCannotRequireTrust,
+    /// A public signature exposes a declaration that is not publicly reachable.
+    CheckingExportDependsOnInternalDeclaration,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -428,6 +448,16 @@ impl DiagnosticKind {
             Self::CheckingTrustedCapabilityRequiresTrustedCallable => 7064,
             Self::CheckingAwaitOutsideAsyncCallable => 7065,
             Self::CheckingTaskStartOutsideAsyncCallable => 7066,
+            Self::CheckingEntrypointNotAllowed => 7067,
+            Self::CheckingMissingEntrypoint => 7068,
+            Self::CheckingDuplicateEntrypoint => 7069,
+            Self::CheckingEntryCannotBeGeneric => 7070,
+            Self::CheckingEntryCannotTakeParameters => 7071,
+            Self::CheckingInvalidEntrypointResult => 7072,
+            Self::CheckingInvalidTestResult => 7073,
+            Self::CheckingEntryCannotBeConstant => 7074,
+            Self::CheckingEntryCannotRequireTrust => 7075,
+            Self::CheckingExportDependsOnInternalDeclaration => 7076,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -631,6 +661,18 @@ impl DiagnosticKind {
             Self::CheckingAwaitOutsideAsyncCallable => "checking_await_outside_async_callable",
             Self::CheckingTaskStartOutsideAsyncCallable => {
                 "checking_task_start_outside_async_callable"
+            }
+            Self::CheckingEntrypointNotAllowed => "checking_entrypoint_not_allowed",
+            Self::CheckingMissingEntrypoint => "checking_missing_entrypoint",
+            Self::CheckingDuplicateEntrypoint => "checking_duplicate_entrypoint",
+            Self::CheckingEntryCannotBeGeneric => "checking_entry_cannot_be_generic",
+            Self::CheckingEntryCannotTakeParameters => "checking_entry_cannot_take_parameters",
+            Self::CheckingInvalidEntrypointResult => "checking_invalid_entrypoint_result",
+            Self::CheckingInvalidTestResult => "checking_invalid_test_result",
+            Self::CheckingEntryCannotBeConstant => "checking_entry_cannot_be_constant",
+            Self::CheckingEntryCannotRequireTrust => "checking_entry_cannot_require_trust",
+            Self::CheckingExportDependsOnInternalDeclaration => {
+                "checking_export_depends_on_internal_declaration"
             }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
