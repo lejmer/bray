@@ -109,14 +109,15 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
     fn resolve_constant(
         &self,
         instance: bray_symbols::ConstantInstanceKey,
+        limits: bray_checker::ConstantEvaluationLimits,
     ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>> {
         match self
             .calls
             .compilation
-            .constant_instance_with_cancellation(instance, self.calls.cancellation)
+            .constant_instance_with_limits(instance, limits, self.calls.cancellation)
         {
             Ok(result) => Ok(DiagnosticResult::new(
-                ConstantReferenceResolution::Value(*result.value()),
+                ConstantReferenceResolution::Evaluated(*result.value()),
                 result.diagnostics().clone(),
             )),
             Err(FactQueryError::Cycle(_)) => Ok(DiagnosticResult::without_diagnostics(
@@ -348,6 +349,7 @@ impl Compilation {
             callable.substitution(),
             key.selected_implementation(),
             &parameters,
+            key.limits(),
             cancellation,
         )?;
 

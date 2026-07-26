@@ -164,9 +164,12 @@ fn convert_operation(
         InterfaceCheckedTemplateOperation::Input(input) => {
             Ok(CheckedTemplateOperation::Input(*input))
         }
-        InterfaceCheckedTemplateOperation::Constant(constant) => state
-            .constant_term_id(*constant)
-            .map(CheckedTemplateOperation::Constant)
+        InterfaceCheckedTemplateOperation::Constant { term, usage } => state
+            .constant_term_id(*term)
+            .map(|term| CheckedTemplateOperation::Constant {
+                term,
+                usage: *usage,
+            })
             .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph),
         InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
             Ok(CheckedTemplateOperation::Unary {

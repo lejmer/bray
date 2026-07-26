@@ -79,6 +79,7 @@ impl SymbolFactKey {
 pub(crate) struct ConstantInstanceFactKey {
     instance: ConstantInstanceKey,
     target: TargetProfile,
+    limits: bray_checker::ConstantEvaluationLimits,
 }
 
 /// The complete compilation-local identity of one selected constant call.
@@ -175,8 +176,16 @@ impl ConstantCallFactKey {
 }
 
 impl ConstantInstanceFactKey {
-    pub(crate) const fn new(instance: ConstantInstanceKey, target: TargetProfile) -> Self {
-        Self { instance, target }
+    pub(crate) const fn new(
+        instance: ConstantInstanceKey,
+        target: TargetProfile,
+        limits: bray_checker::ConstantEvaluationLimits,
+    ) -> Self {
+        Self {
+            instance,
+            target,
+            limits,
+        }
     }
 }
 

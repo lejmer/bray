@@ -24,8 +24,8 @@ use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, Source
 use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
-    ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
-    ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract,
+    ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantTermId,
+    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract,
     FunctionSymbolId, GenericConstraintObligationKey, ImplementationCandidateSet,
     ImplementationCoherenceDomainKey, ImplementationParticipationFact,
     ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
@@ -172,7 +172,10 @@ pub(super) struct CompilationState {
     pub(super) embedded_constant_expectations:
         Mutex<BTreeMap<ConstantExpressionOccurrenceKey, ConstantExpressionExpectedType>>,
     pub(super) constant_instances:
-        FactCellMap<ConstantInstanceFactKey, Arc<SemanticFactResult<ConstantInstanceValueFact>>>,
+        FactCellMap<
+            ConstantInstanceFactKey,
+            Arc<bray_diagnostics::DiagnosticResult<bray_checker::EvaluatedConstantCall>>,
+        >,
     pub(super) constant_calls: FactCellMap<
         crate::fact::ConstantCallFactKey,
         Arc<DiagnosticResult<Option<bray_checker::EvaluatedConstantCall>>>,

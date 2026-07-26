@@ -75,6 +75,19 @@ pub(super) fn decode_templates(
     Ok(())
 }
 
+pub(crate) fn decode_template_payload(
+    bytes: &[u8],
+    limits: InterfaceValidationLimits,
+) -> Result<InterfaceCheckedTemplate, InterfaceValidationError> {
+    let mut reader = WireReader::new(bytes);
+    let mut context = SemanticDecodeContext::new(limits);
+    let template = decode_template(&mut reader, limits, &mut context)?;
+
+    reader.finish().map_err(map_wire_error)?;
+
+    Ok(template)
+}
+
 fn decode_template(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
@@ -226,9 +239,14 @@ fn decode_operation(
         1 => Ok(InterfaceCheckedTemplateOperation::Input(
             CheckedTemplateInputId::new(read_u32(reader)?),
         )),
-        2 => Ok(InterfaceCheckedTemplateOperation::Constant(
-            InterfaceConstantTermId::new(read_u32(reader)?),
-        )),
+        2 => Ok(InterfaceCheckedTemplateOperation::Constant {
+            term: InterfaceConstantTermId::new(read_u32(reader)?),
+            usage: bray_bound_tree::CheckedTemplateConstantUsage::new(
+                reader.read_u64().map_err(map_wire_error)?,
+                reader.read_u64().map_err(map_wire_error)?,
+                reader.read_u64().map_err(map_wire_error)?,
+            ),
+        }),
         3 => Ok(InterfaceCheckedTemplateOperation::Declaration(
             decode_template_reference(reader, context)?,
         )),
@@ -895,7 +913,10 @@ mod tests {
                 InterfaceTypeId::new(0),
             ),
             InterfaceCheckedTemplateNode::new(
-                InterfaceCheckedTemplateOperation::Constant(crate::InterfaceConstantTermId::new(0)),
+                InterfaceCheckedTemplateOperation::Constant {
+                    term: crate::InterfaceConstantTermId::new(0),
+                    usage: bray_bound_tree::CheckedTemplateConstantUsage::new(2, 3, 4),
+                },
                 InterfaceTypeId::new(0),
             ),
             InterfaceCheckedTemplateNode::new(

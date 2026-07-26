@@ -277,8 +277,8 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Input(input) => {
             checked_index(compact_index(input.raw()), context.template.inputs().len())?;
         }
-        InterfaceCheckedTemplateOperation::Constant(constant) => {
-            validate_index(constant.to_index(), context.facts.constant_terms.len())?;
+        InterfaceCheckedTemplateOperation::Constant { term, .. } => {
+            validate_index(term.to_index(), context.facts.constant_terms.len())?;
         }
         InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
             validate_prior_node(*operand, node_index)?;
@@ -402,7 +402,7 @@ fn validate_operation_type(
 
             template.temporaries()[temporary_index].ty() == node.ty()
         }
-        InterfaceCheckedTemplateOperation::Constant(_)
+        InterfaceCheckedTemplateOperation::Constant { .. }
         | InterfaceCheckedTemplateOperation::Declaration(_)
         | InterfaceCheckedTemplateOperation::Call { .. }
         | InterfaceCheckedTemplateOperation::Project { .. } => true,

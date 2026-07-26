@@ -42,7 +42,7 @@ impl super::super::Compilation {
             .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let (Some(validated), Some(_surface)) = (loaded.validated(), loaded.surface()) else {
+        let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
@@ -62,13 +62,6 @@ impl super::super::Compilation {
             ));
         }
 
-        let Some(body) = artifact.constant_callable_body(address.symbol()) else {
-            return Ok(DiagnosticResult::new(
-                None,
-                implementation_body_diagnostics(input),
-            ));
-        };
-
         let graph_result = self
             .imported_semantic_graph_result_with_cancellation(address.interface(), cancellation)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -78,6 +71,20 @@ impl super::super::Compilation {
                 None,
                 graph_result.diagnostics().clone(),
             ));
+        };
+
+        let body = match artifact.constant_callable_body(
+            address.symbol(),
+            surface,
+            input.validation_policy().limits(),
+        ) {
+            Ok(Some(body)) => body,
+            Ok(None) | Err(_) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    implementation_body_diagnostics(input),
+                ));
+            }
         };
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;

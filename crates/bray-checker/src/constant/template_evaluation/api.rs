@@ -139,7 +139,10 @@ mod tests {
 
         let result = builder
             .push_node(CheckedTemplateNode::new(
-                CheckedTemplateOperation::Constant(term),
+                CheckedTemplateOperation::Constant {
+                    term,
+                    usage: bray_bound_tree::CheckedTemplateConstantUsage::new(2, 3, 4),
+                },
                 ty,
             ))
             .unwrap_or_else(|error| panic!("constant body node must validate: {error:?}"));
@@ -164,18 +167,13 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test function must be callable"));
 
-        let request = ConstantCallRequest::new(
-            CallableInstanceData::new(callable, substitution),
-            None,
-            [],
-            ty,
-            ConstantEvaluationLimits::default(),
-        );
+        let callable = CallableInstanceData::new(callable, substitution);
+        let request = |limits| ConstantCallRequest::new(callable, None, [], ty, limits);
 
         let outcome = evaluate_constant_callable_template(
             &TestCheckerContext::new(false),
             &template,
-            &request,
+            &request(ConstantEvaluationLimits::default()),
             &UnusedTemplateResolver,
             None,
         )
@@ -185,6 +183,38 @@ mod tests {
         assert!(outcome.diagnostics().is_empty());
         assert_eq!(outcome.value().value(), value);
         assert_eq!(outcome.value().usage().steps(), 2);
+        assert_eq!(outcome.value().usage().aggregate_elements(), 2);
+        assert_eq!(outcome.value().usage().literal_bytes(), 3);
+        assert_eq!(outcome.value().usage().expansions(), 4);
+
+        let cases = [
+            (
+                ConstantEvaluationLimits::new(16, 1, 16),
+                bray_diagnostics::DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+            ),
+            (
+                ConstantEvaluationLimits::new(16, 16, 2),
+                bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+            ),
+            (
+                ConstantEvaluationLimits::new(16, 16, 16).with_expansions(3),
+                bray_diagnostics::DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+            ),
+        ];
+
+        for (limits, expected) in cases {
+            let outcome = evaluate_constant_callable_template(
+                &TestCheckerContext::new(false),
+                &template,
+                &request(limits),
+                &UnusedTemplateResolver,
+                None,
+            )
+            .into_result()
+            .unwrap_or_else(|| panic!("constant body limit failure must recover"));
+
+            assert_eq!(outcome.diagnostics().by_kind(expected).count(), 1);
+        }
     }
 
     struct UnusedTemplateResolver;
@@ -213,6 +243,7 @@ mod tests {
         fn resolve_constant(
             &self,
             _instance: bray_symbols::ConstantInstanceKey,
+            _limits: crate::ConstantEvaluationLimits,
         ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
         {
             unreachable!("closed test template must not resolve constants")

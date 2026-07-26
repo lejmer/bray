@@ -1,13 +1,22 @@
+use std::ops::Range;
 use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplateKind;
 use bray_symbols::InterfaceSymbolId;
 
+use crate::decode::map_wire_error;
+use crate::semantic::{decode_template_payload, encode_template_payload};
+use crate::wire::{WireEncoder, WireReader};
 use crate::{
-    InterfaceCheckedTemplate, InterfaceContentHash, InterfaceLanguageRevision,
+    InterfaceCheckedTemplate, InterfaceContentHash, InterfaceLanguageRevision, InterfaceLimit,
     InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
     PackageInterfaceSurface, ValidatedPackageInterface,
 };
+
+const MAGIC: [u8; 8] = *b"BRAYIMPL";
+const FORMAT_VERSION: u16 = 1;
+const HEADER_LENGTH: usize = 48;
+const DIRECTORY_ENTRY_LENGTH: usize = 20;
 
 /// One checked const-callable body addressed by its public interface identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,16 +42,23 @@ impl InterfaceConstantCallableBody {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ImplementationDirectoryEntry {
+    owner: InterfaceSymbolId,
+    payload: Range<usize>,
+}
+
 /// An immutable package implementation artifact associated with one semantic interface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PackageImplementationArtifact {
+    bytes: Arc<[u8]>,
     interface_content_hash: InterfaceContentHash,
     language_revision: InterfaceLanguageRevision,
-    constant_callable_bodies: Arc<[InterfaceConstantCallableBody]>,
+    constant_callable_bodies: Arc<[ImplementationDirectoryEntry]>,
 }
 
 impl PackageImplementationArtifact {
-    /// Validates and assembles implementation payloads for one exact package interface.
+    /// Validates and encodes implementation payloads for one exact package interface.
     pub fn try_new(
         interface: &ValidatedPackageInterface,
         surface: &PackageInterfaceSurface,
@@ -50,11 +66,11 @@ impl PackageImplementationArtifact {
         constant_callable_bodies: impl IntoIterator<Item = InterfaceConstantCallableBody>,
         limits: InterfaceValidationLimits,
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
-        let mut constant_callable_bodies = constant_callable_bodies.into_iter().collect::<Vec<_>>();
+        let mut bodies = constant_callable_bodies.into_iter().collect::<Vec<_>>();
 
-        constant_callable_bodies.sort_by_key(InterfaceConstantCallableBody::owner);
+        bodies.sort_by_key(InterfaceConstantCallableBody::owner);
 
-        for pair in constant_callable_bodies.windows(2) {
+        for pair in bodies.windows(2) {
             if pair[0].owner() == pair[1].owner() {
                 return Err(
                     PackageImplementationArtifactBuildError::DuplicateCallableBody(pair[0].owner()),
@@ -62,30 +78,128 @@ impl PackageImplementationArtifact {
             }
         }
 
-        for body in &constant_callable_bodies {
-            let Some(owner) = surface.symbols().symbol(body.owner()) else {
-                return Err(
-                    PackageImplementationArtifactBuildError::InvalidCallableOwner(body.owner()),
-                );
-            };
-
-            if !owner.kind().is_callable()
-                || body.template().kind() != CheckedTemplateKind::ConstantCallableBody
-            {
-                return Err(
-                    PackageImplementationArtifactBuildError::InvalidCallableOwner(body.owner()),
-                );
-            }
+        for body in &bodies {
+            validate_body_owner(surface, body.owner(), body.template())?;
 
             semantic_facts
                 .validate_implementation_template(surface, body.template(), limits)
                 .map_err(PackageImplementationArtifactBuildError::InvalidBody)?;
         }
 
+        let bytes = encode_artifact(
+            interface.header().content_hash(),
+            interface.header().language_revision(),
+            &bodies,
+        )?;
+
+        Self::try_from_bytes(bytes, limits)
+            .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)
+    }
+
+    /// Validates the fixed header and canonical directory without decoding body payloads.
+    pub fn try_from_bytes(
+        bytes: impl Into<Arc<[u8]>>,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, InterfaceValidationError> {
+        let bytes = bytes.into();
+        let mut reader = WireReader::new(&bytes);
+
+        if reader.read_array::<8>().map_err(map_wire_error)? != MAGIC {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        if reader.read_u16().map_err(map_wire_error)? != FORMAT_VERSION {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        let language_revision =
+            InterfaceLanguageRevision::new(reader.read_u16().map_err(map_wire_error)?);
+
+        let interface_content_hash = InterfaceContentHash::from_bytes(
+            reader.read_array::<32>().map_err(map_wire_error)?,
+        );
+
+        let count = reader.read_u32().map_err(map_wire_error)?;
+
+        limits.check(InterfaceLimit::RecordCount, u64::from(count))?;
+
+        let count = usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)?;
+
+        let directory_length = count
+            .checked_mul(DIRECTORY_ENTRY_LENGTH)
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let payload_start = HEADER_LENGTH
+            .checked_add(directory_length)
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        if payload_start > bytes.len() {
+            return Err(InterfaceValidationError::Truncated);
+        }
+
+        let mut directory = Vec::with_capacity(count);
+        let mut expected_offset = 0_u64;
+
+        for _ in 0..count {
+            let owner = InterfaceSymbolId::new(reader.read_u32().map_err(map_wire_error)?);
+            let offset = reader.read_u64().map_err(map_wire_error)?;
+            let length = reader.read_u64().map_err(map_wire_error)?;
+
+            if offset != expected_offset {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            let end = offset
+                .checked_add(length)
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+            let start = payload_start
+                .checked_add(
+                    usize::try_from(offset).map_err(|_| InterfaceValidationError::Malformed)?,
+                )
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+            let end_index = payload_start
+                .checked_add(
+                    usize::try_from(end).map_err(|_| InterfaceValidationError::Malformed)?,
+                )
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+            if end_index > bytes.len() {
+                return Err(InterfaceValidationError::Truncated);
+            }
+
+            if directory
+                .last()
+                .is_some_and(|previous: &ImplementationDirectoryEntry| previous.owner >= owner)
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            directory.push(ImplementationDirectoryEntry {
+                owner,
+                payload: start..end_index,
+            });
+
+            expected_offset = end;
+        }
+
+        let expected_length = payload_start
+            .checked_add(
+                usize::try_from(expected_offset)
+                    .map_err(|_| InterfaceValidationError::Malformed)?,
+            )
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        if expected_length != bytes.len() {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
         Ok(Self {
-            interface_content_hash: interface.header().content_hash(),
-            language_revision: interface.header().language_revision(),
-            constant_callable_bodies: constant_callable_bodies.into(),
+            bytes,
+            interface_content_hash,
+            language_revision,
+            constant_callable_bodies: directory.into(),
         })
     }
 
@@ -99,21 +213,113 @@ impl PackageImplementationArtifact {
         self.language_revision
     }
 
-    /// Returns the requested checked body without inspecting unrelated payloads.
+    /// Returns the canonical encoded implementation artifact.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Decodes and validates only the requested checked body payload.
     pub fn constant_callable_body(
         &self,
         owner: InterfaceSymbolId,
-    ) -> Option<&InterfaceConstantCallableBody> {
-        self.constant_callable_bodies
-            .binary_search_by_key(&owner, InterfaceConstantCallableBody::owner)
-            .ok()
-            .and_then(|index| self.constant_callable_bodies.get(index))
+        surface: &PackageInterfaceSurface,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Option<InterfaceConstantCallableBody>, InterfaceValidationError> {
+        let Ok(index) = self
+            .constant_callable_bodies
+            .binary_search_by_key(&owner, |entry| entry.owner)
+        else {
+            return Ok(None);
+        };
+
+        let entry = self
+            .constant_callable_bodies
+            .get(index)
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let payload = self
+            .bytes
+            .get(entry.payload.clone())
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let template = decode_template_payload(payload, limits)?;
+
+        validate_body_owner(surface, owner, &template)
+            .map_err(|_| InterfaceValidationError::Malformed)?;
+
+        Ok(Some(InterfaceConstantCallableBody::new(owner, template)))
+    }
+}
+
+fn validate_body_owner(
+    surface: &PackageInterfaceSurface,
+    owner: InterfaceSymbolId,
+    template: &InterfaceCheckedTemplate,
+) -> Result<(), PackageImplementationArtifactBuildError> {
+    let Some(owner_symbol) = surface.symbols().symbol(owner) else {
+        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(
+            owner,
+        ));
+    };
+
+    if !owner_symbol.kind().is_callable()
+        || template.kind() != CheckedTemplateKind::ConstantCallableBody
+    {
+        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(
+            owner,
+        ));
     }
 
-    /// Returns checked const-callable payloads in canonical owner order.
-    pub fn constant_callable_bodies(&self) -> &[InterfaceConstantCallableBody] {
-        &self.constant_callable_bodies
+    Ok(())
+}
+
+fn encode_artifact(
+    interface_content_hash: InterfaceContentHash,
+    language_revision: InterfaceLanguageRevision,
+    bodies: &[InterfaceConstantCallableBody],
+) -> Result<Arc<[u8]>, PackageImplementationArtifactBuildError> {
+    let payloads = bodies
+        .iter()
+        .map(|body| encode_template_payload(body.template()))
+        .collect::<Vec<_>>();
+
+    let count = u32::try_from(bodies.len())
+        .map_err(|_| PackageImplementationArtifactBuildError::InvalidArtifact(
+            InterfaceValidationError::Malformed,
+        ))?;
+
+    let mut encoder = WireEncoder::new();
+
+    encoder.write_bytes(&MAGIC);
+    encoder.write_u16(FORMAT_VERSION);
+    encoder.write_u16(language_revision.raw());
+    encoder.write_bytes(interface_content_hash.as_bytes());
+    encoder.write_u32(count);
+
+    let mut offset = 0_u64;
+
+    for (body, payload) in bodies.iter().zip(&payloads) {
+        let length = u64::try_from(payload.len())
+            .map_err(|_| PackageImplementationArtifactBuildError::InvalidArtifact(
+                InterfaceValidationError::Malformed,
+            ))?;
+
+        encoder.write_u32(body.owner().raw());
+        encoder.write_u64(offset);
+        encoder.write_u64(length);
+
+        offset = offset
+            .checked_add(length)
+            .ok_or(PackageImplementationArtifactBuildError::InvalidArtifact(
+                InterfaceValidationError::Malformed,
+            ))?;
     }
+
+    for payload in payloads {
+        encoder.write_bytes(&payload);
+    }
+
+    Ok(encoder.into_bytes().into())
 }
 
 /// Failure while assembling a package implementation artifact.
@@ -125,6 +331,8 @@ pub enum PackageImplementationArtifactBuildError {
     InvalidCallableOwner(InterfaceSymbolId),
     /// A checked body does not form a valid source-independent template graph.
     InvalidBody(InterfaceValidationError),
+    /// The encoded artifact does not form a canonical demand-addressable container.
+    InvalidArtifact(InterfaceValidationError),
 }
 
 #[cfg(test)]
@@ -142,7 +350,7 @@ mod tests {
     };
 
     #[test]
-    fn artifacts_retain_one_demand_addressable_constant_body() {
+    fn artifacts_decode_only_the_requested_constant_body() {
         let fixture = artifact_fixture();
 
         let artifact = PackageImplementationArtifact::try_new(
@@ -164,9 +372,66 @@ mod tests {
             fixture.interface.header().language_revision()
         );
 
-        assert_eq!(
-            artifact.constant_callable_body(fixture.body.owner()),
-            Some(&fixture.body)
+        let body = artifact
+            .constant_callable_body(
+                fixture.body.owner(),
+                fixture.bundle.surface(),
+                InterfaceValidationLimits::default(),
+            )
+            .unwrap_or_else(|error| panic!("requested body must decode: {error:?}"));
+
+        assert_eq!(body, Some(fixture.body));
+    }
+
+    #[test]
+    fn malformed_unrequested_payloads_do_not_block_other_body_lookups() {
+        let fixture = artifact_fixture();
+
+        let second_owner = bray_symbols::InterfaceSymbolId::new(
+            fixture.body.owner().raw().saturating_add(100),
+        );
+
+        let second = InterfaceConstantCallableBody::new(
+            second_owner,
+            fixture.body.template.clone(),
+        );
+
+        let mut bytes = super::encode_artifact(
+            fixture.interface.header().content_hash(),
+            fixture.interface.header().language_revision(),
+            &[fixture.body.clone(), second],
+        )
+        .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
+        .to_vec();
+
+        let last = bytes
+            .last_mut()
+            .unwrap_or_else(|| panic!("artifact must contain a body payload"));
+
+        *last ^= 0xff;
+
+        let artifact = PackageImplementationArtifact::try_from_bytes(
+            bytes,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("directory validation must remain lazy: {error:?}"));
+
+        let first = artifact.constant_callable_body(
+            fixture.body.owner(),
+            fixture.bundle.surface(),
+            InterfaceValidationLimits::default(),
+        );
+
+        assert_eq!(first.map(|body| body.is_some()), Ok(true));
+
+        assert!(
+            artifact
+                .constant_callable_body(
+                    second_owner,
+                    fixture.bundle.surface(),
+                    InterfaceValidationLimits::default(),
+                )
+                .is_err()
         );
     }
 

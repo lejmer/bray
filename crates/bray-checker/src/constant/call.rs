@@ -118,5 +118,6 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
     fn resolve_constant(
         &self,
         instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
     ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>>;
 }

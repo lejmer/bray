@@ -260,13 +260,52 @@ pub enum CheckedTemplateShortCircuitKind {
     Or,
 }
 
+/// Deterministic materialization work retained with one checked constant term.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CheckedTemplateConstantUsage {
+    aggregate_elements: u64,
+    literal_bytes: u64,
+    expansions: u64,
+}
+
+impl CheckedTemplateConstantUsage {
+    /// Creates an explicit constant materialization summary.
+    pub const fn new(aggregate_elements: u64, literal_bytes: u64, expansions: u64) -> Self {
+        Self {
+            aggregate_elements,
+            literal_bytes,
+            expansions,
+        }
+    }
+
+    /// Returns aggregate elements materialized while producing the term.
+    pub const fn aggregate_elements(self) -> u64 {
+        self.aggregate_elements
+    }
+
+    /// Returns source literal bytes decoded while producing the term.
+    pub const fn literal_bytes(self) -> u64 {
+        self.literal_bytes
+    }
+
+    /// Returns elements produced through constant expansion.
+    pub const fn expansions(self) -> u64 {
+        self.expansions
+    }
+}
+
 /// The closed normalized operation vocabulary of a checked template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedTemplateOperation {
     /// Reads one explicitly declared contextual or generic input.
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
-    Constant(ConstantTermId),
+    Constant {
+        /// The checked open or closed constant term.
+        term: ConstantTermId,
+        /// Materialization work no longer recoverable from a closed value.
+        usage: CheckedTemplateConstantUsage,
+    },
     /// Applies a selected unary constant operation.
     Unary {
         /// Exact checked operation.
@@ -392,7 +431,10 @@ impl CheckedTemplateOperation {
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Input(_) | Self::Constant(_) | Self::Declaration(_) | Self::Temporary(_) => {}
+            Self::Input(_)
+            | Self::Constant { .. }
+            | Self::Declaration(_)
+            | Self::Temporary(_) => {}
         }
 
         Ok(())

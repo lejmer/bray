@@ -111,6 +111,7 @@ impl Compilation {
         let (references, dependency_diagnostics) = self.concrete_embedded_references(
             bound.result().value(),
             &semantics.result().value().1,
+            bray_checker::ConstantEvaluationLimits::default(),
             cancellation,
         )?;
 

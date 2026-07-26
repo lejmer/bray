@@ -666,6 +666,11 @@ const CHECKING_CONSTANT_AGGREGATE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
         "constant evaluation exceeded its aggregate element limit",
     )];
 
+const CHECKING_CONSTANT_EXPANSION_LIMIT_EXCEEDED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant evaluation exceeded its expansion limit",
+    )];
+
 const CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "constant evaluation exceeded its literal size limit",
@@ -1151,6 +1156,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingConstantAggregateLimitExceeded => {
             MessageTemplate::new(CHECKING_CONSTANT_AGGREGATE_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::CheckingConstantExpansionLimitExceeded => {
+            MessageTemplate::new(CHECKING_CONSTANT_EXPANSION_LIMIT_EXCEEDED)
         }
         DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED)

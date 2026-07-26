@@ -204,6 +204,7 @@ impl Compilation {
             substitution,
             None,
             &BTreeMap::new(),
+            bray_checker::ConstantEvaluationLimits::default(),
             cancellation,
         )?;
 

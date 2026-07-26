@@ -32,7 +32,7 @@ pub use contract::{
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
-    ConstantDefinitionFact, ConstantInstanceValueFact, DeclarationDirectivesFact,
+    ConstantDefinitionFact, DeclarationDirectivesFact,
     GenericConstParameterDeclaredTypeFact, GenericConstraintSatisfactionFact,
     GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCandidateSetFact,
     ImplementationCoherenceFact, ImplementationHeadTemplateFact,

@@ -156,17 +156,28 @@ where
 
             let result = evaluator
                 .resolver
-                .resolve_constant(ConstantInstanceKey::new(
-                    *definition,
-                    substitution,
-                    *selected_implementation,
-                ))
+                .resolve_constant(
+                    ConstantInstanceKey::new(
+                        *definition,
+                        substitution,
+                        *selected_implementation,
+                    ),
+                    evaluator.budget.remaining_limits(evaluator.limits),
+                )
                 .map_err(fact_failure)?;
 
             evaluator.diagnostics = evaluator.diagnostics.merged(result.diagnostics());
 
             match result.value() {
                 ConstantReferenceResolution::Value(value) => Ok(*value),
+                ConstantReferenceResolution::Evaluated(result) => {
+                    evaluator
+                        .budget
+                        .try_charge_usage(result.usage())
+                        .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+                    Ok(result.value())
+                }
                 ConstantReferenceResolution::Term(term) => evaluator.evaluate_term(*term, ty),
                 ConstantReferenceResolution::Cycle => Err(TemplateEvaluationFailure::Diagnostic(
                     DiagnosticKind::CheckingCyclicConstantDefinition,

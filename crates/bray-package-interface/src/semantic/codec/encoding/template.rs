@@ -50,6 +50,14 @@ fn encode_declaration_template(
     encoder.write_u32(declaration.entity().raw());
 }
 
+pub(crate) fn encode_template_payload(template: &InterfaceCheckedTemplate) -> Vec<u8> {
+    let mut encoder = WireEncoder::new();
+
+    encode_template(&mut encoder, template);
+
+    encoder.into_bytes()
+}
+
 fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplate) {
     encoder.write_u32(template.kind().to_wire());
     write_count(encoder, template.inputs().len());
@@ -122,8 +130,11 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
         InterfaceCheckedTemplateOperation::Input(input) => {
             write_tagged_template_id(encoder, 1, input.raw());
         }
-        InterfaceCheckedTemplateOperation::Constant(constant) => {
-            write_tagged_template_id(encoder, 2, constant.raw());
+        InterfaceCheckedTemplateOperation::Constant { term, usage } => {
+            write_tagged_template_id(encoder, 2, term.raw());
+            encoder.write_u64(usage.aggregate_elements());
+            encoder.write_u64(usage.literal_bytes());
+            encoder.write_u64(usage.expansions());
         }
         InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
             encoder.write_u32(12);

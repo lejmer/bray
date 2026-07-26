@@ -108,7 +108,18 @@ where
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         match operation {
             CheckedTemplateOperation::Input(input) => self.evaluate_input(*input),
-            CheckedTemplateOperation::Constant(term) => {
+            CheckedTemplateOperation::Constant { term, usage } => {
+                let usage = crate::ConstantEvaluationUsage::new(
+                    0,
+                    usage.aggregate_elements(),
+                    usage.literal_bytes(),
+                )
+                .with_expansions(usage.expansions());
+
+                self.budget
+                    .try_charge_usage(usage)
+                    .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
                 let term = self
                     .context
                     .semantic_values()
@@ -338,13 +349,20 @@ where
 
         let result = self
             .resolver
-            .resolve_constant(instance)
+            .resolve_constant(instance, self.budget.remaining_limits(self.limits))
             .map_err(fact_failure)?;
 
         self.diagnostics = self.diagnostics.merged(result.diagnostics());
 
         let value = match result.value() {
             ConstantReferenceResolution::Value(value) => *value,
+            ConstantReferenceResolution::Evaluated(result) => {
+                self.budget
+                    .try_charge_usage(result.usage())
+                    .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+                result.value()
+            }
             ConstantReferenceResolution::Term(term) => self.evaluate_term(*term, ty)?,
             ConstantReferenceResolution::Cycle => {
                 return Err(TemplateEvaluationFailure::Diagnostic(

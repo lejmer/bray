@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
 use bray_bound_tree::{
-    CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId,
-    CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
+    CheckedTemplateConstantUsage, CheckedTemplateInputId, CheckedTemplateKind,
+    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
 };
 use bray_symbols::{
     ConstantBinaryOperation, ConstantUnaryOperation, CurrentRunCancellation,
@@ -166,7 +166,12 @@ pub enum InterfaceCheckedTemplateOperation {
     /// Reads one explicitly declared contextual or generic input.
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
-    Constant(InterfaceConstantTermId),
+    Constant {
+        /// The checked open or closed constant term.
+        term: InterfaceConstantTermId,
+        /// Materialization work no longer recoverable from a closed value.
+        usage: CheckedTemplateConstantUsage,
+    },
     /// Applies a selected unary constant operation.
     Unary {
         /// Exact checked operation.

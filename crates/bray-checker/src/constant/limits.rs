@@ -9,6 +9,7 @@ pub struct ConstantEvaluationLimits {
     steps: u64,
     aggregate_elements: u64,
     literal_bytes: u64,
+    expansions: u64,
     integer_bits: u32,
     call_depth: u32,
 }
@@ -19,6 +20,7 @@ pub struct ConstantEvaluationUsage {
     steps: u64,
     aggregate_elements: u64,
     literal_bytes: u64,
+    expansions: u64,
 }
 
 impl ConstantEvaluationUsage {
@@ -28,7 +30,15 @@ impl ConstantEvaluationUsage {
             steps,
             aggregate_elements,
             literal_bytes,
+            expansions: 0,
         }
+    }
+
+    /// Uses an explicit number of expanded constant elements.
+    pub const fn with_expansions(mut self, expansions: u64) -> Self {
+        self.expansions = expansions;
+
+        self
     }
 
     /// Returns the number of evaluated expression operations.
@@ -45,6 +55,11 @@ impl ConstantEvaluationUsage {
     pub const fn literal_bytes(self) -> u64 {
         self.literal_bytes
     }
+
+    /// Returns the number of elements produced through constant expansion.
+    pub const fn expansions(self) -> u64 {
+        self.expansions
+    }
 }
 
 impl ConstantEvaluationLimits {
@@ -54,9 +69,17 @@ impl ConstantEvaluationLimits {
             steps,
             aggregate_elements,
             literal_bytes,
+            expansions: aggregate_elements,
             integer_bits: 16 * 1024 * 1024,
             call_depth: 1_024,
         }
+    }
+
+    /// Uses an explicit maximum number of elements produced through constant expansion.
+    pub const fn with_expansions(mut self, expansions: u64) -> Self {
+        self.expansions = expansions;
+
+        self
     }
 
     /// Uses an explicit maximum bit size for one exact integer result.
@@ -88,6 +111,11 @@ impl ConstantEvaluationLimits {
         self.literal_bytes
     }
 
+    /// Returns the maximum number of elements produced through constant expansion.
+    pub const fn expansions(self) -> u64 {
+        self.expansions
+    }
+
     /// Returns the maximum bit size of one exact integer result.
     pub const fn integer_bits(self) -> u32 {
         self.integer_bits
@@ -116,6 +144,7 @@ pub(super) struct EvaluationBudget {
     remaining_steps: u64,
     remaining_elements: u64,
     remaining_literal_bytes: u64,
+    remaining_expansions: u64,
 }
 
 impl EvaluationBudget {
@@ -128,6 +157,7 @@ impl EvaluationBudget {
             remaining_steps: limits.steps(),
             remaining_elements: limits.aggregate_elements(),
             remaining_literal_bytes: limits.literal_bytes(),
+            remaining_expansions: limits.expansions(),
         }
     }
 
@@ -154,6 +184,15 @@ impl EvaluationBudget {
         bytes: usize,
     ) -> Result<(), EvaluationFailure> {
         self.try_charge_literal(bytes)
+            .map_err(|kind| EvaluationFailure::Source { expression, kind })
+    }
+
+    pub(super) fn charge_expansion(
+        &mut self,
+        expression: BoundExpressionId,
+        count: usize,
+    ) -> Result<(), EvaluationFailure> {
+        self.try_charge_expansion(count)
             .map_err(|kind| EvaluationFailure::Source { expression, kind })
     }
 
@@ -190,6 +229,14 @@ impl EvaluationBudget {
         )
     }
 
+    pub(super) fn try_charge_expansion(&mut self, count: usize) -> Result<(), DiagnosticKind> {
+        charge(
+            &mut self.remaining_expansions,
+            u64::try_from(count).unwrap_or(u64::MAX),
+            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+        )
+    }
+
     pub(super) fn try_charge_usage(
         &mut self,
         usage: ConstantEvaluationUsage,
@@ -210,6 +257,12 @@ impl EvaluationBudget {
             &mut self.remaining_literal_bytes,
             usage.literal_bytes(),
             DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+        )?;
+
+        charge(
+            &mut self.remaining_expansions,
+            usage.expansions(),
+            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
         )
     }
 
@@ -221,6 +274,7 @@ impl EvaluationBudget {
             steps: self.remaining_steps,
             aggregate_elements: self.remaining_elements,
             literal_bytes: self.remaining_literal_bytes,
+            expansions: self.remaining_expansions,
             integer_bits: limits.integer_bits,
             call_depth: limits.call_depth,
         }
@@ -232,6 +286,7 @@ impl EvaluationBudget {
             limits.aggregate_elements - self.remaining_elements,
             limits.literal_bytes - self.remaining_literal_bytes,
         )
+        .with_expansions(limits.expansions - self.remaining_expansions)
     }
 }
 
@@ -258,6 +313,7 @@ mod tests {
         assert!(limits.steps() > 0);
         assert!(limits.aggregate_elements() > 0);
         assert!(limits.literal_bytes() > 0);
+        assert!(limits.expansions() > 0);
         assert!(limits.integer_bits() > 0);
         assert!(limits.call_depth() > 0);
     }
@@ -284,10 +340,15 @@ mod tests {
                 ConstantEvaluationUsage::new(0, 0, 4),
                 DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
             ),
+            (
+                ConstantEvaluationUsage::new(0, 0, 0).with_expansions(4),
+                DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+            ),
         ];
 
         for (usage, expected) in cases {
-            let mut budget = EvaluationBudget::from_limits(ConstantEvaluationLimits::new(3, 3, 3));
+            let limits = ConstantEvaluationLimits::new(3, 3, 3).with_expansions(3);
+            let mut budget = EvaluationBudget::from_limits(limits);
 
             assert_eq!(budget.try_charge_usage(usage), Err(expected));
         }
@@ -296,13 +357,14 @@ mod tests {
     #[test]
     fn remaining_limits_preserve_noncumulative_policies() {
         let limits = ConstantEvaluationLimits::new(8, 9, 10)
+            .with_expansions(13)
             .with_integer_bits(11)
             .with_call_depth(12);
 
         let mut budget = EvaluationBudget::from_limits(limits);
 
         budget
-            .try_charge_usage(ConstantEvaluationUsage::new(1, 2, 3))
+            .try_charge_usage(ConstantEvaluationUsage::new(1, 2, 3).with_expansions(4))
             .unwrap_or_else(|kind| panic!("usage must fit the available budget: {kind:?}"));
 
         let remaining = budget.remaining_limits(limits);
@@ -310,6 +372,7 @@ mod tests {
         assert_eq!(remaining.steps(), 7);
         assert_eq!(remaining.aggregate_elements(), 7);
         assert_eq!(remaining.literal_bytes(), 7);
+        assert_eq!(remaining.expansions(), 9);
         assert_eq!(remaining.integer_bits(), 11);
         assert_eq!(remaining.call_depth(), 12);
     }

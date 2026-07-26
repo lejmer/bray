@@ -509,6 +509,27 @@ where
 
                 self.intern_term(ConstantTermData::Value(value))
             }
+            Some(ConstantReferenceResolution::Evaluated(result)) => {
+                self.budget.charge_usage(expression, result.usage())?;
+
+                let value = result.value();
+
+                let data = self
+                    .request
+                    .semantic_values()
+                    .constant_value_data(value)
+                    .map_err(|_| {
+                        EvaluationFailure::Infrastructure(
+                            CheckerInfrastructureError::SemanticValueUnavailable,
+                        )
+                    })?;
+
+                if data.ty() != ty {
+                    return Err(EvaluationFailure::invalid_input());
+                }
+
+                self.intern_term(ConstantTermData::Value(value))
+            }
             Some(ConstantReferenceResolution::Term(term)) => {
                 self.request
                     .semantic_values()
@@ -645,6 +666,7 @@ where
         let count = self.array_count(expression, count)?;
 
         self.budget.charge_elements(expression, count)?;
+        self.budget.charge_expansion(expression, count)?;
 
         match self.term_value(value)? {
             Some(value) => self.intern_value_term(
@@ -782,10 +804,11 @@ mod tests {
     use crate::{
         CheckerFactResult, CheckerInfrastructureError, CheckerOutcome, CheckerUnitView,
         ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
-        ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
-        ConstantReferenceResolution, DeclaredUnitContext, DefaultConstantChecker,
-        DefaultConstantEvaluator, DefaultExpressionTypeChecker, ExpressionTypeChecker,
-        ExpressionTypeExpectation, ExpressionTypeInput, SemanticUnitContext,
+        ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
+        ConstantEvaluator, ConstantReferenceResolution, DeclaredUnitContext,
+        DefaultConstantChecker, DefaultConstantEvaluator, DefaultExpressionTypeChecker,
+        EvaluatedConstantCall, ExpressionTypeChecker, ExpressionTypeExpectation,
+        ExpressionTypeInput, SemanticUnitContext,
     };
 
     #[test]
@@ -1519,6 +1542,28 @@ mod tests {
         assert!(result.diagnostics().is_empty());
         assert_eq!(*result.value(), referenced_value);
 
+        let (unit, root, context) = reference_unit(BoundUnitId::new(98), expected);
+
+        let result = evaluate_reference_with_limits(
+            &unit,
+            root,
+            &context,
+            expected,
+            ConstantReferenceResolution::Evaluated(EvaluatedConstantCall::new(
+                referenced_value,
+                ConstantEvaluationUsage::new(4, 0, 0),
+            )),
+            ConstantEvaluationLimits::new(3, 16, 16),
+        );
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded)
+                .count(),
+            1
+        );
+
         let types = checked_types(&unit, root, &context, expected);
         let selections = empty_selections(&unit, &types);
 
@@ -1970,11 +2015,30 @@ mod tests {
         expected: TypeId,
         resolution: ConstantReferenceResolution,
     ) -> bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId> {
+        evaluate_reference_with_limits(
+            unit,
+            root,
+            context,
+            expected,
+            resolution,
+            ConstantEvaluationLimits::default(),
+        )
+    }
+
+    fn evaluate_reference_with_limits(
+        unit: &BoundUnit,
+        root: BoundExpressionId,
+        context: &TestCheckerContext,
+        expected: TypeId,
+        resolution: ConstantReferenceResolution,
+        limits: ConstantEvaluationLimits,
+    ) -> bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId> {
         let types = checked_types(unit, root, context, expected);
         let selections = empty_selections(unit, &types);
 
-        let input =
-            ConstantEvaluationInput::new(&types, &selections).with_references([(root, resolution)]);
+        let input = ConstantEvaluationInput::new(&types, &selections)
+            .with_references([(root, resolution)])
+            .with_limits(limits);
 
         let entry = checker_entry(unit);
 

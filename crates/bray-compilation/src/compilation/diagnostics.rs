@@ -15,9 +15,9 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractsFact, CallableSymbolId, ConstantDefinitionState,
-    ConstantInstanceValueFact, DeclaredTypeRepresentation, ImplementationSymbolId, ModuleSurface,
-    ModuleSurfaceFact, NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest, SymbolFactResult,
-    SymbolGraph, SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
+    DeclaredTypeRepresentation, ImplementationSymbolId, ModuleSurface, ModuleSurfaceFact,
+    NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -497,7 +497,7 @@ enum SemanticDiagnosticFact {
     Async(Arc<DiagnosticResult<CheckedAsyncFacts>>),
     BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
-    ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
+    ConstantInstance(Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
     CallableContracts(Arc<SymbolFactResult<CallableContractsFact>>),
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),

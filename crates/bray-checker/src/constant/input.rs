@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueId, TypeId};
 
-use super::{ConstantCallResolver, ConstantEvaluationLimits};
+use super::{ConstantCallResolver, ConstantEvaluationLimits, EvaluatedConstantCall};
 
 /// The exact root evaluated by one constant request.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -22,6 +22,8 @@ pub(crate) enum ConstantEvaluationRoot {
 pub enum ConstantReferenceResolution {
     /// The referenced constant instance evaluated successfully.
     Value(ConstantValueId),
+    /// The referenced constant evaluated with transitive deterministic work usage.
+    Evaluated(EvaluatedConstantCall),
     /// The reference remains a checked symbolic constant term.
     Term(ConstantTermId),
     /// The compilation fact graph detected a constant-definition cycle.

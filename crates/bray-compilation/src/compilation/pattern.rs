@@ -115,6 +115,9 @@ impl Compilation {
 
         let term = match resolution {
             ConstantReferenceResolution::Value(value) => self.constant_value_term(value)?,
+            ConstantReferenceResolution::Evaluated(result) => {
+                self.constant_value_term(result.value())?
+            }
             ConstantReferenceResolution::Term(term) => term,
             ConstantReferenceResolution::Cycle | ConstantReferenceResolution::Invalid => {
                 return Ok(None);
@@ -257,7 +260,7 @@ impl Compilation {
             Ok(result) => {
                 *diagnostics = diagnostics.merged(result.diagnostics());
 
-                ConstantReferenceResolution::Value(*result.value())
+                ConstantReferenceResolution::Evaluated(*result.value())
             }
             Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle,
             Err(error) => return Err(error),
