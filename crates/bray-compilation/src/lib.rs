@@ -19,6 +19,7 @@ pub use compilation::{
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
 };
+pub use bray_checker::SemanticAnalysisLimits;
 pub use fact::{
     CancellationToken, FactCycle, FactQueryError, ImportedSemanticFactKey, QueryPriority,
     SymbolCompletionError,

@@ -237,6 +237,9 @@ impl DeclaredTypeDefinition {
 
 /// Dependencies used while checking declared type representation contracts.
 pub trait TypeRepresentationContext: Sync {
+    /// Returns the maximum active recursion depth for this request.
+    fn maximum_recursion_depth(&self) -> usize;
+
     /// Returns the canonical semantic value store.
     fn semantic_values(&self) -> &SemanticValueStore;
 

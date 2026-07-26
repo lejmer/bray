@@ -995,6 +995,10 @@ Resource limits that can change a semantic answer or diagnostic are part of the 
 Cancellation, priority, worker count, and cache retention are not result-affecting resource limits and must not enter that
 identity.
 
+Semantic-analysis requests carry deterministic limits for active recursive analysis and package-level pair comparisons. Facts
+whose answers depend on those limits must be invalidated when a revised snapshot changes them. Unrelated syntax and semantic facts
+remain reusable through their ordinary dependency identities.
+
 ---
 
 ## Extensibility Rules

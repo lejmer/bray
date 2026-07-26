@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_binder::{NameAccess, SymbolFactProvider};
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind};
 use bray_symbols::{
     AnySymbolId, CallableOverloadSymbolId, CallableSignatureFact, CallableSignatureTemplate,
     CallableSymbolId, GenericDeclarationTemplate, GenericDeclarationTemplateFact, GenericOwnerId,
@@ -15,6 +15,7 @@ use bray_syntax::PathSyntax;
 use super::Compilation;
 use super::binder::{CompilationBinderFacts, binder_fact_error};
 use super::diagnostics::source_diagnostic;
+use super::limits::try_count_comparison;
 use super::overlap::callable_selection_surfaces_overlap;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
@@ -59,6 +60,13 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
         let mut memberships = BTreeMap::new();
         let mut reported_membership_conflicts = BTreeSet::new();
+
+        let maximum_comparisons = self
+            .options()
+            .semantic_analysis_limits()
+            .pairwise_comparisons();
+
+        let mut comparisons = 0;
 
         for family in symbols
             .callable_overloads()
@@ -158,7 +166,6 @@ impl Compilation {
                 arms.push(arm);
             }
 
-            // TODO(BRA-272): Bound pairwise overload analysis with deterministic search limits.
             for (index, left) in arms.iter().enumerate() {
                 if !left.may_be_satisfied {
                     continue;
@@ -169,6 +176,18 @@ impl Compilation {
 
                     if !right.may_be_satisfied {
                         continue;
+                    }
+
+                    if !try_count_comparison(&mut comparisons, maximum_comparisons) {
+                        diagnostics.add(
+                            source_diagnostic(
+                                left.anchor,
+                                DiagnosticKind::CheckingCallableOverloadLimitExceeded,
+                            )
+                            .with_arg(DiagnosticArg::maximum_count(maximum_comparisons)),
+                        );
+
+                        return Ok(diagnostics);
                     }
 
                     if callable_selection_surfaces_overlap(
@@ -307,7 +326,10 @@ fn record_family_membership(
 mod tests {
     use bray_diagnostics::DiagnosticKind;
 
-    use crate::test_support::{compilation, diagnostic_kinds};
+    use crate::test_support::{compilation, compilation_with_options, diagnostic_kinds};
+    use crate::{
+        CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
+    };
 
     #[test]
     fn callable_overload_families_accept_distinguishable_explicit_call_surfaces() {
@@ -379,6 +401,45 @@ overload choose =
                 })
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn callable_overloads_stop_at_the_comparison_limit() {
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            SelectedTarget::baseline(),
+        )
+        .with_semantic_analysis_limits(SemanticAnalysisLimits::new(256, 0));
+
+        let compilation = compilation_with_options(
+            r#"module app;
+
+func first(pos value: bool)
+{
+}
+
+func second(pos value: bool)
+{
+}
+
+overload choose =
+{
+    first,
+    second,
+}
+"#,
+            options,
+        );
+
+        let diagnostics = compilation
+            .callable_overload_diagnostics(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("limited overload validation must finish: {error:?}"));
+
+        assert_eq!(
+            diagnostic_kinds(diagnostics),
+            [DiagnosticKind::CheckingCallableOverloadLimitExceeded]
         );
     }
 

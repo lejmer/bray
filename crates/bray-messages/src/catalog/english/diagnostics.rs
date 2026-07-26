@@ -150,6 +150,11 @@ const CHECKING_RECURSIVE_TYPE_REPRESENTATION: &[MessageTemplatePart] =
         "declared type has an inline recursive representation",
     )];
 
+const CHECKING_TYPE_REPRESENTATION_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("type representation analysis exceeded its recursion limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
+
 const CHECKING_INVALID_LAYOUT_DIRECTIVE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid type layout contract")];
 
@@ -250,6 +255,18 @@ const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "callable overload arms have indistinguishable selection signatures",
     )];
+
+const CHECKING_IMPLEMENTATION_COHERENCE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("implementation coherence analysis exceeded its limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+    MessageTemplatePart::Text(" comparisons"),
+];
+
+const CHECKING_CALLABLE_OVERLOAD_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable overload analysis exceeded its limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+    MessageTemplatePart::Text(" comparisons"),
+];
 
 const CHECKING_MISSING_FOREIGN_CALLABLE_DIRECTIVE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("foreign callable requires "),
@@ -973,6 +990,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingRecursiveTypeRepresentation => {
             MessageTemplate::new(CHECKING_RECURSIVE_TYPE_REPRESENTATION)
         }
+        DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded => {
+            MessageTemplate::new(CHECKING_TYPE_REPRESENTATION_RECURSION_LIMIT_EXCEEDED)
+        }
         DiagnosticKind::CheckingInvalidLayoutDirective => {
             MessageTemplate::new(CHECKING_INVALID_LAYOUT_DIRECTIVE)
         }
@@ -1039,6 +1059,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingConflictingCallableOverloadSignature => {
             MessageTemplate::new(CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE)
+        }
+        DiagnosticKind::CheckingImplementationCoherenceLimitExceeded => {
+            MessageTemplate::new(CHECKING_IMPLEMENTATION_COHERENCE_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::CheckingCallableOverloadLimitExceeded => {
+            MessageTemplate::new(CHECKING_CALLABLE_OVERLOAD_LIMIT_EXCEEDED)
         }
         DiagnosticKind::CheckingMissingForeignCallableDirective => {
             MessageTemplate::new(CHECKING_MISSING_FOREIGN_CALLABLE_DIRECTIVE)

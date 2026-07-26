@@ -186,6 +186,21 @@ fn invalidation_roots(
         );
     }
 
+    if previous.options.semantic_analysis_limits() != updated.options.semantic_analysis_limits() {
+        roots.extend([
+            CompilationFactKey::ImplementationCoherence,
+            CompilationFactKey::CallableOverloadValidation,
+        ]);
+
+        roots.extend(
+            previous
+                .declared_type_representations
+                .keys()
+                .into_iter()
+                .map(CompilationFactKey::DeclaredTypeRepresentation),
+        );
+    }
+
     if previous.dependency_interfaces != updated.dependency_interfaces {
         roots.extend([
             CompilationFactKey::ImportedSymbolSkeleton,
@@ -510,13 +525,13 @@ mod tests {
 
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{ProductKind, TypeData};
+    use bray_symbols::{NamedTypeSymbolId, ProductKind, SymbolOrigin, TypeData};
     use bray_syntax::SyntaxText;
 
     use super::Compilation;
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{package_identity, source_callable_body_key};
-    use crate::{SelectedTarget, WorkerBudget};
+    use crate::{SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
 
     #[test]
     fn variable_width_source_edits_reuse_only_unaffected_source_facts() {
@@ -693,6 +708,80 @@ mod tests {
                 .state
                 .semantic_values
                 .shares_storage_with(&updated.state.semantic_values)
+        );
+    }
+
+    #[test]
+    fn semantic_limit_changes_invalidate_only_limit_dependent_facts() {
+        let source_text = concat!(
+            "module app;\n",
+            "\n",
+            "struct Value\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+        );
+
+        let previous = compilation([source(10, 0, source_text)]);
+
+        let symbols = previous
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let Some(structure) = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+        else {
+            panic!("test source must declare one structure");
+        };
+
+        let subject = NamedTypeSymbolId::from(structure.id());
+
+        let _ = previous.declared_type_representation(subject);
+
+        previous
+            .implementation_coherence_diagnostics(&previous.state.cancellation)
+            .unwrap_or_else(|error| panic!("coherence validation must complete: {error:?}"));
+
+        previous
+            .callable_overload_diagnostics(&previous.state.cancellation)
+            .unwrap_or_else(|error| panic!("overload validation must complete: {error:?}"));
+
+        let revised_options = options(ProductKind::Library, SelectedTarget::baseline())
+            .with_semantic_analysis_limits(SemanticAnalysisLimits::new(32, 64));
+
+        let updated = previous
+            .updated(request(
+                [source(10, 0, source_text)],
+                revised_options,
+            ))
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert!(
+            !previous
+                .state
+                .declared_type_representations
+                .shares_cell_with(&updated.state.declared_type_representations, &subject)
+        );
+
+        assert!(
+            !previous
+                .state
+                .implementation_coherence
+                .shares_storage_with(&updated.state.implementation_coherence)
+        );
+
+        assert!(
+            !previous
+                .state
+                .callable_overload_validation
+                .shares_storage_with(&updated.state.callable_overload_validation)
+        );
+
+        assert!(
+            previous.state.source_unit_syntax[0]
+                .shares_storage_with(&updated.state.source_unit_syntax[0])
         );
     }
 

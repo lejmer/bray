@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::shared_slice;
+use bray_checker::SemanticAnalysisLimits;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
@@ -19,6 +20,7 @@ pub struct CompilationOptions {
     product_kind: ProductKind,
     selected_target: SelectedTarget,
     native_link_inputs: Arc<[NativeLinkRequirement]>,
+    semantic_analysis_limits: SemanticAnalysisLimits,
 }
 
 impl CompilationOptions {
@@ -33,6 +35,7 @@ impl CompilationOptions {
             product_kind,
             selected_target,
             native_link_inputs: Arc::from([]),
+            semantic_analysis_limits: SemanticAnalysisLimits::default(),
         }
     }
 
@@ -42,6 +45,16 @@ impl CompilationOptions {
         inputs: impl IntoIterator<Item = NativeLinkRequirement>,
     ) -> Self {
         self.native_link_inputs = shared_slice(inputs);
+        self
+    }
+
+    /// Returns these options with explicit semantic-analysis resource limits.
+    pub const fn with_semantic_analysis_limits(
+        mut self,
+        limits: SemanticAnalysisLimits,
+    ) -> Self {
+        self.semantic_analysis_limits = limits;
+
         self
     }
 
@@ -63,6 +76,11 @@ impl CompilationOptions {
     /// Returns native link inputs available to the selected package and target.
     pub fn native_link_inputs(&self) -> &[NativeLinkRequirement] {
         &self.native_link_inputs
+    }
+
+    /// Returns the deterministic semantic-analysis resource limits.
+    pub const fn semantic_analysis_limits(&self) -> SemanticAnalysisLimits {
+        self.semantic_analysis_limits
     }
 }
 
@@ -282,6 +300,7 @@ mod tests {
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     };
+    use bray_checker::SemanticAnalysisLimits;
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{PackageIdentity, ProductKind};
 
@@ -294,11 +313,14 @@ mod tests {
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {
+        let limits = SemanticAnalysisLimits::new(17, 23);
+
         let options = CompilationOptions::new(
             WorkerBudget::serial(),
             ProductKind::Library,
             crate::SelectedTarget::baseline(),
-        );
+        )
+        .with_semantic_analysis_limits(limits);
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(1),
@@ -334,6 +356,7 @@ mod tests {
         assert_eq!(request.package_identity(), &package_identity);
         assert_eq!(request.options(), &options);
         assert_eq!(request.options().product_kind(), ProductKind::Library);
+        assert_eq!(request.options().semantic_analysis_limits(), limits);
         assert_eq!(request.sources().len(), 1);
         assert_eq!(request.dependency_interfaces().len(), 1);
 
