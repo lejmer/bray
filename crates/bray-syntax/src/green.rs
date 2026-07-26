@@ -1,4 +1,5 @@
 use std::fmt::{self, Write};
+use std::mem;
 use std::slice;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ pub(crate) struct GreenNode {
 struct GreenNodeData {
     kind: SyntaxKind,
     full_width: TextSize,
-    children: Arc<[GreenElement]>,
+    children: Box<[GreenElement]>,
 }
 
 impl GreenNode {
@@ -28,7 +29,7 @@ impl GreenNode {
     pub(crate) fn new(kind: SyntaxKind, children: impl IntoIterator<Item = GreenElement>) -> Self {
         assert!(kind.is_node(), "green node kind must be a node");
 
-        let children = shared_slice(children);
+        let children = children.into_iter().collect::<Vec<_>>().into_boxed_slice();
         let full_width = full_width_for_children(&children);
 
         Self {
@@ -122,13 +123,29 @@ impl GreenNode {
         start: TextSize,
         writer: &mut dyn Write,
     ) -> fmt::Result {
-        let mut offset = start;
-
-        for child in self.children() {
-            offset = child.write_source_text(source_text, offset, writer)?;
+        for token in self.syntax_tokens(start) {
+            token.write_full_text(source_text, writer)?;
         }
 
         Ok(())
+    }
+}
+
+impl Drop for GreenNodeData {
+    fn drop(&mut self) {
+        let mut pending = mem::take(&mut self.children).into_vec();
+
+        while let Some(element) = pending.pop() {
+            let GreenElement::Node(node) = element else {
+                continue;
+            };
+
+            let Ok(mut data) = Arc::try_unwrap(node.data) else {
+                continue;
+            };
+
+            pending.extend(mem::take(&mut data.children));
+        }
     }
 }
 
@@ -150,26 +167,6 @@ impl GreenElement {
         }
     }
 
-    /// Appends this element's exact source text.
-    pub(crate) fn write_source_text(
-        &self,
-        source_text: &str,
-        start: TextSize,
-        writer: &mut dyn Write,
-    ) -> Result<TextSize, fmt::Error> {
-        match self {
-            Self::Token(token) => token.write_source_text(source_text, start, writer),
-            Self::Node(node) => {
-                node.write_source_text(source_text, start, writer)?;
-
-                Ok(checked_add(
-                    start,
-                    node.full_width(),
-                    "green node source text end",
-                ))
-            }
-        }
-    }
 }
 
 impl From<SyntaxToken> for GreenElement {
@@ -252,22 +249,6 @@ impl GreenToken {
         )
     }
 
-    fn write_source_text(
-        &self,
-        source_text: &str,
-        start: TextSize,
-        writer: &mut dyn Write,
-    ) -> Result<TextSize, fmt::Error> {
-        let token = self.syntax_token(start);
-
-        token.write_full_text(source_text, writer)?;
-
-        Ok(checked_add(
-            start,
-            self.full_width,
-            "green token source text end",
-        ))
-    }
 }
 
 /// Width-only trivia stored by green syntax tokens.
@@ -446,9 +427,13 @@ fn full_width_for_children(children: &[GreenElement]) -> TextSize {
 }
 
 fn last_token(children: &[GreenElement]) -> Option<(SyntaxKind, SyntaxTokenPresence)> {
-    match children.last()? {
-        GreenElement::Token(token) => Some((token.kind(), token.presence())),
-        GreenElement::Node(node) => node.last_token(),
+    let mut current = children.last()?;
+
+    loop {
+        match current {
+            GreenElement::Token(token) => return Some((token.kind(), token.presence())),
+            GreenElement::Node(node) => current = node.children().last()?,
+        }
     }
 }
 

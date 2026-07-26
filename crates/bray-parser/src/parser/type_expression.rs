@@ -12,7 +12,7 @@ impl Parser {
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> TypeExpressionSyntax {
         if !self.try_enter_syntax_nesting() {
-            return self.parse_unknown_type_expression(at_boundary);
+            return self.recover_type_expression_nesting_limit(at_boundary);
         }
 
         let expression = self.parse_prefix_type_expression(at_boundary);
@@ -307,6 +307,18 @@ impl Parser {
         let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
 
         self.recover_current_and_until_predicate(&mut builder, |parser| at_boundary(parser));
+
+        builder.build()
+    }
+
+    fn recover_type_expression_nesting_limit(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> TypeExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+
+        self.recover_until_predicate(&mut builder, |parser| at_boundary(parser));
 
         builder.build()
     }

@@ -157,7 +157,7 @@ impl Parser {
         }
 
         if !self.try_enter_syntax_nesting() {
-            return self.parse_unknown_pattern(context, at_boundary);
+            return self.recover_pattern_nesting_limit(context, at_boundary);
         }
 
         let pattern = match self.peek().kind() {
@@ -517,6 +517,21 @@ impl Parser {
         let mut builder = PatternBuilder::new(context, self, start);
 
         self.recover_current_and_until_predicate(&mut builder, |parser| {
+            at_boundary(parser) || at_pattern_hard_boundary(parser.peek().kind())
+        });
+
+        builder.build()
+    }
+
+    fn recover_pattern_nesting_limit(
+        &mut self,
+        context: PatternContext,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PatternNode {
+        let start = self.peek().full_range().start();
+        let mut builder = PatternBuilder::new(context, self, start);
+
+        self.recover_until_predicate(&mut builder, |parser| {
             at_boundary(parser) || at_pattern_hard_boundary(parser.peek().kind())
         });
 

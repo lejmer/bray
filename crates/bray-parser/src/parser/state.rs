@@ -296,6 +296,27 @@ mod tests {
     }
 
     #[test]
+    fn deeply_nested_expression_recovery_preserves_the_caller_close_delimiter() {
+        let expression_text = "- ".repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_sub(1));
+        let sources = source_store([format!("{expression_text})")]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::CloseParenToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), expression_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::CloseParenToken);
+
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxNestingLimitExceeded]
+        );
+    }
+
+    #[test]
     fn deeply_nested_types_recover_without_losing_source_text() {
         let type_text = format!(
             "{}Value",

@@ -511,7 +511,14 @@ impl Parser {
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> ExpressionSyntax {
-        let primary = self.parse_unknown_primary_expression(at_boundary);
+        let start = self.peek().full_range().start();
+        let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        self.recover_until_predicate(&mut builder, |parser| {
+            parser.at_primary_tail_boundary(at_boundary)
+        });
+
+        let primary = builder.build();
 
         self.primary_to_expression(primary)
     }
@@ -524,7 +531,7 @@ impl Parser {
             let start = self.peek().full_range().start();
             let mut builder = AccessExpressionSyntax::builder(self.syntax_source(), start);
 
-            self.recover_current_and_until_predicate(&mut builder, |parser| {
+            self.recover_until_predicate(&mut builder, |parser| {
                 parser.at_primary_tail_boundary(at_boundary)
             });
 

@@ -320,4 +320,22 @@ mod tests {
             [DiagnosticKind::SyntaxExpectedToken]
         );
     }
+
+    #[test]
+    fn flat_operator_chains_reconstruct_without_recursive_green_walks() {
+        let expression_text = format!("{}value", "value + ".repeat(4_096));
+        let sources = source_store([format!("{expression_text};")]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), expression_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::SemicolonToken);
+
+        let diagnostics = parser.finish();
+
+        assert!(diagnostics.is_empty());
+    }
 }
