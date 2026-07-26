@@ -17,10 +17,9 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey,
-    ConstantInstanceValueFact, ConstantTermData, ConstantTermId, ConstantValueData,
-    ConstantValueId, ConstantValueKind, ErrorConstantDefinition, GenericSubstitutionId,
-    SemanticFactResult, SymbolFactRequest, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDefinitionFact,
+    ConstantInstanceValueFact, ConstantTermData, ConstantTermId, ConstantValueId,
+    ErrorConstantDefinition, GenericSubstitutionId, SemanticFactResult, SymbolFactRequest,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDefinitionFact,
 };
 
 use super::super::Compilation;
@@ -290,7 +289,7 @@ impl Compilation {
 
             let value = self
                 .semantic_value_store()?
-                .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
+                .intern_error_constant_value(ty)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             return Ok(DiagnosticResult::without_diagnostics(value));
@@ -1074,7 +1073,7 @@ mod tests {
             panic!("constant callable must be eligible for evaluation");
         };
 
-        assert_eq!(integer_value(&compilation, value), 42);
+        assert_eq!(integer_value(&compilation, value.value()), 42);
     }
 
     #[test]
@@ -1140,7 +1139,7 @@ mod tests {
             panic!("constant callable must be eligible for evaluation");
         };
 
-        assert_eq!(integer_value(&compilation, value), 9);
+        assert_eq!(integer_value(&compilation, value.value()), 9);
     }
 
     #[test]
@@ -1201,7 +1200,7 @@ mod tests {
             let value = compilation
                 .semantic_value_store()
                 .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"))
-                .constant_value_data(value)
+                .constant_value_data(value.value())
                 .unwrap_or_else(|failure| {
                     panic!("propagated result value must resolve: {failure:?}")
                 });

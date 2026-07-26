@@ -34,9 +34,30 @@ pub(super) fn unlocated_interface_diagnostics(kind: DiagnosticKind) -> Diagnosti
     ))
 }
 
-fn with_dependency_context(
+pub(super) fn implementation_body_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::InterfaceConstantCallableBodyUnavailable,
+        SeverityKind::Error,
+    );
+
+    DiagnosticBag::single(with_dependency_context_path(
+        diagnostic,
+        input,
+        input
+            .implementation_artifact_path()
+            .unwrap_or_else(|| input.artifact_path()),
+    ))
+}
+
+fn with_dependency_context(diagnostic: Diagnostic, input: &DependencyInterfaceInput) -> Diagnostic {
+    with_dependency_context_path(diagnostic, input, input.artifact_path())
+}
+
+fn with_dependency_context_path(
     mut diagnostic: Diagnostic,
     input: &DependencyInterfaceInput,
+    artifact_path: &std::path::Path,
 ) -> Diagnostic {
     let note = DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
         .with_arg(DiagnosticArg::expected_package_identity(
@@ -45,7 +66,7 @@ fn with_dependency_context(
         .with_arg(DiagnosticArg::expected_product_identity(
             input.product().as_str(),
         ))
-        .with_arg(DiagnosticArg::artifact_path(input.artifact_path()));
+        .with_arg(DiagnosticArg::artifact_path(artifact_path));
 
     if let Some(span) = input.dependency_span() {
         diagnostic = diagnostic.with_primary_span(span);

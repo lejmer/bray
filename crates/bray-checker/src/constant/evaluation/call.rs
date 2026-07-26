@@ -86,7 +86,9 @@ where
         arguments: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
         result_type: TypeId,
     ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
-        let Some(limits) = self.input.limits().nested_call() else {
+        let limits = self.budget.remaining_limits(self.input.limits());
+
+        let Some(limits) = limits.nested_call() else {
             return Err(EvaluationFailure::Source {
                 expression,
                 kind: DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
@@ -107,7 +109,10 @@ where
 
         match resolver.resolve(&request) {
             Ok(ConstantCallResolution::Evaluated(result)) => {
-                let value = *result.value();
+                self.budget
+                    .charge_usage(expression, result.value().usage())?;
+
+                let value = result.value().value();
                 let value_data = self.constant_value(value)?;
 
                 if value_data.ty() != result_type {
@@ -122,7 +127,15 @@ where
                 expression,
                 kind: DiagnosticKind::CheckingCyclicConstantDefinition,
             }),
-            Ok(ConstantCallResolution::Ineligible) => {
+            Ok(ConstantCallResolution::Ineligible(diagnostics)) => {
+                if diagnostics.has_errors() {
+                    self.diagnostics = self.diagnostics.merged(&diagnostics);
+
+                    return self
+                        .recovery_value(result_type)
+                        .map_err(EvaluationFailure::Infrastructure);
+                }
+
                 Err(EvaluationFailure::invalid_expression(expression))
             }
             Err(CheckerFactError::Cancelled) => Err(EvaluationFailure::Cancelled),

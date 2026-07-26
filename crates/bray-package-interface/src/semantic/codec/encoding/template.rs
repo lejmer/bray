@@ -125,23 +125,41 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
         InterfaceCheckedTemplateOperation::Constant(constant) => {
             write_tagged_template_id(encoder, 2, constant.raw());
         }
+        InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
+            encoder.write_u32(12);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(operand.raw());
+        }
+        InterfaceCheckedTemplateOperation::Binary {
+            operation,
+            left,
+            right,
+        } => {
+            encoder.write_u32(13);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(left.raw());
+            encoder.write_u32(right.raw());
+        }
         InterfaceCheckedTemplateOperation::Declaration(declaration) => {
             encoder.write_u32(3);
             encode_template_reference(encoder, declaration);
         }
         InterfaceCheckedTemplateOperation::Call {
             callable,
+            substitution,
             arguments,
             implementation,
         } => {
             encoder.write_u32(4);
             encode_template_reference(encoder, callable);
+            encoder.write_u32(substitution.raw());
             write_node_ids(encoder, arguments);
 
             match implementation {
-                Some(implementation) => {
+                Some((implementation, substitution)) => {
                     encoder.write_u32(1);
                     encode_implementation_reference(encoder, implementation);
+                    encoder.write_u32(substitution.raw());
                 }
                 None => encoder.write_u32(0),
             }

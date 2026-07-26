@@ -81,10 +81,7 @@ impl CompilationOptions {
     }
 
     /// Returns these options with explicit semantic-analysis resource limits.
-    pub const fn with_semantic_analysis_limits(
-        mut self,
-        limits: SemanticAnalysisLimits,
-    ) -> Self {
+    pub const fn with_semantic_analysis_limits(mut self, limits: SemanticAnalysisLimits) -> Self {
         self.semantic_analysis_limits = limits;
 
         self
@@ -175,6 +172,8 @@ pub struct DependencyInterfaceInput {
     dependency_span: Option<SourceSpan>,
     bytes: Arc<[u8]>,
     validation_policy: InterfaceValidationPolicy,
+    implementation_artifact_path: Option<Arc<Path>>,
+    implementation_artifact: Option<Arc<bray_package_interface::PackageImplementationArtifact>>,
 }
 
 impl DependencyInterfaceInput {
@@ -193,12 +192,26 @@ impl DependencyInterfaceInput {
             dependency_span: None,
             bytes: bytes.into(),
             validation_policy,
+            implementation_artifact_path: None,
+            implementation_artifact: None,
         }
     }
 
     /// Returns a copy correlated with the source dependency that selected this artifact.
     pub const fn with_dependency_span(mut self, dependency_span: SourceSpan) -> Self {
         self.dependency_span = Some(dependency_span);
+
+        self
+    }
+
+    /// Returns a copy with the selected package implementation artifact.
+    pub fn with_implementation_artifact(
+        mut self,
+        artifact_path: impl Into<PathBuf>,
+        artifact: Arc<bray_package_interface::PackageImplementationArtifact>,
+    ) -> Self {
+        self.implementation_artifact_path = Some(Arc::from(artifact_path.into()));
+        self.implementation_artifact = Some(artifact);
 
         self
     }
@@ -226,6 +239,18 @@ impl DependencyInterfaceInput {
     /// Returns the immutable untrusted artifact bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Returns the selected implementation artifact path, when one was supplied.
+    pub fn implementation_artifact_path(&self) -> Option<&Path> {
+        self.implementation_artifact_path.as_deref()
+    }
+
+    /// Returns the selected implementation artifact, when one was supplied.
+    pub fn implementation_artifact(
+        &self,
+    ) -> Option<&bray_package_interface::PackageImplementationArtifact> {
+        self.implementation_artifact.as_deref()
     }
 
     pub(crate) fn shared_bytes(&self) -> Arc<[u8]> {

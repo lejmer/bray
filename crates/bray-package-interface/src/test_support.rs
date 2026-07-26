@@ -115,7 +115,8 @@ pub fn interface_artifact_for(
         .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"))
 }
 
-pub(crate) fn package_interface_export_bundle() -> PackageInterfaceExportBundle {
+/// Builds the representative semantic export bundle used by cross-crate tests.
+pub fn package_interface_export_bundle() -> PackageInterfaceExportBundle {
     let package = package("example.dependency");
     let product = product("library");
 

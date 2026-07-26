@@ -235,6 +235,7 @@ wire_tags!(CheckedTemplateKind {
     3 => CheckedTemplateKind::PredicateDefinition,
     4 => CheckedTemplateKind::GenericConstraint,
     5 => CheckedTemplateKind::CallableContract,
+    6 => CheckedTemplateKind::ConstantCallableBody,
 });
 
 wire_tags!(CheckedTemplateShortCircuitKind {
@@ -298,6 +299,7 @@ mod tests {
             CheckedTemplateKind::PredicateDefinition,
             CheckedTemplateKind::GenericConstraint,
             CheckedTemplateKind::CallableContract,
+            CheckedTemplateKind::ConstantCallableBody,
         ];
 
         for (index, kind) in kinds.into_iter().enumerate() {
@@ -308,7 +310,7 @@ mod tests {
         }
 
         assert_eq!(CheckedTemplateKind::from_wire(0), None);
-        assert_eq!(CheckedTemplateKind::from_wire(6), None);
+        assert_eq!(CheckedTemplateKind::from_wire(7), None);
 
         assert_eq!(CheckedTemplateShortCircuitKind::And.to_wire(), 1);
         assert_eq!(CheckedTemplateShortCircuitKind::Or.to_wire(), 2);

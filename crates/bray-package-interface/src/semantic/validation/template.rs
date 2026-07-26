@@ -108,6 +108,33 @@ impl InterfaceSemanticFacts {
 
         Ok(())
     }
+
+    pub(crate) fn validate_implementation_template(
+        &self,
+        surface: &PackageInterfaceSurface,
+        template: &InterfaceCheckedTemplate,
+        limits: InterfaceValidationLimits,
+    ) -> Result<(), InterfaceValidationError> {
+        let graph_size = template
+            .inputs()
+            .len()
+            .saturating_add(template.nodes().len())
+            .saturating_add(template.temporaries().len());
+
+        limits.check(
+            InterfaceLimit::TemplateGraphSize,
+            u64::try_from(graph_size).unwrap_or(u64::MAX),
+        )?;
+
+        validate_template(
+            self,
+            template,
+            self.support_entities.len(),
+            surface,
+            surface.symbols().symbols().len(),
+            surface.dependencies().len(),
+        )
+    }
 }
 
 fn validate_declaration_order(
@@ -253,11 +280,18 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Constant(constant) => {
             validate_index(constant.to_index(), context.facts.constant_terms.len())?;
         }
+        InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
+            validate_prior_node(*operand, node_index)?;
+        }
+        InterfaceCheckedTemplateOperation::Binary { left, right, .. } => {
+            validate_prior_nodes(&[*left, *right], node_index)?;
+        }
         InterfaceCheckedTemplateOperation::Declaration(declaration) => {
             validate_template_reference(context, declaration)?;
         }
         InterfaceCheckedTemplateOperation::Call {
             callable,
+            substitution,
             arguments,
             implementation,
         } => {
@@ -267,10 +301,12 @@ fn validate_operation_references(
                 return Err(InterfaceValidationError::Malformed);
             }
 
+            validate_index(substitution.to_index(), context.facts.substitutions.len())?;
             validate_prior_nodes(arguments, node_index)?;
 
-            if let Some(implementation) = implementation {
+            if let Some((implementation, substitution)) = implementation {
                 validate_implementation_reference(context, implementation)?;
+                validate_index(substitution.to_index(), context.facts.substitutions.len())?;
             }
         }
         InterfaceCheckedTemplateOperation::Convert { value, target } => {
@@ -323,6 +359,10 @@ fn validate_operation_type(
 
             template.inputs()[input_index].ty() == node.ty()
         }
+        InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
+            node_type(template, *operand) == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::Binary { .. } => true,
         InterfaceCheckedTemplateOperation::Convert { target, .. } => *target == node.ty(),
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
             let Some(InterfaceType::Tuple(types)) = type_at(facts, node.ty()) else {

@@ -234,16 +234,21 @@ fn decode_operation(
         )),
         4 => {
             let callable = decode_template_reference(reader, context)?;
+            let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
             let arguments = read_node_ids(reader, limits, context)?;
 
             let implementation = match read_u32(reader)? {
                 0 => None,
-                1 => Some(decode_implementation_reference(reader, context)?),
+                1 => Some((
+                    decode_implementation_reference(reader, context)?,
+                    crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+                )),
                 _ => return Err(InterfaceValidationError::Malformed),
             };
 
             Ok(InterfaceCheckedTemplateOperation::call(
                 callable,
+                substitution,
                 arguments,
                 implementation,
             ))
@@ -275,6 +280,15 @@ fn decode_operation(
         11 => Ok(InterfaceCheckedTemplateOperation::Temporary(
             CheckedTemplateTemporaryId::new(read_u32(reader)?),
         )),
+        12 => Ok(InterfaceCheckedTemplateOperation::Unary {
+            operation: decode_tag(read_u32(reader)?)?,
+            operand: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        13 => Ok(InterfaceCheckedTemplateOperation::Binary {
+            operation: decode_tag(read_u32(reader)?)?,
+            left: CheckedTemplateNodeId::new(read_u32(reader)?),
+            right: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }
@@ -638,6 +652,7 @@ mod tests {
                     &surface,
                     SymbolKind::Constant,
                 )),
+                crate::InterfaceGenericSubstitutionId::new(0),
                 [CheckedTemplateNodeId::new(0), CheckedTemplateNodeId::new(1)],
                 None,
             ),
@@ -868,6 +883,9 @@ mod tests {
     fn operation_facts(surface: &crate::PackageInterfaceSurface) -> InterfaceSemanticFacts {
         let declaration = InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0));
 
+        let callable =
+            InterfaceTemplateReference::Symbol(symbol_reference(surface, SymbolKind::Function));
+
         let implementation =
             InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(1));
 
@@ -886,9 +904,10 @@ mod tests {
             ),
             InterfaceCheckedTemplateNode::new(
                 InterfaceCheckedTemplateOperation::call(
-                    declaration.clone(),
+                    callable,
+                    crate::InterfaceGenericSubstitutionId::new(0),
                     [CheckedTemplateNodeId::new(0), CheckedTemplateNodeId::new(1)],
-                    Some(implementation.clone()),
+                    None,
                 ),
                 InterfaceTypeId::new(0),
             ),
@@ -940,6 +959,21 @@ mod tests {
                 InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(0)),
                 InterfaceTypeId::new(0),
             ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Unary {
+                    operation: bray_symbols::ConstantUnaryOperation::Identity,
+                    operand: CheckedTemplateNodeId::new(0),
+                },
+                InterfaceTypeId::new(0),
+            ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Binary {
+                    operation: bray_symbols::ConstantBinaryOperation::Add,
+                    left: CheckedTemplateNodeId::new(0),
+                    right: CheckedTemplateNodeId::new(1),
+                },
+                InterfaceTypeId::new(0),
+            ),
         ];
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
@@ -967,7 +1001,7 @@ mod tests {
                 InterfaceTypeId::new(0),
                 crate::InterfaceDependencyContractId::new(0),
             )],
-            CheckedTemplateNodeId::new(10),
+            CheckedTemplateNodeId::new(12),
             behavior,
         );
 
@@ -994,6 +1028,15 @@ mod tests {
         ];
 
         InterfaceSemanticFacts::new()
+            .with_applications(
+                [crate::InterfaceGenericSubstitution::new(
+                    symbol_reference(surface, SymbolKind::Function),
+                    [],
+                )],
+                [],
+                [],
+                [],
+            )
             .with_values(
                 [InterfaceDependencyContract::new([])],
                 types,

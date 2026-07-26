@@ -31,6 +31,28 @@ impl SemanticValueStore {
         self.substitute_dependency_contract_data(contract, &substitution)
     }
 
+    /// Applies one generic substitution throughout a canonical constant term.
+    pub fn substitute_constant_term(
+        &self,
+        term: ConstantTermId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<ConstantTermId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution)?;
+
+        self.substitute_constant_term_data(term, &substitution)
+    }
+
+    /// Applies one generic substitution throughout another generic substitution.
+    pub fn substitute_generic_substitution(
+        &self,
+        nested: GenericSubstitutionId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution)?;
+
+        self.substitute_generic_substitution_data(nested, &substitution)
+    }
+
     fn substitute_type_data(
         &self,
         ty: TypeId,
@@ -54,7 +76,7 @@ impl SemanticValueStore {
                 substitution: nested,
             } => TypeData::Named {
                 definition: *definition,
-                substitution: self.substitute_generic_substitution(*nested, substitution)?,
+                substitution: self.substitute_generic_substitution_data(*nested, substitution)?,
             },
             TypeData::TypeValuedMemberProjection {
                 subject,
@@ -63,8 +85,10 @@ impl SemanticValueStore {
             } => {
                 let application = self.trait_application_data(*application)?;
 
-                let nested =
-                    self.substitute_generic_substitution(application.substitution(), substitution)?;
+                let nested = self.substitute_generic_substitution_data(
+                    application.substitution(),
+                    substitution,
+                )?;
 
                 let application = self.intern_trait_application(TraitApplicationData::new(
                     application.definition(),
@@ -85,7 +109,7 @@ impl SemanticValueStore {
             ),
             TypeData::Array { element, length } => TypeData::Array {
                 element: self.substitute_type_data(*element, substitution)?,
-                length: self.substitute_constant_term(*length, substitution)?,
+                length: self.substitute_constant_term_data(*length, substitution)?,
             },
             TypeData::Slice(element) => {
                 TypeData::Slice(self.substitute_type_data(*element, substitution)?)
@@ -103,8 +127,10 @@ impl SemanticValueStore {
             TypeData::TraitView(application) => {
                 let application = self.trait_application_data(*application)?;
 
-                let nested =
-                    self.substitute_generic_substitution(application.substitution(), substitution)?;
+                let nested = self.substitute_generic_substitution_data(
+                    application.substitution(),
+                    substitution,
+                )?;
 
                 let application = self.intern_trait_application(TraitApplicationData::new(
                     application.definition(),
@@ -148,7 +174,7 @@ impl SemanticValueStore {
         self.intern_type(substituted)
     }
 
-    fn substitute_generic_substitution(
+    fn substitute_generic_substitution_data(
         &self,
         nested: GenericSubstitutionId,
         substitution: &GenericSubstitutionData,
@@ -163,7 +189,7 @@ impl SemanticValueStore {
                     .substitute_type_data(ty, substitution)
                     .map(GenericArgument::Type),
                 GenericArgument::Constant(term) => self
-                    .substitute_constant_term(term, substitution)
+                    .substitute_constant_term_data(term, substitution)
                     .map(GenericArgument::Constant),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -178,7 +204,7 @@ impl SemanticValueStore {
         self.intern_generic_substitution(substituted)
     }
 
-    fn substitute_constant_term(
+    fn substitute_constant_term_data(
         &self,
         term: ConstantTermId,
         substitution: &GenericSubstitutionData,
@@ -199,7 +225,7 @@ impl SemanticValueStore {
             | ConstantTermData::TargetFact(_) => return Ok(term),
             ConstantTermData::Unary { operation, operand } => ConstantTermData::Unary {
                 operation: *operation,
-                operand: self.substitute_constant_term(*operand, substitution)?,
+                operand: self.substitute_constant_term_data(*operand, substitution)?,
             },
             ConstantTermData::Binary {
                 operation,
@@ -207,26 +233,26 @@ impl SemanticValueStore {
                 right,
             } => ConstantTermData::Binary {
                 operation: *operation,
-                left: self.substitute_constant_term(*left, substitution)?,
-                right: self.substitute_constant_term(*right, substitution)?,
+                left: self.substitute_constant_term_data(*left, substitution)?,
+                right: self.substitute_constant_term_data(*right, substitution)?,
             },
             ConstantTermData::Conversion { operand, target } => ConstantTermData::Conversion {
-                operand: self.substitute_constant_term(*operand, substitution)?,
+                operand: self.substitute_constant_term_data(*operand, substitution)?,
                 target: self.substitute_type_data(*target, substitution)?,
             },
             ConstantTermData::NullablePresent(value) => ConstantTermData::NullablePresent(
-                self.substitute_constant_term(*value, substitution)?,
+                self.substitute_constant_term_data(*value, substitution)?,
             ),
             ConstantTermData::Tuple(values) => ConstantTermData::tuple(
                 values
                     .iter()
-                    .map(|value| self.substitute_constant_term(*value, substitution))
+                    .map(|value| self.substitute_constant_term_data(*value, substitution))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
             ConstantTermData::Array(values) => ConstantTermData::array(
                 values
                     .iter()
-                    .map(|value| self.substitute_constant_term(*value, substitution))
+                    .map(|value| self.substitute_constant_term_data(*value, substitution))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
             ConstantTermData::Product(fields) => ConstantTermData::product(
@@ -235,7 +261,7 @@ impl SemanticValueStore {
                     .map(|field| {
                         Ok(ConstantField::new(
                             *field.field(),
-                            self.substitute_constant_term(*field.value(), substitution)?,
+                            self.substitute_constant_term_data(*field.value(), substitution)?,
                         ))
                     })
                     .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
@@ -247,7 +273,7 @@ impl SemanticValueStore {
                     .map(|field| {
                         Ok(ConstantField::new(
                             *field.field(),
-                            self.substitute_constant_term(*field.value(), substitution)?,
+                            self.substitute_constant_term_data(*field.value(), substitution)?,
                         ))
                     })
                     .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
@@ -265,7 +291,8 @@ impl SemanticValueStore {
 
                 ConstantTermData::DefinitionApplication {
                     definition: *definition,
-                    substitution: self.substitute_generic_substitution(*nested, substitution)?,
+                    substitution: self
+                        .substitute_generic_substitution_data(*nested, substitution)?,
                     selected_implementation,
                 }
             }
@@ -285,7 +312,7 @@ impl SemanticValueStore {
                     selected_implementation,
                     arguments
                         .iter()
-                        .map(|argument| self.substitute_constant_term(*argument, substitution))
+                        .map(|argument| self.substitute_constant_term_data(*argument, substitution))
                         .collect::<Result<Vec<_>, _>>()?,
                 )
             }
@@ -293,14 +320,14 @@ impl SemanticValueStore {
                 let kind = match projection.kind() {
                     ConstantProjectionKind::ArrayElement(index) => {
                         ConstantProjectionKind::ArrayElement(
-                            self.substitute_constant_term(index, substitution)?,
+                            self.substitute_constant_term_data(index, substitution)?,
                         )
                     }
                     kind => kind,
                 };
 
                 ConstantTermData::Projection(ConstantProjection::new(
-                    self.substitute_constant_term(projection.subject(), substitution)?,
+                    self.substitute_constant_term_data(projection.subject(), substitution)?,
                     kind,
                 ))
             }
@@ -402,7 +429,7 @@ impl SemanticValueStore {
             .iter()
             .map(|projection| match projection {
                 DependencyProjection::Element(index) => self
-                    .substitute_constant_term(*index, substitution)
+                    .substitute_constant_term_data(*index, substitution)
                     .map(DependencyProjection::Element),
                 projection => Ok(*projection),
             })
@@ -417,7 +444,9 @@ impl SemanticValueStore {
         substitution: &GenericSubstitutionData,
     ) -> Result<super::CallableInstanceId, SemanticValueStoreError> {
         let callable = self.callable_instance_data(callable)?;
-        let nested = self.substitute_generic_substitution(callable.substitution(), substitution)?;
+
+        let nested =
+            self.substitute_generic_substitution_data(callable.substitution(), substitution)?;
 
         self.intern_callable_instance(CallableInstanceData::new(callable.definition(), nested))
     }
@@ -430,7 +459,7 @@ impl SemanticValueStore {
         let implementation = self.implementation_instance_data(implementation)?;
 
         let nested =
-            self.substitute_generic_substitution(implementation.substitution(), substitution)?;
+            self.substitute_generic_substitution_data(implementation.substitution(), substitution)?;
 
         self.intern_implementation_instance(ImplementationInstanceData::new(
             implementation.definition(),
@@ -587,7 +616,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
 
         let substituted = store
-            .substitute_constant_term(conversion, &substitution)
+            .substitute_constant_term_data(conversion, &substitution)
             .unwrap_or_else(|error| panic!("constant substitution failed: {error:?}"));
 
         let substituted = store

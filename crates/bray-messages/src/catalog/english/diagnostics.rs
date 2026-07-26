@@ -1257,7 +1257,10 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         | DiagnosticKind::InterfacePackageIdentityMismatch
         | DiagnosticKind::InterfaceProductIdentityMismatch
         | DiagnosticKind::InterfaceDependencyGraphInvalid
-        | DiagnosticKind::InterfaceSemanticFactsInvalid => interface_diagnostic_template(kind),
+        | DiagnosticKind::InterfaceSemanticFactsInvalid
+        | DiagnosticKind::InterfaceConstantCallableBodyUnavailable => {
+            interface_diagnostic_template(kind)
+        }
     }
 }
 

@@ -217,6 +217,8 @@ fn validate_operation_types(
         }
         CheckedTemplateOperation::Array(elements) => validate_array_types(node, elements, nodes)?,
         CheckedTemplateOperation::Constant(_)
+        | CheckedTemplateOperation::Unary { .. }
+        | CheckedTemplateOperation::Binary { .. }
         | CheckedTemplateOperation::Declaration(_)
         | CheckedTemplateOperation::Call { .. }
         | CheckedTemplateOperation::Convert { .. }

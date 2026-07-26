@@ -56,6 +56,7 @@ impl From<SemanticValueStoreError> for InterfaceSemanticInternError {
 /// Immutable compilation-local IDs produced from one decoded semantic interface graph.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImportedSemanticFacts {
+    pub(super) interface_facts: Arc<InterfaceSemanticFacts>,
     pub(super) types: Arc<[TypeId]>,
     pub(super) constant_values: Arc<[ConstantValueId]>,
     pub(super) constant_terms: Arc<[ConstantTermId]>,
@@ -289,6 +290,15 @@ impl ImportedSourceProvenance {
 }
 
 impl ImportedSemanticFacts {
+    /// Resolves one separately stored checked template against this imported semantic graph.
+    pub fn intern_checked_template(
+        &self,
+        template: &crate::InterfaceCheckedTemplate,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<CheckedTemplate, InterfaceSemanticInternError> {
+        InternState::from_imported(self).convert_template(template, &self.interface_facts, symbols)
+    }
+
     /// Returns the exact facts selected by symbol owner and category.
     pub fn symbol_facts(
         &self,

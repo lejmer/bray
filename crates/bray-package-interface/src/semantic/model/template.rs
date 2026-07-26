@@ -6,12 +6,13 @@ use bray_bound_tree::{
     CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
 };
 use bray_symbols::{
-    CurrentRunCancellation, InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal,
+    ConstantBinaryOperation, ConstantUnaryOperation, CurrentRunCancellation,
+    InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal,
 };
 
 use super::{
-    InterfaceConstantTermId, InterfaceDependencyContractId, InterfaceImplementationReference,
-    InterfaceTemplateReference, InterfaceTypeId,
+    InterfaceConstantTermId, InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
+    InterfaceImplementationReference, InterfaceTemplateReference, InterfaceTypeId,
 };
 use crate::InterfaceSymbolReference;
 
@@ -166,16 +167,37 @@ pub enum InterfaceCheckedTemplateOperation {
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
     Constant(InterfaceConstantTermId),
+    /// Applies a selected unary constant operation.
+    Unary {
+        /// Exact checked operation.
+        operation: ConstantUnaryOperation,
+        /// Operand evaluated before the operation.
+        operand: CheckedTemplateNodeId,
+    },
+    /// Applies a selected binary constant operation.
+    Binary {
+        /// Exact checked operation.
+        operation: ConstantBinaryOperation,
+        /// Left operand evaluated first.
+        left: CheckedTemplateNodeId,
+        /// Right operand evaluated second unless the operation short-circuits.
+        right: CheckedTemplateNodeId,
+    },
     /// Reads a declaration-owned value.
     Declaration(InterfaceTemplateReference),
     /// Calls one selected declaration with deterministic argument order.
     Call {
         /// The selected callable declaration.
         callable: InterfaceTemplateReference,
+        /// Ordered generic arguments applied to the callable declaration.
+        substitution: InterfaceGenericSubstitutionId,
         /// Arguments in exact evaluation and parameter order.
         arguments: Arc<[CheckedTemplateNodeId]>,
         /// The selected implementation witness when dispatch requires one.
-        implementation: Option<InterfaceImplementationReference>,
+        implementation: Option<(
+            InterfaceImplementationReference,
+            InterfaceGenericSubstitutionId,
+        )>,
     },
     /// Applies an already checked semantic conversion.
     Convert {
@@ -221,11 +243,16 @@ impl InterfaceCheckedTemplateOperation {
     /// Creates a selected call operation with stable argument order.
     pub fn call(
         callable: InterfaceTemplateReference,
+        substitution: InterfaceGenericSubstitutionId,
         arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<InterfaceImplementationReference>,
+        implementation: Option<(
+            InterfaceImplementationReference,
+            InterfaceGenericSubstitutionId,
+        )>,
     ) -> Self {
         Self::Call {
             callable,
+            substitution,
             arguments: arguments.into_iter().collect(),
             implementation,
         }

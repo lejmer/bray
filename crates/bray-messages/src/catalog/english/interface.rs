@@ -52,6 +52,9 @@ const DEPENDENCY_GRAPH_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::
 const SEMANTIC_FACTS_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "package-interface semantic facts cannot be loaded",
 )];
+const CONSTANT_CALLABLE_BODY_UNAVAILABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected imported const callable has no compatible implementation body",
+)];
 
 pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     let parts = match kind {
@@ -68,6 +71,9 @@ pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::InterfaceProductIdentityMismatch => PRODUCT_IDENTITY_MISMATCH,
         DiagnosticKind::InterfaceDependencyGraphInvalid => DEPENDENCY_GRAPH_INVALID,
         DiagnosticKind::InterfaceSemanticFactsInvalid => SEMANTIC_FACTS_INVALID,
+        DiagnosticKind::InterfaceConstantCallableBodyUnavailable => {
+            CONSTANT_CALLABLE_BODY_UNAVAILABLE
+        }
         _ => unreachable!(),
     };
 

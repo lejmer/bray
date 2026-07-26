@@ -8,7 +8,7 @@ use bray_symbols::{
 
 use crate::constant::integer::fits_integer_representation;
 use crate::constant::literal::ConstantLiteralError;
-use crate::constant::operation::ConstantOperationError;
+use crate::constant::operation::{ConstantOperationError, operation_diagnostic_kind};
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
@@ -39,7 +39,7 @@ where
     ) -> Result<ConstantValueId, CheckerInfrastructureError> {
         self.request
             .semantic_values()
-            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
+            .intern_error_constant_value(ty)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
     }
 
@@ -292,18 +292,7 @@ impl EvaluationFailure {
         expression: BoundExpressionId,
         error: ConstantOperationError,
     ) -> Self {
-        let kind = match error {
-            ConstantOperationError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
-            ConstantOperationError::DivisionByZero => {
-                DiagnosticKind::CheckingConstantDivisionByZero
-            }
-            ConstantOperationError::NotRepresentable => {
-                DiagnosticKind::CheckingConstantValueNotRepresentable
-            }
-            ConstantOperationError::ResourceLimitExceeded => {
-                DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded
-            }
-        };
+        let kind = operation_diagnostic_kind(error);
 
         Self::Source { expression, kind }
     }

@@ -111,6 +111,8 @@ pub enum DiagnosticKind {
     InterfaceDependencyGraphInvalid,
     /// Decoded package-interface semantic facts cannot be used in this compilation.
     InterfaceSemanticFactsInvalid,
+    /// A selected imported const callable has no compatible implementation body.
+    InterfaceConstantCallableBodyUnavailable,
     /// Name binding could not find a declaration or local with the requested spelling.
     BindingUnresolvedName,
     /// Name binding found more than one candidate for one ordinary name.
@@ -378,6 +380,7 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => 5011,
             Self::InterfaceDependencyGraphInvalid => 5012,
             Self::InterfaceSemanticFactsInvalid => 5013,
+            Self::InterfaceConstantCallableBodyUnavailable => 5014,
             Self::BindingUnresolvedName => 6001,
             Self::BindingAmbiguousName => 6002,
             Self::BindingInaccessibleName => 6003,
@@ -545,6 +548,9 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => "interface_product_identity_mismatch",
             Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
             Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
+            Self::InterfaceConstantCallableBodyUnavailable => {
+                "interface_constant_callable_body_unavailable"
+            }
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",

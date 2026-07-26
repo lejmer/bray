@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    ConstantTermId, CurrentRunCancellation, DependencyContractTemplateId, ExternalSymbolKey,
+    ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation, CurrentRunCancellation,
+    DependencyContractTemplateId, ExternalSymbolKey, GenericSubstitutionId,
     LifecycleObligationKind, SymbolKind, SymbolOrdinal, TypeId,
 };
 
@@ -21,6 +22,8 @@ pub enum CheckedTemplateKind {
     GenericConstraint,
     /// A callable precondition, postcondition, or static contract clause.
     CallableContract,
+    /// A checked const-callable body retained for cross-package evaluation.
+    ConstantCallableBody,
 }
 
 impl CheckedTemplateKind {
@@ -49,6 +52,7 @@ impl CheckedTemplateKind {
             Self::CallableContract => {
                 matches!(owner, SymbolKind::CallableContract) || owner.is_callable()
             }
+            Self::ConstantCallableBody => owner.is_callable(),
         }
     }
 }
@@ -263,16 +267,34 @@ pub enum CheckedTemplateOperation {
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
     Constant(ConstantTermId),
+    /// Applies a selected unary constant operation.
+    Unary {
+        /// Exact checked operation.
+        operation: ConstantUnaryOperation,
+        /// Operand evaluated before the operation.
+        operand: CheckedTemplateNodeId,
+    },
+    /// Applies a selected binary constant operation.
+    Binary {
+        /// Exact checked operation.
+        operation: ConstantBinaryOperation,
+        /// Left operand evaluated first.
+        left: CheckedTemplateNodeId,
+        /// Right operand evaluated second unless the operation short-circuits.
+        right: CheckedTemplateNodeId,
+    },
     /// Reads a declaration-owned value through stable semantic identity.
     Declaration(ExternalSymbolKey),
     /// Calls one selected declaration with deterministic argument order.
     Call {
         /// The selected callable declaration.
         callable: ExternalSymbolKey,
+        /// Ordered generic arguments applied to the callable declaration.
+        substitution: GenericSubstitutionId,
         /// Arguments in exact evaluation and parameter order.
         arguments: Arc<[CheckedTemplateNodeId]>,
         /// The selected implementation witness when dispatch requires one.
-        implementation: Option<ExternalSymbolKey>,
+        implementation: Option<(ExternalSymbolKey, GenericSubstitutionId)>,
     },
     /// Applies an already checked semantic conversion.
     Convert {
@@ -318,11 +340,13 @@ impl CheckedTemplateOperation {
     /// Creates a selected call operation with stable argument order.
     pub fn call(
         callable: ExternalSymbolKey,
+        substitution: GenericSubstitutionId,
         arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<ExternalSymbolKey>,
+        implementation: Option<(ExternalSymbolKey, GenericSubstitutionId)>,
     ) -> Self {
         Self::Call {
             callable,
+            substitution,
             arguments: shared_slice(arguments),
             implementation,
         }
@@ -349,6 +373,11 @@ impl CheckedTemplateOperation {
                 }
             }
             Self::Convert { value, .. } => visit(*value)?,
+            Self::Unary { operand, .. } => visit(*operand)?,
+            Self::Binary { left, right, .. } => {
+                visit(*left)?;
+                visit(*right)?;
+            }
             Self::Project { subject, .. } => visit(*subject)?,
             Self::Conditional {
                 condition,

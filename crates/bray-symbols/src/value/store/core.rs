@@ -6,11 +6,11 @@ use std::sync::{
 use super::{
     super::{
         CallableInstanceData, CallableInstanceId, ConcreteGenericSubstitutionId, ConstantTermData,
-        ConstantTermId, ConstantValueData, ConstantValueId, DependencyContractTemplateData,
-        DependencyContractTemplateId, GenericSubstitutionData, GenericSubstitutionId,
-        ImplementationInstanceData, ImplementationInstanceId, SemanticValueStoreCreateError,
-        SemanticValueStoreError, SemanticValueStoreId, TraitApplicationData, TraitApplicationId,
-        TypeData, TypeId,
+        ConstantTermId, ConstantValueData, ConstantValueId, ConstantValueKind,
+        DependencyContractTemplateData, DependencyContractTemplateId, GenericSubstitutionData,
+        GenericSubstitutionId, ImplementationInstanceData, ImplementationInstanceId,
+        SemanticValueStoreCreateError, SemanticValueStoreError, SemanticValueStoreId,
+        TraitApplicationData, TraitApplicationId, TypeData, TypeId,
     },
     table::SemanticTables,
     validation::{
@@ -81,6 +81,14 @@ impl SemanticValueStore {
         validate_constant_value_data(&tables, self.id, &data)?;
 
         Arc::make_mut(&mut tables.constant_values).intern(self.id, data)
+    }
+
+    /// Interns the recovery constant value for one semantic type.
+    pub fn intern_error_constant_value(
+        &self,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, SemanticValueStoreError> {
+        self.intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
     }
 
     /// Returns immutable data for a constant value issued by this store.

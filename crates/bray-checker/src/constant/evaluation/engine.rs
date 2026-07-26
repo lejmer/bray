@@ -95,15 +95,19 @@ where
                     .with_primary_span(span),
             );
 
+            let usage = evaluated.evaluator.budget.usage(input.limits());
+
             return CheckerOutcome::complete(
-                EvaluatedConstant::new(value, evaluated_references),
+                EvaluatedConstant::new(value, evaluated_references, usage),
                 diagnostics,
             );
         }
     };
 
+    let usage = evaluated.evaluator.budget.usage(input.limits());
+
     CheckerOutcome::complete(
-        EvaluatedConstant::new(value, evaluated.evaluator.evaluated_references),
+        EvaluatedConstant::new(value, evaluated.evaluator.evaluated_references, usage),
         evaluated.evaluator.diagnostics,
     )
 }
@@ -1151,6 +1155,29 @@ mod tests {
 
         assert_eq!(resolver.requests().len(), 1);
 
+        let transitive_resolver = CapturingCallResolver::new(result_value)
+            .with_usage(crate::ConstantEvaluationUsage::new(100, 0, 0));
+
+        let transitive_input = ConstantEvaluationInput::new(&types, &selections)
+            .with_call_resolver(&transitive_resolver)
+            .with_limits(ConstantEvaluationLimits::new(50, 50, 50));
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let transitive = DefaultConstantEvaluator
+            .evaluate_constant(request, &transitive_input)
+            .into_result()
+            .unwrap_or_else(|| panic!("transitive limit exhaustion must recover"));
+
+        assert_eq!(
+            transitive
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded)
+                .count(),
+            1
+        );
+
         let ineligible_resolver = IneligibleCallResolver;
 
         let ineligible_input = ConstantEvaluationInput::new(&types, &selections)
@@ -1175,6 +1202,7 @@ mod tests {
 
     struct CapturingCallResolver {
         result: bray_symbols::ConstantValueId,
+        usage: crate::ConstantEvaluationUsage,
         requests: Mutex<Vec<ConstantCallRequest>>,
     }
 
@@ -1182,8 +1210,15 @@ mod tests {
         fn new(result: bray_symbols::ConstantValueId) -> Self {
             Self {
                 result,
+                usage: crate::ConstantEvaluationUsage::default(),
                 requests: Mutex::new(Vec::new()),
             }
+        }
+
+        fn with_usage(mut self, usage: crate::ConstantEvaluationUsage) -> Self {
+            self.usage = usage;
+
+            self
         }
 
         fn requests(&self) -> Vec<ConstantCallRequest> {
@@ -1212,7 +1247,9 @@ mod tests {
                 .push(request.clone());
 
             Ok(ConstantCallResolution::Evaluated(
-                bray_diagnostics::DiagnosticResult::without_diagnostics(self.result),
+                bray_diagnostics::DiagnosticResult::without_diagnostics(
+                    crate::EvaluatedConstantCall::new(self.result, self.usage),
+                ),
             ))
         }
     }

@@ -7,8 +7,8 @@ use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
     ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
     ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId,
-    SymbolFactKind, TypeId,
+    ImplementationSymbolId, ImportedInterfaceId, ImportedSymbolFactAddress, InterfaceSymbolId,
+    NamedTypeSymbolId, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -278,6 +278,8 @@ pub(crate) enum CompilationFactKey {
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned fact category.
     ImportedSemanticFact(ImportedSemanticFactKey),
+    /// One checked imported const-callable body selected from an implementation artifact.
+    ImportedConstantCallableBody(ImportedSymbolFactAddress),
     /// Implementations participating in one package coherence domain.
     ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// Declaration-level coherence and overload-family validity for the source package.
@@ -361,6 +363,7 @@ impl CompilationFactKey {
             | Self::ImplementationSelection(_)
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
+            | Self::ImportedConstantCallableBody(_)
             | Self::ImplementationParticipation(_)
             | Self::ImplementationCoherence
             | Self::CallableOverloadValidation
