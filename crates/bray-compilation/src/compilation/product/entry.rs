@@ -442,6 +442,7 @@ fn named_role(
 
 fn missing_entrypoint_diagnostic(symbols: &SymbolGraph) -> Diagnostic {
     let kind = DiagnosticKind::CheckingMissingEntrypoint;
+
     let anchor = symbols
         .modules()
         .iter()

@@ -218,6 +218,8 @@ pub(crate) enum CompilationFactKey {
     CheckedControlFlow(BoundUnitKey),
     /// Final expression types for one bound unit.
     CheckedExpressionTypes(BoundUnitKey),
+    /// Final source-literal values for one bound unit.
+    CheckedLiteralValues(BoundUnitKey),
     /// Checked pattern compatibility, binding types, and match coverage for one bound unit.
     CheckedPatterns(BoundUnitKey),
     /// Final semantic selections for one bound unit.
@@ -316,6 +318,7 @@ impl CompilationFactKey {
             Self::BoundUnit(key)
             | Self::CheckedControlFlow(key)
             | Self::CheckedExpressionTypes(key)
+            | Self::CheckedLiteralValues(key)
             | Self::CheckedPatterns(key)
             | Self::CheckedSemanticSelections(key)
             | Self::StoragePlan(key)

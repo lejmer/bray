@@ -20,7 +20,7 @@ use crate::{
 };
 use bray_bound_tree::{
     BodyBehaviorContributions, CheckedAsyncFacts, CheckedControlFlowFacts,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts,
     CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
     SelectedCall, SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
@@ -333,6 +333,7 @@ where
     ) -> CheckerOutcome<(
         CheckedExpressionTypes,
         bray_bound_tree::CheckedSemanticSelections,
+        CheckedLiteralValues,
     )> {
         check_expression_semantics(
             request,

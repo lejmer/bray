@@ -145,7 +145,7 @@ fn validate_entry(
         ));
     };
 
-    if !selection_matches_expression(entry.selection(), expression) {
+    if !selection_matches_expression(unit, entry.selection(), expression) {
         return Err(SemanticSelectionTableBuildError::SelectionKindMismatch(
             expression_id,
         ));
@@ -173,6 +173,7 @@ fn validate_entry(
 }
 
 fn selection_matches_expression(
+    unit: &BoundUnit,
     selection: &SemanticSelection,
     expression: &BoundExpression,
 ) -> bool {
@@ -181,7 +182,7 @@ fn selection_matches_expression(
             *target == BoundReferenceTarget::Local(source.binding().into())
         }
         (SemanticSelection::Call(call), BoundExpression::Call(source)) => {
-            call_matches_expression(call, source)
+            call_matches_expression(unit, call, source)
         }
         (SemanticSelection::Operation(operation), expression)
             if operation.matches_expression(expression) =>
@@ -204,6 +205,9 @@ fn validate_operation_subject(
     selection: &SemanticSelection,
 ) -> Result<(), SemanticSelectionTableBuildError> {
     match (selection, expression) {
+        (SemanticSelection::Call(call), BoundExpression::Call(_)) => {
+            validate_call_inputs(types, expression_id, call)
+        }
         (
             SemanticSelection::Operation(SelectedOperation::Conversion(conversion)),
             BoundExpression::Conversion(source),
@@ -225,6 +229,43 @@ fn validate_operation_subject(
         }
         _ => Ok(()),
     }
+}
+
+fn validate_call_inputs(
+    types: &CheckedExpressionTypes,
+    selection: BoundExpressionId,
+    call: &SelectedCall,
+) -> Result<(), SemanticSelectionTableBuildError> {
+    if let Some(receiver) = call.receiver() {
+        validate_subject_type(
+            types,
+            receiver.expression(),
+            receiver.conversion().source_type(),
+            selection,
+            SemanticSelectionTableBuildError::OperandTypeMismatch,
+        )?;
+    }
+
+    for argument in call.arguments() {
+        let SelectedArgument::Explicit {
+            expression,
+            conversion,
+            ..
+        } = argument
+        else {
+            continue;
+        };
+
+        validate_subject_type(
+            types,
+            *expression,
+            conversion.source_type(),
+            selection,
+            SemanticSelectionTableBuildError::OperandTypeMismatch,
+        )?;
+    }
+
+    Ok(())
 }
 
 fn validate_subject_type(
@@ -277,12 +318,26 @@ fn construction_matches(
         .eq(construction_source_inputs(expression))
 }
 
-fn call_matches_expression(call: &SelectedCall, source: &crate::BoundCallExpression) -> bool {
+fn call_matches_expression(
+    unit: &BoundUnit,
+    call: &SelectedCall,
+    source: &crate::BoundCallExpression,
+) -> bool {
     if source
         .resolution()
         .resolved()
         .is_some_and(|resolution| resolution != call.resolution())
     {
+        return false;
+    }
+
+    let source_receiver = match unit.view().expression(source.callee()) {
+        Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
+        Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
+        _ => None,
+    };
+
+    if call.receiver().map(crate::SelectedReceiver::expression) != source_receiver {
         return false;
     }
 

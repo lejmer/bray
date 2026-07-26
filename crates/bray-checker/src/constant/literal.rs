@@ -5,6 +5,7 @@ use rustc_apfloat::ieee::{Double, Half, Quad, Single};
 
 use bray_bound_tree::BoundLiteralKind;
 use bray_compiler_known::RepresentationRole;
+use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits};
 
 use super::integer::fits_integer_representation;
@@ -18,6 +19,18 @@ pub enum ConstantLiteralError {
     NotRepresentable,
     /// The source literal exceeds the deterministic literal-size ceiling.
     SizeLimitExceeded,
+}
+
+pub(crate) const fn literal_diagnostic_kind(error: ConstantLiteralError) -> DiagnosticKind {
+    match error {
+        ConstantLiteralError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
+        ConstantLiteralError::NotRepresentable => {
+            DiagnosticKind::CheckingConstantLiteralNotRepresentable
+        }
+        ConstantLiteralError::SizeLimitExceeded => {
+            DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded
+        }
+    }
 }
 
 const MAX_INTEGER_LITERAL_BYTES: usize = 4 * 1024;

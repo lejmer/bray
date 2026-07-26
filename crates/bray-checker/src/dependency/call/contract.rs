@@ -271,10 +271,16 @@ mod tests {
                 BoundCallResult::Immediate(error_type()),
             ),
             CallableAbi::Bray,
+            None,
             [SelectedArgument::Explicit {
                 expression: *argument,
                 parameter: None,
                 ordinal: 0,
+                conversion: bray_bound_tree::SelectedConversion::new(
+                    error_type(),
+                    error_type(),
+                    bray_bound_tree::ConversionTarget::Identity,
+                ),
             }],
             [],
         );

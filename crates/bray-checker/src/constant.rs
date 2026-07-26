@@ -20,6 +20,7 @@ pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
 pub(crate) use integer::{fits_integer_representation, integer_to_usize, significant_bits};
 pub use limits::ConstantEvaluationLimits;
+pub(crate) use literal::literal_diagnostic_kind;
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub use template::{
     CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_callable_signature_template,

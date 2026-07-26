@@ -4,13 +4,15 @@ use bray_binder::SymbolFactProvider;
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
 use bray_symbols::{
-    AnySymbolId, CallableContractTypeFact, CallableSignatureFact, CallableSymbolId,
-    ConstantDeclaredTypeFact, GenericArgument, GenericArgumentTemplate,
-    GenericConstParameterDeclaredTypeFact, InherentTypeMemberValueFact,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, SemanticValueStore,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolGraph, SymbolKey,
-    SymbolOrigin, TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TraitTypeFulfillmentValueFact, TypeData, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
+    AnySymbolId, CallableContractTypeFact, CallableInstanceData, CallableSignatureFact,
+    CallableSymbolId, ConstantDeclaredTypeFact, ConstantProjectionKind, ConstantTermData,
+    ConstantTermId, GenericArgument, GenericArgumentTemplate,
+    GenericConstParameterDeclaredTypeFact, GenericSubstitutionId, ImplementationInstanceId,
+    InherentTypeMemberValueFact, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
+    SemanticValueStore, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolGraph,
+    SymbolKey, SymbolOrigin, TraitApplicationId, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
+    TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
 };
 
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
@@ -143,8 +145,6 @@ pub(super) fn validate_public_surface(
                 exposes_internal
             };
 
-        // TODO(BRA-199): Include exact generic-constraint and callable-contract references once
-        // complete checked expression facts retain their selected declaration dependencies.
         if exposes_internal {
             add_internal_dependency_diagnostic(*symbol, symbols, diagnostics);
 
@@ -224,7 +224,7 @@ where
     ))
 }
 
-fn add_internal_dependency_diagnostic(
+pub(super) fn add_internal_dependency_diagnostic(
     symbol: AnySymbolId,
     symbols: &SymbolGraph,
     diagnostics: &mut DiagnosticBag,
@@ -259,7 +259,11 @@ fn template_exposes_internal(
                 arguments,
                 ..
             } => {
-                if source_symbol_is_internal(definition.into_any(), declarations, symbols) {
+                if source_symbol_is_not_publicly_reachable(
+                    definition.into_any(),
+                    declarations,
+                    symbols,
+                ) {
                     return true;
                 }
 
@@ -273,12 +277,16 @@ fn template_exposes_internal(
                 application,
                 ..
             } => {
-                if source_symbol_is_internal(application.definition().into(), declarations, symbols)
-                {
+                if source_symbol_is_not_publicly_reachable(
+                    application.definition().into(),
+                    declarations,
+                    symbols,
+                ) {
                     return true;
                 }
 
                 pending.push(subject);
+
                 pending.extend(application.arguments().iter().filter_map(
                     |argument| match argument {
                         GenericArgumentTemplate::Type(ty) => Some(ty),
@@ -300,8 +308,11 @@ fn template_exposes_internal(
                 pending.push(callable.result());
             }
             TypeExpressionTemplate::TraitView(application) => {
-                if source_symbol_is_internal(application.definition().into(), declarations, symbols)
-                {
+                if source_symbol_is_not_publicly_reachable(
+                    application.definition().into(),
+                    declarations,
+                    symbols,
+                ) {
                     return true;
                 }
 
@@ -318,97 +329,383 @@ fn template_exposes_internal(
     false
 }
 
-fn resolved_type_exposes_internal(
-    ty: bray_symbols::TypeId,
+pub(super) fn resolved_type_exposes_internal(
+    ty: TypeId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
 ) -> bool {
-    let mut pending = vec![ty];
+    semantic_values_expose_internal(
+        [SemanticValueDependency::Type(ty)],
+        semantic_values,
+        symbols,
+        declarations,
+    )
+}
+
+pub(super) fn substitution_exposes_internal(
+    substitution: GenericSubstitutionId,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    semantic_values_expose_internal(
+        [SemanticValueDependency::Substitution(substitution)],
+        semantic_values,
+        symbols,
+        declarations,
+    )
+}
+
+pub(super) fn callable_instance_exposes_internal(
+    instance: CallableInstanceData,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    source_symbol_is_not_publicly_reachable(instance.definition().symbol(), declarations, symbols)
+        || substitution_exposes_internal(
+            instance.substitution(),
+            semantic_values,
+            symbols,
+            declarations,
+        )
+}
+
+pub(super) fn implementation_instance_exposes_internal(
+    instance: ImplementationInstanceId,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    semantic_values_expose_internal(
+        [SemanticValueDependency::Implementation(instance)],
+        semantic_values,
+        symbols,
+        declarations,
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum SemanticValueDependency {
+    Type(TypeId),
+    ConstantTerm(ConstantTermId),
+    Substitution(GenericSubstitutionId),
+    TraitApplication(TraitApplicationId),
+    Implementation(ImplementationInstanceId),
+}
+
+fn semantic_values_expose_internal(
+    roots: impl IntoIterator<Item = SemanticValueDependency>,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    let mut pending = roots.into_iter().collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
 
-    while let Some(ty) = pending.pop() {
-        if !visited.insert(ty) {
+    while let Some(dependency) = pending.pop() {
+        if !visited.insert(dependency) {
             continue;
         }
 
-        let Ok(data) = semantic_values.type_data(ty) else {
-            continue;
+        let exposes_internal = match dependency {
+            SemanticValueDependency::Type(ty) => {
+                type_exposes_internal(ty, &mut pending, semantic_values, symbols, declarations)
+            }
+            SemanticValueDependency::ConstantTerm(term) => constant_term_exposes_internal(
+                term,
+                &mut pending,
+                semantic_values,
+                symbols,
+                declarations,
+            ),
+            SemanticValueDependency::Substitution(substitution) => {
+                substitution_exposes_internal_value(substitution, &mut pending, semantic_values)
+            }
+            SemanticValueDependency::TraitApplication(application) => {
+                trait_application_exposes_internal(
+                    application,
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )
+            }
+            SemanticValueDependency::Implementation(implementation) => {
+                implementation_exposes_internal(
+                    implementation,
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )
+            }
         };
 
-        match data.as_ref() {
-            TypeData::Named {
-                definition,
-                substitution,
-            } => {
-                if source_symbol_is_internal(definition.into_any(), declarations, symbols) {
-                    return true;
-                }
-
-                let Ok(substitution) = semantic_values.generic_substitution_data(*substitution)
-                else {
-                    continue;
-                };
-
-                pending.extend(substitution.bindings().iter().filter_map(|binding| {
-                    match binding.argument() {
-                        GenericArgument::Type(ty) => Some(ty),
-                        GenericArgument::Constant(_) => None,
-                    }
-                }));
-            }
-            TypeData::Tuple(elements) => pending.extend(elements.iter().copied()),
-            TypeData::Array { element, .. }
-            | TypeData::Slice(element)
-            | TypeData::Generator(element)
-            | TypeData::Nullable(element) => pending.push(*element),
-            TypeData::Borrow { target, .. } => pending.push(*target),
-            TypeData::OwnedIndirection { storage, target } => {
-                pending.push(*storage);
-                pending.push(*target);
-            }
-            TypeData::Callable(callable) => {
-                pending.extend(callable.parameters().iter().map(|parameter| parameter.ty()));
-                pending.push(callable.result());
-            }
-            TypeData::TypeValuedMemberProjection {
-                subject,
-                application,
-                ..
-            } => {
-                if resolved_application_exposes_internal(
-                    *application,
-                    &mut pending,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                ) {
-                    return true;
-                }
-
-                pending.push(*subject);
-            }
-            TypeData::TraitView(application) => {
-                if resolved_application_exposes_internal(
-                    *application,
-                    &mut pending,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                ) {
-                    return true;
-                }
-            }
-            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {}
+        if exposes_internal {
+            return true;
         }
     }
 
     false
 }
 
-fn resolved_application_exposes_internal(
-    application: bray_symbols::TraitApplicationId,
-    pending: &mut Vec<bray_symbols::TypeId>,
+fn type_exposes_internal(
+    ty: TypeId,
+    pending: &mut Vec<SemanticValueDependency>,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    let Ok(data) = semantic_values.type_data(ty) else {
+        return false;
+    };
+
+    match data.as_ref() {
+        TypeData::Error => {}
+        TypeData::Named {
+            definition,
+            substitution,
+        } => {
+            if source_symbol_is_not_publicly_reachable(definition.into_any(), declarations, symbols)
+            {
+                return true;
+            }
+
+            pending.push(SemanticValueDependency::Substitution(*substitution));
+        }
+        TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {}
+        TypeData::TypeValuedMemberProjection {
+            subject,
+            application,
+            member,
+        } => {
+            if source_symbol_is_not_publicly_reachable((*member).into(), declarations, symbols) {
+                return true;
+            }
+
+            pending.push(SemanticValueDependency::Type(*subject));
+            pending.push(SemanticValueDependency::TraitApplication(*application));
+        }
+        TypeData::Tuple(elements) => {
+            pending.extend(elements.iter().copied().map(SemanticValueDependency::Type));
+        }
+        TypeData::Array { element, length } => {
+            pending.push(SemanticValueDependency::Type(*element));
+            pending.push(SemanticValueDependency::ConstantTerm(*length));
+        }
+        TypeData::Slice(element) | TypeData::Generator(element) | TypeData::Nullable(element) => {
+            pending.push(SemanticValueDependency::Type(*element));
+        }
+        TypeData::Borrow { target, .. } => {
+            pending.push(SemanticValueDependency::Type(*target));
+        }
+        TypeData::TraitView(application) => {
+            pending.push(SemanticValueDependency::TraitApplication(*application));
+        }
+        TypeData::OwnedIndirection { storage, target } => {
+            pending.push(SemanticValueDependency::Type(*storage));
+            pending.push(SemanticValueDependency::Type(*target));
+        }
+        TypeData::Callable(callable) => {
+            pending.extend(
+                callable
+                    .parameters()
+                    .iter()
+                    .map(|parameter| SemanticValueDependency::Type(parameter.ty())),
+            );
+
+            pending.push(SemanticValueDependency::Type(callable.result()));
+        }
+    }
+
+    false
+}
+
+fn substitution_exposes_internal_value(
+    substitution: GenericSubstitutionId,
+    pending: &mut Vec<SemanticValueDependency>,
+    semantic_values: &SemanticValueStore,
+) -> bool {
+    let Ok(substitution) = semantic_values.generic_substitution_data(substitution) else {
+        return false;
+    };
+
+    pending.extend(
+        substitution
+            .bindings()
+            .iter()
+            .map(|binding| match binding.argument() {
+                GenericArgument::Type(ty) => SemanticValueDependency::Type(ty),
+                GenericArgument::Constant(term) => SemanticValueDependency::ConstantTerm(term),
+            }),
+    );
+
+    false
+}
+
+fn constant_term_exposes_internal(
+    term: ConstantTermId,
+    pending: &mut Vec<SemanticValueDependency>,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    let Ok(data) = semantic_values.constant_term_data(term) else {
+        return false;
+    };
+
+    match data.as_ref() {
+        ConstantTermData::Value(value) => {
+            let Ok(value) = semantic_values.constant_value_data(*value) else {
+                return false;
+            };
+
+            pending.push(SemanticValueDependency::Type(value.ty()));
+        }
+        ConstantTermData::IntegerLiteral { .. } => {}
+        ConstantTermData::Parameter(_) => {}
+        ConstantTermData::TargetFact(constant) => {
+            return source_symbol_is_not_publicly_reachable(
+                (*constant).into(),
+                declarations,
+                symbols,
+            );
+        }
+        ConstantTermData::Unary { operand, .. } => {
+            pending.push(SemanticValueDependency::ConstantTerm(*operand));
+        }
+        ConstantTermData::Binary { left, right, .. } => {
+            pending.push(SemanticValueDependency::ConstantTerm(*left));
+            pending.push(SemanticValueDependency::ConstantTerm(*right));
+        }
+        ConstantTermData::Conversion { operand, target } => {
+            pending.push(SemanticValueDependency::ConstantTerm(*operand));
+            pending.push(SemanticValueDependency::Type(*target));
+        }
+        ConstantTermData::NullablePresent(value) => {
+            pending.push(SemanticValueDependency::ConstantTerm(*value));
+        }
+        ConstantTermData::Tuple(values) | ConstantTermData::Array(values) => {
+            pending.extend(
+                values
+                    .iter()
+                    .copied()
+                    .map(SemanticValueDependency::ConstantTerm),
+            );
+        }
+        ConstantTermData::Product(fields) => {
+            for field in fields.iter() {
+                if source_symbol_is_not_publicly_reachable(
+                    (*field.field()).into(),
+                    declarations,
+                    symbols,
+                ) {
+                    return true;
+                }
+
+                pending.push(SemanticValueDependency::ConstantTerm(*field.value()));
+            }
+        }
+        ConstantTermData::Union { variant, fields } => {
+            if source_symbol_is_not_publicly_reachable((*variant).into(), declarations, symbols) {
+                return true;
+            }
+
+            for field in fields.iter() {
+                if source_symbol_is_not_publicly_reachable(
+                    (*field.field()).into(),
+                    declarations,
+                    symbols,
+                ) {
+                    return true;
+                }
+
+                pending.push(SemanticValueDependency::ConstantTerm(*field.value()));
+            }
+        }
+        ConstantTermData::DefinitionApplication {
+            definition,
+            substitution,
+            selected_implementation,
+        } => {
+            if source_symbol_is_not_publicly_reachable(definition.into_any(), declarations, symbols)
+            {
+                return true;
+            }
+
+            pending.push(SemanticValueDependency::Substitution(*substitution));
+
+            if let Some(implementation) = selected_implementation {
+                pending.push(SemanticValueDependency::Implementation(*implementation));
+            }
+        }
+        ConstantTermData::Call {
+            callable,
+            selected_implementation,
+            arguments,
+        } => {
+            let Ok(callable) = semantic_values.callable_instance_data(*callable) else {
+                return false;
+            };
+
+            if source_symbol_is_not_publicly_reachable(
+                callable.definition().symbol(),
+                declarations,
+                symbols,
+            ) {
+                return true;
+            }
+
+            pending.push(SemanticValueDependency::Substitution(
+                callable.substitution(),
+            ));
+
+            if let Some(implementation) = selected_implementation {
+                pending.push(SemanticValueDependency::Implementation(*implementation));
+            }
+
+            pending.extend(
+                arguments
+                    .iter()
+                    .copied()
+                    .map(SemanticValueDependency::ConstantTerm),
+            );
+        }
+        ConstantTermData::Projection(projection) => {
+            pending.push(SemanticValueDependency::ConstantTerm(projection.subject()));
+
+            match projection.kind() {
+                ConstantProjectionKind::ArrayElement(index) => {
+                    pending.push(SemanticValueDependency::ConstantTerm(index));
+                }
+                ConstantProjectionKind::ProductField(field) => {
+                    return source_symbol_is_not_publicly_reachable(
+                        field.into(),
+                        declarations,
+                        symbols,
+                    );
+                }
+                ConstantProjectionKind::UnionPayloadField(field) => {
+                    return source_symbol_is_not_publicly_reachable(
+                        field.into(),
+                        declarations,
+                        symbols,
+                    );
+                }
+                ConstantProjectionKind::TupleElement(_) | ConstantProjectionKind::NullableValue => {
+                }
+            }
+        }
+    }
+
+    false
+}
+
+fn trait_application_exposes_internal(
+    application: TraitApplicationId,
+    pending: &mut Vec<SemanticValueDependency>,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
@@ -417,24 +714,43 @@ fn resolved_application_exposes_internal(
         return false;
     };
 
-    if source_symbol_is_internal(application.definition().into(), declarations, symbols) {
+    if source_symbol_is_not_publicly_reachable(
+        application.definition().into(),
+        declarations,
+        symbols,
+    ) {
         return true;
     }
 
-    let Ok(substitution) = semantic_values.generic_substitution_data(application.substitution())
-    else {
+    pending.push(SemanticValueDependency::Substitution(
+        application.substitution(),
+    ));
+
+    false
+}
+
+fn implementation_exposes_internal(
+    implementation: ImplementationInstanceId,
+    pending: &mut Vec<SemanticValueDependency>,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> bool {
+    let Ok(implementation) = semantic_values.implementation_instance_data(implementation) else {
         return false;
     };
 
-    pending.extend(
-        substitution
-            .bindings()
-            .iter()
-            .filter_map(|binding| match binding.argument() {
-                GenericArgument::Type(ty) => Some(ty),
-                GenericArgument::Constant(_) => None,
-            }),
-    );
+    if source_symbol_is_not_publicly_reachable(
+        implementation.definition().into_any(),
+        declarations,
+        symbols,
+    ) {
+        return true;
+    }
+
+    pending.push(SemanticValueDependency::Substitution(
+        implementation.substitution(),
+    ));
 
     false
 }
@@ -445,7 +761,12 @@ pub(in crate::compilation) fn symbol_is_publicly_reachable(
     mut symbol: AnySymbolId,
 ) -> bool {
     loop {
-        if source_symbol_is_internal(symbol, declarations, symbols) {
+        if symbols
+            .symbol_key(symbol)
+            .and_then(SymbolKey::source_declaration_id)
+            .and_then(|declaration| declarations.declaration(declaration))
+            .is_some_and(|declaration| declaration.surface().is_internal())
+        {
             return false;
         }
 
@@ -463,7 +784,7 @@ pub(in crate::compilation) fn symbol_is_publicly_reachable(
     }
 }
 
-fn source_symbol_is_internal(
+pub(super) fn source_symbol_is_not_publicly_reachable(
     symbol: AnySymbolId,
     declarations: &DeclarationTable,
     symbols: &SymbolGraph,
@@ -471,6 +792,6 @@ fn source_symbol_is_internal(
     symbols
         .symbol_key(symbol)
         .and_then(SymbolKey::source_declaration_id)
-        .and_then(|declaration| declarations.declaration(declaration))
-        .is_some_and(|declaration| declaration.surface().is_internal())
+        .is_some()
+        && !symbol_is_publicly_reachable(declarations, symbols, symbol)
 }

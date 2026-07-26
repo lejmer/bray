@@ -235,7 +235,7 @@ mod tests {
             )),
         );
 
-        let call = bray_bound_tree::SelectedCall::new(resolution, CallableAbi::Bray, [], []);
+        let call = bray_bound_tree::SelectedCall::new(resolution, CallableAbi::Bray, None, [], []);
 
         let result = ExpressionTypeResult::new(error_type(), ExpressionTypeStatus::Valid);
         let types = checked_expression_types(&unit, expressions.iter().copied(), result);

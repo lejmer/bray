@@ -419,6 +419,11 @@ fn reuse_mapped_cells(
         CompilationFactKey::CheckedExpressionTypes(key.clone())
     });
 
+    // The updated cache owns its Arc-backed unit keys independently of the prior snapshot.
+    reuse!(checked_literal_values, |key| {
+        CompilationFactKey::CheckedLiteralValues(key.clone())
+    });
+
     reuse!(checked_patterns, |key| {
         CompilationFactKey::CheckedPatterns(key.clone())
     });

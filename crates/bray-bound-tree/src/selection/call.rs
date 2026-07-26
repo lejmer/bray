@@ -4,9 +4,48 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, ImplementationInstanceId, ImplementationRequirementKey,
+    ReceiverParameterSymbolId,
 };
 
-use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall};
+use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
+
+/// The checked receiver passed to one selected callable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedReceiver {
+    expression: BoundExpressionId,
+    parameter: ReceiverParameterSymbolId,
+    conversion: SelectedConversion,
+}
+
+impl SelectedReceiver {
+    /// Creates one receiver-to-parameter mapping.
+    pub const fn new(
+        expression: BoundExpressionId,
+        parameter: ReceiverParameterSymbolId,
+        conversion: SelectedConversion,
+    ) -> Self {
+        Self {
+            expression,
+            parameter,
+            conversion,
+        }
+    }
+
+    /// Returns the receiver expression occurrence.
+    pub const fn expression(&self) -> BoundExpressionId {
+        self.expression
+    }
+
+    /// Returns the selected callable's receiver parameter.
+    pub const fn parameter(&self) -> ReceiverParameterSymbolId {
+        self.parameter
+    }
+
+    /// Returns the checked receiver conversion.
+    pub const fn conversion(&self) -> &SelectedConversion {
+        &self.conversion
+    }
+}
 
 /// One exact implementation requirement and its selected witness.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -39,7 +78,7 @@ impl SelectedImplementationWitness {
 }
 
 /// One explicit or defaulted value in call evaluation order.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectedArgument {
     /// A source argument mapped to its exact parameter.
     Explicit {
@@ -49,6 +88,8 @@ pub enum SelectedArgument {
         parameter: Option<CallableParameterSymbolId>,
         /// The selected parameter's declaration-order ordinal.
         ordinal: u32,
+        /// The checked conversion into the parameter type.
+        conversion: SelectedConversion,
     },
     /// An omitted parameter supplied by its declaration-owned default provider.
     Default {
@@ -65,6 +106,7 @@ pub struct SelectedCall {
     resolution: BoundResolvedCall,
     abi: CallableAbi,
     contract: Option<Arc<CallableContractTemplate>>,
+    receiver: Option<SelectedReceiver>,
     arguments: Arc<[SelectedArgument]>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
@@ -74,6 +116,7 @@ impl SelectedCall {
     pub fn new(
         resolution: BoundResolvedCall,
         abi: CallableAbi,
+        receiver: Option<SelectedReceiver>,
         arguments: impl IntoIterator<Item = SelectedArgument>,
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
@@ -81,6 +124,7 @@ impl SelectedCall {
             resolution,
             abi,
             contract: None,
+            receiver,
             arguments: shared_slice(arguments),
             witnesses: sorted_unique_shared_slice(witnesses),
         }
@@ -94,6 +138,11 @@ impl SelectedCall {
     /// Returns the callable ABI participating in the selected call contract.
     pub const fn abi(&self) -> CallableAbi {
         self.abi
+    }
+
+    /// Returns the checked receiver mapping for an instance call.
+    pub const fn receiver(&self) -> Option<&SelectedReceiver> {
+        self.receiver.as_ref()
     }
 
     /// Retains the selected declaration's source or imported contract clauses.
