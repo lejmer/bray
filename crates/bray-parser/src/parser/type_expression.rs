@@ -11,7 +11,15 @@ impl Parser {
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> TypeExpressionSyntax {
-        self.parse_prefix_type_expression(at_boundary)
+        if !self.try_enter_syntax_nesting() {
+            return self.parse_unknown_type_expression(at_boundary);
+        }
+
+        let expression = self.parse_prefix_type_expression(at_boundary);
+
+        self.leave_syntax_nesting();
+
+        expression
     }
 
     pub(super) fn missing_type_expression(&mut self) -> TypeExpressionSyntax {

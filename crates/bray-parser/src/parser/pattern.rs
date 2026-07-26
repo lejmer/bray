@@ -156,7 +156,11 @@ impl Parser {
             return self.missing_pattern(context);
         }
 
-        match self.peek().kind() {
+        if !self.try_enter_syntax_nesting() {
+            return self.parse_unknown_pattern(context, at_boundary);
+        }
+
+        let pattern = match self.peek().kind() {
             SyntaxKind::UnderscoreToken => self.parse_discard_pattern(context),
             SyntaxKind::MutKeyword => self.parse_mutable_binding_pattern(context),
             kind if kind.is_pattern_literal() => self.parse_literal_pattern(context),
@@ -172,7 +176,11 @@ impl Parser {
             SyntaxKind::OpenBracketToken => self.parse_array_pattern(context, at_boundary),
             SyntaxKind::DotDotToken => self.parse_remaining_pattern(context),
             _ => self.parse_unknown_pattern(context, at_boundary),
-        }
+        };
+
+        self.leave_syntax_nesting();
+
+        pattern
     }
 
     fn missing_pattern(&mut self, context: PatternContext) -> PatternNode {

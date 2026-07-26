@@ -101,10 +101,7 @@ impl InterfaceValidationError {
                     DiagnosticArgName::ActualCount,
                     DiagnosticArgValue::Count(actual),
                 ))
-                .with_arg(DiagnosticArg::new(
-                    DiagnosticArgName::MaximumCount,
-                    DiagnosticArgValue::Count(maximum),
-                )),
+                .with_arg(DiagnosticArg::maximum_count(maximum)),
         }
     }
 

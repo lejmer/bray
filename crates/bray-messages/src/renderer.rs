@@ -611,6 +611,23 @@ mod tests {
     }
 
     #[test]
+    fn renderer_renders_syntax_nesting_limits_from_typed_counts() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::SyntaxNestingLimitExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::maximum_count(128));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "syntax nesting exceeds the maximum depth of 128"
+        );
+    }
+
+    #[test]
     fn renderer_renders_binding_diagnostics_from_structured_arguments() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(14),

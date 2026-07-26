@@ -773,10 +773,7 @@ mod tests {
                     DiagnosticArgName::ActualCount,
                     DiagnosticArgValue::Count(12),
                 ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::MaximumCount,
-                    DiagnosticArgValue::Count(10),
-                ),
+                DiagnosticArg::maximum_count(10),
             ]
         );
 
