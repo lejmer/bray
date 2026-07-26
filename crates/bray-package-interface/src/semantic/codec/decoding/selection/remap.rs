@@ -142,6 +142,7 @@ pub(super) fn remap_selected_records(
         .into_values()
         .map(|mut implementation| {
             implementation.subject = maps.type_id(implementation.subject)?;
+
             implementation.trait_application = implementation
                 .trait_application
                 .map(|application| maps.trait_application_id(application))
@@ -235,8 +236,10 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
             }
 
             *result = maps.type_id(*result)?;
+
             *invocation_dependency_contract =
                 maps.dependency_contract_id(*invocation_dependency_contract)?;
+
             *deferred_dependency_contract = deferred_dependency_contract
                 .map(|contract| maps.dependency_contract_id(contract))
                 .transpose()?;
@@ -316,6 +319,7 @@ fn remap_constant_term(
             ..
         } => {
             *substitution = maps.substitution_id(*substitution)?;
+
             *selected_implementation = selected_implementation
                 .map(|implementation| maps.implementation_instance_id(implementation))
                 .transpose()?;
@@ -326,9 +330,11 @@ fn remap_constant_term(
             arguments,
         } => {
             *callable = maps.callable_instance_id(*callable)?;
+
             *selected_implementation = selected_implementation
                 .map(|implementation| maps.implementation_instance_id(implementation))
                 .transpose()?;
+
             remap_constant_term_ids(Arc::make_mut(arguments), maps)?;
         }
         InterfaceConstantTerm::Projection { subject, kind } => {
@@ -435,6 +441,7 @@ fn remap_constant_value_fields(
     for field in fields {
         // Field identity remains unchanged while the selected record ID is remapped.
         let identity = field.field().clone();
+
         *field =
             bray_symbols::ConstantField::new(identity, maps.constant_value_id(*field.value())?);
     }

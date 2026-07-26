@@ -494,7 +494,9 @@ mod tests {
     fn conditional_types_ignore_never_branches_when_merging_values() {
         let result_type = tuple_type([]);
         let iterable_type = tuple_type([result_type]);
+
         let [yield_origin, never_origin] = distinct_source_origins();
+
         let key = callable_key();
         let origin = BoundNodeOrigin::source(key.source());
         let mut tree = BoundTreeBuilder::new(BoundUnitId::new(55));

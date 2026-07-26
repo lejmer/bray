@@ -64,6 +64,7 @@ impl BoundStructConstructionExpression {
         is_recovered: bool,
     ) -> Self {
         let fields = shared_slice(fields);
+
         let operands = shared_slice(
             head.into_iter()
                 .chain(fields.iter().map(BoundStructFieldInitializer::expression)),

@@ -23,6 +23,7 @@ pub(super) fn encode_support_graph(facts: &InterfaceSemanticFacts) -> EncodedSem
                 encoder.write_u32(3);
                 write_external_key(&mut encoder, implementation.declaration());
                 encoder.write_u32(implementation.subject().raw());
+
                 write_optional_u32(
                     &mut encoder,
                     implementation.trait_application().map(|id| id.raw()),

@@ -537,6 +537,7 @@ mod tests {
     #[test]
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {
         let (surface, facts) = fixture();
+
         let limits = InterfaceValidationLimits::default();
 
         let sections = encode_semantic_facts(&facts, &surface, limits)

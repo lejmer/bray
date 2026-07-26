@@ -230,19 +230,28 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Use comments sparingly.
 - Use standard keyboard symbols only, except where mathematical notation is genuinely needed.
 - Do not use emojis.
+
+### Semantic paragraph structure
+
 - Treat blank lines as paragraph boundaries between statements with different semantic purposes.
 - Use one blank line between logical phases such as setup, validation, transformation, I/O, and publication or return.
 - Start a new paragraph whenever the statement purpose changes, including transitions from deriving or assigning values to actions and transitions back to further derivation after actions.
-- Isolate `let ... else` and other guard clauses from both the setup before them and the work after them, even when the guard directly validates the preceding value.
 - Separate consecutive guard clauses when each enforces a different invariant.
 - Separate dependent construction layers when each introduces a distinct semantic level, such as package, module, and declaration identities.
 - Keep homogeneous declarations or assertions together when they form one conceptual group. Separate groups that construct different cases or verify different properties.
+- Do not add blank lines between near-identical statements that form one conceptual group.
 - Do not compress unrelated statements together just to minimize vertical space.
-- Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, match cases, or chains of near-identical statements.
+
+### Mechanically enforced blank-line rules
+
+Run `cargo xtask style` to apply these rules automatically. Run `cargo xtask style check` when a non-mutating verification is required.
+
+- Isolate `let ... else` guard clauses from both the setup before them and the work after them, even when the guard directly validates the preceding value.
+- Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, or match cases.
 - Use one blank line as a separator. Do not add multiple consecutive blank lines for decoration.
-- Separate multiline expressions (like multiline `let` expressions or `assert*` macros) with blank lines.
+- Separate multiline statements and expressions (like multiline `let` expressions or `assert*` macros) with blank lines.
 - In blocks, always put a blank line above any comment unless the comment is the absolute first thing in that block.
-- Tuple `let` expressions (`let (a, b) = ...`) should be separated with blank lines.
+- Tuple and bracket destructuring `let` expressions (`let (a, b) = ...` and `let [a, b] = ...`) should be separated with blank lines.
 
 ## Documentation
 

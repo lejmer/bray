@@ -628,6 +628,7 @@ mod tests {
         );
 
         let callable = trait_callable_instance(callable_definition);
+
         let fulfillment = callable_instance(
             TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(32)).into(),
         );

@@ -59,6 +59,7 @@ pub(super) fn decode_external_key(
     for _ in 0..count {
         let kind: SymbolKind = read_tag(reader)?;
         let shape = read_u32(reader)?;
+
         key = Some(decode_external_key_component(
             reader, strings, key, kind, shape, budget,
         )?);
@@ -134,6 +135,7 @@ fn decode_synthesized_key(
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
     let role: SynthesizedSymbolRole = read_tag(reader)?;
     let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
+
     let key = ExternalSymbolKey::synthesized(owner, role, ordinal)
         .ok_or(InterfaceValidationError::Malformed)?;
 
@@ -151,6 +153,7 @@ fn decode_module_path(
 ) -> Result<ModulePathKey, InterfaceValidationError> {
     let count =
         usize::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
+
     let mut segments = budget.allocate_items(reader, count)?;
 
     // Module paths share the validated string table instead of allocating duplicate text.

@@ -62,6 +62,7 @@ impl TypeInferenceContext {
             expectations: Vec::new(),
             is_recovered,
         });
+
         self.revision = self.revision.saturating_add(1);
 
         Some(id)
@@ -74,6 +75,7 @@ impl TypeInferenceContext {
         expression: BoundExpressionId,
     ) {
         let root = self.find(id);
+
         let Some(index) = root.to_index() else {
             return;
         };
@@ -105,6 +107,7 @@ impl TypeInferenceContext {
         expression: BoundExpressionId,
     ) {
         let root = self.find(id);
+
         let Some(index) = root.to_index() else {
             return;
         };
@@ -168,6 +171,7 @@ impl TypeInferenceContext {
         self.nodes[left_index]
             .expectations
             .extend(right_expectations);
+
         self.nodes[left_index].is_recovered |= right_recovered;
 
         if let Some(evidence) = right_evidence {
@@ -188,6 +192,7 @@ impl TypeInferenceContext {
         mut is_match: impl FnMut(TypeId) -> Result<bool, E>,
     ) -> Result<Option<TypeId>, E> {
         let root = self.find(id);
+
         let Some(index) = root.to_index() else {
             return Ok(None);
         };
@@ -218,6 +223,7 @@ impl TypeInferenceContext {
         let index = root.to_index()?;
         let node = self.nodes.get(index)?;
         let ty = node.evidence?;
+
         let status = if node.is_recovered || ty == self.error_type {
             ExpressionTypeStatus::Recovered
         } else {
@@ -229,6 +235,7 @@ impl TypeInferenceContext {
 
     pub(super) fn is_recovered(&mut self, id: InferenceTypeId) -> bool {
         let root = self.find(id);
+
         let Some(index) = root.to_index() else {
             return true;
         };
@@ -242,6 +249,7 @@ impl TypeInferenceContext {
 
     pub(super) fn mark_recovered(&mut self, id: InferenceTypeId) {
         let root = self.find(id);
+
         let Some(index) = root.to_index() else {
             return;
         };
@@ -274,6 +282,7 @@ impl TypeInferenceContext {
 
         for &(_, id) in expressions {
             let root = self.find(id);
+
             let Some(index) = root.to_index() else {
                 continue;
             };
@@ -303,6 +312,7 @@ impl TypeInferenceContext {
                         actual,
                         is_directional: true,
                     });
+
                     self.mark_recovered(root);
                 }
             }
@@ -329,6 +339,7 @@ impl TypeInferenceContext {
 
         for &(expression, id) in expressions {
             let root = self.find(id);
+
             let Some(index) = root.to_index() else {
                 continue;
             };
@@ -349,11 +360,14 @@ impl TypeInferenceContext {
                 let root = self.find(id);
                 let index = root.to_index();
                 let node = index.and_then(|index| self.nodes.get(index));
+
                 let ty = node
                     .and_then(|node| node.evidence)
                     .unwrap_or(self.error_type);
+
                 let recovered =
                     node.is_none_or(|node| node.is_recovered || node.evidence.is_none());
+
                 let status = if recovered {
                     ExpressionTypeStatus::Recovered
                 } else {

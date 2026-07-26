@@ -390,6 +390,7 @@ mod tests {
         builder.push_overload_modifiers(
             OverloadModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
+
         builder.push_overload_keyword(keyword(SyntaxKind::OverloadKeyword, 0, 8, true));
         builder.push_implementation_overload_subject(implementation_subject(snapshot.clone()));
         builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, 21, 22));

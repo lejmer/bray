@@ -434,6 +434,7 @@ where
         };
 
         let access = self.operation_access(plan, purpose);
+
         let Some(authorizing_borrows) = self.borrow_chain(access) else {
             return true;
         };

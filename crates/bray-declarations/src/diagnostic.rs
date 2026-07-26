@@ -790,9 +790,11 @@ mod tests {
         let ordinary = discover_source_unit_declarations(&parse_valid_source_unit_for_test(
             source(&sources, 0),
         ));
+
         let directed_module = discover_source_unit_declarations(&parse_valid_source_unit_for_test(
             source(&sources, 1),
         ));
+
         let directed_declaration = discover_source_unit_declarations(
             &parse_valid_source_unit_for_test(source(&sources, 2)),
         );

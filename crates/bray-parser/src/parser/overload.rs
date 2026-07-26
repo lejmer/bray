@@ -31,6 +31,7 @@ impl Parser {
         &mut self,
     ) -> ImplementationOverloadDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             ImplementationOverloadDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -81,6 +82,7 @@ impl Parser {
     fn parse_overload_arm_list(&mut self) -> OverloadArmListSyntax {
         let start = self.peek().full_range().start();
         let terminators = overload_arm_list_terminators();
+
         let recovery_kinds = separated_list_recovery_kinds(
             &OVERLOAD_ARM_START_KINDS,
             SyntaxKind::CommaToken,
@@ -239,6 +241,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .callable_overload_declarations()
             .collect::<Vec<_>>();
@@ -279,6 +282,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .implementation_overload_declarations()
             .collect::<Vec<_>>();
@@ -346,6 +350,7 @@ mod tests {
 
         let struct_declarations = source_unit.struct_declarations().collect::<Vec<_>>();
         let union_declarations = source_unit.union_declarations().collect::<Vec<_>>();
+
         let implementation_declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();

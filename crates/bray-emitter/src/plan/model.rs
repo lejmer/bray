@@ -248,6 +248,7 @@ pub(super) fn package_interface_matches_product(
     request: &EmissionRequest,
 ) -> bool {
     let identity = package_interface.identity();
+
     let expected_kind = match request.product_kind() {
         crate::ProductKind::Executable => InterfaceProductKind::Executable,
         crate::ProductKind::Library => InterfaceProductKind::Library,

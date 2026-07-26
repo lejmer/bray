@@ -214,6 +214,7 @@ impl LocalSymbolSnapshotBuilder {
             callable_scope,
             is_recovered,
         ));
+
         self.anonymous_callable_scopes.insert(callable_scope);
         self.anonymous_callable_parameters.push(Vec::new());
 
@@ -236,6 +237,7 @@ impl LocalSymbolSnapshotBuilder {
         is_recovered: bool,
     ) -> Result<AnonymousCallableParameterSymbolId, LocalSymbolBuildError> {
         let (callable_index, callable_record) = self.checked_anonymous_callable(callable)?;
+
         let scope_record = self.checked_scope(scope)?;
 
         if scope != callable_record.callable_scope()
@@ -415,6 +417,7 @@ impl LocalSymbolSnapshotBuilder {
             .entry(name)
             .or_default()
             .push(symbol);
+
         self.mutations.push(LocalSymbolMutation::SurfaceName {
             scope: scope_index,
             name: mutation_name,
@@ -429,6 +432,7 @@ impl LocalSymbolSnapshotBuilder {
         scope: LocalScopeId,
     ) -> Result<Option<LocalScopeId>, LocalSymbolBuildError> {
         let scope_index = self.checked_scope_index(scope)?;
+
         let scope = self
             .scopes
             .get(scope_index)
@@ -452,6 +456,7 @@ impl LocalSymbolSnapshotBuilder {
         name: &str,
     ) -> Result<&[AnyLocalSymbolId], LocalSymbolBuildError> {
         let scope_index = self.checked_scope_index(scope)?;
+
         let scope = self
             .scopes
             .get(scope_index)
@@ -510,6 +515,7 @@ impl LocalSymbolSnapshotBuilder {
         name: &str,
     ) -> Result<&[AnySymbolId], LocalSymbolBuildError> {
         let scope_index = self.checked_scope_index(scope)?;
+
         let scope = self
             .scopes
             .get(scope_index)
@@ -587,16 +593,21 @@ impl LocalSymbolSnapshotBuilder {
         self.scopes.truncate(checkpoint.scopes);
         self.bindings.truncate(checkpoint.bindings);
         self.constants.truncate(checkpoint.constants);
+
         self.anonymous_callables
             .truncate(checkpoint.anonymous_callables);
+
         self.anonymous_callable_parameters
             .truncate(checkpoint.anonymous_callables);
+
         self.anonymous_parameters
             .truncate(checkpoint.anonymous_parameters);
+
         self.postcondition_results
             .truncate(checkpoint.postcondition_results);
 
         self.anonymous_callable_scopes.clear();
+
         self.anonymous_callable_scopes.extend(
             self.anonymous_callables
                 .iter()
@@ -851,6 +862,7 @@ mod tests {
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(8), region_key);
 
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
+
         let callable_scope = scope(
             &mut builder,
             Some(root),

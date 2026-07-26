@@ -602,6 +602,7 @@ mod tests {
     #[test]
     fn selected_compiler_known_calls_publish_task_operation_kinds() {
         let (unit, _) = expression_unit(BoundUnitId::new(70), |_, _| Vec::new());
+
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 

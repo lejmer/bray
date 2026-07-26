@@ -579,6 +579,7 @@ mod tests {
             expression.full_text(),
             "func() requires(valid ensures(done)"
         );
+
         assert_eq!(expression.requires_clauses().count(), 1);
         assert_eq!(expression.ensures_clauses().count(), 1);
         assert_eq!(expression.skipped_syntax().count(), 0);

@@ -224,6 +224,7 @@ impl TypeExpressionBinder<'_> {
                 .into_iter()
                 .map(|parameter| {
                     let (name, position, mode, ty) = parameter.into_parts();
+
                     let ty = self.require_resolved_type(&ty)?;
 
                     Ok(CallableParameterData::new(name, position, mode, ty))

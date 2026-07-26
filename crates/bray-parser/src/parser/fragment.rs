@@ -302,18 +302,22 @@ mod tests {
             &source(&struct_sources, 0),
             DeclarationFragmentContext::Struct,
         );
+
         let trait_result = parse_declaration_fragment(
             &source(&trait_sources, 0),
             DeclarationFragmentContext::Trait,
         );
+
         let union_result = parse_declaration_fragment(
             &source(&union_sources, 0),
             DeclarationFragmentContext::Union,
         );
+
         let union_variant_result = parse_declaration_fragment(
             &source(&union_variant_sources, 0),
             DeclarationFragmentContext::UnionVariant,
         );
+
         let implementation_result = parse_declaration_fragment(
             &source(&implementation_sources, 0),
             DeclarationFragmentContext::Implementation,
@@ -382,6 +386,7 @@ mod tests {
             &source(&wrong_context_sources, 0),
             DeclarationFragmentContext::Trait,
         );
+
         let extra = parse_declaration_fragment(
             &source(&extra_sources, 0),
             DeclarationFragmentContext::Module,

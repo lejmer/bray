@@ -469,6 +469,7 @@ mod tests {
         );
 
         let payload = UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(3));
+
         let payload_provider =
             UnionPayloadDefaultProviderSymbolId::from_symbol_id(SymbolId::new(4));
 

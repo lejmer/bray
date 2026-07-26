@@ -100,6 +100,7 @@ impl InternState {
                 DependencySubjectRoot::ImplementationWitness(id)
             }
         };
+
         let mut projections = Vec::with_capacity(input.projections.len());
 
         for projection in &*input.projections {

@@ -77,6 +77,7 @@ where
         for (index, arm) in expression.arms().iter().copied().enumerate() {
             let arm_coverage = self.coverage(arm.pattern())?;
             let guard = self.guard_truth(arm.guard())?;
+
             let is_unreachable =
                 guard == GuardTruth::False || covered.contains(self.request, &arm_coverage)?;
 
@@ -84,6 +85,7 @@ where
                 let index = u32::try_from(index).unwrap_or(u32::MAX);
 
                 unreachable.push(index);
+
                 self.report(
                     arm.pattern(),
                     DiagnosticKind::CheckingUnreachableMatchArm,

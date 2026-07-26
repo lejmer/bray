@@ -42,6 +42,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
             .into_iter()
             .map(|binding| (binding.name, binding.symbol))
             .collect();
+
         Self {
             symbols,
             semantic_values,

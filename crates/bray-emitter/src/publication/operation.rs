@@ -770,6 +770,7 @@ mod tests {
         };
 
         let contribution = contribution(&plan, b"content", Some(wrong_digest));
+
         let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
             .publish(&plan, [contribution]);
 

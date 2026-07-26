@@ -81,6 +81,7 @@ pub(super) fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbol
 
     while let Some(key) = current {
         components.push(key);
+
         current = match key.data() {
             ExternalSymbolKeyData::Package(_) => None,
             ExternalSymbolKeyData::Module { package, .. } => Some(package),
@@ -196,6 +197,7 @@ pub(super) fn read_external_key(
             }
             4 => {
                 let owner = key.ok_or(InterfaceValidationError::Malformed)?;
+
                 let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
                     .ok_or(InterfaceValidationError::Malformed)?;
 

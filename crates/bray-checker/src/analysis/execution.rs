@@ -27,6 +27,7 @@ where
 
         self.push_edge(current, suspended, AnalysisEdgeKind::AwaitSuspend, None);
         self.push_edge(suspended, resume, AnalysisEdgeKind::AwaitResume, None);
+
         self.push_edge(
             suspended,
             cancellation,
@@ -70,6 +71,7 @@ where
         expression: &BoundCallExpression,
     ) -> Option<AnalysisTaskOperationKind> {
         let target = expression.resolution().resolved()?.target().declaration()?;
+
         let hook = self
             .request()
             .available_compiler_known_symbols()

@@ -495,6 +495,7 @@ impl Missing
     #[test]
     fn compiler_known_surfaces_retain_direct_union_variants() {
         let compilation = compilation("module app;");
+
         let symbols = compilation
             .symbol_graph()
             .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
@@ -512,6 +513,7 @@ impl Missing
             .unwrap_or_else(|error| panic!("type-associated surface must build: {error:?}"));
 
         assert!(surface.diagnostics().is_empty());
+
         assert!(matches!(
             surface.value().lookup("Less"),
             MemberLookupResult::Found(_)
@@ -561,6 +563,7 @@ impl Missing
 
         assert!(surface.diagnostics().is_empty());
         assert_eq!(surface.value().subject(), subject);
+
         assert_eq!(
             surface.value().generic().owner().symbol(),
             subject.into_any()

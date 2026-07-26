@@ -355,6 +355,7 @@ fn audit_target_view(
 
     for descriptor in catalog.compiler_known_declarations() {
         let symbol = declaration_symbol(graph, descriptor.id())?;
+
         let owner_available = match descriptor.owner() {
             CompilerKnownDeclarationOwner::Scope(_) => true,
             CompilerKnownDeclarationOwner::Declaration(owner) => {
@@ -419,6 +420,7 @@ fn audit_completion_coverage(
     plan: &crate::SymbolCompletionPlan,
 ) -> Result<(), CompilerKnownCatalogAuditError> {
     let provider = graph.compiler_known_provider();
+
     let expected = provider
         .declaration_symbols()
         .values()

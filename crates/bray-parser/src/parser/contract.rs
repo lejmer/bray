@@ -557,6 +557,7 @@ mod tests {
         };
 
         assert_eq!(requires_clause.expressions().count(), 1);
+
         assert!(
             result.diagnostics().is_empty(),
             "{:#?}",

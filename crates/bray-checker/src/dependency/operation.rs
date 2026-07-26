@@ -197,6 +197,7 @@ mod tests {
         let field = UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(42));
 
         let projection = StorageProjection::ActiveUnionPayloadField { variant, field };
+
         let (storage, expression, parent, projected) = projected_storage([projection]);
 
         let requirements = operation_requirements(&storage, &operation(expression, projected));

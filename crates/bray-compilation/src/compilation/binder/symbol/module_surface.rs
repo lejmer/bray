@@ -437,6 +437,7 @@ fn key_is_compiler_known(key: &SymbolKey) -> bool {
 
 fn path_diagnostic(path: &PathSyntax, kind: DiagnosticKind) -> Diagnostic {
     let token = path.identifier_tokens().last();
+
     let range = token
         .as_ref()
         .map(bray_syntax::SyntaxToken::range)
@@ -496,6 +497,7 @@ mod tests {
         let a = module(symbols, "a");
         let b = module(symbols, "b");
         let c = module(symbols, "c");
+
         let run = symbols
             .functions()
             .iter()
@@ -508,6 +510,7 @@ mod tests {
         let b_surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
 
         assert_eq!(b_surface.value().usings()[0].target(), run);
+
         assert_eq!(
             b_surface.value().lookup_public("run"),
             MemberLookupResult::Found(run)
@@ -516,10 +519,12 @@ mod tests {
         let c_surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(c));
 
         assert_eq!(c_surface.value().re_exports()[0].target(), run);
+
         assert_eq!(
             c_surface.value().lookup_public("run"),
             MemberLookupResult::Found(run)
         );
+
         assert!(c_surface.diagnostics().is_empty());
     }
 
@@ -542,6 +547,7 @@ mod tests {
         let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
 
         assert!(surface.diagnostics().is_empty());
+
         assert!(matches!(
             surface.value().lookup_public("run"),
             MemberLookupResult::Inaccessible(_)

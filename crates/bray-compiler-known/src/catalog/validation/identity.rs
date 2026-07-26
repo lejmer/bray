@@ -71,6 +71,7 @@ fn external_identity(
     let mut identity = match declaration.owner? {
         ValidatedDeclarationOwner::Scope(scope) => {
             let scope = scopes.get(scope)?;
+
             let super::super::CatalogScopeLocation::Module(path) = &scope.location else {
                 return None;
             };

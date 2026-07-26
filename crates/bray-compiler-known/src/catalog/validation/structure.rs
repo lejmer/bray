@@ -27,6 +27,7 @@ pub(crate) fn validate_catalog(
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) -> Option<ValidatedCatalog> {
     let (raw_scopes, mut declarations, mut values) = collect(parsed_sources, diagnostics);
+
     let (compiler_scopes, recognized_scopes) = split_scopes(raw_scopes);
 
     declarations.sort_by(|left, right| {
@@ -60,6 +61,7 @@ pub(crate) fn validate_catalog(
         validator,
         diagnostics,
     );
+
     validate_recognized_identity_uniqueness(
         recognized_declarations,
         &recognized_scopes,
@@ -350,6 +352,7 @@ fn scope_location(
                     catalog: catalog_kind,
                 },
             ));
+
             None
         }
         ParsedScopeLocation::Path(segments) => {
@@ -426,6 +429,7 @@ fn reject_duplicates<T, K: Ord>(
                     domain: domain(item),
                 },
             ));
+
             false
         } else {
             previous = Some(item_key);

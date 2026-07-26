@@ -36,6 +36,7 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
         builder.push_directive_argument_list(
             self.parse_directive_argument_list(argument_recovery_kinds),
         );
@@ -82,6 +83,7 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
         builder.push_directive_argument_list(
             self.parse_directive_argument_list(argument_recovery_kinds),
         );

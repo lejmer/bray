@@ -111,6 +111,7 @@ impl RecognizedStandardLibraryDeclarations {
             .iter()
             .map(|matched| (matched.descriptor(), matched.symbol()))
             .collect();
+
         let symbol_descriptors = declarations
             .iter()
             .map(|matched| (matched.symbol(), matched.descriptor()))
@@ -149,6 +150,7 @@ impl RecognizedStandardLibraryDeclarations {
     ) -> Option<I> {
         let descriptor =
             COMPILER_KNOWN_CATALOG.recognized_standard_library_declaration_by_key(key)?;
+
         let symbol = self.descriptor_symbols.get(&descriptor.id()).copied()?;
 
         I::try_from_any(symbol)
@@ -325,6 +327,7 @@ mod tests {
         assert_eq!(recognized.declarations().len(), 1);
 
         let key = recognized_key("StandardConvert");
+
         let Some(symbol) = recognized.declaration_symbol::<FunctionSymbolId>(&key) else {
             panic!("selected standard-library identity must resolve");
         };
@@ -361,8 +364,10 @@ mod tests {
 
         let unavailable =
             Arc::clone(&imported).recognize_standard_library(&standard_library_package, |_| false);
+
         let first =
             Arc::clone(&imported).recognize_standard_library(&standard_library_package, |_| true);
+
         let second =
             Arc::clone(&imported).recognize_standard_library(&standard_library_package, |_| true);
 

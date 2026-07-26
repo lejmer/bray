@@ -116,6 +116,7 @@ mod tests {
     #[test]
     fn control_flow_results_keep_unit_category_completion_and_recovery_together() {
         let unit = BoundUnitId::new(4);
+
         let completion = ControlCompletion::from_kinds([
             ControlCompletionKind::Return,
             ControlCompletionKind::Recovered,

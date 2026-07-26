@@ -314,6 +314,7 @@ impl Parser {
         let mut builder = PatternBuilder::new(context, self, start);
 
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+
         builder.push_pattern(self.parse_pattern_until(context, &mut |parser| {
             parser.at_parenthesized_pattern_boundary(at_boundary)
         }));

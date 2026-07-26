@@ -210,6 +210,7 @@ mod tests {
             BackendArtifactKind::Assembly,
             7,
         );
+
         let foreign = BackendArtifactContribution::new(
             foreign_id.clone(),
             artifact_content(),

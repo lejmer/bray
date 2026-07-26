@@ -1014,6 +1014,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
         let ty = i32_type(&compilation);
+
         let (definition, request) = source_constant_call_request(&compilation, [], ty);
 
         let callable = values
@@ -1178,6 +1179,7 @@ mod tests {
 
         for error in [false, true] {
             let input = result_value(&compilation, result_type, integer_type, error, 7);
+
             let (_, request) = source_constant_call_request(&compilation, [input], result_type);
 
             let checked = compilation

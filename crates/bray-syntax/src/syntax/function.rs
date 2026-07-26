@@ -362,6 +362,7 @@ mod tests {
 
         let mut directives = FunctionDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO);
         let mut link = LinkDirectiveSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
         let mut arguments =
             DirectiveArgumentListSyntax::builder(snapshot.clone(), TextSize::new(5));
 
@@ -406,6 +407,7 @@ mod tests {
         let mut builder = ParameterListSyntax::builder(snapshot, TextSize::new(16));
 
         builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, 16, 17));
+
         builder.push_close_paren_token(
             token(SyntaxKind::CloseParenToken, 17, 18).with_trailing_trivia([
                 SyntaxTrivia::whitespace(TextRange::new(TextSize::new(18), TextSize::new(19))),

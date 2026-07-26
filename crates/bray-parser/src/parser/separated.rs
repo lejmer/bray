@@ -131,9 +131,11 @@ impl Parser {
                 SeparatedListPosition::Separator => {
                     if let Some(separator) = self.consume_if(spec.separator_kind) {
                         builder.push_separator(separator);
+
                         position = SeparatedListPosition::Item {
                             allow_end: spec.allow_trailing_separator,
                         };
+
                         continue;
                     }
 

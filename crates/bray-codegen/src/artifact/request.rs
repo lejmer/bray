@@ -318,6 +318,7 @@ fn validate_linkable_requirement(
     let Some(requirement) = requirement else {
         return Ok(());
     };
+
     let kind = requirement.artifact_kind();
 
     if entries.iter().any(|entry| {

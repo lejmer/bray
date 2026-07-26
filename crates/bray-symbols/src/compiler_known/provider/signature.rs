@@ -78,6 +78,7 @@ pub(super) fn allocate_signature_symbols(
 
             // Each child key owns the shared immutable identity of its declaration owner.
             let key = SymbolKey::synthesized(kind.key(owner_key.clone(), ordinal));
+
             let identity = match name {
                 Some(name) => DeclarationSymbolIdentity::compiler_known_parameter(
                     key,
@@ -151,6 +152,7 @@ pub(super) fn order_completion_children(
         let mut ordered = Vec::with_capacity(nested_children.len());
 
         ordered.extend(signature_children.iter().copied());
+
         ordered.extend(
             nested_children
                 .iter()

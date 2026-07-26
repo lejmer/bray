@@ -333,6 +333,7 @@ fn validate_place(
     let Some(storage) = unit.storage(place.storage()) else {
         return Err(MirUnitBuildError::MissingStorage(place.storage()));
     };
+
     let expected = place
         .projections()
         .last()
@@ -416,6 +417,7 @@ fn validate_value_at(
             let owner = unit
                 .block(block)
                 .is_some_and(|block| block.operations().contains(&operation));
+
             let ordered = before.is_none_or(|before| operation.to_index() < before.to_index());
 
             owner && ordered

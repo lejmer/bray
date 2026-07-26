@@ -66,6 +66,7 @@ impl<'planner> PlanBuilder<'planner> {
         }
 
         let backend_requests = self.backend_requests()?;
+
         let backend = if backend_requests.is_empty() {
             None
         } else {

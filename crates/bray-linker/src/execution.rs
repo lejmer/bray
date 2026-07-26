@@ -7,6 +7,7 @@ pub(crate) fn validate_execution_inputs(
     inputs: &[LinkInput],
 ) -> Result<(), LinkPlanBuildError> {
     let selected_runtime = executable_host.and_then(ExecutableHostContract::runtime_artifact);
+
     let runtime_inputs: Vec<_> = inputs
         .iter()
         .filter_map(|input| {

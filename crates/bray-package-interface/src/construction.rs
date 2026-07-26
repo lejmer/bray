@@ -520,6 +520,7 @@ mod tests {
                 SymbolKind::Function,
                 Some(InterfaceSymbolId::new(1)),
             ));
+
             relationships.push(SymbolRelationship::new(
                 SymbolRelationshipKind::ModuleMember,
                 InterfaceSymbolId::new(1),

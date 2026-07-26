@@ -138,6 +138,7 @@ impl Compilation {
         );
 
         let (declarations, declaration_diagnostics) = selected.into_parts();
+
         let diagnostics = gate_diagnostics.merged(&declaration_diagnostics);
 
         Ok(ProductSourceGraph::new(

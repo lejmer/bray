@@ -72,6 +72,7 @@ fn render_roles(output: &mut String, catalog: &CompilerKnownCatalog) {
     }
 
     output.push_str("];\n\n");
+
     output.push_str(
         "static COMPILER_KNOWN_IMPLEMENTATION_ROLES: &[CompilerKnownImplementationBinding] = &[\n",
     );
@@ -241,6 +242,7 @@ fn render_recognized_declarations(output: &mut String, catalog: &CompilerKnownCa
                 id.raw()
             ),
         };
+
         let identity = match declaration.identity() {
             RecognizedStandardLibraryDeclarationIdentity::Name(name) => {
                 format!("RecognizedStandardLibraryDeclarationIdentity::name_from_static({name:?})")

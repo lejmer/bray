@@ -402,6 +402,7 @@ mod tests {
     #[test]
     fn source_origins_convert_paths_to_document_uris() {
         let path = absolute_test_path("src/main bray.bray");
+
         let uri = match SourceOrigin::file_uri_from_path(&path) {
             Ok(uri) => uri,
             Err(error) => panic!("test path should convert to a file URI: {error:?}"),

@@ -293,6 +293,7 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
             }
             CatalogSurfaceElement::Token(token) => {
                 is_static |= depth <= 2 && token.kind() == SyntaxKind::StaticKeyword;
+
                 is_mutable |=
                     mutable_modifier_depth == Some(depth) && token.kind() == SyntaxKind::MutKeyword;
 

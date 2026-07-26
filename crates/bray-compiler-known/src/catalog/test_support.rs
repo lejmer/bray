@@ -7,6 +7,7 @@ use super::{
 
 pub(crate) fn declaration_surface() -> CatalogDeclarationSurface {
     let source = generator_input_inventory().sources()[0].id();
+
     let anchor = CatalogSourceAnchor {
         source,
         range: TextRange::new(TextSize::new(1), TextSize::new(5)),

@@ -128,6 +128,7 @@ mod tests {
     fn checked_control_flow_retains_exact_unit_category_and_completion() {
         let unit = BoundUnitId::new(4);
         let completion = ControlCompletion::from_kinds([ControlCompletionKind::Recovered]);
+
         let control_flow =
             CheckedControlFlowFacts::new(unit, BoundUnitKind::CallableBody, completion);
 

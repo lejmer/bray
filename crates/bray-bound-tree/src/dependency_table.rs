@@ -236,6 +236,7 @@ mod tests {
     #[test]
     fn dependency_tables_intern_equal_contracts_across_occurrence_categories() {
         let unit = BoundUnitId::new(2);
+
         let (bound, expression, storage, access) = expression_unit_with_storage(unit);
 
         let contract = BoundDependencyContract::new([BoundDependencyRequirement::direct(
@@ -276,6 +277,7 @@ mod tests {
     #[test]
     fn dependency_tables_reject_foreign_occurrences() {
         let unit = BoundUnitId::new(3);
+
         let (bound, _, storage, _) = expression_unit_with_storage(unit);
 
         assert_eq!(

@@ -646,6 +646,7 @@ mod tests {
     #[test]
     fn initialized_temporaries_retain_type_and_dependencies() {
         let (ty, behavior) = semantic_values();
+
         let dependencies = behavior.dependency_contract();
 
         let mut builder =
@@ -763,6 +764,7 @@ mod tests {
     #[test]
     fn input_and_temporary_types_must_match_their_declarations() {
         let (expected, actual, behavior) = semantic_values_with_alternative();
+
         let dependencies = behavior.dependency_contract();
 
         let mut builder =

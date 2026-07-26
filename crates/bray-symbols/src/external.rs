@@ -139,6 +139,7 @@ impl ExternalSymbolKey {
     /// Returns the defining package identity.
     pub fn package_identity(&self) -> &PackageIdentity {
         let mut key = self;
+
         loop {
             match key.data() {
                 ExternalSymbolKeyData::Package(identity) => return identity,

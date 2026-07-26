@@ -317,6 +317,7 @@ mod tests {
         assert_eq!(token_text(source.source().text(), &third), "c");
 
         let window = source.lookahead_window(4);
+
         let texts: Vec<&str> = window
             .iter()
             .map(|token| token_text(source.source().text(), token))
@@ -1022,6 +1023,7 @@ mod tests {
     fn token_stream_reconstructs_source_text_with_trivia() {
         let text = "  func // hi\r\n/** docs */\nvalue /* tail */\n// eof\n";
         let tokens = token_stream(text);
+
         let reconstructed: String = tokens
             .iter()
             .map(|token| token.full_text(tokens.source_text()))

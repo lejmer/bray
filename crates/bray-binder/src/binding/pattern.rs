@@ -298,6 +298,7 @@ where
         }
 
         let current = SymbolOrdinal::new(*ordinal);
+
         *ordinal = ordinal
             .checked_add(1)
             .ok_or(BindingError::IdentityCapacityExceeded)?;

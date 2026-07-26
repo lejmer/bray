@@ -237,6 +237,7 @@ mod tests {
 
         body.push_open_brace_token(keyword(SyntaxKind::OpenBraceToken, 12, 13, true));
         body.push_match_arm(arm.build());
+
         body.push_close_brace_token(crate::test_support::token(
             SyntaxKind::CloseBraceToken,
             27,

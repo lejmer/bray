@@ -173,6 +173,7 @@ impl Compilation {
             }
 
             let matching_fulfillments = fulfillments_by_slot.get(&slot);
+
             let fulfillment = matching_fulfillments
                 .and_then(|matches| matches.first())
                 .copied();
@@ -1000,6 +1001,7 @@ mod tests {
             "{:?}",
             result.diagnostics()
         );
+
         assert!(result.value().is_valid());
     }
 
@@ -1085,6 +1087,7 @@ mod tests {
             "{:?}",
             result.diagnostics()
         );
+
         assert!(result.value().is_valid());
 
         assert!(result.value().requirements().iter().all(|entry| matches!(

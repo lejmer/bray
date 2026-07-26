@@ -1621,6 +1621,7 @@ mod tests {
         };
 
         let target = crate::SelectedTarget::new(profile, baseline.runtime_abi());
+
         let options = CompilationOptions::new(
             WorkerBudget::serial(),
             bray_symbols::ProductKind::Library,

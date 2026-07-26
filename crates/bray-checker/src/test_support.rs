@@ -219,6 +219,7 @@ pub(crate) fn symbol_graph() -> &'static SymbolGraph {
         let parsed = parse_source_unit(snapshot);
         let discovered = discover_source_unit_declarations(parsed.source_unit());
         let merged = merge_declaration_chunks([&discovered]);
+
         let (syntax, _) = SyntaxTreeResult::from_source_unit_results([parsed]).into_parts();
 
         let Some(package) = PackageIdentity::try_new("example.package") else {

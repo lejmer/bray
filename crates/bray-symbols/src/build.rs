@@ -617,6 +617,7 @@ mod tests {
         assert_eq!(graph.roots().packages().len(), 1);
 
         let source_symbol_start = graph.compiler_known_provider().next_symbol_index();
+
         let Some(source_symbol_start) = u32::try_from(source_symbol_start).ok() else {
             panic!("compiler-known symbol count should fit compact symbol IDs");
         };
@@ -813,6 +814,7 @@ mod tests {
         assert!(payload.allows_mutation());
 
         let function = source_function(&graph);
+
         let Some(parameter) = graph
             .callable_parameters()
             .iter()
@@ -967,6 +969,7 @@ mod tests {
     fn recovered_runtime_defaults_keep_deterministic_provider_identities() {
         let table = declaration_table(&["module app; func make(value: Int = ) {}"]);
         let graph = build_graph(&table);
+
         let Some(parameter) = graph
             .callable_parameters()
             .iter()

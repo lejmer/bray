@@ -71,6 +71,7 @@ fn assemble_bound_unit(
     root: BoundUnitRoot,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
     let (unit, diagnostics, dependencies) = output.into_parts();
+
     let (key, tree, local_symbols, _) = unit.into_parts();
 
     let bound = BoundUnit::try_new(key, tree, local_symbols, nested_units, root)?;

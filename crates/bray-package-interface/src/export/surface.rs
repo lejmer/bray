@@ -20,6 +20,7 @@ pub fn build_package_interface_surface(
     exports: impl IntoIterator<Item = ExportLookupInput>,
 ) -> Result<PackageInterfaceSurface, PackageInterfaceExportSurfaceError> {
     let (symbols, symbol_ids) = canonical_symbols(symbols)?;
+
     let relationships = resolve_relationships(relationships, &symbol_ids)?;
     let exports = resolve_exports(exports, &symbol_ids)?;
 
@@ -62,6 +63,7 @@ fn canonical_symbols(
         .into_values()
         .map(|symbol| {
             let id = resolve_symbol(&symbol_ids, symbol.key())?;
+
             let containing = symbol
                 .containing_symbol()
                 .map(|owner| resolve_symbol(&symbol_ids, owner))

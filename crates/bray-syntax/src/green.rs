@@ -161,6 +161,7 @@ impl GreenElement {
             Self::Token(token) => token.write_source_text(source_text, start, writer),
             Self::Node(node) => {
                 node.write_source_text(source_text, start, writer)?;
+
                 Ok(checked_add(
                     start,
                     node.full_width(),
@@ -237,7 +238,9 @@ impl GreenToken {
 
     pub(crate) fn syntax_token(&self, start: TextSize) -> SyntaxToken {
         let (leading_trivia, token_start) = syntax_trivia_list(&self.leading_trivia, start);
+
         let token_end = checked_add(token_start, self.width, "green token end");
+
         let (trailing_trivia, _) = syntax_trivia_list(&self.trailing_trivia, token_end);
 
         SyntaxToken::with_trivia_and_presence(

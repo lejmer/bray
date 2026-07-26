@@ -24,6 +24,7 @@ impl Parser {
         &mut self,
     ) -> ImplementationTypeMemberBindingSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             ImplementationTypeMemberBindingSyntax::builder(self.syntax_source(), start);
 

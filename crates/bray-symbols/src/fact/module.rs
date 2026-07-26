@@ -157,6 +157,7 @@ mod tests {
     fn module_surfaces_preserve_relationships_and_lookup_target_identity() {
         let target = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(7)));
         let using = ModuleUsing::new(DeclarationId::new(1), target, true);
+
         let name =
             SymbolName::try_new("run").unwrap_or_else(|| panic!("test export name must be valid"));
 

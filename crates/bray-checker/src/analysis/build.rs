@@ -560,6 +560,7 @@ mod tests {
         let graph = graph(&tree, &key, root);
 
         let right_block = block_containing(&graph, right.into());
+
         let predecessor_kinds = right_block
             .predecessors()
             .iter()

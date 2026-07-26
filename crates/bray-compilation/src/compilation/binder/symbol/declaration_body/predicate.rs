@@ -94,6 +94,7 @@ fn predicate_definition(
 
     let parser_diagnostics = syntax_diagnostics(context, key.source().syntax());
     let checked = checked_source_expression(context, key)?;
+
     let diagnostics = bray_diagnostics::DiagnosticBag::merged_all([
         signature.diagnostics(),
         &checked.diagnostics,
@@ -172,6 +173,7 @@ fn predicate_definition_key(
     owner: PredicateDefinitionSymbolId,
 ) -> BinderFactResult<Option<BoundUnitKey>> {
     let compilation = context.compilation();
+
     let result = compilation.fact(
         CompilationFactKey::PredicateDefinitionKeys,
         &compilation.state.predicate_definition_keys,
@@ -277,6 +279,7 @@ mod tests {
 
         assert!(Arc::ptr_eq(&defined, &repeated));
         assert!(defined.diagnostics().is_empty());
+
         let PredicateDefinitionState::Defined(definition) = defined.value() else {
             panic!("source predicate must publish a defined state");
         };
@@ -322,6 +325,7 @@ mod tests {
             required.value(),
             PredicateDefinitionState::Required
         ));
+
         assert!(matches!(
             provided.value(),
             PredicateDefinitionState::Defined(_)

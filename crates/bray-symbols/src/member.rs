@@ -611,6 +611,7 @@ mod tests {
         let duplicate = TestMemberId::Function(1);
 
         let collection = TypedMemberCollection::new([duplicate, duplicate]);
+
         let lookup_index =
             MemberLookupIndex::new([member(duplicate, "first"), member(duplicate, "second")]);
 

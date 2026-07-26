@@ -283,6 +283,7 @@ impl ExecutionSlots {
     #[cfg(test)]
     fn wait_until_queued(&self, interactive: usize, ordinary: usize) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+
         let mut state = self
             .state()
             .unwrap_or_else(|_| panic!("scheduler slots must remain available"));
@@ -428,6 +429,7 @@ mod tests {
     fn interactive_work_precedes_queued_background_work() {
         let slots = Arc::new(ExecutionSlots::new(2));
         let occupied = QueryPriorityDemand::new(QueryPriority::Normal);
+
         let first = slots
             .acquire(&occupied)
             .unwrap_or_else(|error| panic!("test must occupy one slot: {error:?}"));
@@ -444,6 +446,7 @@ mod tests {
 
             scope.spawn(move || {
                 let priority = QueryPriorityDemand::new(QueryPriority::Background);
+
                 let _slot = background_slots
                     .acquire(&priority)
                     .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
@@ -458,6 +461,7 @@ mod tests {
 
             scope.spawn(move || {
                 let priority = QueryPriorityDemand::new(QueryPriority::Interactive);
+
                 let _slot = interactive_slots
                     .acquire(&priority)
                     .unwrap_or_else(|error| panic!("interactive work must run: {error:?}"));
@@ -486,11 +490,13 @@ mod tests {
     fn queued_shared_work_observes_later_priority_promotion() {
         let slots = Arc::new(ExecutionSlots::new(1));
         let occupied_priority = QueryPriorityDemand::new(QueryPriority::Normal);
+
         let occupied = slots
             .acquire(&occupied_priority)
             .unwrap_or_else(|error| panic!("test must occupy the execution slot: {error:?}"));
 
         let shared_priority = QueryPriorityDemand::new(QueryPriority::Background);
+
         let (order_sender, order_receiver) = mpsc::channel();
 
         std::thread::scope(|scope| {
@@ -513,6 +519,7 @@ mod tests {
 
             scope.spawn(move || {
                 let priority = QueryPriorityDemand::new(QueryPriority::Background);
+
                 let _slot = background_slots
                     .acquire(&priority)
                     .unwrap_or_else(|error| panic!("background work must run: {error:?}"));

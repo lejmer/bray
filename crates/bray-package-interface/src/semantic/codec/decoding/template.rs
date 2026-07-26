@@ -361,6 +361,7 @@ mod tests {
     #[test]
     fn every_declaration_template_kind_round_trips_with_private_support() {
         let (surface, facts) = template_fixture();
+
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantic_facts(&facts, &surface, limits);
 
@@ -378,7 +379,9 @@ mod tests {
     #[test]
     fn declaration_templates_intern_to_ordinary_checked_templates() {
         let (surface, facts) = template_fixture();
+
         let resolver = resolver(&surface);
+
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
 
@@ -403,6 +406,7 @@ mod tests {
     #[test]
     fn every_checked_template_operation_round_trips() {
         let (surface, facts) = operation_fixture();
+
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantic_facts(&facts, &surface, limits);
 
@@ -496,6 +500,7 @@ mod tests {
     #[test]
     fn template_decode_rejects_unknown_kinds_and_graph_limit_excess() {
         let (surface, facts) = template_fixture();
+
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantic_facts(&facts, &surface, limits);
 
@@ -536,8 +541,10 @@ mod tests {
     #[test]
     fn template_validation_rejects_invalid_owners_and_input_identities() {
         let (surface, facts) = template_fixture();
+
         let limits = InterfaceValidationLimits::default();
         let mut declarations = facts.declaration_templates().to_vec();
+
         let runtime = declarations
             .iter_mut()
             .find(|declaration| declaration.kind() == CheckedTemplateKind::RuntimeDefault)
@@ -549,6 +556,7 @@ mod tests {
             runtime.ordinal(),
             runtime.entity(),
         );
+
         declarations.sort();
 
         let invalid_owner = facts.clone().with_templates(
@@ -619,6 +627,7 @@ mod tests {
     #[test]
     fn template_validation_rejects_calls_to_noncallable_declarations() {
         let (surface, facts) = operation_fixture();
+
         let mut templates = facts.checked_templates().to_vec();
         let template = templates[0].clone();
         let mut nodes = template.nodes().to_vec();
@@ -634,6 +643,7 @@ mod tests {
             ),
             InterfaceTypeId::new(0),
         );
+
         templates[0] = InterfaceCheckedTemplate::new(
             template.kind(),
             template.inputs().iter().cloned(),
@@ -658,10 +668,12 @@ mod tests {
     #[test]
     fn support_validation_rejects_foreign_and_exported_keys() {
         let (surface, facts) = template_fixture();
+
         let limits = InterfaceValidationLimits::default();
         let templates = facts.checked_templates().to_vec();
         let declarations = facts.declaration_templates().to_vec();
         let mut entities = facts.support_entities().to_vec();
+
         let foreign_package = PackageIdentity::try_new("foreign.templates")
             .unwrap_or_else(|| panic!("foreign test package identity must be valid"));
 
@@ -697,11 +709,14 @@ mod tests {
     #[test]
     fn template_decode_rejects_impossible_table_counts_before_reserving() {
         let (surface, facts) = operation_fixture();
+
         let limits = InterfaceValidationLimits::default();
+
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("valid checked templates must encode: {error:?}"));
 
         let mut owned = owned_sections(&sections);
+
         let (_, record_count, templates) = owned
             .iter_mut()
             .find(|(tag, _, _)| *tag == InterfaceSectionTag::DeclarationTemplates)
@@ -733,6 +748,7 @@ mod tests {
 
         let generic_type = symbol_reference(surface, SymbolKind::GenericTypeParameter);
         let generic_constant = symbol_reference(surface, SymbolKind::GenericConstParameter);
+
         let owners = [
             symbol_reference(surface, SymbolKind::CallableParameterDefaultProvider),
             symbol_reference(surface, SymbolKind::Constant),
@@ -1005,6 +1021,7 @@ mod tests {
         let module = test_module_key(package_identity(), "templates");
         let function = named_key(module.clone(), SymbolKind::Function, "run");
         let structure = named_key(module.clone(), SymbolKind::Struct, "record");
+
         let runtime_provider = ExternalSymbolKey::synthesized(
             function.clone(),
             SynthesizedSymbolRole::CallableParameterDefaultProvider,

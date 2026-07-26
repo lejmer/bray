@@ -408,9 +408,11 @@ mod tests {
             scope.spawn(|| {
                 assert!(bag.has_errors());
             });
+
             scope.spawn(|| {
                 assert_eq!(bag.warnings().count(), 1);
             });
+
             scope.spawn(|| {
                 assert_eq!(bag.by_kind(DiagnosticKind::SourceInvalidUtf8).count(), 1);
             });
