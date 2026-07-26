@@ -162,7 +162,6 @@ where
     refinements: &'analysis CheckedRefinementFacts,
     input: &'analysis StorageFlowInput,
     statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
-    borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
     exits: Vec<StorageExitDecision>,
     diagnostics: DiagnosticBag,
     reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -188,7 +187,6 @@ where
             refinements,
             input,
             statuses: BTreeMap::new(),
-            borrows: BTreeMap::new(),
             exits: Vec::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -263,10 +261,6 @@ where
             .entry(plan)
             .and_modify(|current| *current = more_conservative(*current, status))
             .or_insert(status);
-
-        if let Some(borrow) = borrow {
-            self.borrows.insert(plan, borrow);
-        }
 
         if let Some(kind) = diagnostic_kind(status) {
             self.add_diagnostic(kind, plan.access());
@@ -686,21 +680,18 @@ where
     }
 
     fn decisions(&self) -> impl Iterator<Item = StorageOperationDecision> + '_ {
-        self.storage
-            .access_plans()
-            .iter()
-            .copied()
-            .filter_map(|plan| {
-                let status = self.statuses.get(&plan).copied()?;
-
-                Some(StorageOperationDecision::new(
-                    plan.expression(),
-                    self.effective_purpose(plan),
-                    plan.access(),
-                    self.borrows.get(&plan).copied(),
-                    status,
-                ))
-            })
+        self.storage.access_plans().iter().copied().map(|plan| {
+            StorageOperationDecision::new(
+                plan.expression(),
+                self.effective_purpose(plan),
+                plan.access(),
+                self.input.borrow(plan),
+                self.statuses
+                    .get(&plan)
+                    .copied()
+                    .unwrap_or(StorageOperationStatus::Unreachable),
+            )
+        })
     }
 }
 

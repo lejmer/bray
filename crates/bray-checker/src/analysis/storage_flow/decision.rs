@@ -20,7 +20,9 @@ pub(super) const fn diagnostic_kind(status: StorageOperationStatus) -> Option<Di
             Some(DiagnosticKind::CheckingInactiveStorageProjection)
         }
         StorageOperationStatus::NotCopyable => Some(DiagnosticKind::CheckingTypeIsNotCopyable),
-        StorageOperationStatus::Valid | StorageOperationStatus::Recovered => None,
+        StorageOperationStatus::Unreachable
+        | StorageOperationStatus::Valid
+        | StorageOperationStatus::Recovered => None,
     }
 }
 
@@ -37,14 +39,15 @@ pub(super) const fn more_conservative(
 
 const fn status_rank(status: StorageOperationStatus) -> u8 {
     match status {
-        StorageOperationStatus::Valid => 0,
-        StorageOperationStatus::Recovered => 1,
-        StorageOperationStatus::Uninitialized => 2,
-        StorageOperationStatus::Moved => 3,
-        StorageOperationStatus::MissingMutationAuthority => 4,
-        StorageOperationStatus::MissingOwnership => 5,
-        StorageOperationStatus::InactiveProjection => 6,
-        StorageOperationStatus::NotCopyable => 7,
-        StorageOperationStatus::ConflictingBorrow => 8,
+        StorageOperationStatus::Unreachable => 0,
+        StorageOperationStatus::Valid => 1,
+        StorageOperationStatus::Recovered => 2,
+        StorageOperationStatus::Uninitialized => 3,
+        StorageOperationStatus::Moved => 4,
+        StorageOperationStatus::MissingMutationAuthority => 5,
+        StorageOperationStatus::MissingOwnership => 6,
+        StorageOperationStatus::InactiveProjection => 7,
+        StorageOperationStatus::NotCopyable => 8,
+        StorageOperationStatus::ConflictingBorrow => 9,
     }
 }

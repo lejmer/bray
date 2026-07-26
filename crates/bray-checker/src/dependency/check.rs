@@ -49,10 +49,14 @@ where
             return CheckerOutcome::Cancelled;
         }
 
-        if operation.status() != bray_bound_tree::StorageOperationStatus::Valid {
-            is_recovered = true;
+        match operation.status() {
+            bray_bound_tree::StorageOperationStatus::Unreachable => continue,
+            bray_bound_tree::StorageOperationStatus::Valid => {}
+            _ => {
+                is_recovered = true;
 
-            continue;
+                continue;
+            }
         }
 
         let requirements = operation_requirements(storage, operation);
