@@ -425,7 +425,8 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
             BoundStructuredExpressionKind::ElementIndex
                 | BoundStructuredExpressionKind::SliceIndex
                 | BoundStructuredExpressionKind::TypeFormConstruction
-                | BoundStructuredExpressionKind::BooleanFold
+                | BoundStructuredExpressionKind::BooleanAllFold
+                | BoundStructuredExpressionKind::BooleanAnyFold
         ),
         BoundExpression::Block(_)
         | BoundExpression::Literal(_)

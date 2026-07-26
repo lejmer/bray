@@ -235,6 +235,8 @@ fn portable_storage_identity(
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::IterationCursor(_)
+        | StorageIdentity::IterationElement(_)
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => return Ok(None),

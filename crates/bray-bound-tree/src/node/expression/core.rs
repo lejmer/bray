@@ -230,7 +230,11 @@ impl BoundExpression {
             Self::For(expression) => Some((expression.source(), expression.source_mode())),
             Self::Generator(expression) => Some((expression.source(), expression.source_mode())),
             Self::Structured(expression)
-                if expression.kind() == BoundStructuredExpressionKind::BooleanFold =>
+                if matches!(
+                    expression.kind(),
+                    BoundStructuredExpressionKind::BooleanAllFold
+                        | BoundStructuredExpressionKind::BooleanAnyFold
+                ) =>
             {
                 let [source] = expression.operands() else {
                     return None;

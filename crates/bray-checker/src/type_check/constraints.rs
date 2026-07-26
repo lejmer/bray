@@ -233,7 +233,11 @@ where
                 }
             }
             BoundExpression::Structured(structured)
-                if structured.kind() == BoundStructuredExpressionKind::BooleanFold =>
+                if matches!(
+                    structured.kind(),
+                    BoundStructuredExpressionKind::BooleanAllFold
+                        | BoundStructuredExpressionKind::BooleanAnyFold
+                ) =>
             {
                 inference.add_evidence(variable, types.boolean, expression_id);
             }

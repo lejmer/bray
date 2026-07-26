@@ -64,7 +64,8 @@ where
             BoundStructuredExpressionKind::TrustBoundary => {
                 self.build_trust_boundary(id, expression.operands(), current)
             }
-            BoundStructuredExpressionKind::BooleanFold => {
+            BoundStructuredExpressionKind::BooleanAllFold
+            | BoundStructuredExpressionKind::BooleanAnyFold => {
                 self.build_boolean_fold(id, expression.operands(), current)
             }
             BoundStructuredExpressionKind::Catch => {

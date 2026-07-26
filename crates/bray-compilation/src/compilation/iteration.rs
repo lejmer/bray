@@ -809,7 +809,8 @@ mod tests {
             "func main()\n",
             "{\n",
             "    let items: Items = Items {};\n",
-            "    let folded: bool = all(items);\n",
+            "    let folded_all: bool = all(items);\n",
+            "    let folded_any: bool = any(items);\n",
             "\n",
             "    for item in items\n",
             "    {\n",
@@ -1002,10 +1003,21 @@ mod tests {
                     && selection.next() == selected.next()
         ));
 
-        let boolean_fold = boolean_fold_expression(bound.value());
+        let boolean_all =
+            boolean_fold_expression(bound.value(), BoundStructuredExpressionKind::BooleanAllFold);
 
         assert!(matches!(
-            selections.value().expression(boolean_fold),
+            selections.value().expression(boolean_all),
+            Some(SemanticSelection::Iteration(selection))
+                if selection.iterate() == selected.iterate()
+                    && selection.next() == selected.next()
+        ));
+
+        let boolean_any =
+            boolean_fold_expression(bound.value(), BoundStructuredExpressionKind::BooleanAnyFold);
+
+        assert!(matches!(
+            selections.value().expression(boolean_any),
             Some(SemanticSelection::Iteration(selection))
                 if selection.iterate() == selected.iterate()
                     && selection.next() == selected.next()
@@ -1043,12 +1055,13 @@ mod tests {
 
     fn boolean_fold_expression(
         unit: &bray_bound_tree::BoundUnit,
+        kind: BoundStructuredExpressionKind,
     ) -> bray_bound_tree::BoundExpressionId {
         find_expression(unit, |expression| {
             matches!(
                 expression,
                 BoundExpression::Structured(expression)
-                    if expression.kind() == BoundStructuredExpressionKind::BooleanFold
+                    if expression.kind() == kind
             )
         })
     }

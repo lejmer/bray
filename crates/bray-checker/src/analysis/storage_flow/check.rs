@@ -620,6 +620,8 @@ where
             Some(
                 StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)
+                | StorageIdentity::IterationCursor(_)
+                | StorageIdentity::IterationElement(_)
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_),
             ) => true,

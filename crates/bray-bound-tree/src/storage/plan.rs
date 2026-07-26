@@ -532,6 +532,8 @@ const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
         StorageIdentity::LocalOwned(_)
             | StorageIdentity::Result(_)
             | StorageIdentity::Temporary(_)
+            | StorageIdentity::IterationCursor(_)
+            | StorageIdentity::IterationElement(_)
             | StorageIdentity::Allocation(_)
             | StorageIdentity::CompilerCreated(_)
     )
