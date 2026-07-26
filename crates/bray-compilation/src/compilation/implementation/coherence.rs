@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::NameAccess;
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+};
 use bray_symbols::{
     AnySymbolId, ImplementationCoherenceDomainKey, ImplementationOverloadSymbolId,
     ImplementationParticipationKind, ImplementationSymbolId, MemberLookupResult,
@@ -14,6 +16,7 @@ use super::super::Compilation;
 use super::index::{ImplementationFamilyKey, ImplementationFamilySubject};
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
 use crate::compilation::diagnostics::source_diagnostic;
+use crate::compilation::limits::try_count_comparison;
 use crate::compilation::overlap::{
     implementation_headers_overlap, implementation_subjects_overlap,
 };
@@ -65,6 +68,13 @@ impl Compilation {
         let mut requires_family = Vec::new();
         let mut by_trait = BTreeMap::new();
 
+        let maximum_comparisons = self
+            .options()
+            .semantic_analysis_limits()
+            .pairwise_comparisons();
+
+        let mut comparisons = 0;
+
         for header in &headers {
             if !self.generic_declaration_may_be_satisfied(header.generic(), cancellation)? {
                 continue;
@@ -80,11 +90,21 @@ impl Compilation {
                 .push(*header);
         }
 
-        // TODO(BRA-272): Bound pairwise coherence analysis with deterministic search limits.
         for trait_headers in by_trait.values() {
             for (index, left) in trait_headers.iter().enumerate() {
                 for right in &trait_headers[index + 1..] {
                     cancellation.check()?;
+
+                    if !try_count_comparison(&mut comparisons, maximum_comparisons) {
+                        diagnostics.add(coherence_limit_diagnostic(
+                            participants.get(&left.implementation()).copied(),
+                            participants.get(&right.implementation()).copied(),
+                            symbols,
+                            maximum_comparisons,
+                        ));
+
+                        return Ok(diagnostics);
+                    }
 
                     if implementation_headers_overlap(left, right, values)
                         .map_err(|_| FactQueryError::InfrastructureFailure)?
@@ -413,12 +433,52 @@ fn add_participant_diagnostic(
     }
 }
 
+fn coherence_limit_diagnostic(
+    left: Option<&bray_symbols::ParticipatingImplementation>,
+    right: Option<&bray_symbols::ParticipatingImplementation>,
+    symbols: &bray_symbols::SymbolGraph,
+    maximum: u64,
+) -> Diagnostic {
+    let kind = DiagnosticKind::CheckingImplementationCoherenceLimitExceeded;
+
+    let diagnostic = [left, right]
+        .into_iter()
+        .flatten()
+        .find_map(|participant| participant_source_anchor(participant, symbols))
+        .map_or_else(
+            || Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error),
+            |anchor| source_diagnostic(anchor, kind),
+        );
+
+    diagnostic.with_arg(DiagnosticArg::maximum_count(maximum))
+}
+
+fn participant_source_anchor(
+    participant: &bray_symbols::ParticipatingImplementation,
+    symbols: &bray_symbols::SymbolGraph,
+) -> Option<SyntaxAnchor> {
+    match participant.evidence().kind() {
+        ImplementationParticipationKind::Declared => {
+            symbols.declaration_syntax_anchor(participant.implementation().into_any())
+        }
+        ImplementationParticipationKind::ExplicitUsing => participant
+            .evidence()
+            .using_declarations()
+            .first()
+            .copied(),
+        ImplementationParticipationKind::CompilerKnown => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     use crate::fact::CompilationFactKey;
-    use crate::test_support::{compilation, diagnostic_kinds};
+    use crate::test_support::{compilation, compilation_with_options, diagnostic_kinds};
+    use crate::{
+        CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
+    };
 
     const OVERLOAD_SURFACE: &str = concat!(
         "module app;\n",
@@ -525,6 +585,41 @@ mod tests {
                 .filter(|kind| *kind == DiagnosticKind::CheckingOverlappingImplementation)
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn implementation_coherence_stops_at_the_comparison_limit() {
+        let source = format!(
+            "{OVERLOAD_SURFACE}{}",
+            concat!(
+                "\n",
+                "impl FirstReader = Buffer<Bytes>(Reader<Bytes>)\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "impl SecondReader = Buffer<Bytes>(Reader<Bytes>)\n",
+                "{\n",
+                "}\n",
+            )
+        );
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            SelectedTarget::baseline(),
+        )
+        .with_semantic_analysis_limits(SemanticAnalysisLimits::new(256, 0));
+
+        let compilation = compilation_with_options(&source, options);
+
+        let diagnostics = compilation
+            .implementation_coherence_diagnostics(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("limited coherence validation must finish: {error:?}"));
+
+        assert_eq!(
+            diagnostic_kinds(diagnostics),
+            [DiagnosticKind::CheckingImplementationCoherenceLimitExceeded]
         );
     }
 

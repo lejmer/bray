@@ -199,6 +199,8 @@ pub enum DiagnosticKind {
     CheckingInvalidStoredType,
     /// A declared type contains an inline representation cycle.
     CheckingRecursiveTypeRepresentation,
+    /// Type-representation analysis exceeded its deterministic recursion limit.
+    CheckingTypeRepresentationRecursionLimitExceeded,
     /// A layout directive does not describe a valid source-level layout contract.
     CheckingInvalidLayoutDirective,
     /// A declared implicit-copy contract is not satisfied by the represented type.
@@ -245,6 +247,10 @@ pub enum DiagnosticKind {
     CheckingConflictingCallableOverloadFamily,
     /// Two callable overload arms have indistinguishable selection signatures.
     CheckingConflictingCallableOverloadSignature,
+    /// Implementation coherence analysis exceeded its deterministic comparison limit.
+    CheckingImplementationCoherenceLimitExceeded,
+    /// Callable overload analysis exceeded its deterministic comparison limit.
+    CheckingCallableOverloadLimitExceeded,
     /// A foreign callable omits one directive required by its boundary contract.
     CheckingMissingForeignCallableDirective,
     /// A foreign callable declaration does not establish a trusted boundary.
@@ -416,6 +422,7 @@ impl DiagnosticKind {
             Self::CheckingArrayGeneratorCardinalityNotProvable => 7026,
             Self::CheckingInvalidStoredType => 7028,
             Self::CheckingRecursiveTypeRepresentation => 7029,
+            Self::CheckingTypeRepresentationRecursionLimitExceeded => 7078,
             Self::CheckingInvalidLayoutDirective => 7030,
             Self::CheckingInvalidCopyContract => 7031,
             Self::CheckingInvalidUnionTag => 7032,
@@ -439,6 +446,8 @@ impl DiagnosticKind {
             Self::CheckingDuplicateCallableOverloadArm => 7050,
             Self::CheckingConflictingCallableOverloadFamily => 7051,
             Self::CheckingConflictingCallableOverloadSignature => 7052,
+            Self::CheckingImplementationCoherenceLimitExceeded => 7079,
+            Self::CheckingCallableOverloadLimitExceeded => 7080,
             Self::CheckingMissingForeignCallableDirective => 7053,
             Self::CheckingForeignCallableRequiresTrusted => 7054,
             Self::CheckingForeignCallableRequiresCapability => 7055,
@@ -606,6 +615,9 @@ impl DiagnosticKind {
             }
             Self::CheckingInvalidStoredType => "checking_invalid_stored_type",
             Self::CheckingRecursiveTypeRepresentation => "checking_recursive_type_representation",
+            Self::CheckingTypeRepresentationRecursionLimitExceeded => {
+                "checking_type_representation_recursion_limit_exceeded"
+            }
             Self::CheckingInvalidLayoutDirective => "checking_invalid_layout_directive",
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
@@ -640,6 +652,12 @@ impl DiagnosticKind {
             }
             Self::CheckingConflictingCallableOverloadSignature => {
                 "checking_conflicting_callable_overload_signature"
+            }
+            Self::CheckingImplementationCoherenceLimitExceeded => {
+                "checking_implementation_coherence_limit_exceeded"
+            }
+            Self::CheckingCallableOverloadLimitExceeded => {
+                "checking_callable_overload_limit_exceeded"
             }
             Self::CheckingMissingForeignCallableDirective => {
                 "checking_missing_foreign_callable_directive"

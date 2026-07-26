@@ -521,6 +521,9 @@ derived copy behavior, the exact generic type parameters on which copying depend
 and recovery state. Recursive representation checking must memoize completed named types and detect active inline cycles.
 Indirection can terminate an outer-size cycle, but it does not make the representation plain storage.
 
+Representation checking must also honor the request's deterministic active-recursion limit. Exhaustion produces one structured
+diagnostic and a recovered representation contract. It must not publish a partially checked representation as valid.
+
 This fact validates source semantics only. Target-specific offsets, padding, aggregate size, ABI alignment support, and physical
 layout calculation remain separate target-dependent facts. Public contracts must be serializable through compiled package
 interfaces so importing compilations consume the same checked representation without rechecking dependency source.
@@ -842,6 +845,39 @@ when a possible completion payload cannot be resolved synchronously and infallib
 observation; abnormal cleanup can record its failure as an incident.
 
 The complete implementation contract is defined in `docs/design/async-runtime.md`.
+
+---
+
+## Deterministic Semantic Work Limits
+
+Result-affecting semantic work limits belong to the immutable compilation request. The checker reads them through existing
+domain contexts rather than a separate budget service.
+
+Package-level implementation-coherence and callable-overload validation each consume the configured comparison limit within their
+requested fact. Candidate families and pairs remain ordered canonically. Reaching the limit emits one structured diagnostic at the
+next deterministic source participant and rejects the incomplete package-level answer instead of silently accepting unchecked
+pairs.
+
+Changing a semantic work limit invalidates only facts whose result depends on that limit and their ordinary dependents. Worker
+count, query priority, cancellation, and cache retention remain scheduling inputs and do not affect semantic identity.
+
+The pre-lowering bounded-work policy is divided by domain:
+
+- source loading and compiled package decoding enforce their own input counts, byte sizes, section sizes, and allocation limits,
+- parser recursion is bounded while green-tree traversal and teardown remain iterative,
+- declaration, symbol, bound-node, analysis-node, and semantic-value arenas use checked compact identities and reject capacity
+  overflow before publication,
+- generic and type work remains demand-driven per requested occurrence, detects fact cycles, and observes syntax or semantic
+  recursion limits instead of expanding an eager transitive closure,
+- constant evaluation owns operation, aggregate, literal, exact-integer, and call-depth limits,
+- flow-sensitive analysis owns explicit fact and storage-cell capacities plus finite convergence arguments,
+- implementation and overload families own package-fact pair-comparison limits,
+- fact caches own finite retention independently of semantic answers,
+- diagnostic accumulation is bounded by the source occurrences, semantic entities, and explicitly limited work items that can
+  produce diagnostics.
+
+No limit may be replaced by a machine-time deadline or available-memory probe. Capacity conversion and arithmetic must be checked,
+and source-triggered exhaustion must become structured recovery or rejection rather than a compiler panic.
 
 ---
 

@@ -25,6 +25,7 @@ pub use fact::{
 };
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
+    SemanticAnalysisLimits,
 };
 pub use target::{SelectedTarget, SelectedTargetContext};
 pub use worker::{WorkerBudget, WorkerBudgetError};

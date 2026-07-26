@@ -12,6 +12,39 @@ use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 use crate::SelectedTarget;
 use crate::worker::WorkerBudget;
 
+/// Deterministic resource limits for semantic analysis requested by a compilation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SemanticAnalysisLimits {
+    recursion_depth: usize,
+    pairwise_comparisons: u64,
+}
+
+impl SemanticAnalysisLimits {
+    /// Creates explicit recursion-depth and pairwise-comparison limits.
+    pub const fn new(recursion_depth: usize, pairwise_comparisons: u64) -> Self {
+        Self {
+            recursion_depth,
+            pairwise_comparisons,
+        }
+    }
+
+    /// Returns the maximum active semantic recursion depth.
+    pub const fn recursion_depth(self) -> usize {
+        self.recursion_depth
+    }
+
+    /// Returns the maximum pairwise semantic comparisons in one package-level fact.
+    pub const fn pairwise_comparisons(self) -> u64 {
+        self.pairwise_comparisons
+    }
+}
+
+impl Default for SemanticAnalysisLimits {
+    fn default() -> Self {
+        Self::new(256, 100_000)
+    }
+}
+
 /// Options for one compiler operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilationOptions {
@@ -19,6 +52,7 @@ pub struct CompilationOptions {
     product_kind: ProductKind,
     selected_target: SelectedTarget,
     native_link_inputs: Arc<[NativeLinkRequirement]>,
+    semantic_analysis_limits: SemanticAnalysisLimits,
 }
 
 impl CompilationOptions {
@@ -33,6 +67,7 @@ impl CompilationOptions {
             product_kind,
             selected_target,
             native_link_inputs: Arc::from([]),
+            semantic_analysis_limits: SemanticAnalysisLimits::default(),
         }
     }
 
@@ -42,6 +77,16 @@ impl CompilationOptions {
         inputs: impl IntoIterator<Item = NativeLinkRequirement>,
     ) -> Self {
         self.native_link_inputs = shared_slice(inputs);
+        self
+    }
+
+    /// Returns these options with explicit semantic-analysis resource limits.
+    pub const fn with_semantic_analysis_limits(
+        mut self,
+        limits: SemanticAnalysisLimits,
+    ) -> Self {
+        self.semantic_analysis_limits = limits;
+
         self
     }
 
@@ -63,6 +108,11 @@ impl CompilationOptions {
     /// Returns native link inputs available to the selected package and target.
     pub fn native_link_inputs(&self) -> &[NativeLinkRequirement] {
         &self.native_link_inputs
+    }
+
+    /// Returns the deterministic semantic-analysis resource limits.
+    pub const fn semantic_analysis_limits(&self) -> SemanticAnalysisLimits {
+        self.semantic_analysis_limits
     }
 }
 
@@ -289,16 +339,19 @@ mod tests {
 
     use super::{
         CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-        PackageInterfaceExportRequest,
+        PackageInterfaceExportRequest, SemanticAnalysisLimits,
     };
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {
+        let limits = SemanticAnalysisLimits::new(17, 23);
+
         let options = CompilationOptions::new(
             WorkerBudget::serial(),
             ProductKind::Library,
             crate::SelectedTarget::baseline(),
-        );
+        )
+        .with_semantic_analysis_limits(limits);
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(1),
@@ -334,6 +387,7 @@ mod tests {
         assert_eq!(request.package_identity(), &package_identity);
         assert_eq!(request.options(), &options);
         assert_eq!(request.options().product_kind(), ProductKind::Library);
+        assert_eq!(request.options().semantic_analysis_limits(), limits);
         assert_eq!(request.sources().len(), 1);
         assert_eq!(request.dependency_interfaces().len(), 1);
 
@@ -344,6 +398,17 @@ mod tests {
                 .map(bray_package_interface::PackageInterfaceIdentity::public_surface),
             Some("public-v1")
         );
+    }
+
+    #[test]
+    fn semantic_analysis_limits_are_finite_and_explicitly_configurable() {
+        let defaults = SemanticAnalysisLimits::default();
+        let immediate_rejection = SemanticAnalysisLimits::new(0, 0);
+
+        assert!(defaults.recursion_depth() > 0);
+        assert!(defaults.pairwise_comparisons() > 0);
+        assert_eq!(immediate_rejection.recursion_depth(), 0);
+        assert_eq!(immediate_rejection.pairwise_comparisons(), 0);
     }
 
     fn dependency_interface() -> DependencyInterfaceInput {

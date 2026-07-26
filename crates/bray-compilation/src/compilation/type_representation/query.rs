@@ -224,6 +224,13 @@ struct CompilationTypeRepresentationContext<'compilation> {
 }
 
 impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
+    fn maximum_recursion_depth(&self) -> usize {
+        self.compilation
+            .options()
+            .semantic_analysis_limits()
+            .recursion_depth()
+    }
+
     fn semantic_values(&self) -> &bray_symbols::SemanticValueStore {
         self.semantic_values
     }
@@ -442,13 +449,16 @@ impl CompilationTypeRepresentationContext<'_> {
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
     use bray_symbols::{DeclaredCopyContract, DeclaredLayoutMode, NamedTypeSymbolId, SymbolOrigin};
 
     use crate::test_support::{
-        compilation, diagnostic_kinds, encoded_semantic_dependency, package_identity, source_input,
+        compilation, compilation_with_options, diagnostic_kinds, encoded_semantic_dependency,
+        package_identity, source_input,
     };
-    use crate::{Compilation, CompilationRequest};
+    use crate::{
+        Compilation, CompilationOptions, CompilationRequest, SemanticAnalysisLimits, WorkerBudget,
+    };
 
     #[test]
     fn valid_product_contracts_publish_source_level_representation_facts() {
@@ -536,6 +546,67 @@ mod tests {
                 DiagnosticKind::CheckingRecursiveTypeRepresentation,
             ]
         );
+    }
+
+    #[test]
+    fn representation_recursion_limit_recovers_with_a_structured_diagnostic() {
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        )
+        .with_semantic_analysis_limits(SemanticAnalysisLimits::new(1, 100));
+
+        let compilation = compilation_with_options(
+            concat!(
+                "module app;\n",
+                "\n",
+                "struct Outer\n",
+                "{\n",
+                "    inner: Inner;\n",
+                "}\n",
+                "\n",
+                "struct Inner\n",
+                "{\n",
+                "    value: i32;\n",
+                "}\n",
+            ),
+            options,
+        );
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let Some(structure) = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+        else {
+            panic!("test source must declare Outer");
+        };
+
+        let result = compilation
+            .declared_type_representation(NamedTypeSymbolId::from(structure.id()))
+            .unwrap_or_else(|error| panic!("limited representation must recover: {error:?}"));
+
+        assert!(result.value().is_recovered());
+
+        assert!(
+            diagnostic_kinds(result.diagnostics())
+                .contains(&DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded)
+        );
+
+        let diagnostic = result
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind()
+                    == DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded
+            })
+            .unwrap_or_else(|| panic!("recursion limit diagnostic must be present"));
+
+        assert_eq!(diagnostic.args(), &[DiagnosticArg::maximum_count(1)]);
     }
 
     #[test]

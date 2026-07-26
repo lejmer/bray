@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult,
+    SeverityKind,
 };
 use bray_symbols::{
     AvailableCompilerKnownSymbols, DeclaredCopyContract, DeclaredTypeRepresentation,
@@ -99,6 +100,7 @@ where
     pub(super) diagnostics: DiagnosticBag,
     active: BTreeSet<NamedTypeSymbolId>,
     completed: BTreeMap<NamedTypeSymbolId, DeclaredTypeRepresentation>,
+    recursion_limit_reported: bool,
 }
 
 impl<'context, C> RepresentationChecker<'context, C>
@@ -111,6 +113,7 @@ where
             diagnostics: DiagnosticBag::new(),
             active: BTreeSet::new(),
             completed: BTreeMap::new(),
+            recursion_limit_reported: false,
         }
     }
 
@@ -141,9 +144,28 @@ where
             return Ok(result);
         }
 
-        // TODO(BRA-272): Replace this local guard with the compilation-wide semantic
-        // recursion policy once that policy is defined.
-        if self.active.len() >= 256 {
+        if self.active.contains(&subject) {
+            return Ok(DeclaredTypeRepresentation::new(subject));
+        }
+
+        let definition = self.context.type_definition(subject)?;
+
+        self.diagnostics
+            .add_range(definition.diagnostics().iter().cloned());
+
+        let maximum_recursion_depth = self.context.maximum_recursion_depth();
+
+        if self.active.len() >= maximum_recursion_depth {
+            if !self.recursion_limit_reported {
+                self.add_limit_diagnostic(
+                    DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded,
+                    definition.value().span(),
+                    maximum_recursion_depth,
+                );
+
+                self.recursion_limit_reported = true;
+            }
+
             return Ok(DeclaredTypeRepresentation::new(subject).with_properties(
                 DeclaredCopyContract::Absent,
                 false,
@@ -152,14 +174,7 @@ where
             ));
         }
 
-        if !self.active.insert(subject) {
-            return Ok(DeclaredTypeRepresentation::new(subject));
-        }
-
-        let definition = self.context.type_definition(subject)?;
-
-        self.diagnostics
-            .add_range(definition.diagnostics().iter().cloned());
+        self.active.insert(subject);
 
         let result = self.check_definition(definition.value())?;
 
@@ -449,6 +464,23 @@ where
         self.diagnostics.add(
             Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
                 .with_primary_span(span),
+        );
+    }
+
+    fn add_limit_diagnostic(
+        &mut self,
+        kind: DiagnosticKind,
+        span: bray_source::SourceSpan,
+        maximum: usize,
+    ) {
+        let id = u32::try_from(self.diagnostics.len()).unwrap_or(u32::MAX);
+
+        self.diagnostics.add(
+            Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
+                .with_primary_span(span)
+                .with_arg(DiagnosticArg::maximum_count(
+                    u64::try_from(maximum).unwrap_or(u64::MAX),
+                )),
         );
     }
 }

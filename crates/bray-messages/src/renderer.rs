@@ -692,6 +692,45 @@ mod tests {
     }
 
     #[test]
+    fn renderer_localizes_semantic_analysis_limits() {
+        let cases = [
+            (
+                DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded,
+                "type representation analysis exceeded its recursion limit of 17",
+            ),
+            (
+                DiagnosticKind::CheckingImplementationCoherenceLimitExceeded,
+                "implementation coherence analysis exceeded its pairwise comparison limit of 17",
+            ),
+            (
+                DiagnosticKind::CheckingCallableOverloadLimitExceeded,
+                "callable overload analysis exceeded its pairwise comparison limit of 17",
+            ),
+        ];
+
+        for (kind, expected) in cases {
+            let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+                .with_arg(DiagnosticArg::maximum_count(17));
+
+            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+            assert_eq!(rendered.message(), expected);
+        }
+
+        let singular = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingCallableOverloadLimitExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::maximum_count(1));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&singular).message(),
+            "callable overload analysis exceeded its pairwise comparison limit of 1"
+        );
+    }
+
+    #[test]
     fn renderer_keeps_diagnostic_bag_order() {
         let first = Diagnostic::new(
             DiagnosticId::new(0),

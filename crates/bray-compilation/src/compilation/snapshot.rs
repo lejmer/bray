@@ -186,6 +186,28 @@ fn invalidation_roots(
         );
     }
 
+    let previous_semantic_limits = previous.options.semantic_analysis_limits();
+    let updated_semantic_limits = updated.options.semantic_analysis_limits();
+
+    if previous_semantic_limits.recursion_depth() != updated_semantic_limits.recursion_depth() {
+        roots.extend(
+            previous
+                .declared_type_representations
+                .keys()
+                .into_iter()
+                .map(CompilationFactKey::DeclaredTypeRepresentation),
+        );
+    }
+
+    if previous_semantic_limits.pairwise_comparisons()
+        != updated_semantic_limits.pairwise_comparisons()
+    {
+        roots.extend([
+            CompilationFactKey::ImplementationCoherence,
+            CompilationFactKey::CallableOverloadValidation,
+        ]);
+    }
+
     if previous.dependency_interfaces != updated.dependency_interfaces {
         roots.extend([
             CompilationFactKey::ImportedSymbolSkeleton,
@@ -510,13 +532,13 @@ mod tests {
 
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{ProductKind, TypeData};
+    use bray_symbols::{NamedTypeSymbolId, ProductKind, SymbolOrigin, TypeData};
     use bray_syntax::SyntaxText;
 
     use super::Compilation;
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{package_identity, source_callable_body_key};
-    use crate::{SelectedTarget, WorkerBudget};
+    use crate::{SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
 
     #[test]
     fn variable_width_source_edits_reuse_only_unaffected_source_facts() {
@@ -693,6 +715,130 @@ mod tests {
                 .state
                 .semantic_values
                 .shares_storage_with(&updated.state.semantic_values)
+        );
+    }
+
+    #[test]
+    fn semantic_limit_fields_invalidate_only_their_dependent_facts() {
+        let source_text = concat!(
+            "module app;\n",
+            "\n",
+            "struct Value\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+        );
+
+        let previous = compilation([source(10, 0, source_text)]);
+
+        let symbols = previous
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let Some(structure) = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+        else {
+            panic!("test source must declare one structure");
+        };
+
+        let subject = NamedTypeSymbolId::from(structure.id());
+
+        let _ = previous.declared_type_representation(subject);
+
+        previous
+            .implementation_coherence_diagnostics(&previous.state.cancellation)
+            .unwrap_or_else(|error| panic!("coherence validation must complete: {error:?}"));
+
+        previous
+            .callable_overload_diagnostics(&previous.state.cancellation)
+            .unwrap_or_else(|error| panic!("overload validation must complete: {error:?}"));
+
+        let default_limits = SemanticAnalysisLimits::default();
+
+        let recursion_options = options(ProductKind::Library, SelectedTarget::baseline())
+            .with_semantic_analysis_limits(SemanticAnalysisLimits::new(
+                32,
+                default_limits.pairwise_comparisons(),
+            ));
+
+        let recursion_updated = previous
+            .updated(request(
+                [source(10, 0, source_text)],
+                recursion_options,
+            ))
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert!(
+            !previous
+                .state
+                .declared_type_representations
+                .shares_cell_with(
+                    &recursion_updated.state.declared_type_representations,
+                    &subject
+                )
+        );
+
+        assert!(
+            previous
+                .state
+                .implementation_coherence
+                .shares_storage_with(&recursion_updated.state.implementation_coherence)
+        );
+
+        assert!(
+            previous
+                .state
+                .callable_overload_validation
+                .shares_storage_with(&recursion_updated.state.callable_overload_validation)
+        );
+
+        let comparison_options = options(ProductKind::Library, SelectedTarget::baseline())
+            .with_semantic_analysis_limits(SemanticAnalysisLimits::new(
+                default_limits.recursion_depth(),
+                64,
+            ));
+
+        let comparison_updated = previous
+            .updated(request(
+                [source(10, 0, source_text)],
+                comparison_options,
+            ))
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert!(
+            previous
+                .state
+                .declared_type_representations
+                .shares_cell_with(
+                    &comparison_updated.state.declared_type_representations,
+                    &subject
+                )
+        );
+
+        assert!(
+            !previous
+                .state
+                .implementation_coherence
+                .shares_storage_with(&comparison_updated.state.implementation_coherence)
+        );
+
+        assert!(
+            !previous
+                .state
+                .callable_overload_validation
+                .shares_storage_with(&comparison_updated.state.callable_overload_validation)
+        );
+
+        assert!(
+            previous.state.source_unit_syntax[0]
+                .shares_storage_with(&recursion_updated.state.source_unit_syntax[0])
+        );
+
+        assert!(
+            previous.state.source_unit_syntax[0]
+                .shares_storage_with(&comparison_updated.state.source_unit_syntax[0])
         );
     }
 
