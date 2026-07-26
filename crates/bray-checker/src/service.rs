@@ -2,6 +2,7 @@ use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
 use crate::analysis::check_refinements;
 use crate::analysis::check_storage_flow;
+use crate::asynchronous::check_async_facts;
 use crate::behavior::collect_body_behavior;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::dependency::check_dependency_contracts;
@@ -18,10 +19,10 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    BodyBehaviorContributions, CheckedControlFlowFacts, CheckedDependencyContracts,
-    CheckedExpressionTypes, CheckedPatternFacts, CheckedRefinementFacts,
-    DeclaredValueTypeTemplates, LivenessFacts, SelectedCall, SelectedIterationSource,
-    SelectedOperation, StorageFlowFacts, StoragePlan,
+    BodyBehaviorContributions, CheckedAsyncFacts, CheckedControlFlowFacts,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
+    SelectedCall, SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -77,6 +78,10 @@ pub struct DefaultStorageFlowChecker;
 /// The standard Bray dependency-contract checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultDependencyContractChecker;
+
+/// The standard Bray async frame and structured-task checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultAsyncChecker;
 
 /// The standard Bray direct body-behavior collector.
 #[derive(Clone, Copy, Debug, Default)]
@@ -262,6 +267,30 @@ impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
 {
 }
 
+/// Async frame, suspension, task ownership, and cleanup checking over one unit.
+pub trait AsyncChecker<C>: Sync
+where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    /// Computes durable async facts from independently checked semantic inputs.
+    fn check_async_facts(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        types: &CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
+        liveness: &LivenessFacts,
+        dependencies: &CheckedDependencyContracts,
+        flow: &StorageFlowFacts,
+    ) -> CheckerOutcome<CheckedAsyncFacts> {
+        check_async_facts(request, types, selections, liveness, dependencies, flow)
+    }
+}
+
+impl<C> AsyncChecker<C> for DefaultAsyncChecker where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
+
 /// Direct effect, capability, lifecycle, and callable contributions from one checked unit.
 pub trait BodyBehaviorCollector<C>: Sync
 where
@@ -273,8 +302,9 @@ where
         request: CheckerUnitView<'_, C>,
         control_flow: &CheckedControlFlowFacts,
         selections: &bray_bound_tree::CheckedSemanticSelections,
+        async_facts: &CheckedAsyncFacts,
     ) -> CheckerOutcome<BodyBehaviorContributions> {
-        collect_body_behavior(request, control_flow, selections)
+        collect_body_behavior(request, control_flow, selections, async_facts)
     }
 }
 

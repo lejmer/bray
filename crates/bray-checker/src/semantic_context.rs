@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind};
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnySymbolId,
-    CallableContractClauseKind, PostconditionResultSymbolId, SymbolKey,
+    CallableContractClauseKind, CallableExecution, PostconditionResultSymbolId, SymbolKey,
 };
 
 /// Declaration-owned inputs active in one bound semantic unit.
@@ -53,6 +53,7 @@ impl DeclaredUnitContext {
 pub struct AnonymousCallableContext {
     key: BoundUnitKey,
     callable: AnonymousCallableSymbolId,
+    execution: CallableExecution,
     parameters: Box<[AnonymousCallableParameterSymbolId]>,
 }
 
@@ -61,11 +62,13 @@ impl AnonymousCallableContext {
     pub fn new(
         key: BoundUnitKey,
         callable: AnonymousCallableSymbolId,
+        execution: CallableExecution,
         parameters: impl IntoIterator<Item = AnonymousCallableParameterSymbolId>,
     ) -> Self {
         Self {
             key,
             callable,
+            execution,
             parameters: parameters.into_iter().collect(),
         }
     }
@@ -78,6 +81,11 @@ impl AnonymousCallableContext {
     /// Returns the local anonymous-callable symbol.
     pub const fn callable(&self) -> AnonymousCallableSymbolId {
         self.callable
+    }
+
+    /// Returns the callable's synchronous or asynchronous execution mode.
+    pub const fn execution(&self) -> CallableExecution {
+        self.execution
     }
 
     /// Returns anonymous parameters in declaration order.

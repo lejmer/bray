@@ -9,7 +9,9 @@ pub use flow::{
     StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError, StorageOperationDecision,
     StorageOperationStatus,
 };
-pub use liveness::{LastUse, LiveAcrossScope, LivenessFacts, LivenessFactsBuildError};
+pub use liveness::{
+    LastUse, LiveAcrossScope, LiveAcrossSuspension, LivenessFacts, LivenessFactsBuildError,
+};
 pub use model::{
     BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
     StorageIdentityId, StorageProjection, StorageRelationship,

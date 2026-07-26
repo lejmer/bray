@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod asynchronous;
 mod behavior;
 mod bound_unit;
 mod control;
@@ -25,6 +26,10 @@ mod typing;
 mod unit;
 mod view;
 
+pub use asynchronous::{
+    AsyncFactsBuildError, AsyncScopeExitPlan, AsyncSuspensionPoint, AsyncTaskOperation,
+    AsyncTaskOperationKind, CheckedAsyncFacts,
+};
 pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
 };
@@ -81,9 +86,9 @@ pub use selection::{
     SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{
-    BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LivenessFacts,
-    LivenessFactsBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,
-    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
+    BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    LivenessFacts, LivenessFactsBuildError, PlannedBorrowCapability, StorageAccess,
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
     StorageBindingTarget, StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError,
     StorageIdentity, StorageIdentityId, StorageOperationDecision, StorageOperationStatus,
     StoragePlan, StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,

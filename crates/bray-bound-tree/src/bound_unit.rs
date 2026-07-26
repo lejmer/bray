@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    AnonymousCallableSymbolId, LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshot,
-    SymbolFactKind, SymbolKind,
+    AnonymousCallableSymbolId, CallableExecution, LocalSymbolRegionKey, LocalSymbolRegionRole,
+    LocalSymbolSnapshot, SymbolFactKind, SymbolKind,
 };
 
 use crate::{
@@ -103,6 +103,8 @@ pub enum BoundUnitRoot {
     AnonymousCallable {
         /// The callable identity in the unit's local-symbol snapshot.
         callable: AnonymousCallableSymbolId,
+        /// The callable's synchronous or asynchronous execution mode.
+        execution: CallableExecution,
         /// The callable's bound body.
         body: BoundCallableBodyId,
     },
@@ -172,7 +174,10 @@ fn validate_root(
         (BoundUnitKind::CallableBody, BoundUnitRoot::CallableBody(body)) => {
             validate_callable_root(tree, body)
         }
-        (BoundUnitKind::AnonymousCallable, BoundUnitRoot::AnonymousCallable { callable, body }) => {
+        (
+            BoundUnitKind::AnonymousCallable,
+            BoundUnitRoot::AnonymousCallable { callable, body, .. },
+        ) => {
             validate_callable_root(tree, body)?;
 
             if callable.region() != local_symbols.region() {

@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencySubject, LastUse, LiveAcrossScope, LivenessFacts,
-    StorageAccessRoot, StorageIdentity, StoragePlan,
+    AnyBoundNodeId, BoundDependencySubject, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    LivenessFacts, StorageAccessRoot, StorageIdentity, StoragePlan,
 };
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -221,6 +221,7 @@ struct LivenessDomain<'analysis> {
     reachability: &'analysis ReachabilityResult,
     effects: &'analysis OperationEffects,
     transfers: Box<[BlockTransfer]>,
+    has_suspension: bool,
 }
 
 impl<'analysis> LivenessDomain<'analysis> {
@@ -235,10 +236,16 @@ impl<'analysis> LivenessDomain<'analysis> {
             .map(|block| block_transfer(graph, block, effects))
             .collect();
 
+        let has_suspension = graph
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(), AnalysisOperationKind::DirectAwait(_)));
+
         Self {
             reachability,
             effects,
             transfers,
+            has_suspension,
         }
     }
 
@@ -263,6 +270,14 @@ impl FixedPointDomain for LivenessDomain<'_> {
 
     fn bottom(&self) -> Self::State {
         BTreeSet::new()
+    }
+
+    fn should_seed(&self, block: &AnalysisBlock) -> bool {
+        self.has_suspension
+            && self.reachability.is_block_reachable(block.id())
+            && self
+                .transfer(block)
+                .is_some_and(|transfer| !transfer.generated.is_empty())
     }
 
     fn boundary(&self) -> Self::State {
@@ -394,6 +409,7 @@ fn collect_facts(
 ) -> Result<LivenessFacts, bray_bound_tree::LivenessFactsBuildError> {
     let mut last_uses = Vec::new();
     let mut live_across_scopes = Vec::new();
+    let mut live_across_suspensions = Vec::new();
     let mut is_recovered = false;
 
     for block in graph.blocks() {
@@ -422,6 +438,15 @@ fn collect_facts(
                         .iter()
                         .copied()
                         .map(|subject| LiveAcrossScope::new(block, subject)),
+                );
+            }
+
+            if let AnalysisOperationKind::DirectAwait(expression) = operation.kind() {
+                live_across_suspensions.extend(
+                    state
+                        .iter()
+                        .copied()
+                        .map(|subject| LiveAcrossSuspension::new(expression, subject)),
                 );
             }
 
@@ -468,6 +493,7 @@ fn collect_facts(
         kind,
         last_uses,
         live_across_scopes,
+        live_across_suspensions,
         is_recovered,
     )
 }

@@ -3,7 +3,7 @@ use bray_bound_tree::{
     BoundUnitKey, BoundUnitKeyData, BoundUnitRoot,
 };
 use bray_diagnostics::DiagnosticResult;
-use bray_symbols::AnonymousCallableSymbolId;
+use bray_symbols::{AnonymousCallableSymbolId, CallableExecution};
 
 use crate::binder::BinderOutput;
 use crate::{BinderDependency, BoundUnitComputation};
@@ -31,6 +31,7 @@ pub(crate) fn assemble_anonymous_callable(
     output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     callable: AnonymousCallableSymbolId,
+    execution: CallableExecution,
     root: BoundCallableBodyId,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
     assemble_bound_unit(
@@ -38,6 +39,7 @@ pub(crate) fn assemble_anonymous_callable(
         nested_units,
         BoundUnitRoot::AnonymousCallable {
             callable,
+            execution,
             body: root,
         },
     )

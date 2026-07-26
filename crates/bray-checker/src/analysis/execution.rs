@@ -1,5 +1,4 @@
 use bray_bound_tree::{BoundAwaitExpression, BoundCallExpression, BoundExpressionId};
-use bray_compiler_known::ImplementationHook;
 
 use crate::CheckerRequestContext;
 
@@ -76,11 +75,6 @@ where
             .available_compiler_known_symbols()
             .symbol_implementation(target.symbol())?;
 
-        match hook {
-            ImplementationHook::FutureStart => Some(AnalysisTaskOperationKind::Start),
-            ImplementationHook::TaskJoin => Some(AnalysisTaskOperationKind::Join),
-            ImplementationHook::TaskCancel => Some(AnalysisTaskOperationKind::Cancel),
-            _ => None,
-        }
+        AnalysisTaskOperationKind::from_implementation_hook(hook)
     }
 }

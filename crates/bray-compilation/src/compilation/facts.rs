@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
-    BodyBehaviorContributions, BoundUnit, BoundUnitKey, CheckedBodyBehavior,
+    BodyBehaviorContributions, BoundUnit, BoundUnitKey, CheckedAsyncFacts, CheckedBodyBehavior,
     CheckedControlFlowFacts, CheckedDependencyContracts, CheckedExpressionTypes,
     CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
     DeclaredValueTypeTemplates, LivenessFacts, SelectedIterationSource, StorageFlowFacts,
@@ -147,6 +147,7 @@ pub(super) struct CompilationState {
     pub(super) refinement_facts: UnitFactCache<CheckedRefinementFacts>,
     pub(super) storage_flow_facts: UnitFactCache<StorageFlowFacts>,
     pub(super) dependency_contracts: UnitFactCache<CheckedDependencyContracts>,
+    pub(super) async_facts: UnitFactCache<CheckedAsyncFacts>,
     pub(super) body_behavior_contributions: UnitFactCache<BodyBehaviorContributions>,
     pub(super) checked_body_behaviors: UnitFactCache<CheckedBodyBehavior>,
     pub(super) constant_template_keys:
@@ -292,6 +293,7 @@ impl Compilation {
                 refinement_facts: UnitFactCache::new(),
                 storage_flow_facts: UnitFactCache::new(),
                 dependency_contracts: UnitFactCache::new(),
+                async_facts: UnitFactCache::new(),
                 body_behavior_contributions: UnitFactCache::new(),
                 checked_body_behaviors: UnitFactCache::new(),
                 constant_template_keys: FactCell::new(),
