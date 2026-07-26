@@ -29,7 +29,7 @@ impl Compilation {
         self.foreign_callable_contract_with_cancellation(function, &self.state.cancellation)
     }
 
-    fn foreign_callable_contract_with_cancellation(
+    pub(in crate::compilation) fn foreign_callable_contract_with_cancellation(
         &self,
         function: FunctionSymbolId,
         cancellation: &CancellationToken,
@@ -231,11 +231,9 @@ mod tests {
 
     use bray_base::NonEmptySharedStr;
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::{
-        ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement, SymbolOrigin,
-    };
+    use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
 
-    use crate::test_support::{compilation, compilation_with_options};
+    use crate::test_support::{compilation, compilation_with_options, source_function};
     use crate::{CompilationOptions, WorkerBudget};
 
     #[test]
@@ -578,27 +576,6 @@ func third()
 
         assert_eq!(duplicates.len(), 2);
         assert_eq!(first_spans[0], first_spans[1]);
-    }
-
-    fn source_function(
-        compilation: &crate::Compilation,
-        name: &str,
-    ) -> bray_symbols::FunctionSymbolId {
-        let symbols = compilation
-            .symbol_graph()
-            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
-
-        symbols
-            .functions()
-            .iter()
-            .find(|function| {
-                function.origin() == SymbolOrigin::Source
-                    && symbols
-                        .member_name(function.id().into())
-                        .is_some_and(|member_name| member_name.as_str() == name)
-            })
-            .map(bray_symbols::FunctionSymbol::id)
-            .unwrap_or_else(|| panic!("source function {name} must exist"))
     }
 
     fn compilation_with_link(source: &str, name: &str) -> crate::Compilation {

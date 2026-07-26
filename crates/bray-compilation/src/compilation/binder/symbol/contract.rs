@@ -1,14 +1,16 @@
+use std::collections::BTreeSet;
+
 use bray_binder::{
     BinderFactContext, BinderFactError, BinderFactResult, PredicateClauseBindingContext,
     SymbolFactProvider, bind_predicate_clause, bind_trusted_capability_clause,
 };
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
-    CallableSymbolId, CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateId,
-    GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest, SymbolFactResult,
-    TrustedCapabilityRequirement, TypeData,
+    CallableSymbolId, CallableTrust, CheckedConstraint, CurrentRunCancellation,
+    DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest,
+    SymbolFactResult, TrustedCapabilityRequirement, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -17,8 +19,10 @@ use bray_syntax::{
 
 use super::binding::CompilationSymbolFactBinding;
 use super::cache::CompilationSymbolFacts;
+use super::declaration_body::checked_source_predicate_sequence;
 use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::diagnostics::source_diagnostic;
 use crate::fact::SymbolFactCache;
 
 impl CompilationSymbolFactBinding<GenericConstraintsFact> for CompilationSymbolFacts {
@@ -131,6 +135,7 @@ fn bind_callable_contracts(
     }
 
     let capabilities = bind_trusted_capability_clauses(context, owner, uses_clauses)?;
+
     diagnostics = diagnostics.merged(capabilities.diagnostics());
 
     let dependency = context
@@ -140,8 +145,10 @@ fn bind_callable_contracts(
 
     let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))?;
 
-    let execution = match signature.value().callable_type() {
-        bray_symbols::TypeExpressionTemplate::Callable(callable) => callable.execution(),
+    let (execution, trust) = match signature.value().callable_type() {
+        bray_symbols::TypeExpressionTemplate::Callable(callable) => {
+            (callable.execution(), callable.trust())
+        }
         bray_symbols::TypeExpressionTemplate::Resolved(ty) => {
             let data = context
                 .semantic_values
@@ -149,7 +156,7 @@ fn bind_callable_contracts(
                 .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
             match &*data {
-                TypeData::Callable(callable) => callable.execution(),
+                TypeData::Callable(callable) => (callable.execution(), callable.trust()),
                 _ => return Err(BinderFactError::DependencyUnavailable),
             }
         }
@@ -159,15 +166,16 @@ fn bind_callable_contracts(
     let definition = bray_symbols::CallableDefinitionId::try_new(owner.into_any())
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    let body_behavior = match context
+    let body_key = context
         .compilation()
         .callable_body_key(definition)
-        .map_err(super::binding::binder_error)?
-    {
+        .map_err(super::binding::binder_error)?;
+
+    let body_behavior = match &body_key {
         Some(key) => {
             let behavior = context
                 .compilation()
-                .body_behavior_with_cancellation(key, context.cancellation())
+                .body_behavior_with_cancellation(key.clone(), context.cancellation())
                 .map_err(super::binding::binder_error)?;
 
             diagnostics = diagnostics.merged(behavior.result().diagnostics());
@@ -177,6 +185,20 @@ fn bind_callable_contracts(
         None => None,
     };
 
+    let used_capabilities = body_behavior.as_ref().map(|behavior| {
+        behavior
+            .result()
+            .value()
+            .trusted_capabilities()
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+    });
+
+    let capability_recovered = body_behavior
+        .as_ref()
+        .is_some_and(|behavior| behavior.result().value().is_recovered());
+
     let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
         execution,
         capabilities.value().iter().copied(),
@@ -185,6 +207,16 @@ fn bind_callable_contracts(
             .as_ref()
             .map(|behavior| behavior.result().value()),
     );
+
+    validate_trusted_capabilities(
+        context,
+        owner,
+        trust,
+        capabilities.value(),
+        used_capabilities.as_ref(),
+        capability_recovered,
+        &mut diagnostics,
+    )?;
 
     publish_catalog_result(
         CallableContractSet::new(predicates, invocation_behavior, deferred_execution_behavior),
@@ -286,6 +318,89 @@ fn callable_phase_behaviors(
     }
 }
 
+fn validate_trusted_capabilities(
+    context: &CompilationBinderFacts<'_>,
+    owner: CallableSymbolId,
+    trust: CallableTrust,
+    declared: &[TrustedCapabilityRequirement],
+    used: Option<&BTreeSet<AnySymbolId>>,
+    is_recovered: bool,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<()> {
+    let declared = declared
+        .iter()
+        .map(|requirement| requirement.capability())
+        .collect::<BTreeSet<_>>();
+
+    let has_body = used.is_some();
+    let empty = BTreeSet::new();
+    let used = used.unwrap_or(&empty);
+
+    if declared.is_empty() && used.is_empty() {
+        return Ok(());
+    }
+
+    let anchor = context
+        .symbols
+        .declaration_syntax_anchor(owner.into_any())
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    if trust != CallableTrust::Trusted {
+        for capability in declared.union(used) {
+            diagnostics.add(trusted_capability_diagnostic(
+                context,
+                anchor,
+                DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
+                *capability,
+            )?);
+        }
+
+        return Ok(());
+    }
+
+    if !has_body {
+        return Ok(());
+    }
+
+    for capability in used.difference(&declared) {
+        diagnostics.add(trusted_capability_diagnostic(
+            context,
+            anchor,
+            DiagnosticKind::CheckingUndeclaredTrustedCapability,
+            *capability,
+        )?);
+    }
+
+    if is_recovered {
+        return Ok(());
+    }
+
+    for capability in declared.difference(used) {
+        diagnostics.add(trusted_capability_diagnostic(
+            context,
+            anchor,
+            DiagnosticKind::CheckingUnusedTrustedCapability,
+            *capability,
+        )?);
+    }
+
+    Ok(())
+}
+
+fn trusted_capability_diagnostic(
+    context: &CompilationBinderFacts<'_>,
+    anchor: bray_declarations::SyntaxAnchor,
+    kind: DiagnosticKind,
+    capability: AnySymbolId,
+) -> BinderFactResult<bray_diagnostics::Diagnostic> {
+    let name = context
+        .symbols
+        .member_name(capability)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    Ok(source_diagnostic(anchor, kind).with_arg(DiagnosticArg::referenced_name(name.as_str())))
+}
+
 enum ContractClauseSyntax {
     Requires(RequiresClauseSyntax),
     Ensures(EnsuresClauseSyntax),
@@ -302,22 +417,38 @@ fn bind_callable_predicates(
     predicates: &mut Vec<CallableContractClause>,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
-    let result = bind_predicate_clause(
-        context,
-        owner,
-        syntax,
-        expressions,
-        PredicateClauseBindingContext::CallableContract(kind),
-    )?;
+    let expression_count = expressions.into_iter().count();
 
-    let (summaries, clause_diagnostics) = result.into_parts();
+    let owner_key = context
+        .symbols
+        .symbol_key(owner)
+        .cloned()
+        .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    *diagnostics = diagnostics.merged(&clause_diagnostics);
+    let source = context
+        .compilation()
+        .bound_source(bray_declarations::SyntaxAnchor::from_node(&syntax))
+        .map_err(super::binding::binder_error)?;
 
-    for summary in summaries {
+    let key = bray_bound_tree::BoundUnitKey::contract_clause(owner_key, source)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let checked = checked_source_predicate_sequence(context, key)?;
+
+    if checked.dependency_contracts.len() != expression_count {
+        return Err(BinderFactError::DependencyUnavailable);
+    }
+
+    *diagnostics = diagnostics.merged(&checked.diagnostics);
+
+    for dependency in checked.dependency_contracts {
         let ordinal = symbol_ordinal(predicates.len())?;
 
-        predicates.push(CallableContractClause::new(ordinal, kind, summary));
+        predicates.push(CallableContractClause::new(
+            ordinal,
+            kind,
+            bray_symbols::PredicateSemanticSummary::new(dependency),
+        ));
     }
 
     Ok(())
@@ -385,9 +516,26 @@ fn publish_catalog_result<T>(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+    use std::sync::Arc;
+
+    use bray_base::NonEmptySharedStr;
+    use bray_binder::SymbolFactProvider;
+    use bray_bound_tree::SemanticSelection;
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+    };
+    use bray_symbols::{
+        CallableContractTemplate, CallableContractsFact, CallableSymbolId,
+        DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolFactRequest,
+        SymbolFactResult,
+    };
 
     use super::publish_catalog_result;
+    use crate::test_support::{
+        compilation, compilation_with_options, diagnostic_kinds, source_callable_body_key,
+        source_function,
+    };
+    use crate::{Compilation, CompilationOptions, WorkerBudget};
 
     #[test]
     fn binding_diagnostics_remain_owned_by_the_published_fact() {
@@ -402,5 +550,240 @@ mod tests {
         let result = result.unwrap_or_else(|error| panic!("fact must publish: {error:?}"));
 
         assert_eq!(result.diagnostics(), &DiagnosticBag::single(diagnostic));
+    }
+
+    #[test]
+    fn trusted_callable_contracts_require_every_used_capability() {
+        let compilation = trusted_capability_compilation("");
+
+        let contracts = callable_contracts(&compilation, "outer");
+
+        assert_eq!(
+            diagnostic_kinds(contracts.diagnostics()),
+            [DiagnosticKind::CheckingUndeclaredTrustedCapability]
+        );
+
+        let [diagnostic] = contracts.diagnostics().diagnostics() else {
+            panic!("missing capability must publish one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.args(),
+            &[DiagnosticArg::referenced_name("foreign_call")]
+        );
+
+        assert!(diagnostic.primary_span().is_some());
+    }
+
+    #[test]
+    fn trusted_callable_contracts_reject_unused_capabilities() {
+        let compilation = compilation(concat!(
+            "trusted module app;\n",
+            "trusted func unused()\n",
+            "    uses(foreign_call)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let contracts = callable_contracts(&compilation, "unused");
+
+        assert_eq!(
+            diagnostic_kinds(contracts.diagnostics()),
+            [DiagnosticKind::CheckingUnusedTrustedCapability]
+        );
+    }
+
+    #[test]
+    fn trusted_capabilities_require_trusted_callable_declarations() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func ordinary()\n",
+            "    uses(foreign_call)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let contracts = callable_contracts(&compilation, "ordinary");
+
+        assert_eq!(
+            diagnostic_kinds(contracts.diagnostics()),
+            [DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable]
+        );
+    }
+
+    #[test]
+    fn exact_trusted_capability_contracts_validate_without_diagnostics() {
+        let compilation = trusted_capability_compilation("    uses(foreign_call)\n");
+
+        let contracts = callable_contracts(&compilation, "outer");
+
+        assert!(contracts.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn package_diagnostics_request_callable_contract_validation() {
+        let compilation = trusted_capability_compilation("");
+
+        assert!(compilation.semantic_diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingUndeclaredTrustedCapability
+        }));
+    }
+
+    #[test]
+    fn wrappers_do_not_inherit_callee_implementation_capabilities() {
+        let compilation = compilation(concat!(
+            "trusted module app;\n",
+            "trusted func outer()\n",
+            "{\n",
+            "    inner();\n",
+            "}\n",
+            "trusted func inner()\n",
+            "    uses(foreign_call)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let contracts = callable_contracts(&compilation, "outer");
+
+        assert!(contracts.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn callable_contracts_retain_checked_predicate_dependencies() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func checked(pos value: bool)\n",
+            "    requires(value)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let contracts = callable_contracts(&compilation, "checked");
+
+        let [precondition] = contracts.value().invocation_preconditions() else {
+            panic!("requires clause must publish one precondition");
+        };
+
+        let dependency = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
+            .dependency_contract_template_data(precondition.predicate().dependency_contract())
+            .unwrap_or_else(|error| panic!("predicate dependency must be available: {error:?}"));
+
+        assert!(!dependency.requirements().is_empty());
+    }
+
+    #[test]
+    fn selected_calls_retain_preconditions_and_normal_completion_postconditions() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func caller()\n",
+            "{\n",
+            "    checked(true);\n",
+            "}\n",
+            "func checked(pos value: bool) -> bool\n",
+            "    requires(value)\n",
+            "    ensures(result)\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        let selections = compilation
+            .semantic_selections(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("call selection must publish: {error:?}"));
+
+        let [selection] = selections.value().entries() else {
+            panic!("caller must publish one selected call");
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("caller selection must be a call");
+        };
+
+        let Some(CallableContractTemplate::Source(contract)) = call.contract() else {
+            panic!("source call must retain its contract template");
+        };
+
+        let [precondition, postcondition] = contract.expressions() else {
+            panic!("selected call must retain both contract predicates");
+        };
+
+        assert_eq!(
+            precondition.kind(),
+            DeclarationPredicateClauseKind::Requires
+        );
+
+        assert_eq!(
+            postcondition.kind(),
+            DeclarationPredicateClauseKind::Ensures
+        );
+    }
+
+    #[test]
+    fn callable_contract_predicates_must_be_boolean() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func checked()\n",
+            "    requires(1)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let contracts = callable_contracts(&compilation, "checked");
+
+        assert_eq!(
+            diagnostic_kinds(contracts.diagnostics()),
+            [DiagnosticKind::CheckingIncompatibleExpressionType]
+        );
+    }
+
+    fn trusted_capability_compilation(outer_contract: &str) -> Compilation {
+        let source = format!(
+            concat!(
+                "trusted module app;\n",
+                "@link(name = \"native\")\n",
+                "@symbol(name = \"native_call\")\n",
+                "@abi(c)\n",
+                "extern trusted func native_call()\n",
+                "    uses(foreign_call);\n",
+                "trusted func outer()\n",
+                "{outer_contract}",
+                "{{\n",
+                "    native_call();\n",
+                "}}\n",
+            ),
+            outer_contract = outer_contract,
+        );
+
+        let Some(link) = NonEmptySharedStr::try_new("native") else {
+            panic!("test link name must be valid");
+        };
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        )
+        .with_native_link_inputs([NativeLinkRequirement::new(link, NativeLinkKind::Dynamic)]);
+
+        compilation_with_options(&source, options)
+    }
+
+    fn callable_contracts(
+        compilation: &Compilation,
+        name: &str,
+    ) -> Arc<SymbolFactResult<CallableContractsFact>> {
+        let function = source_function(compilation, name);
+
+        let facts = compilation
+            .binder_facts(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        facts
+            .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
+                CallableSymbolId::from(function),
+            ))
+            .unwrap_or_else(|error| panic!("callable contracts must publish: {error:?}"))
     }
 }

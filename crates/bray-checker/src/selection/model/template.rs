@@ -3,9 +3,9 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_bound_tree::{BoundExpressionId, DeclaredValueTypeTerm, SelectionKind};
 use bray_symbols::{
-    CallableDefinitionId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    CallableSignatureTemplate, GenericArgumentTemplate, GenericDeclarationTemplate, SymbolKey,
-    UnevaluatedDefaultTemplate,
+    CallableContractTemplate, CallableDefinitionId, CallableParameterDefaultProviderSymbolId,
+    CallableParameterSymbolId, CallableSignatureTemplate, GenericArgumentTemplate,
+    GenericDeclarationTemplate, SymbolKey, UnevaluatedDefaultTemplate,
 };
 
 /// Why an exact semantic candidate request has no candidate surface.
@@ -74,11 +74,12 @@ pub struct CallableDeclarationCandidateTemplate {
     data: Arc<CallableDeclarationCandidateTemplateData>,
 }
 
-#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct CallableDeclarationCandidateTemplateData {
     key: SymbolKey,
     definition: CallableDefinitionId,
     signature: CallableSignatureTemplate,
+    contract: CallableContractTemplate,
     generic: GenericDeclarationTemplate,
     generic_arguments: Arc<[GenericArgumentTemplate]>,
     defaults: Arc<[CallableParameterDefaultTemplate]>,
@@ -91,9 +92,9 @@ impl CallableDeclarationCandidateTemplate {
         key: SymbolKey,
         definition: CallableDefinitionId,
         signature: CallableSignatureTemplate,
+        contract: CallableContractTemplate,
         generic: GenericDeclarationTemplate,
         generic_arguments: impl IntoIterator<Item = GenericArgumentTemplate>,
-        defaults: impl IntoIterator<Item = CallableParameterDefaultTemplate>,
         state: CallableCandidateTemplateState,
     ) -> Self {
         Self {
@@ -101,12 +102,23 @@ impl CallableDeclarationCandidateTemplate {
                 key,
                 definition,
                 signature,
+                contract,
                 generic,
                 generic_arguments: shared_slice(generic_arguments),
-                defaults: shared_slice(defaults),
+                defaults: Arc::new([]),
                 state,
             }),
         }
+    }
+
+    /// Supplies declaration-owned parameter defaults in parameter order.
+    pub fn with_defaults(
+        mut self,
+        defaults: impl IntoIterator<Item = CallableParameterDefaultTemplate>,
+    ) -> Self {
+        Arc::make_mut(&mut self.data).defaults = shared_slice(defaults);
+
+        self
     }
 
     /// Returns the candidate's stable semantic key.
@@ -122,6 +134,11 @@ impl CallableDeclarationCandidateTemplate {
     /// Returns the complete unevaluated callable signature.
     pub fn signature(&self) -> &CallableSignatureTemplate {
         &self.data.signature
+    }
+
+    /// Returns source or imported contract clauses retained for semantic checking.
+    pub fn contract(&self) -> &CallableContractTemplate {
+        &self.data.contract
     }
 
     /// Returns generic parameters and constraint templates.

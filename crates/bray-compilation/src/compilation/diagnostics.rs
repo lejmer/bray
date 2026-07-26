@@ -12,10 +12,10 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, DeclaredTypeRepresentation,
-    ImplementationSymbolId, ModuleSurface, ModuleSurfaceFact, NamedTypeSymbolId,
-    SemanticFactResult, SymbolFactRequest, SymbolGraph, SymbolKey, SymbolOrigin,
-    TraitImplementationConformanceFact,
+    AnySymbolId, CallableContractsFact, CallableSymbolId, ConstantDefinitionState,
+    ConstantInstanceValueFact, DeclaredTypeRepresentation, ImplementationSymbolId, ModuleSurface,
+    ModuleSurfaceFact, NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest, SymbolFactResult,
+    SymbolGraph, SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
 };
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
@@ -152,6 +152,31 @@ impl Compilation {
                 .map_err(super::binder::binder_fact_error)?;
 
             facts.push(SemanticDiagnosticFact::ModuleSurface(surface));
+        }
+
+        let callables = source_graph
+            .declarations()
+            .declarations()
+            .iter()
+            .filter_map(|declaration| symbols.symbol_for_declaration(declaration.id()))
+            .filter_map(CallableSymbolId::try_from_any)
+            .collect::<Vec<_>>();
+
+        let contract_facts = self
+            .state
+            .fact_runtime
+            .map_indexed(callables.len(), |index| {
+                cancellation.check()?;
+
+                binder
+                    .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
+                        callables[index],
+                    ))
+                    .map_err(super::binder::binder_fact_error)
+            })?;
+
+        for contracts in contract_facts {
+            facts.push(SemanticDiagnosticFact::CallableContracts(contracts?));
         }
 
         for subject in symbols
@@ -455,6 +480,7 @@ enum SemanticDiagnosticFact {
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
+    CallableContracts(Arc<SymbolFactResult<CallableContractsFact>>),
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),
     TraitConformance(Arc<SemanticFactResult<TraitImplementationConformanceFact>>),
 }
@@ -474,6 +500,7 @@ impl SemanticDiagnosticFact {
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
+            Self::CallableContracts(result) => result.diagnostics(),
             Self::TypeRepresentation(result) => result.diagnostics(),
             Self::TraitConformance(result) => result.diagnostics(),
         }

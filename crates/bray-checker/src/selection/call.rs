@@ -218,13 +218,14 @@ where
         &mut |witness| witnesses.push(witness),
     )? {
         CandidateApplicability::Applicable { abi } => {
-            // The durable selection owns its key and resolution after the candidate probe ends.
+            // The durable selection owns Arc-backed candidate data after the probe ends.
             let key = candidate.key().clone();
             let resolution = candidate.resolution().clone();
 
             Ok(CandidateCheck::Applicable {
                 key,
-                call: SelectedCall::new(resolution, abi, selected_arguments, witnesses),
+                call: SelectedCall::new(resolution, abi, selected_arguments, witnesses)
+                    .with_contract(candidate.contract().cloned()),
             })
         }
         CandidateApplicability::Incompatible => Ok(CandidateCheck::Incompatible),

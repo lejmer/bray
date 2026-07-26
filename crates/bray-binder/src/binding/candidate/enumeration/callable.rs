@@ -10,10 +10,10 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableOverloadSymbolId, CallableOverloadTemplateFact,
-    CallableParameterDefaultTemplateFact, CallableSignatureFact, CallableSymbolId,
-    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, OverloadArmTemplate,
-    SymbolFactContract, SymbolFactRequest,
+    AnySymbolId, CallableContractTemplateFact, CallableDefinitionId, CallableOverloadSymbolId,
+    CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
+    CallableSymbolId, GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult,
+    OverloadArmTemplate, SymbolFactContract, SymbolFactRequest,
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
@@ -75,6 +75,7 @@ pub(super) fn bind_call_candidates<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
@@ -158,6 +159,7 @@ fn bind_reference_target<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
@@ -199,6 +201,7 @@ fn bind_overload_candidates<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
@@ -255,6 +258,7 @@ fn bind_source_overload_arm<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
@@ -328,6 +332,7 @@ fn bind_resolved_name_candidate<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
@@ -359,6 +364,7 @@ fn bind_declaration_candidate<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>,
 {
@@ -381,6 +387,9 @@ where
 
     let (signature, signature_diagnostics) =
         symbol_fact_value::<_, CallableSignatureFact>(context, callable)?;
+
+    let (contract, contract_diagnostics) =
+        symbol_fact_value::<_, CallableContractTemplateFact>(context, callable)?;
 
     let (generic, generic_diagnostics) =
         symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_owner)?;
@@ -421,8 +430,10 @@ where
 
     let mut defaults = Vec::with_capacity(signature.parameters().len());
 
-    let mut has_diagnostics =
-        signature_diagnostics || generic_diagnostics || has_generic_argument_diagnostics;
+    let mut has_diagnostics = signature_diagnostics
+        || contract_diagnostics
+        || generic_diagnostics
+        || has_generic_argument_diagnostics;
 
     for parameter in signature.parameters() {
         let (value, default_diagnostics) =
@@ -445,11 +456,12 @@ where
             key,
             definition,
             signature,
+            contract,
             generic,
             generic_arguments,
-            defaults,
             state,
-        ),
+        )
+        .with_defaults(defaults),
     ));
 
     Ok(DeclarationCandidateOutcome::Added)

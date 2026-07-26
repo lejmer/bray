@@ -4,8 +4,8 @@ use bray_bound_tree::{
 use bray_checker::{ExpressionCandidateSet, OperationCandidateSource};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
-    GenericDeclarationTemplateFact,
+    CallableContractTemplateFact, CallableOverloadTemplateFact,
+    CallableParameterDefaultTemplateFact, CallableSignatureFact, GenericDeclarationTemplateFact,
 };
 use bray_syntax::GenericArgumentSyntax;
 
@@ -27,6 +27,7 @@ pub fn bind_expression_candidates<C>(
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
+        + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,

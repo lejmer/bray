@@ -15,9 +15,9 @@ use bray_symbols::{
     AnySymbolId, CallableCapabilityRequirement, CallableContractsFact, CallableEffectRequirement,
     CallableExecution, CallableExecutionRequirement, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
-    CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
+    CallableSymbolId, CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
     StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldDefaultValue,
-    SymbolFactRequest, TypeData, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    SymbolFactRequest, SymbolOrigin, TypeData, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
     UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact,
 };
 
@@ -44,13 +44,6 @@ impl BodyBehaviorBuilder {
 
         self.capabilities
             .extend(behavior.capabilities().iter().copied());
-
-        self.trusted_capabilities.extend(
-            behavior
-                .trusted_capabilities()
-                .iter()
-                .map(|capability| capability.capability()),
-        );
 
         self.execution_requirements
             .extend(behavior.execution_requirements().iter().copied());
@@ -197,6 +190,83 @@ impl Compilation {
         )
     }
 
+    fn direct_trusted_capability_use_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<(BTreeSet<AnySymbolId>, DiagnosticBag, bool), FactQueryError> {
+        let contributions =
+            self.body_behavior_contributions_with_cancellation(key, cancellation)?;
+
+        let mut capabilities = BTreeSet::new();
+        let mut diagnostics = contributions.result().diagnostics().clone();
+        let mut is_recovered = contributions.result().value().is_recovered();
+        let facts = self.binder_facts(cancellation)?;
+        let symbols = self.symbol_graph()?;
+
+        for call in contributions.result().value().calls() {
+            let BoundCallableTarget::Declaration(instance) = call.target() else {
+                continue;
+            };
+
+            let callable = instance.definition().callable_symbol();
+
+            match symbols.callable_origin(callable) {
+                Some(SymbolOrigin::Source) => {
+                    let CallableSymbolId::Function(function) = callable else {
+                        continue;
+                    };
+
+                    let foreign =
+                        self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+
+                    diagnostics = diagnostics.merged(foreign.diagnostics());
+
+                    if foreign.value().is_none() {
+                        continue;
+                    }
+
+                    let declared = bind_declared_trusted_capabilities(
+                        &facts,
+                        CallableSymbolId::Function(function),
+                    )
+                    .map_err(binder_fact_error)?;
+
+                    diagnostics = diagnostics.merged(declared.diagnostics());
+                    is_recovered |= declared.diagnostics().has_errors();
+
+                    capabilities.extend(
+                        declared
+                            .value()
+                            .iter()
+                            .map(|requirement| requirement.capability()),
+                    );
+                }
+                Some(SymbolOrigin::CompilerKnown | SymbolOrigin::CompilerProvided) => {
+                    let contract = facts
+                        .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
+                        .map_err(binder_fact_error)?;
+
+                    diagnostics = diagnostics.merged(contract.diagnostics());
+                    is_recovered |= contract.diagnostics().has_errors();
+
+                    if let Some(behavior) = phase_behavior(contract.value(), call.phase()) {
+                        capabilities.extend(
+                            behavior
+                                .trusted_capabilities()
+                                .iter()
+                                .map(|requirement| requirement.capability()),
+                        );
+                    }
+                }
+                Some(SymbolOrigin::Imported | SymbolOrigin::Synthesized) => {}
+                None => return Err(FactQueryError::InfrastructureFailure),
+            }
+        }
+
+        Ok((capabilities, diagnostics, is_recovered))
+    }
+
     fn compute_reachable_body_behavior(
         &self,
         root: &BoundUnitKey,
@@ -244,6 +314,13 @@ impl Compilation {
             }
         }
 
+        let (trusted_capabilities, capability_diagnostics, capability_recovered) =
+            self.direct_trusted_capability_use_with_cancellation(root.clone(), cancellation)?;
+
+        diagnostics = diagnostics.merged(&capability_diagnostics);
+        builder.trusted_capabilities = trusted_capabilities;
+        builder.is_recovered |= capability_recovered;
+
         Ok((
             builder.finish(root, root_bound.result().value().unit()),
             diagnostics,
@@ -267,18 +344,6 @@ impl Compilation {
                     let execution = callable_execution(facts, callable)?;
 
                     if phase_executes_body(call.phase(), execution) {
-                        let capabilities = bind_declared_trusted_capabilities(facts, callable)
-                            .map_err(binder_fact_error)?;
-
-                        *diagnostics = diagnostics.merged(capabilities.diagnostics());
-
-                        builder.trusted_capabilities.extend(
-                            capabilities
-                                .value()
-                                .iter()
-                                .map(|capability| capability.capability()),
-                        );
-
                         pending.push(body);
                     }
 
@@ -302,7 +367,7 @@ impl Compilation {
                 None => builder.is_recovered = true,
             },
             BoundCallableTarget::Indirect(_) => {
-                // TODO(BRA-233): Merge phase behavior carried by indirect callable contracts.
+                // TODO(BRA-267): Merge phase behavior carried by indirect callable contracts.
                 builder.is_recovered = true;
             }
         }
@@ -602,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn source_calls_propagate_exact_trusted_capability_identities() {
+    fn source_calls_do_not_propagate_implementation_capabilities() {
         let compilation = compilation(concat!(
             "trusted module app;\n",
             "trusted func outer()\n",
@@ -619,20 +684,9 @@ mod tests {
 
         let behavior = compilation
             .body_behavior(key)
-            .unwrap_or_else(|error| panic!("called behavior must propagate: {error:?}"));
+            .unwrap_or_else(|error| panic!("called behavior must summarize: {error:?}"));
 
-        let [capability] = behavior.value().trusted_capabilities() else {
-            panic!("called trusted capability must propagate");
-        };
-
-        assert_eq!(
-            compilation
-                .symbol_graph()
-                .unwrap_or_else(|error| panic!("symbols must be available: {error:?}"))
-                .member_name(*capability)
-                .map(bray_symbols::SymbolName::as_str),
-            Some("foreign_call")
-        );
+        assert!(behavior.value().trusted_capabilities().is_empty());
     }
 
     #[test]
@@ -653,7 +707,7 @@ mod tests {
             .body_behavior(awaited_key)
             .unwrap_or_else(|error| panic!("direct await must summarize: {error:?}"));
 
-        assert_eq!(direct_await.value().trusted_capabilities().len(), 1);
+        assert!(direct_await.value().trusted_capabilities().is_empty());
     }
 
     #[test]
@@ -674,7 +728,7 @@ mod tests {
             .body_behavior(awaited_key)
             .unwrap_or_else(|error| panic!("direct lambda await must summarize: {error:?}"));
 
-        assert_eq!(direct_await.value().trusted_capabilities().len(), 1);
+        assert!(direct_await.value().trusted_capabilities().is_empty());
     }
 
     fn callable_compilation(body: &str) -> Compilation {

@@ -144,7 +144,7 @@ where
                     }
                 }
             }
-            // TODO(BRA-233): Resolve open types from the enclosing static Copyable evidence.
+            // TODO(BRA-268): Resolve open types from the enclosing static Copyable evidence.
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }

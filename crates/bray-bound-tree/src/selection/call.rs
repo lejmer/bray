@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImplementationInstanceId, ImplementationRequirementKey,
+    CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
+    CallableParameterSymbolId, ImplementationInstanceId, ImplementationRequirementKey,
 };
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall};
@@ -64,6 +64,7 @@ pub enum SelectedArgument {
 pub struct SelectedCall {
     resolution: BoundResolvedCall,
     abi: CallableAbi,
+    contract: Option<Arc<CallableContractTemplate>>,
     arguments: Arc<[SelectedArgument]>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
@@ -79,6 +80,7 @@ impl SelectedCall {
         Self {
             resolution,
             abi,
+            contract: None,
             arguments: shared_slice(arguments),
             witnesses: sorted_unique_shared_slice(witnesses),
         }
@@ -92,6 +94,21 @@ impl SelectedCall {
     /// Returns the callable ABI participating in the selected call contract.
     pub const fn abi(&self) -> CallableAbi {
         self.abi
+    }
+
+    /// Retains the selected declaration's source or imported contract clauses.
+    pub fn with_contract(mut self, contract: Option<CallableContractTemplate>) -> Self {
+        self.contract = contract.map(Arc::new);
+
+        self
+    }
+
+    /// Returns contract clauses for a declaration-backed call.
+    pub fn contract(&self) -> Option<&CallableContractTemplate> {
+        match &self.contract {
+            Some(contract) => Some(contract.as_ref()),
+            None => None,
+        }
     }
 
     /// Returns explicit arguments in source order followed by defaults in parameter order.

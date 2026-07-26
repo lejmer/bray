@@ -8,7 +8,10 @@ use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView,
+    SemanticUnitContext,
+};
 
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
@@ -56,6 +59,49 @@ pub(super) fn add_intrinsic_constraints(
             _ => {}
         },
         _ => {}
+    }
+}
+
+pub(super) fn add_semantic_context_constraints<C>(
+    request: CheckerUnitView<'_, C>,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    boolean: TypeId,
+    inference: &mut TypeInferenceContext,
+) where
+    C: CheckerRequestContext + ?Sized,
+{
+    match (request.semantic_context(), request.root()) {
+        (
+            SemanticUnitContext::PredicateDefinition(_) | SemanticUnitContext::TargetGate(_),
+            CheckerUnitRoot::Expression(expression),
+        ) => add_operand_expectation(Some(expression), Some(boolean), variables, inference),
+        (
+            SemanticUnitContext::Constraint(_) | SemanticUnitContext::ContractClause(_),
+            CheckerUnitRoot::ExpressionSequence(block),
+        ) => {
+            let Some(block) = request.view().block(block) else {
+                return;
+            };
+
+            for expression in block.items().iter().filter_map(|item| item.expression()) {
+                add_operand_expectation(Some(expression), Some(boolean), variables, inference);
+            }
+        }
+        (
+            SemanticUnitContext::CallableBody(_)
+            | SemanticUnitContext::AnonymousCallable(_)
+            | SemanticUnitContext::RuntimeDefault(_)
+            | SemanticUnitContext::ConstantTemplate(_)
+            | SemanticUnitContext::EmbeddedConstant(_),
+            _,
+        )
+        | (
+            SemanticUnitContext::PredicateDefinition(_)
+            | SemanticUnitContext::Constraint(_)
+            | SemanticUnitContext::ContractClause(_)
+            | SemanticUnitContext::TargetGate(_),
+            _,
+        ) => {}
     }
 }
 
