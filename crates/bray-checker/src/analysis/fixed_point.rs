@@ -23,6 +23,10 @@ pub(crate) trait FixedPointDomain {
         self.bottom()
     }
 
+    fn should_seed(&self, _: &AnalysisBlock) -> bool {
+        false
+    }
+
     fn boundary(&self) -> Self::State;
 
     fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool;
@@ -96,6 +100,12 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
 
         domain.merge_boundary(state, &domain.boundary());
         enqueue(boundary, &mut worklist, &mut queued);
+    }
+
+    for block in graph.blocks() {
+        if domain.should_seed(block) {
+            enqueue(block.id(), &mut worklist, &mut queued);
+        }
     }
 
     let mut updates = 0_usize;

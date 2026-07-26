@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallResult,
-    BoundCallableTarget, BoundExpression, CheckedControlFlowFacts, CheckedSemanticSelections,
+    BoundCallableTarget, CheckedAsyncFacts, CheckedControlFlowFacts, CheckedSemanticSelections,
     ConstructionDefaultProvider, ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget,
     SelectedArgument, SelectedConstructionInput, SelectedConversion, SelectedOperation,
     SemanticSelection,
@@ -14,6 +14,7 @@ pub(crate) fn collect_body_behavior<C>(
     request: CheckerUnitView<'_, C>,
     control_flow: &CheckedControlFlowFacts,
     selections: &CheckedSemanticSelections,
+    async_facts: &CheckedAsyncFacts,
 ) -> CheckerOutcome<BodyBehaviorContributions>
 where
     C: CheckerRequestContext + ?Sized,
@@ -26,6 +27,8 @@ where
         || control_flow.kind() != request.unit().key().kind()
         || selections.unit() != request.unit().unit()
         || selections.kind() != request.unit().key().kind()
+        || async_facts.unit() != request.unit().unit()
+        || async_facts.kind() != request.unit().key().kind()
     {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,
@@ -55,7 +58,7 @@ where
 
                 if matches!(call.target(), BoundCallableTarget::Anonymous(_))
                     && !async_anonymous
-                    && let Some(unit) = anonymous_callable_unit(request, entry.expression())
+                    && let Some(unit) = request.anonymous_callable_unit(entry.expression())
                 {
                     contribution = contribution.with_anonymous_unit(unit);
                 }
@@ -82,29 +85,8 @@ where
         }
     }
 
-    for (_, expression) in request.unit().tree().expressions() {
-        let BoundExpression::Await(await_expression) = expression else {
-            continue;
-        };
-
-        // TODO(BRA-266): Consume deferred behavior carried by arbitrary Future values.
-        let Some(SemanticSelection::Call(call)) = selections.expression(await_expression.operand())
-        else {
-            continue;
-        };
-
-        if matches!(call.resolution().result(), BoundCallResult::LazyFuture(_)) {
-            let mut contribution =
-                BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::DeferredExecution);
-
-            if matches!(call.target(), BoundCallableTarget::Anonymous(_))
-                && let Some(unit) = anonymous_callable_unit(request, await_expression.operand())
-            {
-                contribution = contribution.with_anonymous_unit(unit);
-            }
-
-            calls.push(contribution);
-        }
+    for suspension in async_facts.suspensions() {
+        calls.extend(suspension.deferred_calls().iter().cloned());
     }
 
     let current_run_cancellation = if control_flow
@@ -134,26 +116,6 @@ where
         ),
         DiagnosticBag::new(),
     ))
-}
-
-fn anonymous_callable_unit<C>(
-    request: CheckerUnitView<'_, C>,
-    call: bray_bound_tree::BoundExpressionId,
-) -> Option<bray_bound_tree::BoundUnitKey>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let BoundExpression::Call(call) = request.unit().view().expression(call)? else {
-        return None;
-    };
-
-    let BoundExpression::AnonymousCallable(callable) =
-        request.unit().view().expression(call.callee())?
-    else {
-        return None;
-    };
-
-    Some(callable.unit().clone())
 }
 
 fn collect_operation_behavior(
@@ -219,8 +181,9 @@ fn invocation(callable: bray_symbols::CallableInstanceData) -> BodyBehaviorCall 
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundAwaitExpression, BoundCallExpression, BoundCallResult, BoundCallableTarget,
-        BoundExpression, BoundResolvedCall, BoundUnitId, CheckedControlFlowFacts,
+        AsyncSuspensionPoint, BodyBehaviorCall, BodyBehaviorPhase, BoundAwaitExpression,
+        BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
+        BoundResolvedCall, BoundUnitId, CheckedAsyncFacts, CheckedControlFlowFacts,
         CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus, SemanticSelection,
         SemanticSelectionEntry,
     };
@@ -295,14 +258,39 @@ mod tests {
             ]),
         );
 
+        let async_facts = CheckedAsyncFacts::try_new(
+            unit_id,
+            unit.key().kind(),
+            [],
+            [AsyncSuspensionPoint::new(
+                expressions[2],
+                expressions[1],
+                None,
+                [BodyBehaviorCall::new(
+                    BoundCallableTarget::Indirect(callable_type),
+                    BodyBehaviorPhase::DeferredExecution,
+                )],
+                [],
+                false,
+            )],
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("test async facts must validate: {error:?}"));
+
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
         let request = CheckerUnitView::new(&unit, &semantic_context, &context)
             .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
 
-        let result =
-            DefaultBodyBehaviorCollector.collect_body_behavior(request, &control_flow, &selections);
+        let result = DefaultBodyBehaviorCollector.collect_body_behavior(
+            request,
+            &control_flow,
+            &selections,
+            &async_facts,
+        );
 
         let crate::CheckerOutcome::Complete(result) = result else {
             panic!("behavior collection must complete");

@@ -267,6 +267,10 @@ pub enum DiagnosticKind {
     CheckingUnusedTrustedCapability,
     /// Trusted implementation capability use occurs outside a trusted callable.
     CheckingTrustedCapabilityRequiresTrustedCallable,
+    /// A direct await occurs outside an asynchronous callable body.
+    CheckingAwaitOutsideAsyncCallable,
+    /// A future is started outside an active asynchronous callable body.
+    CheckingTaskStartOutsideAsyncCallable,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -422,6 +426,8 @@ impl DiagnosticKind {
             Self::CheckingUndeclaredTrustedCapability => 7062,
             Self::CheckingUnusedTrustedCapability => 7063,
             Self::CheckingTrustedCapabilityRequiresTrustedCallable => 7064,
+            Self::CheckingAwaitOutsideAsyncCallable => 7065,
+            Self::CheckingTaskStartOutsideAsyncCallable => 7066,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -622,6 +628,10 @@ impl DiagnosticKind {
             Self::CheckingTrustedCapabilityRequiresTrustedCallable => {
                 "checking_trusted_capability_requires_trusted_callable"
             }
+            Self::CheckingAwaitOutsideAsyncCallable => "checking_await_outside_async_callable",
+            Self::CheckingTaskStartOutsideAsyncCallable => {
+                "checking_task_start_outside_async_callable"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -685,7 +695,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 140] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 142] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -818,6 +828,8 @@ mod tests {
             DiagnosticKind::CheckingUndeclaredTrustedCapability,
             DiagnosticKind::CheckingUnusedTrustedCapability,
             DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
+            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+            DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

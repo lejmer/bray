@@ -150,6 +150,7 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let control = self.control_flow_with_cancellation(key.clone(), cancellation)?;
+                let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
 
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
@@ -171,6 +172,7 @@ impl Compilation {
                     request,
                     control.result().value(),
                     selections.result().value(),
+                    async_facts.result().value(),
                 ))?;
 
                 let (contributions, contribution_diagnostics) = result.into_parts();
@@ -179,6 +181,7 @@ impl Compilation {
                     bound.result().diagnostics(),
                     control.result().diagnostics(),
                     selections.result().diagnostics(),
+                    async_facts.result().diagnostics(),
                     &contribution_diagnostics,
                 ]);
 

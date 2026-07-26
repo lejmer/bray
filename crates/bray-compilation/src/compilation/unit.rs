@@ -8,19 +8,19 @@ use bray_binder::{
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
-    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts,
+    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedAsyncFacts, CheckedControlFlowFacts,
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
     CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
     StorageFlowFacts, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
-    CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultDependencyContractChecker, DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer,
-    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultStorageFlowChecker,
-    DefaultStoragePlanner, DependencyContractChecker, ExpressionCandidateSet,
-    ExpressionSemanticChecker, IterationPatternType, LivenessAnalyzer, NestedCallableEvidence,
-    PatternCheckInput, PatternChecker, RefinementAnalyzer, SemanticUnitContext, StorageFlowChecker,
-    StoragePlanner,
+    AsyncChecker, CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker,
+    DefaultAsyncChecker, DefaultControlFlowChecker, DefaultDependencyContractChecker,
+    DefaultExpressionSemanticChecker, DefaultLivenessAnalyzer, DefaultPatternChecker,
+    DefaultRefinementAnalyzer, DefaultStorageFlowChecker, DefaultStoragePlanner,
+    DependencyContractChecker, ExpressionCandidateSet, ExpressionSemanticChecker,
+    IterationPatternType, LivenessAnalyzer, NestedCallableEvidence, PatternCheckInput,
+    PatternChecker, RefinementAnalyzer, SemanticUnitContext, StorageFlowChecker, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -163,6 +163,16 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedDependencyContracts>>, FactQueryError> {
         let published =
             self.dependency_contracts_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns async frame, suspension, task, and cleanup facts for one unit.
+    pub fn async_facts(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedAsyncFacts>>, FactQueryError> {
+        let published = self.async_facts_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -872,6 +882,68 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn async_facts_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedAsyncFacts>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.async_facts,
+            CompilationFactKey::AsyncFacts(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
+
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
+                let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
+
+                let dependencies =
+                    self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
+
+                let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let unit =
+                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+                        .map_err(|error| {
+                            FactQueryError::CheckerInfrastructure(
+                                CheckerInfrastructureError::InvalidUnitView(error),
+                            )
+                        })?;
+
+                let result = checker_result(DefaultAsyncChecker.check_async_facts(
+                    unit,
+                    types.result().value(),
+                    selections.result().value(),
+                    liveness.result().value(),
+                    dependencies.result().value(),
+                    flow.result().value(),
+                ))?;
+
+                let (facts, async_diagnostics) = result.into_parts();
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    types.result().diagnostics(),
+                    selections.result().diagnostics(),
+                    liveness.result().diagnostics(),
+                    dependencies.result().diagnostics(),
+                    flow.result().diagnostics(),
+                    &async_diagnostics,
+                ]);
+
+                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+            },
+        )
+    }
+
     pub(super) fn declared_value_type_templates_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -1430,6 +1502,112 @@ mod tests {
                 key.clone()
             ))
         );
+    }
+
+    #[test]
+    fn async_facts_report_awaits_in_synchronous_callables() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    await child();\n",
+            "}\n",
+            "async func child() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+        let facts = match compilation.async_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("async facts must publish: {error:?}"),
+        };
+
+        assert_eq!(facts.value().suspensions().len(), 1);
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .next()
+                .is_some()
+        );
+
+        assert!(
+            compilation
+                .semantic_diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn async_facts_follow_deferred_calls_through_local_future_bindings() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "async func main() -> i32\n",
+            "{\n",
+            "    let retained: i32 = 1;\n",
+            "    let pending = child();\n",
+            "    let ignored: i32 = await pending;\n",
+            "    return retained;\n",
+            "}\n",
+            "async func child() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+        let liveness = match compilation.liveness(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("liveness facts must publish: {error:?}"),
+        };
+
+        let facts = match compilation.async_facts(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("async facts must publish: {error:?}"),
+        };
+
+        let [suspension] = facts.value().suspensions() else {
+            panic!("the direct await must publish one suspension point");
+        };
+
+        assert_eq!(suspension.deferred_calls().len(), 1);
+        assert!(!suspension.is_recovered());
+        assert!(!facts.value().frame_dependencies().is_empty());
+
+        assert_eq!(
+            suspension.retained_subjects(),
+            facts.value().frame_dependencies()
+        );
+
+        assert_eq!(
+            liveness
+                .value()
+                .live_across_suspensions()
+                .iter()
+                .map(|entry| entry.subject())
+                .collect::<Vec<_>>(),
+            facts.value().frame_dependencies()
+        );
+
+        assert!(
+            facts
+                .value()
+                .scope_exits()
+                .iter()
+                .all(|exit| exit.cancellation_broadcast() == exit.lifecycle_resolution())
+        );
+
+        let repeated = match compilation.async_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated async facts must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&facts, &repeated));
     }
 
     #[test]

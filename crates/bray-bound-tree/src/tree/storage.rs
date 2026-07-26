@@ -68,6 +68,17 @@ impl BoundTree {
         self.entry(id.unit(), id.to_index(), &self.blocks)
     }
 
+    /// Returns blocks with their unit-local identities.
+    pub fn blocks(&self) -> impl ExactSizeIterator<Item = (BoundBlockId, &BoundBlock)> {
+        self.blocks.iter().enumerate().map(|(index, block)| {
+            // BoundTreeBuilder rejects block counts that cannot be represented by IDs.
+            let slot =
+                u32::try_from(index).unwrap_or_else(|_| panic!("bound block slot must fit in u32"));
+
+            (BoundBlockId::from_slot(self.unit, slot), block)
+        })
+    }
+
     /// Returns the callable body identified within this tree, when present.
     pub fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody> {
         self.entry(id.unit(), id.to_index(), &self.callable_bodies)

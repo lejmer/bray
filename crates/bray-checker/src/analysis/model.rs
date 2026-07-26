@@ -1,4 +1,5 @@
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId};
+use bray_compiler_known::ImplementationHook;
 
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
 
@@ -37,6 +38,17 @@ pub(crate) enum AnalysisTaskOperationKind {
     Join,
     /// `Task<T>.cancel()` transfers the task into a lazy cancellation computation.
     Cancel,
+}
+
+impl AnalysisTaskOperationKind {
+    pub(crate) const fn from_implementation_hook(hook: ImplementationHook) -> Option<Self> {
+        match hook {
+            ImplementationHook::FutureStart => Some(Self::Start),
+            ImplementationHook::TaskJoin => Some(Self::Join),
+            ImplementationHook::TaskCancel => Some(Self::Cancel),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

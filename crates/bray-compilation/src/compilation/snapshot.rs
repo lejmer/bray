@@ -425,9 +425,9 @@ fn reuse_mapped_cells(
         CompilationFactKey::CheckedSemanticSelections(key.clone())
     });
 
-    reuse!(storage_plans, |key| CompilationFactKey::StoragePlan(
-        key.clone()
-    ));
+    reuse!(storage_plans, |key| {
+        CompilationFactKey::StoragePlan(key.clone())
+    });
 
     reuse!(liveness, |key| CompilationFactKey::Liveness(key.clone()));
 
@@ -441,6 +441,10 @@ fn reuse_mapped_cells(
 
     reuse!(dependency_contracts, |key| {
         CompilationFactKey::DependencyContracts(key.clone())
+    });
+
+    reuse!(async_facts, |key| {
+        CompilationFactKey::AsyncFacts(key.clone())
     });
 
     reuse!(body_behavior_contributions, |key| {

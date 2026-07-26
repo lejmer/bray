@@ -308,6 +308,15 @@ const CHECKING_TRUSTED_CAPABILITY_REQUIRES_TRUSTED_CALLABLE: &[MessageTemplatePa
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const CHECKING_AWAIT_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "await is only permitted in an asynchronous callable body",
+)];
+
+const CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "a future can only be started from an asynchronous callable body",
+    )];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -1013,6 +1022,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable => {
             MessageTemplate::new(CHECKING_TRUSTED_CAPABILITY_REQUIRES_TRUSTED_CALLABLE)
+        }
+        DiagnosticKind::CheckingAwaitOutsideAsyncCallable => {
+            MessageTemplate::new(CHECKING_AWAIT_OUTSIDE_ASYNC_CALLABLE)
+        }
+        DiagnosticKind::CheckingTaskStartOutsideAsyncCallable => {
+            MessageTemplate::new(CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE)
         }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)

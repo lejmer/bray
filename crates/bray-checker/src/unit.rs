@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitRoot, BoundUnitView,
+    BoundBlockId, BoundCallableBodyId, BoundExpression, BoundExpressionId, BoundUnit, BoundUnitKey,
+    BoundUnitRoot, BoundUnitView,
 };
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CallableSymbolId, SemanticValueStore, SymbolFactContract,
@@ -94,6 +95,20 @@ where
             semantic_context,
             context,
         })
+    }
+
+    pub(crate) fn anonymous_callable_unit(self, call: BoundExpressionId) -> Option<BoundUnitKey> {
+        let BoundExpression::Call(call) = self.view.expression(call)? else {
+            return None;
+        };
+
+        let BoundExpression::AnonymousCallable(callable) = self.view.expression(call.callee())?
+        else {
+            return None;
+        };
+
+        // Unit keys own Arc-backed stable identities independently.
+        Some(callable.unit().clone())
     }
 
     /// Returns the read-only bound unit view to analyze.
