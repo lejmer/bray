@@ -166,6 +166,15 @@ pub enum StorageAccessPurpose {
     Projection,
 }
 
+impl StorageAccessPurpose {
+    /// Returns whether a checked purpose is a valid resolution of this planned purpose.
+    pub fn matches_checked(self, checked: Self) -> bool {
+        self == checked
+            || matches!(self, Self::ValueTransfer)
+                && matches!(checked, Self::Copy | Self::Move | Self::ValueTransfer)
+    }
+}
+
 /// One expression occurrence and the exact storage access it evaluates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageAccessPlan {
@@ -582,8 +591,8 @@ mod tests {
     use super::StoragePlan;
     use crate::{
         BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId,
-        StorageAccessRoot, StorageIdentity, StorageIdentityId, StorageProjection,
-        StorageRelationship,
+        StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+        StorageProjection, StorageRelationship,
     };
 
     #[test]
@@ -591,6 +600,19 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<StoragePlan>();
+    }
+
+    #[test]
+    fn value_transfer_accepts_its_checked_copy_or_move_resolution() {
+        assert!(
+            StorageAccessPurpose::ValueTransfer
+                .matches_checked(StorageAccessPurpose::ValueTransfer)
+        );
+
+        assert!(StorageAccessPurpose::ValueTransfer.matches_checked(StorageAccessPurpose::Copy));
+        assert!(StorageAccessPurpose::ValueTransfer.matches_checked(StorageAccessPurpose::Move));
+
+        assert!(!StorageAccessPurpose::Read.matches_checked(StorageAccessPurpose::Move));
     }
 
     #[test]
