@@ -17,8 +17,9 @@ use bray_symbols::{
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSymbolId, CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
     StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldDefaultValue,
-    SymbolFactRequest, SymbolOrigin, TypeData, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
-    UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact,
+    SymbolFactRequest, SymbolOrigin, TrustedCapabilitySymbolId, TypeData, TypeExpressionTemplate,
+    UnevaluatedDefaultTemplate, UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact,
+    UnionPayloadFieldDefaultTemplateFact,
 };
 
 use super::binder::{CompilationBinderFacts, bind_declared_trusted_capabilities};
@@ -31,7 +32,7 @@ use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, Publish
 struct BodyBehaviorBuilder {
     effects: BTreeSet<CallableEffectRequirement>,
     capabilities: BTreeSet<CallableCapabilityRequirement>,
-    trusted_capabilities: BTreeSet<AnySymbolId>,
+    trusted_capabilities: BTreeSet<TrustedCapabilitySymbolId>,
     execution_requirements: BTreeSet<CallableExecutionRequirement>,
     lifecycle_obligations: BTreeSet<LifecycleObligationKind>,
     current_run_cancellation: bool,
@@ -197,7 +198,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<(BTreeSet<AnySymbolId>, DiagnosticBag, bool), FactQueryError> {
+    ) -> Result<(BTreeSet<TrustedCapabilitySymbolId>, DiagnosticBag, bool), FactQueryError> {
         let contributions =
             self.body_behavior_contributions_with_cancellation(key, cancellation)?;
 

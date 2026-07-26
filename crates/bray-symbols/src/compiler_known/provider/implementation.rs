@@ -661,9 +661,11 @@ fn build_declarations(
             });
         };
 
-        if surface.kind() != descriptor.kind()
-            || stable_symbols.get(descriptor.key()) != Some(&symbol)
-        {
+        let surface_matches = surface.kind() == descriptor.kind()
+            || descriptor.kind() == bray_compiler_known::CatalogDeclarationKind::TrustedCapability
+                && surface.kind() == bray_compiler_known::CatalogDeclarationKind::Predicate;
+
+        if !surface_matches || stable_symbols.get(descriptor.key()) != Some(&symbol) {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
                 declaration: descriptor.id(),
             });
@@ -775,7 +777,7 @@ mod tests {
     };
     use crate::{
         CompilerKnownScopeSymbolId, FunctionSymbolId, StructSymbolId, SymbolKind, SymbolOrigin,
-        SymbolProvider,
+        SymbolProvider, TrustedCapabilitySymbolId,
     };
 
     #[test]
@@ -821,6 +823,19 @@ mod tests {
 
         assert_eq!(
             provider.declaration_symbol::<StructSymbolId>(&declaration_key("Missing")),
+            None
+        );
+
+        let raw_memory = declaration_key("RawMemoryCapability");
+
+        assert!(
+            provider
+                .declaration_symbol::<TrustedCapabilitySymbolId>(&raw_memory)
+                .is_some()
+        );
+
+        assert_eq!(
+            provider.declaration_symbol::<crate::PredicateSymbolId>(&raw_memory),
             None
         );
 

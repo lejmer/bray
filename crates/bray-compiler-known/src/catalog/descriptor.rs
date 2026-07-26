@@ -16,6 +16,8 @@ use super::{
 /// map the same surface category to different symbol categories later.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CatalogDeclarationKind {
+    /// Compiler-known trusted capability.
+    TrustedCapability,
     /// Constant declaration.
     Constant,
     /// Function declaration.

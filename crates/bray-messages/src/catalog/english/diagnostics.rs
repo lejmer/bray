@@ -317,6 +317,10 @@ const CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] =
         "a future can only be started from an asynchronous callable body",
     )];
 
+const CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "awaited computation requires semantic state that is not available here",
+)];
+
 const CHECKING_ENTRYPOINT_NOT_ALLOWED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "entrypoint directive is not allowed for this product",
 )];
@@ -1069,6 +1073,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTaskStartOutsideAsyncCallable => {
             MessageTemplate::new(CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE)
+        }
+        DiagnosticKind::CheckingUnavailableAwaitDependency => {
+            MessageTemplate::new(CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY)
         }
         DiagnosticKind::CheckingEntrypointNotAllowed => {
             MessageTemplate::new(CHECKING_ENTRYPOINT_NOT_ALLOWED)

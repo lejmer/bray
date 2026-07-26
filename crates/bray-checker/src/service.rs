@@ -272,9 +272,20 @@ where
         selections: &CheckedSemanticSelections,
         liveness: &LivenessFacts,
         dependencies: &CheckedDependencyContracts,
+        storage: &StoragePlan,
+        refinements: &CheckedRefinementFacts,
         flow: &StorageFlowFacts,
     ) -> CheckerOutcome<CheckedAsyncFacts> {
-        check_async_facts(request, types, selections, liveness, dependencies, flow)
+        check_async_facts(
+            request,
+            types,
+            selections,
+            liveness,
+            dependencies,
+            storage,
+            refinements,
+            flow,
+        )
     }
 }
 

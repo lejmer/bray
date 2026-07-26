@@ -945,6 +945,11 @@ impl Compilation {
                 let dependencies =
                     self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
 
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+
+                let refinements =
+                    self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
+
                 let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
@@ -966,6 +971,8 @@ impl Compilation {
                     selections.result().value(),
                     liveness.result().value(),
                     dependencies.result().value(),
+                    storage.result().value(),
+                    refinements.result().value(),
                     flow.result().value(),
                 ))?;
 
@@ -977,6 +984,8 @@ impl Compilation {
                     selections.result().diagnostics(),
                     liveness.result().diagnostics(),
                     dependencies.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    refinements.result().diagnostics(),
                     flow.result().diagnostics(),
                     &async_diagnostics,
                 ]);
@@ -1739,7 +1748,7 @@ mod tests {
         };
 
         assert!(suspension.deferred_calls().is_empty());
-        assert!(!suspension.is_recovered());
+        assert!(!suspension.is_recovered(), "{suspension:?}");
     }
 
     #[test]
@@ -1769,6 +1778,11 @@ mod tests {
         let facts = match compilation.async_facts(key.clone()) {
             Ok(facts) => facts,
             Err(error) => panic!("async facts must publish: {error:?}"),
+        };
+
+        let storage = match compilation.storage_plan(key.clone()) {
+            Ok(storage) => storage,
+            Err(error) => panic!("storage plan must publish: {error:?}"),
         };
 
         let [suspension] = facts.value().suspensions() else {
@@ -1801,6 +1815,31 @@ mod tests {
                 .scope_exits()
                 .iter()
                 .all(|exit| exit.cancellation_broadcast() == exit.lifecycle_resolution())
+        );
+
+        assert!(
+            facts
+                .value()
+                .scope_exits()
+                .iter()
+                .any(|exit| !exit.cancellation_broadcast().is_empty())
+        );
+
+        let cleanup_roles = facts
+            .value()
+            .scope_exits()
+            .iter()
+            .flat_map(|exit| exit.cancellation_broadcast())
+            .filter_map(|access| storage.value().access(*access))
+            .filter_map(|access| type_representation(&compilation, access.reached_type()))
+            .collect::<Vec<_>>();
+
+        assert!(cleanup_roles.contains(&RepresentationRole::Future));
+
+        assert!(
+            cleanup_roles
+                .iter()
+                .all(|role| *role == RepresentationRole::Future)
         );
 
         let repeated = match compilation.async_facts(key) {
@@ -3098,6 +3137,13 @@ mod tests {
         ty: bray_symbols::TypeId,
         expected: RepresentationRole,
     ) {
+        assert_eq!(type_representation(compilation, ty), Some(expected));
+    }
+
+    fn type_representation(
+        compilation: &Compilation,
+        ty: bray_symbols::TypeId,
+    ) -> Option<RepresentationRole> {
         let values = match compilation.semantic_value_store() {
             Ok(values) => values,
             Err(error) => panic!("semantic values must be available: {error:?}"),
@@ -3108,20 +3154,18 @@ mod tests {
             Err(error) => panic!("type must be available: {error:?}"),
         };
 
-        let TypeData::Named {
-            definition: NamedTypeSymbolId::Struct(definition),
-            ..
-        } = data.as_ref()
-        else {
-            panic!("type must use a named scalar representation");
+        let TypeData::Named { definition, .. } = data.as_ref() else {
+            return None;
         };
 
-        assert_eq!(
-            compilation
+        match definition {
+            NamedTypeSymbolId::Struct(definition) => compilation
                 .available_compiler_known_symbols()
                 .symbol_representation(*definition),
-            Some(expected)
-        );
+            NamedTypeSymbolId::Union(definition) => compilation
+                .available_compiler_known_symbols()
+                .symbol_representation(*definition),
+        }
     }
 
     fn first_pattern_reference(bound: &BoundUnit) -> Option<BoundExpressionId> {

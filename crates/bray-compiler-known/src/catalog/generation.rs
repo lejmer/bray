@@ -459,7 +459,7 @@ mod tests {
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 11);
+        assert_eq!(generator_input_inventory().sources().len(), 12);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()

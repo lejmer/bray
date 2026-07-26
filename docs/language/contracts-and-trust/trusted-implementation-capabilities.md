@@ -2,6 +2,9 @@
 
 A trusted implementation capability is authority used inside a trusted declaration body.
 
+Trusted implementation capabilities are compiler-known names in the ordinary lookup namespace. They are not values or predicates,
+cannot be called, and are only valid where the grammar expects a trusted capability.
+
 A trusted declaration that uses trusted implementation capabilities declares the exact capabilities used by its body with `uses(...)`.
 
 ```bray

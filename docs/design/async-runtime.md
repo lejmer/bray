@@ -175,7 +175,9 @@ executable or test product validation performs the closed-world runtime satisfia
 
 ## Structured scope-exit plans
 
-Composite storage flow owns task-obligation state. For every async lexical block exit, it emits one checked cleanup plan containing:
+Composite storage flow owns task-obligation state and publishes the initialized roots, exact moved access paths, and active borrows
+at each async lexical block exit. Async checking combines that state with checked type representations and emits one cleanup plan
+containing:
 
 - every owned unresolved task access path at that exit, including tasks held in initialized hidden `Future<T>` frame state,
 - aggregate projections and active guards needed to find nested tasks,
@@ -197,7 +199,9 @@ finalize, or destroy. Phase two invokes the distinct lifecycle-resolution operat
 validation rejects a descriptor or cleanup plan that can discover a new phase-one task while phase two is running.
 
 This is one composite plan, not independently recomputed task and lifecycle passes. Control-flow merge preserves a conservative
-obligation when any reachable predecessor still owns it. Partial aggregates use initialized and moved-part facts.
+obligation when any reachable predecessor still owns it. Plans retain exact root and projected access identities. Partial aggregates
+use moved access paths as masks so cleanup can traverse the remaining initialized state without treating the whole aggregate as
+moved.
 
 Lowering consumes only checked cleanup plans. It does not rediscover which tasks are live from syntax or type recursion.
 

@@ -3,7 +3,7 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractClauseKind, CallableSignatureFact, LocalSymbolRegionId,
-    MemberLookupResult, PredicateSemanticSummary,
+    MemberLookupResult, PredicateSemanticSummary, TrustedCapabilitySymbolId,
 };
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
 
@@ -102,7 +102,7 @@ pub fn bind_trusted_capability_clause<C>(
     facts: &C,
     owner: AnySymbolId,
     clause: &UsesClauseSyntax,
-) -> BinderFactResult<DiagnosticResult<Box<[AnySymbolId]>>>
+) -> BinderFactResult<DiagnosticResult<Box<[TrustedCapabilitySymbolId]>>>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -115,7 +115,7 @@ where
             let mut capabilities = Vec::new();
 
             for capability in clause.paths() {
-                match binder.bind_surface_path(path, &capability)? {
+                match binder.bind_trusted_capability_path(path, &capability)? {
                     MemberLookupResult::Found(symbol) => capabilities.push(symbol),
                     MemberLookupResult::NotFound
                     | MemberLookupResult::WrongKind(_)

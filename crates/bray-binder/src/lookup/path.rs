@@ -349,6 +349,7 @@ where
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_surface_path(
         &mut self,
         context: PathBindingContext,
@@ -361,6 +362,24 @@ where
             |name| match name {
                 ResolvedName::Surface(symbol) => Some(symbol),
                 ResolvedName::Local(_) => None,
+            },
+        )
+    }
+
+    pub(crate) fn bind_trusted_capability_path(
+        &mut self,
+        context: PathBindingContext,
+        path: &PathSyntax,
+    ) -> BinderFactResult<NameLookupResult<bray_symbols::TrustedCapabilitySymbolId>> {
+        self.bind_classified_path(
+            context,
+            path,
+            DiagnosticNameKind::TrustedCapability,
+            |name| match name {
+                ResolvedName::Surface(AnySymbolId::TrustedCapability(capability)) => {
+                    Some(capability)
+                }
+                ResolvedName::Surface(_) | ResolvedName::Local(_) => None,
             },
         )
     }

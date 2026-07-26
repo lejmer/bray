@@ -39,6 +39,7 @@ pub(super) struct ParsedDeclaration {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ParsedDeclarationField {
+    Kind(Anchored<Arc<str>>),
     Owner(Anchored<Arc<str>>),
     Identity(Anchored<ParsedDeclarationIdentity>),
     Availability(Anchored<Arc<str>>),

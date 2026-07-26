@@ -128,7 +128,16 @@ fn resolve_symbol_kind(
         }
     };
 
-    let kind = declaration_symbol_kind(declaration_kind.into(), owner_kind);
+    let kind = match declaration_kind {
+        CatalogDeclarationKind::TrustedCapability => SymbolKind::TrustedCapability,
+        _ => {
+            let surface = declaration_kind.try_into().map_err(|_| {
+                CompilerKnownSymbolBuildError::InvalidDeclarationSurface { declaration }
+            })?;
+
+            declaration_symbol_kind(surface, owner_kind)
+        }
+    };
 
     resolving.remove(&declaration);
     resolved.insert(declaration, kind);

@@ -830,12 +830,14 @@ cancellation-aware operations. This is panic-like implicit abnormal-control meta
 overload/assignment discriminator. Constant, predicate, and other effect-free contexts reject it. Exported checked declaration
 metadata preserves it for diagnostics, lowering, and inspection.
 
-For each async lexical scope exit, composite storage flow emits one two-phase cleanup plan: all owned unresolved tasks receive
-cancellation before any task is awaited, then normal reverse lifecycle resolution proceeds with dependency ordering. Lowering
-consumes this plan without repeating flow analysis. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations
-participate through their checked declaration contracts rather than compiler name recognition. The plan names separate descriptor
-broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup when a
-possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
+For each async lexical scope exit, composite storage flow publishes the exact initialized roots, moved access paths, and active
+borrows. Async checking combines that state with checked type representations to emit one two-phase cleanup plan over exact storage
+access paths: all owned unresolved tasks receive cancellation before any task is awaited, then normal reverse lifecycle resolution
+proceeds with dependency ordering. Partial moves remain explicit masks rather than being collapsed into whole-root state. Lowering
+consumes this plan without repeating flow or type analysis. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle
+obligations participate through their checked declaration contracts rather than compiler name recognition. The plan names separate
+descriptor broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup
+when a possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
 `Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and requires explicit consuming
 observation; abnormal cleanup can record its failure as an incident.
 

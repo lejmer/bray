@@ -20,6 +20,8 @@ pub enum CatalogEntryKind {
 /// Known field names in the private catalog language.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CatalogField {
+    /// A semantic declaration category.
+    Kind,
     /// A declaration owner stable key.
     Owner,
     /// A recognized declaration's explicit external identity.
@@ -45,6 +47,8 @@ pub enum CatalogField {
 /// Typed metadata namespace used when a spelling is unknown.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CatalogMetadataKind {
+    /// Semantic declaration category metadata.
+    DeclarationKind,
     /// Target availability metadata.
     Availability,
     /// Protected representation metadata.
