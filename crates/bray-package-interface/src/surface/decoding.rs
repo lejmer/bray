@@ -100,6 +100,7 @@ pub(crate) fn decode_strings(
             InterfaceLimit::StringLength,
             u64::try_from(length).unwrap_or(u64::MAX),
         )?;
+
         budget.charge(length)?;
 
         let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
@@ -245,6 +246,7 @@ pub(crate) fn decode_exports(
         let owner = InterfaceSymbolId::new(read_u32(&mut reader)?);
         let name = symbol_name(read_string(&mut reader, strings)?)?;
         let kind: ExportedLookupKind = read_tag(&mut reader)?;
+
         let target = match read_u32(&mut reader)? {
             1 => InterfaceSymbolReference::Local(InterfaceSymbolId::new(read_u32(&mut reader)?)),
             2 => InterfaceSymbolReference::Dependency {

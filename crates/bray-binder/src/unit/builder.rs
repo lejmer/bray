@@ -866,6 +866,7 @@ mod tests {
         let other_root = other.root_scope();
 
         push_binding(&mut other, other_root, fixture.first, false);
+
         representative_binding(
             &mut other,
             other_root,

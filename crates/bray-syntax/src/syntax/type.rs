@@ -64,6 +64,7 @@ mod tests {
             "syntax-type-declaration-test",
             "@copy public struct Point {}",
         );
+
         let mut builder = StructDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_type_directives(copy_type_directives(snapshot.clone()));

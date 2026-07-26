@@ -117,6 +117,7 @@ fn collect_key_strings(key: &ExternalSymbolKey, values: &mut BTreeSet<String>) {
                 if let ExternalDeclarationIdentity::Name(name) = identity {
                     values.insert(name.as_str().to_owned());
                 }
+
                 current = Some(owner);
                 continue;
             }
@@ -196,6 +197,7 @@ fn encode_local_key_component(
         ExternalSymbolKeyData::Module { path, .. } => {
             encoder.write_u32(2);
             encoder.write_u32(checked_u32(path.segments().len()));
+
             for segment in path.segments() {
                 encoder.write_u32(strings.id(segment));
             }
@@ -523,6 +525,7 @@ mod tests {
 
         let dependency_key = dependency_function_key();
         let dependency = DependencyInterfaceId::new(u32::from(reverse));
+
         let mut exports = vec![
             ExportedLookupEdge::new(
                 InterfaceSymbolId::new(1),

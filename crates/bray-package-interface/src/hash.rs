@@ -112,6 +112,7 @@ pub(crate) fn compute_artifact_hash(bytes: &[u8]) -> Option<InterfaceArtifactHas
     let mut hasher = Hasher::new();
 
     let (before, after_hash) = bytes.split_at_checked(InterfaceHeader::ARTIFACT_HASH_OFFSET)?;
+
     let (_, after) = after_hash.split_at_checked(InterfaceArtifactHash::LENGTH)?;
 
     hasher.update(before);

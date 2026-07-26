@@ -215,19 +215,23 @@ pub(crate) fn implementation_type_member_binding(
         ImplementationTypeMemberBindingSyntax::builder(snapshot.clone(), TextSize::new(start));
 
     builder.push_type_keyword(keyword(SyntaxKind::TypeKeyword, start, start + 4, true));
+
     builder.push_identifier_token(keyword(
         SyntaxKind::IdentifierToken,
         start + 5,
         start + 9,
         true,
     ));
+
     builder.push_equals_token(keyword(
         SyntaxKind::EqualsToken,
         start + 10,
         start + 11,
         true,
     ));
+
     builder.push_type_expression(identifier_type_expression(snapshot, start + 12, start + 19));
+
     builder.push_semicolon_token(keyword(
         SyntaxKind::SemicolonToken,
         start + 19,

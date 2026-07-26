@@ -121,10 +121,12 @@ mod tests {
 
         let mut initializer =
             StructFieldInitializerSyntax::builder(snapshot.clone(), TextSize::new(2));
+
         let mut body = StructConstructionBodySyntax::builder(snapshot, TextSize::ZERO);
 
         initializer.push_identifier_token(keyword(SyntaxKind::IdentifierToken, 2, 3, true));
         initializer.push_equals_token(keyword(SyntaxKind::EqualsToken, 4, 5, true));
+
         initializer.push_expression(token_expression(
             expression_source,
             SyntaxKind::DecimalIntegerLiteralToken,

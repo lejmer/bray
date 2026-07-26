@@ -278,6 +278,7 @@ where
         .into_iter()
         .map(|symbol| {
             let erased = symbol.into();
+
             let key = facts
                 .symbols()
                 .symbol_key(erased)

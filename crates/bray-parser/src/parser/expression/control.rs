@@ -85,6 +85,7 @@ impl Parser {
         builder.push_irrefutable_pattern(
             self.parse_irrefutable_pattern_until(&mut at_pattern_boundary),
         );
+
         builder.push_in_keyword(self.expect(SyntaxKind::InKeyword));
         builder.push_iteration_source(self.parse_iteration_source());
 

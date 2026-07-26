@@ -455,6 +455,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("aggregate pattern must be valid: {error:?}"));
 
         let child_term = constant_value_term(&values);
+
         let child = values
             .constant_term_data(child_term)
             .unwrap_or_else(|error| panic!("closed child term must resolve: {error:?}"));

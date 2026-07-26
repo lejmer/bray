@@ -24,6 +24,10 @@ Do not construct user-facing English text inside compiler logic. Emit structured
 
 If the task involves writing code, read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).
 
+Review blank lines only for semantic paragraph structure: separate statements when their purpose changes, and keep statements
+together when they form one conceptual group. Mechanically decidable blank-line enforcement belongs to the automated style command
+rather than manual agent review.
+
 ## Refactoring modules
 
 When splitting a module into a directory of submodules, keep the original module file as a thin root. It should contain only module declarations and reexports. Move implementation details into the submodules.
@@ -43,5 +47,7 @@ Project-specific automation belongs in `xtask/`. Shell and PowerShell scripts in
 Do not add a second build system, task runner, or command DSL unless explicitly requested. Prefer extending `xtask` over adding Makefiles, Justfiles, cargo-make tasks, Bazel files, or ad hoc scripts.
 
 `cargo test` must continue to work. Additional test runners such as `cargo-nextest` may be used for faster local and CI runs, but they must not be the only way to run the test suite.
+
+After changing Rust source, running `cargo xtask style` is mandatory.
 
 > **Note:** If you do not change any code, you do not need to run tests, linting, or code checks.

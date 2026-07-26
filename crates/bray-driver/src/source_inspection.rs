@@ -89,6 +89,7 @@ fn line_start_offsets(index: &LineIndex) -> Result<Vec<u32>, SourceInspectionRen
 
     for line in 0..index.line_count() {
         let line = u32::try_from(line).map_err(|_| SourceInspectionRenderError::SourceIndex)?;
+
         let start = index
             .line_start(line)
             .ok_or(SourceInspectionRenderError::SourceIndex)?;
@@ -129,11 +130,13 @@ fn push_text_source(output: &mut String, source: &SourceInspection) {
     push_indented_str(output, "checksum", &format!("0x{:016x}", source.checksum));
     push_indented_value(output, "byte_len", source.byte_len);
     push_indented_value(output, "line_count", source.line_count);
+
     push_indented_str(
         output,
         "line_starts",
         &format_line_starts(&source.line_starts),
     );
+
     push_indented_str(output, "newline_policy", source.newline_policy);
 
     output.push_str("  text:\n");

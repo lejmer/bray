@@ -397,6 +397,7 @@ impl<'lookup> ParameterCollector<'lookup> {
 
         // The index and record share the name's immutable text storage.
         self.indexes.insert(name.clone(), self.parameters.len());
+
         self.parameters.push(InferredParameter {
             name,
             kind,

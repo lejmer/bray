@@ -411,6 +411,7 @@ mod tests {
     #[test]
     fn runtime_role_bindings_require_a_selected_runtime_artifact() {
         let mut bindings = base_bindings();
+
         bindings.push(binding_with_implementation(
             RuntimeAbiRole::TaskStart,
             RuntimeRoleImplementation::BrayRuntime,
@@ -431,9 +432,11 @@ mod tests {
         let Some(package) = PackageIdentity::try_new("example.app") else {
             panic!("test package identity must be valid");
         };
+
         let Some(product) = ProductIdentity::try_new(package, "application") else {
             panic!("test product identity must be valid");
         };
+
         let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
             panic!("test host entry symbol name must be valid");
         };

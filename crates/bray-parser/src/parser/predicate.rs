@@ -65,11 +65,13 @@ impl Parser {
         &mut self,
     ) -> TraitPredicateMemberDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitPredicateMemberDeclarationSyntax::builder(self.syntax_source(), start);
 
         builder
             .push_trait_predicate_member_modifiers(self.parse_trait_predicate_member_modifiers());
+
         builder.push_predicate_keyword(self.expect(SyntaxKind::PredicateKeyword));
         builder.push_identifier_token(self.parse_identifier());
         builder.push_predicate_parameter_list(self.parse_predicate_parameter_list());
@@ -500,9 +502,11 @@ mod tests {
         };
 
         let body = declaration.trait_body();
+
         let predicates = body
             .trait_predicate_member_declarations()
             .collect::<Vec<_>>();
+
         let callables = body
             .trait_callable_member_declarations()
             .collect::<Vec<_>>();

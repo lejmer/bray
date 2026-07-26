@@ -96,6 +96,7 @@ impl Parser {
                 builder.push_tag_directive(
                     self.parse_tag_directive(&VARIANT_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 
@@ -111,6 +112,7 @@ impl Parser {
 
     fn parse_union_variant_payload(&mut self) -> UnionVariantPayloadSyntax {
         let start = self.peek().full_range().start();
+
         let recovery_kinds = separated_list_recovery_kinds(
             &UNION_PAYLOAD_FIELD_START_KINDS,
             SyntaxKind::CommaToken,

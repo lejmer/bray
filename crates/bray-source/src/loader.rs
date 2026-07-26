@@ -199,6 +199,7 @@ mod tests {
     #[test]
     fn source_loader_strips_leading_bom_from_source_bytes() {
         let mut loader = SourceLoader::new();
+
         let input = SourceInput::file_bytes(
             SourceIdentity::new(11),
             "main.bray",
@@ -267,6 +268,7 @@ mod tests {
     #[test]
     fn source_loader_rejects_invalid_utf8_without_consuming_source_id() {
         let mut loader = SourceLoader::new();
+
         let input = SourceInput::file_bytes(
             SourceIdentity::new(14),
             "main.bray",

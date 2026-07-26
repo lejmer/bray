@@ -276,6 +276,7 @@ mod tests {
         let foreign_pattern = BoundPatternId::from_slot(BoundUnitId::new(5), 0);
 
         let foreign_fact = RefinementFact::new(RefinementFactKind::NormalCompletion(foreign), []);
+
         let foreign_pattern_fact = RefinementFact::new(
             RefinementFactKind::Pattern {
                 subject: expression,

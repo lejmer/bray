@@ -31,6 +31,7 @@ impl PackageInterfaceSurface {
         }
 
         let (dependencies, dependency_remap) = canonical_dependencies(dependencies)?;
+
         let symbols: Vec<_> = symbols.into_iter().collect();
 
         for pair in symbols.windows(2) {
@@ -45,6 +46,7 @@ impl PackageInterfaceSurface {
         // Package identities, external keys, and names are Arc-backed immutable values.
         let symbols = ImportedPackageIdentitySurface::try_new(identity.package().clone(), symbols)
             .map_err(PackageInterfaceSurfaceBuildError::Identity)?;
+
         let symbol_index = symbols
             .symbols()
             .iter()

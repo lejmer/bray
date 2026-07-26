@@ -1,7 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_compiler_known::generate_catalog_output;
+
+use crate::{command, workspace};
 
 const USAGE: &str = "usage: cargo xtask compiler-known <generate [--check] | check>";
 const GENERATED_SOURCE_PATH: &str =
@@ -37,12 +39,12 @@ fn generate_command(mut arguments: impl Iterator<Item = String>) -> Result<(), S
         Some(argument) => return Err(format!("unexpected argument: {argument}")),
     };
 
-    reject_trailing_argument(arguments)?;
+    command::reject_trailing_argument(arguments)?;
     generate(check_only)
 }
 
 fn check_command(arguments: impl Iterator<Item = String>) -> Result<(), String> {
-    reject_trailing_argument(arguments)?;
+    command::reject_trailing_argument(arguments)?;
     generate(true)?;
 
     bray_compilation::check_compiler_known_catalog()
@@ -50,18 +52,11 @@ fn check_command(arguments: impl Iterator<Item = String>) -> Result<(), String> 
         .map_err(|error| format!("compiler-known semantic validation failed: {error}"))
 }
 
-fn reject_trailing_argument(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
-    match arguments.next() {
-        Some(argument) => Err(format!("unexpected argument: {argument}")),
-        None => Ok(()),
-    }
-}
-
 fn generate(check: bool) -> Result<(), String> {
     let output = generate_catalog_output()
         .map_err(|error| format!("compiler-known catalog generation failed: {error}"))?;
 
-    let root = workspace_root()?;
+    let root = workspace::root()?;
     let digest = format!("{}\n", output.source_digest());
 
     let files = [
@@ -79,20 +74,12 @@ fn generate(check: bool) -> Result<(), String> {
     }
 }
 
-fn workspace_root() -> Result<PathBuf, String> {
-    let xtask = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    xtask
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "xtask manifest directory has no workspace parent".to_owned())
-}
-
 fn check_files(files: &[(PathBuf, &[u8])]) -> Result<(), String> {
     let mut stale = Vec::new();
 
     for (path, expected) in files {
-        let actual = std::fs::read(path).map_err(|error| io_error("read", path, error))?;
+        let actual =
+            std::fs::read(path).map_err(|error| workspace::io_error("read", path, error))?;
 
         if actual != *expected {
             stale.push(path.display().to_string());
@@ -115,14 +102,11 @@ fn write_files(files: &[(PathBuf, &[u8])]) -> Result<(), String> {
             continue;
         }
 
-        std::fs::write(path, contents).map_err(|error| io_error("write", path, error))?;
+        std::fs::write(path, contents)
+            .map_err(|error| workspace::io_error("write", path, error))?;
     }
 
     Ok(())
-}
-
-fn io_error(action: &str, path: &Path, error: std::io::Error) -> String {
-    format!("failed to {action} {}: {error}", path.display())
 }
 
 #[cfg(test)]

@@ -251,6 +251,7 @@ mod tests {
         );
 
         let descriptor = ProtectedAsyncFrameMetadata::new(frame, frame_operation_names());
+
         let Ok(metadata) = CodegenRuntimeMetadata::try_new(&unit, [descriptor], None) else {
             panic!("matching frame descriptor metadata must validate");
         };
@@ -261,6 +262,7 @@ mod tests {
     fn protected_frame_mir(frame: ProtectedAsyncFrameId) -> bray_ir::MirUnit {
         let bound = test_bound_unit(8);
         let source = bound.key().source();
+
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::ProtectedAsyncFrame(frame),

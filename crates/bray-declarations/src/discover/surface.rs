@@ -445,6 +445,7 @@ where
     E: SourceSyntaxNode,
 {
     let has_equals = equals_token.is_some_and(|token| !token.is_missing());
+
     let runtime_default = match expression.as_ref() {
         Some(expression) if has_equals && !expression.is_recovered() => {
             Some(SyntaxAnchor::from_node(expression))

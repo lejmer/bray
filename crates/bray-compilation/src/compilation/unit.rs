@@ -350,6 +350,7 @@ impl Compilation {
         ))?;
 
         let (value, diagnostics) = result.into_parts();
+
         let result = DiagnosticResult::new(value, candidates.diagnostics().merged(&diagnostics));
 
         Ok((result, Box::new([])))
@@ -516,6 +517,7 @@ impl Compilation {
                 )?;
 
                 let (patterns, pattern_diagnostics) = result.into_parts();
+
                 let diagnostics = DiagnosticBag::merged_all([
                     &iteration_diagnostics,
                     &constant_diagnostics,
@@ -600,6 +602,7 @@ impl Compilation {
                         selection.element_type(),
                         false,
                     ));
+
                     sources.push(selection.clone());
                 }
                 None => inputs.push(IterationPatternType::new(pattern, error_type, true)),
@@ -652,8 +655,10 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
                 let declared = self
                     .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
                 let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
 
@@ -2013,11 +2018,13 @@ mod tests {
         };
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
+
         assert!(
             dependencies.contains(&crate::fact::CompilationFactKey::CheckedPatterns(
                 key.clone()
             ))
         );
+
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key)));
     }
 

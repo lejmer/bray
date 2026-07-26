@@ -69,8 +69,10 @@ impl BoundMatchExpression {
         is_recovered: bool,
     ) -> Self {
         let arms = shared_slice(arms);
+
         let operands =
             shared_slice(std::iter::once(subject).chain(arms.iter().filter_map(|arm| arm.guard())));
+
         let blocks = shared_slice(arms.iter().map(|arm| arm.body()));
         let patterns = shared_slice(arms.iter().map(|arm| arm.pattern()));
 

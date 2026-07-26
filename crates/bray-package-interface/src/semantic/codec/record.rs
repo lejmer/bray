@@ -50,6 +50,7 @@ impl<'bytes> RecordTable<'bytes> {
 
     pub(super) fn record(&self, index: u32) -> Result<&'bytes [u8], InterfaceValidationError> {
         let index = usize::try_from(index).map_err(|_| InterfaceValidationError::Malformed)?;
+
         let range = self
             .ranges
             .get(index)

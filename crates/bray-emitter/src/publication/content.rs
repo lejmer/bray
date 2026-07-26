@@ -62,8 +62,10 @@ fn validate_reader(
     cancellation: &dyn Cancellation,
 ) -> Result<ArtifactDigest, ContentValidationError> {
     let mut canonical = blake3::Hasher::new();
+
     let mut expected_hasher =
         expected_digest.map(|digest| ExpectedDigestHasher::new(digest.algorithm()));
+
     let mut byte_len = 0_u64;
     let mut buffer = [0_u8; COPY_BUFFER_LEN];
 

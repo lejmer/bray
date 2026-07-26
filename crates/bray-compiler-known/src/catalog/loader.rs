@@ -115,6 +115,7 @@ fn build_descriptors(
     );
 
     let recognized_declarations = build_recognized_declarations(&validated.recognized_declarations);
+
     let recognized_scopes =
         build_recognized_scopes(&validated.recognized_scopes, &recognized_declarations);
 

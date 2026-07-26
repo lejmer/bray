@@ -29,6 +29,7 @@ impl Parser {
         &mut self,
     ) -> TypeConstructorMemberDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TypeConstructorMemberDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -40,6 +41,7 @@ impl Parser {
         }
 
         builder.push_parameter_list(self.parse_parameter_list());
+
         builder.push_callable_result_clause(
             self.parse_callable_result_clause_until(Parser::at_constructor_result_type_boundary),
         );

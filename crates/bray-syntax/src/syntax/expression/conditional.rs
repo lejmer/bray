@@ -160,13 +160,16 @@ mod tests {
 
         let mut conditional =
             ConditionalExpressionSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
         let mut clause = ConditionalElseSyntax::builder(snapshot.clone(), TextSize::new(12));
 
         conditional.push_if_keyword(keyword(SyntaxKind::IfKeyword, 0, 2, true));
+
         conditional.push_expression(token_expression_from_token(
             snapshot.clone(),
             keyword(SyntaxKind::IdentifierToken, 3, 8, true),
         ));
+
         conditional.push_block_expression(block_expression(snapshot.clone(), 9, true));
 
         clause.push_else_keyword(keyword(SyntaxKind::ElseKeyword, 12, 16, true));

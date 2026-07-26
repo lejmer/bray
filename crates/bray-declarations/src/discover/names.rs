@@ -357,6 +357,7 @@ fn implementation_declaration_name(
     trait_path: Option<&PathSyntax>,
 ) -> Option<DeclarationName> {
     let subject = path_from_syntax(subject_path);
+
     let trait_path = trait_path
         .map(path_from_syntax)
         .filter(|path| !path.is_empty());

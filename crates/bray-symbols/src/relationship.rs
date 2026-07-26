@@ -362,6 +362,7 @@ impl ImplementationRelationships {
 impl VariantRelationships {
     pub(crate) fn new(owner: AnySymbolId, index: &RelationshipIndex) -> Option<Self> {
         let (containing_symbol, _) = owner_and_ordinal(owner, index)?;
+
         let AnySymbolId::Union(containing_union) = containing_symbol else {
             return None;
         };
@@ -376,6 +377,7 @@ impl VariantRelationships {
 impl CallableParameterRelationships {
     pub(crate) fn new(id: CallableParameterSymbolId, index: &RelationshipIndex) -> Option<Self> {
         let erased = AnySymbolId::from(id);
+
         let (owner, _) = owner_and_ordinal(erased, index)?;
 
         Some(Self {
@@ -393,6 +395,7 @@ impl CallableParameterRelationships {
 impl PredicateParameterRelationships {
     pub(crate) fn new(id: PredicateParameterSymbolId, index: &RelationshipIndex) -> Option<Self> {
         let erased = id.into();
+
         let (owner, _) = owner_and_ordinal(erased, index)?;
 
         Some(Self {

@@ -7,6 +7,7 @@ impl Parser {
         &mut self,
     ) -> TypeFormConstructionExpressionSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TypeFormConstructionExpressionSyntax::builder(self.syntax_source(), start);
 

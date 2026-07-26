@@ -85,6 +85,7 @@ impl Parser {
         if self.should_parse_scope_enter_member_declaration() {
             builder
                 .push_scope_enter_member_declaration(self.parse_scope_enter_member_declaration());
+
             return;
         }
 
@@ -104,6 +105,7 @@ impl Parser {
             builder.push_trait_finalizer_requirement_declaration(
                 self.parse_trait_finalizer_requirement_declaration(),
             );
+
             return;
         }
 
@@ -111,6 +113,7 @@ impl Parser {
             builder.push_trait_destructor_requirement_declaration(
                 self.parse_trait_destructor_requirement_declaration(),
             );
+
             return;
         }
 
@@ -118,6 +121,7 @@ impl Parser {
             builder.push_trait_scope_enter_requirement_declaration(
                 self.parse_trait_scope_enter_requirement_declaration(),
             );
+
             return;
         }
 
@@ -125,6 +129,7 @@ impl Parser {
             builder.push_trait_scope_exit_requirement_declaration(
                 self.parse_trait_scope_exit_requirement_declaration(),
             );
+
             return;
         }
 
@@ -186,6 +191,7 @@ impl Parser {
         &mut self,
     ) -> TraitFinalizerRequirementDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitFinalizerRequirementDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -203,6 +209,7 @@ impl Parser {
         &mut self,
     ) -> TraitDestructorRequirementDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitDestructorRequirementDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -217,6 +224,7 @@ impl Parser {
         &mut self,
     ) -> TraitScopeEnterRequirementDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitScopeEnterRequirementDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -232,6 +240,7 @@ impl Parser {
         &mut self,
     ) -> TraitScopeExitRequirementDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitScopeExitRequirementDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -249,6 +258,7 @@ impl Parser {
         &mut self,
     ) -> AsyncCapableLifecycleMemberModifiersSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             AsyncCapableLifecycleMemberModifiersSyntax::builder(self.syntax_source(), start);
 
@@ -829,6 +839,7 @@ struct Resource
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .unnamed_trait_implementation_declarations()
             .collect::<Vec<_>>();

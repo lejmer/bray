@@ -329,7 +329,6 @@ pub enum SyntaxKind {
     IdentifierListItem,
     /// Recovery node containing present tokens skipped by the parser.
     SkippedSyntax,
-
     /// End-of-file marker token.
     EndOfFileToken,
     /// Token representing source text that the lexer could not classify.
@@ -343,7 +342,6 @@ pub enum SyntaxKind {
     ImaginaryLiteralToken,
     CharacterLiteralToken,
     StringLiteralToken,
-
     AllKeyword,
     AnyKeyword,
     AsKeyword,
@@ -408,7 +406,6 @@ pub enum SyntaxKind {
     WhileKeyword,
     WithKeyword,
     YieldKeyword,
-
     ArrowToken,
     EqualsEqualsToken,
     BangEqualsToken,
@@ -446,7 +443,6 @@ pub enum SyntaxKind {
     LessToken,
     GreaterToken,
     UnderscoreToken,
-
     WhitespaceTrivia,
     LineCommentTrivia,
     BlockCommentTrivia,

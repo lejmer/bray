@@ -93,6 +93,7 @@ impl super::super::Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Arc<[ImportedSemanticFact]>>>, FactQueryError> {
         let cell = self.state.imported_semantic_facts.cell(key)?;
+
         let result = cell.get_or_compute(
             &self.state.fact_runtime,
             CompilationFactKey::ImportedSemanticFact(key),
@@ -220,6 +221,7 @@ impl super::super::Compilation {
         }
 
         let graph = self.symbol_graph()?;
+
         let Some(first_symbol) = u32::try_from(graph.next_symbol_index())
             .ok()
             .map(SymbolId::new)
@@ -261,6 +263,7 @@ impl super::super::Compilation {
         };
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
         let Some(skeleton) = skeleton.value() else {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
@@ -322,6 +325,7 @@ impl super::super::Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
         let owner = skeleton
             .value()
             .as_ref()

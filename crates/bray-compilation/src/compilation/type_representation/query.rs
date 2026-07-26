@@ -47,6 +47,7 @@ impl Compilation {
             cancellation,
             || {
                 let semantic_values = self.semantic_value_store()?;
+
                 let available_compiler_known_symbols =
                     self.selected_target().available_compiler_known_symbols();
 

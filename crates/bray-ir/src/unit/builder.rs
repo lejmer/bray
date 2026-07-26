@@ -241,6 +241,7 @@ impl MirUnitBuilder {
             .enumerate()
             .map(|(index, block)| {
                 let id = MirBlockId::from_slot(self.unit, compact_slot(index)?);
+
                 let Some(terminator) = block.terminator else {
                     return Err(MirUnitBuildError::MissingTerminator(id));
                 };
@@ -393,6 +394,7 @@ mod tests {
 
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let cancellation = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
+
         let lifecycle = push_block(
             &mut builder,
             source.clone(),
@@ -447,6 +449,7 @@ mod tests {
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
 
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
         let lifecycle = push_block(
             &mut builder,
             source.clone(),
@@ -484,6 +487,7 @@ mod tests {
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
 
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
         let lifecycle = push_block(
             &mut builder,
             source.clone(),

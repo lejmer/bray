@@ -212,6 +212,7 @@ mod tests {
             "syntax-module-directives-test",
             "@test @target(x) @link(\"m\")",
         );
+
         let test = test_directive(&snapshot);
         let target = target_directive(&snapshot);
         let link = link_directive(&snapshot);
@@ -254,6 +255,7 @@ mod tests {
         let mut builder = TestDirectiveSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_directive_marker_token(token(SyntaxKind::AtToken, 0, 1));
+
         builder.push_name_token(
             token(SyntaxKind::IdentifierToken, 1, 5).with_trailing_trivia([
                 SyntaxTrivia::whitespace(TextRange::new(TextSize::new(5), TextSize::new(6))),

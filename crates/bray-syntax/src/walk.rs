@@ -428,6 +428,7 @@ mod tests {
 
         walk_source_unit(&source_unit, |event| {
             let name = event_name(event.clone());
+
             let control = match event {
                 SyntaxWalkEvent::EnterNode(node) if node.kind() == SyntaxKind::IdentifierList => {
                     SyntaxWalkControl::SkipChildren

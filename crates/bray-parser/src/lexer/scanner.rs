@@ -198,6 +198,7 @@ fn scan_invalid_scalar_token(snapshot: &SourceSnapshot, start: TextSize) -> Toke
 
     let token = make_scalar_token(SyntaxKind::InvalidToken, start, character);
     let range = token.range();
+
     let diagnostic = match character {
         '\u{feff}' => diagnostic::misplaced_bom(snapshot, range),
         '\r' => diagnostic::lone_carriage_return(snapshot, range),

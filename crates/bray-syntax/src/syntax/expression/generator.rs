@@ -149,6 +149,7 @@ mod tests {
 
         generator.push_open_brace_token(keyword(SyntaxKind::OpenBraceToken, 0, 1, true));
         generator.push_generator_iteration_expression(iteration.build());
+
         generator.push_close_brace_token(crate::test_support::token(
             SyntaxKind::CloseBraceToken,
             24,

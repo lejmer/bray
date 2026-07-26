@@ -267,6 +267,7 @@ mod tests {
         assert_eq!(behavior.trusted_capabilities().len(), 1);
         assert_eq!(behavior.execution_requirements().len(), 1);
         assert_eq!(behavior.lifecycle_obligations().len(), 1);
+
         assert_eq!(
             behavior.current_run_cancellation(),
             CurrentRunCancellation::MayEnter

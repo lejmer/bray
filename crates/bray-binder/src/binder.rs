@@ -473,12 +473,14 @@ mod tests {
         let mut binder = Binder::new(&facts, unit);
 
         let symbol = fact_fixture.constant.into();
+
         let symbol_dependency = BinderDependency::Symbol {
             symbol,
             kind: SymbolFactKind::ConstantDeclaredType,
         };
 
         let target_dependency = BinderDependency::Target(fact_fixture.constant);
+
         let candidate_dependency = BinderDependency::Symbol {
             symbol,
             kind: SymbolFactKind::ConstantDefinition,

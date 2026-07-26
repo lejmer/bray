@@ -83,6 +83,7 @@ mod tests {
     #[test]
     fn literals_retain_their_source_category_without_preselecting_a_type() {
         let origin = BoundNodeOrigin::source(source_anchor());
+
         let literal = BoundLiteralExpression::new(
             origin,
             source_anchor().syntax().full_range(),

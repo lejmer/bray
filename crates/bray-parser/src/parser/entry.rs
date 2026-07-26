@@ -304,6 +304,7 @@ pub fn parse_declaration_fragment(
     let mut parser = Parser::new(snapshot.clone());
 
     let (declaration, is_recovered) = parser.parse_declaration_fragment(context);
+
     let diagnostics = parser.finish();
 
     DeclarationFragmentSyntaxResult::new(declaration, diagnostics, is_recovered)
@@ -359,6 +360,7 @@ pub fn parse_type_expression_fragment(
     let mut parser = Parser::new(snapshot.clone());
 
     let (type_expression, is_recovered) = parser.parse_type_expression_fragment();
+
     let diagnostics = parser.finish();
 
     TypeExpressionFragmentSyntaxResult::new(type_expression, diagnostics, is_recovered)

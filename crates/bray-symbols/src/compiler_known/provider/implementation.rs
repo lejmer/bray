@@ -447,6 +447,7 @@ fn build_scopes(
                 }
 
                 has_ambient = true;
+
                 scope_symbols.insert(
                     scope.key().clone(),
                     CompilerKnownScopeSymbolId::Environment(environment),
@@ -481,6 +482,7 @@ fn build_scopes(
         let key = SymbolKey::module(SymbolRootKey::CompilerKnownEnvironment, path.clone());
 
         module_ids.insert(path.clone(), id);
+
         modules.push(ModuleSymbol::new(ModuleSymbolInput {
             id,
             key,
@@ -629,6 +631,7 @@ fn build_declarations(
 
     let mut relationships = RelationshipIndex::default();
     let mut identities = Vec::new();
+
     for descriptor in catalog.compiler_known_declarations() {
         let Some(symbol) = descriptor_symbols.get(&descriptor.id()).copied() else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {

@@ -130,6 +130,7 @@ mod tests {
             CodegenFailure::GeneratedModuleInvariant,
             DiagnosticBag::new(),
         );
+
         let cancelled = CodegenOutcome::cancelled();
 
         assert!(matches!(failed.status(), CodegenStatus::Failed(_)));

@@ -146,6 +146,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
             };
 
             let target = traversal_target(edge, domain.direction());
+
             let Some(target_index) = target.to_index() else {
                 continue;
             };

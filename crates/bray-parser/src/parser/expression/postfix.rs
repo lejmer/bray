@@ -140,6 +140,7 @@ impl Parser {
         let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
 
         builder.push_expression(expression);
+
         builder
             .push_trait_qualified_member_operation(self.parse_trait_qualified_member_operation());
 
@@ -174,11 +175,13 @@ impl Parser {
         let mut builder = ElementIndexOperationSyntax::builder(self.syntax_source(), start);
 
         builder.push_open_bracket_token(self.expect(SyntaxKind::OpenBracketToken));
+
         builder.push_expression(
             self.parse_expression_until(&mut |parser| {
                 parser.at_element_index_boundary(at_boundary)
             }),
         );
+
         builder.push_close_bracket_token(self.expect(SyntaxKind::CloseBracketToken));
 
         builder.build()

@@ -136,6 +136,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     };
 
     let (options, command) = invocation.into_parts();
+
     let output_format = options.output_format();
     let command_kind = command.kind();
 
@@ -243,6 +244,7 @@ fn run_inspect_tokens_command(
     };
 
     let (stdout, diagnostics) = output.into_parts();
+
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
     DriverRunResult::with_output(exit_code, diagnostics, output_format, stdout, String::new())

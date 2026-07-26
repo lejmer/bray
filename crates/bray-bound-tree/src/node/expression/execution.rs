@@ -133,6 +133,7 @@ mod tests {
         };
 
         let operand = BoundExpressionId::from_slot(BoundUnitId::new(5), 0);
+
         let expression = BoundAwaitExpression::resolved(
             crate::BoundNodeOrigin::source(crate::test_support::source_anchor()),
             operand,

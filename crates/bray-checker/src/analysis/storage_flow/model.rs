@@ -158,9 +158,12 @@ impl StorageFlowState {
 
         self.initialized
             .retain(|storage| incoming.initialized.contains(storage));
+
         self.moved.extend(incoming.moved.iter().copied());
+
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
+
         self.recovered |= incoming.recovered;
 
         self.initialized.len() != initialized_count

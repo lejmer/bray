@@ -40,6 +40,7 @@ pub(super) fn write_source_frame(
         match line {
             FrameLine::Source(line) => {
                 write_source_line(line, gutter_width, viewport, writer)?;
+
                 write_marker_line(
                     line,
                     gutter_width,

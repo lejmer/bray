@@ -106,6 +106,7 @@ impl Parser {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
             );
+
             return;
         }
 
@@ -113,6 +114,7 @@ impl Parser {
             builder.push_type_constructor_member_declaration(
                 self.parse_type_constructor_member_declaration(),
             );
+
             return;
         }
 
@@ -153,6 +155,7 @@ impl Parser {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
             );
+
             return;
         }
 
@@ -160,6 +163,7 @@ impl Parser {
             builder.push_type_constructor_member_declaration(
                 self.parse_type_constructor_member_declaration(),
             );
+
             return;
         }
 
@@ -200,6 +204,7 @@ impl Parser {
             builder.push_trait_callable_member_declaration(
                 self.parse_trait_callable_member_declaration(),
             );
+
             return;
         }
 
@@ -212,6 +217,7 @@ impl Parser {
             builder.push_trait_constant_member_declaration(
                 self.parse_trait_constant_member_declaration(),
             );
+
             return;
         }
 
@@ -224,6 +230,7 @@ impl Parser {
             builder.push_trait_predicate_member_declaration(
                 self.parse_trait_predicate_member_declaration(),
             );
+
             return;
         }
 
@@ -239,6 +246,7 @@ impl Parser {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
             );
+
             return;
         }
 
@@ -246,6 +254,7 @@ impl Parser {
             builder.push_type_constructor_member_declaration(
                 self.parse_type_constructor_member_declaration(),
             );
+
             return;
         }
 
@@ -258,6 +267,7 @@ impl Parser {
             builder.push_implementation_type_member_binding(
                 self.parse_implementation_type_member_binding(),
             );
+
             return;
         }
 

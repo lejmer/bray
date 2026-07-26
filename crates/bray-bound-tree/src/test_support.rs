@@ -190,9 +190,11 @@ fn module_declaration(snapshot: SourceSnapshot) -> SourceUnitModuleDeclarationSy
     declaration.push_module_directives(
         ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
     );
+
     declaration.push_module_modifiers(
         ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
     );
+
     declaration.push_module_keyword(
         token(SyntaxKind::ModuleKeyword, 0, 6).with_trailing_trivia([SyntaxTrivia::whitespace(
             TextRange::new(TextSize::new(6), TextSize::new(7)),

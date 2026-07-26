@@ -146,6 +146,7 @@ mod tests {
         let first = BoundExpressionId::from_slot(unit, 0);
         let second = BoundExpressionId::from_slot(unit, 1);
         let result = ExpressionTypeResult::new(error_type(), ExpressionTypeStatus::Recovered);
+
         let types = CheckedExpressionTypes::new(
             unit,
             BoundUnitKind::CallableBody,

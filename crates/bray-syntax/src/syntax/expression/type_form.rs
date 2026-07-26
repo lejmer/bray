@@ -76,6 +76,7 @@ mod tests {
 
         let mut type_arguments =
             TypeFormArgumentListSyntax::builder(snapshot.clone(), TextSize::new(3));
+
         let mut arguments = ArgumentListSyntax::builder(snapshot.clone(), TextSize::new(5));
         let mut builder = TypeFormConstructionExpressionSyntax::builder(snapshot, TextSize::ZERO);
 

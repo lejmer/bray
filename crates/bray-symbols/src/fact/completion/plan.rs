@@ -296,9 +296,11 @@ mod tests {
         let graph = graph(&[
             "module app; struct Config { first: Int; second: Int = 1; } union Choice { Value(first: Int, second: Int = 1); }",
         ]);
+
         let package = AnySymbolId::from(graph.packages()[0].id());
 
         let plan = completion_plan(&graph, package);
+
         let default_requests = plan
             .requests()
             .iter()
@@ -311,6 +313,7 @@ mod tests {
     #[test]
     fn referenced_semantic_recursion_does_not_expand_owned_completion() {
         let graph = graph(&["module app; func recurse() { recurse() }"]);
+
         let Some(function) = graph
             .functions()
             .iter()
@@ -359,6 +362,7 @@ mod tests {
     #[test]
     fn completion_rejects_symbols_outside_the_graph() {
         let graph = graph(&["module app; func main() {}"]);
+
         let unknown =
             AnySymbolId::Function(crate::FunctionSymbolId::from_symbol_id(SymbolId::new(99)));
 

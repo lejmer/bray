@@ -169,11 +169,14 @@ pub struct LinkPlan {
 impl LinkPlan {
     fn try_from_builder(mut builder: LinkPlanBuilder) -> Result<Self, LinkPlanBuildError> {
         validate_inputs(&builder.inputs)?;
+
         crate::execution::validate_execution_inputs(
             builder.executable_host.as_ref(),
             &builder.inputs,
         )?;
+
         validate_search_paths(&builder.search_paths)?;
+
         validate_entry_contract(
             &builder.product,
             builder.product_kind,
@@ -527,6 +530,7 @@ mod tests {
             LinkedArtifactRequirement::Required,
             "same.stage",
         ));
+
         colliding_outputs.push_output(planned_output_with_key(
             1,
             LinkedArtifactKind::DebugCompanion,
@@ -596,6 +600,7 @@ mod tests {
             LinkedArtifactRequirement::Required,
             "application.stage",
         ));
+
         builder.push_output(planned_output(
             1,
             LinkedArtifactKind::PlatformCompanion,
@@ -649,6 +654,7 @@ mod tests {
             LinkedArtifactRequirement::Required,
             "application.stage",
         ));
+
         unexpected_companion.push_output(planned_output(
             1,
             LinkedArtifactKind::DebugCompanion,
@@ -672,12 +678,14 @@ mod tests {
 
         let mut missing_runtime = link_plan_builder();
         missing_runtime.push_input(link_input(0, "main.o"));
+
         missing_runtime.push_output(planned_output(
             0,
             LinkedArtifactKind::Executable,
             LinkedArtifactRequirement::Required,
             "application.stage",
         ));
+
         missing_runtime.set_executable_host(async_executable_host_contract(runtime.clone()));
 
         assert_eq!(
@@ -688,12 +696,14 @@ mod tests {
         let mut complete = link_plan_builder();
         complete.push_input(link_input(0, "main.o"));
         complete.push_input(runtime_input(1, runtime.clone()));
+
         complete.push_output(planned_output(
             0,
             LinkedArtifactKind::Executable,
             LinkedArtifactRequirement::Required,
             "application.stage",
         ));
+
         complete.set_executable_host(async_executable_host_contract(runtime));
 
         let Ok(plan) = complete.finish() else {
@@ -715,6 +725,7 @@ mod tests {
             LinkedArtifactRequirement::Required,
             "application.stage",
         ));
+
         builder.push_output(planned_output(
             1,
             LinkedArtifactKind::ImportLibrary,

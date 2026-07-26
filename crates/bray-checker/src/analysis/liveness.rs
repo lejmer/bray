@@ -145,6 +145,7 @@ impl OperationEffects {
             let effect = effects.by_node.entry(node).or_default();
 
             effect.definitions.insert(subject);
+
             effect
                 .uses
                 .insert(BoundDependencySubject::StorageAccess(planned.access()));
@@ -201,6 +202,7 @@ fn access_root_subjects(
 
             while let Some(capability) = current {
                 subjects.push(BoundDependencySubject::BorrowCapability(capability));
+
                 current = storage
                     .borrow_capability(capability)
                     .and_then(|planned| planned.parent());

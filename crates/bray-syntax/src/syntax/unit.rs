@@ -1517,6 +1517,7 @@ mod tests {
         builder.push_function_directives(
             FunctionDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
+
         builder.push_function_modifiers(
             FunctionModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );

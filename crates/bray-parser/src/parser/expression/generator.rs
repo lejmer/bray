@@ -105,6 +105,7 @@ mod tests {
 
         for source_text in cases {
             let (expression, diagnostics) = parse_expression_until_semicolon_for_test(source_text);
+
             let skipped = generator_skipped_texts(&expression);
 
             assert!(

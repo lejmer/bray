@@ -185,6 +185,7 @@ mod tests {
             };
 
             let reverse_delay = plan.requests().len().saturating_sub(index);
+
             let reverse_delay = match u64::try_from(reverse_delay) {
                 Ok(delay) => delay,
                 Err(_) => return Err(()),

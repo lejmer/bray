@@ -783,6 +783,7 @@ mod tests {
                     .source_unit_syntax(SourceId::new(0))
                     .map(|result| result.source_unit().full_text())
             });
+
             let updated = scope.spawn(|| {
                 updated
                     .source_unit_syntax(SourceId::new(0))

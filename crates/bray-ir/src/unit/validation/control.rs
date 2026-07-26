@@ -158,6 +158,7 @@ fn validate_cleanup_edge(
     validate_edge(unit, source, cleanup.edge())?;
 
     let target = cleanup.edge().target();
+
     let Some(block) = unit.block(target) else {
         return Err(missing_or_foreign_block(unit, target));
     };
@@ -194,6 +195,7 @@ fn validate_edge(
         validate_operand(unit, argument, source, None)?;
 
         let argument_type = operand_type(unit, argument)?;
+
         let Some(parameter) = unit.value(*parameter) else {
             return Err(MirUnitBuildError::MissingValue(*parameter));
         };

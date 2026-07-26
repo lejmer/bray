@@ -66,6 +66,7 @@ impl Parser {
         &mut self,
     ) -> TraitConstantMemberDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitConstantMemberDeclarationSyntax::builder(self.syntax_source(), start);
 

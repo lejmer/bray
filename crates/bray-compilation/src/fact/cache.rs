@@ -902,7 +902,9 @@ mod tests {
         let child_key = CompilationFactKey::DeclarationTable;
 
         let start_child_dependency = Barrier::new(2);
+
         let (parent_waiting_sender, parent_waiting_receiver) = mpsc::sync_channel(1);
+
         let parent_waiting_receiver = Mutex::new(parent_waiting_receiver);
 
         let observer = FactCellTestObserver::new(move |event| {
@@ -1303,7 +1305,9 @@ mod tests {
         let key = CompilationFactKey::SyntaxTree;
 
         let (started_sender, started_receiver) = mpsc::channel();
+
         let (release_sender, release_receiver) = mpsc::channel();
+
         let (result_sender, result_receiver) = mpsc::channel();
 
         let observed = std::thread::scope(|scope| {
@@ -1381,9 +1385,13 @@ mod tests {
         let waiter_cancellation = CancellationToken::new();
         let cell = FactCell::new();
         let key = CompilationFactKey::SyntaxTree;
+
         let (started_sender, started_receiver) = mpsc::channel();
+
         let (waiting_sender, waiting_receiver) = mpsc::sync_channel(1);
+
         let (release_sender, release_receiver) = mpsc::channel();
+
         let release_receiver = Mutex::new(release_receiver);
 
         let observer = FactCellTestObserver::new(move |event| {

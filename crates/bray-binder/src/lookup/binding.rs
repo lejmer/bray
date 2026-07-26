@@ -196,6 +196,7 @@ pub(crate) fn combine_name_lookups(
         &mut inaccessible,
         &mut has_malformed,
     );
+
     collect_lookup_candidates(
         second,
         &mut accessible,

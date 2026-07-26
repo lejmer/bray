@@ -78,6 +78,7 @@ impl Parser {
                 builder.push_abi_directive(
                     self.parse_abi_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 
@@ -85,6 +86,7 @@ impl Parser {
                 builder.push_link_directive(
                     self.parse_link_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 
@@ -92,6 +94,7 @@ impl Parser {
                 builder.push_symbol_directive(
                     self.parse_symbol_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 
@@ -167,6 +170,7 @@ impl Parser {
         if self.at(SyntaxKind::OpenBraceToken) {
             builder
                 .push_callable_body_block_expression(self.parse_callable_body_block_expression());
+
             return;
         }
 

@@ -136,6 +136,7 @@ impl Parser {
         &mut self,
     ) -> TraitCallableMemberDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             TraitCallableMemberDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -212,6 +213,7 @@ impl Parser {
                     Parser::at_callable_member_body_missing_boundary,
                 ),
             );
+
             return;
         }
 

@@ -471,6 +471,7 @@ mod tests {
         let mut pattern = IrrefutablePatternSyntax::builder(snapshot.clone(), TextSize::ZERO);
         let mut field = IrrefutablePatternEntrySyntax::builder(snapshot.clone(), TextSize::new(8));
         let mut nested = IrrefutablePatternSyntax::builder(snapshot.clone(), TextSize::new(12));
+
         let mut remaining =
             IrrefutablePatternEntrySyntax::builder(snapshot.clone(), TextSize::new(23));
 

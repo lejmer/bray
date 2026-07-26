@@ -268,8 +268,10 @@ mod tests {
         ));
 
         let package = AnySymbolId::from(PackageSymbolId::from_symbol_id(SymbolId::new(5)));
+
         let contract =
             AnySymbolId::from(CallableContractSymbolId::from_symbol_id(SymbolId::new(6)));
+
         let type_fulfillment = AnySymbolId::from(TraitTypeFulfillmentSymbolId::from_symbol_id(
             SymbolId::new(7),
         ));

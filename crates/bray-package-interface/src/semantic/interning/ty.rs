@@ -60,6 +60,7 @@ impl InternState {
             }
             InterfaceType::ContextualSelf(context) => {
                 let symbol = resolve_symbol(symbols, context)?;
+
                 let Some(context) = SelfTypeContext::try_new(symbol) else {
                     return Err(invalid_symbol(context));
                 };

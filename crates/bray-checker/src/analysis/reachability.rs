@@ -289,6 +289,7 @@ mod tests {
     #[test]
     fn reachability_masks_reject_foreign_unit_ids() {
         let unit = BoundUnitId::new(4);
+
         let result = ReachabilityResult {
             unit,
             reachable_blocks: [true].into(),

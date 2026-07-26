@@ -254,6 +254,7 @@ fn bind_trusted_capability_clauses(
 
     for clause in clauses {
         let result = bind_trusted_capability_clause(context, owner.into_any(), &clause)?;
+
         let (symbols, clause_diagnostics) = result.into_parts();
 
         diagnostics = diagnostics.merged(&clause_diagnostics);

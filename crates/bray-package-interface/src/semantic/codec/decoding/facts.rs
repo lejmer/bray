@@ -263,6 +263,7 @@ mod tests {
 
         for &(tag, table_index) in UNRELATED_RECORDS {
             let (surface, owner, mut sections) = implementation_fixture();
+
             let section = section_mut(&mut sections, tag);
 
             append_record(&mut section.2, table_index, &[u8::MAX]);
@@ -326,6 +327,7 @@ mod tests {
     #[test]
     fn exact_fact_decoding_is_independent_of_request_order() {
         let (surface, owner, sections) = implementation_fixture();
+
         let sections = owned_section_views(&sections);
         let limits = InterfaceValidationLimits::default();
 
@@ -677,6 +679,7 @@ mod tests {
     #[test]
     fn referenced_implementation_corruption_fails_deterministically() {
         let (surface, owner, mut sections) = implementation_fixture();
+
         let section = section_mut(&mut sections, InterfaceSectionTag::Implementations);
         let implementation = record_range_with_local_owner(&section.2, 0, owner);
 
@@ -703,6 +706,7 @@ mod tests {
     #[test]
     fn referenced_transitive_record_corruption_fails_deterministically() {
         let (surface, owner, mut sections) = implementation_fixture();
+
         let section = section_mut(&mut sections, InterfaceSectionTag::SemanticTypes);
         let subject_type = record_range(&section.2, 4, 1);
 
@@ -729,6 +733,7 @@ mod tests {
     #[test]
     fn narrow_decoding_validates_unrelated_record_ranges() {
         let (surface, owner, mut sections) = implementation_fixture();
+
         let section = section_mut(&mut sections, InterfaceSectionTag::SemanticTypes);
 
         append_record(&mut section.2, 4, &[u8::MAX]);

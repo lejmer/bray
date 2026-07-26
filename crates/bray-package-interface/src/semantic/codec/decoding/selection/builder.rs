@@ -434,6 +434,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         self.enqueue(PendingRecord::Type(coherence.subject.raw()));
+
         self.enqueue(PendingRecord::TraitApplication(
             coherence.trait_application.raw(),
         ));
@@ -589,6 +590,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 }
 
                 self.enqueue(PendingRecord::Type(result.raw()));
+
                 self.enqueue(PendingRecord::DependencyContract(
                     invocation_dependency_contract.raw(),
                 ));

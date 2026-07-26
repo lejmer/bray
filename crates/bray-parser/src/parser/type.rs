@@ -80,6 +80,7 @@ impl Parser {
                 builder.push_layout_directive(
                     self.parse_layout_directive(&TYPE_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 

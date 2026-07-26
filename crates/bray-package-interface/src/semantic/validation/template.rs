@@ -208,6 +208,7 @@ fn validate_template(
         compact_index(template.result().raw()),
         template.nodes().len(),
     )?;
+
     validate_index(
         template.behavior().dependency_contract().to_index(),
         facts.dependency_contracts.len(),

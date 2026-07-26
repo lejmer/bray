@@ -66,6 +66,7 @@ impl SourceSnapshot {
         edit: &SourceEdit,
     ) -> Result<Self, SourceEditError> {
         let range = edit.range();
+
         if range.end() > self.text_len() {
             return Err(SourceEditError::RangeOutOfBounds {
                 range,

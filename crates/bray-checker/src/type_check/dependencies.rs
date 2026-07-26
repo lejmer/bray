@@ -27,6 +27,7 @@ impl ExpressionTypeDependencies {
             .semantic_values()
             .intern_type(TypeData::Error)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
         let unit = representation_type(request, RepresentationRole::Unit)?;
         let never = representation_type(request, RepresentationRole::Never)?;
         let boolean = representation_type(request, RepresentationRole::ScalarBool)?;

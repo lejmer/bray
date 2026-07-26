@@ -190,6 +190,7 @@ pub(super) fn encode_dependency_requirement_kind(
         InterfaceDependencyRequirementKind::ExclusiveMutationAuthority => encoder.write_u32(3),
         InterfaceDependencyRequirementKind::BorrowCapabilityActive(kind) => {
             encoder.write_u32(4);
+
             encoder.write_u32(match kind {
                 BorrowKind::Shared => 1,
                 BorrowKind::Mutable => 2,

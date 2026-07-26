@@ -317,6 +317,7 @@ where
         };
 
         is_recovered |= constants.diagnostics().has_errors();
+
         self.diagnostics
             .extend(constants.diagnostics().iter().cloned());
 

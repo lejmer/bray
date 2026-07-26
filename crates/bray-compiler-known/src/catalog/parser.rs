@@ -303,6 +303,7 @@ impl CatalogParser {
                         self.anchor(ordinal.range()),
                         CatalogDiagnosticKind::InvalidDeclarationIdentityOrdinal { spelling },
                     ));
+
                     self.tokens.consume();
 
                     return None;

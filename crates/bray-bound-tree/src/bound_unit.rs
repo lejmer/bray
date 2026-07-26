@@ -429,6 +429,7 @@ mod tests {
     #[test]
     fn bound_units_reject_roots_and_local_snapshots_from_other_units() {
         let (key, tree, _, _) = callable_parts(22);
+
         let (_, _, locals, foreign_root) = callable_parts(23);
 
         let foreign_root_result = BoundUnit::try_new(

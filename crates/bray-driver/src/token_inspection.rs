@@ -107,6 +107,7 @@ impl TokenInspectionSource {
             LineIndex::new(snapshot.text()).map_err(|_| TokenInspectionRenderError::SourceIndex)?;
 
         let lex_result = lex_source_unit(snapshot);
+
         let (lexed_tokens, diagnostics) = lex_result.into_parts();
 
         let tokens = lexed_tokens

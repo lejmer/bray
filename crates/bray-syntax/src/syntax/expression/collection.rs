@@ -198,6 +198,7 @@ mod tests {
 
         let mut literal =
             LiteralExpressionSyntax::builder(tuple_snapshot.clone(), TextSize::new(1));
+
         let mut tuple = TupleExpressionSyntax::builder(tuple_snapshot.clone(), TextSize::ZERO);
 
         literal.push_literal_token(token(SyntaxKind::TrueKeyword, 1, 5));

@@ -422,6 +422,7 @@ mod tests {
     #[test]
     fn inherent_implementation_declarations_store_subject_and_body() {
         let snapshot = test_snapshot("syntax-implementation-test", "impl Point {}");
+
         let mut builder =
             InherentImplementationDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
@@ -445,6 +446,7 @@ mod tests {
     #[test]
     fn unnamed_trait_implementation_declarations_store_subject_trait_and_body() {
         let snapshot = test_snapshot("syntax-implementation-test", "impl Point(Equatable) {}");
+
         let mut builder =
             UnnamedTraitImplementationDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
@@ -469,6 +471,7 @@ mod tests {
             "syntax-implementation-test",
             "impl PointEq = Point(Equatable) {}",
         );
+
         let mut builder =
             NamedTraitImplementationDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 

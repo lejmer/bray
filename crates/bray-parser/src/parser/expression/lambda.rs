@@ -27,6 +27,7 @@ impl Parser {
         builder.push_callable_directives(
             self.parse_callable_directives_until(&LAMBDA_EXPRESSION_START_KINDS),
         );
+
         builder.push_callable_modifiers(self.parse_callable_modifiers());
         builder.push_lambda_keyword(self.expect(SyntaxKind::LambdaKeyword));
         builder.push_parameter_list(self.parse_parameter_list());

@@ -287,6 +287,7 @@ mod tests {
     fn complete_outcomes_reject_error_diagnostics() {
         let plan = link_plan();
         let artifact = linked_artifact(&plan);
+
         let diagnostics = DiagnosticBag::single(Diagnostic::new(
             DiagnosticId::new(1),
             DiagnosticKind::RequestMissingSourceInput,
@@ -302,11 +303,13 @@ mod tests {
     #[test]
     fn failed_and_cancelled_outcomes_expose_no_partial_artifacts() {
         let failed = LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new());
+
         let diagnostics = DiagnosticBag::single(Diagnostic::new(
             DiagnosticId::new(1),
             DiagnosticKind::RequestMissingSourceInput,
             SeverityKind::Error,
         ));
+
         let cancelled = LinkOutcome::cancelled(diagnostics.clone());
 
         assert!(matches!(failed.status(), LinkStatus::Failed(_)));

@@ -188,6 +188,7 @@ impl TestFixture {
         let declaration_chunk = discover_source_unit_declarations(source_syntax.source_unit());
 
         let (syntax, _) = SyntaxTreeResult::from_source_unit_results([source_syntax]).into_parts();
+
         let (declarations, _) = merge_declaration_chunks([&declaration_chunk]).into_parts();
 
         let package = match PackageIdentity::try_new("test.package") {

@@ -128,6 +128,7 @@ mod tests {
         let source = source_anchor();
 
         let source_origin = BoundNodeOrigin::source(source);
+
         let synthesized = BoundNodeOrigin::synthesized(
             source,
             BoundSynthesisRole::Conversion,

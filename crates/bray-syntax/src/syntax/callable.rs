@@ -441,6 +441,7 @@ mod tests {
             );
 
             builder.push_parameter_modifiers(modifiers.build());
+
             builder.push_typed_identifier(typed_identifier(
                 builder_source.clone(),
                 start + 4,
@@ -466,6 +467,7 @@ mod tests {
             )]);
         } else {
             builder.push_parameter_modifiers(modifiers.build());
+
             builder.push_typed_identifier(typed_identifier(
                 builder_source,
                 start,

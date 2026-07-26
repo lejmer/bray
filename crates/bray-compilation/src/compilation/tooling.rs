@@ -790,6 +790,7 @@ mod tests {
         );
 
         assert_eq!(compilation.state.bound_units.is_published(main), Ok(true));
+
         assert_eq!(
             compilation.state.expression_semantics.is_published(main),
             Ok(false)

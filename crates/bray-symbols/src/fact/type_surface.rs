@@ -446,6 +446,7 @@ mod tests {
 
         assert_eq!(lifecycle.id(), lifecycle_id);
         assert_eq!(lifecycle.slot(), TypeAssociatedLifecycleSlot::Finalizer);
+
         assert_eq!(
             lifecycle.origin(),
             TypeAssociatedMemberOrigin::InherentImplementation(implementation)

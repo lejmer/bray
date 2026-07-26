@@ -369,6 +369,7 @@ where
                         result_type,
                         self.types.unit,
                     );
+
                     self.inference.mark_recovered(variable);
                 }
                 None => {}
@@ -398,6 +399,7 @@ where
 
     let mut expressions = BTreeSet::new();
     let mut blocks = BTreeSet::new();
+
     let outcome = walk_bound_unit_view(request.view(), root, |event| {
         if request.is_cancelled() {
             return BoundWalkControl::Stop;

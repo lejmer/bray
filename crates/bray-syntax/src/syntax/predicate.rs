@@ -390,6 +390,7 @@ mod tests {
             "syntax-predicate-test",
             "trusted predicate valid(value: Int) = value > 0;",
         );
+
         let mut builder = PredicateDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_predicate_modifiers(predicate_modifiers(snapshot.clone()));

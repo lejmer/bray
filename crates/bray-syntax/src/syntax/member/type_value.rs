@@ -131,6 +131,7 @@ mod tests {
     #[test]
     fn trait_type_member_declarations_store_name_and_semicolon() {
         let snapshot = test_snapshot("syntax-trait-type-member-test", "type Item;");
+
         let mut builder =
             super::TraitTypeMemberDeclarationSyntax::builder(snapshot, TextSize::ZERO);
 

@@ -71,6 +71,7 @@ where
         };
 
         let evidence = inference.evidence(result);
+
         let expected = match evidence {
             Some(evidence) => Some(evidence),
             None => inference.try_unique_matching_expectation(result, |ty| {
@@ -283,7 +284,9 @@ mod tests {
             BoundLiteralKind::Character,
             BoundLiteralKind::String,
         ];
+
         let (unit, expressions) = literal_unit(BoundUnitId::new(70), kinds);
+
         let expected = [
             representation(&unit, RepresentationRole::ScalarBool),
             representation(&unit, RepresentationRole::ScalarChar),
@@ -303,7 +306,9 @@ mod tests {
             BoundLiteralKind::Real,
             BoundLiteralKind::Imaginary,
         ];
+
         let (unit, expressions) = literal_unit(BoundUnitId::new(71), kinds);
+
         let expected = [
             representation(&unit, RepresentationRole::ScalarI32),
             representation(&unit, RepresentationRole::ScalarR64),
@@ -323,17 +328,21 @@ mod tests {
             BoundLiteralKind::Real,
             BoundLiteralKind::Imaginary,
         ];
+
         let (unit, expressions) = literal_unit(BoundUnitId::new(72), kinds);
+
         let expected = [
             representation(&unit, RepresentationRole::ScalarU64),
             representation(&unit, RepresentationRole::ScalarR32),
             representation(&unit, RepresentationRole::ScalarC64),
         ];
+
         let expectations = expressions
             .iter()
             .copied()
             .zip(expected)
             .map(|(expression, ty)| ExpressionTypeExpectation::new(expression, ty));
+
         let input = ExpressionTypeInput::new().with_expectations(expectations);
 
         let result = completed_expression_check(&unit, &input);
@@ -359,14 +368,17 @@ mod tests {
 
         for (unit, complex_role, component_role) in cases {
             let (unit, expressions) = complex_literal_unit(unit);
+
             let complex = representation(&unit, complex_role);
             let component = representation(&unit, component_role);
+
             let input = ExpressionTypeInput::new()
                 .with_expectations([ExpressionTypeExpectation::new(expressions[2], complex)]);
 
             let result = completed_expression_check(&unit, &input);
 
             assert!(result.diagnostics().is_empty());
+
             assert_expression_types(
                 result.value(),
                 &expressions,
@@ -375,14 +387,17 @@ mod tests {
         }
 
         let (unit, expressions) = complex_literal_unit(BoundUnitId::new(80));
+
         let complex = representation(&unit, RepresentationRole::ScalarC64);
         let component = representation(&unit, RepresentationRole::ScalarR32);
+
         let input = ExpressionTypeInput::new()
             .with_evidence([ExpressionTypeEvidence::new(expressions[2], complex)]);
 
         let result = completed_expression_check(&unit, &input);
 
         assert!(result.diagnostics().is_empty());
+
         assert_expression_types(
             result.value(),
             &expressions,
@@ -393,12 +408,14 @@ mod tests {
     #[test]
     fn unconstrained_complex_literals_use_the_complex_default() {
         let (unit, expressions) = complex_literal_unit(BoundUnitId::new(78));
+
         let component = representation(&unit, RepresentationRole::ScalarR64);
         let complex = representation(&unit, RepresentationRole::ScalarC128);
 
         let result = completed_expression_check(&unit, &ExpressionTypeInput::new());
 
         assert!(result.diagnostics().is_empty());
+
         assert_expression_types(
             result.value(),
             &expressions,
@@ -409,11 +426,14 @@ mod tests {
     #[test]
     fn staged_propagation_does_not_commit_numeric_defaults() {
         let (unit, expressions) = literal_unit(BoundUnitId::new(79), [BoundLiteralKind::Integer]);
+
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
+
         let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
             panic!("literal test request must be valid");
         };
+
         let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
         else {
             panic!("literal type session must start");
@@ -450,10 +470,12 @@ mod tests {
                 tree,
                 literal_expression(origin, BoundLiteralKind::Integer, None),
             );
+
             let real = push_expression(
                 tree,
                 literal_expression(origin, BoundLiteralKind::Real, None),
             );
+
             let tuple = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -469,9 +491,11 @@ mod tests {
 
             vec![integer, real, tuple]
         });
+
         let integer = representation(&unit, RepresentationRole::ScalarU16);
         let real = representation(&unit, RepresentationRole::ScalarR128);
         let tuple = tuple_type([integer, real]);
+
         let input = ExpressionTypeInput::new()
             .with_expectations([ExpressionTypeExpectation::new(expressions[2], tuple)]);
 
@@ -484,9 +508,11 @@ mod tests {
     #[test]
     fn conflicting_matching_expectations_do_not_select_an_arbitrary_literal_type() {
         let (unit, expressions) = literal_unit(BoundUnitId::new(74), [BoundLiteralKind::Integer]);
+
         let u16 = representation(&unit, RepresentationRole::ScalarU16);
         let u64 = representation(&unit, RepresentationRole::ScalarU64);
         let default = representation(&unit, RepresentationRole::ScalarI32);
+
         let input = ExpressionTypeInput::new().with_expectations([
             ExpressionTypeExpectation::new(expressions[0], u16),
             ExpressionTypeExpectation::new(expressions[0], u64),
@@ -512,22 +538,27 @@ mod tests {
             BoundLiteralKind::Real,
             BoundLiteralKind::Imaginary,
         ];
+
         let (unit, expressions) = literal_unit(BoundUnitId::new(75), kinds);
+
         let expected = [
             representation(&unit, RepresentationRole::ScalarBool),
             representation(&unit, RepresentationRole::ScalarI64),
             representation(&unit, RepresentationRole::ScalarR64),
         ];
+
         let defaults = [
             representation(&unit, RepresentationRole::ScalarI32),
             representation(&unit, RepresentationRole::ScalarR64),
             representation(&unit, RepresentationRole::ScalarC128),
         ];
+
         let expectations = expressions
             .iter()
             .copied()
             .zip(expected)
             .map(|(expression, ty)| ExpressionTypeExpectation::new(expression, ty));
+
         let input = ExpressionTypeInput::new().with_expectations(expectations);
 
         let result = completed_expression_check(&unit, &input);
@@ -588,10 +619,12 @@ mod tests {
                 tree,
                 literal_expression(origin, BoundLiteralKind::Real, None),
             );
+
             let imaginary = push_expression(
                 tree,
                 literal_expression(origin, BoundLiteralKind::Imaginary, None),
             );
+
             let complex = push_expression(
                 tree,
                 BoundExpression::Binary(BoundBinaryExpression::new(
@@ -610,6 +643,7 @@ mod tests {
     fn representation(unit: &BoundUnit, role: RepresentationRole) -> TypeId {
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
+
         let Ok(request) = CheckerUnitView::new(unit, &entry, &context) else {
             panic!("literal test request must be valid");
         };
@@ -629,6 +663,7 @@ mod tests {
             .iter()
             .map(|expression| types.expression(*expression).map(|result| result.ty()))
             .collect::<Vec<_>>();
+
         let expected = expected.iter().copied().map(Some).collect::<Vec<_>>();
 
         assert_eq!(actual, expected);

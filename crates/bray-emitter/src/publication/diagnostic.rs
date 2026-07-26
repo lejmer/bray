@@ -59,6 +59,7 @@ impl PublicationDiagnostics {
 
         for pending in self.pending {
             let id = DiagnosticId::new(next_id);
+
             let (_, diagnostic) = pending.error.into_diagnostic(id, pending.severity);
 
             bag.add(diagnostic);

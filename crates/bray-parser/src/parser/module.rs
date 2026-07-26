@@ -178,6 +178,7 @@ impl Parser {
                 builder.push_target_directive(
                     self.parse_target_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 
@@ -190,6 +191,7 @@ impl Parser {
                 builder.push_link_directive(
                     self.parse_link_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
+
                 continue;
             }
 
@@ -996,6 +998,7 @@ mod tests {
     fn parser_parses_block_module_declarations_and_function_body_items() {
         let sources =
             source_store(["@test internal module main { func run() {} } module extra {}"]);
+
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];

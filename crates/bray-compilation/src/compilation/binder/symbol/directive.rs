@@ -73,6 +73,7 @@ impl Compilation {
             cancellation,
             || {
                 let context = self.binder_facts(cancellation)?;
+
                 let syntax =
                     syntax_node_for_anchor(&context, key.syntax()).map_err(binder_fact_error)?;
 

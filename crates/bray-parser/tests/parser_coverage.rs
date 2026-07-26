@@ -52,7 +52,9 @@ fn grammar_nonterminals(grammar: &str) -> Vec<String> {
 
 fn grammar_nonterminal(line: &str) -> Option<String> {
     let trimmed = line.trim_start();
+
     let (candidate, _) = trimmed.split_once('=')?;
+
     let candidate = candidate.trim();
 
     if !is_nonterminal_name(candidate) {
@@ -101,6 +103,7 @@ fn coverage_row(line: &str) -> Option<CoverageRow> {
 
 fn backticked_name(cell: &str) -> Option<String> {
     let without_prefix = cell.strip_prefix('`')?;
+
     let (name, _) = without_prefix.split_once('`')?;
 
     if !is_nonterminal_name(name) {

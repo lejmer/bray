@@ -369,6 +369,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
 
         let rejected = compilation(&IMPLEMENTATIONS.replace("with(true)", "with(false)"));
         let rejected_fixture = CandidateFixture::new(&rejected);
+
         let selection = rejected
             .implementation_selection_result(rejected_fixture.requirement)
             .unwrap_or_else(|error| panic!("rejected selection must complete: {error:?}"));

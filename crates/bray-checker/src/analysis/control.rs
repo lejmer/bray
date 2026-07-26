@@ -260,6 +260,7 @@ where
 
         self.push_edge(current, iteration, AnalysisEdgeKind::LoopEntry, None);
         self.push_edge(iteration, iteration, AnalysisEdgeKind::LoopBack, None);
+
         self.push_edge(
             iteration,
             completion,
@@ -337,6 +338,7 @@ where
         for arm in expression.arms() {
             let arm_entry = self.push_block();
             let next_candidate = self.push_block();
+
             let refinement = AnalysisRefinement::PatternSuccess {
                 subject: expression.subject(),
                 pattern: arm.pattern(),
@@ -363,6 +365,7 @@ where
             let body_entry = match arm.guard() {
                 Some(guard) => {
                     let guard_expression = guard;
+
                     let guard = self
                         .build_expression(guard, arm_entry)?
                         .unwrap_or_else(|| self.push_block());

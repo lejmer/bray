@@ -247,6 +247,7 @@ impl ArtifactContent {
     /// Creates memory-backed content when its byte length is representable by the contract.
     pub fn try_memory(bytes: impl Into<Arc<[u8]>>) -> Result<Self, ArtifactContentBuildError> {
         let bytes = bytes.into();
+
         let Ok(byte_len) = u64::try_from(bytes.len()) else {
             return Err(ArtifactContentBuildError::LengthExceeded);
         };

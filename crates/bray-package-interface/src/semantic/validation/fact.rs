@@ -69,6 +69,7 @@ impl InterfaceSemanticFacts {
 
         for constraint in &*self.constraints {
             validate_symbol(&constraint.owner, symbol_count, dependency_count)?;
+
             validate_index(
                 constraint.predicate.dependency_contract.to_index(),
                 self.dependency_contracts.len(),

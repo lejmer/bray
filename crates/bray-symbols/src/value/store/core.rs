@@ -366,6 +366,7 @@ mod tests {
         };
 
         assert_eq!(child_value.store_id(), child.id());
+
         assert_eq!(
             parent.type_data(child_value),
             Err(SemanticValueStoreError::ForeignId {
@@ -590,6 +591,7 @@ mod tests {
             left,
             right,
         });
+
         let second = store.intern_constant_term(ConstantTermData::Binary {
             operation: ConstantBinaryOperation::Add,
             left: right,
@@ -618,6 +620,7 @@ mod tests {
 
         let left =
             DependencyContractTemplateData::new([first.clone(), second.clone(), first.clone()]);
+
         let right = DependencyContractTemplateData::new([second, first]);
 
         assert_eq!(

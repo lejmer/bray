@@ -319,6 +319,7 @@ mod tests {
             compilation_from_sources(["module a;\n", concat!("module b;\n", "\n", "export a;\n",)]);
 
         let bundle = export(&compilation);
+
         let [edge] = bundle.surface().exports() else {
             panic!(
                 "expected one module re-export: {:?}",
@@ -327,6 +328,7 @@ mod tests {
         };
 
         assert_eq!(edge.name().as_str(), "a");
+
         assert_eq!(
             edge.kind(),
             bray_package_interface::ExportedLookupKind::ReExport

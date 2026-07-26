@@ -229,6 +229,7 @@ mod tests {
     #[test]
     fn traversal_uses_deterministic_relationship_order() {
         let (tree, root, first, second, block) = tree_with_two_expressions();
+
         let mut events = Vec::new();
 
         let outcome = walk_bound_tree(&tree, root, |event| {
@@ -257,6 +258,7 @@ mod tests {
     #[test]
     fn traversal_can_skip_or_stop_without_mutating_the_tree() {
         let (tree, root, _, _, block) = tree_with_two_expressions();
+
         let mut events = Vec::new();
 
         let outcome = walk_bound_tree(&tree, root, |event| {
@@ -291,6 +293,7 @@ mod tests {
     #[test]
     fn traversal_rejects_a_root_from_another_unit() {
         let (tree, _, _, _, _) = tree_with_two_expressions();
+
         let foreign = crate::BoundExpressionId::from_slot(BoundUnitId::new(9), 0);
 
         let outcome = walk_bound_tree(&tree, foreign, |_| BoundWalkControl::Continue);

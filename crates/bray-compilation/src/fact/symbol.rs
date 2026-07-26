@@ -48,6 +48,7 @@ where
         let key = CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
 
         let cell = self.cells.cell(request.owner())?;
+
         let published =
             cell.get_or_compute(runtime, key, cancellation, || compute().map(Arc::new))?;
 

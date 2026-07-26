@@ -66,6 +66,7 @@ pub fn walk_mir_unit<V: MirVisitor + ?Sized>(unit: &MirUnit, visitor: &mut V) {
         let Some(slot) = u32::try_from(index).ok() else {
             return;
         };
+
         let id = MirStorageId::from_slot(unit.unit(), slot);
 
         if visitor.visit_storage(id, storage) == MirVisitControl::Stop {
@@ -77,6 +78,7 @@ pub fn walk_mir_unit<V: MirVisitor + ?Sized>(unit: &MirUnit, visitor: &mut V) {
         let Some(slot) = u32::try_from(index).ok() else {
             return;
         };
+
         let id = MirValueId::from_slot(unit.unit(), slot);
 
         if visitor.visit_value(id, value) == MirVisitControl::Stop {

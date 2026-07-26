@@ -78,6 +78,7 @@ impl Parser {
 
             builder.push_expression(expression);
             builder.push_operator_token(self.consume());
+
             builder.push_expression(self.parse_expression_with_min_binding_power_until(
                 at_boundary,
                 operator.right_binding_power,
@@ -109,6 +110,7 @@ impl Parser {
         let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
 
         builder.push_operator_token(self.consume());
+
         builder.push_expression(self.parse_expression_with_min_binding_power_until(
             at_boundary,
             PREFIX_RIGHT_BINDING_POWER,

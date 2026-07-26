@@ -643,6 +643,7 @@ mod tests {
 
                     saw_omitted_lower_slice_bound |=
                         bounds.lower().is_none() && bounds.upper().is_some();
+
                     saw_omitted_upper_slice_bound |=
                         bounds.lower().is_some() && bounds.upper().is_none();
                 }

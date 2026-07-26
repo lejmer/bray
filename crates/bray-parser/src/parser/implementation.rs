@@ -34,6 +34,7 @@ impl Parser {
         &mut self,
     ) -> InherentImplementationDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             InherentImplementationDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -54,6 +55,7 @@ impl Parser {
         &mut self,
     ) -> UnnamedTraitImplementationDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             UnnamedTraitImplementationDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -78,6 +80,7 @@ impl Parser {
         &mut self,
     ) -> NamedTraitImplementationDeclarationSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder =
             NamedTraitImplementationDeclarationSyntax::builder(self.syntax_source(), start);
 
@@ -85,6 +88,7 @@ impl Parser {
 
         builder.push_identifier_token(self.parse_identifier());
         builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
+
         builder.push_implementation_subject(
             self.parse_implementation_subject(BorrowPrefixPolicy::Allow),
         );
@@ -340,6 +344,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .named_trait_implementation_declarations()
             .collect::<Vec<_>>();
