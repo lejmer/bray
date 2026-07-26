@@ -278,6 +278,38 @@ where
         self.direct_access(expression, storage)
     }
 
+    pub(super) fn iteration_access(
+        &mut self,
+        expression: BoundExpressionId,
+        identity: StorageIdentity,
+        ty: bray_symbols::TypeId,
+    ) -> Result<StorageAccessId, PlanError> {
+        let node = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or_else(|| invalid_node(expression))?;
+
+        let source = node.origin().source_anchor();
+        let is_recovered = node.is_recovered();
+
+        let access = StorageAccess::new(
+            StorageAccessRoot::Storage(
+                self.builder_mut()?
+                    .push_identity(identity)
+                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?,
+            ),
+            [],
+            ty,
+            source,
+            is_recovered,
+        );
+
+        self.builder_mut()?
+            .push_access(access)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+    }
+
     pub(super) fn recovery_access(
         &mut self,
         expression: BoundExpressionId,

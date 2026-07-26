@@ -46,21 +46,17 @@ impl BoundTree {
     pub fn expressions(
         &self,
     ) -> impl ExactSizeIterator<Item = (BoundExpressionId, &BoundExpression)> {
-        self.expressions
-            .iter()
-            .enumerate()
-            .map(|(index, expression)| {
-                // BoundTreeBuilder rejects expression counts that cannot be represented by IDs.
-                let slot = u32::try_from(index)
-                    .unwrap_or_else(|_| panic!("bound expression slot must fit in u32"));
-
-                (BoundExpressionId::from_slot(self.unit, slot), expression)
-            })
+        unit_entries(self.unit, &self.expressions, BoundExpressionId::from_slot)
     }
 
     /// Returns the pattern identified within this tree, when present.
     pub fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
         self.entry(id.unit(), id.to_index(), &self.patterns)
+    }
+
+    /// Returns committed patterns with their exact unit-local IDs.
+    pub fn patterns(&self) -> impl ExactSizeIterator<Item = (BoundPatternId, &BoundPattern)> {
+        unit_entries(self.unit, &self.patterns, BoundPatternId::from_slot)
     }
 
     /// Returns the block identified within this tree, when present.
@@ -70,13 +66,7 @@ impl BoundTree {
 
     /// Returns blocks with their unit-local identities.
     pub fn blocks(&self) -> impl ExactSizeIterator<Item = (BoundBlockId, &BoundBlock)> {
-        self.blocks.iter().enumerate().map(|(index, block)| {
-            // BoundTreeBuilder rejects block counts that cannot be represented by IDs.
-            let slot =
-                u32::try_from(index).unwrap_or_else(|_| panic!("bound block slot must fit in u32"));
-
-            (BoundBlockId::from_slot(self.unit, slot), block)
-        })
+        unit_entries(self.unit, &self.blocks, BoundBlockId::from_slot)
     }
 
     /// Returns the callable body identified within this tree, when present.
@@ -103,10 +93,27 @@ impl BoundTree {
     }
 }
 
+fn unit_entries<T, I>(
+    unit: BoundUnitId,
+    entries: &[T],
+    make_id: impl Fn(BoundUnitId, u32) -> I,
+) -> impl ExactSizeIterator<Item = (I, &T)> {
+    entries.iter().enumerate().map(move |(index, entry)| {
+        // BoundTreeBuilder rejects node counts that cannot be represented by IDs.
+        let slot =
+            u32::try_from(index).unwrap_or_else(|_| panic!("bound node slot must fit in u32"));
+
+        (make_id(unit, slot), entry)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test_support::error_expression;
-    use crate::{BoundTreeBuilder, BoundUnitId};
+    use crate::test_support::{error_expression, error_type, source_anchor};
+    use crate::{
+        BoundNodeOrigin, BoundPattern, BoundPatternKind, BoundPatternMode, BoundTreeBuilder,
+        BoundUnitId,
+    };
 
     #[test]
     fn published_trees_are_send_and_sync() {
@@ -131,5 +138,35 @@ mod tests {
         let entries = tree.expressions().map(|(id, _)| id).collect::<Vec<_>>();
 
         assert_eq!(entries, [first, second]);
+    }
+
+    #[test]
+    fn published_trees_iterate_patterns_with_their_exact_ids() {
+        let mut builder = BoundTreeBuilder::new(BoundUnitId::new(4));
+        let origin = BoundNodeOrigin::source(source_anchor());
+
+        let first = builder
+            .push_pattern(error_pattern(origin))
+            .unwrap_or_else(|error| panic!("first pattern must fit: {error:?}"));
+
+        let second = builder
+            .push_pattern(error_pattern(origin))
+            .unwrap_or_else(|error| panic!("second pattern must fit: {error:?}"));
+
+        let tree = builder.finish();
+        let entries = tree.patterns().map(|(id, _)| id).collect::<Vec<_>>();
+
+        assert_eq!(entries, [first, second]);
+    }
+
+    fn error_pattern(origin: BoundNodeOrigin) -> BoundPattern {
+        BoundPattern::new(
+            origin,
+            error_type(),
+            BoundPatternMode::Declaration,
+            BoundPatternKind::Error,
+            [],
+            [],
+        )
     }
 }

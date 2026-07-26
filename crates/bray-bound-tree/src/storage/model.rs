@@ -60,6 +60,10 @@ pub enum StorageIdentity {
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
     Temporary(BoundExpressionId),
+    /// Cursor owned by an iteration expression.
+    IterationCursor(BoundExpressionId),
+    /// Current element produced by an iteration expression.
+    IterationElement(BoundExpressionId),
     /// Storage created by an allocation operation.
     Allocation(BoundExpressionId),
     /// Storage introduced by a compiler-required operation.
@@ -72,7 +76,10 @@ impl StorageIdentity {
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,
-            Self::Temporary(expression) | Self::Allocation(expression) => expression.unit() == unit,
+            Self::Temporary(expression)
+            | Self::IterationCursor(expression)
+            | Self::IterationElement(expression)
+            | Self::Allocation(expression) => expression.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::PredicateParameter(_)

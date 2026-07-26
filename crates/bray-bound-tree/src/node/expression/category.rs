@@ -274,8 +274,10 @@ pub enum BoundStructuredExpressionKind {
     Catch,
     /// Construction through a type form.
     TypeFormConstruction,
-    /// Boolean folding over operands.
-    BooleanFold,
+    /// Boolean conjunction folding over one iterable operand.
+    BooleanAllFold,
+    /// Boolean disjunction folding over one iterable operand.
+    BooleanAnyFold,
     /// An explicit panic.
     Panic,
 }

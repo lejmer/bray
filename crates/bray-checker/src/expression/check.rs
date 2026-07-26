@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::{
     CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedIterationSource,
-    SemanticSelectionEntry,
+    SemanticSelection, SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -286,6 +286,14 @@ where
     };
 
     entries.append(&mut supplemental_selections);
+
+    // Iteration discovery retains its cached selections while this table owns its entries.
+    entries.extend(iteration_sources.iter().cloned().map(|selection| {
+        SemanticSelectionEntry::new(
+            selection.expression(),
+            SemanticSelection::Iteration(selection),
+        )
+    }));
 
     let selections = match CheckedSemanticSelections::try_new(request.unit(), &types, entries) {
         Ok(selections) => selections,

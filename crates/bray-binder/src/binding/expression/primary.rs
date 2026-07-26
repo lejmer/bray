@@ -5,10 +5,11 @@ use bray_bound_tree::{
 };
 use bray_symbols::{LocalScopeId, SymbolName};
 use bray_syntax::{
-    AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
-    GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
-    LiteralExpressionSyntax, MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode,
-    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, TypeExpressionSyntax, walk_direct_child_nodes,
+    AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax,
+    BooleanFoldExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
+    LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax,
+    MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
+    SyntaxWalkControl, TypeExpressionSyntax, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -223,6 +224,20 @@ impl ExpressionBinder {
                 BoundStructuredExpressionKind::RepeatedArray
             } else {
                 BoundStructuredExpressionKind::Array
+            };
+
+            return self.bind_structured(binder, scope, root, kind);
+        }
+
+        if root.kind() == SyntaxKind::BooleanFoldExpression {
+            let Some(expression) = root.cast::<BooleanFoldExpressionSyntax>() else {
+                return self.push_error(binder, Some(recovery_origin));
+            };
+
+            let kind = if expression.any_keyword().is_some() {
+                BoundStructuredExpressionKind::BooleanAnyFold
+            } else {
+                BoundStructuredExpressionKind::BooleanAllFold
             };
 
             return self.bind_structured(binder, scope, root, kind);

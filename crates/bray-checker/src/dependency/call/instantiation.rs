@@ -10,14 +10,24 @@ use bray_symbols::{
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
+enum CallInstantiationInput<'check> {
+    Selected {
+        expression: BoundExpressionId,
+        call: &'check SelectedCall,
+    },
+    Hidden {
+        receiver: StorageAccessId,
+        result: StorageAccessId,
+    },
+}
+
 pub(super) struct CallInstantiationContext<'check, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     request: CheckerUnitView<'check, C>,
     storage: &'check StoragePlan,
-    expression: BoundExpressionId,
-    call: &'check SelectedCall,
+    input: CallInstantiationInput<'check>,
 }
 
 impl<'check, C> CallInstantiationContext<'check, C>
@@ -33,8 +43,20 @@ where
         Self {
             request,
             storage,
-            expression,
-            call,
+            input: CallInstantiationInput::Selected { expression, call },
+        }
+    }
+
+    pub(super) const fn hidden(
+        request: CheckerUnitView<'check, C>,
+        storage: &'check StoragePlan,
+        receiver: StorageAccessId,
+        result: StorageAccessId,
+    ) -> Self {
+        Self {
+            request,
+            storage,
+            input: CallInstantiationInput::Hidden { receiver, result },
         }
     }
 
@@ -52,6 +74,62 @@ where
                 Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
             }
         }
+    }
+
+    fn selected_expression(&self, root: DependencySubjectRoot) -> Option<BoundExpressionId> {
+        let CallInstantiationInput::Selected { expression, call } = self.input else {
+            return None;
+        };
+
+        match root {
+            DependencySubjectRoot::Parameter(ordinal) => {
+                call.arguments().iter().find_map(|argument| match argument {
+                    SelectedArgument::Explicit {
+                        expression,
+                        ordinal: actual,
+                        ..
+                    } if SymbolOrdinal::new(*actual) == ordinal => Some(*expression),
+                    SelectedArgument::Explicit { .. } | SelectedArgument::Default { .. } => None,
+                })
+            }
+            DependencySubjectRoot::Result => Some(expression),
+            DependencySubjectRoot::Receiver => call
+                .receiver()
+                .map(bray_bound_tree::SelectedReceiver::expression),
+            DependencySubjectRoot::ScopedCapability(_)
+            | DependencySubjectRoot::ImplementationWitness(_) => None,
+        }
+    }
+
+    fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
+        let CallInstantiationInput::Hidden { receiver, result } = self.input else {
+            return None;
+        };
+
+        match root {
+            DependencySubjectRoot::Receiver => Some(receiver),
+            DependencySubjectRoot::Result => Some(result),
+            DependencySubjectRoot::Parameter(_)
+            | DependencySubjectRoot::ScopedCapability(_)
+            | DependencySubjectRoot::ImplementationWitness(_) => None,
+        }
+    }
+
+    fn borrow_capability(
+        &self,
+        expression: Option<BoundExpressionId>,
+        access: StorageAccessId,
+        kind: bray_symbols::BorrowKind,
+    ) -> Option<bray_bound_tree::BorrowCapabilityId> {
+        self.storage
+            .borrow_capability_entries()
+            .find_map(|(id, capability)| {
+                (capability.kind() == kind
+                    && (capability.access() == access
+                        || expression
+                            .is_some_and(|expression| capability.expression() == Some(expression))))
+                .then_some(id)
+            })
     }
 }
 
@@ -74,55 +152,21 @@ where
             return Ok(BoundDependencySubject::ImplementationWitness(witness));
         }
 
-        let expression = match subject.subject_root() {
-            DependencySubjectRoot::Parameter(ordinal) => {
-                self.call
-                    .arguments()
-                    .iter()
-                    .find_map(|argument| match argument {
-                        SelectedArgument::Explicit {
-                            expression,
-                            ordinal: actual,
-                            ..
-                        } if SymbolOrdinal::new(*actual) == ordinal => Some(*expression),
-                        SelectedArgument::Explicit { .. } | SelectedArgument::Default { .. } => {
-                            None
-                        }
-                    })
-            }
-            DependencySubjectRoot::Result => Some(self.expression),
-            DependencySubjectRoot::Receiver => self
-                .call
-                .receiver()
-                .map(bray_bound_tree::SelectedReceiver::expression),
-            DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_) => None,
-        }
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        let root = subject.subject_root();
+        let expression = self.selected_expression(root);
 
-        if matches!(
-            requirement,
-            DependencyRequirementKind::BorrowCapabilityActive(kind)
-                if self
-                    .storage
-                    .borrow_capability_entries()
-                    .any(|(_, capability)| {
-                        capability.expression() == Some(expression) && capability.kind() == kind
-                    })
-        ) {
+        let base = expression
+            .and_then(|expression| expression_access(self.storage, expression))
+            .or_else(|| self.hidden_access(root))
+            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+        if let DependencyRequirementKind::BorrowCapabilityActive(kind) = requirement {
             let capability = self
-                .storage
-                .borrow_capability_entries()
-                .find_map(|(id, capability)| {
-                    (capability.expression() == Some(expression)).then_some(id)
-                })
+                .borrow_capability(expression, base, kind)
                 .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
-
-        let base = expression_access(self.storage, expression)
-            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
         let access = projected_access(self.storage, base, subject.projections()).unwrap_or(base);
 
@@ -151,7 +195,7 @@ where
     }
 }
 
-fn expression_access(
+pub(super) fn expression_access(
     storage: &StoragePlan,
     expression: BoundExpressionId,
 ) -> Option<StorageAccessId> {
@@ -159,20 +203,24 @@ fn expression_access(
         .expression_plans(expression)
         .next()
         .map(bray_bound_tree::StorageAccessPlan::access)
-        .or_else(|| {
-            let identity = storage.identity_entries().find_map(|(id, identity)| {
-                matches!(identity, StorageIdentity::Temporary(candidate) if candidate == expression)
-                    .then_some(id)
-            })?;
+        .or_else(|| identity_access(storage, StorageIdentity::Temporary(expression)))
+}
 
-            storage.access_entries().find_map(|(id, _)| {
-                (storage.root_identity(id) == Some(identity)
-                    && storage
-                        .resolved_projections(id)
-                        .is_some_and(<[_]>::is_empty))
-                .then_some(id)
-            })
-        })
+pub(super) fn identity_access(
+    storage: &StoragePlan,
+    identity: StorageIdentity,
+) -> Option<StorageAccessId> {
+    let identity = storage
+        .identity_entries()
+        .find_map(|(id, candidate)| (candidate == identity).then_some(id))?;
+
+    storage.access_entries().find_map(|(id, _)| {
+        (storage.root_identity(id) == Some(identity)
+            && storage
+                .resolved_projections(id)
+                .is_some_and(<[_]>::is_empty))
+        .then_some(id)
+    })
 }
 
 fn projected_access(

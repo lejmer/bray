@@ -312,9 +312,10 @@ const fn identity_is_initialized_at_entry(identity: StorageIdentity) -> bool {
 fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
     match identity {
         StorageIdentity::LocalOwned(definition) => Some(definition),
-        StorageIdentity::Temporary(expression) | StorageIdentity::Allocation(expression) => {
-            Some(AnyBoundNodeId::Expression(expression))
-        }
+        StorageIdentity::Temporary(expression)
+        | StorageIdentity::IterationCursor(expression)
+        | StorageIdentity::IterationElement(expression)
+        | StorageIdentity::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)

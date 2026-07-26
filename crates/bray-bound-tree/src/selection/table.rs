@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
     BoundUnit, CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
-    SelectedConstructionInput, SelectedOperation,
+    SelectedConstructionInput, SelectedIterationSource, SelectedOperation,
 };
 
 /// The exact checked semantic choice attached to one expression occurrence.
@@ -16,6 +16,8 @@ pub enum SemanticSelection {
     Call(SelectedCall),
     /// An exact member, operator, index, construction, conversion, or implementation operation.
     Operation(SelectedOperation),
+    /// Exact iteration protocols and operations.
+    Iteration(SelectedIterationSource),
 }
 
 /// One source-correlated expression and its exact semantic selection.
@@ -145,7 +147,7 @@ fn validate_entry(
         ));
     };
 
-    if !selection_matches_expression(unit, entry.selection(), expression) {
+    if !selection_matches_expression(unit, expression_id, entry.selection(), expression) {
         return Err(SemanticSelectionTableBuildError::SelectionKindMismatch(
             expression_id,
         ));
@@ -174,6 +176,7 @@ fn validate_entry(
 
 fn selection_matches_expression(
     unit: &BoundUnit,
+    expression_id: BoundExpressionId,
     selection: &SemanticSelection,
     expression: &BoundExpression,
 ) -> bool {
@@ -193,6 +196,13 @@ fn selection_matches_expression(
                 }
                 _ => true,
             }
+        }
+        (SemanticSelection::Iteration(selection), expression) => {
+            expression.iteration_source().is_some_and(|(source, mode)| {
+                selection.expression() == expression_id
+                    && selection.source() == source
+                    && selection.mode() == mode
+            })
         }
         _ => false,
     }
@@ -227,6 +237,13 @@ fn validate_operation_subject(
                 SemanticSelectionTableBuildError::SubjectTypeMismatch,
             )
         }
+        (SemanticSelection::Iteration(selection), _) => validate_subject_type(
+            types,
+            selection.source(),
+            selection.source_type(),
+            expression_id,
+            SemanticSelectionTableBuildError::OperandTypeMismatch,
+        ),
         _ => Ok(()),
     }
 }
@@ -443,6 +460,7 @@ fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::
         SemanticSelection::Reference(_) => None,
         SemanticSelection::Call(call) => Some(call.resolution().result().ty()),
         SemanticSelection::Operation(operation) => operation.result_type(),
+        SemanticSelection::Iteration(_) => None,
     }
 }
 
