@@ -242,6 +242,17 @@ grammar position.
 Skipped tokens should be attached under skipped-syntax recovery nodes.
 Missing-token diagnostics use an insertion-point span.
 
+### Nesting Safety
+
+Recursive grammar entry points must share one deterministic parser-owned syntax nesting budget. Expression, type-expression, and
+pattern parsing count against the same budget so alternating grammar forms cannot evade it. Speculative parser forks inherit the
+current depth and discard over-limit syntax diagnostics when the scan is abandoned like any other parser diagnostic.
+
+Exceeding the budget produces a structured syntax diagnostic at the first token beyond the limit. Recovery must stop through the
+ordinary caller-provided boundary, retain the over-limit source as skipped syntax, return a typed recovered node, and unwind without
+continuing recursive descent. One over-limit descent reports one primary diagnostic rather than one diagnostic per active grammar
+frame.
+
 ---
 
 ## Lists

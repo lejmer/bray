@@ -43,6 +43,11 @@ const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[MessageTemplateP
     "worker budget must be greater than zero",
 )];
 
+const SYNTAX_NESTING_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("syntax nesting exceeds the maximum depth of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
+
 const CHECKING_NO_APPLICABLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("no applicable "),
     MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
@@ -878,6 +883,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(SYNTAX_EXPECTED_EXPRESSION)
         }
         DiagnosticKind::SyntaxUnexpectedEof => MessageTemplate::new(SYNTAX_UNEXPECTED_EOF),
+        DiagnosticKind::SyntaxNestingLimitExceeded => {
+            MessageTemplate::new(SYNTAX_NESTING_LIMIT_EXCEEDED)
+        }
         DiagnosticKind::DeclarationDuplicateName => {
             MessageTemplate::new(DECLARATION_DUPLICATE_NAME)
         }

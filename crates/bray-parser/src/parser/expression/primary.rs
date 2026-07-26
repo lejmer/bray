@@ -507,10 +507,37 @@ impl Parser {
         builder.build()
     }
 
+    pub(in crate::parser) fn recover_expression_nesting_limit(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        self.recover_until_predicate(&mut builder, |parser| {
+            parser.at_primary_tail_boundary(at_boundary)
+        });
+
+        let primary = builder.build();
+
+        self.primary_to_expression(primary)
+    }
+
     pub(in crate::parser::expression) fn parse_access_expression(
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> AccessExpressionSyntax {
+        if !self.try_enter_syntax_nesting() {
+            let start = self.peek().full_range().start();
+            let mut builder = AccessExpressionSyntax::builder(self.syntax_source(), start);
+
+            self.recover_until_predicate(&mut builder, |parser| {
+                parser.at_primary_tail_boundary(at_boundary)
+            });
+
+            return builder.build();
+        }
+
         let start = self.peek().full_range().start();
         let mut builder = AccessExpressionSyntax::builder(self.syntax_source(), start);
 
@@ -537,7 +564,11 @@ impl Parser {
 
         self.parse_access_expression_postfixes(&mut builder, at_boundary);
 
-        builder.build()
+        let expression = builder.build();
+
+        self.leave_syntax_nesting();
+
+        expression
     }
 
     fn parse_access_expression_postfixes(

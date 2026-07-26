@@ -23,7 +23,15 @@ impl Parser {
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> ExpressionSyntax {
-        self.parse_assignment_expression_until(at_boundary)
+        if !self.try_enter_syntax_nesting() {
+            return self.recover_expression_nesting_limit(at_boundary);
+        }
+
+        let expression = self.parse_assignment_expression_until(at_boundary);
+
+        self.leave_syntax_nesting();
+
+        expression
     }
 
     pub(in crate::parser) fn parse_non_assignment_expression_until(
@@ -58,6 +66,10 @@ impl Parser {
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
         min_binding_power: u8,
     ) -> ExpressionSyntax {
+        if !self.try_enter_syntax_nesting() {
+            return self.recover_expression_nesting_limit(at_boundary);
+        }
+
         let mut expression = self.parse_prefix_expression_until(at_boundary);
 
         loop {
@@ -90,6 +102,8 @@ impl Parser {
                 break;
             }
         }
+
+        self.leave_syntax_nesting();
 
         expression
     }
@@ -305,5 +319,23 @@ mod tests {
             diagnostic_kinds(&diagnostics),
             [DiagnosticKind::SyntaxExpectedToken]
         );
+    }
+
+    #[test]
+    fn flat_operator_chains_reconstruct_without_recursive_green_walks() {
+        let expression_text = format!("{}value", "value + ".repeat(4_096));
+        let sources = source_store([format!("{expression_text};")]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), expression_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::SemicolonToken);
+
+        let diagnostics = parser.finish();
+
+        assert!(diagnostics.is_empty());
     }
 }

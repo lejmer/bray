@@ -3,11 +3,16 @@ use bray_source::SourceSnapshot;
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
 use crate::cursor::{ParserCursor, ParserCursorCheckpoint};
+use crate::diagnostic;
 use crate::lexer::LexerTokenSource;
+
+pub(super) const MAX_SYNTAX_NESTING_DEPTH: usize = 128;
 
 pub(super) struct Parser {
     snapshot: SourceSnapshot,
     cursor: ParserCursor,
+    syntax_nesting_depth: usize,
+    syntax_nesting_limit_reported: bool,
 }
 
 impl Parser {
@@ -18,6 +23,8 @@ impl Parser {
         Self {
             snapshot,
             cursor: ParserCursor::new(token_source),
+            syntax_nesting_depth: 0,
+            syntax_nesting_limit_reported: false,
         }
     }
 
@@ -43,6 +50,42 @@ impl Parser {
             // Forked parsers share immutable source text with the main parser.
             snapshot: self.snapshot.clone(),
             cursor: checkpoint.fork(),
+            syntax_nesting_depth: self.syntax_nesting_depth,
+            syntax_nesting_limit_reported: self.syntax_nesting_limit_reported,
+        }
+    }
+
+    pub(super) fn try_enter_syntax_nesting(&mut self) -> bool {
+        if self.syntax_nesting_depth >= MAX_SYNTAX_NESTING_DEPTH {
+            if !self.syntax_nesting_limit_reported {
+                let actual = self.peek();
+                let source = self.syntax_source();
+
+                self.record_syntax_diagnostic(diagnostic::nesting_limit_exceeded(
+                    &source,
+                    &actual,
+                    MAX_SYNTAX_NESTING_DEPTH,
+                ));
+
+                self.syntax_nesting_limit_reported = true;
+            }
+
+            return false;
+        }
+
+        self.syntax_nesting_depth += 1;
+
+        true
+    }
+
+    pub(super) fn leave_syntax_nesting(&mut self) {
+        self.syntax_nesting_depth = self
+            .syntax_nesting_depth
+            .checked_sub(1)
+            .unwrap_or_else(|| panic!("parser syntax nesting depth became unbalanced"));
+
+        if self.syntax_nesting_depth == 0 {
+            self.syntax_nesting_limit_reported = false;
         }
     }
 
@@ -144,7 +187,7 @@ mod tests {
     use bray_syntax::{SourceUnitSyntax, SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
-    use super::Parser;
+    use super::{MAX_SYNTAX_NESTING_DEPTH, Parser};
     use crate::test_support::{diagnostic_kinds, source};
 
     #[test]
@@ -225,5 +268,101 @@ mod tests {
         let diagnostics = parser.finish();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_expressions_recover_without_exhausting_the_native_stack() {
+        let expression_text = format!(
+            "{}value",
+            "- ".repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_mul(2))
+        );
+
+        let sources = source_store([format!("{expression_text};")]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), expression_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::SemicolonToken);
+
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxNestingLimitExceeded]
+        );
+    }
+
+    #[test]
+    fn deeply_nested_expression_recovery_preserves_the_caller_close_delimiter() {
+        let expression_text = "- ".repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_sub(1));
+        let sources = source_store([format!("{expression_text})")]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::CloseParenToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), expression_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::CloseParenToken);
+
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxNestingLimitExceeded]
+        );
+    }
+
+    #[test]
+    fn deeply_nested_types_recover_without_losing_source_text() {
+        let type_text = format!(
+            "{}Value",
+            "& ".repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_mul(2))
+        );
+
+        let sources = source_store([type_text.as_str()]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+
+        let ty = parser.parse_type_expression_until(&mut boundary);
+
+        assert_eq!(ty.full_text(), type_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::EndOfFileToken);
+
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxNestingLimitExceeded]
+        );
+    }
+
+    #[test]
+    fn deeply_nested_patterns_recover_without_losing_source_text() {
+        let pattern_text = format!(
+            "{}value",
+            "? ".repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_mul(2))
+        );
+
+        let sources = source_store([format!("{pattern_text};")]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let pattern = parser.parse_case_pattern_until(&mut boundary);
+
+        assert_eq!(pattern.full_text(), pattern_text);
+        assert_eq!(parser.peek().kind(), SyntaxKind::SemicolonToken);
+
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxNestingLimitExceeded]
+        );
     }
 }

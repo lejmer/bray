@@ -55,6 +55,8 @@ pub enum DiagnosticKind {
     SyntaxExpectedExpression,
     /// The parser reached the end of input before the current syntax construct was complete.
     SyntaxUnexpectedEof,
+    /// Source syntax nesting exceeds the parser's deterministic depth limit.
+    SyntaxNestingLimitExceeded,
     /// A declaration name is repeated in the same declaration domain.
     DeclarationDuplicateName,
     /// Split declarations of one module disagree on effective visibility.
@@ -342,6 +344,7 @@ impl DiagnosticKind {
             Self::SyntaxExpectedToken => 3001,
             Self::SyntaxExpectedExpression => 3005,
             Self::SyntaxUnexpectedEof => 3003,
+            Self::SyntaxNestingLimitExceeded => 3006,
             Self::DeclarationDuplicateName => 4001,
             Self::DeclarationConflictingModuleVisibility => 4002,
             Self::DeclarationConflictingModuleTrust => 4003,
@@ -503,6 +506,7 @@ impl DiagnosticKind {
             Self::SyntaxExpectedToken => "syntax_expected_token",
             Self::SyntaxExpectedExpression => "syntax_expected_expression",
             Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
+            Self::SyntaxNestingLimitExceeded => "syntax_nesting_limit_exceeded",
             Self::DeclarationDuplicateName => "declaration_duplicate_name",
             Self::DeclarationConflictingModuleVisibility => {
                 "declaration_conflicting_module_visibility"

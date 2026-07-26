@@ -203,6 +203,14 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a maximum accepted count argument.
+    pub const fn maximum_count(maximum_count: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::MaximumCount,
+            DiagnosticArgValue::Count(maximum_count),
+        )
+    }
+
     /// Creates a source-input-kind argument.
     pub const fn source_input_kind(kind: SourceInputKind) -> Self {
         Self::new(

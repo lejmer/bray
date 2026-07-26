@@ -54,6 +54,18 @@ pub(crate) fn expected_expression(snapshot: &SourceSnapshot, actual: &SyntaxToke
         )
 }
 
+pub(crate) fn nesting_limit_exceeded(
+    snapshot: &SourceSnapshot,
+    actual: &SyntaxToken,
+    maximum_depth: usize,
+) -> Diagnostic {
+    let span = SourceSpan::new(snapshot.source_id(), actual.range());
+    let maximum_depth = u64::try_from(maximum_depth).unwrap_or(u64::MAX);
+
+    diagnostic(span, DiagnosticKind::SyntaxNestingLimitExceeded)
+        .with_arg(DiagnosticArg::maximum_count(maximum_depth))
+}
+
 trait WithOptionalArg {
     fn with_optional_arg(self, arg: Option<DiagnosticArg>) -> Self;
 }
@@ -92,7 +104,7 @@ mod tests {
     use bray_syntax::{SyntaxKind, SyntaxToken};
     use bray_testing::test_source_snapshot as snapshot;
 
-    use super::{expected_expression, expected_token, unexpected_eof};
+    use super::{expected_expression, expected_token, nesting_limit_exceeded, unexpected_eof};
 
     #[test]
     fn expected_token_diagnostic_uses_an_insertion_point_span() {
@@ -177,6 +189,39 @@ mod tests {
                     DiagnosticArgValue::TokenText(String::from("@"))
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn nesting_limit_diagnostic_keeps_the_limit_typed() {
+        let snapshot = snapshot("(");
+
+        let token = SyntaxToken::new(
+            SyntaxKind::OpenParenToken,
+            TextRange::new(TextSize::ZERO, TextSize::new(1)),
+        );
+
+        let diagnostic = nesting_limit_exceeded(&snapshot, &token, 128);
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::SyntaxNestingLimitExceeded
+        );
+
+        assert_eq!(
+            diagnostic.args(),
+            &[DiagnosticArg::new(
+                DiagnosticArgName::MaximumCount,
+                DiagnosticArgValue::Count(128)
+            )]
+        );
+
+        assert_eq!(
+            diagnostic.primary_span(),
+            Some(bray_source::SourceSpan::new(
+                snapshot.source_id(),
+                TextRange::new(TextSize::ZERO, TextSize::new(1))
+            ))
         );
     }
 }
