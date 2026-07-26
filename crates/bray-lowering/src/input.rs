@@ -1,7 +1,8 @@
 use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
-    BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedPatternFacts, CheckedSemanticSelections, StorageAccessPlan,
+    BoundUnitId, BoundUnitKind, CheckedAsyncFacts, CheckedBodyBehavior, CheckedControlFlowFacts,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts,
+    CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts, StorageAccessPlan,
     StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts, StorageOperationDecision,
     StoragePlan,
 };
@@ -22,7 +23,12 @@ pub struct LoweringInput<'unit> {
     semantic_selections: &'unit CheckedSemanticSelections,
     literal_values: &'unit CheckedLiteralValues,
     storage_plan: &'unit StoragePlan,
+    liveness: &'unit LivenessFacts,
+    refinements: &'unit CheckedRefinementFacts,
     storage_flow: &'unit StorageFlowFacts,
+    dependency_contracts: &'unit CheckedDependencyContracts,
+    async_facts: &'unit CheckedAsyncFacts,
+    body_behavior: &'unit CheckedBodyBehavior,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     unit_kind: MirUnitKind,
     target: MirTargetFacts,
@@ -42,7 +48,12 @@ impl<'unit> LoweringInput<'unit> {
         semantic_selections: &'unit CheckedSemanticSelections,
         literal_values: &'unit CheckedLiteralValues,
         storage_plan: &'unit StoragePlan,
+        liveness: &'unit LivenessFacts,
+        refinements: &'unit CheckedRefinementFacts,
         storage_flow: &'unit StorageFlowFacts,
+        dependency_contracts: &'unit CheckedDependencyContracts,
+        async_facts: &'unit CheckedAsyncFacts,
+        body_behavior: &'unit CheckedBodyBehavior,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         unit_kind: MirUnitKind,
         target: MirTargetFacts,
@@ -91,9 +102,44 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_fact_owner(
             unit,
+            liveness.unit(),
+            liveness.kind(),
+            LoweringFactKind::Liveness,
+        )?;
+
+        validate_fact_owner(
+            unit,
+            refinements.unit(),
+            refinements.kind(),
+            LoweringFactKind::Refinements,
+        )?;
+
+        validate_fact_owner(
+            unit,
             storage_flow.unit(),
             storage_flow.kind(),
             LoweringFactKind::StorageFlow,
+        )?;
+
+        validate_fact_owner(
+            unit,
+            dependency_contracts.unit(),
+            dependency_contracts.kind(),
+            LoweringFactKind::DependencyContracts,
+        )?;
+
+        validate_fact_owner(
+            unit,
+            async_facts.unit(),
+            async_facts.kind(),
+            LoweringFactKind::Async,
+        )?;
+
+        validate_fact_owner(
+            unit,
+            body_behavior.unit(),
+            body_behavior.kind(),
+            LoweringFactKind::BodyBehavior,
         )?;
 
         validate_literal_target(literal_values, &target)?;
@@ -113,7 +159,12 @@ impl<'unit> LoweringInput<'unit> {
             semantic_selections,
             literal_values,
             storage_plan,
+            liveness,
+            refinements,
             storage_flow,
+            dependency_contracts,
+            async_facts,
+            body_behavior,
             available_compiler_known_symbols,
             unit_kind,
             target,
@@ -155,9 +206,34 @@ impl<'unit> LoweringInput<'unit> {
         self.storage_plan
     }
 
+    /// Returns durable last-use and lexical lifetime decisions.
+    pub const fn liveness(&self) -> &'unit LivenessFacts {
+        self.liveness
+    }
+
+    /// Returns flow-sensitive facts available at checked operation occurrences.
+    pub const fn refinements(&self) -> &'unit CheckedRefinementFacts {
+        self.refinements
+    }
+
     /// Returns checked ownership, movement, and borrow decisions.
     pub const fn storage_flow(&self) -> &'unit StorageFlowFacts {
         self.storage_flow
+    }
+
+    /// Returns normalized dependency contracts for unit-local semantic occurrences.
+    pub const fn dependency_contracts(&self) -> &'unit CheckedDependencyContracts {
+        self.dependency_contracts
+    }
+
+    /// Returns async frame, suspension, task, and cleanup decisions.
+    pub const fn async_facts(&self) -> &'unit CheckedAsyncFacts {
+        self.async_facts
+    }
+
+    /// Returns normalized effects, capabilities, and lifecycle obligations.
+    pub const fn body_behavior(&self) -> &'unit CheckedBodyBehavior {
+        self.body_behavior
     }
 
     /// Returns target-available compiler-known identities and behavior roles.
@@ -196,8 +272,18 @@ pub enum LoweringFactKind {
     LiteralValues,
     /// Storage identities and occurrence-specific access plans.
     StoragePlan,
+    /// Last-use and lexical lifetime decisions.
+    Liveness,
+    /// Flow-sensitive semantic refinements.
+    Refinements,
     /// Checked storage-operation decisions.
     StorageFlow,
+    /// Instantiated dependency contracts.
+    DependencyContracts,
+    /// Async frame, suspension, task, and cleanup decisions.
+    Async,
+    /// Effects, capabilities, execution requirements, and lifecycle obligations.
+    BodyBehavior,
 }
 
 /// A contract violation that prevents a bound unit from entering lowering.
@@ -475,14 +561,16 @@ mod tests {
     use bray_bound_tree::{
         BorrowCapabilityOrigin, BoundConversionExpression, BoundExpression, BoundExpressionId,
         BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
-        BoundUnitRoot, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedLiteralValues,
-        CheckedPatternFacts, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
-        ExpressionTypeResult, ExpressionTypeStatus, PlannedBorrowCapability, StorageAccess,
-        StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts, StorageIdentity,
-        StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
+        BoundUnitRoot, CheckedAsyncFacts, CheckedBodyBehavior, CheckedControlFlowFacts,
+        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
+        CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
+        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, LivenessFacts,
+        PlannedBorrowCapability, StorageAccess, StorageAccessPurpose, StorageAccessRoot,
+        StorageFlowFacts, StorageIdentity, StorageOperationDecision, StorageOperationStatus,
+        StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
-    use bray_symbols::{BorrowKind, SemanticValueStore, TypeData, TypeId};
+    use bray_symbols::{BorrowKind, CurrentRunCancellation, SemanticValueStore, TypeData, TypeId};
     use bray_testing::{test_bound_unit, test_expression_unit, test_mir_target};
 
     use super::{LoweringFactKind, LoweringInput, LoweringInputError};
@@ -507,7 +595,12 @@ mod tests {
             &facts.selections,
             &facts.literals,
             &facts.storage,
+            &facts.liveness,
+            &facts.refinements,
             &facts.storage_flow,
+            &facts.dependencies,
+            &facts.async_facts,
+            &facts.behavior,
             available_compiler_known_symbols(),
             bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
@@ -523,7 +616,17 @@ mod tests {
         assert!(std::ptr::eq(input.semantic_selections(), &facts.selections));
         assert!(std::ptr::eq(input.literal_values(), &facts.literals));
         assert!(std::ptr::eq(input.storage_plan(), &facts.storage));
+        assert!(std::ptr::eq(input.liveness(), &facts.liveness));
+        assert!(std::ptr::eq(input.refinements(), &facts.refinements));
         assert!(std::ptr::eq(input.storage_flow(), &facts.storage_flow));
+
+        assert!(std::ptr::eq(
+            input.dependency_contracts(),
+            &facts.dependencies
+        ));
+
+        assert!(std::ptr::eq(input.async_facts(), &facts.async_facts));
+        assert!(std::ptr::eq(input.body_behavior(), &facts.behavior));
 
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
@@ -551,7 +654,12 @@ mod tests {
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
+                &facts.liveness,
+                &facts.refinements,
                 &facts.storage_flow,
+                &facts.dependencies,
+                &facts.async_facts,
+                &facts.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -578,7 +686,12 @@ mod tests {
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
+                &facts.liveness,
+                &facts.refinements,
                 &facts.storage_flow,
+                &facts.dependencies,
+                &facts.async_facts,
+                &facts.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -613,7 +726,12 @@ mod tests {
                 &local.selections,
                 &local.literals,
                 &local.storage,
+                &local.liveness,
+                &local.refinements,
                 &local.storage_flow,
+                &local.dependencies,
+                &local.async_facts,
+                &local.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -634,7 +752,12 @@ mod tests {
                 &local.selections,
                 &local.literals,
                 &local.storage,
+                &local.liveness,
+                &local.refinements,
                 &local.storage_flow,
+                &local.dependencies,
+                &local.async_facts,
+                &local.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -676,7 +799,12 @@ mod tests {
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
+                &facts.liveness,
+                &facts.refinements,
                 &facts.storage_flow,
+                &facts.dependencies,
+                &facts.async_facts,
+                &facts.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -723,7 +851,12 @@ mod tests {
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
+                &facts.liveness,
+                &facts.refinements,
                 &facts.storage_flow,
+                &facts.dependencies,
+                &facts.async_facts,
+                &facts.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -809,6 +942,7 @@ mod tests {
         let (storage, storage_flow) = empty_storage_facts(&unit);
 
         let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
+        let ancillary = empty_expression_facts(&unit);
 
         assert_input_error(
             LoweringInput::try_new(
@@ -819,7 +953,12 @@ mod tests {
                 &selections,
                 &literals,
                 &storage,
+                &ancillary.liveness,
+                &ancillary.refinements,
                 &storage_flow,
+                &ancillary.dependencies,
+                &ancillary.async_facts,
+                &ancillary.behavior,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -1007,7 +1146,12 @@ mod tests {
         selections: CheckedSemanticSelections,
         literals: CheckedLiteralValues,
         storage: bray_bound_tree::StoragePlan,
+        liveness: LivenessFacts,
+        refinements: CheckedRefinementFacts,
         storage_flow: StorageFlowFacts,
+        dependencies: CheckedDependencyContracts,
+        async_facts: CheckedAsyncFacts,
+        behavior: CheckedBodyBehavior,
     }
 
     fn empty_expression_facts(unit: &BoundUnit) -> ExpressionFacts {
@@ -1032,13 +1176,39 @@ mod tests {
 
         let (storage, storage_flow) = empty_storage_facts(unit);
 
+        let liveness = LivenessFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty liveness facts must validate: {error:?}"));
+
+        let refinements =
+            CheckedRefinementFacts::try_new(unit.unit(), unit.key().kind(), [], false)
+                .unwrap_or_else(|error| panic!("empty refinement facts must validate: {error:?}"));
+
+        let dependencies = CheckedDependencyContracts::try_new(unit, &storage, [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty dependency contracts must validate: {error:?}"));
+
+        let async_facts =
+            CheckedAsyncFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+                .unwrap_or_else(|error| panic!("empty async facts must validate: {error:?}"));
+
+        let behavior = CheckedBodyBehavior::new(
+            unit.unit(),
+            unit.key().kind(),
+            CurrentRunCancellation::NotEntered,
+            false,
+        );
+
         ExpressionFacts {
             types,
             patterns,
             selections,
             literals,
             storage,
+            liveness,
+            refinements,
             storage_flow,
+            dependencies,
+            async_facts,
+            behavior,
         }
     }
 
