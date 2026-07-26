@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
-    BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsyncFacts, CheckedControlFlowFacts,
-    CheckedPatternFacts, CheckedRefinementFacts, DeclaredValueTypeTemplates, StorageFlowFacts,
+    BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsyncFacts, CheckedBodyBehavior,
+    CheckedControlFlowFacts, CheckedDependencyContracts, CheckedPatternFacts,
+    CheckedRefinementFacts, DeclaredValueTypeTemplates, LivenessFacts, StorageFlowFacts,
     StoragePlan,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
@@ -292,9 +293,15 @@ impl Compilation {
         let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
         let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+        let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
         let refinements = self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
         let storage_flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+
+        let dependencies =
+            self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
+
         let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
+        let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         // TODO(BRA-268): Finalized invocation and layout facts must request their exact
         // target-validity facts and retain those diagnostics in their semantic results.
@@ -307,9 +314,12 @@ impl Compilation {
             SemanticDiagnosticFact::ControlFlow(Arc::clone(control_flow.result())),
             SemanticDiagnosticFact::Patterns(Arc::clone(patterns.result())),
             SemanticDiagnosticFact::Storage(Arc::clone(storage.result())),
+            SemanticDiagnosticFact::Liveness(Arc::clone(liveness.result())),
             SemanticDiagnosticFact::Refinements(Arc::clone(refinements.result())),
             SemanticDiagnosticFact::StorageFlow(Arc::clone(storage_flow.result())),
+            SemanticDiagnosticFact::Dependencies(Arc::clone(dependencies.result())),
             SemanticDiagnosticFact::Async(Arc::clone(async_facts.result())),
+            SemanticDiagnosticFact::BodyBehavior(Arc::clone(behavior.result())),
         ];
 
         if key.kind() == BoundUnitKind::ConstantTemplate {
@@ -480,9 +490,12 @@ enum SemanticDiagnosticFact {
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
     Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
     Storage(Arc<DiagnosticResult<StoragePlan>>),
+    Liveness(Arc<DiagnosticResult<LivenessFacts>>),
     Refinements(Arc<DiagnosticResult<CheckedRefinementFacts>>),
     StorageFlow(Arc<DiagnosticResult<StorageFlowFacts>>),
+    Dependencies(Arc<DiagnosticResult<CheckedDependencyContracts>>),
     Async(Arc<DiagnosticResult<CheckedAsyncFacts>>),
+    BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
@@ -501,9 +514,12 @@ impl SemanticDiagnosticFact {
             Self::ControlFlow(result) => result.diagnostics(),
             Self::Patterns(result) => result.diagnostics(),
             Self::Storage(result) => result.diagnostics(),
+            Self::Liveness(result) => result.diagnostics(),
             Self::Refinements(result) => result.diagnostics(),
             Self::StorageFlow(result) => result.diagnostics(),
+            Self::Dependencies(result) => result.diagnostics(),
             Self::Async(result) => result.diagnostics(),
+            Self::BodyBehavior(result) => result.diagnostics(),
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
@@ -724,6 +740,18 @@ mod tests {
             Ok(false)
         );
 
+        assert_eq!(compilation.state.liveness.is_published(key), Ok(false));
+
+        assert_eq!(
+            compilation.state.dependency_contracts.is_published(key),
+            Ok(false)
+        );
+
+        assert_eq!(
+            compilation.state.checked_body_behaviors.is_published(key),
+            Ok(false)
+        );
+
         let first = compilation.check_diagnostics();
         let second = compilation.check_diagnostics();
 
@@ -737,6 +765,18 @@ mod tests {
 
         assert_eq!(
             compilation.state.expression_semantics.is_published(key),
+            Ok(true)
+        );
+
+        assert_eq!(compilation.state.liveness.is_published(key), Ok(true));
+
+        assert_eq!(
+            compilation.state.dependency_contracts.is_published(key),
+            Ok(true)
+        );
+
+        assert_eq!(
+            compilation.state.checked_body_behaviors.is_published(key),
             Ok(true)
         );
 
