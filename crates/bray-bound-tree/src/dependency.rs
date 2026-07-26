@@ -8,7 +8,7 @@ use bray_symbols::{
 };
 
 use crate::identity::define_unit_scoped_id;
-use crate::{BorrowCapabilityId, BoundUnitId, StorageAccessId, StorageIdentityId};
+use crate::{BorrowCapabilityId, BoundUnitId, StorageAccessId, StorageIdentityId, StoragePlan};
 
 define_unit_scoped_id!(
     BoundDependencyContractId,
@@ -58,6 +58,17 @@ impl BoundDependencySubject {
             Self::BorrowCapability(capability) => capability.unit() == unit,
             Self::ScopedCapability(capability) => capability.unit() == unit,
             Self::LifecycleObligation(obligation) => obligation.unit() == unit,
+            Self::ImplementationWitness(_) => true,
+        }
+    }
+
+    fn exists_in(self, storage: &StoragePlan) -> bool {
+        match self {
+            Self::Storage(identity) => storage.identity(identity).is_some(),
+            Self::StorageAccess(access) => storage.access(access).is_some(),
+            Self::BorrowCapability(capability) => storage.borrow_capability(capability).is_some(),
+            Self::ScopedCapability(capability) => capability.unit() == storage.unit(),
+            Self::LifecycleObligation(obligation) => obligation.unit() == storage.unit(),
             Self::ImplementationWitness(_) => true,
         }
     }
@@ -180,6 +191,18 @@ impl BoundDependencyGuard {
             Self::ScopedCapabilityLive(capability) => capability.unit() == unit,
         }
     }
+
+    fn exists_in(self, storage: &StoragePlan) -> bool {
+        match self {
+            Self::NullablePresent(access) | Self::ActiveUnionVariant { access, .. } => {
+                storage.access(access).is_some()
+            }
+            Self::BorrowCapabilityActive(capability) => {
+                storage.borrow_capability(capability).is_some()
+            }
+            Self::ScopedCapabilityLive(capability) => capability.unit() == storage.unit(),
+        }
+    }
 }
 
 /// A normalized guarded set of instantiated dependency requirements.
@@ -218,6 +241,14 @@ impl GuardedBoundDependencyRequirement {
                 .iter()
                 .all(|requirement| requirement.is_valid_for(unit))
     }
+
+    fn exists_in(&self, storage: &StoragePlan) -> bool {
+        self.guard.exists_in(storage)
+            && self
+                .requirements
+                .iter()
+                .all(|requirement| requirement.exists_in(storage))
+    }
 }
 
 /// One direct or guarded requirement in an instantiated dependency contract.
@@ -255,6 +286,13 @@ impl BoundDependencyRequirement {
         match self {
             Self::Direct { subject, .. } => subject.is_valid_for(unit),
             Self::Guarded(requirement) => requirement.is_valid_for(unit),
+        }
+    }
+
+    fn exists_in(&self, storage: &StoragePlan) -> bool {
+        match self {
+            Self::Direct { subject, .. } => subject.exists_in(storage),
+            Self::Guarded(requirement) => requirement.exists_in(storage),
         }
     }
 }
@@ -302,6 +340,12 @@ impl BoundDependencyContract {
         self.requirements
             .iter()
             .all(|requirement| requirement.is_valid_for(unit))
+    }
+
+    pub(crate) fn exists_in(&self, storage: &StoragePlan) -> bool {
+        self.requirements
+            .iter()
+            .all(|requirement| requirement.exists_in(storage))
     }
 }
 

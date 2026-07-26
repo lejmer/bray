@@ -151,6 +151,45 @@ impl CheckedDependencyContracts {
         find_contract(&self.borrows, borrow)
     }
 
+    /// Returns whether this table exactly covers the supplied unit and storage plan.
+    pub fn is_complete_for(&self, unit: &BoundUnit, storage: &StoragePlan) -> bool {
+        if self.unit != unit.unit()
+            || self.kind != unit.key().kind()
+            || storage.unit() != unit.unit()
+            || storage.kind() != unit.key().kind()
+        {
+            return false;
+        }
+
+        let expressions_match = self
+            .expressions
+            .iter()
+            .map(|entry| *entry.occurrence())
+            .eq(unit.tree().expressions().map(|(expression, _)| expression));
+
+        let accesses_match = self
+            .accesses
+            .iter()
+            .map(|entry| *entry.occurrence())
+            .eq(storage.access_entries().map(|(access, _)| access));
+
+        let borrows_match = self
+            .borrows
+            .iter()
+            .map(|entry| *entry.occurrence())
+            .eq(storage
+                .borrow_capability_entries()
+                .map(|(borrow, _)| borrow));
+
+        expressions_match
+            && accesses_match
+            && borrows_match
+            && self
+                .contracts
+                .iter()
+                .all(|contract| contract.exists_in(storage))
+    }
+
     /// Returns whether semantic recovery contributed to the table.
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
@@ -297,6 +336,36 @@ mod tests {
             ),
             Err(DependencyContractsBuildError::InvalidExpression)
         );
+    }
+
+    #[test]
+    fn dependency_tables_require_exact_unit_and_storage_coverage() {
+        let unit = BoundUnitId::new(4);
+
+        let (bound, expression, storage, access) = expression_unit_with_storage(unit);
+
+        let contract = BoundDependencyContract::new([]);
+
+        let complete = CheckedDependencyContracts::try_new(
+            &bound,
+            &storage,
+            [(expression, contract.clone())],
+            [(access, contract)],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("complete dependency table must build: {error:?}"));
+
+        assert!(complete.is_complete_for(&bound, &storage));
+
+        let alternate_storage = StoragePlanBuilder::new(unit, bound.key().kind()).finish();
+
+        assert!(!complete.is_complete_for(&bound, &alternate_storage));
+
+        let incomplete = CheckedDependencyContracts::try_new(&bound, &storage, [], [], [], false)
+            .unwrap_or_else(|error| panic!("partial dependency table must build: {error:?}"));
+
+        assert!(!incomplete.is_complete_for(&bound, &storage));
     }
 
     fn expression_unit_with_storage(

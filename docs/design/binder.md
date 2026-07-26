@@ -1604,6 +1604,10 @@ Every durable checker fact required by lowering must be represented by an explic
 argument. A generic fact map, a completion flag, or a claim that an analysis ran previously must not satisfy the contract. A missing
 required fact means the compilation query is incomplete.
 
+For source-backed units, `LoweringInput` must borrow the exact control-flow, expression-type, pattern, semantic-selection, literal,
+storage-plan, liveness, refinement, storage-flow, dependency-contract, async, and body-behavior facts used to lower the unit. It
+must also borrow the target-available compiler-known symbol view and carry the selected MIR unit and target facts.
+
 The bound representation must provide lowering with:
 
 - exact resolved callable, member, implementation, and symbol targets,
