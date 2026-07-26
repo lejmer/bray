@@ -57,6 +57,8 @@ pub enum CheckerInfrastructureError {
     },
     /// Semantic-selection inputs do not describe the requested bound unit or operation category.
     InvalidSemanticSelectionInput,
+    /// Literal-value inputs do not describe the requested bound unit.
+    InvalidLiteralValueInput,
     /// Constant-evaluation inputs do not describe the requested bound unit.
     InvalidConstantEvaluationInput,
     /// Pattern-checking inputs disagree for one bound occurrence.

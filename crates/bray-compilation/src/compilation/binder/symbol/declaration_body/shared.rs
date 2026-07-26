@@ -45,7 +45,7 @@ pub(super) fn checked_source_expression(
         .dependency_contracts_with_cancellation(key, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let (types, _) = semantics.result().value();
+    let (types, _, _) = semantics.result().value();
 
     let result = types
         .expression(root)

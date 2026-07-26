@@ -3,7 +3,7 @@ mod iteration;
 mod operation;
 mod table;
 
-pub use call::{SelectedArgument, SelectedCall, SelectedImplementationWitness};
+pub use call::{SelectedArgument, SelectedCall, SelectedImplementationWitness, SelectedReceiver};
 pub use iteration::{
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };

@@ -7,6 +7,7 @@ use bray_symbols::{
     SymbolFactRequest,
 };
 
+use super::dependency::validate_public_expression_dependencies;
 use super::entry::{ProductEntryKind, select_executable_entrypoint, validate_entry};
 use super::visibility::{symbol_is_publicly_reachable, validate_public_surface};
 use crate::compilation::Compilation;
@@ -141,6 +142,16 @@ impl Compilation {
 
         is_recovered |= validate_public_surface(
             &binder,
+            semantic_values,
+            symbols,
+            source_graph.declarations(),
+            &public_symbols,
+            &mut diagnostics,
+        )?;
+
+        is_recovered |= validate_public_expression_dependencies(
+            self,
+            cancellation,
             semantic_values,
             symbols,
             source_graph.declarations(),
@@ -444,6 +455,115 @@ func main()
             diagnostic_kinds(facts.diagnostics())
                 .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
         );
+    }
+
+    #[test]
+    fn public_constraints_and_contracts_cannot_reference_internal_declarations() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "internal const hidden_value: bool = true;\n",
+                "\n",
+                "internal func hidden_call() -> bool\n",
+                "{\n",
+                "    return true;\n",
+                "}\n",
+                "\n",
+                "public struct Exposed with(hidden_value)\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "public func expose() requires(hidden_call())\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert_eq!(
+            diagnostic_kinds(facts.diagnostics())
+                .iter()
+                .filter(|kind| {
+                    **kind == DiagnosticKind::CheckingExportDependsOnInternalDeclaration
+                })
+                .count(),
+            2
+        );
+
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn public_contracts_cannot_use_internal_generic_arguments() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "internal struct Hidden\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "public func accepts<T>() -> bool\n",
+                "{\n",
+                "    return true;\n",
+                "}\n",
+                "\n",
+                "public func expose() requires(accepts<Hidden>())\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert!(
+            diagnostic_kinds(facts.diagnostics())
+                .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
+        );
+    }
+
+    #[test]
+    fn public_surfaces_cannot_reach_declarations_through_internal_modules() {
+        let compilation = compilation_with_product(
+            concat!(
+                "internal module hidden\n",
+                "{\n",
+                "    public struct Hidden\n",
+                "    {\n",
+                "    }\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let source_graph = compilation
+            .product_source_graph()
+            .unwrap_or_else(|error| panic!("test source graph must build: {error:?}"));
+
+        let symbols = symbol_graph(&compilation);
+
+        let hidden = symbols
+            .structures()
+            .iter()
+            .find(|structure| {
+                structure
+                    .declaration()
+                    .and_then(|declaration| source_graph.declarations().declaration(declaration))
+                    .and_then(bray_declarations::DeclarationRecord::name)
+                    .and_then(bray_declarations::DeclarationName::as_identifier)
+                    == Some("Hidden")
+            })
+            .unwrap_or_else(|| panic!("test structure must have a symbol"));
+
+        assert!(!super::symbol_is_publicly_reachable(
+            source_graph.declarations(),
+            symbols,
+            hidden.id().into(),
+        ));
     }
 
     fn product_facts(

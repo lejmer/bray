@@ -91,7 +91,10 @@ where
                     })
             }
             DependencySubjectRoot::Result => Some(self.expression),
-            DependencySubjectRoot::Receiver => None,
+            DependencySubjectRoot::Receiver => self
+                .call
+                .receiver()
+                .map(bray_bound_tree::SelectedReceiver::expression),
             DependencySubjectRoot::ScopedCapability(_)
             | DependencySubjectRoot::ImplementationWitness(_) => None,
         }

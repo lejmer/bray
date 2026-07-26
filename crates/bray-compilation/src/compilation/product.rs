@@ -1,3 +1,4 @@
+mod dependency;
 mod entry;
 mod query;
 mod visibility;

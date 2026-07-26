@@ -9,7 +9,7 @@ use bray_binder::{
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedAsyncFacts, CheckedControlFlowFacts,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedPatternFacts,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts,
     CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
     StorageFlowFacts, StoragePlan, walk_bound_unit_view,
 };
@@ -30,6 +30,7 @@ use super::checker::{CompilationCheckerContext, checker_result};
 use super::facts::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact, QueryPriority,
+    UnitFactCache,
 };
 
 type ExpressionSemanticComputation = (
@@ -91,6 +92,16 @@ impl Compilation {
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<CheckedExpressionTypes>>, FactQueryError> {
         let published = self.expression_types_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns final source-literal values and their diagnostics for one bound semantic unit.
+    pub fn literal_values(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedLiteralValues>>, FactQueryError> {
+        let published = self.literal_values_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -447,22 +458,26 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<CheckedExpressionTypes>>, FactQueryError> {
-        self.unit_fact(
+        self.expression_semantic_projection(
             &self.state.checked_expression_types,
-            CompilationFactKey::CheckedExpressionTypes(key.clone()),
-            key.clone(),
+            CompilationFactKey::CheckedExpressionTypes,
+            key,
             cancellation,
-            |_| {
-                let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
+            |semantics| &semantics.0,
+        )
+    }
 
-                // The projection owns a stable immutable table while its entries remain Arc-shared.
-                let types = semantics.result().value().0.clone();
-
-                // Each public projection retains the diagnostics from the atomic computation.
-                let diagnostics = semantics.result().diagnostics().clone();
-
-                Ok((DiagnosticResult::new(types, diagnostics), Box::new([])))
-            },
+    pub(in crate::compilation) fn literal_values_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedLiteralValues>>, FactQueryError> {
+        self.expression_semantic_projection(
+            &self.state.checked_literal_values,
+            CompilationFactKey::CheckedLiteralValues,
+            key,
+            cancellation,
+            |semantics| &semantics.2,
         )
     }
 
@@ -624,21 +639,40 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<CheckedSemanticSelections>>, FactQueryError> {
-        self.unit_fact(
+        self.expression_semantic_projection(
             &self.state.checked_semantic_selections,
-            CompilationFactKey::CheckedSemanticSelections(key.clone()),
+            CompilationFactKey::CheckedSemanticSelections,
+            key,
+            cancellation,
+            |semantics| &semantics.1,
+        )
+    }
+
+    fn expression_semantic_projection<T>(
+        &self,
+        cache: &UnitFactCache<T>,
+        fact_key: fn(BoundUnitKey) -> CompilationFactKey,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+        project: fn(&CheckedExpressionSemantics) -> &T,
+    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
+    where
+        T: Clone + Send + Sync,
+    {
+        // Cache identity, unit publication, and the atomic computation retain the shared key.
+        self.unit_fact(
+            cache,
+            fact_key(key.clone()),
             key.clone(),
             cancellation,
             |_| {
                 let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-                // The projection owns a stable immutable table while its entries remain Arc-shared.
-                let selections = semantics.result().value().1.clone();
-
-                // Each public projection retains the diagnostics from the atomic computation.
+                // The projection owns its immutable table after the atomic fact handle drops.
+                let value = project(semantics.result().value()).clone();
                 let diagnostics = semantics.result().diagnostics().clone();
 
-                Ok((DiagnosticResult::new(selections, diagnostics), Box::new([])))
+                Ok((DiagnosticResult::new(value, diagnostics), Box::new([])))
             },
         )
     }
@@ -1170,8 +1204,10 @@ mod tests {
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
+    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
-        NamedTypeSymbolId, SymbolKind, SymbolOrdinal, TypeData, TypeExpressionTemplate,
+        ConstantValueKind, NamedTypeSymbolId, SymbolKind, SymbolOrdinal, TypeData,
+        TypeExpressionTemplate,
     };
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
@@ -1345,6 +1381,98 @@ mod tests {
         assert!(dependencies.contains(
             &crate::fact::CompilationFactKey::CheckedSemanticSelections(key)
         ));
+    }
+
+    #[test]
+    fn literal_values_are_adapted_once_to_final_types_and_selected_target() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let fixed: i8 = 42;\n",
+            "    let target_sized: usize = 42;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.checked_literal_values.is_published(&key),
+            Ok(false)
+        );
+
+        let values = match compilation.literal_values(key.clone()) {
+            Ok(values) => values,
+            Err(error) => panic!("literal values must publish: {error:?}"),
+        };
+
+        assert_eq!(
+            compilation.state.checked_literal_values.is_published(&key),
+            Ok(true)
+        );
+
+        assert_eq!(values.value().entries().len(), 2);
+
+        assert_eq!(
+            values.value().target_integer_width_bits(),
+            compilation.selected_target().target().integer_width_bits()
+        );
+
+        let semantic_values = match compilation.semantic_value_store() {
+            Ok(values) => values,
+            Err(error) => panic!("semantic values must publish: {error:?}"),
+        };
+
+        for entry in values.value().entries() {
+            let value = semantic_values
+                .constant_value_data(entry.value())
+                .unwrap_or_else(|error| panic!("literal value must resolve: {error:?}"));
+
+            assert!(matches!(value.kind(), ConstantValueKind::Integer(_)));
+        }
+
+        assert!(values.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn unrepresentable_literals_publish_recovery_values_and_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let value: i8 = 128;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let values = match compilation.literal_values(key) {
+            Ok(values) => values,
+            Err(error) => panic!("invalid literal values must recover: {error:?}"),
+        };
+
+        assert_eq!(
+            values
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingConstantLiteralNotRepresentable)
+                .count(),
+            1
+        );
+
+        let [entry] = values.value().entries() else {
+            panic!("source must publish one literal value");
+        };
+
+        let semantic_values = match compilation.semantic_value_store() {
+            Ok(values) => values,
+            Err(error) => panic!("semantic values must publish: {error:?}"),
+        };
+
+        let value = semantic_values
+            .constant_value_data(entry.value())
+            .unwrap_or_else(|error| panic!("recovery literal value must resolve: {error:?}"));
+
+        assert!(matches!(value.kind(), ConstantValueKind::Error));
     }
 
     #[test]

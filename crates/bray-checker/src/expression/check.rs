@@ -14,6 +14,7 @@ use super::pattern_reference::{
     PreparedPatternReferences, pattern_binding_reference_expressions,
     prepare_pattern_binding_references,
 };
+use crate::expression::check_literal_values;
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
 };
@@ -33,6 +34,7 @@ pub(crate) fn check_expression_semantics<C>(
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
+    bray_bound_tree::CheckedLiteralValues,
 )>
 where
     C: CheckerRequestContext
@@ -142,6 +144,7 @@ fn check_expression_semantics_once<C>(
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
+    bray_bound_tree::CheckedLiteralValues,
 )>
 where
     C: CheckerRequestContext + ?Sized,
@@ -256,6 +259,7 @@ fn finish_expression_check<C>(
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
+    bray_bound_tree::CheckedLiteralValues,
 )>
 where
     C: CheckerRequestContext + ?Sized,
@@ -292,12 +296,23 @@ where
         }
     };
 
+    let literal_result = match check_literal_values(request, &types) {
+        CheckerOutcome::Complete(result) => result,
+        CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+    };
+
+    let (literal_values, literal_diagnostics) = literal_result.into_parts();
+
     CheckerOutcome::complete(
-        (types, selections),
+        (types, selections, literal_values),
         type_diagnostics
             .merged(&selection_diagnostics)
             .merged(prepared.diagnostics())
-            .merged(&supplemental_diagnostics),
+            .merged(&supplemental_diagnostics)
+            .merged(&literal_diagnostics),
     )
 }
 

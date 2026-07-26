@@ -6,7 +6,7 @@ use bray_binder::BinderDependency;
 use bray_bound_tree::{
     BodyBehaviorContributions, BoundUnit, BoundUnitKey, CheckedAsyncFacts, CheckedBodyBehavior,
     CheckedControlFlowFacts, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
+    CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
     DeclaredValueTypeTemplates, LivenessFacts, SelectedIterationSource, StorageFlowFacts,
     StoragePlan,
 };
@@ -52,7 +52,11 @@ use super::load::{
 };
 use super::source_graph::ProductSourceGraph;
 
-pub(super) type CheckedExpressionSemantics = (CheckedExpressionTypes, CheckedSemanticSelections);
+pub(super) type CheckedExpressionSemantics = (
+    CheckedExpressionTypes,
+    CheckedSemanticSelections,
+    CheckedLiteralValues,
+);
 
 /// Durable immutable compilation context and demand-driven fact entrypoint.
 #[derive(Clone)]
@@ -141,6 +145,7 @@ pub(super) struct CompilationState {
     pub(super) provisional_expression_semantics: UnitFactCache<CheckedExpressionSemantics>,
     pub(super) expression_semantics: UnitFactCache<CheckedExpressionSemantics>,
     pub(super) checked_expression_types: UnitFactCache<CheckedExpressionTypes>,
+    pub(super) checked_literal_values: UnitFactCache<CheckedLiteralValues>,
     pub(super) checked_patterns: UnitFactCache<CheckedPatternFacts>,
     pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
     pub(super) storage_plans: UnitFactCache<StoragePlan>,
@@ -288,6 +293,7 @@ impl Compilation {
                 provisional_expression_semantics: UnitFactCache::new(),
                 expression_semantics: UnitFactCache::new(),
                 checked_expression_types: UnitFactCache::new(),
+                checked_literal_values: UnitFactCache::new(),
                 checked_patterns: UnitFactCache::new(),
                 checked_semantic_selections: UnitFactCache::new(),
                 storage_plans: UnitFactCache::new(),

@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::{
     BoundArgument, BoundCallableTarget, BoundGenericArgument, CheckedExpressionTypes,
-    ExpressionTypeResult, SelectedArgument, SelectedCall, SelectedImplementationWitness,
+    ConversionTarget, ExpressionTypeResult, SelectedArgument, SelectedCall, SelectedConversion,
+    SelectedImplementationWitness, SelectedReceiver,
 };
 use bray_symbols::{
     CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
@@ -92,6 +93,7 @@ where
                 candidate,
                 &mut |_| {},
                 &mut |_| {},
+                &mut |_| {},
             )? {
                 CandidateApplicability::Applicable { .. } => has_inaccessible = true,
                 CandidateApplicability::Incompatible => has_incompatible = true,
@@ -170,6 +172,7 @@ where
             candidate,
             &mut |_| {},
             &mut |_| {},
+            &mut |_| {},
         )? {
             CandidateApplicability::Applicable { .. } | CandidateApplicability::Recovered => {
                 viable.push(index);
@@ -181,6 +184,10 @@ where
     Ok(Some(viable))
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "keeping the selected call inline avoids allocation in candidate selection"
+)]
 enum CandidateCheck {
     Applicable {
         key: SelectionCandidateKey,
@@ -209,11 +216,13 @@ where
 {
     let mut selected_arguments = Vec::new();
     let mut witnesses = Vec::with_capacity(candidate.implementation_selections().len());
+    let mut selected_receiver = None;
 
     match check_candidate_applicability(
         request,
         input,
         candidate,
+        &mut |receiver| selected_receiver = receiver,
         &mut |argument| selected_arguments.push(argument),
         &mut |witness| witnesses.push(witness),
     )? {
@@ -224,8 +233,14 @@ where
 
             Ok(CandidateCheck::Applicable {
                 key,
-                call: SelectedCall::new(resolution, abi, selected_arguments, witnesses)
-                    .with_contract(candidate.contract().cloned()),
+                call: SelectedCall::new(
+                    resolution,
+                    abi,
+                    selected_receiver,
+                    selected_arguments,
+                    witnesses,
+                )
+                .with_contract(candidate.contract().cloned()),
             })
         }
         CandidateApplicability::Incompatible => Ok(CandidateCheck::Incompatible),
@@ -243,6 +258,7 @@ fn check_candidate_applicability<C>(
     request: CheckerUnitView<'_, C>,
     input: CandidateInput<'_>,
     candidate: &CallableCandidate,
+    on_receiver: &mut impl FnMut(Option<SelectedReceiver>),
     on_argument: &mut impl FnMut(SelectedArgument),
     on_witness: &mut impl FnMut(SelectedImplementationWitness),
 ) -> Result<CandidateApplicability, CheckerInfrastructureError>
@@ -284,16 +300,18 @@ where
         Compatibility::Yes => {}
     }
 
-    match receiver_is_compatible(
+    match select_receiver(
         input.types,
         input.receiver,
         candidate
             .declaration_signature()
             .and_then(CallableSignature::receiver),
     )? {
-        Compatibility::No => return Ok(CandidateApplicability::Incompatible),
-        Compatibility::Recovered => return Ok(CandidateApplicability::Recovered),
-        Compatibility::Yes => {}
+        ReceiverApplicability::Incompatible => {
+            return Ok(CandidateApplicability::Incompatible);
+        }
+        ReceiverApplicability::Recovered => return Ok(CandidateApplicability::Recovered),
+        ReceiverApplicability::Applicable(receiver) => on_receiver(receiver),
     }
 
     let Some(recovered) = map_arguments(
@@ -467,32 +485,44 @@ where
     Ok(data)
 }
 
-fn receiver_is_compatible(
+enum ReceiverApplicability {
+    Applicable(Option<SelectedReceiver>),
+    Incompatible,
+    Recovered,
+}
+
+fn select_receiver(
     types: &CheckedExpressionTypes,
     actual: Option<super::ReceiverSelection>,
     expected: Option<bray_symbols::ReceiverParameterSignature>,
-) -> Result<Compatibility, CheckerInfrastructureError> {
+) -> Result<ReceiverApplicability, CheckerInfrastructureError> {
     let (Some(actual), Some(expected)) = (actual, expected) else {
         return Ok(if actual.is_none() && expected.is_none() {
-            Compatibility::Yes
+            ReceiverApplicability::Applicable(None)
         } else {
-            Compatibility::No
+            ReceiverApplicability::Incompatible
         });
     };
 
     let actual_type = expression_type(types, actual.expression())?;
 
     if actual_type.is_recovered() {
-        return Ok(Compatibility::Recovered);
+        return Ok(ReceiverApplicability::Recovered);
     }
 
     if actual_type.ty() != expected.ty()
         || !receiver_capability_supports(actual.capability(), expected.mode())
     {
-        return Ok(Compatibility::No);
+        return Ok(ReceiverApplicability::Incompatible);
     }
 
-    Ok(Compatibility::Yes)
+    Ok(ReceiverApplicability::Applicable(Some(
+        SelectedReceiver::new(
+            actual.expression(),
+            expected.parameter(),
+            SelectedConversion::new(actual_type.ty(), expected.ty(), ConversionTarget::Identity),
+        ),
+    )))
 }
 
 const fn receiver_capability_supports(actual: ReceiverCapability, expected: ReceiverMode) -> bool {
@@ -555,6 +585,11 @@ fn map_arguments(
             expression: argument.expression(),
             parameter,
             ordinal,
+            conversion: SelectedConversion::new(
+                actual.ty(),
+                parameters[parameter_index].ty(),
+                ConversionTarget::Identity,
+            ),
         });
     }
 
@@ -748,8 +783,9 @@ mod tests {
     use bray_bound_tree::{
         BoundArgument, BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
         BoundExpressionId, BoundGenericArgument, BoundMemberAccessExpression, BoundMemberSelector,
-        BoundResolvedCall, BoundUnit, BoundUnitId, CheckedExpressionTypes, ExpressionTypeResult,
-        ExpressionTypeStatus, MemberTarget, SelectedArgument, SelectedCall,
+        BoundResolvedCall, BoundUnit, BoundUnitId, CheckedExpressionTypes, ConversionTarget,
+        ExpressionTypeResult, ExpressionTypeStatus, MemberTarget, SelectedArgument, SelectedCall,
+        SelectedConversion,
     };
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableDefinitionId, CallableDependencyContracts,
@@ -758,7 +794,8 @@ mod tests {
         CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTrust,
         CallableTypeData, DependencyContractTemplateData, FunctionSymbolId, GenericArgument,
         GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-        GenericTypeParameterSymbolId, SymbolId, SymbolKind, TypeData, TypeId,
+        GenericTypeParameterSymbolId, ReceiverMode, ReceiverParameterSignature,
+        ReceiverParameterSymbolId, SymbolId, SymbolKind, TypeData, TypeId,
     };
 
     use crate::test_support::{
@@ -794,6 +831,11 @@ mod tests {
                     expression: fixture.argument,
                     parameter: Some(parameter(2)),
                     ordinal: 1,
+                    conversion: SelectedConversion::new(
+                        fixture.value_type,
+                        fixture.value_type,
+                        ConversionTarget::Identity,
+                    ),
                 },
                 SelectedArgument::Default {
                     parameter: parameter(1),
@@ -928,6 +970,46 @@ mod tests {
     }
 
     #[test]
+    fn method_selection_retains_the_checked_receiver_mapping() {
+        let fixture = method_call_fixture(BoundUnitId::new(80));
+        let member = FunctionSymbolId::from_symbol_id(SymbolId::new(4));
+
+        let input = CallableSelectionRequest::new(
+            fixture.call,
+            Some(MemberTarget::new(member.into(), fixture.value_type, [])),
+            Some(ReceiverSelection::new(
+                fixture.receiver,
+                ReceiverCapability::Shared,
+            )),
+            [],
+            [],
+            [method_candidate(1, fixture.value_type)],
+        );
+
+        let result = select(&fixture.unit, &fixture.types, input);
+
+        let CandidateSelection::Selected(call) = result.value() else {
+            panic!("applicable method must be selected");
+        };
+
+        let Some(receiver) = call.receiver() else {
+            panic!("method selection must retain its receiver");
+        };
+
+        assert_eq!(receiver.expression(), fixture.receiver);
+        assert_eq!(receiver.parameter(), receiver_parameter());
+
+        assert_eq!(
+            receiver.conversion(),
+            &SelectedConversion::new(
+                fixture.value_type,
+                fixture.value_type,
+                ConversionTarget::Identity,
+            )
+        );
+    }
+
+    #[test]
     fn inaccessible_candidates_are_reported_only_when_otherwise_applicable() {
         let fixture = call_fixture(BoundUnitId::new(73), true);
 
@@ -1031,6 +1113,7 @@ mod tests {
         unit: BoundUnit,
         types: CheckedExpressionTypes,
         call: BoundExpressionId,
+        receiver: BoundExpressionId,
         unrelated_receiver: BoundExpressionId,
         value_type: TypeId,
     }
@@ -1141,6 +1224,7 @@ mod tests {
 
         MethodCallFixture {
             call: expressions[3],
+            receiver: expressions[0],
             unrelated_receiver: expressions[1],
             unit,
             types,
@@ -1176,6 +1260,48 @@ mod tests {
             declaration,
             value_type,
             two_parameters,
+            CallableCandidateState::Available,
+        )
+    }
+
+    fn method_candidate(declaration: u32, value_type: TypeId) -> CallableCandidate {
+        let dependency = semantic_values()
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .unwrap_or_else(|error| panic!("empty dependency contract must intern: {error:?}"));
+
+        let callable_type = semantic_values()
+            .intern_type(TypeData::Callable(CallableTypeData::new(
+                [],
+                value_type,
+                CallableConstness::Runtime,
+                CallableTrust::Safe,
+                CallableAbi::Bray,
+                CallableDependencyContracts::synchronous(dependency),
+            )))
+            .unwrap_or_else(|error| panic!("method callable type must intern: {error:?}"));
+
+        let signature = CallableSignature::new(
+            callable_type,
+            Some(ReceiverParameterSignature::new(
+                receiver_parameter(),
+                value_type,
+                ReceiverMode::Shared,
+            )),
+            [],
+            value_type,
+        );
+
+        let resolution = BoundResolvedCall::new(
+            BoundCallableTarget::Indirect(callable_type),
+            [],
+            BoundCallResult::Immediate(value_type),
+        );
+
+        CallableCandidate::new(
+            declaration_key(SymbolKind::Function, declaration),
+            resolution,
+            signature,
+            [],
             CallableCandidateState::Available,
         )
     }
@@ -1269,6 +1395,10 @@ mod tests {
         };
 
         CallableParameterData::new(name, position, CallableParameterMode::Immutable, ty)
+    }
+
+    fn receiver_parameter() -> ReceiverParameterSymbolId {
+        ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(3))
     }
 
     fn select(

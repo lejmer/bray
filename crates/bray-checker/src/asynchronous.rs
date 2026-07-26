@@ -622,8 +622,13 @@ mod tests {
                 BoundCallResult::Immediate(error_type()),
             );
 
-            let selection =
-                SemanticSelection::Call(SelectedCall::new(resolution, CallableAbi::Bray, [], []));
+            let selection = SemanticSelection::Call(SelectedCall::new(
+                resolution,
+                CallableAbi::Bray,
+                None,
+                [],
+                [],
+            ));
 
             assert_eq!(
                 selected_task_operation(request, &selection),

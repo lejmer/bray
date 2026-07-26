@@ -283,15 +283,7 @@ impl EvaluationFailure {
         expression: BoundExpressionId,
         error: ConstantLiteralError,
     ) -> Self {
-        let kind = match error {
-            ConstantLiteralError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
-            ConstantLiteralError::NotRepresentable => {
-                DiagnosticKind::CheckingConstantLiteralNotRepresentable
-            }
-            ConstantLiteralError::SizeLimitExceeded => {
-                DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded
-            }
-        };
+        let kind = crate::constant::literal_diagnostic_kind(error);
 
         Self::Source { expression, kind }
     }

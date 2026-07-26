@@ -6,4 +6,4 @@ mod host;
 mod input;
 
 pub use host::ExecutableHostLoweringInput;
-pub use input::{LoweringInput, LoweringInputError};
+pub use input::{LoweringFactKind, LoweringInput, LoweringInputError};

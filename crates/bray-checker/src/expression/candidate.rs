@@ -626,6 +626,7 @@ where
             expression,
             parameter,
             ordinal,
+            ..
         } = argument
         else {
             continue;

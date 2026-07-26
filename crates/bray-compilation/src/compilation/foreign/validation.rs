@@ -373,7 +373,7 @@ fn target_abi_value_from_named(
         return Some(TargetAbiValue::RawPointer);
     }
 
-    // TODO(BRA-199): Include finalized aggregate layouts in target ABI requirements.
+    // TODO(BRA-268): Include finalized aggregate layouts in target ABI requirements.
     target_scalar(role).map(TargetAbiValue::Scalar)
 }
 

@@ -296,7 +296,7 @@ impl Compilation {
         let storage_flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
         let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
 
-        // TODO(BRA-199): Finalized invocation and layout facts must request their exact
+        // TODO(BRA-268): Finalized invocation and layout facts must request their exact
         // target-validity facts and retain those diagnostics in their semantic results.
 
         let mut facts = vec![

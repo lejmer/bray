@@ -10,6 +10,7 @@ mod declared_type;
 mod dependency;
 mod dependency_table;
 mod identity;
+mod literal;
 mod node;
 mod origin;
 mod pattern;
@@ -46,6 +47,9 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{CheckedDependencyContracts, DependencyContractsBuildError};
+pub use literal::{
+    CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
+};
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
     BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression, BoundBlock,
@@ -82,8 +86,8 @@ pub use selection::{
     ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
     SelectedArgument, SelectedCall, SelectedConstruction, SelectedConstructionInput,
     SelectedConversion, SelectedImplementationWitness, SelectedIterationProtocolOperation,
-    SelectedIterationSource, SelectedIterationTypes, SelectedOperation, SelectionKind,
-    SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    SelectedIterationSource, SelectedIterationTypes, SelectedOperation, SelectedReceiver,
+    SelectionKind, SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
