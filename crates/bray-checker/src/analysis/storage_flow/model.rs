@@ -67,7 +67,13 @@ impl StorageFlowInput {
             let capability = planned_borrows
                 .get(&(plan.expression(), kind, plan.access()))
                 .copied()
-                .or(direct);
+                .or_else(|| {
+                    direct.filter(|capability| {
+                        storage
+                            .borrow_capability(*capability)
+                            .is_some_and(|capability| capability.kind() == kind)
+                    })
+                });
 
             if let Some(capability) = capability {
                 input.borrows.insert(plan, capability);

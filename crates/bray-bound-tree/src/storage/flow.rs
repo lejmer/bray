@@ -10,6 +10,8 @@ use crate::{
 /// The checker result for one evaluated storage operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageOperationStatus {
+    /// Control flow cannot reach the operation.
+    Unreachable,
     /// The operation satisfies its storage requirements.
     Valid,
     /// Earlier recovery prevents a complete decision.

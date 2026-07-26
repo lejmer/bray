@@ -123,7 +123,7 @@ where
 
                 frame_dependencies.extend(retained.iter().copied());
 
-                // TODO(BRA-200): Validate deferred requirements against the exact flow-sensitive
+                // TODO(BRA-270): Validate deferred requirements against the exact flow-sensitive
                 // storage state at this suspension point.
 
                 let suspension_recovered = request
@@ -186,7 +186,7 @@ where
     }
 
     let scope_exits = flow.exits().iter().map(|exit| {
-        // TODO(BRA-200): Replace these conservative roots with unresolved task storage and
+        // TODO(BRA-270): Replace these conservative roots with unresolved task storage and
         // projection paths ordered by checked task and lifecycle dependencies.
         let cancellation = exit.initialized().iter().rev().copied().collect::<Vec<_>>();
         let lifecycle = exit.initialized().iter().rev().copied().collect::<Vec<_>>();
