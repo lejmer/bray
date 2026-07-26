@@ -1544,6 +1544,72 @@ mod tests {
     }
 
     #[test]
+    fn async_facts_respect_anonymous_callable_execution_modes() {
+        for (modifier, expected_diagnostic) in [("", true), ("async ", false)] {
+            let compilation = compilation(&format!(
+                concat!(
+                    "module app;\n",
+                    "async func main()\n",
+                    "{{\n",
+                    "    await {modifier}lambda()\n",
+                    "    {{\n",
+                    "        await child();\n",
+                    "    }}();\n",
+                    "}}\n",
+                    "async func child()\n",
+                    "{{\n",
+                    "}}\n",
+                ),
+                modifier = modifier,
+            ));
+
+            let main = source_callable_body_key(&compilation);
+            let bound = compilation
+                .bound_unit(main)
+                .unwrap_or_else(|error| panic!("source callable must bind: {error:?}"));
+
+            let [anonymous] = bound.value().nested_units() else {
+                panic!("source callable must contain one anonymous callable");
+            };
+
+            let facts = compilation
+                .async_facts(anonymous.clone())
+                .unwrap_or_else(|error| panic!("anonymous async facts must publish: {error:?}"));
+
+            let has_diagnostic = facts
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .next()
+                .is_some();
+
+            assert_eq!(has_diagnostic, expected_diagnostic, "{modifier:?}");
+        }
+    }
+
+    #[test]
+    fn opaque_future_parameters_do_not_imply_recovery() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "async func main(pending: Future<i32>) -> i32\n",
+            "{\n",
+            "    await pending\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+        let facts = compilation
+            .async_facts(key)
+            .unwrap_or_else(|error| panic!("async facts must publish: {error:?}"));
+
+        let [suspension] = facts.value().suspensions() else {
+            panic!("the direct await must publish one suspension point");
+        };
+
+        assert!(suspension.deferred_calls().is_empty());
+        assert!(!suspension.is_recovered());
+    }
+
+    #[test]
     fn async_facts_follow_deferred_calls_through_local_future_bindings() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -1584,14 +1650,15 @@ mod tests {
             facts.value().frame_dependencies()
         );
 
-        assert_eq!(
+        assert!(
             liveness
                 .value()
                 .live_across_suspensions()
                 .iter()
-                .map(|entry| entry.subject())
-                .collect::<Vec<_>>(),
-            facts.value().frame_dependencies()
+                .all(|entry| facts
+                    .value()
+                    .frame_dependencies()
+                    .contains(&entry.subject()))
         );
 
         assert!(

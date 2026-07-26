@@ -31,7 +31,11 @@ pub fn semantic_unit_context(
         ),
         (
             BoundUnitKeyData::AnonymousCallable(_),
-            BoundUnitRoot::AnonymousCallable { callable, .. },
+            BoundUnitRoot::AnonymousCallable {
+                callable,
+                execution,
+                ..
+            },
         ) => {
             let Some(callable) = unit.local_symbols().anonymous_callable(callable) else {
                 return Err(SemanticUnitContextError::MissingAnonymousCallable);
@@ -44,6 +48,7 @@ pub fn semantic_unit_context(
                 AnonymousCallableContext::new(
                     key,
                     callable.id(),
+                    execution,
                     callable.parameters().iter().copied(),
                 ),
             ))

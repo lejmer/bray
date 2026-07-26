@@ -3,9 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AsyncScopeExitPlan, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
     BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundExpression, BoundExpressionId, CheckedAsyncFacts,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedSemanticSelections, LivenessFacts,
-    SemanticSelection, StorageFlowFacts,
+    BoundCallableTarget, BoundDependencyContractId, BoundDependencyGuard,
+    BoundDependencyRequirement, BoundDependencySubject, BoundExpression, BoundExpressionId,
+    CheckedAsyncFacts, CheckedDependencyContracts, CheckedExpressionTypes,
+    CheckedSemanticSelections, LivenessFacts, SemanticSelection, StorageFlowFacts,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
@@ -110,22 +111,23 @@ where
                     &mut active,
                 );
 
-                let retained = liveness
-                    .live_across_suspensions()
-                    .iter()
-                    .filter(|entry| entry.await_expression() == expression)
-                    .map(|entry| entry.subject())
-                    .collect::<Vec<_>>();
+                let dependency_contract = dependencies.expression(await_expression.operand());
+                let retained = retained_suspension_subjects(
+                    liveness,
+                    dependencies,
+                    expression,
+                    dependency_contract,
+                );
 
                 frame_dependencies.extend(retained.iter().copied());
 
-                let dependency_contract = dependencies.expression(await_expression.operand());
+                // TODO(BRA-200): Validate deferred requirements against the exact flow-sensitive
+                // storage state at this suspension point.
+
                 let suspension_recovered = request
                     .view()
                     .expression(await_expression.operand())
-                    .is_none_or(BoundExpression::is_recovered)
-                    || (is_future_expression(request, types, await_expression.operand())
-                        && calls.is_empty());
+                    .is_none_or(BoundExpression::is_recovered);
 
                 is_recovered |= suspension_recovered;
 
@@ -182,6 +184,8 @@ where
     }
 
     let scope_exits = flow.exits().iter().map(|exit| {
+        // TODO(BRA-200): Replace these conservative roots with unresolved task storage and
+        // projection paths ordered by checked task and lifecycle dependencies.
         let cancellation = exit.initialized().iter().rev().copied().collect::<Vec<_>>();
         let lifecycle = exit.initialized().iter().rev().copied().collect::<Vec<_>>();
 
@@ -206,6 +210,62 @@ where
     };
 
     CheckerOutcome::complete(facts, diagnostics)
+}
+
+fn retained_suspension_subjects(
+    liveness: &LivenessFacts,
+    dependencies: &CheckedDependencyContracts,
+    await_expression: BoundExpressionId,
+    dependency_contract: Option<BoundDependencyContractId>,
+) -> Vec<BoundDependencySubject> {
+    let mut retained = liveness
+        .live_across_suspensions()
+        .iter()
+        .filter(|entry| entry.await_expression() == await_expression)
+        .map(|entry| entry.subject())
+        .collect::<BTreeSet<_>>();
+
+    if let Some(contract) = dependency_contract.and_then(|id| dependencies.contract(id)) {
+        for requirement in contract.requirements() {
+            collect_requirement_subjects(requirement, &mut retained);
+        }
+    }
+
+    retained.into_iter().collect()
+}
+
+fn collect_requirement_subjects(
+    requirement: &BoundDependencyRequirement,
+    subjects: &mut BTreeSet<BoundDependencySubject>,
+) {
+    let mut pending = vec![requirement];
+
+    while let Some(requirement) = pending.pop() {
+        match requirement {
+            BoundDependencyRequirement::Direct { subject, .. } => {
+                subjects.insert(*subject);
+            }
+            BoundDependencyRequirement::Guarded(guarded) => {
+                subjects.insert(guard_subject(guarded.guard()));
+                pending.extend(guarded.requirements());
+            }
+        }
+    }
+}
+
+const fn guard_subject(guard: BoundDependencyGuard) -> BoundDependencySubject {
+    match guard {
+        BoundDependencyGuard::NullablePresent(access)
+        | BoundDependencyGuard::ActiveUnionVariant { access, .. } => {
+            BoundDependencySubject::StorageAccess(access)
+        }
+        BoundDependencyGuard::BorrowCapabilityActive(capability) => {
+            BoundDependencySubject::BorrowCapability(capability)
+        }
+        BoundDependencyGuard::ScopedCapabilityLive(capability) => {
+            BoundDependencySubject::ScopedCapability(capability)
+        }
+    }
 }
 
 fn inputs_match<C>(
@@ -240,6 +300,10 @@ fn containing_execution<C>(
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
+    if let crate::SemanticUnitContext::AnonymousCallable(context) = request.semantic_context() {
+        return Ok(Some(context.execution()));
+    }
+
     let Some(callable) = request.containing_callable() else {
         return Ok(None);
     };
@@ -509,18 +573,27 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_bound_tree::{
-        BoundCallResult, BoundCallableTarget, BoundErrorExpression, BoundExpression,
-        BoundResolvedCall, BoundUnitId, SelectedCall, SemanticSelection,
+        BoundCallResult, BoundCallableTarget, BoundDependencyRequirement,
+        BoundDependencyRequirementKind, BoundDependencySubject, BoundErrorExpression,
+        BoundExpression, BoundResolvedCall, BoundUnitId, SelectedCall, SemanticSelection,
     };
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
-    use bray_symbols::{CallableAbi, CallableExecution, TypeCallableMemberSymbolId};
+    use bray_symbols::{
+        CallableAbi, CallableExecution, TypeCallableMemberSymbolId,
+        testing::implementation_instance,
+    };
 
-    use super::{AnalysisTaskOperationKind, add_task_context_diagnostic, selected_task_operation};
+    use super::{
+        AnalysisTaskOperationKind, add_task_context_diagnostic, collect_requirement_subjects,
+        selected_task_operation,
+    };
     use crate::CheckerUnitView;
     use crate::test_support::{
         TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol, error_type,
-        expression_unit, push_expression,
+        expression_unit, push_expression, semantic_values,
     };
 
     #[test]
@@ -588,5 +661,21 @@ mod tests {
                 .collect::<Vec<_>>(),
             [DiagnosticKind::CheckingTaskStartOutsideAsyncCallable]
         );
+    }
+
+    #[test]
+    fn deferred_contracts_retain_non_storage_frame_subjects() {
+        let witness = implementation_instance(semantic_values(), 72);
+        let subject = BoundDependencySubject::ImplementationWitness(witness);
+        let requirement = BoundDependencyRequirement::direct(
+            subject,
+            BoundDependencyRequirementKind::StorageAlive,
+        );
+
+        let mut subjects = BTreeSet::new();
+
+        collect_requirement_subjects(&requirement, &mut subjects);
+
+        assert_eq!(subjects, BTreeSet::from([subject]));
     }
 }

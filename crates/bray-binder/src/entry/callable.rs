@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
 };
-use bray_symbols::CallableSignatureFact;
+use bray_symbols::{CallableExecution, CallableSignatureFact};
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
@@ -39,6 +39,7 @@ pub struct PendingBoundAnonymousCallable {
     output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     callable: bray_symbols::AnonymousCallableSymbolId,
+    execution: CallableExecution,
     root: BoundCallableBodyId,
 }
 
@@ -50,8 +51,14 @@ impl PendingBoundAnonymousCallable {
 
     /// Completes and returns the bound anonymous callable unit.
     pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
-        assemble_anonymous_callable(self.output, self.nested_units, self.callable, self.root)
-            .map_err(map_assembly_error)
+        assemble_anonymous_callable(
+            self.output,
+            self.nested_units,
+            self.callable,
+            self.execution,
+            self.root,
+        )
+        .map_err(map_assembly_error)
     }
 }
 
@@ -155,6 +162,11 @@ where
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let callable = boundary.callable();
+    let execution = if syntax.callable_modifiers().async_token().is_some() {
+        CallableExecution::Asynchronous
+    } else {
+        CallableExecution::Synchronous
+    };
 
     let output = binder
         .finish()
@@ -166,6 +178,7 @@ where
         output,
         nested_units,
         callable,
+        execution,
         root,
     })
 }
