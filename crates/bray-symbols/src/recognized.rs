@@ -230,7 +230,7 @@ fn resolve_recognized_external_key(
         };
 
         let kind = declaration_symbol_kind(
-            DeclarationSurfaceKind::from(descriptor.kind()),
+            DeclarationSurfaceKind::try_from(descriptor.kind()).ok()?,
             owner.kind(),
         );
 

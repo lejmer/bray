@@ -112,9 +112,12 @@ pub(crate) fn declaration_symbol_kind(
     }
 }
 
-impl From<CatalogDeclarationKind> for DeclarationSurfaceKind {
-    fn from(kind: CatalogDeclarationKind) -> Self {
-        match kind {
+impl TryFrom<CatalogDeclarationKind> for DeclarationSurfaceKind {
+    type Error = ();
+
+    fn try_from(kind: CatalogDeclarationKind) -> Result<Self, Self::Error> {
+        let surface = match kind {
+            CatalogDeclarationKind::TrustedCapability => return Err(()),
             CatalogDeclarationKind::Constant => Self::Constant,
             CatalogDeclarationKind::Function => Self::Function,
             CatalogDeclarationKind::Predicate => Self::Predicate,
@@ -147,7 +150,9 @@ impl From<CatalogDeclarationKind> for DeclarationSurfaceKind {
             CatalogDeclarationKind::ImplementationTypeMemberBinding => {
                 Self::ImplementationTypeMemberBinding
             }
-        }
+        };
+
+        Ok(surface)
     }
 }
 

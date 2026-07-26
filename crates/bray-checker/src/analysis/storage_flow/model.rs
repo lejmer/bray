@@ -118,9 +118,11 @@ impl StorageFlowInput {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct StorageFlowState {
     pub(super) reachable: bool,
+    pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeSet<StorageAccessId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
+    pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) recovered: bool,
 }
 
@@ -129,17 +131,19 @@ impl StorageFlowState {
         let initialized = storage
             .identity_entries()
             .filter_map(|(id, identity)| identity_is_initialized_at_entry(identity).then_some(id))
-            .collect();
+            .collect::<BTreeSet<_>>();
 
         let active_borrows = storage
             .borrow_capability_entries()
             .filter_map(|(id, capability)| capability.entry_binding().is_some().then_some(id))
-            .collect();
+            .collect::<BTreeSet<_>>();
 
         Self {
             reachable: true,
+            live: initialized.clone(),
             initialized,
             moved: BTreeSet::new(),
+            definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             recovered: false,
         }
@@ -157,10 +161,14 @@ impl StorageFlowState {
             return true;
         }
 
+        let live_count = self.live.len();
         let initialized_count = self.initialized.len();
         let moved_count = self.moved.len();
         let borrow_count = self.active_borrows.len();
+        let definite_borrow_count = self.definitely_active_borrows.len();
         let was_recovered = self.recovered;
+
+        self.live.retain(|storage| incoming.live.contains(storage));
 
         self.initialized
             .retain(|storage| incoming.initialized.contains(storage));
@@ -170,11 +178,16 @@ impl StorageFlowState {
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
 
+        self.definitely_active_borrows
+            .retain(|borrow| incoming.definitely_active_borrows.contains(borrow));
+
         self.recovered |= incoming.recovered;
 
-        self.initialized.len() != initialized_count
+        self.live.len() != live_count
+            || self.initialized.len() != initialized_count
             || self.moved.len() != moved_count
             || self.active_borrows.len() != borrow_count
+            || self.definitely_active_borrows.len() != definite_borrow_count
             || self.recovered != was_recovered
     }
 }

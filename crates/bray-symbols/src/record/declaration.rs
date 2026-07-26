@@ -17,6 +17,7 @@ use crate::{
 macro_rules! for_each_declaration_symbol {
     ($consumer:ident) => {
         $consumer! {
+            TrustedCapabilitySymbol, TrustedCapabilitySymbolId, TrustedCapability, trusted_capability, trusted_capabilities, LeafRelationships;
             ConstantSymbol, ConstantSymbolId, Constant, constant, constants, LeafRelationships;
             FunctionSymbol, FunctionSymbolId, Function, function, functions, CallableRelationships;
             PredicateSymbol, PredicateSymbolId, Predicate, predicate, predicates, PredicateRelationships;

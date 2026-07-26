@@ -6,7 +6,7 @@ use bray_symbols::{
     ImplementationCoherenceEvidence, ImplementationCoherenceParticipant, ImplementationInstanceId,
     ImplementationRequirementKey, ImplementationSubject, ImplementationSymbolId,
     PredicateSemanticSummary, TargetFactDependency, TraitApplicationId,
-    TrustedCapabilityRequirement, TypeId,
+    TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeId,
 };
 
 use crate::semantic::model::InterfaceCallablePhaseBehavior;
@@ -194,7 +194,7 @@ impl InternState {
             .map(|requirement| {
                 Ok(TrustedCapabilityRequirement::new(
                     requirement.ordinal,
-                    resolve_symbol(symbols, &requirement.capability)?,
+                    resolve_exact::<TrustedCapabilitySymbolId>(symbols, &requirement.capability)?,
                 ))
             })
             .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;

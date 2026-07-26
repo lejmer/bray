@@ -1836,9 +1836,11 @@ mod tests {
 
         assert!(cleanup_roles.contains(&RepresentationRole::Future));
 
-        assert!(cleanup_roles
-            .iter()
-            .all(|role| *role == RepresentationRole::Future));
+        assert!(
+            cleanup_roles
+                .iter()
+                .all(|role| *role == RepresentationRole::Future)
+        );
 
         let repeated = match compilation.async_facts(key) {
             Ok(facts) => facts,

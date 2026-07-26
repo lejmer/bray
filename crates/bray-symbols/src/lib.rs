@@ -125,9 +125,9 @@ pub use id::{
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId,
     TraitScopeEnterFulfillmentSymbolId, TraitScopeEnterRequirementSymbolId,
     TraitScopeExitFulfillmentSymbolId, TraitScopeExitRequirementSymbolId, TraitSymbolId,
-    TraitTypeFulfillmentSymbolId, TraitTypeMemberSymbolId, TypeCallableMemberSymbolId,
-    UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId, UnionSymbolId,
-    UnionVariantSymbolId, UnnamedTraitImplementationSymbolId,
+    TraitTypeFulfillmentSymbolId, TraitTypeMemberSymbolId, TrustedCapabilitySymbolId,
+    TypeCallableMemberSymbolId, UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId,
+    UnionSymbolId, UnionVariantSymbolId, UnnamedTraitImplementationSymbolId,
 };
 pub use imported::{
     ImportedIdentitySurfaceError, ImportedLookupEdge, ImportedPackageIdentitySurface,
@@ -173,8 +173,9 @@ pub use record::{
     TraitPredicateFulfillmentSymbol, TraitPredicateMemberSymbol, TraitScopeEnterFulfillmentSymbol,
     TraitScopeEnterRequirementSymbol, TraitScopeExitFulfillmentSymbol,
     TraitScopeExitRequirementSymbol, TraitSymbol, TraitTypeFulfillmentSymbol,
-    TraitTypeMemberSymbol, TypeCallableMemberSymbol, UnionPayloadDefaultProviderSymbol,
-    UnionPayloadFieldSymbol, UnionSymbol, UnionVariantSymbol, UnnamedTraitImplementationSymbol,
+    TraitTypeMemberSymbol, TrustedCapabilitySymbol, TypeCallableMemberSymbol,
+    UnionPayloadDefaultProviderSymbol, UnionPayloadFieldSymbol, UnionSymbol, UnionVariantSymbol,
+    UnnamedTraitImplementationSymbol,
 };
 pub use relationship::RuntimeDefaultPresence;
 pub use value::{

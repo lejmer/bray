@@ -223,6 +223,8 @@ where
         }
     };
 
+    is_recovered |= scope_exits.iter().any(|exit| exit.is_recovered());
+
     diagnostics.add_range(cleanup_diagnostics);
 
     let facts = match CheckedAsyncFacts::try_new(
@@ -602,8 +604,8 @@ mod tests {
     use super::{AnalysisTaskOperationKind, add_task_context_diagnostic, selected_task_operation};
     use crate::CheckerUnitView;
     use crate::test_support::{
-        TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol,
-        error_type, expression_unit, push_expression,
+        TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol, error_type,
+        expression_unit, push_expression,
     };
 
     #[test]

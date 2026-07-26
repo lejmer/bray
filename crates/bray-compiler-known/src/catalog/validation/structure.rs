@@ -12,7 +12,9 @@ use super::CatalogFragmentValidator;
 use super::field::{declaration_fields, value_fields};
 use super::identity::{recognized_identity, validate_recognized_identity_uniqueness};
 use super::iteration::validate_iteration_protocol;
-use super::metadata::{availability, implementation, iteration, operation, representation};
+use super::metadata::{
+    availability, declaration_kind, implementation, iteration, operation, representation,
+};
 use super::model::{
     RawDeclaration, RawScope, RawValue, ValidatedCatalog, ValidatedDeclaration, ValidatedScope,
     ValidatedValue,
@@ -266,6 +268,10 @@ fn collect_entries(
                     owner_key: fields.owner.map(|value| Arc::clone(&value.value)),
                     owner: None,
                     recognized_identity,
+                    declared_kind: declaration_kind(
+                        fields.kind.map(|value| (&value.value, value.anchor)),
+                        diagnostics,
+                    ),
                     kind: None,
                     surface: surface.value,
                     representation_role,

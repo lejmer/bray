@@ -978,6 +978,8 @@ pub enum DiagnosticNameKind {
     CallableOverload,
     /// A declaration associated with a module, type, trait, or implementation.
     Member,
+    /// A compiler-known capability allowed in a trusted callable contract.
+    TrustedCapability,
 }
 
 impl DiagnosticNameKind {
@@ -992,6 +994,7 @@ impl DiagnosticNameKind {
             Self::Pattern => "pattern",
             Self::CallableOverload => "callable_overload",
             Self::Member => "member",
+            Self::TrustedCapability => "trusted_capability",
         }
     }
 }

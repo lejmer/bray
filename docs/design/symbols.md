@@ -429,6 +429,10 @@ to exactly one compilation-local compiler-known environment symbol.
 
 Using and export declarations do not create symbols.
 
+Compiler-known trusted implementation capabilities use `TrustedCapabilitySymbol`. They occupy the ordinary lookup namespace so
+`uses(...)` can resolve them by name, but they are neither values nor predicates and cannot be invoked. Callable contract facts retain
+exact `TrustedCapabilitySymbolId` values rather than type-erased symbol identities.
+
 ### Type Symbols And Members
 
 - `StructFieldSymbol`

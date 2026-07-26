@@ -90,6 +90,7 @@ impl StorageOperationDecision {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageSuspensionState {
     expression: BoundExpressionId,
+    live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
@@ -99,12 +100,14 @@ impl StorageSuspensionState {
     /// Creates one normalized suspension-state snapshot.
     pub fn new(
         expression: BoundExpressionId,
+        live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
     ) -> Self {
         Self {
             expression,
+            live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
@@ -114,6 +117,11 @@ impl StorageSuspensionState {
     /// Returns the direct-await expression.
     pub const fn expression(&self) -> BoundExpressionId {
         self.expression
+    }
+
+    /// Returns storage known to be live before suspension.
+    pub fn live(&self) -> &[StorageIdentityId] {
+        &self.live
     }
 
     /// Returns storage known to be initialized before suspension.
@@ -229,6 +237,10 @@ impl StorageFlowFacts {
         }) || suspensions.iter().any(|suspension| {
             suspension.expression().unit() != unit
                 || suspension
+                    .live()
+                    .iter()
+                    .any(|storage| storage.unit() != unit)
+                || suspension
                     .initialized()
                     .iter()
                     .any(|storage| storage.unit() != unit)
@@ -342,7 +354,8 @@ mod tests {
 
         let exit = StorageExitDecision::new(scope, [storage, storage], [access, access], [], false);
 
-        let suspension = StorageSuspensionState::new(expression, [storage], [access], []);
+        let suspension =
+            StorageSuspensionState::new(expression, [storage], [storage], [access], []);
 
         let facts = StorageFlowFacts::try_new(
             unit,

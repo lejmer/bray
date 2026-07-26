@@ -13,22 +13,26 @@ use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext,
 pub(super) struct CleanupShape {
     pub(super) cancellation: bool,
     pub(super) lifecycle: bool,
+    recovered: bool,
 }
 
 impl CleanupShape {
     const BOTH: Self = Self {
         cancellation: true,
         lifecycle: true,
+        recovered: false,
     };
 
     const LIFECYCLE: Self = Self {
         cancellation: false,
         lifecycle: true,
+        recovered: false,
     };
 
     fn merge(&mut self, other: Self) {
         self.cancellation |= other.cancellation;
         self.lifecycle |= other.lifecycle;
+        self.recovered |= other.recovered;
     }
 }
 
@@ -64,21 +68,16 @@ where
             return Ok(CleanupShape::BOTH);
         }
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(|_| {
-                CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                )
-            })?
-            .as_ref()
-            .clone();
+        let data = self.request.semantic_values().type_data(ty).map_err(|_| {
+            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })?;
 
-        let shape = match data {
-            TypeData::Error
-            | TypeData::TypeParameter(_)
+        let shape = match data.as_ref() {
+            TypeData::Error => CleanupShape {
+                recovered: true,
+                ..CleanupShape::BOTH
+            },
+            TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
             | TypeData::Generator(_)
@@ -86,13 +85,13 @@ where
             TypeData::Named {
                 definition,
                 substitution,
-            } => self.named_shape(definition, substitution)?,
+            } => self.named_shape(*definition, *substitution)?,
             TypeData::Tuple(elements) => self.aggregate(elements.iter().copied())?,
             TypeData::Array { element, .. } | TypeData::Nullable(element) => {
-                self.resolve(element)?
+                self.resolve(*element)?
             }
             TypeData::OwnedIndirection { target, .. } => {
-                let mut shape = self.resolve(target)?;
+                let mut shape = self.resolve(*target)?;
 
                 shape.lifecycle = true;
                 shape
@@ -154,14 +153,21 @@ where
             Some(_) => Ok(CleanupShape::default()),
             None => {
                 let representation = self.request.declared_type_representation(definition)?;
+                let recovered = representation.value().is_recovered();
 
                 self.diagnostics
                     .add_range(representation.diagnostics().clone());
 
                 Ok(if representation.value().is_plain_storage() {
-                    CleanupShape::default()
+                    CleanupShape {
+                        recovered,
+                        ..CleanupShape::default()
+                    }
                 } else {
-                    CleanupShape::BOTH
+                    CleanupShape {
+                        recovered,
+                        ..CleanupShape::BOTH
+                    }
                 })
             }
         }
@@ -224,6 +230,8 @@ where
 
             let shape = cleanup_shapes.resolve(access_data.reached_type())?;
 
+            is_recovered |= shape.recovered;
+
             if shape.cancellation {
                 cancellation.push(access);
             }
@@ -245,10 +253,7 @@ where
     Ok((plans, cleanup_shapes.into_diagnostics()))
 }
 
-fn root_access(
-    storage: &StoragePlan,
-    identity: StorageIdentityId,
-) -> Option<StorageAccessId> {
+fn root_access(storage: &StoragePlan, identity: StorageIdentityId) -> Option<StorageAccessId> {
     storage.access_entries().find_map(|(access, _)| {
         (storage.root_identity(access) == Some(identity) && storage.is_root_access(access))
             .then_some(access)

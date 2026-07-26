@@ -10,6 +10,7 @@ use super::super::{
 };
 
 pub(super) struct DeclarationFields<'entry> {
+    pub(super) kind: Option<&'entry Anchored<Arc<str>>>,
     pub(super) owner: Option<&'entry Anchored<Arc<str>>>,
     pub(super) identity: Option<&'entry Anchored<ParsedDeclarationIdentity>>,
     pub(super) availability: Option<&'entry Anchored<Arc<str>>>,
@@ -32,6 +33,7 @@ pub(super) fn declaration_fields<'entry>(
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) -> DeclarationFields<'entry> {
     let mut result = DeclarationFields {
+        kind: None,
         owner: None,
         identity: None,
         availability: None,
@@ -44,6 +46,9 @@ pub(super) fn declaration_fields<'entry>(
 
     for field in &declaration.fields {
         match field {
+            ParsedDeclarationField::Kind(value) => {
+                set_once(&mut result.kind, value, CatalogField::Kind, diagnostics)
+            }
             ParsedDeclarationField::Owner(value) => {
                 set_once(&mut result.owner, value, CatalogField::Owner, diagnostics)
             }

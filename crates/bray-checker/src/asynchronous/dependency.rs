@@ -100,14 +100,16 @@ fn dependency_subject_is_satisfied(
 ) -> bool {
     match kind {
         BoundDependencyRequirementKind::StorageAlive => match subject {
-            BoundDependencySubject::Storage(identity) => storage.identity(identity).is_some(),
-            BoundDependencySubject::StorageAccess(access) => storage.access(access).is_some(),
+            BoundDependencySubject::Storage(identity) => state.live().contains(&identity),
+            BoundDependencySubject::StorageAccess(access) => storage
+                .root_identity(access)
+                .is_some_and(|identity| state.live().contains(&identity)),
             BoundDependencySubject::BorrowCapability(capability) => {
-                storage.borrow_capability(capability).is_some()
+                state.active_borrows().contains(&capability)
             }
             BoundDependencySubject::ScopedCapability(_)
             | BoundDependencySubject::ImplementationWitness(_)
-            | BoundDependencySubject::LifecycleObligation(_) => true,
+            | BoundDependencySubject::LifecycleObligation(_) => false,
         },
         BoundDependencyRequirementKind::StorageInitialized => {
             dependency_subject_is_initialized(storage, state, subject)
@@ -125,12 +127,8 @@ fn dependency_subject_is_satisfied(
         BoundDependencyRequirementKind::ExclusiveMutationAuthority => {
             dependency_subject_has_exclusive_access(storage, state, subject)
         }
-        BoundDependencyRequirementKind::ScopedCapabilityLive => {
-            matches!(subject, BoundDependencySubject::ScopedCapability(_))
-        }
-        BoundDependencyRequirementKind::LifecycleObligationAttached(_) => {
-            matches!(subject, BoundDependencySubject::LifecycleObligation(_))
-        }
+        BoundDependencyRequirementKind::ScopedCapabilityLive => false,
+        BoundDependencyRequirementKind::LifecycleObligationAttached(_) => false,
     }
 }
 
@@ -367,8 +365,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("test shared borrow must build: {error:?}"));
 
         let storage = builder.finish();
-        let mutable_state = StorageSuspensionState::new(expression, [identity], [], [mutable]);
-        let shared_state = StorageSuspensionState::new(expression, [identity], [], [shared]);
+
+        let mutable_state =
+            StorageSuspensionState::new(expression, [identity], [identity], [], [mutable]);
+
+        let shared_state =
+            StorageSuspensionState::new(expression, [identity], [identity], [], [shared]);
 
         assert!(dependency_subject_has_exclusive_access(
             &storage,

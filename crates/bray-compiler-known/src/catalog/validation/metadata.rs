@@ -6,8 +6,31 @@ use crate::{
 };
 
 use super::super::{
-    CatalogDiagnostic, CatalogDiagnosticKind, CatalogMetadataKind, CatalogSourceAnchor,
+    CatalogDeclarationKind, CatalogDiagnostic, CatalogDiagnosticKind, CatalogMetadataKind,
+    CatalogSourceAnchor,
 };
+
+pub(super) fn declaration_kind(
+    spelling: Option<(&Arc<str>, CatalogSourceAnchor)>,
+    diagnostics: &mut Vec<CatalogDiagnostic>,
+) -> Option<CatalogDeclarationKind> {
+    let (spelling, anchor) = spelling?;
+
+    match spelling.as_ref() {
+        "trusted_capability" => Some(CatalogDeclarationKind::TrustedCapability),
+        _ => {
+            diagnostics.push(CatalogDiagnostic::new(
+                anchor,
+                CatalogDiagnosticKind::UnknownMetadata {
+                    metadata: CatalogMetadataKind::DeclarationKind,
+                    spelling: Arc::clone(spelling),
+                },
+            ));
+
+            None
+        }
+    }
+}
 
 pub(super) fn availability(
     spelling: Option<(&Arc<str>, CatalogSourceAnchor)>,
