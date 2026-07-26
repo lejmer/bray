@@ -169,7 +169,7 @@ where
         declared_types: &DeclaredValueTypeTemplates,
         types: &CheckedExpressionTypes,
         patterns: &CheckedPatternFacts,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
+        selections: &CheckedSemanticSelections,
     ) -> CheckerOutcome<StoragePlan> {
         plan_storage(request, declared_types, types, patterns, selections)
     }
@@ -246,7 +246,7 @@ where
     fn check_dependency_contracts(
         &self,
         request: CheckerUnitView<'_, C>,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
+        selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         flow: &StorageFlowFacts,
     ) -> CheckerOutcome<CheckedDependencyContracts> {
@@ -265,6 +265,10 @@ where
     C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     /// Computes durable async facts from independently checked semantic inputs.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the checker service keeps each independently materialized async input explicit"
+    )]
     fn check_async_facts(
         &self,
         request: CheckerUnitView<'_, C>,
@@ -304,7 +308,7 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         control_flow: &CheckedControlFlowFacts,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
+        selections: &CheckedSemanticSelections,
         async_facts: &CheckedAsyncFacts,
     ) -> CheckerOutcome<BodyBehaviorContributions> {
         collect_body_behavior(request, control_flow, selections, async_facts)
@@ -332,7 +336,7 @@ where
         nested_callables: &[NestedCallableEvidence],
         candidate_sets: &[ExpressionCandidateSet],
         pattern_input: &PatternCheckInput,
-        iteration_sources: &[SelectedIterationSource],
+        operation_input: &crate::ExpressionTypeInput,
     ) -> CheckerOutcome<(
         CheckedExpressionTypes,
         bray_bound_tree::CheckedSemanticSelections,
@@ -344,7 +348,7 @@ where
             nested_callables,
             candidate_sets,
             pattern_input,
-            iteration_sources,
+            operation_input,
         )
     }
 }
@@ -390,7 +394,7 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         input: &IterationSourceSelectionRequest,
-    ) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedIterationSource>> {
+    ) -> CheckerOutcome<CandidateSelection<SelectedIterationSource>> {
         select_iteration_source(request, input)
     }
 }

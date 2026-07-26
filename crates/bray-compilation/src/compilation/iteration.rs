@@ -1,28 +1,27 @@
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::BinderFactContext;
 use bray_bound_tree::{
     BoundExpressionId, BoundIterationSource, BoundUnit, BoundUnitKey, IterationSourceMode,
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };
 use bray_checker::{
     CandidateSelection, DefaultSemanticSelector, IterationSourceCandidate,
-    IterationSourceSelectionRequest, SemanticSelector, resolve_type_expression_template,
+    IterationSourceSelectionRequest, SemanticSelector,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
-    ExternalDeclarationIdentity, ExternalSymbolKeyData, ImplementationCandidate,
-    ImplementationInstanceData, ImplementationRequirementKey, ImplementationSymbolId,
-    SymbolFactRequest, SymbolKeyData, TraitApplicationData, TraitCallableFulfillmentSymbolId,
-    TraitCallableMemberSymbolId, TraitSymbolId, TraitTypeFulfillmentSymbolId,
-    TraitTypeFulfillmentValueFact, TraitTypeMemberSymbolId, TypeData, TypeId,
+    BorrowKind, ImplementationCandidate, ImplementationInstanceData, ImplementationRequirementKey,
+    TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TypeData, TypeId,
 };
 
 use super::Compilation;
-use super::binder::{CompilationBinderFacts, binder_fact_error};
+use super::binder::CompilationBinderFacts;
 use super::checker::{CompilationCheckerContext, checker_result};
-use super::substitution::empty_substitution;
+use super::implementation::{
+    TypeValuedMemberResolution, callable_instance, implementation_fulfillments,
+    implementation_requirement, selected_callable, selected_type_valued_member,
+};
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceFactKey};
 
@@ -42,18 +41,6 @@ struct ProtocolCandidate<'candidate> {
     candidate: &'candidate ImplementationCandidate,
     member: TraitCallableMemberSymbolId,
     fulfillment: TraitCallableFulfillmentSymbolId,
-}
-
-#[derive(Clone, Copy)]
-struct ImplementationFulfillments<'symbols> {
-    callables: &'symbols [TraitCallableFulfillmentSymbolId],
-    types: &'symbols [TraitTypeFulfillmentSymbolId],
-}
-
-enum TypeValuedMemberResolution {
-    Resolved(TypeId),
-    Invalid,
-    Deferred,
 }
 
 impl Compilation {
@@ -183,6 +170,8 @@ impl Compilation {
             facts.semantic_values(),
             input.subject_type,
             input.protocol.iterable_trait(),
+            [],
+            [],
         )?;
 
         let iterable_candidates = self.implementation_candidate_set_result_with_cancellation(
@@ -217,7 +206,7 @@ impl Compilation {
 
             let cursor_type = match selected_type_valued_member(
                 facts,
-                iterable,
+                iterable.substitution(),
                 iterable_fulfillments.types,
                 input.protocol.iterable_cursor(),
                 diagnostics,
@@ -233,7 +222,7 @@ impl Compilation {
 
             let element_type = match selected_type_valued_member(
                 facts,
-                iterable,
+                iterable.substitution(),
                 iterable_fulfillments.types,
                 input.protocol.iterable_element(),
                 diagnostics,
@@ -259,6 +248,8 @@ impl Compilation {
                 facts.semantic_values(),
                 cursor_type,
                 input.protocol.iterator_trait(),
+                [],
+                [],
             )?;
 
             let iterator_candidates = self.implementation_candidate_set_result_with_cancellation(
@@ -289,7 +280,7 @@ impl Compilation {
 
                 let iterator_element = match selected_type_valued_member(
                     facts,
-                    iterator,
+                    iterator.substitution(),
                     iterator_fulfillments.types,
                     input.protocol.iterator_element(),
                     diagnostics,
@@ -387,193 +378,6 @@ fn iteration_source(
         .ok_or(FactQueryError::InfrastructureFailure)
 }
 
-fn implementation_requirement(
-    values: &bray_symbols::SemanticValueStore,
-    subject: TypeId,
-    definition: TraitSymbolId,
-) -> Result<ImplementationRequirementKey, FactQueryError> {
-    let substitution = empty_substitution(values, definition.into())?;
-
-    let application = values
-        .intern_trait_application(TraitApplicationData::new(definition, substitution))
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    Ok(ImplementationRequirementKey::new(subject, application))
-}
-
-fn selected_type_valued_member(
-    facts: &CompilationBinderFacts<'_>,
-    candidate: &ImplementationCandidate,
-    fulfillments: &[TraitTypeFulfillmentSymbolId],
-    member: TraitTypeMemberSymbolId,
-    diagnostics: &mut DiagnosticBag,
-) -> Result<TypeValuedMemberResolution, FactQueryError> {
-    let expected_name = facts
-        .symbols()
-        .member_name(member.into())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-    let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(facts, (*fulfillment).into())
-            .is_some_and(|name| name == expected_name.as_str())
-    });
-
-    let Some(fulfillment) = matching.next() else {
-        return Ok(TypeValuedMemberResolution::Invalid);
-    };
-
-    if matching.next().is_some() {
-        return Ok(TypeValuedMemberResolution::Invalid);
-    }
-
-    let result = facts
-        .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueFact>::new(
-            fulfillment,
-        ))
-        .map_err(binder_fact_error)?;
-
-    diagnostics.add_range(result.diagnostics().clone());
-
-    if result.diagnostics().has_errors() {
-        return Ok(TypeValuedMemberResolution::Invalid);
-    }
-
-    let checked = facts.compilation().checked_constant_terms(result.value())?;
-
-    // Iteration resolution owns dependency diagnostics after the checked terms drop.
-    diagnostics.add_range(checked.diagnostics().clone());
-
-    let Some(ty) =
-        resolve_type_expression_template(facts.semantic_values(), result.value(), checked.value())
-            .map_err(FactQueryError::CheckerInfrastructure)?
-    else {
-        return Ok(TypeValuedMemberResolution::Deferred);
-    };
-
-    facts
-        .semantic_values()
-        .substitute_type(ty, candidate.substitution())
-        .map(TypeValuedMemberResolution::Resolved)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
-}
-
-fn implementation_fulfillments<'facts>(
-    facts: &'facts CompilationBinderFacts<'_>,
-    implementation: ImplementationSymbolId,
-) -> Result<ImplementationFulfillments<'facts>, FactQueryError> {
-    let source =
-        match implementation {
-            ImplementationSymbolId::Inherent(id) => facts
-                .symbols()
-                .inherent_implementation(id)
-                .map(|symbol| ImplementationFulfillments {
-                    callables: symbol.callable_fulfillments(),
-                    types: symbol.type_fulfillments(),
-                }),
-            ImplementationSymbolId::UnnamedTrait(id) => facts
-                .symbols()
-                .unnamed_trait_implementation(id)
-                .map(|symbol| ImplementationFulfillments {
-                    callables: symbol.callable_fulfillments(),
-                    types: symbol.type_fulfillments(),
-                }),
-            ImplementationSymbolId::NamedTrait(id) => facts
-                .symbols()
-                .named_trait_implementation(id)
-                .map(|symbol| ImplementationFulfillments {
-                    callables: symbol.callable_fulfillments(),
-                    types: symbol.type_fulfillments(),
-                }),
-        };
-
-    if let Some(fulfillments) = source {
-        return Ok(fulfillments);
-    }
-
-    let imported = facts.imported_symbols().map_err(binder_fact_error)?;
-
-    let imported = match implementation {
-        ImplementationSymbolId::Inherent(id) => imported
-            .and_then(|symbols| symbols.inherent_implementation(id))
-            .map(|symbol| ImplementationFulfillments {
-                callables: symbol.callable_fulfillments(),
-                types: symbol.type_fulfillments(),
-            }),
-        ImplementationSymbolId::UnnamedTrait(id) => imported
-            .and_then(|symbols| symbols.unnamed_trait_implementation(id))
-            .map(|symbol| ImplementationFulfillments {
-                callables: symbol.callable_fulfillments(),
-                types: symbol.type_fulfillments(),
-            }),
-        ImplementationSymbolId::NamedTrait(id) => imported
-            .and_then(|symbols| symbols.named_trait_implementation(id))
-            .map(|symbol| ImplementationFulfillments {
-                callables: symbol.callable_fulfillments(),
-                types: symbol.type_fulfillments(),
-            }),
-    };
-
-    imported.ok_or(FactQueryError::InfrastructureFailure)
-}
-
-fn fulfillment_name<'facts>(
-    facts: &'facts CompilationBinderFacts<'_>,
-    fulfillment: AnySymbolId,
-) -> Option<&'facts str> {
-    if let Some(name) = facts.symbols().member_name(fulfillment) {
-        return Some(name.as_str());
-    }
-
-    let key = facts.symbol_key(fulfillment).ok()??;
-
-    let SymbolKeyData::External(key) = key.data() else {
-        return None;
-    };
-
-    let ExternalSymbolKeyData::Declaration {
-        identity: ExternalDeclarationIdentity::Name(name),
-        ..
-    } = key.data()
-    else {
-        return None;
-    };
-
-    Some(name.as_str())
-}
-
-fn selected_callable(
-    facts: &CompilationBinderFacts<'_>,
-    fulfillments: &[TraitCallableFulfillmentSymbolId],
-    member: TraitCallableMemberSymbolId,
-) -> Option<TraitCallableFulfillmentSymbolId> {
-    let expected_name = facts.symbols().member_name(member.into())?;
-
-    let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(facts, (*fulfillment).into())
-            .is_some_and(|name| name == expected_name.as_str())
-    });
-
-    let fulfillment = matching.next()?;
-
-    if matching.next().is_some() {
-        return None;
-    }
-
-    Some(fulfillment)
-}
-
-fn callable_instance(
-    values: &bray_symbols::SemanticValueStore,
-    callable: AnySymbolId,
-) -> Result<CallableInstanceData, FactQueryError> {
-    let definition =
-        CallableDefinitionId::try_new(callable).ok_or(FactQueryError::InfrastructureFailure)?;
-
-    let substitution = empty_substitution(values, callable)?;
-
-    Ok(CallableInstanceData::new(definition, substitution))
-}
-
 fn iteration_candidate(
     facts: &CompilationBinderFacts<'_>,
     input: IterationInput,
@@ -598,10 +402,43 @@ fn iteration_candidate(
         ))
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let iterate_member = callable_instance(values, iterable.member.into())?;
-    let iterate_fulfillment = callable_instance(values, iterable.fulfillment.into())?;
-    let next_member = callable_instance(values, iterator.member.into())?;
-    let next_fulfillment = callable_instance(values, iterator.fulfillment.into())?;
+    let iterable_application = values
+        .trait_application_data(iterable.requirement.trait_application())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let iterator_application = values
+        .trait_application_data(iterator.requirement.trait_application())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let iterate_member = callable_instance(
+        values,
+        iterable.member.into(),
+        [iterable_application.substitution()],
+    )?;
+
+    let iterate_fulfillment = callable_instance(
+        values,
+        iterable.fulfillment.into(),
+        [
+            iterable_application.substitution(),
+            iterable.candidate.substitution(),
+        ],
+    )?;
+
+    let next_member = callable_instance(
+        values,
+        iterator.member.into(),
+        [iterator_application.substitution()],
+    )?;
+
+    let next_fulfillment = callable_instance(
+        values,
+        iterator.fulfillment.into(),
+        [
+            iterator_application.substitution(),
+            iterator.candidate.substitution(),
+        ],
+    )?;
 
     let selection = SelectedIterationSource::new(
         input.expression,
@@ -670,10 +507,8 @@ mod tests {
     use crate::CancellationToken;
     use crate::test_support::{compilation, source_callable_body_key};
 
-    use super::{
-        IterationInput, empty_substitution, iteration_source, iteration_subject_type,
-        select_iteration,
-    };
+    use super::{IterationInput, iteration_source, iteration_subject_type, select_iteration};
+    use crate::compilation::substitution::empty_substitution;
 
     #[test]
     fn iteration_subject_types_follow_the_selected_access_mode() {

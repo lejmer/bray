@@ -1,0 +1,315 @@
+{
+  "rule_families": [
+    {
+      "name": "name-resolution",
+      "production": ["bind_path"],
+      "diagnostic_source_tests": ["failed_lookup_preserves_shape_and_emits_structured_diagnostics"],
+      "valid_source_tests": ["typed_paths_resolve_modules_declarations_overloads_and_members"],
+      "boundary_tests": [
+        "direct_imported_declarations_bind_through_their_package_path",
+        "source_modules_resolve_compiler_known_module_paths"
+      ],
+      "published": ["BoundUnit"]
+    },
+    {
+      "name": "type-and-generic-binding",
+      "production": ["bind_type_expression"],
+      "diagnostic_source_tests": ["recovered_source_types_publish_error_type_facts"],
+      "valid_source_tests": ["source_lifecycle_signatures_share_callable_surface_binding"],
+      "boundary_tests": [
+        "imported_constraints_and_contracts_publish_resolved_templates",
+        "generated_catalog_passes_complete_serial_and_parallel_validation"
+      ],
+      "published": ["DeclaredValueTypeTemplates"]
+    },
+    {
+      "name": "callable-surfaces",
+      "production": ["bind_callable_signature"],
+      "diagnostic_source_tests": ["overloaded_call_reports_generic_argument_diagnostics_once"],
+      "valid_source_tests": ["source_lifecycle_signatures_share_callable_surface_binding"],
+      "boundary_tests": ["imported_constraints_and_contracts_publish_resolved_templates"],
+      "published": ["CallableSignatureFact"]
+    },
+    {
+      "name": "constant-semantics",
+      "production": ["constant_instance_with_limits"],
+      "diagnostic_source_tests": ["constant_instance_cycles_publish_one_deterministic_diagnostic"],
+      "valid_source_tests": ["constant_instances_demand_only_referenced_definitions_and_reuse_publications"],
+      "boundary_tests": ["missing_imported_constant_bodies_publish_structured_diagnostics"],
+      "published": ["ConstantInstanceFactKey"]
+    },
+    {
+      "name": "generic-constraints",
+      "production": ["generic_constraint_satisfaction_with_cancellation"],
+      "diagnostic_source_tests": ["copyable_constraints_reject_non_copyable_instantiations"],
+      "valid_source_tests": ["concrete_generic_constraints_participate_in_callable_selection"],
+      "boundary_tests": [
+        "generic_constraint_templates_evaluate_concrete_predicates",
+        "imported_constraints_and_contracts_publish_resolved_templates"
+      ],
+      "published": ["GenericConstraintObligationKey"]
+    },
+    {
+      "name": "implementation-selection",
+      "production": ["implementation_selection_result_with_cancellation"],
+      "diagnostic_source_tests": ["ambiguous_implementation_usings_publish_structured_binding_diagnostics"],
+      "valid_source_tests": ["exact_queries_are_independently_cached_and_concurrently_stable"],
+      "boundary_tests": ["compiler_known_participants_follow_the_selected_target"],
+      "published": ["ImplementationRequirementKey"]
+    },
+    {
+      "name": "implementation-coherence",
+      "production": ["implementation_coherence_diagnostics"],
+      "diagnostic_source_tests": ["implementation_coherence_stops_at_the_comparison_limit"],
+      "valid_source_tests": ["source_headers_retain_target_dependencies_for_applicability"],
+      "boundary_tests": ["dependency_interfaces_do_not_contribute_or_get_demanded"],
+      "published": ["ImplementationCoherenceEvidence"]
+    },
+    {
+      "name": "calls-and-overloads",
+      "production": ["operation_selection_with_cancellation"],
+      "diagnostic_source_tests": ["overloaded_call_reports_generic_argument_diagnostics_once"],
+      "valid_source_tests": ["overload_narrowing_provides_context_before_literal_defaults"],
+      "boundary_tests": [
+        "indirect_calls_use_the_callable_type_contract_without_recovery",
+        "exact_operator_candidates_publish_their_selected_target"
+      ],
+      "published": ["OperationSelectionFactKey"]
+    },
+    {
+      "name": "member-index-and-slice-access",
+      "production": ["resolve_member_operation", "resolve_index_operation"],
+      "diagnostic_source_tests": ["operation_selection_reports_invalid_indexing"],
+      "valid_source_tests": ["source_index_selections_preserve_slice_bounds_and_custom_storage"],
+      "boundary_tests": ["built_in_index_candidates_publish_their_selected_target"],
+      "published": ["OperationResolution"]
+    },
+    {
+      "name": "conversions",
+      "production": ["built_in_conversion_plan"],
+      "diagnostic_source_tests": ["operation_selection_reports_invalid_conversions"],
+      "valid_source_tests": ["built_in_index_and_conversion_selections_retain_exact_rules"],
+      "boundary_tests": [
+        "composite_conversions_reject_incomplete_nested_plans",
+        "nested_trait_conversions_require_the_exact_contract_and_witness"
+      ],
+      "published": ["ConversionPlan"]
+    },
+    {
+      "name": "construction",
+      "production": ["resolve_construction_operation"],
+      "diagnostic_source_tests": ["invalid_source_construction_reports_incompatible_candidate"],
+      "valid_source_tests": ["construction_selections_retain_struct_and_union_targets"],
+      "boundary_tests": ["construction_maps_named_inputs_then_declaration_order_defaults"],
+      "published": ["SelectedConstruction"]
+    },
+    {
+      "name": "iteration-and-generators",
+      "production": ["iteration_source_with_cancellation"],
+      "diagnostic_source_tests": ["iteration_source_queries_are_narrow_cached_and_diagnostic_backed"],
+      "valid_source_tests": ["iteration_subject_types_follow_the_selected_access_mode"],
+      "boundary_tests": ["iteration_candidates_select_exact_protocol_fulfillments"],
+      "published": ["SelectedIterationSource"]
+    },
+    {
+      "name": "literal-and-expression-typing",
+      "production": ["check_expression_semantics"],
+      "diagnostic_source_tests": ["unrepresentable_literals_publish_recovery_values_and_diagnostics"],
+      "valid_source_tests": ["literal_values_are_adapted_once_to_final_types_and_selected_target"],
+      "boundary_tests": ["foreign_candidate_expressions_fail_without_partial_results"],
+      "published": ["CheckedExpressionTypes"]
+    },
+    {
+      "name": "patterns-and-match-coverage",
+      "production": ["check_patterns"],
+      "diagnostic_source_tests": [
+        "pattern_facts_report_non_exhaustive_matches",
+        "pattern_facts_report_unreachable_match_arms"
+      ],
+      "valid_source_tests": ["pattern_facts_publish_exhaustive_closed_union_coverage"],
+      "boundary_tests": ["pattern_facts_use_constant_paths_for_boolean_coverage"],
+      "published": ["CheckedPatternFacts"]
+    },
+    {
+      "name": "control-flow-and-refinement",
+      "production": ["check_control_flow", "check_refinements"],
+      "diagnostic_source_tests": ["storage_plans_retain_recovery_without_panicking"],
+      "valid_source_tests": ["refinement_facts_are_lazy_cached_and_retain_branch_conditions"],
+      "boundary_tests": ["recovered_nodes_produce_typed_recovery_operations_edges_and_exits"],
+      "published": ["CheckedControlFlow", "CheckedRefinementFacts"]
+    },
+    {
+      "name": "storage-planning",
+      "production": ["plan_storage"],
+      "diagnostic_source_tests": ["storage_plans_retain_recovery_without_panicking"],
+      "valid_source_tests": ["storage_plans_retain_exact_branch_dependent_alternative_bindings"],
+      "boundary_tests": ["templates_reject_ambiguous_contextual_inputs"],
+      "published": ["StoragePlan"]
+    },
+    {
+      "name": "ownership-borrowing-and-moves",
+      "production": ["check_storage_flow"],
+      "diagnostic_source_tests": [
+        "storage_flow_is_lazy_and_reports_overlapping_borrows",
+        "storage_flow_rejects_use_after_move"
+      ],
+      "valid_source_tests": ["storage_flow_accepts_mutation_through_mutable_borrow_parameter"],
+      "boundary_tests": ["mutable_borrows_supply_their_own_exclusive_authority"],
+      "published": ["StorageFlowFacts"]
+    },
+    {
+      "name": "liveness-and-lifecycle",
+      "production": ["analyze_storage_liveness"],
+      "diagnostic_source_tests": ["storage_plans_retain_recovery_without_panicking"],
+      "valid_source_tests": ["liveness_converges_conservatively_across_branches_and_loops"],
+      "boundary_tests": ["source_surfaces_retain_members_lifecycle_conflicts_and_implementation_metadata"],
+      "published": ["LivenessFacts"]
+    },
+    {
+      "name": "asynchronous-semantics",
+      "production": ["check_async_facts"],
+      "diagnostic_source_tests": ["async_facts_report_awaits_in_synchronous_callables"],
+      "valid_source_tests": ["async_facts_respect_anonymous_callable_execution_modes"],
+      "boundary_tests": ["async_body_behavior_is_deferred_until_direct_await"],
+      "published": ["CheckedAsyncFacts"]
+    },
+    {
+      "name": "dependencies-effects-and-trust",
+      "production": ["check_dependency_contracts"],
+      "diagnostic_source_tests": ["trusted_callable_contracts_reject_unused_capabilities"],
+      "valid_source_tests": ["callable_contracts_retain_checked_predicate_dependencies"],
+      "boundary_tests": ["hidden_iteration_calls_instantiate_receiver_and_result_dependencies"],
+      "published": ["CheckedDependencyContracts"]
+    },
+    {
+      "name": "callable-contracts",
+      "production": ["bind_callable_contracts"],
+      "diagnostic_source_tests": ["callable_contract_predicates_must_be_boolean"],
+      "valid_source_tests": ["callable_contracts_retain_checked_predicate_dependencies"],
+      "boundary_tests": ["callable_contracts_separate_invocation_and_normal_completion"],
+      "published": ["CallableContractsFact"]
+    },
+    {
+      "name": "interprocedural-behavior",
+      "production": ["body_behavior_with_cancellation"],
+      "diagnostic_source_tests": ["recursive_calls_converge_to_one_body_behavior_summary"],
+      "valid_source_tests": ["body_behavior_is_demanded_lazily_and_published_once"],
+      "boundary_tests": ["indirect_calls_use_the_callable_type_contract_without_recovery"],
+      "published": ["CheckedBodyBehavior"]
+    },
+    {
+      "name": "foreign-and-target-abi",
+      "production": ["foreign_callable_contract_with_cancellation", "target_abi_value_from_type"],
+      "diagnostic_source_tests": [
+        "foreign_imports_report_missing_boundary_requirements",
+        "source_foreign_abi_rejects_target_overalignment"
+      ],
+      "valid_source_tests": ["valid_foreign_imports_publish_typed_boundary_contracts"],
+      "boundary_tests": ["foreign_abi_checks_validate_selected_by_value_representations"],
+      "published": ["ForeignCallableContract"]
+    },
+    {
+      "name": "products-entrypoints-and-exports",
+      "production": ["product_semantic_facts_with_cancellation"],
+      "diagnostic_source_tests": [
+        "executable_entrypoint_selection_reports_missing_and_duplicate_roots",
+        "non_executable_products_reject_entrypoint_directives"
+      ],
+      "valid_source_tests": ["test_products_publish_valid_async_test_entries"],
+      "boundary_tests": ["only_library_products_can_publish_interfaces"],
+      "published": ["ProductSemanticFacts"]
+    },
+    {
+      "name": "checked-publication-boundary",
+      "production": ["diagnostics_for_package"],
+      "diagnostic_source_tests": ["cancelled_package_diagnostics_publish_no_partial_result"],
+      "valid_source_tests": ["check_diagnostics_demand_product_validation"],
+      "boundary_tests": ["bundles_require_checked_templates_for_predicate_constraints"],
+      "published": ["PackageInterfaceExportBundle"]
+    }
+  ],
+  "cross_cutting": [
+    {
+      "name": "selected-targets",
+      "production": ["TargetProfile"],
+      "tests": [
+        "constant_instance_fact_keys_include_the_complete_target_profile",
+        "target_changes_invalidate_target_facts_without_invalidating_syntax"
+      ]
+    },
+    {
+      "name": "product-kinds",
+      "production": ["ProductKind"],
+      "tests": [
+        "test_only_source_units_contribute_only_to_test_products",
+        "product_changes_invalidate_product_facts_without_invalidating_other_inputs"
+      ]
+    },
+    {
+      "name": "narrow-demand",
+      "production": ["FactCell"],
+      "tests": [
+        "narrow_queries_do_not_bind_unrelated_bodies_or_request_package_diagnostics",
+        "updated_snapshots_do_not_eagerly_demand_semantic_facts"
+      ]
+    },
+    {
+      "name": "demand-order",
+      "production": ["CompilationFactKey"],
+      "tests": [
+        "values_and_diagnostics_publish_atomically",
+        "serial_and_parallel_completion_merge_diagnostics_in_plan_order"
+      ]
+    },
+    {
+      "name": "worker-counts",
+      "production": ["WorkerBudget"],
+      "tests": [
+        "worker_budget_changes_reuse_semantic_facts_with_forked_values",
+        "template_construction_is_deterministic_across_workers"
+      ]
+    },
+    {
+      "name": "concurrent-requests",
+      "production": ["FactRuntime"],
+      "tests": [
+        "independent_facts_compute_concurrently",
+        "concurrent_requests_compute_one_value",
+        "old_and_updated_snapshots_answer_requests_concurrently"
+      ]
+    },
+    {
+      "name": "recovery",
+      "production": ["DiagnosticResult"],
+      "tests": [
+        "storage_plans_retain_recovery_without_panicking",
+        "recovered_source_types_publish_error_type_facts"
+      ]
+    },
+    {
+      "name": "cancellation",
+      "production": ["CancellationToken"],
+      "tests": [
+        "cancellation_publishes_no_operation_selection",
+        "cancelled_package_diagnostics_publish_no_partial_result"
+      ]
+    },
+    {
+      "name": "bounded-growth",
+      "production": ["SemanticAnalysisLimits"],
+      "tests": [
+        "representation_recursion_limit_recovers_with_a_structured_diagnostic",
+        "growing_integer_operations_observe_the_exact_integer_resource_limit",
+        "cyclic_domains_converge_under_their_proven_finite_bound"
+      ]
+    },
+    {
+      "name": "diagnostic-order",
+      "production": ["DiagnosticBag"],
+      "tests": [
+        "parallel_completion_selects_the_first_plan_error_after_later_error_finishes",
+        "constant_instance_cycles_publish_one_deterministic_diagnostic"
+      ]
+    }
+  ]
+}

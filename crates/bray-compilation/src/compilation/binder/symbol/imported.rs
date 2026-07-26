@@ -146,6 +146,17 @@ pub(in crate::compilation) fn imported_declaration_template(
 ) -> BinderFactResult<
     DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplateFact>>,
 > {
+    imported_declaration_template_at(context, address, kind, bray_symbols::SymbolOrdinal::new(0))
+}
+
+pub(in crate::compilation) fn imported_declaration_template_at(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+    kind: bray_bound_tree::CheckedTemplateKind,
+    ordinal: bray_symbols::SymbolOrdinal,
+) -> BinderFactResult<
+    DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplateFact>>,
+> {
     let result = imported_facts(
         context,
         address,
@@ -153,7 +164,9 @@ pub(in crate::compilation) fn imported_declaration_template(
     )?;
 
     let mut templates = result.value().iter().filter_map(|fact| match fact {
-        ImportedSemanticFact::DeclarationTemplate(template) if template.kind() == kind => {
+        ImportedSemanticFact::DeclarationTemplate(template)
+            if template.kind() == kind && template.ordinal() == ordinal =>
+        {
             Some(template)
         }
         _ => None,

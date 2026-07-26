@@ -1,6 +1,6 @@
 use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::DiagnosticResult;
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractExpressionTemplate, CallableContractTemplate,
     CallableContractTemplateFact, CallableOverloadTemplateFact,
@@ -174,24 +174,50 @@ fn bind_generic_declaration_template(
 
     with_declaration_root(context, symbol, |root| {
         let mut constraints = Vec::new();
+        let mut diagnostics = DiagnosticBag::new();
 
         for clause in direct_children::<WithClauseSyntax>(&root)? {
             let unit = SyntaxAnchor::from_node(&clause);
 
             for expression in clause.expressions() {
-                constraints.push(GenericConstraintTemplate::new(
-                    symbol_ordinal(constraints.len())?,
-                    unit,
-                    DeclarationExpressionTemplate::new(
-                        symbol,
-                        SyntaxAnchor::from_node(&expression),
-                    ),
-                ));
+                let ordinal = symbol_ordinal(constraints.len())?;
+
+                let constraint =
+                    if let Some(satisfaction) = expression.trait_satisfaction_constraint() {
+                        let subject = type_binder(context, symbol)?
+                            .bind_type_expression(satisfaction.subject())?;
+
+                        let application = type_binder(context, symbol)?
+                            .bind_trait_application(satisfaction.application())?;
+
+                        diagnostics = diagnostics.merged(subject.diagnostics());
+                        diagnostics = diagnostics.merged(application.diagnostics());
+
+                        // The declaration template owns the Arc-backed checked type templates.
+                        GenericConstraintTemplate::trait_satisfaction(
+                            ordinal,
+                            unit,
+                            subject.value().clone(),
+                            application.value().clone(),
+                        )
+                    } else {
+                        GenericConstraintTemplate::new(
+                            ordinal,
+                            unit,
+                            DeclarationExpressionTemplate::new(
+                                symbol,
+                                SyntaxAnchor::from_node(&expression),
+                            ),
+                        )
+                    };
+
+                constraints.push(constraint);
             }
         }
 
-        Ok(DiagnosticResult::without_diagnostics(
+        Ok(DiagnosticResult::new(
             GenericDeclarationTemplate::new(owner, parameters, constraints),
+            diagnostics,
         ))
     })
 }

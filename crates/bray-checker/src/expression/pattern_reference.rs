@@ -15,7 +15,9 @@ use crate::{
     CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView, ExpressionTypeEvidence,
 };
 
+#[derive(Default)]
 pub(super) struct PreparedPatternReferences {
+    pub(super) deferred: BTreeSet<bray_bound_tree::BoundExpressionId>,
     pub(super) evidence: Vec<ExpressionTypeEvidence>,
     pub(super) selections: Vec<SemanticSelectionEntry>,
     pub(super) diagnostics: DiagnosticBag,
@@ -67,7 +69,7 @@ where
 pub(super) fn prepare_pattern_binding_references<C>(
     request: CheckerUnitView<'_, C>,
     facts: &CheckedPatternFacts,
-    expressions: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+    expressions: BTreeSet<bray_bound_tree::BoundExpressionId>,
 ) -> Result<PreparedPatternReferences, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -81,7 +83,7 @@ where
     let mut selections = Vec::with_capacity(expressions.len());
     let mut diagnostics = Vec::new();
 
-    for expression in expressions {
+    for expression in &expressions {
         let Some(bound) = request.view().expression(*expression) else {
             return Err(CheckerInfrastructureError::InvalidBoundNode {
                 node: (*expression).into(),
@@ -164,6 +166,7 @@ where
     }
 
     Ok(PreparedPatternReferences {
+        deferred: expressions,
         evidence,
         selections,
         diagnostics: DiagnosticBag::from(diagnostics),

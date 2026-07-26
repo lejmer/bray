@@ -5,3 +5,4 @@ mod decision;
 mod model;
 
 pub(crate) use check::check_storage_flow;
+pub use copyability::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};

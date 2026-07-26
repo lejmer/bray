@@ -329,6 +329,7 @@ fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId>
         | StorageIdentity::IterationCursor(expression)
         | StorageIdentity::IterationElement(expression)
         | StorageIdentity::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
+        StorageIdentity::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)

@@ -6,15 +6,85 @@ use bray_symbols::{
 };
 
 use crate::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerUnitView,
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
+    CheckerRequestContext, CheckerUnitView, SemanticUnitContext,
 };
+
+/// Checks whether one semantic type has a copy contract in the supplied static context.
+pub fn type_is_copyable<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> CheckerOutcome<bool>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if request.is_cancelled() {
+        return CheckerOutcome::Cancelled;
+    }
+
+    let mut resolver = CopyabilityResolver::new(request);
+
+    copyability_outcome(&mut resolver, ty)
+}
+
+/// Checks whether one semantic type has a copy contract in an explicit declaration context.
+pub fn type_is_copyable_in_context<C>(
+    context: &C,
+    semantic_context: &SemanticUnitContext,
+    ty: TypeId,
+) -> CheckerOutcome<bool>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if context.cancellation().is_cancelled() {
+        return CheckerOutcome::Cancelled;
+    }
+
+    let mut resolver = CopyabilityResolver::for_context(context, semantic_context);
+
+    copyability_outcome(&mut resolver, ty)
+}
+
+/// Checks whether one closed semantic type has a copy contract.
+pub fn closed_type_is_copyable<C>(context: &C, ty: TypeId) -> CheckerOutcome<bool>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if context.cancellation().is_cancelled() {
+        return CheckerOutcome::Cancelled;
+    }
+
+    let mut resolver = CopyabilityResolver::without_context(context);
+
+    copyability_outcome(&mut resolver, ty)
+}
+
+fn copyability_outcome<C>(
+    resolver: &mut CopyabilityResolver<'_, C>,
+    ty: TypeId,
+) -> CheckerOutcome<bool>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match resolver.resolve(ty) {
+        Ok(copyable) => {
+            let diagnostics = std::mem::take(&mut resolver.diagnostics);
+
+            CheckerOutcome::Complete(bray_diagnostics::DiagnosticResult::new(
+                copyable,
+                diagnostics,
+            ))
+        }
+        Err(CheckerFactError::Cancelled) => CheckerOutcome::Cancelled,
+        Err(CheckerFactError::Infrastructure(error)) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+    }
+}
 
 pub(super) struct CopyabilityResolver<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: CheckerUnitView<'analysis, C>,
+    context: &'analysis C,
+    semantic_context: Option<&'analysis SemanticUnitContext>,
     cache: BTreeMap<TypeId, bool>,
     active: BTreeSet<TypeId>,
     diagnostics: DiagnosticBag,
@@ -25,8 +95,26 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     pub(super) fn new(request: CheckerUnitView<'analysis, C>) -> Self {
+        Self::for_context(request.context(), request.semantic_context())
+    }
+
+    fn for_context(
+        context: &'analysis C,
+        semantic_context: &'analysis SemanticUnitContext,
+    ) -> Self {
         Self {
-            request,
+            context,
+            semantic_context: Some(semantic_context),
+            cache: BTreeMap::new(),
+            active: BTreeSet::new(),
+            diagnostics: DiagnosticBag::new(),
+        }
+    }
+
+    fn without_context(context: &'analysis C) -> Self {
+        Self {
+            context,
+            semantic_context: None,
             cache: BTreeMap::new(),
             active: BTreeSet::new(),
             diagnostics: DiagnosticBag::new(),
@@ -61,7 +149,7 @@ where
     }
 
     fn resolve_uncached(&mut self, ty: TypeId) -> CheckerFactResult<bool> {
-        let data = self.request.semantic_values().type_data(ty).map_err(|_| {
+        let data = self.context.semantic_values().type_data(ty).map_err(|_| {
             CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
 
@@ -86,7 +174,7 @@ where
                 definition,
                 substitution,
             } => {
-                let symbols = self.request.available_compiler_known_symbols();
+                let symbols = self.context.available_compiler_known_symbols();
 
                 if let Some(role) = match definition {
                     bray_symbols::NamedTypeSymbolId::Struct(definition) => {
@@ -108,7 +196,7 @@ where
                         ));
                 }
 
-                let representation = self.request.declared_type_representation(*definition)?;
+                let representation = self.context.declared_type_representation(*definition)?;
 
                 // The storage-flow result owns diagnostics independently of representation facts.
                 self.diagnostics
@@ -119,7 +207,7 @@ where
                     DeclaredCopyContract::Unconditional => Ok(true),
                     DeclaredCopyContract::Conditional => {
                         let substitution = self
-                            .request
+                            .context
                             .semantic_values()
                             .generic_substitution_data(*substitution)
                             .map_err(|_| {
@@ -144,11 +232,15 @@ where
                     }
                 }
             }
-            // TODO(BRA-268): Resolve open types from the enclosing static Copyable evidence.
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Slice(_)
+            | TypeData::TypeValuedMemberProjection { .. } => match self.semantic_context {
+                Some(semantic_context) => self
+                    .context
+                    .statically_establishes_copyability(semantic_context, ty),
+                None => Ok(false),
+            },
+            TypeData::Slice(_)
             | TypeData::Generator(_)
             | TypeData::Borrow {
                 kind: BorrowKind::Mutable,

@@ -450,7 +450,7 @@ mod tests {
             implementation_key(2),
             fixture.first_definition.into(),
             fixture.first_substitution,
-            [later_constraint, earlier_constraint],
+            [later_constraint.clone(), earlier_constraint.clone()],
             [
                 second_target.clone(),
                 first_target.clone(),
@@ -540,7 +540,7 @@ mod tests {
             implementation_key(2),
             fixture.first_definition.into(),
             fixture.first_substitution,
-            [later, earlier, earlier],
+            [later.clone(), earlier.clone(), earlier.clone()],
             [],
             fixture.coherence(),
         ) else {

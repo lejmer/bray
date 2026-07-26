@@ -1210,7 +1210,11 @@ static-predicate-expression-sequence =
     static-predicate-expression { "," static-predicate-expression } ;
 
 static-predicate-expression =
-    predicate-expression ;
+      trait-satisfaction-constraint
+    | predicate-expression ;
+
+trait-satisfaction-constraint =
+    type-expression ":" trait-application ;
 
 trusted-capability-sequence =
     trusted-capability { "," trusted-capability } ;

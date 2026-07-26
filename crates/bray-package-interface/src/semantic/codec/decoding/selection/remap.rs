@@ -112,8 +112,19 @@ pub(super) fn remap_selected_records(
         .constraints
         .into_values()
         .map(|mut constraint| {
-            constraint.predicate.dependency_contract =
-                maps.dependency_contract_id(constraint.predicate.dependency_contract)?;
+            match &mut constraint.kind {
+                crate::InterfaceConstraintKind::Predicate(predicate) => {
+                    predicate.dependency_contract =
+                        maps.dependency_contract_id(predicate.dependency_contract)?;
+                }
+                crate::InterfaceConstraintKind::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    *subject = maps.type_id(*subject)?;
+                    *application = maps.trait_application_id(*application)?;
+                }
+            }
 
             Ok(constraint)
         })
@@ -227,8 +238,8 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
         InterfaceType::Callable {
             parameters,
             result,
-            invocation_dependency_contract,
-            deferred_dependency_contract,
+            invocation_behavior,
+            deferred_execution_behavior,
             ..
         } => {
             for parameter in Arc::make_mut(parameters) {
@@ -237,12 +248,13 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
 
             *result = maps.type_id(*result)?;
 
-            *invocation_dependency_contract =
-                maps.dependency_contract_id(*invocation_dependency_contract)?;
+            invocation_behavior.dependency_contract =
+                maps.dependency_contract_id(invocation_behavior.dependency_contract)?;
 
-            *deferred_dependency_contract = deferred_dependency_contract
-                .map(|contract| maps.dependency_contract_id(contract))
-                .transpose()?;
+            if let Some(behavior) = deferred_execution_behavior {
+                behavior.dependency_contract =
+                    maps.dependency_contract_id(behavior.dependency_contract)?;
+            }
         }
         InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}
     }

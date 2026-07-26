@@ -315,7 +315,7 @@ fn construction_matches(
             | BoundExpression::MemberAccess(_)
             | BoundExpression::Call(_),
         ) => true,
-        (ConstructionTarget::TypeForm(_), BoundExpression::Structured(source)) => {
+        (ConstructionTarget::TypeForm { .. }, BoundExpression::Structured(source)) => {
             source.kind() == BoundStructuredExpressionKind::TypeFormConstruction
         }
         _ => false,

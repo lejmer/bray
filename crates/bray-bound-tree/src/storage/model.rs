@@ -19,6 +19,10 @@ define_unit_scoped_id!(
     "Identifies one evaluated storage-access occurrence in a checked semantic unit."
 );
 define_unit_scoped_id!(
+    StorageAlternativeId,
+    "Identifies one branch-dependent storage alias in a checked semantic unit."
+);
+define_unit_scoped_id!(
     BorrowCapabilityId,
     "Identifies one semantic borrow capability created in a checked semantic unit."
 );
@@ -39,6 +43,7 @@ macro_rules! impl_storage_id {
 
 impl_storage_id!(StorageIdentityId);
 impl_storage_id!(StorageAccessId);
+impl_storage_id!(StorageAlternativeId);
 impl_storage_id!(BorrowCapabilityId);
 
 /// One exact or symbolic storage origin and its semantic provenance.
@@ -68,6 +73,13 @@ pub enum StorageIdentity {
     Allocation(BoundExpressionId),
     /// Storage introduced by a compiler-required operation.
     CompilerCreated(BoundNodeOrigin),
+    /// One logical pattern binding that aliases branch-dependent source storage.
+    Alternative {
+        /// The alternative pattern that establishes the logical binding.
+        pattern: crate::BoundPatternId,
+        /// The exact source accesses selected by the pattern alternatives.
+        alternative: StorageAlternativeId,
+    },
     /// Conservative storage used while recovering from an earlier error.
     Error(BoundSourceAnchor),
 }
@@ -80,6 +92,10 @@ impl StorageIdentity {
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => expression.unit() == unit,
+            Self::Alternative {
+                pattern,
+                alternative,
+            } => pattern.unit() == unit && alternative.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::PredicateParameter(_)
@@ -272,6 +288,14 @@ impl BoundUnitId {
         (id.unit() == self).then_some(id)
     }
 
+    /// Returns a storage alternative only when it belongs to this unit.
+    pub fn checked_storage_alternative(
+        self,
+        id: StorageAlternativeId,
+    ) -> Option<StorageAlternativeId> {
+        (id.unit() == self).then_some(id)
+    }
+
     /// Returns a borrow capability only when it belongs to this unit.
     pub fn checked_borrow_capability(self, id: BorrowCapabilityId) -> Option<BorrowCapabilityId> {
         (id.unit() == self).then_some(id)
@@ -281,8 +305,8 @@ impl BoundUnitId {
 #[cfg(test)]
 mod tests {
     use super::{
-        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
-        StorageProjection, StorageRelationship,
+        StorageAccess, StorageAccessId, StorageAccessRoot, StorageAlternativeId, StorageIdentity,
+        StorageIdentityId, StorageProjection, StorageRelationship,
     };
     use crate::test_support::{error_type, source_anchor};
     use crate::{BoundExpressionId, BoundUnitId};
@@ -355,8 +379,14 @@ mod tests {
         let unit = BoundUnitId::new(12);
         let local = StorageAccessId::from_slot(unit, 0);
         let foreign = StorageAccessId::from_slot(BoundUnitId::new(13), 0);
+        let alternative = StorageAlternativeId::from_slot(unit, 0);
 
         assert_eq!(unit.checked_storage_access(local), Some(local));
         assert_eq!(unit.checked_storage_access(foreign), None);
+
+        assert_eq!(
+            unit.checked_storage_alternative(alternative),
+            Some(alternative)
+        );
     }
 }

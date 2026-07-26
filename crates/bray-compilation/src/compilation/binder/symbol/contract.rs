@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
     BinderFactContext, BinderFactError, BinderFactResult, PredicateClauseBindingContext,
@@ -9,8 +9,9 @@ use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
     CallableSymbolId, CallableTrust, CheckedConstraint, CurrentRunCancellation,
-    DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest,
-    SymbolFactResult, TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
+    DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact,
+    GenericDeclarationTemplateFact, GenericOwnerId, SymbolFactRequest, SymbolFactResult,
+    TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -57,28 +58,72 @@ fn bind_generic_constraints(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<SymbolFactResult<GenericConstraintsFact>> {
+    let generic_owner =
+        GenericOwnerId::try_new(owner).ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let template = context.symbol_fact(
+        SymbolFactRequest::<GenericDeclarationTemplateFact>::new(generic_owner),
+    )?;
+
+    // The published constraint fact owns the Arc-backed template diagnostics independently.
+    let template_diagnostics = template.diagnostics().clone();
+
+    if context.imported_fact_address(owner)?.is_some() {
+        let constraints = template
+            .value()
+            .constraints()
+            .iter()
+            .map(|constraint| {
+                constraint
+                    .resolved()
+                    .ok_or(BinderFactError::DependencyUnavailable)
+            })
+            .collect::<BinderFactResult<Vec<_>>>()?;
+
+        return publish_catalog_result(
+            GenericConstraintSet::new(constraints),
+            template_diagnostics,
+        );
+    }
+
     let clauses = with_declaration_root(context, owner, |root| Ok(direct_with_clauses(root)))?;
 
     let mut constraints = Vec::new();
-    let mut diagnostics = DiagnosticBag::new();
+    let mut diagnostics = template_diagnostics;
 
     for clause in clauses {
-        let result = bind_predicate_clause(
-            context,
-            owner,
-            syntax_node_view(&clause),
-            clause.expressions(),
-            PredicateClauseBindingContext::GenericConstraint,
-        )?;
-
-        let (predicates, clause_diagnostics) = result.into_parts();
-
-        diagnostics = diagnostics.merged(&clause_diagnostics);
-
-        for predicate in predicates {
+        for expression in clause.expressions() {
             let ordinal = symbol_ordinal(constraints.len())?;
 
-            constraints.push(CheckedConstraint::new(ordinal, predicate));
+            let constraint = if expression.trait_satisfaction_constraint().is_some() {
+                let source = template
+                    .value()
+                    .constraints()
+                    .get(constraints.len())
+                    .ok_or(BinderFactError::DependencyUnavailable)?;
+
+                resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
+            } else {
+                let result = bind_predicate_clause(
+                    context,
+                    owner,
+                    syntax_node_view(&clause),
+                    [expression],
+                    PredicateClauseBindingContext::GenericConstraint,
+                )?;
+
+                let (predicates, clause_diagnostics) = result.into_parts();
+
+                diagnostics = diagnostics.merged(&clause_diagnostics);
+
+                let [predicate] = predicates.as_ref() else {
+                    return Err(BinderFactError::DependencyUnavailable);
+                };
+
+                CheckedConstraint::new(ordinal, *predicate)
+            };
+
+            constraints.push(constraint);
         }
     }
 
@@ -121,12 +166,10 @@ fn bind_callable_contracts(
                 &mut predicates,
                 &mut diagnostics,
             )?,
-            ContractClauseSyntax::With(clause) => bind_callable_predicates(
+            ContractClauseSyntax::With(clause) => bind_callable_static_constraints(
                 context,
                 owner.into_any(),
-                syntax_node_view(&clause),
                 clause.expressions(),
-                CallableContractClauseKind::Static,
                 &mut predicates,
                 &mut diagnostics,
             )?,
@@ -454,6 +497,105 @@ fn bind_callable_predicates(
             ordinal,
             kind,
             bray_symbols::PredicateSemanticSummary::new(dependency),
+        ));
+    }
+
+    Ok(())
+}
+
+fn resolve_trait_satisfaction_constraint(
+    context: &CompilationBinderFacts<'_>,
+    constraint: &bray_symbols::GenericConstraintTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<CheckedConstraint> {
+    let Some((subject, application)) = constraint.trait_satisfaction_templates() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    let mut terms = BTreeMap::new();
+
+    for occurrence in subject
+        .constant_expressions()
+        .into_iter()
+        .chain(application.constant_expressions())
+    {
+        let result = context
+            .compilation()
+            .embedded_constant_term_with_cancellation(occurrence, context.cancellation())
+            .map_err(super::binding::binder_error)?;
+
+        *diagnostics = diagnostics.merged(result.diagnostics());
+        terms.insert(occurrence.key(), *result.value());
+    }
+
+    let constants = bray_checker::CheckedConstantTerms::try_from_terms(terms)
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    let subject = bray_checker::resolve_type_expression_template(
+        context.semantic_values,
+        subject,
+        &constants,
+    )
+    .map_err(|_| BinderFactError::DependencyUnavailable)?
+    .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let application = bray_checker::resolve_trait_application_template(
+        context.semantic_values,
+        application,
+        &constants,
+    )
+    .map_err(|_| BinderFactError::DependencyUnavailable)?
+    .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    Ok(CheckedConstraint::trait_satisfaction(
+        constraint.ordinal(),
+        subject,
+        application,
+    ))
+}
+
+fn bind_callable_static_constraints(
+    context: &CompilationBinderFacts<'_>,
+    owner: AnySymbolId,
+    expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
+    predicates: &mut Vec<CallableContractClause>,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<()> {
+    for expression in expressions {
+        let predicate = if expression.trait_satisfaction_constraint().is_some() {
+            let dependency = context
+                .semantic_values
+                .empty_dependency_contract_template()
+                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            bray_symbols::PredicateSemanticSummary::new(dependency)
+        } else {
+            // The binder owns the expression while the clause view borrows the same syntax node.
+            let result = bind_predicate_clause(
+                context,
+                owner,
+                syntax_node_view(&expression),
+                [expression.clone()],
+                PredicateClauseBindingContext::GenericConstraint,
+            )?;
+
+            let (checked, expression_diagnostics) = result.into_parts();
+
+            *diagnostics = diagnostics.merged(&expression_diagnostics);
+
+            let [predicate] = checked.as_ref() else {
+                return Err(BinderFactError::DependencyUnavailable);
+            };
+
+            *predicate
+        };
+
+        let ordinal = symbol_ordinal(predicates.len())?;
+
+        predicates.push(CallableContractClause::new(
+            ordinal,
+            CallableContractClauseKind::Static,
+            predicate,
         ));
     }
 

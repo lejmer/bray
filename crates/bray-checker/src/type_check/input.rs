@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use bray_base::sorted_unique_shared_slice;
-use bray_bound_tree::BoundExpressionId;
+use bray_base::{shared_slice, sorted_unique_shared_slice};
+use bray_bound_tree::{BoundExpressionId, SelectedIterationSource, SemanticSelectionEntry};
 use bray_symbols::TypeId;
 
 /// Canonical type evidence established for one expression by an earlier focused rule.
@@ -57,6 +57,8 @@ impl ExpressionTypeExpectation {
 pub struct ExpressionTypeInput {
     evidence: Arc<[ExpressionTypeEvidence]>,
     expectations: Arc<[ExpressionTypeExpectation]>,
+    iteration_sources: Arc<[SelectedIterationSource]>,
+    operation_selections: Arc<[SemanticSelectionEntry]>,
     callable_result_type: Option<TypeId>,
 }
 
@@ -93,12 +95,40 @@ impl ExpressionTypeInput {
         self
     }
 
+    /// Replaces exact semantic selections established by operation resolution.
+    pub fn with_operation_selections(
+        mut self,
+        selections: impl IntoIterator<Item = SemanticSelectionEntry>,
+    ) -> Self {
+        self.operation_selections = shared_slice(selections);
+
+        self
+    }
+
+    /// Replaces exact iteration-source selections established before expression checking.
+    pub fn with_iteration_sources(
+        mut self,
+        sources: impl IntoIterator<Item = SelectedIterationSource>,
+    ) -> Self {
+        self.iteration_sources = shared_slice(sources);
+
+        self
+    }
+
     pub(crate) fn evidence(&self) -> &[ExpressionTypeEvidence] {
         &self.evidence
     }
 
     pub(crate) fn expectations(&self) -> &[ExpressionTypeExpectation] {
         &self.expectations
+    }
+
+    pub(crate) fn operation_selections(&self) -> &[SemanticSelectionEntry] {
+        &self.operation_selections
+    }
+
+    pub(crate) fn iteration_sources(&self) -> &[SelectedIterationSource] {
+        &self.iteration_sources
     }
 
     pub(crate) const fn callable_result_type(&self) -> Option<TypeId> {

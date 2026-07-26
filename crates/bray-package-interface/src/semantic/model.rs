@@ -32,9 +32,9 @@ pub use dependency::{
 pub use fact::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
     InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord, InterfaceConstraint,
-    InterfaceImplementationRecord, InterfacePredicateSummary, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceTargetFactDependency,
-    InterfaceTrustedCapabilityRequirement,
+    InterfaceConstraintKind, InterfaceImplementationRecord, InterfacePredicateSummary,
+    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSourceProvenance,
+    InterfaceTargetFactDependency, InterfaceTrustedCapabilityRequirement,
 };
 pub use id::{
     InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,

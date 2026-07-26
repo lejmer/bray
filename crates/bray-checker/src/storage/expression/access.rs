@@ -3,10 +3,18 @@ use bray_bound_tree::{
     PlannedBorrowCapability, SelectedOperation, SemanticSelection, StorageAccess, StorageAccessId,
     StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
 };
-use bray_symbols::{AnyLocalSymbolId, AnySymbolId, SymbolOrdinal};
+use bray_symbols::{
+    AnyLocalSymbolId, AnySymbolId, MemberLookupResult, NamedTypeSymbolId, SymbolOrdinal, TypeData,
+};
 
 use super::super::plan::{PlanError, Planner, invalid_node};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
+
+pub(super) enum MemberStorage {
+    Projection(StorageProjection),
+    Value,
+    Recovered,
+}
 
 impl<C> Planner<'_, C>
 where
@@ -84,9 +92,9 @@ where
         &self,
         expression: BoundExpressionId,
         selector: Option<&BoundMemberSelector>,
-    ) -> Result<Option<StorageProjection>, PlanError> {
+    ) -> Result<MemberStorage, PlanError> {
         match selector {
-            Some(BoundMemberSelector::TupleElement(index)) => Ok(Some(
+            Some(BoundMemberSelector::TupleElement(index)) => Ok(MemberStorage::Projection(
                 StorageProjection::TupleElement(SymbolOrdinal::new(*index)),
             )),
             Some(BoundMemberSelector::Name(_)) | None => {
@@ -98,29 +106,129 @@ where
     pub(super) fn selected_member_projection(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<Option<StorageProjection>, PlanError> {
-        // TODO(BRA-268): Restrict this fallback to recovery once every member provider publishes
-        // an exact selection.
-        let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
-            self.selections.expression(expression)
-        else {
-            return Ok(None);
+    ) -> Result<MemberStorage, PlanError> {
+        let member = match self.selections.expression(expression) {
+            Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
+                target.member()
+            }
+            Some(_) => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            None => return self.member_from_checked_receiver(expression),
         };
 
-        Ok(match target.member() {
-            AnySymbolId::StructField(field) => Some(StorageProjection::ProductField(field)),
+        Ok(match member {
+            AnySymbolId::StructField(field) => {
+                MemberStorage::Projection(StorageProjection::ProductField(field))
+            }
             AnySymbolId::UnionPayloadField(field) => {
                 let Some(field) = self.request.symbols().union_payload_field(field) else {
                     return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
                 };
 
-                Some(StorageProjection::ActiveUnionPayloadField {
+                MemberStorage::Projection(StorageProjection::ActiveUnionPayloadField {
                     variant: field.variant(),
                     field: field.id(),
                 })
             }
-            _ => None,
+            _ => MemberStorage::Value,
         })
+    }
+
+    fn member_from_checked_receiver(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<MemberStorage, PlanError> {
+        let bound = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or_else(|| invalid_node(expression))?;
+
+        let (receiver, selector) = match bound {
+            bray_bound_tree::BoundExpression::MemberAccess(member) => {
+                (member.receiver(), member.selector())
+            }
+            bray_bound_tree::BoundExpression::TraitQualifiedMember(member) => {
+                (member.receiver(), member.selector())
+            }
+            _ => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+        };
+
+        if bound.is_recovered() {
+            return Ok(MemberStorage::Recovered);
+        }
+
+        let Some(BoundMemberSelector::Name(name)) = selector else {
+            return Ok(MemberStorage::Recovered);
+        };
+
+        let receiver = self
+            .types
+            .expression(receiver)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        if receiver.is_recovered() {
+            return Ok(MemberStorage::Recovered);
+        }
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(receiver.ty())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let TypeData::Named { definition, .. } = data.as_ref() else {
+            return Ok(MemberStorage::Value);
+        };
+
+        let result = match definition {
+            NamedTypeSymbolId::Struct(structure) => self
+                .request
+                .symbols()
+                .lookup_member((*structure).into(), name.as_str()),
+            NamedTypeSymbolId::Union(union) => self
+                .request
+                .symbols()
+                .lookup_member((*union).into(), name.as_str()),
+        };
+
+        match result {
+            MemberLookupResult::Found(AnySymbolId::StructField(field)) => Ok(
+                MemberStorage::Projection(StorageProjection::ProductField(field)),
+            ),
+            MemberLookupResult::Found(AnySymbolId::UnionPayloadField(field)) => {
+                let Some(field) = self.request.symbols().union_payload_field(field) else {
+                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                };
+
+                Ok(MemberStorage::Projection(
+                    StorageProjection::ActiveUnionPayloadField {
+                        variant: field.variant(),
+                        field: field.id(),
+                    },
+                ))
+            }
+            MemberLookupResult::Found(_) => Ok(MemberStorage::Value),
+            MemberLookupResult::NotFound
+            | MemberLookupResult::WrongKind(_)
+            | MemberLookupResult::Ambiguous(_)
+            | MemberLookupResult::Inaccessible(_)
+            | MemberLookupResult::Malformed(_) => Ok(MemberStorage::Recovered),
+        }
+    }
+
+    pub(super) fn member_access(
+        &mut self,
+        expression: BoundExpressionId,
+        receiver: StorageAccessId,
+        storage: MemberStorage,
+    ) -> Result<StorageAccessId, PlanError> {
+        match storage {
+            MemberStorage::Projection(projection) => {
+                self.project_access(expression, receiver, Some(projection))
+            }
+            MemberStorage::Value => self.temporary_access(expression),
+            MemberStorage::Recovered => self.conservative_subject_access(expression, receiver),
+        }
     }
 
     pub(super) fn project_access(

@@ -131,14 +131,22 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
             .expression(id)
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
-        if let BoundExpression::Name(name) = expression {
-            self.bind_surface_reference_type(name.target())?;
+        match expression {
+            BoundExpression::Name(name) => {
+                self.bind_surface_reference_type(name.target())?;
 
-            self.add_constraint(
-                DeclaredValueTypeConstraintKind::DefinitionUse,
-                DeclaredValueTypeTerm::Expression(id),
-                DeclaredValueTypeTerm::Value(name.target()),
-            );
+                self.add_constraint(
+                    DeclaredValueTypeConstraintKind::DefinitionUse,
+                    DeclaredValueTypeTerm::Expression(id),
+                    DeclaredValueTypeTerm::Value(name.target()),
+                );
+            }
+            BoundExpression::Conversion(conversion) => {
+                let template = self.bind_type_anchor(conversion.target_syntax())?;
+
+                self.add_evidence(DeclaredValueTypeTerm::Expression(id), template);
+            }
+            _ => {}
         }
 
         Ok(())

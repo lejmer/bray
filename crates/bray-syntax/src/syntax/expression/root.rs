@@ -2,7 +2,8 @@ use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
     MemberAccessOperationSyntax, NullablePropagationOperationSyntax, PrimaryExpressionSyntax,
-    SliceIndexOperationSyntax, SyntaxKind, SyntaxToken, TraitQualifiedMemberOperationSyntax,
+    SliceIndexOperationSyntax, SyntaxKind, SyntaxToken, TraitApplicationSyntax,
+    TraitQualifiedMemberOperationSyntax, TypeExpressionSyntax,
 };
 
 pub(in crate::syntax) fn first_expression(
@@ -21,7 +22,7 @@ pub(in crate::syntax) fn first_expression(
 }
 
 define_source_syntax_node! {
-    /// Runtime expression.
+    /// Source expression.
     pub struct ExpressionSyntax {
         builder: ExpressionSyntaxBuilder,
         kind: SyntaxKind::Expression,
@@ -50,6 +51,22 @@ define_source_syntax_node! {
                 push_primary_expression;
                 ty: PrimaryExpressionSyntax;
                 kind: SyntaxKind::PrimaryExpression;
+            },
+            {
+                /// Returns direct type-expression children in source order.
+                type_expressions;
+                /// Appends a direct type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
+            },
+            {
+                /// Returns direct trait-application children in source order.
+                trait_applications;
+                /// Appends a direct trait-application child.
+                push_trait_application;
+                ty: TraitApplicationSyntax;
+                kind: SyntaxKind::TraitApplication;
             },
             {
                 /// Returns member-access postfix operations in source order.
@@ -169,6 +186,7 @@ fn is_expression_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::StarStarToken
             | SyntaxKind::TildeToken
             | SyntaxKind::BangToken
+            | SyntaxKind::ColonToken
     )
 }
 

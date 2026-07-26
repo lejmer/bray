@@ -6,15 +6,19 @@ use bray_bound_tree::{
     BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
 };
 use bray_checker::{
-    CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator,
+    CheckedConstantTerms, CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator,
+    DefaultConstantEvaluator, closed_type_is_copyable, evaluate_generic_constraint_template,
+    resolve_trait_application_template, resolve_type_expression_template,
+    type_is_copyable_in_context,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     ConstantTermData, ConstantValueKind, GenericArgument, GenericConstraintObligationKey,
     GenericConstraintSatisfactionFact, GenericConstraintTemplate, GenericDeclarationTemplate,
     GenericDeclarationTemplateFact, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericSubstitutionId, ImplementationCandidate, ProofOutcome, SemanticFactResult,
-    SymbolFactRequest, TypeData,
+    GenericSubstitutionId, ImplementationCandidate, ImplementationRequirementKey,
+    ImplementationSelection, ProofOutcome, SemanticFactResult, SymbolFactRequest,
+    TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate,
 };
 
 use super::Compilation;
@@ -80,7 +84,12 @@ impl Compilation {
         for constraint in template.value().constraints() {
             cancellation.check()?;
 
-            let result = self.evaluate_constraint(*constraint, key.substitution(), cancellation)?;
+            let result = self.evaluate_constraint(
+                key.owner(),
+                constraint,
+                key.substitution(),
+                cancellation,
+            )?;
 
             diagnostics = diagnostics.merged(result.diagnostics());
             outcome = outcome.and(*result.value());
@@ -173,15 +182,74 @@ impl Compilation {
 
     fn evaluate_constraint(
         &self,
-        constraint: GenericConstraintTemplate,
+        owner: bray_symbols::GenericOwnerId,
+        constraint: &GenericConstraintTemplate,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
-        let (Some(unit), Some(expression)) = (constraint.unit_syntax(), constraint.expression())
-        else {
-            return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
-        };
+        match constraint {
+            GenericConstraintTemplate::Resolved(constraint) => match constraint.kind() {
+                bray_symbols::CheckedConstraintKind::Predicate(_) => self
+                    .evaluate_imported_predicate_constraint(
+                        owner,
+                        constraint.ordinal(),
+                        substitution,
+                        cancellation,
+                    ),
+                bray_symbols::CheckedConstraintKind::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    let values = self.semantic_value_store()?;
 
+                    let subject = values
+                        .substitute_type(subject, substitution)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    let application = values
+                        .substitute_trait_application(application, substitution)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    self.evaluate_resolved_trait_satisfaction(
+                        None,
+                        subject,
+                        application,
+                        substitution,
+                        cancellation,
+                        DiagnosticBag::new(),
+                    )
+                }
+            },
+            GenericConstraintTemplate::TraitSatisfaction {
+                unit,
+                subject,
+                application,
+                ..
+            } => self.evaluate_trait_satisfaction_constraint(
+                *unit,
+                subject,
+                application,
+                substitution,
+                cancellation,
+            ),
+            GenericConstraintTemplate::Source {
+                unit, expression, ..
+            } => self.evaluate_source_predicate_constraint(
+                *unit,
+                *expression,
+                substitution,
+                cancellation,
+            ),
+        }
+    }
+
+    fn evaluate_source_predicate_constraint(
+        &self,
+        unit: bray_declarations::SyntaxAnchor,
+        expression: bray_symbols::DeclarationExpressionTemplate,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
         let key = self.constraint_unit_key(expression.owner(), unit)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
@@ -247,20 +315,249 @@ impl Compilation {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         }
 
+        let outcome = constant_predicate_outcome(self.semantic_value_store()?, *evaluated.value())?;
+
+        Ok(DiagnosticResult::new(outcome, diagnostics))
+    }
+
+    fn evaluate_imported_predicate_constraint(
+        &self,
+        owner: bray_symbols::GenericOwnerId,
+        ordinal: bray_symbols::SymbolOrdinal,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let value = values
-            .constant_value_data(*evaluated.value())
+        let Ok(substitution) = values.require_concrete_substitution(substitution) else {
+            return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let Some(address) = facts
+            .imported_fact_address(owner.symbol())
+            .map_err(super::binder::binder_fact_error)?
+        else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let template_result = super::binder::imported_declaration_template_at(
+            &facts,
+            address,
+            bray_bound_tree::CheckedTemplateKind::GenericConstraint,
+            ordinal,
+        )
+        .map_err(super::binder::binder_fact_error)?;
+
+        let Some(template) = template_result.value() else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let imported = imported
+            .value()
+            .as_deref()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let context = CompilationCheckerContext::new(facts);
+
+        let resolver =
+            super::constant::CompilationConstantTemplateResolver::new(self, cancellation, imported);
+
+        let result_type = template
+            .template()
+            .nodes()
+            .get(
+                usize::try_from(template.template().result().raw())
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            )
+            .ok_or(FactQueryError::InfrastructureFailure)?
+            .ty();
+
+        let diagnostic_span = self
+            .dependency_interface_input(address.interface())
+            .and_then(crate::request::DependencyInterfaceInput::dependency_span);
+
+        let evaluated = checker_result(evaluate_generic_constraint_template(
+            &context,
+            template.template(),
+            substitution,
+            result_type,
+            &resolver,
+            diagnostic_span,
+        ))?;
+
+        let diagnostics =
+            DiagnosticBag::merged_all([template_result.diagnostics(), evaluated.diagnostics()]);
+
+        let Some(value) = evaluated.value() else {
+            return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
+        };
+
+        let outcome = constant_predicate_outcome(values, *value)?;
+
+        Ok(DiagnosticResult::new(outcome, diagnostics))
+    }
+
+    fn evaluate_trait_satisfaction_constraint(
+        &self,
+        unit: bray_declarations::SyntaxAnchor,
+        subject: &TypeExpressionTemplate,
+        application: &TraitApplicationTemplate,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
+        let mut terms = BTreeMap::new();
+        let mut diagnostics = DiagnosticBag::new();
+
+        for occurrence in subject
+            .constant_expressions()
+            .into_iter()
+            .chain(application.constant_expressions())
+        {
+            let result = self.embedded_constant_term_with_cancellation(occurrence, cancellation)?;
+
+            diagnostics = diagnostics.merged(result.diagnostics());
+            terms.insert(occurrence.key(), *result.value());
+        }
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
+        }
+
+        let constants = CheckedConstantTerms::try_from_terms(terms)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let outcome = match value.kind() {
-            ConstantValueKind::Boolean(true) => ProofOutcome::Proven,
-            ConstantValueKind::Boolean(false) => ProofOutcome::Disproven,
-            ConstantValueKind::Error => ProofOutcome::Recovered,
-            _ => ProofOutcome::Unknown,
+        let values = self.semantic_value_store()?;
+
+        let subject = resolve_type_expression_template(values, subject, &constants)
+            .map_err(FactQueryError::CheckerInfrastructure)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let application = resolve_trait_application_template(values, application, &constants)
+            .map_err(FactQueryError::CheckerInfrastructure)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let subject = values
+            .substitute_type(subject, substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let application = values
+            .substitute_trait_application(application, substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        self.evaluate_resolved_trait_satisfaction(
+            Some(unit),
+            subject,
+            application,
+            substitution,
+            cancellation,
+            diagnostics,
+        )
+    }
+
+    fn evaluate_resolved_trait_satisfaction(
+        &self,
+        unit: Option<bray_declarations::SyntaxAnchor>,
+        subject: bray_symbols::TypeId,
+        application: bray_symbols::TraitApplicationId,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+        mut diagnostics: DiagnosticBag,
+    ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        let application_data = values
+            .trait_application_data(application)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let outcome = if self.is_copyable_trait(application_data.definition())? {
+            self.evaluate_copyable_constraint(
+                unit,
+                subject,
+                substitution,
+                cancellation,
+                &mut diagnostics,
+            )?
+        } else {
+            let requirement = ImplementationRequirementKey::new(subject, application);
+
+            let selection =
+                self.implementation_selection_result_with_cancellation(requirement, cancellation)?;
+
+            diagnostics = diagnostics.merged(selection.diagnostics());
+
+            match selection.value() {
+                ImplementationSelection::Selected(_) => ProofOutcome::Proven,
+                ImplementationSelection::Deferred => ProofOutcome::Unknown,
+                ImplementationSelection::Unavailable | ImplementationSelection::Ambiguous(_) => {
+                    ProofOutcome::Disproven
+                }
+            }
         };
 
         Ok(DiagnosticResult::new(outcome, diagnostics))
+    }
+
+    fn evaluate_copyable_constraint(
+        &self,
+        unit: Option<bray_declarations::SyntaxAnchor>,
+        subject: bray_symbols::TypeId,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<ProofOutcome, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        let result = match unit {
+            Some(unit) => {
+                let owner = values
+                    .generic_substitution_data(substitution)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?
+                    .owner()
+                    .symbol();
+
+                let key = self.constraint_unit_key(owner, unit)?;
+
+                let context =
+                    CompilationCheckerContext::new(self.binder_facts_for(&key, cancellation)?);
+
+                let semantic_context = bray_checker::SemanticUnitContext::Constraint(
+                    bray_checker::DeclaredUnitContext::new(key, owner, owner),
+                );
+
+                checker_result(type_is_copyable_in_context(
+                    &context,
+                    &semantic_context,
+                    subject,
+                ))?
+            }
+            None => {
+                let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
+
+                checker_result(closed_type_is_copyable(&context, subject))?
+            }
+        };
+
+        *diagnostics = diagnostics.merged(result.diagnostics());
+
+        Ok(if *result.value() {
+            ProofOutcome::Proven
+        } else {
+            ProofOutcome::Disproven
+        })
+    }
+
+    fn is_copyable_trait(&self, definition: TraitSymbolId) -> Result<bool, FactQueryError> {
+        let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Copyable")
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        Ok(self
+            .available_compiler_known_symbols()
+            .declaration_symbol::<TraitSymbolId>(&key)
+            == Some(definition))
     }
 
     fn constraint_unit_key(
@@ -281,6 +578,22 @@ impl Compilation {
         let source = BoundSourceAnchor::new(syntax, source.version());
 
         BoundUnitKey::constraint(owner.clone(), source).ok_or(FactQueryError::InfrastructureFailure)
+    }
+}
+
+fn constant_predicate_outcome(
+    values: &bray_symbols::SemanticValueStore,
+    value: bray_symbols::ConstantValueId,
+) -> Result<ProofOutcome, FactQueryError> {
+    let value = values
+        .constant_value_data(value)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    match value.kind() {
+        ConstantValueKind::Boolean(true) => Ok(ProofOutcome::Proven),
+        ConstantValueKind::Boolean(false) => Ok(ProofOutcome::Disproven),
+        ConstantValueKind::Error => Ok(ProofOutcome::Recovered),
+        _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
@@ -350,6 +663,118 @@ mod tests {
             "func main()\n",
             "{\n",
             "    constrained();\n",
+            "}\n",
+        ));
+
+        assert!(
+            diagnostic_kinds(rejected.check_diagnostics())
+                .contains(&DiagnosticKind::CheckingNoApplicableCandidate)
+        );
+    }
+
+    #[test]
+    fn copyable_constraints_apply_inside_generic_bodies_and_at_instantiation() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "func duplicate<T>(pos value: T) -> T\n",
+            "    with(T: Copyable)\n",
+            "{\n",
+            "    let first: T = value;\n",
+            "    let second: T = value;\n",
+            "\n",
+            "    return second;\n",
+            "}\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let result: i32 = duplicate<i32>(1);\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn copyable_constraints_reject_non_copyable_instantiations() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "\n",
+            "func duplicate<T>(pos value: T) -> T\n",
+            "    with(T: Copyable)\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let resource: Resource = Resource { value = 1 };\n",
+            "    let duplicate: Resource = duplicate<Resource>(resource);\n",
+            "}\n",
+        ));
+
+        assert!(
+            diagnostic_kinds(compilation.check_diagnostics())
+                .contains(&DiagnosticKind::CheckingNoApplicableCandidate)
+        );
+    }
+
+    #[test]
+    fn trait_satisfaction_constraints_select_exact_implementations() {
+        let accepted = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "trait Marker {}\n",
+            "\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "\n",
+            "impl Resource(Marker) {}\n",
+            "\n",
+            "func accept<T>(pos value: T) -> T\n",
+            "    with(T: Marker)\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let resource: Resource = Resource { value = 1 };\n",
+            "    let accepted: Resource = accept<Resource>(resource);\n",
+            "}\n",
+        ));
+
+        assert!(
+            accepted.check_diagnostics().is_empty(),
+            "{:#?}",
+            accepted.check_diagnostics()
+        );
+
+        let rejected = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "trait Marker {}\n",
+            "\n",
+            "func accept<T>(pos value: T) -> T\n",
+            "    with(T: Marker)\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let rejected: i32 = accept<i32>(1);\n",
             "}\n",
         ));
 

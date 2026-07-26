@@ -26,6 +26,10 @@ use crate::{
     CheckerSemanticFactProvider, CheckerUnitView,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "async checking consumes independently materialized semantic fact sets explicitly"
+)]
 pub(crate) fn check_async_facts<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
@@ -282,6 +286,10 @@ where
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "input validation compares every independently materialized fact set consumed by async checking"
+)]
 fn inputs_match<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,

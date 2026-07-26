@@ -1,7 +1,8 @@
 use bray_bound_tree::{BoundExpression, BoundOperator};
 use bray_compiler_known::CompilerKnownOperationRole;
 
-pub(super) const fn operation_role(
+/// Returns the compiler-known contract role for one overloadable source operator.
+pub const fn compiler_known_operation_role(
     expression: &BoundExpression,
     operator: BoundOperator,
 ) -> Option<CompilerKnownOperationRole> {

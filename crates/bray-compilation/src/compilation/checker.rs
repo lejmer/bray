@@ -3,16 +3,17 @@ use std::sync::Arc;
 use bray_binder::{BinderFactContext, BinderFactError, SymbolFactProvider};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
 use bray_checker::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
-    CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource,
+    CheckedConstantTerms, CheckerFactError, CheckerFactResult, CheckerInfrastructureError,
+    CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource,
     DefaultTargetValidityChecker, TargetValidity, TargetValidityChecker, TargetValidityContext,
-    TargetValidityRequest,
+    TargetValidityRequest, resolve_type_expression_template,
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, DeclaredTypeRepresentation, NamedTypeSymbolId,
-    SemanticValueStore, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    AvailableCompilerKnownSymbols, DeclaredTypeRepresentation, GenericDeclarationTemplateFact,
+    GenericOwnerId, NamedTypeSymbolId, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitSymbolId, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -31,6 +32,123 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
         self.facts.symbols()
+    }
+
+    fn statically_establishes_copyability(
+        &self,
+        context: &bray_checker::SemanticUnitContext,
+        ty: TypeId,
+    ) -> CheckerFactResult<bool> {
+        let copyable_key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Copyable")
+            .ok_or(CheckerFactError::Infrastructure(
+                CheckerInfrastructureError::SemanticValueUnavailable,
+            ))?;
+
+        let copyable = self
+            .available_compiler_known_symbols()
+            .declaration_symbol::<TraitSymbolId>(&copyable_key)
+            .ok_or(CheckerFactError::Infrastructure(
+                CheckerInfrastructureError::SemanticValueUnavailable,
+            ))?;
+
+        let Some(mut symbol) = self
+            .symbols()
+            .symbol_for_key(context.key().declared_owner())
+        else {
+            return Err(CheckerFactError::Infrastructure(
+                CheckerInfrastructureError::SemanticValueUnavailable,
+            ));
+        };
+
+        loop {
+            if let Some(owner) = GenericOwnerId::try_new(symbol)
+                && self.generic_owner_establishes_copyability(owner, copyable, ty)?
+            {
+                return Ok(true);
+            }
+
+            let Some(containing) = self.symbols().containing_symbol(symbol) else {
+                break;
+            };
+
+            symbol = containing;
+        }
+
+        Ok(false)
+    }
+
+    fn generic_owner_establishes_copyability(
+        &self,
+        owner: GenericOwnerId,
+        copyable: TraitSymbolId,
+        ty: TypeId,
+    ) -> CheckerFactResult<bool> {
+        let generic = self
+            .facts
+            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+                owner,
+            ))
+            .map_err(|error| match error {
+                BinderFactError::Cancelled => CheckerFactError::Cancelled,
+                BinderFactError::DependencyUnavailable => CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                ),
+            })?;
+
+        for constraint in generic.value().constraints() {
+            let Some((subject, application)) = constraint.trait_satisfaction_templates() else {
+                continue;
+            };
+
+            if application.definition() != copyable || !application.arguments().is_empty() {
+                continue;
+            }
+
+            let constants = self.checked_constraint_constants(subject, application)?;
+
+            let Some(subject) =
+                resolve_type_expression_template(self.facts.semantic_values(), subject, &constants)
+                    .map_err(CheckerFactError::Infrastructure)?
+            else {
+                continue;
+            };
+
+            if subject == ty {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn checked_constraint_constants(
+        &self,
+        subject: &bray_symbols::TypeExpressionTemplate,
+        application: &bray_symbols::TraitApplicationTemplate,
+    ) -> CheckerFactResult<CheckedConstantTerms> {
+        let mut terms = Vec::new();
+
+        for occurrence in subject
+            .constant_expressions()
+            .into_iter()
+            .chain(application.constant_expressions())
+        {
+            let result = self
+                .facts
+                .compilation()
+                .embedded_constant_term_with_cancellation(occurrence, self.facts.cancellation())
+                .map_err(checker_fact_error)?;
+
+            if result.diagnostics().has_errors() {
+                continue;
+            }
+
+            terms.push((occurrence.key(), *result.value()));
+        }
+
+        CheckedConstantTerms::try_from_terms(terms).map_err(|_| {
+            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })
     }
 }
 
@@ -108,6 +226,14 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .declared_type_representation_with_cancellation(subject, self.facts.cancellation())
             .map(|result| (*result).clone())
             .map_err(checker_fact_error)
+    }
+
+    fn statically_establishes_copyability(
+        &self,
+        context: &bray_checker::SemanticUnitContext,
+        ty: TypeId,
+    ) -> CheckerFactResult<bool> {
+        CompilationCheckerContext::statically_establishes_copyability(self, context, ty)
     }
 
     fn source(

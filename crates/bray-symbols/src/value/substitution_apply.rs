@@ -53,6 +53,20 @@ impl SemanticValueStore {
         self.substitute_generic_substitution_data(nested, &substitution)
     }
 
+    /// Applies one generic substitution throughout a trait application.
+    pub fn substitute_trait_application(
+        &self,
+        application: super::TraitApplicationId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<super::TraitApplicationId, SemanticValueStoreError> {
+        let application = self.trait_application_data(application)?;
+
+        let nested =
+            self.substitute_generic_substitution(application.substitution(), substitution)?;
+
+        self.intern_trait_application(TraitApplicationData::new(application.definition(), nested))
+    }
+
     fn substitute_type_data(
         &self,
         ty: TypeId,
@@ -157,17 +171,27 @@ impl SemanticValueStore {
                     })
                     .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-                TypeData::Callable(CallableTypeData::new(
-                    parameters,
-                    self.substitute_type_data(callable.result(), substitution)?,
-                    callable.constness(),
-                    callable.trust(),
-                    callable.abi(),
-                    self.substitute_callable_dependency_contracts(
-                        callable.dependency_contracts(),
-                        substitution,
-                    )?,
-                ))
+                let dependencies = self.substitute_callable_dependency_contracts(
+                    callable.dependency_contracts(),
+                    substitution,
+                )?;
+
+                let phase_behaviors = callable
+                    .phase_behaviors()
+                    .try_with_dependency_contracts(dependencies)
+                    .ok_or(SemanticValueStoreError::OpenSubstitution)?;
+
+                TypeData::Callable(
+                    CallableTypeData::new(
+                        parameters,
+                        self.substitute_type_data(callable.result(), substitution)?,
+                        callable.constness(),
+                        callable.trust(),
+                        callable.abi(),
+                        dependencies,
+                    )
+                    .with_phase_behaviors(phase_behaviors),
+                )
             }
         };
 

@@ -25,12 +25,11 @@ use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantTermId,
-    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract,
-    FunctionSymbolId, GenericConstraintObligationKey, ImplementationCandidateSet,
-    ImplementationCoherenceDomainKey, ImplementationParticipationFact,
-    ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
-    ImportedSymbolFactAddress, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
-    ProductSemanticFacts, ProofOutcome, SemanticFactResult, SemanticValueStore,
+    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract, FunctionSymbolId,
+    GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
+    ImplementationParticipationFact, ImplementationRequirementKey, ImplementationSelection,
+    ImplementationSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
+    PackageIdentity, ProductSemanticFacts, ProofOutcome, SemanticFactResult, SemanticValueStore,
     SemanticValueStoreCreateError, SymbolGraph, TraitImplementationConformanceFact,
     TypeAssociatedSurface,
 };
@@ -84,7 +83,7 @@ pub(super) struct CompilationState {
         FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
     pub(super) selected_target: FactCell<crate::SelectedTargetContext>,
     pub(super) target_validity:
-        FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
+        FactCellMap<TargetValidityRequest, Arc<DiagnosticResult<TargetValidity>>>,
     pub(super) module_contribution_gates:
         FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleContributionGate>>>,
     pub(super) callable_type_directives:
@@ -98,11 +97,9 @@ pub(super) struct CompilationState {
     pub(super) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
     pub(super) imported_semantic_graphs:
-        Vec<FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>>,
-    pub(super) imported_semantic_facts: FactCellMap<
-        ImportedSemanticFactKey,
-        Arc<bray_diagnostics::DiagnosticResult<Arc<[ImportedSemanticFact]>>>,
-    >,
+        Vec<FactCell<DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>>,
+    pub(super) imported_semantic_facts:
+        FactCellMap<ImportedSemanticFactKey, Arc<DiagnosticResult<Arc<[ImportedSemanticFact]>>>>,
     pub(super) imported_constant_callable_bodies: FactCellMap<
         ImportedSymbolFactAddress,
         Arc<DiagnosticResult<Option<Arc<bray_bound_tree::CheckedTemplate>>>>,
@@ -141,6 +138,10 @@ pub(super) struct CompilationState {
         crate::fact::IterationSourceFactKey,
         Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
     >,
+    pub(super) operation_selections: FactCellMap<
+        crate::fact::OperationSelectionFactKey,
+        Arc<DiagnosticResult<Option<super::operation::OperationResolution>>>,
+    >,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) symbol_facts: CompilationSymbolFacts,
     pub(super) discovery_symbol_facts: CompilationSymbolFacts,
@@ -171,11 +172,10 @@ pub(super) struct CompilationState {
     pub(super) symbolic_constant_terms: UnitFactCache<ConstantTermId>,
     pub(super) embedded_constant_expectations:
         Mutex<BTreeMap<ConstantExpressionOccurrenceKey, ConstantExpressionExpectedType>>,
-    pub(super) constant_instances:
-        FactCellMap<
-            ConstantInstanceFactKey,
-            Arc<bray_diagnostics::DiagnosticResult<bray_checker::EvaluatedConstantCall>>,
-        >,
+    pub(super) constant_instances: FactCellMap<
+        ConstantInstanceFactKey,
+        Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>,
+    >,
     pub(super) constant_calls: FactCellMap<
         crate::fact::ConstantCallFactKey,
         Arc<DiagnosticResult<Option<bray_checker::EvaluatedConstantCall>>>,
@@ -293,6 +293,7 @@ impl Compilation {
                 generic_constraint_satisfaction: FactCellMap::new(),
                 implementation_selections: FactCellMap::new(),
                 iteration_sources: FactCellMap::new(),
+                operation_selections: FactCellMap::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_facts: CompilationSymbolFacts::new(),
                 discovery_symbol_facts: CompilationSymbolFacts::new(),

@@ -70,13 +70,13 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
     }
 }
 
-struct CompilationConstantTemplateResolver<'compilation> {
+pub(in crate::compilation) struct CompilationConstantTemplateResolver<'compilation> {
     calls: CompilationConstantCallResolver<'compilation>,
     symbols: &'compilation ImportedSymbolSkeleton,
 }
 
 impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
-    const fn new(
+    pub(in crate::compilation) const fn new(
         compilation: &'compilation Compilation,
         cancellation: &'compilation CancellationToken,
         symbols: &'compilation ImportedSymbolSkeleton,
@@ -111,11 +111,11 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
         instance: bray_symbols::ConstantInstanceKey,
         limits: bray_checker::ConstantEvaluationLimits,
     ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>> {
-        match self
-            .calls
-            .compilation
-            .constant_instance_with_limits(instance, limits, self.calls.cancellation)
-        {
+        match self.calls.compilation.constant_instance_with_limits(
+            instance,
+            limits,
+            self.calls.cancellation,
+        ) {
             Ok(result) => Ok(DiagnosticResult::new(
                 ConstantReferenceResolution::Evaluated(*result.value()),
                 result.diagnostics().clone(),

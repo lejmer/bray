@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    AnySymbolId, GenericTypeParameterSymbolId, ImplementationSymbolId, NamedTypeSymbolId,
-    SymbolKind, TraitSymbolId, TraitTypeMemberSymbolId,
+    AnySymbolId, CallablePhaseBehaviors, GenericTypeParameterSymbolId, ImplementationSymbolId,
+    NamedTypeSymbolId, SymbolKind, TraitSymbolId, TraitTypeMemberSymbolId,
 };
 
 use super::{
@@ -257,7 +257,7 @@ pub struct CallableTypeData {
     constness: CallableConstness,
     trust: CallableTrust,
     abi: CallableAbi,
-    dependency_contracts: CallableDependencyContracts,
+    phase_behaviors: CallablePhaseBehaviors,
 }
 
 impl CallableTypeData {
@@ -276,8 +276,15 @@ impl CallableTypeData {
             constness,
             trust,
             abi,
-            dependency_contracts,
+            phase_behaviors: CallablePhaseBehaviors::empty(dependency_contracts),
         }
+    }
+
+    /// Returns this callable type with complete caller-visible phase behavior.
+    pub fn with_phase_behaviors(mut self, phase_behaviors: CallablePhaseBehaviors) -> Self {
+        self.phase_behaviors = phase_behaviors;
+
+        self
     }
 
     /// Returns the ordered parameter surface.
@@ -297,7 +304,7 @@ impl CallableTypeData {
 
     /// Returns the callable execution mode.
     pub const fn execution(&self) -> CallableExecution {
-        self.dependency_contracts.execution()
+        self.phase_behaviors.execution()
     }
 
     /// Returns the callable trust boundary.
@@ -311,8 +318,13 @@ impl CallableTypeData {
     }
 
     /// Returns invocation and deferred-execution dependency templates.
-    pub const fn dependency_contracts(&self) -> CallableDependencyContracts {
-        self.dependency_contracts
+    pub fn dependency_contracts(&self) -> CallableDependencyContracts {
+        self.phase_behaviors.dependency_contracts()
+    }
+
+    /// Returns behavior for every callable execution phase.
+    pub const fn phase_behaviors(&self) -> &CallablePhaseBehaviors {
+        &self.phase_behaviors
     }
 }
 

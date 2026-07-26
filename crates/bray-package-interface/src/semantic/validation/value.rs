@@ -145,9 +145,8 @@ impl InterfaceSemanticFacts {
             InterfaceType::Callable {
                 parameters,
                 result,
-                execution,
-                invocation_dependency_contract,
-                deferred_dependency_contract,
+                invocation_behavior,
+                deferred_execution_behavior,
                 ..
             } => {
                 for parameter in &**parameters {
@@ -165,17 +164,14 @@ impl InterfaceSemanticFacts {
 
                 validate_index(result.to_index(), self.types.len())?;
 
-                validate_index(
-                    invocation_dependency_contract.to_index(),
-                    self.dependency_contracts.len(),
+                self.validate_callable_behavior(
+                    invocation_behavior,
+                    symbol_count,
+                    dependency_count,
                 )?;
 
-                match (execution, deferred_dependency_contract) {
-                    (bray_symbols::CallableExecution::Synchronous, None) => {}
-                    (bray_symbols::CallableExecution::Asynchronous, Some(contract)) => {
-                        validate_index(contract.to_index(), self.dependency_contracts.len())?;
-                    }
-                    _ => return Err(InterfaceValidationError::Malformed),
+                if let Some(behavior) = deferred_execution_behavior {
+                    self.validate_callable_behavior(behavior, symbol_count, dependency_count)?;
                 }
             }
         }

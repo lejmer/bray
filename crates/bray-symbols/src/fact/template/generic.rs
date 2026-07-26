@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{CheckedConstraint, GenericOwnerId, GenericParameterSymbolId, SymbolOrdinal};
+use crate::{
+    CheckedConstraint, GenericOwnerId, GenericParameterSymbolId, SymbolOrdinal,
+    TraitApplicationTemplate, TypeExpressionTemplate,
+};
 
 use super::DeclarationExpressionTemplate;
 
 /// One source or already-resolved generic constraint in declaration order.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GenericConstraintTemplate {
     /// A source expression retained for later checking.
     Source {
@@ -17,6 +20,17 @@ pub enum GenericConstraintTemplate {
         unit: bray_declarations::SyntaxAnchor,
         /// The exact source expression occurrence.
         expression: DeclarationExpressionTemplate,
+    },
+    /// A source trait-satisfaction requirement retained for semantic checking.
+    TraitSatisfaction {
+        /// The constraint's stable declaration-order position.
+        ordinal: SymbolOrdinal,
+        /// The syntax occurrence that owns the constraint.
+        unit: bray_declarations::SyntaxAnchor,
+        /// The implementation-eligible subject type.
+        subject: TypeExpressionTemplate,
+        /// The exact required trait application.
+        application: TraitApplicationTemplate,
     },
     /// A source-independent imported constraint.
     Resolved(CheckedConstraint),
@@ -36,35 +50,64 @@ impl GenericConstraintTemplate {
         }
     }
 
+    /// Creates one unevaluated trait-satisfaction constraint.
+    pub const fn trait_satisfaction(
+        ordinal: SymbolOrdinal,
+        unit: bray_declarations::SyntaxAnchor,
+        subject: TypeExpressionTemplate,
+        application: TraitApplicationTemplate,
+    ) -> Self {
+        Self::TraitSatisfaction {
+            ordinal,
+            unit,
+            subject,
+            application,
+        }
+    }
+
     /// Returns the constraint's stable declaration-order position.
-    pub const fn ordinal(self) -> SymbolOrdinal {
+    pub const fn ordinal(&self) -> SymbolOrdinal {
         match self {
-            Self::Source { ordinal, .. } => ordinal,
+            Self::Source { ordinal, .. } | Self::TraitSatisfaction { ordinal, .. } => *ordinal,
             Self::Resolved(constraint) => constraint.ordinal(),
         }
     }
 
     /// Returns the exact source expression retained for checking.
-    pub const fn expression(self) -> Option<DeclarationExpressionTemplate> {
+    pub const fn expression(&self) -> Option<DeclarationExpressionTemplate> {
         match self {
-            Self::Source { expression, .. } => Some(expression),
-            Self::Resolved(_) => None,
+            Self::Source { expression, .. } => Some(*expression),
+            Self::TraitSatisfaction { .. } | Self::Resolved(_) => None,
         }
     }
 
     /// Returns the source syntax that owns the independently bound constraint unit.
-    pub const fn unit_syntax(self) -> Option<bray_declarations::SyntaxAnchor> {
+    pub const fn unit_syntax(&self) -> Option<bray_declarations::SyntaxAnchor> {
         match self {
-            Self::Source { unit, .. } => Some(unit),
+            Self::Source { unit, .. } | Self::TraitSatisfaction { unit, .. } => Some(*unit),
             Self::Resolved(_) => None,
         }
     }
 
-    /// Returns the checked constraint when supplied by a compiled interface.
-    pub const fn resolved(self) -> Option<CheckedConstraint> {
+    /// Returns the retained subject and trait application for a trait-satisfaction constraint.
+    pub const fn trait_satisfaction_templates(
+        &self,
+    ) -> Option<(&TypeExpressionTemplate, &TraitApplicationTemplate)> {
         match self {
-            Self::Source { .. } => None,
-            Self::Resolved(constraint) => Some(constraint),
+            Self::TraitSatisfaction {
+                subject,
+                application,
+                ..
+            } => Some((subject, application)),
+            Self::Source { .. } | Self::Resolved(_) => None,
+        }
+    }
+
+    /// Returns the checked constraint when supplied by a compiled interface.
+    pub const fn resolved(&self) -> Option<CheckedConstraint> {
+        match self {
+            Self::Source { .. } | Self::TraitSatisfaction { .. } => None,
+            Self::Resolved(constraint) => Some(*constraint),
         }
     }
 }

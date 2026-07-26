@@ -1,7 +1,8 @@
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
-    ConstantField, ConstantInstanceKey, ConstantProjectionKind, ConstantTermData, ConstantTermId,
-    ConstantValueId, ConstantValueKind, TypeId,
+    AnyConstantDefinitionId, ConstantField, ConstantInstanceKey, ConstantProjectionKind,
+    ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind, GenericSubstitutionId,
+    ImplementationInstanceId, TypeId,
 };
 
 use super::super::ConstantReferenceResolution;
@@ -147,46 +148,13 @@ where
             definition,
             substitution,
             selected_implementation,
-        } => {
-            let substitution = evaluator
-                .context
-                .semantic_values()
-                .require_concrete_substitution(*substitution)
-                .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
-
-            let result = evaluator
-                .resolver
-                .resolve_constant(
-                    ConstantInstanceKey::new(
-                        *definition,
-                        substitution,
-                        *selected_implementation,
-                    ),
-                    evaluator.budget.remaining_limits(evaluator.limits),
-                )
-                .map_err(fact_failure)?;
-
-            evaluator.diagnostics = evaluator.diagnostics.merged(result.diagnostics());
-
-            match result.value() {
-                ConstantReferenceResolution::Value(value) => Ok(*value),
-                ConstantReferenceResolution::Evaluated(result) => {
-                    evaluator
-                        .budget
-                        .try_charge_usage(result.usage())
-                        .map_err(TemplateEvaluationFailure::Diagnostic)?;
-
-                    Ok(result.value())
-                }
-                ConstantReferenceResolution::Term(term) => evaluator.evaluate_term(*term, ty),
-                ConstantReferenceResolution::Cycle => Err(TemplateEvaluationFailure::Diagnostic(
-                    DiagnosticKind::CheckingCyclicConstantDefinition,
-                )),
-                ConstantReferenceResolution::Invalid => {
-                    Err(TemplateEvaluationFailure::invalid_input())
-                }
-            }
-        }
+        } => evaluate_definition_application(
+            evaluator,
+            *definition,
+            *substitution,
+            *selected_implementation,
+            ty,
+        ),
         ConstantTermData::Call {
             callable,
             selected_implementation,
@@ -270,5 +238,49 @@ where
         ConstantTermData::IntegerLiteral { .. }
         | ConstantTermData::Parameter(_)
         | ConstantTermData::TargetFact(_) => Err(TemplateEvaluationFailure::invalid_input()),
+    }
+}
+
+fn evaluate_definition_application<C>(
+    evaluator: &mut TemplateEvaluator<'_, C>,
+    definition: AnyConstantDefinitionId,
+    substitution: GenericSubstitutionId,
+    selected_implementation: Option<ImplementationInstanceId>,
+    ty: TypeId,
+) -> Result<ConstantValueId, TemplateEvaluationFailure>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let substitution = evaluator
+        .context
+        .semantic_values()
+        .require_concrete_substitution(substitution)
+        .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+
+    let result = evaluator
+        .resolver
+        .resolve_constant(
+            ConstantInstanceKey::new(definition, substitution, selected_implementation),
+            evaluator.budget.remaining_limits(evaluator.limits),
+        )
+        .map_err(fact_failure)?;
+
+    evaluator.diagnostics = evaluator.diagnostics.merged(result.diagnostics());
+
+    match result.value() {
+        ConstantReferenceResolution::Value(value) => Ok(*value),
+        ConstantReferenceResolution::Evaluated(result) => {
+            evaluator
+                .budget
+                .try_charge_usage(result.usage())
+                .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+            Ok(result.value())
+        }
+        ConstantReferenceResolution::Term(term) => evaluator.evaluate_term(*term, ty),
+        ConstantReferenceResolution::Cycle => Err(TemplateEvaluationFailure::Diagnostic(
+            DiagnosticKind::CheckingCyclicConstantDefinition,
+        )),
+        ConstantReferenceResolution::Invalid => Err(TemplateEvaluationFailure::invalid_input()),
     }
 }

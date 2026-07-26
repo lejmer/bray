@@ -15,6 +15,7 @@ mod imported;
 mod iteration;
 mod limits;
 mod load;
+mod operation;
 mod overlap;
 mod overload;
 mod pattern;

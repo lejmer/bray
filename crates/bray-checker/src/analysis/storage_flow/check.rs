@@ -629,6 +629,11 @@ where
                 .view()
                 .pattern(pattern)
                 .is_some_and(bray_bound_tree::BoundPattern::is_mutable),
+            Some(StorageIdentity::Alternative { pattern, .. }) => self
+                .request
+                .view()
+                .pattern(pattern)
+                .is_some_and(bray_bound_tree::BoundPattern::is_mutable),
             Some(
                 StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)

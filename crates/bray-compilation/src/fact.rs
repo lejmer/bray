@@ -27,7 +27,7 @@ pub(crate) use cancellation::SharedCancellation;
 pub(crate) use cell_map::FactCellMap;
 pub(crate) use key::{
     CompilationFactKey, ConstantCallFactKey, ConstantInstanceFactKey, IterationSourceFactKey,
-    SymbolFactKey,
+    OperationSelectionFactKey, SymbolFactKey,
 };
 pub(crate) use priority::QueryPriorityDemand;
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};

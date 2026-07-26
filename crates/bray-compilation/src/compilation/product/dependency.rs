@@ -358,11 +358,15 @@ fn push_construction_dependencies(
     match construction.target() {
         ConstructionTarget::Struct(target) => dependencies.push(target.into()),
         ConstructionTarget::UnionVariant(target) => dependencies.push(target.into()),
-        ConstructionTarget::TypeForm(target) => {
-            dependencies.push(target.definition().symbol());
+        ConstructionTarget::TypeForm { callable, .. } => {
+            dependencies.push(callable.definition().symbol());
 
-            exposes_internal |=
-                callable_instance_exposes_internal(target, semantic_values, symbols, declarations);
+            exposes_internal |= callable_instance_exposes_internal(
+                callable,
+                semantic_values,
+                symbols,
+                declarations,
+            );
         }
     }
 

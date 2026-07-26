@@ -280,21 +280,34 @@ impl Compilation {
                 let (pattern_input, iteration_sources, iteration_diagnostics, has_iterations) =
                     self.iteration_inputs(&key, bound.result().value(), cancellation)?;
 
-                if !has_iterations {
+                let (operation_resolutions, operation_diagnostics, has_operations) =
+                    self.operation_inputs(&key, bound.result().value(), cancellation)?;
+
+                if !has_iterations && !has_operations {
                     return Ok((provisional.result().as_ref().clone(), Box::new([])));
                 }
+
+                let operation_input =
+                    super::operation::operation_type_input(&operation_resolutions)
+                        .with_iteration_sources(iteration_sources.iter().cloned());
 
                 let mut result = self.compute_expression_semantics(
                     &key,
                     cancellation,
                     &pattern_input,
-                    &iteration_sources,
+                    &operation_input,
                 )?;
 
                 let (semantics, diagnostics) = result.0.into_parts();
 
-                result.0 =
-                    DiagnosticResult::new(semantics, diagnostics.merged(&iteration_diagnostics));
+                result.0 = DiagnosticResult::new(
+                    semantics,
+                    DiagnosticBag::merged_all([
+                        &diagnostics,
+                        &iteration_diagnostics,
+                        &operation_diagnostics,
+                    ]),
+                );
 
                 Ok(result)
             },
@@ -316,7 +329,7 @@ impl Compilation {
                     &key,
                     cancellation,
                     &PatternCheckInput::new(),
-                    &[],
+                    &bray_checker::ExpressionTypeInput::new(),
                 )
             },
         )
@@ -327,7 +340,7 @@ impl Compilation {
         key: &BoundUnitKey,
         cancellation: &CancellationToken,
         pattern_input: &PatternCheckInput,
-        iteration_sources: &[bray_bound_tree::SelectedIterationSource],
+        operation_input: &bray_checker::ExpressionTypeInput,
     ) -> Result<ExpressionSemanticComputation, FactQueryError> {
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
@@ -357,7 +370,7 @@ impl Compilation {
             &supplemental,
             candidates.value(),
             pattern_input,
-            iteration_sources,
+            operation_input,
         ))?;
 
         let (value, diagnostics) = result.into_parts();
@@ -1064,7 +1077,7 @@ fn check_control_flow(
     Ok((result, Box::new([])))
 }
 
-fn expression_candidates(
+pub(super) fn expression_candidates(
     facts: &CompilationBinderFacts<'_>,
     bound: &BoundUnit,
 ) -> Result<DiagnosticResult<Vec<ExpressionCandidateSet>>, FactQueryError> {
@@ -1201,9 +1214,10 @@ mod tests {
     use bray_bound_tree::{
         AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencySubject,
         BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKind,
-        BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, DeclaredValueTypeConstraintKind,
-        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, PatternOperation, PatternPredicate,
-        PatternProjection, RefinementFactKind, SelectedArgument, SemanticSelection,
+        BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, ConstructionTarget,
+        ConversionTarget, DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates,
+        DeclaredValueTypeTerm, IndexTarget, PatternOperation, PatternPredicate, PatternProjection,
+        RefinementFactKind, SelectedArgument, SelectedOperation, SemanticSelection,
         StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
         StorageIdentity, StorageProjection, walk_bound_unit_view,
     };
@@ -2221,7 +2235,7 @@ mod tests {
     }
 
     #[test]
-    fn storage_plans_retain_coherent_alternative_bindings_conservatively() {
+    fn storage_plans_retain_exact_branch_dependent_alternative_bindings() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Choice\n",
@@ -2257,13 +2271,39 @@ mod tests {
             panic!("coherent alternatives must retain one logical local binding");
         };
 
-        assert!(matches!(
-            plan.value().identity(*storage),
-            Some(StorageIdentity::Error(_))
-        ));
+        let Some(StorageIdentity::Alternative { alternative, .. }) =
+            plan.value().identity(*storage)
+        else {
+            panic!("coherent alternatives must retain an exact logical alias");
+        };
 
-        assert!(plan.value().accesses().iter().any(|access| {
-            matches!(access.root(), StorageAccessRoot::Recovery(root) if root == *storage)
+        let Some(alternative) = plan.value().alternative(alternative) else {
+            panic!("logical alias must retain its branch accesses");
+        };
+
+        assert_eq!(alternative.accesses().len(), 2);
+
+        assert!(
+            plan.value()
+                .accesses()
+                .iter()
+                .all(|access| !access.is_recovered())
+        );
+
+        let Some((logical_access, _)) = plan.value().access_entries().find(|(_, access)| {
+            matches!(access.root(), StorageAccessRoot::Storage(root) if root == *storage)
+        }) else {
+            panic!("the matched region must access the logical alias");
+        };
+
+        assert_eq!(
+            plan.value().relationship(logical_access, logical_access),
+            bray_bound_tree::StorageRelationship::Identical
+        );
+
+        assert!(alternative.accesses().iter().all(|branch| {
+            plan.value().relationship(logical_access, *branch)
+                == bray_bound_tree::StorageRelationship::PotentiallyOverlapping
         }));
     }
 
@@ -2279,6 +2319,13 @@ mod tests {
         ));
 
         let key = source_callable_body_key(&compilation);
+
+        let control = match compilation.control_flow(key.clone()) {
+            Ok(control) => control,
+            Err(error) => panic!("recovered control flow must publish: {error:?}"),
+        };
+
+        assert!(control.value().is_recovered());
 
         let plan = match compilation.storage_plan(key.clone()) {
             Ok(plan) => plan,
@@ -2762,6 +2809,320 @@ mod tests {
 
         assert!(Arc::ptr_eq(&types, &repeated_types));
         assert!(Arc::ptr_eq(&selections, &repeated_selections));
+    }
+
+    #[test]
+    fn construction_selections_retain_struct_and_union_targets() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: i32;\n",
+            "}\n",
+            "union Maybe\n",
+            "{\n",
+            "    Some(value: i32);\n",
+            "    None;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let point = Point { x = 1 };\n",
+            "    let present: Maybe = .Some(value = 1);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = match compilation.semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("construction selections must publish: {error:?}"),
+        };
+
+        let targets = selections.value().entries().iter().filter_map(|entry| {
+            let SemanticSelection::Operation(SelectedOperation::Construction(construction)) =
+                entry.selection()
+            else {
+                return None;
+            };
+
+            Some(construction.target())
+        });
+
+        assert_eq!(
+            targets
+                .filter(|target| matches!(target, ConstructionTarget::Struct(_)))
+                .count(),
+            1
+        );
+
+        assert_eq!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .filter(|entry| {
+                    matches!(
+                        entry.selection(),
+                        SemanticSelection::Operation(SelectedOperation::Construction(
+                            construction
+                        )) if matches!(
+                            construction.target(),
+                            ConstructionTarget::UnionVariant(_)
+                        )
+                    )
+                })
+                .count(),
+            1
+        );
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+    }
+
+    #[test]
+    fn invalid_source_construction_reports_incompatible_candidate() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: i32;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let point = Point { y = 1 };\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = match compilation.semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("invalid construction selections must recover: {error:?}"),
+        };
+
+        assert_eq!(
+            selections
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingIncompatibleCandidate)
+                .count(),
+            1,
+            "{:?}",
+            selections.diagnostics()
+        );
+    }
+
+    #[test]
+    fn built_in_index_and_conversion_selections_retain_exact_rules() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(pos values: [i32; 2])\n",
+            "{\n",
+            "    let widened = values[0] as i64;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = match compilation.semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("operation selections must publish: {error:?}"),
+        };
+
+        assert!(selections.value().entries().iter().any(|entry| {
+            matches!(
+                entry.selection(),
+                SemanticSelection::Operation(SelectedOperation::Index {
+                    target: IndexTarget::ArrayElement,
+                    ..
+                })
+            )
+        }));
+
+        assert!(selections.value().entries().iter().any(|entry| {
+            matches!(
+                entry.selection(),
+                SemanticSelection::Operation(SelectedOperation::Conversion(conversion))
+                    if matches!(conversion.target(), ConversionTarget::BuiltInScalar)
+            )
+        }));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+    }
+
+    #[test]
+    fn source_index_selections_preserve_slice_bounds_and_custom_storage() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Values
+{
+    value: i32;
+}
+
+impl Values(SliceIndex<i32>)
+{
+    type Output = i32;
+
+    func slice(pos start: i32?, pos end: i32?) -> i32
+    {
+        return 0;
+    }
+}
+
+func select(pos values: Values) -> i32
+{
+    let lower = values[1..];
+    let upper = values[..2];
+
+    return values[1..2];
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .unwrap_or_else(|error| panic!("custom slice selection must publish: {error:?}"));
+
+        assert!(selections.diagnostics().is_empty(), "{selections:?}");
+
+        assert_eq!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .filter(|entry| {
+                    matches!(
+                        entry.selection(),
+                        SemanticSelection::Operation(SelectedOperation::Index {
+                            target: IndexTarget::Custom { .. },
+                            ..
+                        })
+                    )
+                })
+                .count(),
+            3
+        );
+
+        let storage = compilation
+            .storage_plan(key)
+            .unwrap_or_else(|error| panic!("custom slice storage must publish: {error:?}"));
+
+        let ranges = storage
+            .value()
+            .accesses()
+            .iter()
+            .filter_map(|access| match access.projections().last() {
+                Some(StorageProjection::SliceRange { start, end }) => Some((start, end)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(ranges.len(), 3);
+
+        assert!(
+            ranges
+                .iter()
+                .any(|(start, end)| start.is_some() && end.is_none())
+        );
+
+        assert!(
+            ranges
+                .iter()
+                .any(|(start, end)| start.is_none() && end.is_some())
+        );
+
+        assert!(
+            ranges
+                .iter()
+                .any(|(start, end)| start.is_some() && end.is_some())
+        );
+    }
+
+    #[test]
+    fn operation_selection_reports_invalid_indexing() {
+        let compilation = compilation(
+            r#"module app;
+
+func select(pos value: i32) -> i32
+{
+    return value[0];
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let semantics = compilation
+            .expression_types(key)
+            .unwrap_or_else(|error| panic!("invalid indexing must remain checkable: {error:?}"));
+
+        assert!(semantics.diagnostics().has_errors());
+    }
+
+    #[test]
+    fn operation_selection_reports_invalid_conversions() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value
+{
+}
+
+func convert(pos value: Value) -> i32
+{
+    return value as i32;
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let semantics = compilation
+            .expression_types(key)
+            .unwrap_or_else(|error| panic!("invalid conversion must remain checkable: {error:?}"));
+
+        assert!(semantics.diagnostics().has_errors());
+    }
+
+    #[test]
+    fn box_construction_selection_retains_the_storage_implementation() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let stored: box i32 = box(1);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = match compilation.semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("box construction selection must publish: {error:?}"),
+        };
+
+        assert!(selections.value().entries().iter().any(|entry| {
+            matches!(
+                entry.selection(),
+                SemanticSelection::Operation(SelectedOperation::Construction(construction))
+                    if matches!(construction.target(), ConstructionTarget::TypeForm { .. })
+            )
+        }));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
     }
 
     #[test]

@@ -102,16 +102,30 @@ impl InternState {
                     return Err(invalid_symbol(&input.owner));
                 };
 
-                let dependency = self
-                    .dependency_contract_id(input.predicate.dependency_contract)
-                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
                 Ok(ImportedConstraintFact {
                     owner,
-                    constraint: CheckedConstraint::new(
-                        input.ordinal,
-                        PredicateSemanticSummary::new(dependency),
-                    ),
+                    constraint: match input.kind {
+                        crate::InterfaceConstraintKind::Predicate(predicate) => {
+                            let dependency = self
+                                .dependency_contract_id(predicate.dependency_contract)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+                            CheckedConstraint::new(
+                                input.ordinal,
+                                PredicateSemanticSummary::new(dependency),
+                            )
+                        }
+                        crate::InterfaceConstraintKind::TraitSatisfaction {
+                            subject,
+                            application,
+                        } => CheckedConstraint::trait_satisfaction(
+                            input.ordinal,
+                            self.type_id(subject)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                            self.trait_application_id(application)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                        ),
+                    },
                 })
             })
             .collect()
@@ -170,7 +184,7 @@ impl InternState {
             .collect()
     }
 
-    fn convert_callable_behavior(
+    pub(super) fn convert_callable_behavior(
         &self,
         input: &InterfaceCallablePhaseBehavior,
         symbols: &impl InterfaceSymbolResolver,

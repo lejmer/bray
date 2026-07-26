@@ -19,8 +19,7 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
-    SymbolFactRequest,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDefinitionFact,
+    SymbolFactRequest, TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDefinitionFact,
 };
 
 use super::super::Compilation;
@@ -409,6 +408,10 @@ impl Compilation {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "constant call evaluation keeps semantic inputs, limits, and cancellation explicit"
+    )]
     pub(in crate::compilation) fn concrete_call_references(
         &self,
         bound: &BoundUnit,
@@ -1515,11 +1518,7 @@ mod tests {
                 baseline.profile().clone(),
                 ConstantEvaluationLimits::default(),
             ),
-            ConstantInstanceFactKey::new(
-                instance,
-                alternate,
-                ConstantEvaluationLimits::default(),
-            )
+            ConstantInstanceFactKey::new(instance, alternate, ConstantEvaluationLimits::default(),)
         );
     }
 

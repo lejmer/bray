@@ -13,10 +13,10 @@ pub use liveness::{
     LastUse, LiveAcrossScope, LiveAcrossSuspension, LivenessFacts, LivenessFactsBuildError,
 };
 pub use model::{
-    BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
-    StorageIdentityId, StorageProjection, StorageRelationship,
+    BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageAlternativeId,
+    StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
 };
 pub use plan::{
     BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose,
-    StorageBinding, StorageBindingTarget, StoragePlan,
+    StorageAlternative, StorageBinding, StorageBindingTarget, StoragePlan,
 };

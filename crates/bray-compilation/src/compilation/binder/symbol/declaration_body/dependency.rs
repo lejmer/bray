@@ -233,6 +233,7 @@ fn portable_storage_identity(
         StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
         StorageIdentity::Result(_) => DependencySubjectRoot::Result,
         StorageIdentity::LocalOwned(_)
+        | StorageIdentity::Alternative { .. }
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
         | StorageIdentity::IterationCursor(_)

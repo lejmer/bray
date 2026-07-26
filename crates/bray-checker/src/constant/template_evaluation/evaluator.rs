@@ -45,9 +45,10 @@ where
 {
     pub(super) fn evaluate_result(
         &mut self,
+        kind: CheckedTemplateKind,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        if self.template.kind() != CheckedTemplateKind::ConstantCallableBody {
+        if self.template.kind() != kind {
             return Err(TemplateEvaluationFailure::invalid_input());
         }
 

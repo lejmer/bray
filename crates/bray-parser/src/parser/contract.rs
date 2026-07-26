@@ -143,7 +143,7 @@ impl Parser {
         let mut builder = WithClauseSyntax::builder(self.syntax_source(), start);
 
         builder.push_with_keyword(self.expect(SyntaxKind::WithKeyword));
-        self.parse_expression_contract_clause_arguments(&mut builder, at_boundary);
+        self.parse_static_predicate_clause_arguments(&mut builder, at_boundary);
 
         builder.build()
     }
@@ -168,6 +168,19 @@ impl Parser {
             at_boundary,
             &EXPRESSION_START_KINDS,
             Parser::parse_contract_clause_expression,
+        );
+    }
+
+    fn parse_static_predicate_clause_arguments(
+        &mut self,
+        builder: &mut impl ParenthesizedContractClauseSyntaxSink<ExpressionSyntax>,
+        at_boundary: ContractBoundary,
+    ) {
+        self.parse_parenthesized_contract_clause_arguments(
+            builder,
+            at_boundary,
+            &EXPRESSION_START_KINDS,
+            Parser::parse_static_predicate_expression,
         );
     }
 
@@ -230,6 +243,41 @@ impl Parser {
         };
 
         self.parse_expression_until(&mut at_expression_boundary)
+    }
+
+    fn parse_static_predicate_expression(
+        &mut self,
+        at_boundary: ContractBoundary,
+    ) -> ExpressionSyntax {
+        if !self.scan_ahead(|scan| {
+            let mut at_subject_boundary = |parser: &mut Parser| {
+                parser.at(SyntaxKind::ColonToken)
+                    || parser.at(SyntaxKind::CommaToken)
+                    || parser.at_contract_clause_sequence_end(at_boundary, &EXPRESSION_START_KINDS)
+            };
+
+            scan.parse_type_expression_until(&mut at_subject_boundary);
+
+            scan.at(SyntaxKind::ColonToken)
+        }) {
+            return self.parse_contract_clause_expression(at_boundary);
+        }
+
+        let start = self.peek().full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        let mut at_subject_boundary = |parser: &mut Parser| {
+            parser.at(SyntaxKind::ColonToken)
+                || parser.at(SyntaxKind::CommaToken)
+                || parser.at_contract_clause_sequence_end(at_boundary, &EXPRESSION_START_KINDS)
+        };
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_subject_boundary));
+
+        builder.push_operator_token(self.expect(SyntaxKind::ColonToken));
+        builder.push_trait_application(self.parse_trait_application());
+
+        builder.build()
     }
 
     fn parse_contract_clause_path(&mut self, _at_boundary: ContractBoundary) -> PathSyntax {
@@ -460,6 +508,16 @@ mod tests {
     }
 
     #[test]
+    fn static_predicate_scan_stops_before_later_declaration_colons() {
+        let source = "module main; struct Wrapper with(true) { value: bool; }";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        assert_eq!(result.syntax_tree().full_text(), source);
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
     fn parser_contract_clauses_represent_missing_uses_separators() {
         let source = "module main; func check() uses(core std) {}";
         let sources = source_store([source]);
@@ -557,6 +615,48 @@ mod tests {
         };
 
         assert_eq!(requires_clause.expressions().count(), 1);
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:#?}",
+            result.diagnostics()
+        );
+    }
+
+    #[test]
+    fn parser_preserves_static_trait_satisfaction_constraints() {
+        let source = concat!(
+            "module main; ",
+            "func copy<T>(value: T) -> T ",
+            "with(T: Copyable) ",
+            "{ return value; }",
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.function_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one function declaration: {declarations:?}");
+        };
+
+        let constraints = declaration.with_clauses().collect::<Vec<_>>();
+
+        let [constraint] = constraints.as_slice() else {
+            panic!("expected one static constraint clause: {constraints:?}");
+        };
+
+        let expressions = constraint.expressions().collect::<Vec<_>>();
+
+        let [expression] = expressions.as_slice() else {
+            panic!("expected one static predicate expression: {expressions:?}");
+        };
+
+        assert_eq!(expression.full_text(), "T: Copyable");
+        assert_eq!(expression.type_expressions().count(), 1);
+        assert_eq!(expression.trait_applications().count(), 1);
 
         assert!(
             result.diagnostics().is_empty(),

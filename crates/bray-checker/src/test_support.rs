@@ -159,6 +159,14 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn statically_establishes_copyability(
+        &self,
+        _context: &crate::SemanticUnitContext,
+        _ty: bray_symbols::TypeId,
+    ) -> crate::CheckerFactResult<bool> {
+        Ok(false)
+    }
+
     fn source(
         &self,
         anchor: BoundSourceAnchor,

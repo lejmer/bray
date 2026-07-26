@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
-    CallablePosition, CallableTrust,
+    BorrowKind, CallableAbi, CallableConstness, CallableParameterMode, CallablePosition,
+    CallableTrust,
 };
 
 use super::{
-    InterfaceConstantTermId, InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
+    InterfaceCallablePhaseBehavior, InterfaceConstantTermId, InterfaceGenericSubstitutionId,
     InterfaceTraitApplicationId, InterfaceTypeId,
 };
 use crate::InterfaceSymbolReference;
@@ -97,15 +97,13 @@ pub enum InterfaceType {
         result: InterfaceTypeId,
         /// Constant-evaluation eligibility.
         constness: CallableConstness,
-        /// Execution mode.
-        execution: CallableExecution,
         /// Trust boundary.
         trust: CallableTrust,
         /// Calling convention.
         abi: CallableAbi,
-        /// Dependencies incurred while invoking the callable.
-        invocation_dependency_contract: InterfaceDependencyContractId,
-        /// Dependencies retained by a lazy async body and transferred from future to task.
-        deferred_dependency_contract: Option<InterfaceDependencyContractId>,
+        /// Behavior incurred while invoking the callable.
+        invocation_behavior: InterfaceCallablePhaseBehavior,
+        /// Behavior retained by a lazy async body and transferred from future to task.
+        deferred_execution_behavior: Option<InterfaceCallablePhaseBehavior>,
     },
 }

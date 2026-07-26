@@ -9,6 +9,7 @@ pub(in crate::compilation) use error::binder_fact_error;
 pub(in crate::compilation) use symbol::{
     CompilationSymbolFacts, bind_declared_trusted_capabilities,
     bind_module_part_directives_for_selection, has_visible_generic_parameters,
-    imported_declaration_template, imported_implementation, type_scope,
+    imported_declaration_template, imported_declaration_template_at, imported_implementation,
+    type_scope,
 };
 pub(in crate::compilation) use value_type::bind_declared_value_type_templates;

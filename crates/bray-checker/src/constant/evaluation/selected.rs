@@ -610,7 +610,7 @@ where
             ConstructionTarget::UnionVariant(variant) => {
                 self.evaluate_union_construction(expression, ty, variant, &inputs)
             }
-            ConstructionTarget::TypeForm(callable) => {
+            ConstructionTarget::TypeForm { callable, .. } => {
                 let mut inputs = inputs
                     .iter()
                     .map(|input| match input {

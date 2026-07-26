@@ -100,7 +100,8 @@ pub fn resolve_type_expression_template(
                 return Ok(None);
             };
 
-            let Some(application) = resolve_trait_application(values, application, constants)?
+            let Some(application) =
+                resolve_trait_application_template(values, application, constants)?
             else {
                 return Ok(None);
             };
@@ -159,7 +160,8 @@ pub fn resolve_type_expression_template(
             }
         }
         TypeExpressionTemplate::TraitView(application) => {
-            let Some(application) = resolve_trait_application(values, application, constants)?
+            let Some(application) =
+                resolve_trait_application_template(values, application, constants)?
             else {
                 return Ok(None);
             };
@@ -202,14 +204,19 @@ pub fn resolve_type_expression_template(
                 return Ok(None);
             };
 
-            TypeData::Callable(bray_symbols::CallableTypeData::new(
-                parameters,
-                result,
-                callable.constness(),
-                callable.trust(),
-                callable.abi(),
-                callable.dependencies(),
-            ))
+            // The resolved callable type owns the Arc-backed phase behavior snapshot.
+            TypeData::Callable(
+                bray_symbols::CallableTypeData::new(
+                    parameters,
+                    result,
+                    callable.constness(),
+                    callable.trust(),
+                    callable.abi(),
+                    callable.dependencies(),
+                )
+                // The instantiated callable owns the compiler-known template's phase snapshot.
+                .with_phase_behaviors(callable.phase_behaviors().clone()),
+            )
         }
     };
 
@@ -289,7 +296,8 @@ fn substitute_type(
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
 }
 
-fn resolve_trait_application(
+/// Resolves one trait-application template after checking its constant arguments.
+pub fn resolve_trait_application_template(
     values: &SemanticValueStore,
     template: &TraitApplicationTemplate,
     constants: &CheckedConstantTerms,

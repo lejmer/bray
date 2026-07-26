@@ -1,3 +1,7 @@
+use std::num::NonZeroU64;
+
+const SCALAR_KIND_COUNT: usize = 22;
+
 /// One built-in scalar representation described by target and ABI facts.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetScalarKind {
@@ -48,52 +52,99 @@ pub enum TargetScalarKind {
 }
 
 impl TargetScalarKind {
-    pub(crate) const fn bit(self) -> u32 {
+    /// Every scalar kind in stable language order.
+    pub const ALL: [Self; SCALAR_KIND_COUNT] = [
+        Self::Bool,
+        Self::Char,
+        Self::I8,
+        Self::I16,
+        Self::I32,
+        Self::I64,
+        Self::I128,
+        Self::U8,
+        Self::U16,
+        Self::U32,
+        Self::U64,
+        Self::U128,
+        Self::Isize,
+        Self::Usize,
+        Self::R16,
+        Self::R32,
+        Self::R64,
+        Self::R128,
+        Self::C32,
+        Self::C64,
+        Self::C128,
+        Self::C256,
+    ];
+
+    const fn index(self) -> usize {
         match self {
-            Self::Bool => 1 << 0,
-            Self::Char => 1 << 1,
-            Self::I8 => 1 << 2,
-            Self::I16 => 1 << 3,
-            Self::I32 => 1 << 4,
-            Self::I64 => 1 << 5,
-            Self::I128 => 1 << 6,
-            Self::U8 => 1 << 7,
-            Self::U16 => 1 << 8,
-            Self::U32 => 1 << 9,
-            Self::U64 => 1 << 10,
-            Self::U128 => 1 << 11,
-            Self::Isize => 1 << 12,
-            Self::Usize => 1 << 13,
-            Self::R16 => 1 << 14,
-            Self::R32 => 1 << 15,
-            Self::R64 => 1 << 16,
-            Self::R128 => 1 << 17,
-            Self::C32 => 1 << 18,
-            Self::C64 => 1 << 19,
-            Self::C128 => 1 << 20,
-            Self::C256 => 1 << 21,
+            Self::Bool => 0,
+            Self::Char => 1,
+            Self::I8 => 2,
+            Self::I16 => 3,
+            Self::I32 => 4,
+            Self::I64 => 5,
+            Self::I128 => 6,
+            Self::U8 => 7,
+            Self::U16 => 8,
+            Self::U32 => 9,
+            Self::U64 => 10,
+            Self::U128 => 11,
+            Self::Isize => 12,
+            Self::Usize => 13,
+            Self::R16 => 14,
+            Self::R32 => 15,
+            Self::R64 => 16,
+            Self::R128 => 17,
+            Self::C32 => 18,
+            Self::C64 => 19,
+            Self::C128 => 20,
+            Self::C256 => 21,
         }
+    }
+
+    pub(crate) const fn bit(self) -> u32 {
+        1 << self.index()
     }
 }
 
-/// Availability of target-conditional scalar representations.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+/// Availability and physical alignment of scalar representations.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetScalarFacts {
     real16: bool,
     real128: bool,
     complex32: bool,
     complex256: bool,
+    alignments: [NonZeroU64; SCALAR_KIND_COUNT],
 }
 
 impl TargetScalarFacts {
-    /// Creates the target-conditional scalar availability facts.
+    /// Creates scalar facts with the portable baseline alignments.
     pub const fn new(real16: bool, real128: bool, complex32: bool, complex256: bool) -> Self {
         Self {
             real16,
             real128,
             complex32,
             complex256,
+            alignments: portable_alignments(),
         }
+    }
+
+    /// Returns a copy with one scalar alignment when it is a power of two.
+    pub const fn try_with_alignment(
+        mut self,
+        kind: TargetScalarKind,
+        alignment: NonZeroU64,
+    ) -> Option<Self> {
+        if !alignment.get().is_power_of_two() {
+            return None;
+        }
+
+        self.alignments[kind.index()] = alignment;
+
+        Some(self)
     }
 
     /// Returns whether the target provides this scalar representation.
@@ -105,6 +156,11 @@ impl TargetScalarFacts {
             TargetScalarKind::C256 => self.complex256,
             _ => true,
         }
+    }
+
+    /// Returns the scalar's physical alignment on this target.
+    pub const fn alignment(self, kind: TargetScalarKind) -> NonZeroU64 {
+        self.alignments[kind.index()]
     }
 
     /// Returns whether `r16` is available.
@@ -125,5 +181,70 @@ impl TargetScalarFacts {
     /// Returns whether `c256` is available.
     pub const fn complex256(self) -> bool {
         self.complex256
+    }
+}
+
+impl Default for TargetScalarFacts {
+    fn default() -> Self {
+        Self::new(false, false, false, false)
+    }
+}
+
+const fn portable_alignments() -> [NonZeroU64; SCALAR_KIND_COUNT] {
+    [
+        nonzero(1),
+        nonzero(4),
+        nonzero(1),
+        nonzero(2),
+        nonzero(4),
+        nonzero(8),
+        nonzero(16),
+        nonzero(1),
+        nonzero(2),
+        nonzero(4),
+        nonzero(8),
+        nonzero(16),
+        nonzero(8),
+        nonzero(8),
+        nonzero(2),
+        nonzero(4),
+        nonzero(8),
+        nonzero(16),
+        nonzero(2),
+        nonzero(4),
+        nonzero(8),
+        nonzero(16),
+    ]
+}
+
+const fn nonzero(value: u64) -> NonZeroU64 {
+    match NonZeroU64::new(value) {
+        Some(value) => value,
+        None => panic!("scalar alignment must be nonzero"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use super::{TargetScalarFacts, TargetScalarKind};
+
+    #[test]
+    fn scalar_alignments_are_selected_target_facts() {
+        let alignment = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
+
+        let facts = TargetScalarFacts::default()
+            .try_with_alignment(TargetScalarKind::I64, alignment)
+            .unwrap_or_else(|| panic!("test scalar alignment must be valid"));
+
+        assert_eq!(facts.alignment(TargetScalarKind::I64), alignment);
+
+        assert_eq!(
+            TargetScalarFacts::default()
+                .alignment(TargetScalarKind::I64)
+                .get(),
+            8
+        );
     }
 }

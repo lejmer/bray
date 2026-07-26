@@ -164,6 +164,23 @@ where
             }),
             ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
                 expression,
+                reason: CandidateAbsence::UnavailableDeclarationFacts,
+            }) if member_callee(request, *expression).is_some() => {
+                let callee = member_callee(request, *expression)
+                    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+                calls.push(PreparedCall {
+                    expression: *expression,
+                    candidates: Vec::new(),
+                    values: vec![CallableValueCandidateTemplate::new(
+                        bray_bound_tree::DeclaredValueTypeTerm::Expression(callee),
+                        crate::CallableCandidateTemplateState::Visible,
+                    )],
+                    anonymous_target: None,
+                });
+            }
+            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
+                expression,
                 ..
             }) => {
                 if defer_callable_selection(request, *expression, &mut deferred)?.is_cancelled() {
@@ -193,6 +210,24 @@ where
         deferred,
         diagnostics,
     }))
+}
+
+fn member_callee<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+) -> Option<BoundExpressionId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let BoundExpression::Call(call) = request.view().expression(expression)? else {
+        return None;
+    };
+
+    matches!(
+        request.view().expression(call.callee()),
+        Some(BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_))
+    )
+    .then_some(call.callee())
 }
 
 fn generic_constraint_outcome<C>(

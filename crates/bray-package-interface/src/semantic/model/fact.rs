@@ -32,12 +32,26 @@ impl InterfacePredicateSummary {
     }
 }
 
+/// Source-independent meaning of one exported generic constraint.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InterfaceConstraintKind {
+    /// A constant predicate that must evaluate to true.
+    Predicate(InterfacePredicateSummary),
+    /// A subject type that must satisfy an exact applied trait.
+    TraitSatisfaction {
+        /// The implementation-eligible subject type.
+        subject: InterfaceTypeId,
+        /// The required applied trait.
+        application: InterfaceTraitApplicationId,
+    },
+}
+
 /// One generic constraint attached to an exported declaration.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceConstraint {
     pub(crate) owner: InterfaceSymbolReference,
     pub(crate) ordinal: SymbolOrdinal,
-    pub(crate) predicate: InterfacePredicateSummary,
+    pub(crate) kind: InterfaceConstraintKind,
 }
 
 impl InterfaceConstraint {
@@ -50,8 +64,30 @@ impl InterfaceConstraint {
         Self {
             owner,
             ordinal,
-            predicate,
+            kind: InterfaceConstraintKind::Predicate(predicate),
         }
+    }
+
+    /// Creates one checked trait-satisfaction constraint.
+    pub const fn trait_satisfaction(
+        owner: InterfaceSymbolReference,
+        ordinal: SymbolOrdinal,
+        subject: InterfaceTypeId,
+        application: InterfaceTraitApplicationId,
+    ) -> Self {
+        Self {
+            owner,
+            ordinal,
+            kind: InterfaceConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            },
+        }
+    }
+
+    /// Returns the source-independent constraint meaning.
+    pub const fn kind(&self) -> InterfaceConstraintKind {
+        self.kind
     }
 }
 

@@ -5,9 +5,9 @@ use bray_declarations::SyntaxAnchor;
 
 use crate::{
     AnySymbolId, BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts,
-    CallableExecution, CallableParameterMode, CallableParameterName, CallablePosition,
-    CallableTrust, GenericArgument, GenericConstParameterSymbolId, GenericParameterSymbolId,
-    NamedTypeSymbolId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
+    CallableExecution, CallableParameterMode, CallableParameterName, CallablePhaseBehaviors,
+    CallablePosition, CallableTrust, GenericArgument, GenericConstParameterSymbolId,
+    GenericParameterSymbolId, NamedTypeSymbolId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
 };
 
 /// Stable identity for one source constant expression embedded in a type expression.
@@ -128,6 +128,15 @@ impl TraitApplicationTemplate {
     pub fn arguments(&self) -> &[GenericArgumentTemplate] {
         &self.arguments
     }
+
+    /// Returns embedded constant expressions in deterministic argument order.
+    pub fn constant_expressions(&self) -> Vec<ConstantExpressionOccurrence> {
+        let mut occurrences = Vec::new();
+
+        push_argument_constants(&self.arguments, &mut occurrences);
+
+        occurrences
+    }
 }
 
 /// One callable parameter whose type can contain embedded constant expressions.
@@ -196,7 +205,7 @@ pub struct CallableTypeTemplate {
     constness: CallableConstness,
     trust: CallableTrust,
     abi: CallableAbi,
-    dependencies: CallableDependencyContracts,
+    phase_behaviors: CallablePhaseBehaviors,
 }
 
 impl CallableTypeTemplate {
@@ -215,8 +224,15 @@ impl CallableTypeTemplate {
             constness,
             trust,
             abi,
-            dependencies,
+            phase_behaviors: CallablePhaseBehaviors::empty(dependencies),
         }
+    }
+
+    /// Returns this callable template with complete caller-visible phase behavior.
+    pub fn with_phase_behaviors(mut self, phase_behaviors: CallablePhaseBehaviors) -> Self {
+        self.phase_behaviors = phase_behaviors;
+
+        self
     }
 
     /// Returns parameters in declaration order.
@@ -236,7 +252,7 @@ impl CallableTypeTemplate {
 
     /// Returns whether calls execute synchronously or asynchronously.
     pub const fn execution(&self) -> CallableExecution {
-        self.dependencies.execution()
+        self.phase_behaviors.execution()
     }
 
     /// Returns the callable trust boundary.
@@ -250,8 +266,13 @@ impl CallableTypeTemplate {
     }
 
     /// Returns the invocation and deferred-execution dependency contracts.
-    pub const fn dependencies(&self) -> CallableDependencyContracts {
-        self.dependencies
+    pub fn dependencies(&self) -> CallableDependencyContracts {
+        self.phase_behaviors.dependency_contracts()
+    }
+
+    /// Returns behavior for every callable execution phase.
+    pub const fn phase_behaviors(&self) -> &CallablePhaseBehaviors {
+        &self.phase_behaviors
     }
 }
 

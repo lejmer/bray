@@ -431,10 +431,7 @@ impl CheckedTemplateOperation {
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Input(_)
-            | Self::Constant { .. }
-            | Self::Declaration(_)
-            | Self::Temporary(_) => {}
+            Self::Input(_) | Self::Constant { .. } | Self::Declaration(_) | Self::Temporary(_) => {}
         }
 
         Ok(())
