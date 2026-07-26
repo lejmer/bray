@@ -24,6 +24,7 @@ members = [
     "crates/bray-target",
     "crates/bray-testing",
     "crates/brayc",
+    "tools/rust-style",
     "xtask",
 ]
 resolver = "3"

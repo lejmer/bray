@@ -1,3 +1,5 @@
+//! Check-only structural rules for Rust modules and functions.
+
 use std::path::Path;
 
 use ra_ap_syntax::ast::{HasModuleItem, HasVisibility};
@@ -210,7 +212,7 @@ mod tests {
     use ra_ap_syntax::{Edition, SourceFile};
 
     use super::{FUNCTION_LINE_LIMIT, MODULE_LINE_WARNING, check, check_thin_items};
-    use crate::style::diagnostic::Rule;
+    use crate::diagnostic::Rule;
 
     fn rules(path: &Path, source: &str) -> Vec<Rule> {
         let file = SourceFile::parse(source, Edition::Edition2024).tree();

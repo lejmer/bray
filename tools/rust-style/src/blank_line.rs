@@ -1,3 +1,5 @@
+//! Checks and automatic fixes for mechanically decidable blank-line rules.
+
 use ra_ap_syntax::{AstNode, AstToken};
 use ra_ap_syntax::{NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize, ast};
 
@@ -26,6 +28,7 @@ pub(super) fn check_source(source: &str) -> Vec<Diagnostic> {
     check_whitespace(&syntax, &mut diagnostics);
     check_comments(&syntax, &mut diagnostics);
     check_statement_lists(source, &syntax, &mut diagnostics);
+
     diagnostics.sort_by_key(|diagnostic| (diagnostic.offset, diagnostic.rule));
     diagnostics.dedup();
 
@@ -310,7 +313,7 @@ fn check_statement_boundary(
 #[cfg(test)]
 mod tests {
     use super::{check_source, fix_source};
-    use crate::style::diagnostic::Rule;
+    use crate::diagnostic::Rule;
 
     fn rules(source: &str) -> Vec<Rule> {
         check_source(source)

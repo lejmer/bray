@@ -1,49 +1,35 @@
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+//! Public workspace-wide style operations.
 
-use bray_source::LineIndex;
+use std::path::{Path, PathBuf};
+
 use ra_ap_syntax::{Edition, SourceFile};
 
 use super::diagnostic::{Diagnostic, Severity};
 use super::{blank_line, exemption, source, structure};
-use crate::{command, workspace as repository_workspace};
 
-pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
-    let result = match arguments.next().as_deref() {
-        None => fix_workspace(),
-        Some("check") => {
-            command::reject_trailing_argument(arguments).and_then(|()| check_workspace())
-        }
-        Some(action) => Err(format!("unexpected style command: {action}")),
-    };
-
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("{error}");
-
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn fix_workspace() -> Result<(), String> {
-    let root = repository_workspace::root()?;
-    let paths = source::rust_source_paths(&root)?;
+/// Applies deterministic fixes and then validates every Rust source file under `root`.
+///
+/// Diagnostics are written to standard error. The operation fails when source discovery or
+/// rewriting fails, or when validation produces any error-level diagnostic.
+pub fn fix_workspace(root: &Path) -> Result<(), String> {
+    let paths = source::rust_source_paths(root)?;
     let fix_count = fix_sources(&paths)?;
 
     if fix_count > 0 {
         eprintln!("fixed {fix_count} style violation(s)");
     }
 
-    validate_workspace(&root, &paths)
+    validate_workspace(root, &paths)
 }
 
-pub(super) fn check_workspace() -> Result<(), String> {
-    let root = repository_workspace::root()?;
-    let paths = source::rust_source_paths(&root)?;
+/// Validates every Rust source file under `root` without changing it.
+///
+/// Diagnostics are written to standard error. The operation fails when source discovery fails or
+/// validation produces any error-level diagnostic.
+pub fn check_workspace(root: &Path) -> Result<(), String> {
+    let paths = source::rust_source_paths(root)?;
 
-    validate_workspace(&root, &paths)
+    validate_workspace(root, &paths)
 }
 
 fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
@@ -58,8 +44,7 @@ fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
             continue;
         }
 
-        std::fs::write(path, fixed)
-            .map_err(|error| repository_workspace::io_error("write", path, error))?;
+        std::fs::write(path, fixed).map_err(|error| source::io_error("write", path, error))?;
 
         fix_count += source_fix_count;
     }
@@ -74,12 +59,11 @@ fn validate_workspace(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
         let source = read_source(path)?;
         let diagnostics = source_diagnostics(path, &source);
         let relative_path = path.strip_prefix(root).unwrap_or(path);
-        let line_index = source_line_index(path, &source)?;
 
         for diagnostic in diagnostics {
             eprintln!(
                 "{}",
-                format_diagnostic(relative_path, &line_index, &diagnostic)?
+                format_diagnostic(relative_path, &source, &diagnostic)?
             );
 
             if diagnostic.rule.severity() == Severity::Error {
@@ -111,31 +95,33 @@ fn source_diagnostics(path: &Path, source: &str) -> Vec<Diagnostic> {
 }
 
 fn read_source(path: &Path) -> Result<String, String> {
-    std::fs::read_to_string(path)
-        .map_err(|error| repository_workspace::io_error("read", path, error))
-}
-
-fn source_line_index(path: &Path, source: &str) -> Result<LineIndex, String> {
-    LineIndex::new(source).map_err(|error| {
-        format!(
-            "failed to index {}: {} bytes exceed source offset capacity",
-            path.display(),
-            error.bytes()
-        )
-    })
+    std::fs::read_to_string(path).map_err(|error| source::io_error("read", path, error))
 }
 
 fn format_diagnostic(
     path: &Path,
-    line_index: &LineIndex,
+    source_text: &str,
     diagnostic: &Diagnostic,
 ) -> Result<String, String> {
-    let Some((line, column)) = source::source_location(line_index, diagnostic.offset) else {
+    let offset = source::text_offset(diagnostic.offset);
+    let line_starts = source::line_starts(source_text);
+
+    let Some(line_index) = source::line_index(&line_starts, offset) else {
         return Err(format!(
             "style diagnostic offset is outside {}",
             path.display()
         ));
     };
+
+    let Some(line_start) = line_starts.get(line_index) else {
+        return Err(format!(
+            "style diagnostic offset is outside {}",
+            path.display()
+        ));
+    };
+
+    let line = line_index + 1;
+    let column = offset - line_start + 1;
 
     let mut rendered = format!(
         "{}:{line}:{column}: {}[style/{}]: {}",
@@ -157,25 +143,19 @@ fn format_diagnostic(
 mod tests {
     use std::path::Path;
 
-    use bray_source::LineIndex;
     use ra_ap_syntax::TextSize;
 
-    use super::{check_workspace, format_diagnostic};
-    use crate::style::diagnostic::{Diagnostic, Rule};
+    use super::format_diagnostic;
+    use crate::diagnostic::{Diagnostic, Rule};
 
     #[test]
     fn diagnostics_use_compiler_style_locations_severity_and_help() {
         let source = "fn example() {}\n";
 
-        let line_index = match LineIndex::new(source) {
-            Ok(index) => index,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        };
-
         let diagnostic = Diagnostic::new(Rule::LegacyModRs, TextSize::new(3))
             .with_help("use the modern module layout");
 
-        let rendered = match format_diagnostic(Path::new("src/mod.rs"), &line_index, &diagnostic) {
+        let rendered = match format_diagnostic(Path::new("src/mod.rs"), source, &diagnostic) {
             Ok(rendered) => rendered,
             Err(error) => panic!("diagnostic should render: {error}"),
         };
@@ -184,10 +164,5 @@ mod tests {
             rendered,
             "src/mod.rs:1:4: error[style/legacy-mod-rs]: legacy mod.rs module layout is not allowed\n  help: use the modern module layout"
         );
-    }
-
-    #[test]
-    fn workspace_sources_conform() {
-        assert_eq!(check_workspace(), Ok(()));
     }
 }

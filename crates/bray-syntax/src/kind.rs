@@ -733,7 +733,7 @@ impl SyntaxKind {
     }
 
     /// Returns the stable machine key for this syntax kind.
-    // bray-style: allow(function-too-large, reason = "syntax kind spellings form one exhaustive flat mapping")
+    // rust-style: allow(function-too-large, reason = "syntax kind spellings form one exhaustive flat mapping")
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SourceUnit => "source_unit",

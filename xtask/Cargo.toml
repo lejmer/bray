@@ -12,8 +12,7 @@ workspace = true
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-package-interface = { path = "../crates/bray-package-interface" }
-bray-source = { path = "../crates/bray-source" }
-ra_ap_syntax = "0.0.343"
+rust-style = { path = "../tools/rust-style" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

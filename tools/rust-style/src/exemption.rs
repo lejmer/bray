@@ -1,3 +1,5 @@
+//! Parses and applies narrowly scoped, source-local rule exemptions.
+
 use ra_ap_syntax::ast::HasModuleItem;
 use ra_ap_syntax::{AstNode, AstToken, NodeOrToken, SyntaxNode, TextRange, TextSize, ast};
 
@@ -154,7 +156,7 @@ fn parse(source: &str, file: &ast::SourceFile) -> (Vec<Exemption>, Vec<Diagnosti
 fn directive_text(comment: &str) -> Option<&str> {
     let body = comment.strip_prefix("//")?.trim();
 
-    body.strip_prefix("bray-style:").map(str::trim)
+    body.strip_prefix("rust-style:").map(str::trim)
 }
 
 fn parse_rule(directive: &str) -> Result<Rule, String> {
@@ -243,12 +245,12 @@ mod tests {
     use ra_ap_syntax::{AstNode, Edition, SourceFile, TextSize};
 
     use super::apply;
-    use crate::style::diagnostic::{Diagnostic, Rule, Target};
+    use crate::diagnostic::{Diagnostic, Rule, Target};
 
     #[test]
     fn file_exemptions_require_reasons_and_suppress_only_the_named_rule() {
         let source = "\
-// bray-style: allow(module-too-large, reason = \"flat catalog\")
+// rust-style: allow(module-too-large, reason = \"flat catalog\")
 fn example() {}
 ";
 
@@ -268,7 +270,7 @@ fn example() {}
     #[test]
     fn item_exemptions_apply_only_to_the_adjacent_item() {
         let source = "\
-// bray-style: allow(wildcard-import, reason = \"macro-defined names\")
+// rust-style: allow(wildcard-import, reason = \"macro-defined names\")
 pub use generated::*;
 pub use ordinary::*;
 ";
@@ -302,8 +304,8 @@ pub use ordinary::*;
     #[test]
     fn malformed_and_unused_exemptions_are_reported() {
         let source = "\
-// bray-style: allow(module-too-large)
-// bray-style: allow(repeated-module-prefix, reason = \"renaming would obscure the concept\")
+// rust-style: allow(module-too-large)
+// rust-style: allow(repeated-module-prefix, reason = \"renaming would obscure the concept\")
 fn example() {}
 ";
 
@@ -321,12 +323,12 @@ fn example() {}
     #[test]
     fn unknown_empty_and_misplaced_exemptions_are_errors() {
         let source = "\
-// bray-style: allow(unknown-rule, reason = \"unknown\")
-// bray-style: allow(module-too-large, reason = \"\")
+// rust-style: allow(unknown-rule, reason = \"unknown\")
+// rust-style: allow(module-too-large, reason = \"\")
 fn first() {}
-// bray-style: allow(module-too-large, reason = \"too late\")
+// rust-style: allow(module-too-large, reason = \"too late\")
 fn second() {}
-// bray-style: allow(function-too-large, reason = \"not adjacent\")
+// rust-style: allow(function-too-large, reason = \"not adjacent\")
 const VALUE: usize = 0;
 fn third() {}
 ";

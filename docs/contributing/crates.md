@@ -76,5 +76,8 @@ documents.
 - `bray-testing`
     - Shared test fixtures, builders, harnesses, and assertions used across compiler crates.
 
+- `rust-style`
+    - Reusable Rust source-style enforcement used by `xtask`, with no dependencies on Bray compiler crates.
+
 - `xtask`
     - Repository automation invoked through Cargo, including generated-source and conformance tasks.

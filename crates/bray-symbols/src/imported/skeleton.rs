@@ -6,7 +6,7 @@ mod snapshot;
 
 pub use error::ImportedSymbolSkeletonBuildError;
 pub use input::{ImportedLookupEdge, ImportedSymbolRelationship, ImportedSymbolSkeletonInput};
-// bray-style: allow(wildcard-import, reason = "the macro-generated skeleton surface has no maintainable explicit symbol inventory")
+// rust-style: allow(wildcard-import, reason = "the macro-generated skeleton surface has no maintainable explicit symbol inventory")
 pub use snapshot::*;
 
 #[cfg(any(test, feature = "test-support"))]

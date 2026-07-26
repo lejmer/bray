@@ -1,10 +1,9 @@
+//! Source discovery, indexing, and production-line classification.
+
 use std::path::{Path, PathBuf};
 
-use bray_source::{LineIndex, TextSize as SourceTextSize};
 use ra_ap_syntax::ast::HasAttrs;
 use ra_ap_syntax::{AstNode, TextRange, TextSize, ast};
-
-use crate::workspace;
 
 const EXCLUDED_DIRECTORIES: [&str; 2] = [".git", "target"];
 
@@ -18,15 +17,14 @@ pub(super) fn rust_source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
 
 fn collect_rust_source_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = std::fs::read_dir(directory)
-        .map_err(|error| workspace::io_error("read directory", directory, error))?;
+        .map_err(|error| io_error("read directory", directory, error))?;
 
     for entry in entries {
-        let entry =
-            entry.map_err(|error| workspace::io_error("read directory", directory, error))?;
+        let entry = entry.map_err(|error| io_error("read directory", directory, error))?;
 
         let file_type = entry
             .file_type()
-            .map_err(|error| workspace::io_error("inspect", &entry.path(), error))?;
+            .map_err(|error| io_error("inspect", &entry.path(), error))?;
 
         let path = entry.path();
 
@@ -61,12 +59,6 @@ pub(super) fn source_text(source: &str, range: TextRange) -> &str {
 
 pub(super) fn count_newlines(text: &str) -> usize {
     text.bytes().filter(|byte| *byte == b'\n').count()
-}
-
-pub(super) fn source_location(line_index: &LineIndex, offset: TextSize) -> Option<(u32, u32)> {
-    let location = line_index.line_column(SourceTextSize::new(u32::from(offset)))?;
-
-    Some((location.line(), location.column()))
 }
 
 pub(super) fn line_starts(source: &str) -> Vec<usize> {
@@ -107,6 +99,10 @@ pub(super) fn text_size(offset: usize) -> TextSize {
 
 pub(super) fn text_offset(offset: TextSize) -> usize {
     u32::from(offset) as usize
+}
+
+pub(super) fn io_error(action: &str, path: &Path, error: impl std::fmt::Display) -> String {
+    format!("failed to {action} {}: {error}", path.display())
 }
 
 pub(super) fn test_only_ranges(file: &ast::SourceFile, source: &str) -> Vec<TextRange> {

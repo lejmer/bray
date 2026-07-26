@@ -1,3 +1,5 @@
+//! Compiler-style diagnostics emitted by Rust source-style rules.
+
 use ra_ap_syntax::{TextRange, TextSize};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

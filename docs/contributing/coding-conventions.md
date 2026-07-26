@@ -278,7 +278,7 @@ The style command enforces these structural rules for Rust source:
 Where a rule is genuinely unreasonable for a specific source location, use a narrow source exemption with a nonempty reason:
 
 ```rust
-// bray-style: allow(module-too-large, reason = "locale argument catalog is intentionally a flat list")
+// rust-style: allow(module-too-large, reason = "locale argument catalog is intentionally a flat list")
 ```
 
 File-level exemptions must appear before the first item and apply only to `module-too-large`, `legacy-mod-rs`, or
