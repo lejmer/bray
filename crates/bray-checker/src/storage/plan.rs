@@ -4,9 +4,9 @@ use bray_bound_tree::{
     BorrowCapabilityOrigin, BoundBlockId, BoundBlockItem, BoundCallableBodyKind, BoundExpressionId,
     BoundPatternId, BoundReferenceTarget, CheckedExpressionTypes, CheckedPatternFacts,
     CheckedSemanticSelections, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
-    ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource, StorageAccess,
-    StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
-    StorageIdentity, StoragePlan, StoragePlanBuilder,
+    ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource, SemanticSelection,
+    StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
+    StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
 };
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableSignatureFact, CallableSymbolId, PredicateDefinitionSymbolId,
@@ -25,7 +25,6 @@ pub(crate) fn plan_storage<C>(
     types: &CheckedExpressionTypes,
     patterns: &CheckedPatternFacts,
     selections: &CheckedSemanticSelections,
-    iterations: &[SelectedIterationSource],
 ) -> CheckerOutcome<StoragePlan>
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
@@ -45,9 +44,6 @@ where
         || patterns.kind() != kind
         || selections.unit() != unit
         || selections.kind() != kind
-        || iterations
-            .iter()
-            .any(|selection| selection.expression().unit() != unit)
     {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidStoragePlan,
@@ -60,7 +56,6 @@ where
         types,
         patterns,
         selections,
-        iterations,
         match receiver_entry(request) {
             Ok(receiver) => receiver,
             Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -133,7 +128,6 @@ where
         types: &'view CheckedExpressionTypes,
         patterns: &'view CheckedPatternFacts,
         selections: &'view CheckedSemanticSelections,
-        iterations: &'view [SelectedIterationSource],
         receiver_entry: Option<(
             bray_symbols::ReceiverParameterSymbolId,
             Option<(BorrowKind, TypeId)>,
@@ -160,9 +154,17 @@ where
             types,
             patterns,
             selections,
-            iterations: iterations
+            iterations: selections
+                .entries()
                 .iter()
-                .map(|selection| (selection.expression(), selection))
+                .filter_map(|entry| match entry.selection() {
+                    SemanticSelection::Iteration(selection) => {
+                        Some((selection.expression(), selection))
+                    }
+                    SemanticSelection::Reference(_)
+                    | SemanticSelection::Call(_)
+                    | SemanticSelection::Operation(_) => None,
+                })
                 .collect(),
             builder: Some(builder),
             expression_accesses: BTreeMap::new(),

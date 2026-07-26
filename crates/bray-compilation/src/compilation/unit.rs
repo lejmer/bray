@@ -278,7 +278,7 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
                 let (pattern_input, iteration_sources, iteration_diagnostics, has_iterations) =
-                    self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
+                    self.iteration_inputs(&key, bound.result().value(), cancellation)?;
 
                 if !has_iterations {
                     return Ok((provisional.result().as_ref().clone(), Box::new([])));
@@ -500,7 +500,7 @@ impl Compilation {
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
                 let (input, _, iteration_diagnostics, _) =
-                    self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
+                    self.iteration_inputs(&key, bound.result().value(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
 
@@ -544,7 +544,7 @@ impl Compilation {
         )
     }
 
-    fn iteration_pattern_input(
+    fn iteration_inputs(
         &self,
         key: &BoundUnitKey,
         bound: &BoundUnit,
@@ -573,15 +573,17 @@ impl Compilation {
                 return BoundWalkControl::Stop;
             };
 
+            if expression.iteration_source().is_none() {
+                return BoundWalkControl::Continue;
+            }
+
             let pattern = match expression {
                 BoundExpression::For(expression) => Some(expression.pattern()),
                 BoundExpression::Generator(expression) => Some(expression.pattern()),
                 _ => None,
             };
 
-            if let Some(pattern) = pattern {
-                iterations.push((id, pattern));
-            }
+            iterations.push((id, pattern));
 
             BoundWalkControl::Continue
         });
@@ -599,6 +601,7 @@ impl Compilation {
             .intern_type(bray_symbols::TypeData::Error)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+        let has_iterations = !iterations.is_empty();
         let mut inputs = Vec::with_capacity(iterations.len());
         let mut sources = Vec::with_capacity(iterations.len());
         let mut diagnostics = DiagnosticBag::new();
@@ -612,19 +615,23 @@ impl Compilation {
 
             match selection.value() {
                 Some(selection) => {
-                    inputs.push(IterationPatternType::new(
-                        pattern,
-                        selection.element_type(),
-                        false,
-                    ));
+                    if let Some(pattern) = pattern {
+                        inputs.push(IterationPatternType::new(
+                            pattern,
+                            selection.element_type(),
+                            false,
+                        ));
+                    }
 
                     sources.push(selection.clone());
                 }
-                None => inputs.push(IterationPatternType::new(pattern, error_type, true)),
+                None => {
+                    if let Some(pattern) = pattern {
+                        inputs.push(IterationPatternType::new(pattern, error_type, true));
+                    }
+                }
             }
         }
-
-        let has_iterations = !inputs.is_empty();
 
         Ok((
             PatternCheckInput::new().with_iteration_patterns(inputs),
@@ -699,9 +706,6 @@ impl Compilation {
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
-                let (_, iterations, iteration_diagnostics, _) =
-                    self.iteration_pattern_input(&key, bound.result().value(), cancellation)?;
-
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -715,7 +719,6 @@ impl Compilation {
                     types.result().value(),
                     patterns.result().value(),
                     selections.result().value(),
-                    &iterations,
                 )?;
 
                 let (plan, plan_diagnostics) = result.into_parts();
@@ -726,7 +729,6 @@ impl Compilation {
                     types.result().diagnostics(),
                     patterns.result().diagnostics(),
                     selections.result().diagnostics(),
-                    &iteration_diagnostics,
                     &plan_diagnostics,
                 ]);
 
@@ -1119,10 +1121,6 @@ fn check_patterns(
     checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "storage planning consumes each independently demandable prerequisite directly"
-)]
 fn plan_storage(
     bound: &BoundUnit,
     semantic_context: &SemanticUnitContext,
@@ -1131,7 +1129,6 @@ fn plan_storage(
     types: &CheckedExpressionTypes,
     patterns: &CheckedPatternFacts,
     selections: &CheckedSemanticSelections,
-    iterations: &[bray_bound_tree::SelectedIterationSource],
 ) -> Result<DiagnosticResult<StoragePlan>, FactQueryError> {
     let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
@@ -1143,7 +1140,6 @@ fn plan_storage(
         types,
         patterns,
         selections,
-        iterations,
     ))
 }
 

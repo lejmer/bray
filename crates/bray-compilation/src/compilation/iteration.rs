@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundIterationSource, BoundStructuredExpressionKind,
-    BoundUnit, BoundUnitKey, IterationSourceMode, SelectedIterationProtocolOperation,
-    SelectedIterationSource, SelectedIterationTypes,
+    BoundExpressionId, BoundIterationSource, BoundUnit, BoundUnitKey, IterationSourceMode,
+    SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };
 use bray_checker::{
     CandidateSelection, DefaultSemanticSelector, IterationSourceCandidate,
@@ -382,27 +381,10 @@ fn iteration_source(
     unit: &BoundUnit,
     expression: BoundExpressionId,
 ) -> Result<(BoundExpressionId, IterationSourceMode), FactQueryError> {
-    let expression = unit
-        .view()
+    unit.view()
         .expression(expression)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-    match expression {
-        BoundExpression::For(expression) => Ok((expression.source(), expression.source_mode())),
-        BoundExpression::Generator(expression) => {
-            Ok((expression.source(), expression.source_mode()))
-        }
-        BoundExpression::Structured(expression)
-            if expression.kind() == BoundStructuredExpressionKind::BooleanFold =>
-        {
-            let [source] = expression.operands() else {
-                return Err(FactQueryError::InfrastructureFailure);
-            };
-
-            Ok((*source, IterationSourceMode::Shared))
-        }
-        _ => Err(FactQueryError::InfrastructureFailure),
-    }
+        .and_then(bray_bound_tree::BoundExpression::iteration_source)
+        .ok_or(FactQueryError::InfrastructureFailure)
 }
 
 fn implementation_requirement(
@@ -674,8 +656,9 @@ mod tests {
 
     use bray_binder::{BinderFactContext, SymbolFactProvider};
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundExpression, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome,
-        IterationSourceMode, walk_bound_unit_view,
+        AnyBoundNodeId, BoundExpression, BoundStructuredExpressionKind, BoundWalkControl,
+        BoundWalkEvent, BoundWalkOutcome, IterationSourceMode, SemanticSelection,
+        walk_bound_unit_view,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticSelectionKind};
@@ -806,7 +789,7 @@ mod tests {
             "\n",
             "impl &Items(Iterable)\n",
             "{\n",
-            "    type Element = i32;\n",
+            "    type Element = bool;\n",
             "    type Cursor = ItemsCursor;\n",
             "\n",
             "    consume func iterate() -> ItemsCursor\n",
@@ -816,9 +799,9 @@ mod tests {
             "\n",
             "impl ItemsCursor(Iterator)\n",
             "{\n",
-            "    type Element = i32;\n",
+            "    type Element = bool;\n",
             "\n",
-            "    mut func next() -> i32?\n",
+            "    mut func next() -> bool?\n",
             "    {\n",
             "    }\n",
             "}\n",
@@ -826,6 +809,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    let items: Items = Items {};\n",
+            "    let folded: bool = all(items);\n",
             "\n",
             "    for item in items\n",
             "    {\n",
@@ -869,14 +853,14 @@ mod tests {
         let source_type = named_type(&facts, items.id());
         let cursor_type = named_type(&facts, cursor.id());
 
-        let integer = facts
+        let boolean = facts
             .symbols()
             .compiler_known_provider()
             .role_registry()
-            .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarI32)
-            .unwrap_or_else(|| panic!("compiler-known i32 must be available"));
+            .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool)
+            .unwrap_or_else(|| panic!("compiler-known bool must be available"));
 
-        let element_type = named_type(&facts, integer);
+        let element_type = named_type(&facts, boolean);
 
         let subject_type = iteration_subject_type(facts.semantic_values(), source_type, mode)
             .unwrap_or_else(|error| panic!("iteration subject must be available: {error:?}"));
@@ -1004,8 +988,28 @@ mod tests {
         );
 
         let types = compilation
-            .expression_types(key)
+            .expression_types(key.clone())
             .unwrap_or_else(|error| panic!("final expression types must publish: {error:?}"));
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("final semantic selections must publish: {error:?}"));
+
+        assert!(matches!(
+            selections.value().expression(iteration),
+            Some(SemanticSelection::Iteration(selection))
+                if selection.iterate() == selected.iterate()
+                    && selection.next() == selected.next()
+        ));
+
+        let boolean_fold = boolean_fold_expression(bound.value());
+
+        assert!(matches!(
+            selections.value().expression(boolean_fold),
+            Some(SemanticSelection::Iteration(selection))
+                if selection.iterate() == selected.iterate()
+                    && selection.next() == selected.next()
+        ));
 
         let reference = iteration_binding_reference_expression(bound.value());
 
@@ -1032,31 +1036,31 @@ mod tests {
     fn iteration_expression(
         unit: &bray_bound_tree::BoundUnit,
     ) -> bray_bound_tree::BoundExpressionId {
-        let mut iteration = None;
+        find_expression(unit, |expression| {
+            matches!(expression, BoundExpression::For(_))
+        })
+    }
 
-        let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
-            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
-                return BoundWalkControl::Continue;
-            };
+    fn boolean_fold_expression(
+        unit: &bray_bound_tree::BoundUnit,
+    ) -> bray_bound_tree::BoundExpressionId {
+        find_expression(unit, |expression| {
+            matches!(
+                expression,
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::BooleanFold
+            )
+        })
+    }
 
-            if matches!(
-                unit.view().expression(expression),
-                Some(BoundExpression::For(_))
-            ) {
-                iteration = Some(expression);
-
-                return BoundWalkControl::Stop;
-            }
-
-            BoundWalkControl::Continue
-        });
-
-        assert_eq!(outcome, BoundWalkOutcome::Stopped);
-
-        match iteration {
-            Some(iteration) => iteration,
-            None => panic!("test source must bind one for expression"),
-        }
+    fn find_expression(
+        unit: &bray_bound_tree::BoundUnit,
+        predicate: impl Fn(&BoundExpression) -> bool,
+    ) -> bray_bound_tree::BoundExpressionId {
+        unit.tree()
+            .expressions()
+            .find_map(|(expression, node)| predicate(node).then_some(expression))
+            .unwrap_or_else(|| panic!("test source must bind the expected expression"))
     }
 
     fn iteration_binding_reference_expression(

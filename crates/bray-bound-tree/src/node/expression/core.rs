@@ -9,7 +9,8 @@ use super::{
     BoundForExpression, BoundGeneratorExpression, BoundLeadingDotVariantExpression,
     BoundLiteralExpression, BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression,
     BoundPatternReferenceExpression, BoundStructConstructionExpression, BoundStructuredExpression,
-    BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
+    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
+    BoundUnresolvedReferenceExpression, IterationSourceMode,
 };
 
 /// A checked expression retaining its exact semantic category.
@@ -221,6 +222,24 @@ impl BoundExpression {
         }
         .iter()
         .copied()
+    }
+
+    /// Returns the iterated expression and its access mode when this expression performs iteration.
+    pub fn iteration_source(&self) -> Option<(BoundExpressionId, IterationSourceMode)> {
+        match self {
+            Self::For(expression) => Some((expression.source(), expression.source_mode())),
+            Self::Generator(expression) => Some((expression.source(), expression.source_mode())),
+            Self::Structured(expression)
+                if expression.kind() == BoundStructuredExpressionKind::BooleanFold =>
+            {
+                let [source] = expression.operands() else {
+                    return None;
+                };
+
+                Some((*source, IterationSourceMode::Shared))
+            }
+            _ => None,
+        }
     }
 }
 

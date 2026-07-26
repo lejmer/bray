@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundReferenceTarget, BoundUnitKind,
     ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
-    IndexTarget, OperatorTarget, SelectedImplementationWitness, SelectedOperation,
-    SemanticSelection,
+    IndexTarget, OperatorTarget, SelectedImplementationWitness, SelectedIterationSource,
+    SelectedOperation, SemanticSelection,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticBag;
@@ -167,12 +167,73 @@ fn selection_exposes_internal(
                 &mut dependencies,
             )?;
         }
+        SemanticSelection::Iteration(iteration) => {
+            semantic_values_expose_internal |= push_iteration_dependencies(
+                semantic_values,
+                symbols,
+                declarations,
+                iteration,
+                &mut dependencies,
+            )?;
+        }
     }
 
     Ok(semantic_values_expose_internal
         || dependencies
             .into_iter()
             .any(|symbol| source_symbol_is_not_publicly_reachable(symbol, declarations, symbols)))
+}
+
+fn push_iteration_dependencies(
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+    iteration: &SelectedIterationSource,
+    dependencies: &mut Vec<AnySymbolId>,
+) -> Result<bool, FactQueryError> {
+    let mut exposes_internal = false;
+
+    for ty in [
+        iteration.source_type(),
+        iteration.cursor_type(),
+        iteration.element_type(),
+    ] {
+        exposes_internal |=
+            resolved_type_exposes_internal(ty, semantic_values, symbols, declarations);
+    }
+
+    for target in [
+        iteration.iterate_member(),
+        iteration.iterate(),
+        iteration.next_member(),
+        iteration.next(),
+    ] {
+        dependencies.push(target.definition().symbol());
+
+        exposes_internal |=
+            callable_instance_exposes_internal(target, semantic_values, symbols, declarations);
+    }
+
+    for witness in [
+        SelectedImplementationWitness::new(
+            iteration.iterable_requirement(),
+            iteration.iterable_witness(),
+        ),
+        SelectedImplementationWitness::new(
+            iteration.iterator_requirement(),
+            iteration.iterator_witness(),
+        ),
+    ] {
+        exposes_internal |= push_witness_dependencies(
+            semantic_values,
+            symbols,
+            declarations,
+            witness,
+            dependencies,
+        )?;
+    }
+
+    Ok(exposes_internal)
 }
 
 fn push_operation_dependencies(

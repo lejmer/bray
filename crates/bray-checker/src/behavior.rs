@@ -81,6 +81,14 @@ where
             SemanticSelection::Operation(operation) => {
                 collect_operation_behavior(operation, &mut calls, &mut defaults);
             }
+            SemanticSelection::Iteration(selection) => {
+                calls.extend([selection.iterate(), selection.next()].map(|target| {
+                    BodyBehaviorCall::new(
+                        BoundCallableTarget::Declaration(target),
+                        BodyBehaviorPhase::Invocation,
+                    )
+                }));
+            }
             SemanticSelection::Reference(_) => {}
         }
     }
