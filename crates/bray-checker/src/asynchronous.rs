@@ -65,6 +65,7 @@ where
     let mut suspensions = Vec::new();
     let mut task_operations = BTreeMap::new();
     let mut frame_dependencies = BTreeSet::new();
+
     let mut is_recovered = liveness.is_recovered()
         || dependencies.is_recovered()
         || flow.is_recovered()
@@ -112,6 +113,7 @@ where
                 );
 
                 let dependency_contract = dependencies.expression(await_expression.operand());
+
                 let retained = retained_suspension_subjects(
                     liveness,
                     dependencies,
@@ -535,6 +537,7 @@ where
     };
 
     let target = call.target().declaration()?;
+
     let hook = request
         .available_compiler_known_symbols()
         .symbol_implementation(target.symbol())?;
@@ -611,6 +614,7 @@ mod tests {
             ("TaskCancel", AnalysisTaskOperationKind::Cancel),
         ] {
             let symbol = compiler_known_symbol::<TypeCallableMemberSymbolId>(key);
+
             let resolution = BoundResolvedCall::new(
                 BoundCallableTarget::Declaration(callable_instance(symbol.into())),
                 [],
@@ -667,6 +671,7 @@ mod tests {
     fn deferred_contracts_retain_non_storage_frame_subjects() {
         let witness = implementation_instance(semantic_values(), 72);
         let subject = BoundDependencySubject::ImplementationWitness(witness);
+
         let requirement = BoundDependencyRequirement::direct(
             subject,
             BoundDependencyRequirementKind::StorageAlive,

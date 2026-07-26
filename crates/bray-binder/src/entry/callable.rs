@@ -162,6 +162,7 @@ where
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let callable = boundary.callable();
+
     let execution = if syntax.callable_modifiers().async_token().is_some() {
         CallableExecution::Asynchronous
     } else {

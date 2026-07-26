@@ -905,6 +905,7 @@ impl Compilation {
                     self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
 
                 let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -1519,6 +1520,7 @@ mod tests {
         ));
 
         let key = source_callable_body_key(&compilation);
+
         let facts = match compilation.async_facts(key) {
             Ok(facts) => facts,
             Err(error) => panic!("async facts must publish: {error:?}"),
@@ -1564,6 +1566,7 @@ mod tests {
             ));
 
             let main = source_callable_body_key(&compilation);
+
             let bound = compilation
                 .bound_unit(main)
                 .unwrap_or_else(|error| panic!("source callable must bind: {error:?}"));
@@ -1597,6 +1600,7 @@ mod tests {
         ));
 
         let key = source_callable_body_key(&compilation);
+
         let facts = compilation
             .async_facts(key)
             .unwrap_or_else(|error| panic!("async facts must publish: {error:?}"));
@@ -1627,6 +1631,7 @@ mod tests {
         ));
 
         let key = source_callable_body_key(&compilation);
+
         let liveness = match compilation.liveness(key.clone()) {
             Ok(facts) => facts,
             Err(error) => panic!("liveness facts must publish: {error:?}"),

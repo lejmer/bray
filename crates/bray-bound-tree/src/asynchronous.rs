@@ -284,6 +284,7 @@ mod tests {
             AsyncSuspensionPoint::new(await_expression, operand, None, [], [dependency], false);
 
         let operation = AsyncTaskOperation::new(operand, AsyncTaskOperationKind::Start);
+
         let cleanup = AsyncScopeExitPlan::new(
             BoundBlockId::from_slot(unit, 4),
             [storage],
