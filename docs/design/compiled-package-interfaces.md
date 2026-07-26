@@ -519,9 +519,32 @@ must not rerun definition-site name lookup, overload resolution, or semantic dia
 Ordinary executable bodies are not declaration-surface facts and are not included in the symbol interface merely because their
 declarations are public.
 
-If a future generic or cross-package code-distribution strategy requires checked executable templates, machine code, or lower-level
-IR, those payloads use a separate implementation section or artifact with its own reachability and compatibility contract. Imported
-symbol APIs expose only a stable implementation reference needed by that strategy.
+Checked executable templates, machine code, and lower-level IR use a separate package implementation artifact with their own
+reachability and compatibility contract. Imported symbol APIs expose only stable implementation references and do not expose
+implementation payload storage.
+
+The package implementation artifact is bound to the exact semantic content hash and language revision of its public package
+interface. A consumer rejects a missing or mismatched artifact when a requested semantic operation requires an implementation
+payload. Loading the public interface does not require loading the implementation artifact.
+
+The artifact contains a deterministic directory keyed by stable declaration identity and implementation-payload category. Payloads
+are independently length-delimited and validated so a query can load one body without decoding unrelated bodies. Every payload uses
+source-independent semantic identities and declares the target and implementation compatibility facts that affect its meaning.
+
+An exported const callable whose body can be requested by another compilation publishes a checked constant-evaluation body in the
+implementation artifact. The body:
+
+- declares callable parameters, generic parameters, and contextual inputs explicitly,
+- carries checked operations, control flow, local constant storage, patterns, calls, and result production,
+- references declarations and selected implementations through stable package identities,
+- uses artifact-local IDs only inside its own validated payload,
+- contains no source syntax IDs, compilation-local symbol IDs, or dependency source text,
+- carries enough checked semantic information for constant evaluation without parsing, binding, overload resolution, or
+  definition-site diagnostics.
+
+The consuming compilation resolves the stable owner through the imported symbol skeleton, validates and interns the selected body
+against the already loaded semantic interface, and evaluates it with the concrete call arguments. Loading and interning remain lazy
+facts keyed by artifact identity and body identity. Equivalent concurrent requests share the published immutable result.
 
 ---
 
