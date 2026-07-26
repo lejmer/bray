@@ -341,12 +341,12 @@ fn validate_trusted_capabilities(
         return Ok(());
     }
 
-    let anchor = context
-        .symbols
-        .declaration_syntax_anchor(owner.into_any())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
-
     if trust != CallableTrust::Trusted {
+        let anchor = context
+            .symbols
+            .declaration_syntax_anchor(owner.into_any())
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
         for capability in declared.union(used) {
             diagnostics.add(trusted_capability_diagnostic(
                 context,
@@ -362,6 +362,11 @@ fn validate_trusted_capabilities(
     if !has_body {
         return Ok(());
     }
+
+    let anchor = context
+        .symbols
+        .declaration_syntax_anchor(owner.into_any())
+        .ok_or(BinderFactError::DependencyUnavailable)?;
 
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(

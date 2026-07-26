@@ -1,0 +1,31 @@
+catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration DeviceMemoryCapability {
+        surface { trusted predicate device_memory(); }
+    }
+
+    declaration IntrinsicCapability {
+        surface { trusted predicate intrinsic(); }
+    }
+
+    declaration LayoutReinterpretCapability {
+        surface { trusted predicate layout_reinterpret(); }
+    }
+
+    declaration ManualAllocationCapability {
+        surface { trusted predicate manual_alloc(); }
+    }
+
+    declaration RawMemoryCapability {
+        surface { trusted predicate raw_memory(); }
+    }
+
+    declaration UncheckedAliasCapability {
+        surface { trusted predicate unchecked_alias(); }
+    }
+
+    declaration UncheckedInitializationCapability {
+        surface { trusted predicate unchecked_init(); }
+    }
+}

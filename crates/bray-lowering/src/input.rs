@@ -519,7 +519,8 @@ fn validate_async_facts(
                 .cancellation_broadcast()
                 .iter()
                 .chain(exit.lifecycle_resolution())
-                .all(|identity| storage.identity(*identity).is_some())
+                .chain(exit.moved())
+                .all(|access| storage.access(*access).is_some())
     });
 
     if !valid_frame || !valid_suspensions || !valid_tasks || !valid_exits {
@@ -1315,7 +1316,7 @@ mod tests {
         let storage = storage.finish();
 
         let incomplete_flow =
-            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], false)
+            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
                 .unwrap_or_else(|error| panic!("incomplete test flow must validate: {error:?}"));
 
         assert_eq!(
@@ -1336,6 +1337,7 @@ mod tests {
                 None,
                 StorageOperationStatus::Valid,
             )],
+            [],
             [],
             false,
         )
@@ -1402,6 +1404,7 @@ mod tests {
                 Some(wrong_capability),
                 StorageOperationStatus::Valid,
             )],
+            [],
             [],
             false,
         )
@@ -1552,8 +1555,9 @@ mod tests {
     fn empty_storage_facts(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlowFacts) {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow = StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], false)
-            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+        let storage_flow =
+            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+                .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         (storage, storage_flow)
     }

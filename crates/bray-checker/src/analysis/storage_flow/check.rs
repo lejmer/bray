@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, CheckedRefinementFacts,
-    LivenessFacts, PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId,
-    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageExitDecision,
-    StorageFlowFacts, StorageIdentity, StorageIdentityId, StorageOperationDecision,
-    StorageOperationStatus, StoragePlan, StorageProjection, StorageRelationship,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
+    CheckedRefinementFacts, LivenessFacts, PatternPredicate, RefinementFact, RefinementFactKind,
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
+    StorageExitDecision, StorageFlowFacts, StorageIdentity, StorageIdentityId,
+    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
+    StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::{BorrowKind, CallableSignatureFact};
@@ -135,6 +136,7 @@ where
         storage.unit(),
         storage.kind(),
         decisions,
+        collector.suspensions,
         collector.exits,
         collector.is_recovered
             || storage_is_recovered(storage)
@@ -162,6 +164,7 @@ where
     refinements: &'analysis CheckedRefinementFacts,
     input: &'analysis StorageFlowInput,
     statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
+    suspensions: Vec<StorageSuspensionState>,
     exits: Vec<StorageExitDecision>,
     diagnostics: DiagnosticBag,
     reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -187,6 +190,7 @@ where
             refinements,
             input,
             statuses: BTreeMap::new(),
+            suspensions: Vec::new(),
             exits: Vec::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -213,6 +217,10 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
+        if let AnalysisOperationKind::DirectAwait(expression) = operation.kind() {
+            self.record_suspension(state, expression);
+        }
+
         if matches!(operation.kind(), AnalysisOperationKind::Recovery(_)) {
             state.recovered = true;
             self.is_recovered = true;
@@ -657,6 +665,19 @@ where
             state.moved.iter().copied(),
             state.active_borrows.iter().copied(),
             state.recovered,
+        ));
+    }
+
+    fn record_suspension(&mut self, state: &StorageFlowState, expression: BoundExpressionId) {
+        if !self.publish {
+            return;
+        }
+
+        self.suspensions.push(StorageSuspensionState::new(
+            expression,
+            state.initialized.iter().copied(),
+            state.moved.iter().copied(),
+            state.active_borrows.iter().copied(),
         ));
     }
 

@@ -7,7 +7,7 @@ mod plan;
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{
     StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError, StorageOperationDecision,
-    StorageOperationStatus,
+    StorageOperationStatus, StorageSuspensionState,
 };
 pub use liveness::{
     LastUse, LiveAcrossScope, LiveAcrossSuspension, LivenessFacts, LivenessFactsBuildError,

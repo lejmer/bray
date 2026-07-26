@@ -529,7 +529,7 @@ mod tests {
         };
 
         assert_eq!(catalog.compiler_known_scopes().len(), 10);
-        assert_eq!(catalog.compiler_known_declarations().len(), 200);
+        assert_eq!(catalog.compiler_known_declarations().len(), 207);
         assert_eq!(catalog.compiler_known_values().len(), 4);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 3);
         assert_eq!(catalog.recognized_standard_library_declarations().len(), 59);
