@@ -1,7 +1,8 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
-    BoundUnitKind, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedSemanticSelections,
+    BoundBlockId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
+    BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedSemanticSelections, StorageAccessPlan, StorageAccessPurpose,
+    StorageAccessRoot, StorageFlowFacts, StorageOperationDecision, StoragePlan,
 };
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::AvailableCompilerKnownSymbols;
@@ -18,6 +19,8 @@ pub struct LoweringInput<'unit> {
     expression_types: &'unit CheckedExpressionTypes,
     semantic_selections: &'unit CheckedSemanticSelections,
     literal_values: &'unit CheckedLiteralValues,
+    storage_plan: &'unit StoragePlan,
+    storage_flow: &'unit StorageFlowFacts,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     unit_kind: MirUnitKind,
     target: MirTargetFacts,
@@ -35,6 +38,8 @@ impl<'unit> LoweringInput<'unit> {
         expression_types: &'unit CheckedExpressionTypes,
         semantic_selections: &'unit CheckedSemanticSelections,
         literal_values: &'unit CheckedLiteralValues,
+        storage_plan: &'unit StoragePlan,
+        storage_flow: &'unit StorageFlowFacts,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         unit_kind: MirUnitKind,
         target: MirTargetFacts,
@@ -67,8 +72,23 @@ impl<'unit> LoweringInput<'unit> {
             LoweringFactKind::LiteralValues,
         )?;
 
+        validate_fact_owner(
+            unit,
+            storage_plan.unit(),
+            storage_plan.kind(),
+            LoweringFactKind::StoragePlan,
+        )?;
+
+        validate_fact_owner(
+            unit,
+            storage_flow.unit(),
+            storage_flow.kind(),
+            LoweringFactKind::StorageFlow,
+        )?;
+
         validate_literal_target(literal_values, &target)?;
         validate_semantic_completeness(unit, expression_types, semantic_selections)?;
+        validate_storage_facts(unit, storage_plan, storage_flow)?;
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
@@ -80,6 +100,8 @@ impl<'unit> LoweringInput<'unit> {
             expression_types,
             semantic_selections,
             literal_values,
+            storage_plan,
+            storage_flow,
             available_compiler_known_symbols,
             unit_kind,
             target,
@@ -109,6 +131,16 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns source literals adapted to their final checked types.
     pub const fn literal_values(&self) -> &'unit CheckedLiteralValues {
         self.literal_values
+    }
+
+    /// Returns exact storage identities, relationships, and evaluated accesses.
+    pub const fn storage_plan(&self) -> &'unit StoragePlan {
+        self.storage_plan
+    }
+
+    /// Returns checked ownership, movement, and borrow decisions.
+    pub const fn storage_flow(&self) -> &'unit StorageFlowFacts {
+        self.storage_flow
     }
 
     /// Returns target-available compiler-known identities and behavior roles.
@@ -143,6 +175,10 @@ pub enum LoweringFactKind {
     SemanticSelections,
     /// Source-literal values.
     LiteralValues,
+    /// Storage identities and occurrence-specific access plans.
+    StoragePlan,
+    /// Checked storage-operation decisions.
+    StorageFlow,
 }
 
 /// A contract violation that prevents a bound unit from entering lowering.
@@ -170,6 +206,17 @@ pub enum LoweringInputError {
     MissingSemanticSelection(BoundExpressionId),
     /// A bound expression has no final checked type.
     MissingExpressionType(BoundExpressionId),
+    /// A checked storage operation does not match the canonical storage plan.
+    InvalidStorageOperation(BoundExpressionId),
+    /// Checked storage operations do not cover every canonical access plan exactly once.
+    StorageOperationCountMismatch {
+        /// The number of canonical access plans.
+        expected: usize,
+        /// The number of checked operation decisions.
+        actual: usize,
+    },
+    /// A scope-exit storage decision references an unknown scope, identity, access, or borrow.
+    InvalidStorageExit(BoundBlockId),
     /// Literal adaptation used a machine-sized integer width from another target.
     LiteralTargetWidthMismatch {
         /// The width required by the lowering target.
@@ -215,6 +262,96 @@ fn validate_semantic_completeness(
     }
 
     Ok(())
+}
+
+fn validate_storage_facts(
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+    flow: &StorageFlowFacts,
+) -> Result<(), LoweringInputError> {
+    let plans = storage.access_plans();
+    let decisions = flow.operations();
+
+    if plans.len() != decisions.len() {
+        return Err(LoweringInputError::StorageOperationCountMismatch {
+            expected: plans.len(),
+            actual: decisions.len(),
+        });
+    }
+
+    for (plan, decision) in plans.iter().copied().zip(decisions.iter().copied()) {
+        let plan_matches = plan.expression() == decision.expression()
+            && plan.access() == decision.access()
+            && plan.purpose().matches_checked(decision.purpose());
+
+        let has_expression = unit.view().expression(decision.expression()).is_some();
+
+        let has_access = storage.access(decision.access()).is_some();
+
+        let borrow_matches = storage_borrow_matches(storage, plan, decision);
+
+        if !plan_matches || !has_expression || !has_access || !borrow_matches {
+            return Err(LoweringInputError::InvalidStorageOperation(
+                decision.expression(),
+            ));
+        }
+    }
+
+    for exit in flow.exits() {
+        let has_scope = unit.view().block(exit.scope()).is_some();
+
+        let has_identities = exit
+            .initialized()
+            .iter()
+            .all(|identity| storage.identity(*identity).is_some());
+
+        let has_accesses = exit
+            .moved()
+            .iter()
+            .all(|access| storage.access(*access).is_some());
+
+        let has_borrows = exit
+            .active_borrows()
+            .iter()
+            .all(|borrow| storage.borrow_capability(*borrow).is_some());
+
+        if !has_scope || !has_identities || !has_accesses || !has_borrows {
+            return Err(LoweringInputError::InvalidStorageExit(exit.scope()));
+        }
+    }
+
+    Ok(())
+}
+
+fn storage_borrow_matches(
+    storage: &StoragePlan,
+    plan: StorageAccessPlan,
+    decision: StorageOperationDecision,
+) -> bool {
+    let StorageAccessPurpose::Borrow(kind) = plan.purpose() else {
+        return decision.borrow().is_none();
+    };
+
+    let Some(borrow) = decision.borrow() else {
+        return false;
+    };
+
+    let Some(capability) = storage.borrow_capability(borrow) else {
+        return false;
+    };
+
+    if capability.kind() != kind {
+        return false;
+    }
+
+    let created_by_expression =
+        capability.expression() == Some(plan.expression()) && capability.access() == plan.access();
+
+    let inherited_from_access = storage
+        .access(plan.access())
+        .is_some_and(|access| access.root() == StorageAccessRoot::Borrow(borrow));
+
+    created_by_expression || inherited_from_access
 }
 
 const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
@@ -281,14 +418,16 @@ mod tests {
     use std::num::NonZeroU16;
 
     use bray_bound_tree::{
-        BoundConversionExpression, BoundExpression, BoundStructuredExpression,
-        BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitRoot,
-        CheckedControlFlowFacts, CheckedExpressionTypes, CheckedLiteralValues,
+        BorrowCapabilityOrigin, BoundConversionExpression, BoundExpression, BoundExpressionId,
+        BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
+        BoundUnitRoot, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedLiteralValues,
         CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult,
-        ExpressionTypeStatus,
+        ExpressionTypeStatus, PlannedBorrowCapability, StorageAccess, StorageAccessPurpose,
+        StorageAccessRoot, StorageFlowFacts, StorageIdentity, StorageOperationDecision,
+        StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
-    use bray_symbols::{SemanticValueStore, TypeData};
+    use bray_symbols::{BorrowKind, SemanticValueStore, TypeData, TypeId};
     use bray_testing::{test_bound_unit, test_expression_unit, test_mir_target};
 
     use super::{LoweringFactKind, LoweringInput, LoweringInputError};
@@ -311,6 +450,8 @@ mod tests {
             &facts.types,
             &facts.selections,
             &facts.literals,
+            &facts.storage,
+            &facts.storage_flow,
             available_compiler_known_symbols(),
             bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
@@ -324,6 +465,8 @@ mod tests {
         assert!(std::ptr::eq(input.expression_types(), &facts.types));
         assert!(std::ptr::eq(input.semantic_selections(), &facts.selections));
         assert!(std::ptr::eq(input.literal_values(), &facts.literals));
+        assert!(std::ptr::eq(input.storage_plan(), &facts.storage));
+        assert!(std::ptr::eq(input.storage_flow(), &facts.storage_flow));
 
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
@@ -349,6 +492,8 @@ mod tests {
                 &facts.types,
                 &facts.selections,
                 &facts.literals,
+                &facts.storage,
+                &facts.storage_flow,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -373,6 +518,8 @@ mod tests {
                 &facts.types,
                 &facts.selections,
                 &facts.literals,
+                &facts.storage,
+                &facts.storage_flow,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -405,6 +552,8 @@ mod tests {
                 &foreign.types,
                 &local.selections,
                 &local.literals,
+                &local.storage,
+                &local.storage_flow,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -444,6 +593,8 @@ mod tests {
                 &facts.types,
                 &facts.selections,
                 &facts.literals,
+                &facts.storage,
+                &facts.storage_flow,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -488,6 +639,8 @@ mod tests {
                 &facts.types,
                 &facts.selections,
                 &facts.literals,
+                &facts.storage,
+                &facts.storage_flow,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -570,6 +723,8 @@ mod tests {
             ControlCompletion::default(),
         );
 
+        let (storage, storage_flow) = empty_storage_facts(&unit);
+
         assert_input_error(
             LoweringInput::try_new(
                 &unit,
@@ -577,12 +732,168 @@ mod tests {
                 &types,
                 &selections,
                 &literals,
+                &storage,
+                &storage_flow,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
             ),
             LoweringInputError::MissingSemanticSelection(conversion),
         );
+    }
+
+    #[test]
+    fn input_rejects_storage_flow_that_disagrees_with_the_storage_plan() {
+        let (unit, expression, reached_type) = storage_expression_unit(7);
+
+        let Some(bound) = unit.view().expression(expression) else {
+            panic!("test expression must remain available");
+        };
+
+        let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let identity = storage
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap_or_else(|error| panic!("test identity must validate: {error:?}"));
+
+        let access = storage
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
+                [],
+                reached_type,
+                bound.origin().source_anchor(),
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test access must validate: {error:?}"));
+
+        storage
+            .plan_access(expression, StorageAccessPurpose::Read, access)
+            .unwrap_or_else(|error| panic!("test access plan must validate: {error:?}"));
+
+        let storage = storage.finish();
+
+        let incomplete_flow =
+            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], false)
+                .unwrap_or_else(|error| panic!("incomplete test flow must validate: {error:?}"));
+
+        assert_eq!(
+            super::validate_storage_facts(&unit, &storage, &incomplete_flow),
+            Err(LoweringInputError::StorageOperationCountMismatch {
+                expected: 1,
+                actual: 0,
+            })
+        );
+
+        let flow = StorageFlowFacts::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [StorageOperationDecision::new(
+                expression,
+                StorageAccessPurpose::Write,
+                access,
+                None,
+                StorageOperationStatus::Valid,
+            )],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
+
+        assert_eq!(
+            super::validate_storage_facts(&unit, &storage, &flow),
+            Err(LoweringInputError::InvalidStorageOperation(expression))
+        );
+    }
+
+    #[test]
+    fn input_rejects_a_borrow_decision_with_the_wrong_capability() {
+        let (unit, expression, reached_type) = storage_expression_unit(8);
+
+        let Some(bound) = unit.view().expression(expression) else {
+            panic!("test expression must remain available");
+        };
+
+        let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let identity = storage
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap_or_else(|error| panic!("test identity must validate: {error:?}"));
+
+        let access = storage
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
+                [],
+                reached_type,
+                bound.origin().source_anchor(),
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test access must validate: {error:?}"));
+
+        let wrong_capability = storage
+            .push_borrow_capability(PlannedBorrowCapability::new(
+                BorrowCapabilityOrigin::Expression(expression),
+                BorrowKind::Mutable,
+                access,
+                None,
+                bound.origin().source_anchor(),
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test borrow capability must validate: {error:?}"));
+
+        storage
+            .plan_access(
+                expression,
+                StorageAccessPurpose::Borrow(BorrowKind::Shared),
+                access,
+            )
+            .unwrap_or_else(|error| panic!("test access plan must validate: {error:?}"));
+
+        let storage = storage.finish();
+
+        let flow = StorageFlowFacts::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [StorageOperationDecision::new(
+                expression,
+                StorageAccessPurpose::Borrow(BorrowKind::Shared),
+                access,
+                Some(wrong_capability),
+                StorageOperationStatus::Valid,
+            )],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
+
+        assert_eq!(
+            super::validate_storage_facts(&unit, &storage, &flow),
+            Err(LoweringInputError::InvalidStorageOperation(expression))
+        );
+    }
+
+    fn storage_expression_unit(id: u32) -> (BoundUnit, BoundExpressionId, TypeId) {
+        let unit = test_expression_unit(id, |tree, origin| {
+            tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Unit,
+                [],
+                [],
+                [],
+                None,
+                false,
+            )))
+            .unwrap_or_else(|error| panic!("test expression must fit: {error:?}"))
+        });
+
+        let BoundUnitRoot::Expression(expression) = unit.root() else {
+            panic!("test expression unit must retain its root");
+        };
+
+        let reached_type = semantic_values()
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
+
+        (unit, expression, reached_type)
     }
 
     #[test]
@@ -608,6 +919,8 @@ mod tests {
         types: CheckedExpressionTypes,
         selections: CheckedSemanticSelections,
         literals: CheckedLiteralValues,
+        storage: bray_bound_tree::StoragePlan,
+        storage_flow: StorageFlowFacts,
     }
 
     fn empty_expression_facts(unit: &BoundUnit) -> ExpressionFacts {
@@ -629,11 +942,24 @@ mod tests {
             CheckedLiteralValues::try_new(unit, &types, &values, target_integer_width_bits, [])
                 .unwrap_or_else(|error| panic!("empty literal values must validate: {error:?}"));
 
+        let (storage, storage_flow) = empty_storage_facts(unit);
+
         ExpressionFacts {
             types,
             selections,
             literals,
+            storage,
+            storage_flow,
         }
+    }
+
+    fn empty_storage_facts(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlowFacts) {
+        let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
+
+        let storage_flow = StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], false)
+            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+
+        (storage, storage_flow)
     }
 
     fn semantic_values() -> SemanticValueStore {
