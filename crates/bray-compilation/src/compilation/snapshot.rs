@@ -186,12 +186,10 @@ fn invalidation_roots(
         );
     }
 
-    if previous.options.semantic_analysis_limits() != updated.options.semantic_analysis_limits() {
-        roots.extend([
-            CompilationFactKey::ImplementationCoherence,
-            CompilationFactKey::CallableOverloadValidation,
-        ]);
+    let previous_semantic_limits = previous.options.semantic_analysis_limits();
+    let updated_semantic_limits = updated.options.semantic_analysis_limits();
 
+    if previous_semantic_limits.recursion_depth() != updated_semantic_limits.recursion_depth() {
         roots.extend(
             previous
                 .declared_type_representations
@@ -199,6 +197,15 @@ fn invalidation_roots(
                 .into_iter()
                 .map(CompilationFactKey::DeclaredTypeRepresentation),
         );
+    }
+
+    if previous_semantic_limits.pairwise_comparisons()
+        != updated_semantic_limits.pairwise_comparisons()
+    {
+        roots.extend([
+            CompilationFactKey::ImplementationCoherence,
+            CompilationFactKey::CallableOverloadValidation,
+        ]);
     }
 
     if previous.dependency_interfaces != updated.dependency_interfaces {
@@ -712,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_limit_changes_invalidate_only_limit_dependent_facts() {
+    fn semantic_limit_fields_invalidate_only_their_dependent_facts() {
         let source_text = concat!(
             "module app;\n",
             "\n",
@@ -748,13 +755,18 @@ mod tests {
             .callable_overload_diagnostics(&previous.state.cancellation)
             .unwrap_or_else(|error| panic!("overload validation must complete: {error:?}"));
 
-        let revised_options = options(ProductKind::Library, SelectedTarget::baseline())
-            .with_semantic_analysis_limits(SemanticAnalysisLimits::new(32, 64));
+        let default_limits = SemanticAnalysisLimits::default();
 
-        let updated = previous
+        let recursion_options = options(ProductKind::Library, SelectedTarget::baseline())
+            .with_semantic_analysis_limits(SemanticAnalysisLimits::new(
+                32,
+                default_limits.pairwise_comparisons(),
+            ));
+
+        let recursion_updated = previous
             .updated(request(
                 [source(10, 0, source_text)],
-                revised_options,
+                recursion_options,
             ))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
@@ -762,26 +774,71 @@ mod tests {
             !previous
                 .state
                 .declared_type_representations
-                .shares_cell_with(&updated.state.declared_type_representations, &subject)
+                .shares_cell_with(
+                    &recursion_updated.state.declared_type_representations,
+                    &subject
+                )
+        );
+
+        assert!(
+            previous
+                .state
+                .implementation_coherence
+                .shares_storage_with(&recursion_updated.state.implementation_coherence)
+        );
+
+        assert!(
+            previous
+                .state
+                .callable_overload_validation
+                .shares_storage_with(&recursion_updated.state.callable_overload_validation)
+        );
+
+        let comparison_options = options(ProductKind::Library, SelectedTarget::baseline())
+            .with_semantic_analysis_limits(SemanticAnalysisLimits::new(
+                default_limits.recursion_depth(),
+                64,
+            ));
+
+        let comparison_updated = previous
+            .updated(request(
+                [source(10, 0, source_text)],
+                comparison_options,
+            ))
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert!(
+            previous
+                .state
+                .declared_type_representations
+                .shares_cell_with(
+                    &comparison_updated.state.declared_type_representations,
+                    &subject
+                )
         );
 
         assert!(
             !previous
                 .state
                 .implementation_coherence
-                .shares_storage_with(&updated.state.implementation_coherence)
+                .shares_storage_with(&comparison_updated.state.implementation_coherence)
         );
 
         assert!(
             !previous
                 .state
                 .callable_overload_validation
-                .shares_storage_with(&updated.state.callable_overload_validation)
+                .shares_storage_with(&comparison_updated.state.callable_overload_validation)
         );
 
         assert!(
             previous.state.source_unit_syntax[0]
-                .shares_storage_with(&updated.state.source_unit_syntax[0])
+                .shares_storage_with(&recursion_updated.state.source_unit_syntax[0])
+        );
+
+        assert!(
+            previous.state.source_unit_syntax[0]
+                .shares_storage_with(&comparison_updated.state.source_unit_syntax[0])
         );
     }
 

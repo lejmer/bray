@@ -257,15 +257,17 @@ const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE: &[MessageTemplatePart] =
     )];
 
 const CHECKING_IMPLEMENTATION_COHERENCE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("implementation coherence analysis exceeded its limit of "),
+    MessageTemplatePart::Text(
+        "implementation coherence analysis exceeded its pairwise comparison limit of ",
+    ),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
-    MessageTemplatePart::Text(" comparisons"),
 ];
 
 const CHECKING_CALLABLE_OVERLOAD_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("callable overload analysis exceeded its limit of "),
+    MessageTemplatePart::Text(
+        "callable overload analysis exceeded its pairwise comparison limit of ",
+    ),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
-    MessageTemplatePart::Text(" comparisons"),
 ];
 
 const CHECKING_MISSING_FOREIGN_CALLABLE_DIRECTIVE: &[MessageTemplatePart] = &[

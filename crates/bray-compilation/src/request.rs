@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_checker::SemanticAnalysisLimits;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
@@ -12,6 +11,39 @@ use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
 use crate::SelectedTarget;
 use crate::worker::WorkerBudget;
+
+/// Deterministic resource limits for semantic analysis requested by a compilation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SemanticAnalysisLimits {
+    recursion_depth: usize,
+    pairwise_comparisons: u64,
+}
+
+impl SemanticAnalysisLimits {
+    /// Creates explicit recursion-depth and pairwise-comparison limits.
+    pub const fn new(recursion_depth: usize, pairwise_comparisons: u64) -> Self {
+        Self {
+            recursion_depth,
+            pairwise_comparisons,
+        }
+    }
+
+    /// Returns the maximum active semantic recursion depth.
+    pub const fn recursion_depth(self) -> usize {
+        self.recursion_depth
+    }
+
+    /// Returns the maximum pairwise semantic comparisons in one package-level fact.
+    pub const fn pairwise_comparisons(self) -> u64 {
+        self.pairwise_comparisons
+    }
+}
+
+impl Default for SemanticAnalysisLimits {
+    fn default() -> Self {
+        Self::new(256, 100_000)
+    }
+}
 
 /// Options for one compiler operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -300,7 +332,6 @@ mod tests {
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     };
-    use bray_checker::SemanticAnalysisLimits;
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{PackageIdentity, ProductKind};
 
@@ -308,7 +339,7 @@ mod tests {
 
     use super::{
         CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-        PackageInterfaceExportRequest,
+        PackageInterfaceExportRequest, SemanticAnalysisLimits,
     };
 
     #[test]
@@ -367,6 +398,17 @@ mod tests {
                 .map(bray_package_interface::PackageInterfaceIdentity::public_surface),
             Some("public-v1")
         );
+    }
+
+    #[test]
+    fn semantic_analysis_limits_are_finite_and_explicitly_configurable() {
+        let defaults = SemanticAnalysisLimits::default();
+        let immediate_rejection = SemanticAnalysisLimits::new(0, 0);
+
+        assert!(defaults.recursion_depth() > 0);
+        assert!(defaults.pairwise_comparisons() > 0);
+        assert_eq!(immediate_rejection.recursion_depth(), 0);
+        assert_eq!(immediate_rejection.pairwise_comparisons(), 0);
     }
 
     fn dependency_interface() -> DependencyInterfaceInput {

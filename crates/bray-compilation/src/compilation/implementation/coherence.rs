@@ -98,6 +98,7 @@ impl Compilation {
                     if !try_count_comparison(&mut comparisons, maximum_comparisons) {
                         diagnostics.add(coherence_limit_diagnostic(
                             participants.get(&left.implementation()).copied(),
+                            participants.get(&right.implementation()).copied(),
                             symbols,
                             maximum_comparisons,
                         ));
@@ -433,30 +434,40 @@ fn add_participant_diagnostic(
 }
 
 fn coherence_limit_diagnostic(
-    participant: Option<&bray_symbols::ParticipatingImplementation>,
+    left: Option<&bray_symbols::ParticipatingImplementation>,
+    right: Option<&bray_symbols::ParticipatingImplementation>,
     symbols: &bray_symbols::SymbolGraph,
     maximum: u64,
 ) -> Diagnostic {
     let kind = DiagnosticKind::CheckingImplementationCoherenceLimitExceeded;
 
-    let diagnostic = participant
-        .and_then(|participant| match participant.evidence().kind() {
-            ImplementationParticipationKind::Declared => {
-                symbols.declaration_syntax_anchor(participant.implementation().into_any())
-            }
-            ImplementationParticipationKind::ExplicitUsing => participant
-                .evidence()
-                .using_declarations()
-                .first()
-                .copied(),
-            ImplementationParticipationKind::CompilerKnown => None,
-        })
+    let diagnostic = [left, right]
+        .into_iter()
+        .flatten()
+        .find_map(|participant| participant_source_anchor(participant, symbols))
         .map_or_else(
             || Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error),
             |anchor| source_diagnostic(anchor, kind),
         );
 
     diagnostic.with_arg(DiagnosticArg::maximum_count(maximum))
+}
+
+fn participant_source_anchor(
+    participant: &bray_symbols::ParticipatingImplementation,
+    symbols: &bray_symbols::SymbolGraph,
+) -> Option<SyntaxAnchor> {
+    match participant.evidence().kind() {
+        ImplementationParticipationKind::Declared => {
+            symbols.declaration_syntax_anchor(participant.implementation().into_any())
+        }
+        ImplementationParticipationKind::ExplicitUsing => participant
+            .evidence()
+            .using_declarations()
+            .first()
+            .copied(),
+        ImplementationParticipationKind::CompilerKnown => None,
+    }
 }
 
 #[cfg(test)]

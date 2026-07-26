@@ -861,6 +861,24 @@ pairs.
 Changing a semantic work limit invalidates only facts whose result depends on that limit and their ordinary dependents. Worker
 count, query priority, cancellation, and cache retention remain scheduling inputs and do not affect semantic identity.
 
+The pre-lowering bounded-work policy is divided by domain:
+
+- source loading and compiled package decoding enforce their own input counts, byte sizes, section sizes, and allocation limits,
+- parser recursion is bounded while green-tree traversal and teardown remain iterative,
+- declaration, symbol, bound-node, analysis-node, and semantic-value arenas use checked compact identities and reject capacity
+  overflow before publication,
+- generic and type work remains demand-driven per requested occurrence, detects fact cycles, and observes syntax or semantic
+  recursion limits instead of expanding an eager transitive closure,
+- constant evaluation owns operation, aggregate, literal, exact-integer, and call-depth limits,
+- flow-sensitive analysis owns explicit fact and storage-cell capacities plus finite convergence arguments,
+- implementation and overload families own package-fact pair-comparison limits,
+- fact caches own finite retention independently of semantic answers,
+- diagnostic accumulation is bounded by the source occurrences, semantic entities, and explicitly limited work items that can
+  produce diagnostics.
+
+No limit may be replaced by a machine-time deadline or available-memory probe. Capacity conversion and arithmetic must be checked,
+and source-triggered exhaustion must become structured recovery or rejection rather than a compiler panic.
+
 ---
 
 ## Fixed-Point Contract

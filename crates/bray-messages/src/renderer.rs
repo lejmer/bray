@@ -700,11 +700,11 @@ mod tests {
             ),
             (
                 DiagnosticKind::CheckingImplementationCoherenceLimitExceeded,
-                "implementation coherence analysis exceeded its limit of 17 comparisons",
+                "implementation coherence analysis exceeded its pairwise comparison limit of 17",
             ),
             (
                 DiagnosticKind::CheckingCallableOverloadLimitExceeded,
-                "callable overload analysis exceeded its limit of 17 comparisons",
+                "callable overload analysis exceeded its pairwise comparison limit of 17",
             ),
         ];
 
@@ -716,6 +716,18 @@ mod tests {
 
             assert_eq!(rendered.message(), expected);
         }
+
+        let singular = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingCallableOverloadLimitExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::maximum_count(1));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&singular).message(),
+            "callable overload analysis exceeded its pairwise comparison limit of 1"
+        );
     }
 
     #[test]

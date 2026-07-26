@@ -10,7 +10,6 @@ mod context;
 mod dependency;
 mod diagnostic;
 mod expression;
-mod limits;
 mod outcome;
 mod pattern;
 mod representation;
@@ -39,7 +38,6 @@ pub use context::{
 };
 pub use diagnostic::diagnostic_type;
 pub use expression::NestedCallableEvidence;
-pub use limits::SemanticAnalysisLimits;
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
     GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,

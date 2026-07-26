@@ -19,13 +19,13 @@ pub use compilation::{
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
 };
-pub use bray_checker::SemanticAnalysisLimits;
 pub use fact::{
     CancellationToken, FactCycle, FactQueryError, ImportedSemanticFactKey, QueryPriority,
     SymbolCompletionError,
 };
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
+    SemanticAnalysisLimits,
 };
 pub use target::{SelectedTarget, SelectedTargetContext};
 pub use worker::{WorkerBudget, WorkerBudgetError};
