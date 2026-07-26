@@ -133,6 +133,7 @@ impl CallableSignatureTemplate {
     /// Returns a signature with its declaration-body presence set.
     pub fn with_body(mut self, has_body: bool) -> Self {
         self.has_body = has_body;
+
         self
     }
 

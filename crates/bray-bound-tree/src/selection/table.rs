@@ -377,6 +377,7 @@ fn call_matches_expression(
         }
         SelectedArgument::Default { parameter, .. } => {
             saw_default = true;
+
             declaration_backed && parameters.insert(*parameter)
         }
         SelectedArgument::Explicit { .. } => false,

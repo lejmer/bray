@@ -162,6 +162,7 @@ fn resolve_kind(
         },
         Err(fragment_diagnostics) => {
             diagnostics.extend_from_slice(fragment_diagnostics.diagnostics());
+
             None
         }
     };

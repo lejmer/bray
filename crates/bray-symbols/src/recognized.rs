@@ -222,6 +222,7 @@ fn resolve_recognized_external_key(
                 // External keys own their complete semantic ancestry, so these small immutable
                 // keys must be copied into the next construction layer.
                 let package_key = ExternalSymbolKey::package(package.clone());
+
                 ExternalSymbolKey::module(package_key, module_path)?
             }
             RecognizedStandardLibraryDeclarationOwner::Declaration(owner) => {

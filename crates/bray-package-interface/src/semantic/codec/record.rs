@@ -110,6 +110,7 @@ pub(super) fn encode_record_table<T>(
             let mut encoder = WireEncoder::new();
 
             encode(&mut encoder, record);
+
             encoder.into_bytes()
         })
         .collect::<Vec<_>>();

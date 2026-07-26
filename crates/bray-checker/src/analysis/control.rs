@@ -75,6 +75,7 @@ where
                 let current = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(current, id.into());
+
                 self.build_result_or_run_result_propagation(id, expression, current)
             }
             BoundStructuredExpressionKind::NullablePropagation => {

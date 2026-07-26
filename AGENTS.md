@@ -48,6 +48,8 @@ Do not add a second build system, task runner, or command DSL unless explicitly 
 
 `cargo test` must continue to work. Additional test runners such as `cargo-nextest` may be used for faster local and CI runs, but they must not be the only way to run the test suite.
 
-After changing Rust source, running `cargo xtask style` is mandatory.
+After changing Rust source, running `cargo xtask style` is mandatory. It applies deterministic fixes and runs all structural
+checks described in [coding-conventions.md](docs/contributing/coding-conventions.md); do not substitute the non-mutating
+`cargo xtask style check` in the agent workflow.
 
 > **Note:** If you do not change any code, you do not need to run tests, linting, or code checks.

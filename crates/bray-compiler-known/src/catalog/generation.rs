@@ -404,6 +404,7 @@ fn collect_surface_elements(
                 }
                 None => {
                     valid = false;
+
                     return SyntaxWalkControl::Stop;
                 }
             },

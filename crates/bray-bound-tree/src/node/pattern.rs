@@ -219,18 +219,21 @@ impl BoundPattern {
     /// Returns this pattern with its binding mutability recorded.
     pub const fn with_mutability(mut self, is_mutable: bool) -> Self {
         self.is_mutable = is_mutable;
+
         self
     }
 
     /// Returns this pattern with syntax or semantic recovery recorded.
     pub const fn with_recovery(mut self, is_recovered: bool) -> Self {
         self.is_recovered = is_recovered;
+
         self
     }
 
     /// Returns this pattern with its resolved non-binding target recorded.
     pub const fn with_target(mut self, target: Option<BoundPatternTarget>) -> Self {
         self.target = target;
+
         self
     }
 

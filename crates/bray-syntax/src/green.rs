@@ -166,7 +166,6 @@ impl GreenElement {
             Self::Node(node) => node.full_width(),
         }
     }
-
 }
 
 impl From<SyntaxToken> for GreenElement {
@@ -248,7 +247,6 @@ impl GreenToken {
             trailing_trivia,
         )
     }
-
 }
 
 /// Width-only trivia stored by green syntax tokens.

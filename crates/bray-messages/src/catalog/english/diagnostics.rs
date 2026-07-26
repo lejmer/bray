@@ -843,6 +843,7 @@ pub(crate) const fn note_heading(kind: RenderedDiagnosticNoteKind) -> &'static s
     }
 }
 
+// bray-style: allow(function-too-large, reason = "the locale diagnostic catalog is intentionally one exhaustive flat mapping")
 pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     match kind {
         DiagnosticKind::SourceFileReadFailed => MessageTemplate::new(SOURCE_FILE_READ_FAILED),

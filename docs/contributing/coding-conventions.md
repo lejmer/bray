@@ -66,7 +66,7 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 ## General code quality
 
 - Never use `unsafe`.
-- Do not use wildcard imports such as `::-`.
+- Do not use wildcard imports such as `::*`.
 - Always import items explicitly.
 - Keep invariants represented in types where practical.
 - Prefer impossible states being unrepresentable over comments explaining possible invalid states.
@@ -252,6 +252,43 @@ Run `cargo xtask style` to apply these rules automatically. Run `cargo xtask sty
 - Separate multiline statements and expressions (like multiline `let` expressions or `assert*` macros) with blank lines.
 - In blocks, always put a blank line above any comment unless the comment is the absolute first thing in that block.
 - Tuple and bracket destructuring `let` expressions (`let (a, b) = ...` and `let [a, b] = ...`) should be separated with blank lines.
+- Separate every returned expression from preceding statements or expressions in the same block. This applies both to explicit
+  `return value;` expressions and to implicit tail expressions. When a comment documents the returned expression, place the
+  boundary above the comment so the comment stays attached to the expression.
+
+### Automated structural checks
+
+`cargo xtask style` applies automatic fixes and then runs every structural check. `cargo xtask style check` runs the same
+diagnostics without changing files. A check-only rule still runs in both modes; it means the command reports the problem instead
+of trying to rewrite the source. Error diagnostics fail the command, while warning diagnostics do not.
+
+The style command enforces these structural rules for Rust source:
+
+- A production module over 800 physical source lines produces a warning at its 801st production line. Test-only items and
+  dedicated test sources do not count.
+- A production function over 250 physical source lines produces an error. Keep the design target at roughly 200 lines so functions
+  do not routinely approach the enforced limit. Tests, dedicated test sources, and helpers inside test-only modules do not count.
+- `lib.rs` and a module file paired with a same-named directory must be thin roots. They may contain documentation and attributes,
+  external module declarations, and visible reexports, but no implementation, declarations, private imports, or inline modules.
+- The legacy `mod.rs` layout is an error.
+- A submodule filename that repeats its parent module name, such as `foo/foo_parser.rs`, produces a warning. Name it
+  `foo/parser.rs`; the directory already supplies the parent context.
+- Wildcard imports and reexports are errors regardless of visibility.
+
+Where a rule is genuinely unreasonable for a specific source location, use a narrow source exemption with a nonempty reason:
+
+```rust
+// bray-style: allow(module-too-large, reason = "locale argument catalog is intentionally a flat list")
+```
+
+File-level exemptions must appear before the first item and apply only to `module-too-large`, `legacy-mod-rs`, or
+`repeated-module-prefix`. Item-level exemptions must appear immediately before the affected item and apply only to
+`function-too-large`, `non-thin-lib-root`, `non-thin-module-root`, or `wildcard-import`. Unknown rules, malformed directives,
+empty reasons, and invalid placement are errors. An exemption that does not suppress a diagnostic produces a warning.
+
+Do not use an exemption merely to avoid a reasonable cleanup. A wildcard exemption is appropriate only when naming the symbols
+explicitly is unreasonable to maintain, such as a machine-generated file or an API whose names are defined by macros. A module-size
+exemption is appropriate for a genuinely flat catalog or similar list whose cohesion would be harmed by an arbitrary split.
 
 ## Documentation
 

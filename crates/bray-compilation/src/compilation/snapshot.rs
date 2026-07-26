@@ -764,10 +764,7 @@ mod tests {
             ));
 
         let recursion_updated = previous
-            .updated(request(
-                [source(10, 0, source_text)],
-                recursion_options,
-            ))
+            .updated(request([source(10, 0, source_text)], recursion_options))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
         assert!(
@@ -801,10 +798,7 @@ mod tests {
             ));
 
         let comparison_updated = previous
-            .updated(request(
-                [source(10, 0, source_text)],
-                comparison_options,
-            ))
+            .updated(request([source(10, 0, source_text)], comparison_options))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
         assert!(

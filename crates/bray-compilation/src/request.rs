@@ -77,14 +77,12 @@ impl CompilationOptions {
         inputs: impl IntoIterator<Item = NativeLinkRequirement>,
     ) -> Self {
         self.native_link_inputs = shared_slice(inputs);
+
         self
     }
 
     /// Returns these options with explicit semantic-analysis resource limits.
-    pub const fn with_semantic_analysis_limits(
-        mut self,
-        limits: SemanticAnalysisLimits,
-    ) -> Self {
+    pub const fn with_semantic_analysis_limits(mut self, limits: SemanticAnalysisLimits) -> Self {
         self.semantic_analysis_limits = limits;
 
         self

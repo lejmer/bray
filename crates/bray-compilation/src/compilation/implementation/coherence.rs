@@ -461,11 +461,9 @@ fn participant_source_anchor(
         ImplementationParticipationKind::Declared => {
             symbols.declaration_syntax_anchor(participant.implementation().into_any())
         }
-        ImplementationParticipationKind::ExplicitUsing => participant
-            .evidence()
-            .using_declarations()
-            .first()
-            .copied(),
+        ImplementationParticipationKind::ExplicitUsing => {
+            participant.evidence().using_declarations().first().copied()
+        }
         ImplementationParticipationKind::CompilerKnown => None,
     }
 }
@@ -476,9 +474,7 @@ mod tests {
 
     use crate::fact::CompilationFactKey;
     use crate::test_support::{compilation, compilation_with_options, diagnostic_kinds};
-    use crate::{
-        CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
-    };
+    use crate::{CompilationOptions, SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
 
     const OVERLOAD_SURFACE: &str = concat!(
         "module app;\n",

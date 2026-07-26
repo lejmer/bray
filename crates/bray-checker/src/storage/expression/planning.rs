@@ -274,6 +274,7 @@ where
                 )?;
 
                 self.plan_iteration_storage(id)?;
+
                 self.temporary_access(id)
             }
             _ => {

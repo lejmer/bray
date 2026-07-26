@@ -20,5 +20,4 @@ pub use model::{
     ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
     InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
-
-use state::InternState;
+pub(super) use state::InternState;

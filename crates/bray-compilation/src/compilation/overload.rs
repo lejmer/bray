@@ -327,9 +327,7 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     use crate::test_support::{compilation, compilation_with_options, diagnostic_kinds};
-    use crate::{
-        CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
-    };
+    use crate::{CompilationOptions, SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
 
     #[test]
     fn callable_overload_families_accept_distinguishable_explicit_call_surfaces() {

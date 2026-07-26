@@ -340,6 +340,7 @@ impl<'values> HeaderMatcher<'values> {
             Some(previous) => *previous == argument,
             None => {
                 self.arguments.insert(parameter, argument);
+
                 true
             }
         }

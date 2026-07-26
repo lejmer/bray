@@ -42,6 +42,7 @@ pub(super) fn module_surface(view: SyntaxNodeView<'_>) -> DeclarationSurface {
     }
 }
 
+// bray-style: allow(function-too-large, reason = "the exhaustive declaration-kind dispatch is kept centralized so every syntax kind has one visible mapping")
 pub(super) fn declaration_surface(
     view: SyntaxNodeView<'_>,
     declaration_kind: DeclarationKind,

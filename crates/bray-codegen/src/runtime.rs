@@ -186,6 +186,7 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
         .collect();
 
     frames.sort_unstable();
+
     frames
 }
 
