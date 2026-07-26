@@ -17,6 +17,7 @@ mod load;
 mod overlap;
 mod overload;
 mod pattern;
+mod product;
 mod snapshot;
 mod source_graph;
 mod source_module;

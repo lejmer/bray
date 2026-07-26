@@ -239,6 +239,8 @@ fn reuse_fixed_cells(
 
     reuse!(product_source_graph, CompilationFactKey::ProductSourceGraph);
 
+    reuse!(product_semantics, CompilationFactKey::ProductSemantics);
+
     reuse!(
         compiler_known_symbols,
         CompilationFactKey::CompilerKnownSymbols
