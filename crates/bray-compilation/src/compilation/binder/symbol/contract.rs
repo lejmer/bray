@@ -10,7 +10,7 @@ use bray_symbols::{
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
     CallableSymbolId, CallableTrust, CheckedConstraint, CurrentRunCancellation,
     DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest,
-    SymbolFactResult, TrustedCapabilityRequirement, TypeData,
+    SymbolFactResult, TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -324,7 +324,7 @@ fn validate_trusted_capabilities(
     owner: CallableSymbolId,
     trust: CallableTrust,
     declared: &[TrustedCapabilityRequirement],
-    used: Option<&BTreeSet<AnySymbolId>>,
+    used: Option<&BTreeSet<TrustedCapabilitySymbolId>>,
     is_recovered: bool,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
@@ -341,12 +341,12 @@ fn validate_trusted_capabilities(
         return Ok(());
     }
 
-    let anchor = context
-        .symbols
-        .declaration_syntax_anchor(owner.into_any())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
-
     if trust != CallableTrust::Trusted {
+        let anchor = context
+            .symbols
+            .declaration_syntax_anchor(owner.into_any())
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
         for capability in declared.union(used) {
             diagnostics.add(trusted_capability_diagnostic(
                 context,
@@ -362,6 +362,11 @@ fn validate_trusted_capabilities(
     if !has_body {
         return Ok(());
     }
+
+    let anchor = context
+        .symbols
+        .declaration_syntax_anchor(owner.into_any())
+        .ok_or(BinderFactError::DependencyUnavailable)?;
 
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(
@@ -392,11 +397,11 @@ fn trusted_capability_diagnostic(
     context: &CompilationBinderFacts<'_>,
     anchor: bray_declarations::SyntaxAnchor,
     kind: DiagnosticKind,
-    capability: AnySymbolId,
+    capability: TrustedCapabilitySymbolId,
 ) -> BinderFactResult<bray_diagnostics::Diagnostic> {
     let name = context
         .symbols
-        .member_name(capability)
+        .member_name(capability.into())
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
     Ok(source_diagnostic(anchor, kind).with_arg(DiagnosticArg::referenced_name(name.as_str())))

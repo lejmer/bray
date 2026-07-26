@@ -27,6 +27,7 @@ const VALUE_WORD: &str = "value";
 const COMPILER_KNOWN_WORD: &str = "compiler_known";
 const RECOGNIZED_STANDARD_LIBRARY_WORD: &str = "recognized_standard_library";
 const AMBIENT_WORD: &str = "ambient";
+const KIND_WORD: &str = "kind";
 const OWNER_WORD: &str = "owner";
 const IDENTITY_WORD: &str = "identity";
 const NAME_WORD: &str = "name";
@@ -232,6 +233,9 @@ impl CatalogParser {
         let spelling = self.token_text(&field);
 
         match spelling.as_ref() {
+            KIND_WORD => self
+                .parse_identifier_field(KIND_WORD)
+                .map(ParsedDeclarationField::Kind),
             OWNER_WORD => self
                 .parse_identifier_field(OWNER_WORD)
                 .map(ParsedDeclarationField::Owner),

@@ -15,9 +15,9 @@ use crate::{
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId,
     TraitScopeEnterFulfillmentSymbolId, TraitScopeEnterRequirementSymbolId,
     TraitScopeExitFulfillmentSymbolId, TraitScopeExitRequirementSymbolId, TraitSymbolId,
-    TraitTypeFulfillmentSymbolId, TraitTypeMemberSymbolId, TypeCallableMemberSymbolId,
-    UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId, UnionSymbolId,
-    UnionVariantSymbolId, UnnamedTraitImplementationSymbolId,
+    TraitTypeFulfillmentSymbolId, TraitTypeMemberSymbolId, TrustedCapabilitySymbolId,
+    TypeCallableMemberSymbolId, UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId,
+    UnionSymbolId, UnionVariantSymbolId, UnnamedTraitImplementationSymbolId,
 };
 
 /// Describes whether declaration syntax supplies a runtime default.
@@ -551,6 +551,7 @@ fn predicate_owner(owner: AnySymbolId) -> Option<PredicateDefinitionSymbolId> {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ModuleRelationships {
+    pub(crate) trusted_capabilities: Box<[TrustedCapabilitySymbolId]>,
     pub(crate) constants: Box<[ConstantSymbolId]>,
     pub(crate) functions: Box<[FunctionSymbolId]>,
     pub(crate) predicates: Box<[PredicateSymbolId]>,
@@ -568,6 +569,7 @@ pub(crate) struct ModuleRelationships {
 impl ModuleRelationships {
     pub(crate) fn new(owner: AnySymbolId, index: &RelationshipIndex) -> Self {
         Self {
+            trusted_capabilities: collect_children!(index, owner, TrustedCapability),
             constants: collect_children!(index, owner, Constant),
             functions: collect_children!(index, owner, Function),
             predicates: collect_children!(index, owner, Predicate),
@@ -649,6 +651,7 @@ build_from_erased!(ImplementationRelationships:
 );
 
 build_leaf!(
+    TrustedCapabilitySymbolId,
     ConstantSymbolId,
     InherentTypeMemberSymbolId,
     TraitConstantMemberSymbolId,

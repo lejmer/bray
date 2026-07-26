@@ -129,6 +129,7 @@ wire_tags!(SymbolKind {
     50 => SymbolKind::AnonymousCallable,
     51 => SymbolKind::AnonymousCallableParameter,
     52 => SymbolKind::PostconditionResult,
+    53 => SymbolKind::TrustedCapability,
 });
 
 wire_tags!(BorrowKind {
@@ -263,7 +264,7 @@ mod tests {
 
     #[test]
     fn symbol_kind_tags_are_exact_and_closed() {
-        for value in 1..=52 {
+        for value in 1..=53 {
             let Some(kind) = SymbolKind::from_wire(value) else {
                 panic!("known symbol kind tag was rejected: {value}");
             };
@@ -272,7 +273,7 @@ mod tests {
         }
 
         assert_eq!(SymbolKind::from_wire(0), None);
-        assert_eq!(SymbolKind::from_wire(53), None);
+        assert_eq!(SymbolKind::from_wire(54), None);
     }
 
     #[test]

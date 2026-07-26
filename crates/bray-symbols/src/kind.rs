@@ -7,6 +7,8 @@ macro_rules! for_each_compilation_symbol_kind {
             PackageSymbolId => Package: Package,
             "A logical module.";
             ModuleSymbolId => Module: Module,
+            "A compiler-known capability that may authorize trusted implementation behavior.";
+            TrustedCapabilitySymbolId => TrustedCapability: TrustedCapability,
             "A constant declaration.";
             ConstantSymbolId => Constant: Constant,
             "A function declaration.";

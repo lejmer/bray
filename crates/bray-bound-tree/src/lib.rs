@@ -96,6 +96,7 @@ pub use storage::{
     StorageBindingTarget, StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError,
     StorageIdentity, StorageIdentityId, StorageOperationDecision, StorageOperationStatus,
     StoragePlan, StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
+    StorageSuspensionState,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

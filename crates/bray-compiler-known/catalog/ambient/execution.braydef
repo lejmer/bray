@@ -14,6 +14,7 @@ scope Ambient at ambient {
     }
 
     declaration ForeignCall {
+        kind trusted_capability;
         surface { trusted predicate foreign_call(); }
     }
 

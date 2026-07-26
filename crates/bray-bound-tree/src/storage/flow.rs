@@ -86,6 +86,60 @@ impl StorageOperationDecision {
     }
 }
 
+/// Storage and borrow state immediately before one direct-await suspension.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StorageSuspensionState {
+    expression: BoundExpressionId,
+    live: Arc<[StorageIdentityId]>,
+    initialized: Arc<[StorageIdentityId]>,
+    moved: Arc<[StorageAccessId]>,
+    active_borrows: Arc<[BorrowCapabilityId]>,
+}
+
+impl StorageSuspensionState {
+    /// Creates one normalized suspension-state snapshot.
+    pub fn new(
+        expression: BoundExpressionId,
+        live: impl IntoIterator<Item = StorageIdentityId>,
+        initialized: impl IntoIterator<Item = StorageIdentityId>,
+        moved: impl IntoIterator<Item = StorageAccessId>,
+        active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
+    ) -> Self {
+        Self {
+            expression,
+            live: sorted_unique_shared_slice(live),
+            initialized: sorted_unique_shared_slice(initialized),
+            moved: sorted_unique_shared_slice(moved),
+            active_borrows: sorted_unique_shared_slice(active_borrows),
+        }
+    }
+
+    /// Returns the direct-await expression.
+    pub const fn expression(&self) -> BoundExpressionId {
+        self.expression
+    }
+
+    /// Returns storage known to be live before suspension.
+    pub fn live(&self) -> &[StorageIdentityId] {
+        &self.live
+    }
+
+    /// Returns storage known to be initialized before suspension.
+    pub fn initialized(&self) -> &[StorageIdentityId] {
+        &self.initialized
+    }
+
+    /// Returns storage accesses moved before suspension.
+    pub fn moved(&self) -> &[StorageAccessId] {
+        &self.moved
+    }
+
+    /// Returns borrow capabilities active before suspension.
+    pub fn active_borrows(&self) -> &[BorrowCapabilityId] {
+        &self.active_borrows
+    }
+}
+
 /// Storage and borrow state that remains relevant at one lexical scope exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageExitDecision {
@@ -145,6 +199,8 @@ impl StorageExitDecision {
 pub enum StorageFlowFactsBuildError {
     /// A decision references an identity owned by another unit.
     ForeignUnit,
+    /// The same direct-await expression has more than one state snapshot.
+    DuplicateSuspension,
 }
 
 /// Immutable storage, ownership, and borrow decisions for one bound unit.
@@ -153,6 +209,7 @@ pub struct StorageFlowFacts {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     operations: Arc<[StorageOperationDecision]>,
+    suspensions: Arc<[StorageSuspensionState]>,
     exits: Arc<[StorageExitDecision]>,
     is_recovered: bool,
 }
@@ -163,10 +220,12 @@ impl StorageFlowFacts {
         unit: BoundUnitId,
         kind: BoundUnitKind,
         operations: impl IntoIterator<Item = StorageOperationDecision>,
+        suspensions: impl IntoIterator<Item = StorageSuspensionState>,
         exits: impl IntoIterator<Item = StorageExitDecision>,
         is_recovered: bool,
     ) -> Result<Self, StorageFlowFactsBuildError> {
         let operations = operations.into_iter().collect::<Vec<_>>();
+        let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
         let exits = exits.into_iter().collect::<Vec<_>>();
 
         if operations.iter().any(|operation| {
@@ -175,6 +234,24 @@ impl StorageFlowFacts {
                 || operation
                     .borrow()
                     .is_some_and(|borrow| borrow.unit() != unit)
+        }) || suspensions.iter().any(|suspension| {
+            suspension.expression().unit() != unit
+                || suspension
+                    .live()
+                    .iter()
+                    .any(|storage| storage.unit() != unit)
+                || suspension
+                    .initialized()
+                    .iter()
+                    .any(|storage| storage.unit() != unit)
+                || suspension
+                    .moved()
+                    .iter()
+                    .any(|access| access.unit() != unit)
+                || suspension
+                    .active_borrows()
+                    .iter()
+                    .any(|borrow| borrow.unit() != unit)
         }) || exits.iter().any(|exit| {
             exit.scope().unit() != unit
                 || exit
@@ -190,10 +267,20 @@ impl StorageFlowFacts {
             return Err(StorageFlowFactsBuildError::ForeignUnit);
         }
 
+        suspensions.sort_unstable_by_key(StorageSuspensionState::expression);
+
+        if suspensions
+            .windows(2)
+            .any(|pair| pair[0].expression() == pair[1].expression())
+        {
+            return Err(StorageFlowFactsBuildError::DuplicateSuspension);
+        }
+
         Ok(Self {
             unit,
             kind,
             operations: shared_slice(operations),
+            suspensions: shared_slice(suspensions),
             exits: shared_slice(exits),
             is_recovered,
         })
@@ -214,6 +301,19 @@ impl StorageFlowFacts {
         &self.operations
     }
 
+    /// Returns direct-await storage states in expression identity order.
+    pub fn suspensions(&self) -> &[StorageSuspensionState] {
+        &self.suspensions
+    }
+
+    /// Returns storage state immediately before one direct-await expression.
+    pub fn suspension(&self, expression: BoundExpressionId) -> Option<&StorageSuspensionState> {
+        self.suspensions
+            .binary_search_by_key(&expression, StorageSuspensionState::expression)
+            .ok()
+            .map(|index| &self.suspensions[index])
+    }
+
     /// Returns lexical scope-exit decisions in control-flow order.
     pub fn exits(&self) -> &[StorageExitDecision] {
         &self.exits
@@ -229,7 +329,7 @@ impl StorageFlowFacts {
 mod tests {
     use super::{
         StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError,
-        StorageOperationDecision, StorageOperationStatus,
+        StorageOperationDecision, StorageOperationStatus, StorageSuspensionState,
     };
     use crate::{
         BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
@@ -254,16 +354,28 @@ mod tests {
 
         let exit = StorageExitDecision::new(scope, [storage, storage], [access, access], [], false);
 
+        let suspension =
+            StorageSuspensionState::new(expression, [storage], [storage], [access], []);
+
         let facts = StorageFlowFacts::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [operation],
+            [suspension],
             [exit],
             false,
         )
         .unwrap_or_else(|error| panic!("unit-local storage facts must build: {error:?}"));
 
         assert_eq!(facts.operations(), &[operation]);
+
+        assert_eq!(
+            facts
+                .suspension(expression)
+                .map(StorageSuspensionState::initialized),
+            Some(&[storage][..])
+        );
+
         assert_eq!(facts.exits()[0].initialized(), &[storage]);
         assert_eq!(facts.exits()[0].moved(), &[access]);
         assert!(!facts.is_recovered());
@@ -283,7 +395,7 @@ mod tests {
         );
 
         assert_eq!(
-            StorageFlowFacts::try_new(unit, BoundUnitKind::CallableBody, [decision], [], true,),
+            StorageFlowFacts::try_new(unit, BoundUnitKind::CallableBody, [decision], [], [], true,),
             Err(StorageFlowFactsBuildError::ForeignUnit)
         );
     }

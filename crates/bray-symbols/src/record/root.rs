@@ -55,6 +55,11 @@ impl CompilerKnownEnvironmentSymbol {
         &self.relationships.constants
     }
 
+    /// Returns ambient trusted capabilities in canonical descriptor order.
+    pub fn trusted_capabilities(&self) -> &[crate::TrustedCapabilitySymbolId] {
+        &self.relationships.trusted_capabilities
+    }
+
     /// Returns ambient compiler-known functions in canonical descriptor order.
     pub fn functions(&self) -> &[crate::FunctionSymbolId] {
         &self.relationships.functions
@@ -249,6 +254,11 @@ impl ModuleSymbol {
     /// Returns constants declared by this module in canonical source order.
     pub fn constants(&self) -> &[crate::ConstantSymbolId] {
         &self.relationships.constants
+    }
+
+    /// Returns compiler-known trusted capabilities declared by this module.
+    pub fn trusted_capabilities(&self) -> &[crate::TrustedCapabilitySymbolId] {
+        &self.relationships.trusted_capabilities
     }
 
     /// Returns functions declared by this module in canonical source order.

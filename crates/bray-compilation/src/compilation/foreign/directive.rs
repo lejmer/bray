@@ -5,10 +5,10 @@ use bray_base::NonEmptySharedStr;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind};
 use bray_symbols::{
-    AnySymbolId, CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
+    CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
     ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
     DirectiveKind, DirectiveSurface, DirectiveTemplate, FunctionSymbolId, NamedTypeSymbolId,
-    NativeLinkKind, NativeLinkRequirement, PredicateSymbolId, StructSymbolId,
+    NativeLinkKind, NativeLinkRequirement, StructSymbolId, TrustedCapabilitySymbolId,
 };
 
 use super::super::Compilation;
@@ -23,13 +23,11 @@ pub(super) fn validate_foreign_import_requirements(
     contracts: &CallableContractSet,
     diagnostics: &mut DiagnosticBag,
 ) {
-    let foreign_call = CompilerKnownDeclarationKey::try_new("ForeignCall")
-        .and_then(|key| {
-            compilation
-                .available_compiler_known_symbols()
-                .declaration_symbol::<PredicateSymbolId>(&key)
-        })
-        .map(AnySymbolId::from);
+    let foreign_call = CompilerKnownDeclarationKey::try_new("ForeignCall").and_then(|key| {
+        compilation
+            .available_compiler_known_symbols()
+            .declaration_symbol::<TrustedCapabilitySymbolId>(&key)
+    });
 
     let has_foreign_call = foreign_call.is_some_and(|foreign_call| {
         contract_phases(contracts).any(|phase| {

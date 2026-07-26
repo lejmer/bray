@@ -351,6 +351,7 @@ declaration-entry =
 declaration-field =
       owner-field
     | identity-field
+    | kind-field
     | availability-field
     | representation-field
     | implementation-field
@@ -378,6 +379,12 @@ declaration-identity =
       "name" identifier
     | "ordinal" unsigned-integer ;
 
+kind-field =
+    "kind" declaration-kind ";" ;
+
+declaration-kind =
+    "trusted_capability" ;
+
 availability-field =
     "availability" identifier ";" ;
 
@@ -401,6 +408,10 @@ type-field =
 ```
 
 The braces surrounding a Bray fragment belong to the catalog language. They are not part of the embedded fragment.
+
+The `kind` field supplies a compiler-owned semantic category that Bray declaration syntax cannot declare directly. A trusted
+capability uses a predicate-shaped declaration fragment only to carry its name through the private catalog grammar. Symbol
+construction must materialize it as a trusted capability, never as a callable predicate.
 
 The parser should reject unknown fields, duplicate fields, missing required fields, unsupported entry kinds, and trailing tokens.
 The initial format does not preserve unknown metadata for possible future interpretation.

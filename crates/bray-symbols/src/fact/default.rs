@@ -7,8 +7,9 @@ use crate::{
     AnySymbolId, BorrowKind, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
     DependencyContractTemplateId, ExternalSymbolKey, GenericParameterSymbolId,
     GenericSubstitutionId, ImportedInterfaceId, InterfaceSupportEntityId, LifecycleObligationKind,
-    ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, StructFieldSymbolId, TypeId,
-    UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId,
+    ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, StructFieldSymbolId,
+    TrustedCapabilitySymbolId, TypeId, UnionPayloadDefaultProviderSymbolId,
+    UnionPayloadFieldSymbolId,
 };
 
 /// One explicit callable input available while evaluating a parameter default.
@@ -129,10 +130,21 @@ define_runtime_default_requirement!(
     RuntimeDefaultCapabilityRequirement,
     "One checked capability required while evaluating a runtime default."
 );
-define_runtime_default_requirement!(
-    RuntimeDefaultTrustedObligation,
-    "One checked trusted obligation retained by a runtime-default provider."
-);
+/// One trusted implementation capability retained by a runtime-default provider.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeDefaultTrustedObligation(TrustedCapabilitySymbolId);
+
+impl RuntimeDefaultTrustedObligation {
+    /// Creates a requirement for one exact trusted capability.
+    pub const fn new(declaration: TrustedCapabilitySymbolId) -> Self {
+        Self(declaration)
+    }
+
+    /// Returns the exact trusted capability that defines the requirement.
+    pub const fn declaration(self) -> TrustedCapabilitySymbolId {
+        self.0
+    }
+}
 
 /// Effects, capabilities, ownership, borrowing, and lifecycle behavior of a runtime default.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -440,8 +452,9 @@ mod tests {
         RuntimeDefaultEffectRequirement, RuntimeDefaultGenericContext, RuntimeDefaultOwnership,
         RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
         RuntimeDefaultTrustedObligation, SemanticValueStore, StructFieldDefaultProviderSymbolId,
-        StructFieldDefaultValue, StructFieldSymbolId, SymbolId, TypeData,
-        UnionPayloadDefaultProviderSymbolId, UnionPayloadDefaultValue, UnionPayloadFieldSymbolId,
+        StructFieldDefaultValue, StructFieldSymbolId, SymbolId, TrustedCapabilitySymbolId,
+        TypeData, UnionPayloadDefaultProviderSymbolId, UnionPayloadDefaultValue,
+        UnionPayloadFieldSymbolId,
     };
 
     use super::{
@@ -506,7 +519,10 @@ mod tests {
 
         let effect = RuntimeDefaultEffectRequirement::new(declaration);
         let capability = RuntimeDefaultCapabilityRequirement::new(declaration);
-        let trusted = RuntimeDefaultTrustedObligation::new(declaration);
+
+        let trusted = RuntimeDefaultTrustedObligation::new(
+            TrustedCapabilitySymbolId::from_symbol_id(SymbolId::new(2)),
+        );
 
         let behavior = RuntimeDefaultBehavior::new(
             RuntimeDefaultOwnership::Borrowed(BorrowKind::Shared),

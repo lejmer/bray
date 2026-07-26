@@ -146,7 +146,20 @@ fn resolve_kind(
     let source = inventory.source(surface.anchor().source())?;
 
     let kind = match validator.validate_declaration_surface(*source, surface, context) {
-        Ok(kind) => Some(kind),
+        Ok(surface_kind) => match declarations[index].declared_kind {
+            Some(CatalogDeclarationKind::TrustedCapability)
+                if surface_kind != CatalogDeclarationKind::Predicate =>
+            {
+                diagnostics.push(CatalogDiagnostic::new(
+                    anchor,
+                    CatalogDiagnosticKind::InvalidDeclarationSurface,
+                ));
+
+                None
+            }
+            Some(kind) => Some(kind),
+            None => Some(surface_kind),
+        },
         Err(fragment_diagnostics) => {
             diagnostics.extend_from_slice(fragment_diagnostics.diagnostics());
             None
@@ -187,6 +200,7 @@ fn validate_context(
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) {
     let valid = match child {
+        CatalogDeclarationKind::TrustedCapability => context == CatalogSurfaceContext::Scope,
         CatalogDeclarationKind::StructField => {
             context == CatalogSurfaceContext::Declaration(CatalogDeclarationKind::Struct)
         }

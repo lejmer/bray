@@ -271,6 +271,8 @@ pub enum DiagnosticKind {
     CheckingAwaitOutsideAsyncCallable,
     /// A future is started outside an active asynchronous callable body.
     CheckingTaskStartOutsideAsyncCallable,
+    /// A direct await cannot preserve one dependency required by its computation.
+    CheckingUnavailableAwaitDependency,
     /// The selected product category does not permit an explicit executable entrypoint.
     CheckingEntrypointNotAllowed,
     /// An executable product has no valid entrypoint.
@@ -448,6 +450,7 @@ impl DiagnosticKind {
             Self::CheckingTrustedCapabilityRequiresTrustedCallable => 7064,
             Self::CheckingAwaitOutsideAsyncCallable => 7065,
             Self::CheckingTaskStartOutsideAsyncCallable => 7066,
+            Self::CheckingUnavailableAwaitDependency => 7077,
             Self::CheckingEntrypointNotAllowed => 7067,
             Self::CheckingMissingEntrypoint => 7068,
             Self::CheckingDuplicateEntrypoint => 7069,
@@ -662,6 +665,7 @@ impl DiagnosticKind {
             Self::CheckingTaskStartOutsideAsyncCallable => {
                 "checking_task_start_outside_async_callable"
             }
+            Self::CheckingUnavailableAwaitDependency => "checking_unavailable_await_dependency",
             Self::CheckingEntrypointNotAllowed => "checking_entrypoint_not_allowed",
             Self::CheckingMissingEntrypoint => "checking_missing_entrypoint",
             Self::CheckingDuplicateEntrypoint => "checking_duplicate_entrypoint",
@@ -737,7 +741,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 142] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 143] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -872,6 +876,7 @@ mod tests {
             DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
             DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
             DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
+            DiagnosticKind::CheckingUnavailableAwaitDependency,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

@@ -304,8 +304,8 @@ mod tests {
         ExactSymbolId, FunctionSymbolId, GenericConstraintsFact, GenericDeclarationTemplateFact,
         GenericOwnerId, ImplementationCoherenceFact, ImplementationSymbolId,
         NamedTraitImplementationSymbolId, StructFieldSymbolId, StructFieldTypeFact, StructSymbolId,
-        SymbolFactRequest, TraitCallableMemberSymbolId, TypeCallableMemberSymbolId, TypeData,
-        UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+        SymbolFactRequest, SymbolOrdinal, TraitCallableMemberSymbolId, TypeCallableMemberSymbolId,
+        TypeData, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
     };
 
     use super::{CancellationToken, SymbolCompletionLevel};
@@ -345,7 +345,6 @@ mod tests {
         assert!(Arc::ptr_eq(&first_copy, &second_copy));
         assert_eq!(first_copy.value().parameters().len(), 3);
 
-        // TODO(BRA-270): Assert checked contracts once capability paths have typed identities.
         let copy_contract_template = published_fact(
             &facts,
             SymbolFactRequest::<CallableContractTemplateFact>::new(copy.into()),
@@ -356,6 +355,27 @@ mod tests {
             CallableContractTemplate::Source(contract)
                 if contract.expressions().len() == 5 && contract.capabilities().len() == 2
         ));
+
+        let storage_destroy = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageDestroy");
+
+        let storage_destroy_contract = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableContractsFact>::new(storage_destroy.into()),
+        );
+
+        let trusted_capabilities = storage_destroy_contract
+            .value()
+            .invocation_behavior()
+            .trusted_capabilities();
+
+        assert_eq!(trusted_capabilities.len(), 2);
+        assert_eq!(trusted_capabilities[0].ordinal(), SymbolOrdinal::new(0));
+        assert_eq!(trusted_capabilities[1].ordinal(), SymbolOrdinal::new(1));
+
+        assert_ne!(
+            trusted_capabilities[0].capability(),
+            trusted_capabilities[1].capability()
+        );
 
         let pointer = declaration::<StructSymbolId>(symbols, "RawPointer");
 

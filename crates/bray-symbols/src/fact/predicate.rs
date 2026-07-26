@@ -3,7 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    AnySymbolId, DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId, SymbolOrdinal,
+    DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId, SymbolOrdinal,
+    TrustedCapabilitySymbolId,
 };
 
 /// The result of attempting to prove one semantic predicate.
@@ -177,12 +178,12 @@ impl CallableContractClause {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TrustedCapabilityRequirement {
     ordinal: SymbolOrdinal,
-    capability: AnySymbolId,
+    capability: TrustedCapabilitySymbolId,
 }
 
 impl TrustedCapabilityRequirement {
     /// Creates a checked trusted-capability requirement.
-    pub const fn new(ordinal: SymbolOrdinal, capability: AnySymbolId) -> Self {
+    pub const fn new(ordinal: SymbolOrdinal, capability: TrustedCapabilitySymbolId) -> Self {
         Self {
             ordinal,
             capability,
@@ -195,7 +196,7 @@ impl TrustedCapabilityRequirement {
     }
 
     /// Returns the exact resolved capability declaration.
-    pub const fn capability(self) -> AnySymbolId {
+    pub const fn capability(self) -> TrustedCapabilitySymbolId {
         self.capability
     }
 }

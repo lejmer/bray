@@ -41,6 +41,10 @@ pub(super) fn allocate_signature_symbols(
             });
         };
 
+        if owner.kind() == SymbolKind::TrustedCapability {
+            continue;
+        }
+
         let Some(owner_key) = declaration_keys.get(&descriptor.id()) else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
                 declaration: descriptor.id(),

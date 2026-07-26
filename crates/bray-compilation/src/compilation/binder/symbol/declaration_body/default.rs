@@ -10,9 +10,10 @@ use bray_symbols::{
     GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, RuntimeDefaultBehavior,
     RuntimeDefaultGenericContext, RuntimeDefaultOwnership, RuntimeDefaultTemplateReference,
     StructFieldDefaultFact, StructFieldDefaultSurface, StructFieldDefaultTemplateFact,
-    StructFieldDefaultValue, StructFieldSymbolId, SymbolFactRequest, SymbolFactResult, TypeData,
-    TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
+    StructFieldDefaultValue, StructFieldSymbolId, SymbolFactRequest, SymbolFactResult,
+    TrustedCapabilitySymbolId, TypeData, TypeId, UnevaluatedDefaultTemplate,
+    UnionPayloadDefaultSurface, UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact,
+    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
 };
 
 use super::super::binding::CompilationSymbolFactBinding;
@@ -471,6 +472,7 @@ fn imported_runtime_default_behavior(
         .map(|requirement| imported.symbol_by_external_key(requirement.declaration()))
         .map(|symbol| {
             symbol
+                .and_then(TrustedCapabilitySymbolId::try_from_any)
                 .map(bray_symbols::RuntimeDefaultTrustedObligation::new)
                 .ok_or(BinderFactError::DependencyUnavailable)
         })

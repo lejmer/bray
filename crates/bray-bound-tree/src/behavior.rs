@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    AnySymbolId, CallableCapabilityRequirement, CallableEffectRequirement,
-    CallableExecutionRequirement, CurrentRunCancellation, LifecycleObligationKind,
+    CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
+    CurrentRunCancellation, LifecycleObligationKind, TrustedCapabilitySymbolId,
 };
 
 use crate::{
@@ -129,7 +129,7 @@ pub struct CheckedBodyBehavior {
     kind: BoundUnitKind,
     effects: Arc<[CallableEffectRequirement]>,
     capabilities: Arc<[CallableCapabilityRequirement]>,
-    trusted_capabilities: Arc<[AnySymbolId]>,
+    trusted_capabilities: Arc<[TrustedCapabilitySymbolId]>,
     execution_requirements: Arc<[CallableExecutionRequirement]>,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     current_run_cancellation: CurrentRunCancellation,
@@ -162,7 +162,7 @@ impl CheckedBodyBehavior {
         mut self,
         effects: impl IntoIterator<Item = CallableEffectRequirement>,
         capabilities: impl IntoIterator<Item = CallableCapabilityRequirement>,
-        trusted_capabilities: impl IntoIterator<Item = AnySymbolId>,
+        trusted_capabilities: impl IntoIterator<Item = TrustedCapabilitySymbolId>,
         execution_requirements: impl IntoIterator<Item = CallableExecutionRequirement>,
         lifecycle_obligations: impl IntoIterator<Item = LifecycleObligationKind>,
     ) -> Self {
@@ -196,7 +196,7 @@ impl CheckedBodyBehavior {
     }
 
     /// Returns trusted implementation capabilities in canonical semantic order.
-    pub fn trusted_capabilities(&self) -> &[AnySymbolId] {
+    pub fn trusted_capabilities(&self) -> &[TrustedCapabilitySymbolId] {
         &self.trusted_capabilities
     }
 
@@ -226,7 +226,7 @@ mod tests {
     use bray_symbols::{
         AnySymbolId, CallableCapabilityRequirement, CallableEffectRequirement,
         CallableExecutionRequirement, CurrentRunCancellation, FunctionSymbolId,
-        LifecycleObligationKind, SymbolId,
+        LifecycleObligationKind, SymbolId, TrustedCapabilitySymbolId,
     };
 
     use super::CheckedBodyBehavior;
@@ -235,6 +235,7 @@ mod tests {
     #[test]
     fn checked_body_behavior_normalizes_semantic_sets() {
         let declaration = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(4)));
+        let trusted_capability = TrustedCapabilitySymbolId::from_symbol_id(SymbolId::new(5));
 
         let behavior = CheckedBodyBehavior::new(
             BoundUnitId::new(2),
@@ -251,7 +252,7 @@ mod tests {
                 CallableCapabilityRequirement::new(declaration),
                 CallableCapabilityRequirement::new(declaration),
             ],
-            [declaration, declaration],
+            [trusted_capability, trusted_capability],
             [
                 CallableExecutionRequirement::new(declaration),
                 CallableExecutionRequirement::new(declaration),

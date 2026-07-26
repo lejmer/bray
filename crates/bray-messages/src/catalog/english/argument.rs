@@ -248,6 +248,7 @@ const fn format_english_name_kind(kind: DiagnosticNameKind) -> &'static str {
         DiagnosticNameKind::Pattern => "pattern",
         DiagnosticNameKind::CallableOverload => "callable overload",
         DiagnosticNameKind::Member => "member",
+        DiagnosticNameKind::TrustedCapability => "trusted capability",
     }
 }
 

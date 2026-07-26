@@ -4,7 +4,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
     BodyBehaviorCall, BoundBlockId, BoundDependencyContractId, BoundDependencySubject,
-    BoundExpressionId, BoundUnitId, BoundUnitKind, StorageIdentityId,
+    BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
 };
 
 /// A language-defined operation on an owned future or task.
@@ -108,8 +108,9 @@ impl AsyncSuspensionPoint {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AsyncScopeExitPlan {
     scope: BoundBlockId,
-    cancellation_broadcast: Arc<[StorageIdentityId]>,
-    lifecycle_resolution: Arc<[StorageIdentityId]>,
+    cancellation_broadcast: Arc<[StorageAccessId]>,
+    lifecycle_resolution: Arc<[StorageAccessId]>,
+    moved: Arc<[StorageAccessId]>,
     is_recovered: bool,
 }
 
@@ -117,14 +118,16 @@ impl AsyncScopeExitPlan {
     /// Creates a two-phase scope-exit plan.
     pub fn new(
         scope: BoundBlockId,
-        cancellation_broadcast: impl IntoIterator<Item = StorageIdentityId>,
-        lifecycle_resolution: impl IntoIterator<Item = StorageIdentityId>,
+        cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
+        lifecycle_resolution: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = StorageAccessId>,
         is_recovered: bool,
     ) -> Self {
         Self {
             scope,
             cancellation_broadcast: shared_slice(cancellation_broadcast),
             lifecycle_resolution: shared_slice(lifecycle_resolution),
+            moved: sorted_unique_shared_slice(moved),
             is_recovered,
         }
     }
@@ -135,13 +138,18 @@ impl AsyncScopeExitPlan {
     }
 
     /// Returns owned storage visited during cancellation broadcast.
-    pub fn cancellation_broadcast(&self) -> &[StorageIdentityId] {
+    pub fn cancellation_broadcast(&self) -> &[StorageAccessId] {
         &self.cancellation_broadcast
     }
 
     /// Returns owned storage resolved after cancellation broadcast completes.
-    pub fn lifecycle_resolution(&self) -> &[StorageIdentityId] {
+    pub fn lifecycle_resolution(&self) -> &[StorageAccessId] {
         &self.lifecycle_resolution
+    }
+
+    /// Returns paths already moved at this scope exit.
+    pub fn moved(&self) -> &[StorageAccessId] {
+        &self.moved
     }
 
     /// Returns whether recovery prevented a complete cleanup plan.
@@ -208,7 +216,8 @@ impl CheckedAsyncFacts {
                         .cancellation_broadcast()
                         .iter()
                         .chain(exit.lifecycle_resolution())
-                        .any(|storage| storage.unit() != unit)
+                        .chain(exit.moved())
+                        .any(|access| access.unit() != unit)
             })
         {
             return Err(AsyncFactsBuildError::ForeignUnit);
@@ -269,7 +278,7 @@ mod tests {
     };
     use crate::{
         BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind,
-        StorageIdentityId,
+        StorageAccessId,
     };
 
     #[test]
@@ -277,8 +286,8 @@ mod tests {
         let unit = BoundUnitId::new(7);
         let await_expression = BoundExpressionId::from_slot(unit, 2);
         let operand = BoundExpressionId::from_slot(unit, 1);
-        let storage = StorageIdentityId::from_slot(unit, 3);
-        let dependency = BoundDependencySubject::Storage(storage);
+        let storage = StorageAccessId::from_slot(unit, 3);
+        let dependency = BoundDependencySubject::StorageAccess(storage);
 
         let suspension =
             AsyncSuspensionPoint::new(await_expression, operand, None, [], [dependency], false);
@@ -287,6 +296,7 @@ mod tests {
 
         let cleanup = AsyncScopeExitPlan::new(
             BoundBlockId::from_slot(unit, 4),
+            [storage],
             [storage],
             [storage],
             false,
@@ -307,6 +317,7 @@ mod tests {
         assert_eq!(facts.task_operations(), &[operation]);
         assert_eq!(facts.suspensions().len(), 1);
         assert_eq!(facts.scope_exits().len(), 1);
+        assert_eq!(facts.scope_exits()[0].moved(), &[storage]);
     }
 
     #[test]

@@ -75,6 +75,7 @@ pub(super) struct RawDeclaration {
     pub(super) owner_key: Option<Arc<str>>,
     pub(super) owner: Option<ValidatedDeclarationOwner>,
     pub(super) recognized_identity: Option<RecognizedStandardLibraryDeclarationIdentity>,
+    pub(super) declared_kind: Option<CatalogDeclarationKind>,
     pub(super) kind: Option<CatalogDeclarationKind>,
     pub(super) surface: CatalogDeclarationSurface,
     pub(super) representation_role: Option<RepresentationRole>,
