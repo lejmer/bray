@@ -65,7 +65,7 @@ impl super::super::Compilation {
         )
     }
 
-    fn imported_semantic_graph_result_with_cancellation(
+    pub(super) fn imported_semantic_graph_result_with_cancellation(
         &self,
         interface: ImportedInterfaceId,
         cancellation: &CancellationToken,
@@ -143,7 +143,7 @@ impl super::super::Compilation {
         }
     }
 
-    fn loaded_dependency_interface_with_cancellation(
+    pub(super) fn loaded_dependency_interface_with_cancellation(
         &self,
         interface: ImportedInterfaceId,
         cancellation: &CancellationToken,
@@ -169,7 +169,7 @@ impl super::super::Compilation {
         .map(Some)
     }
 
-    fn dependency_interface_input(
+    pub(in crate::compilation) fn dependency_interface_input(
         &self,
         interface: ImportedInterfaceId,
     ) -> Option<&DependencyInterfaceInput> {
@@ -415,7 +415,7 @@ impl super::super::Compilation {
         }
     }
 
-    fn loaded_interface_views(
+    pub(super) fn loaded_interface_views(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<Option<Vec<LoadedInterfaceSurface<'_>>>, FactQueryError> {

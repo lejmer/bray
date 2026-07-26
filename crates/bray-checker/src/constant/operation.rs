@@ -16,6 +16,25 @@ pub(super) enum ConstantOperationError {
     ResourceLimitExceeded,
 }
 
+pub(super) const fn operation_diagnostic_kind(
+    error: ConstantOperationError,
+) -> bray_diagnostics::DiagnosticKind {
+    match error {
+        ConstantOperationError::Invalid => {
+            bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression
+        }
+        ConstantOperationError::DivisionByZero => {
+            bray_diagnostics::DiagnosticKind::CheckingConstantDivisionByZero
+        }
+        ConstantOperationError::NotRepresentable => {
+            bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable
+        }
+        ConstantOperationError::ResourceLimitExceeded => {
+            bray_diagnostics::DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded
+        }
+    }
+}
+
 pub(super) fn fold_unary(
     operator: BoundOperator,
     operand: &ConstantValueKind,

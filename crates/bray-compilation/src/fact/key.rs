@@ -7,8 +7,8 @@ use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
     ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
     ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, ImportedInterfaceId, InterfaceSymbolId, NamedTypeSymbolId,
-    SymbolFactKind, TypeId,
+    ImplementationSymbolId, ImportedInterfaceId, ImportedSymbolFactAddress, InterfaceSymbolId,
+    NamedTypeSymbolId, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -79,6 +79,7 @@ impl SymbolFactKey {
 pub(crate) struct ConstantInstanceFactKey {
     instance: ConstantInstanceKey,
     target: TargetProfile,
+    limits: bray_checker::ConstantEvaluationLimits,
 }
 
 /// The complete compilation-local identity of one selected constant call.
@@ -175,8 +176,16 @@ impl ConstantCallFactKey {
 }
 
 impl ConstantInstanceFactKey {
-    pub(crate) const fn new(instance: ConstantInstanceKey, target: TargetProfile) -> Self {
-        Self { instance, target }
+    pub(crate) const fn new(
+        instance: ConstantInstanceKey,
+        target: TargetProfile,
+        limits: bray_checker::ConstantEvaluationLimits,
+    ) -> Self {
+        Self {
+            instance,
+            target,
+            limits,
+        }
     }
 }
 
@@ -278,6 +287,8 @@ pub(crate) enum CompilationFactKey {
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned fact category.
     ImportedSemanticFact(ImportedSemanticFactKey),
+    /// One checked imported const-callable body selected from an implementation artifact.
+    ImportedConstantCallableBody(ImportedSymbolFactAddress),
     /// Implementations participating in one package coherence domain.
     ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// Declaration-level coherence and overload-family validity for the source package.
@@ -361,6 +372,7 @@ impl CompilationFactKey {
             | Self::ImplementationSelection(_)
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
+            | Self::ImportedConstantCallableBody(_)
             | Self::ImplementationParticipation(_)
             | Self::ImplementationCoherence
             | Self::CallableOverloadValidation

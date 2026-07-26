@@ -131,6 +131,10 @@ where
         self.semantic_context
     }
 
+    pub(crate) const fn context(self) -> &'view C {
+        self.context
+    }
+
     /// Returns the callable declaration that semantically contains this unit, when any.
     pub(crate) fn containing_callable(self) -> Option<CallableSymbolId> {
         let mut symbol = match self.semantic_context {

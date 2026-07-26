@@ -24,8 +24,8 @@ pub use fact::{
     SymbolCompletionError,
 };
 pub use request::{
-    CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
-    SemanticAnalysisLimits,
+    CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+    PackageInterfaceExportRequest, SemanticAnalysisLimits,
 };
 pub use target::{SelectedTarget, SelectedTargetContext};
 pub use worker::{WorkerBudget, WorkerBudgetError};

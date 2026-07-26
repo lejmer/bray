@@ -6,7 +6,7 @@ use bray_symbols::{
 
 use crate::InterfaceSemanticFacts;
 
-use super::{InterfaceSemanticInternError, InterfaceSymbolResolver};
+use super::{ImportedSemanticFacts, InterfaceSemanticInternError, InterfaceSymbolResolver};
 
 pub(super) struct InternState {
     pub(super) types: Vec<Option<TypeId>>,
@@ -30,6 +30,29 @@ impl InternState {
             trait_applications: vec![None; facts.trait_applications.len()],
             callable_instances: vec![None; facts.callable_instances.len()],
             implementation_instances: vec![None; facts.implementation_instances.len()],
+        }
+    }
+
+    pub(super) fn from_imported(facts: &ImportedSemanticFacts) -> Self {
+        Self {
+            types: facts.types.iter().copied().map(Some).collect(),
+            constant_values: facts.constant_values.iter().copied().map(Some).collect(),
+            constant_terms: facts.constant_terms.iter().copied().map(Some).collect(),
+            dependency_contracts: facts
+                .dependency_contracts
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
+            substitutions: facts.substitutions.iter().copied().map(Some).collect(),
+            trait_applications: facts.trait_applications.iter().copied().map(Some).collect(),
+            callable_instances: facts.callable_instances.iter().copied().map(Some).collect(),
+            implementation_instances: facts
+                .implementation_instances
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
         }
     }
 

@@ -80,7 +80,7 @@ impl InternState {
             .collect()
     }
 
-    fn convert_template(
+    pub(super) fn convert_template(
         &self,
         template: &InterfaceCheckedTemplate,
         facts: &InterfaceSemanticFacts,
@@ -164,25 +164,63 @@ fn convert_operation(
         InterfaceCheckedTemplateOperation::Input(input) => {
             Ok(CheckedTemplateOperation::Input(*input))
         }
-        InterfaceCheckedTemplateOperation::Constant(constant) => state
-            .constant_term_id(*constant)
-            .map(CheckedTemplateOperation::Constant)
+        InterfaceCheckedTemplateOperation::Constant { term, usage } => state
+            .constant_term_id(*term)
+            .map(|term| CheckedTemplateOperation::Constant {
+                term,
+                usage: *usage,
+            })
             .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph),
+        InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
+            Ok(CheckedTemplateOperation::Unary {
+                operation: *operation,
+                operand: *operand,
+            })
+        }
+        InterfaceCheckedTemplateOperation::Binary {
+            operation,
+            left,
+            right,
+        } => Ok(CheckedTemplateOperation::Binary {
+            operation: *operation,
+            left: *left,
+            right: *right,
+        }),
         InterfaceCheckedTemplateOperation::Declaration(reference) => Ok(
             CheckedTemplateOperation::Declaration(template_key(facts, reference, symbols)?),
         ),
         InterfaceCheckedTemplateOperation::Call {
             callable,
+            substitution,
             arguments,
             implementation,
-        } => Ok(CheckedTemplateOperation::call(
-            template_key(facts, callable, symbols)?,
-            arguments.iter().copied(),
-            implementation
+        } => {
+            let substitution = state
+                .substitution_id(*substitution)
+                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+            let implementation = implementation
                 .as_ref()
-                .map(|reference| implementation_key(facts, reference, symbols))
-                .transpose()?,
-        )),
+                .map(
+                    |(reference, substitution)| -> Result<_, InterfaceSemanticInternError> {
+                        let declaration = implementation_key(facts, reference, symbols)?;
+
+                        let substitution = state
+                            .substitution_id(*substitution)
+                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+                        Ok((declaration, substitution))
+                    },
+                )
+                .transpose()?;
+
+            Ok(CheckedTemplateOperation::call(
+                template_key(facts, callable, symbols)?,
+                substitution,
+                arguments.iter().copied(),
+                implementation,
+            ))
+        }
         InterfaceCheckedTemplateOperation::Convert { value, target } => {
             let target = state
                 .type_id(*target)

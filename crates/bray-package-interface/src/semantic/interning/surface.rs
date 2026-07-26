@@ -62,6 +62,7 @@ impl InternState {
         let declaration_templates = self.convert_declaration_templates(facts, symbols)?;
 
         Ok(ImportedSemanticFacts {
+            interface_facts: std::sync::Arc::new(facts.clone()),
             types: finish_table(self.types)?,
             constant_values: finish_table(self.constant_values)?,
             constant_terms: finish_table(self.constant_terms)?,

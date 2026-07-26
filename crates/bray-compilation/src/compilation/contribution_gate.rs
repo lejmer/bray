@@ -574,7 +574,7 @@ mod tests {
         let data = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
-            .constant_value_data(*value.value())
+            .constant_value_data(value.value().value())
             .unwrap_or_else(|error| panic!("target fact value must be available: {error:?}"));
 
         assert_eq!(data.kind(), &ConstantValueKind::Boolean(true));

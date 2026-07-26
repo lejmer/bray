@@ -252,6 +252,15 @@ impl Compilation {
         Ok(Arc::clone(published))
     }
 
+    pub(super) fn checker_context<'compilation>(
+        &'compilation self,
+        cancellation: &'compilation CancellationToken,
+    ) -> Result<CompilationCheckerContext<'compilation>, FactQueryError> {
+        let facts = self.binder_facts(cancellation)?;
+
+        Ok(CompilationCheckerContext::new(facts))
+    }
+
     pub(super) fn checker_context_for<'compilation>(
         &'compilation self,
         key: &BoundUnitKey,

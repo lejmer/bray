@@ -14,7 +14,7 @@ use crate::{
 use super::{
     CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
-    ConstantDefinitionState, ConstantInstanceKey, DirectiveSurface, GenericConstraintSet,
+    ConstantDefinitionState, DirectiveSurface, GenericConstraintSet,
     GenericDeclarationTemplate, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
     ImplementationCoherenceKey, ImplementationHeadTemplate, ImplementationParticipationSet,
     ImplementationRequirementKey, ImplementationSelection, ImplementationSubjectTemplate,
@@ -422,11 +422,6 @@ define_semantic_fact_contract! {
     GenericConstraintSatisfactionFact {
         key: crate::GenericConstraintObligationKey,
         value: crate::ProofOutcome,
-    }
-    /// Evaluates one concrete constant definition instance.
-    ConstantInstanceValueFact {
-        key: ConstantInstanceKey,
-        value: crate::ConstantValueId,
     }
 }
 

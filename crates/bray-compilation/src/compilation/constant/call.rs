@@ -4,11 +4,14 @@ use bray_binder::SymbolFactProvider;
 use bray_checker::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerUnitView,
     ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluator, DefaultConstantEvaluator, resolve_callable_signature_template,
+    ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
+    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
+    resolve_callable_signature_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureFact, ConstantValueId, SymbolFactRequest, TypeData,
+    CallableConstness, CallableSignatureFact, ExternalSymbolKey, ImportedSymbolSkeleton,
+    SymbolFactRequest, TypeData,
 };
 
 use super::super::Compilation;
@@ -57,9 +60,69 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
                     *value,
                     result.diagnostics().clone(),
                 ))),
-                None => Ok(ConstantCallResolution::Ineligible),
+                None => Ok(ConstantCallResolution::Ineligible(
+                    result.diagnostics().clone(),
+                )),
             },
             Err(FactQueryError::Cycle(_)) => Ok(ConstantCallResolution::Cycle),
+            Err(error) => Err(checker_call_fact_error(error)),
+        }
+    }
+}
+
+struct CompilationConstantTemplateResolver<'compilation> {
+    calls: CompilationConstantCallResolver<'compilation>,
+    symbols: &'compilation ImportedSymbolSkeleton,
+}
+
+impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
+    const fn new(
+        compilation: &'compilation Compilation,
+        cancellation: &'compilation CancellationToken,
+        symbols: &'compilation ImportedSymbolSkeleton,
+    ) -> Self {
+        Self {
+            calls: CompilationConstantCallResolver::new(compilation, cancellation),
+            symbols,
+        }
+    }
+}
+
+impl ConstantCallResolver for CompilationConstantTemplateResolver<'_> {
+    fn is_constant_callable(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+    ) -> CheckerFactResult<bool> {
+        self.calls.is_constant_callable(callable)
+    }
+
+    fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution> {
+        self.calls.resolve(request)
+    }
+}
+
+impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
+    fn symbol(&self, key: &ExternalSymbolKey) -> Option<bray_symbols::AnySymbolId> {
+        self.symbols.symbol_by_external_key(key)
+    }
+
+    fn resolve_constant(
+        &self,
+        instance: bray_symbols::ConstantInstanceKey,
+        limits: bray_checker::ConstantEvaluationLimits,
+    ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>> {
+        match self
+            .calls
+            .compilation
+            .constant_instance_with_limits(instance, limits, self.calls.cancellation)
+        {
+            Ok(result) => Ok(DiagnosticResult::new(
+                ConstantReferenceResolution::Evaluated(*result.value()),
+                result.diagnostics().clone(),
+            )),
+            Err(FactQueryError::Cycle(_)) => Ok(DiagnosticResult::without_diagnostics(
+                ConstantReferenceResolution::Cycle,
+            )),
             Err(error) => Err(checker_call_fact_error(error)),
         }
     }
@@ -103,7 +166,7 @@ impl Compilation {
         &self,
         request: &ConstantCallRequest,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<DiagnosticResult<Option<ConstantValueId>>>, FactQueryError> {
+    ) -> Result<Arc<DiagnosticResult<Option<EvaluatedConstantCall>>>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
         let callable = values
@@ -136,7 +199,7 @@ impl Compilation {
         &self,
         key: &ConstantCallFactKey,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Option<ConstantValueId>>, FactQueryError> {
+    ) -> Result<DiagnosticResult<Option<EvaluatedConstantCall>>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
         let callable = values
@@ -185,8 +248,67 @@ impl Compilation {
         }
 
         let Some(body_key) = self.callable_body_key(callable.definition())? else {
-            // TODO(BRA-269): Load imported const-callable bodies from implementation artifacts.
-            return Ok(DiagnosticResult::without_diagnostics(None));
+            let address = facts
+                .imported_fact_address(callable.definition().callable_symbol().into_any())
+                .map_err(binder_fact_error)?;
+
+            let Some(address) = address else {
+                return Ok(DiagnosticResult::without_diagnostics(None));
+            };
+
+            let body =
+                self.imported_constant_callable_body_with_cancellation(address, cancellation)?;
+
+            let Some(template) = body.value() else {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    DiagnosticBag::merged_all([
+                        signature_fact.diagnostics(),
+                        checked_terms.diagnostics(),
+                        body.diagnostics(),
+                    ]),
+                ));
+            };
+
+            let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+            let imported = imported
+                .value()
+                .as_deref()
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let context = self.checker_context(cancellation)?;
+            let resolver = CompilationConstantTemplateResolver::new(self, cancellation, imported);
+
+            let diagnostic_span = self
+                .dependency_interface_input(address.interface())
+                .and_then(crate::request::DependencyInterfaceInput::dependency_span);
+
+            let request = ConstantCallRequest::new(
+                *callable,
+                key.selected_implementation(),
+                key.arguments().iter().copied(),
+                key.result_type(),
+                key.limits(),
+            );
+
+            let evaluated = checker_result(evaluate_constant_callable_template(
+                &context,
+                template,
+                &request,
+                &resolver,
+                diagnostic_span,
+            ))?;
+
+            return Ok(DiagnosticResult::new(
+                Some(*evaluated.value()),
+                DiagnosticBag::merged_all([
+                    signature_fact.diagnostics(),
+                    checked_terms.diagnostics(),
+                    body.diagnostics(),
+                    evaluated.diagnostics(),
+                ]),
+            ));
         };
 
         let bound = self.bound_unit_with_cancellation(body_key.clone(), cancellation)?;
@@ -227,6 +349,7 @@ impl Compilation {
             callable.substitution(),
             key.selected_implementation(),
             &parameters,
+            key.limits(),
             cancellation,
         )?;
 
@@ -246,7 +369,9 @@ impl Compilation {
                 ))
             })?;
 
-        let evaluated = checker_result(DefaultConstantEvaluator.evaluate_constant(unit, &input))?;
+        let evaluated = checker_result(
+            DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
+        )?;
 
         let diagnostics = DiagnosticBag::merged_all([
             signature_fact.diagnostics(),
@@ -258,6 +383,12 @@ impl Compilation {
             evaluated.diagnostics(),
         ]);
 
-        Ok(DiagnosticResult::new(Some(*evaluated.value()), diagnostics))
+        Ok(DiagnosticResult::new(
+            Some(EvaluatedConstantCall::new(
+                evaluated.value().value(),
+                evaluated.value().usage(),
+            )),
+            diagnostics,
+        ))
     }
 }

@@ -24,14 +24,15 @@ use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, Source
 use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
-    ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantInstanceValueFact,
-    ConstantTermId, ConstantValueId, DeclaredTypeRepresentation, DirectiveSurface,
-    ForeignCallableContract, FunctionSymbolId, GenericConstraintObligationKey,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantTermId,
+    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract,
+    FunctionSymbolId, GenericConstraintObligationKey, ImplementationCandidateSet,
+    ImplementationCoherenceDomainKey, ImplementationParticipationFact,
     ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
-    ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity, ProductSemanticFacts, ProofOutcome,
-    SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
-    TraitImplementationConformanceFact, TypeAssociatedSurface,
+    ImportedSymbolFactAddress, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
+    ProductSemanticFacts, ProofOutcome, SemanticFactResult, SemanticValueStore,
+    SemanticValueStoreCreateError, SymbolGraph, TraitImplementationConformanceFact,
+    TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -102,6 +103,10 @@ pub(super) struct CompilationState {
         ImportedSemanticFactKey,
         Arc<bray_diagnostics::DiagnosticResult<Arc<[ImportedSemanticFact]>>>,
     >,
+    pub(super) imported_constant_callable_bodies: FactCellMap<
+        ImportedSymbolFactAddress,
+        Arc<DiagnosticResult<Option<Arc<bray_bound_tree::CheckedTemplate>>>>,
+    >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) implementation_participation: FactCellMap<
         ImplementationCoherenceDomainKey,
@@ -167,10 +172,13 @@ pub(super) struct CompilationState {
     pub(super) embedded_constant_expectations:
         Mutex<BTreeMap<ConstantExpressionOccurrenceKey, ConstantExpressionExpectedType>>,
     pub(super) constant_instances:
-        FactCellMap<ConstantInstanceFactKey, Arc<SemanticFactResult<ConstantInstanceValueFact>>>,
+        FactCellMap<
+            ConstantInstanceFactKey,
+            Arc<bray_diagnostics::DiagnosticResult<bray_checker::EvaluatedConstantCall>>,
+        >,
     pub(super) constant_calls: FactCellMap<
         crate::fact::ConstantCallFactKey,
-        Arc<DiagnosticResult<Option<ConstantValueId>>>,
+        Arc<DiagnosticResult<Option<bray_checker::EvaluatedConstantCall>>>,
     >,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
     pub(super) package_interface_export_bundle: FactCell<
@@ -269,6 +277,7 @@ impl Compilation {
                 imported_symbol_skeleton: FactCell::new(),
                 imported_semantic_graphs: empty_fact_caches(dependency_count),
                 imported_semantic_facts: FactCellMap::new(),
+                imported_constant_callable_bodies: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 implementation_participation: FactCellMap::new(),
                 implementation_coherence: FactCell::new(),

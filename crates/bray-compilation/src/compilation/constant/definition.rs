@@ -10,17 +10,17 @@ use bray_bound_tree::{
     SemanticSelection, walk_bound_unit_view,
 };
 use bray_checker::{
-    CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluator,
-    ConstantReferenceResolution, DefaultConstantChecker, DefaultConstantEvaluator,
+    CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
+    ConstantEvaluator, ConstantReferenceResolution, DefaultConstantChecker,
+    DefaultConstantEvaluator, EvaluatedConstantCall,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
-    ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey,
-    ConstantInstanceValueFact, ConstantTermData, ConstantTermId, ConstantValueData,
-    ConstantValueId, ConstantValueKind, ErrorConstantDefinition, GenericSubstitutionId,
-    SemanticFactResult, SymbolFactRequest, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDefinitionFact,
+    ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
+    ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
+    SymbolFactRequest,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDefinitionFact,
 };
 
 use super::super::Compilation;
@@ -86,7 +86,7 @@ impl Compilation {
     pub fn constant_instance(
         &self,
         instance: ConstantInstanceKey,
-    ) -> Result<Arc<SemanticFactResult<ConstantInstanceValueFact>>, FactQueryError> {
+    ) -> Result<Arc<DiagnosticResult<EvaluatedConstantCall>>, FactQueryError> {
         self.constant_instance_with_cancellation(instance, &self.state.cancellation)
     }
 
@@ -235,9 +235,22 @@ impl Compilation {
         &self,
         instance: ConstantInstanceKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<ConstantInstanceValueFact>>, FactQueryError> {
+    ) -> Result<Arc<DiagnosticResult<EvaluatedConstantCall>>, FactQueryError> {
+        self.constant_instance_with_limits(
+            instance,
+            ConstantEvaluationLimits::default(),
+            cancellation,
+        )
+    }
+
+    pub(in crate::compilation) fn constant_instance_with_limits(
+        &self,
+        instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<DiagnosticResult<EvaluatedConstantCall>>, FactQueryError> {
         let target = self.options().selected_target().profile().clone();
-        let key = ConstantInstanceFactKey::new(instance, target);
+        let key = ConstantInstanceFactKey::new(instance, target, limits);
         let cell = self.state.constant_instances.cell(key.clone())?;
 
         let published = cell.get_or_compute(
@@ -245,7 +258,7 @@ impl Compilation {
             CompilationFactKey::ConstantInstance(key),
             cancellation,
             || {
-                self.compute_constant_instance(instance, cancellation)
+                self.compute_constant_instance(instance, limits, cancellation)
                     .map(Arc::new)
             },
         )?;
@@ -256,10 +269,13 @@ impl Compilation {
     fn compute_constant_instance(
         &self,
         instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<ConstantInstanceValueFact>, FactQueryError> {
+    ) -> Result<DiagnosticResult<EvaluatedConstantCall>, FactQueryError> {
         if let Some(value) = self.target_constant_value(instance.definition())? {
-            return Ok(DiagnosticResult::without_diagnostics(value));
+            return Ok(DiagnosticResult::without_diagnostics(
+                EvaluatedConstantCall::new(value, Default::default()),
+            ));
         }
 
         let key = self
@@ -290,16 +306,19 @@ impl Compilation {
 
             let value = self
                 .semantic_value_store()?
-                .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
+                .intern_error_constant_value(ty)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            return Ok(DiagnosticResult::without_diagnostics(value));
+            return Ok(DiagnosticResult::without_diagnostics(
+                EvaluatedConstantCall::new(value, Default::default()),
+            ));
         }
 
         let (references, dependency_diagnostics) = self.concrete_references(
             bound.result().value(),
             &semantics.result().value().1,
             instance,
+            limits,
             cancellation,
         )?;
 
@@ -307,7 +326,8 @@ impl Compilation {
 
         let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
             .with_references(references)
-            .with_call_resolver(&resolver);
+            .with_call_resolver(&resolver)
+            .with_limits(limits);
 
         let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
             .map_err(|error| {
@@ -316,10 +336,16 @@ impl Compilation {
                 )
             })?;
 
-        let evaluated = checker_result(DefaultConstantEvaluator.evaluate_constant(unit, &input))?;
+        let evaluated = checker_result(
+            DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
+        )?;
+
         let diagnostics = dependency_diagnostics.merged(evaluated.diagnostics());
 
-        Ok(DiagnosticResult::new(*evaluated.value(), diagnostics))
+        Ok(DiagnosticResult::new(
+            EvaluatedConstantCall::new(evaluated.value().value(), evaluated.value().usage()),
+            diagnostics,
+        ))
     }
 
     fn symbolic_references(
@@ -360,6 +386,7 @@ impl Compilation {
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
         instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -377,6 +404,7 @@ impl Compilation {
                 parameters: &BTreeMap::new(),
                 current_constant: Some(instance),
             },
+            limits,
             cancellation,
         )
     }
@@ -388,6 +416,7 @@ impl Compilation {
         substitution: GenericSubstitutionId,
         selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
         parameters: &BTreeMap<AnySymbolId, ConstantValueId>,
+        limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -405,6 +434,7 @@ impl Compilation {
                 parameters,
                 current_constant: None,
             },
+            limits,
             cancellation,
         )
     }
@@ -413,6 +443,7 @@ impl Compilation {
         &self,
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
+        limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -430,6 +461,7 @@ impl Compilation {
                 parameters: &BTreeMap::new(),
                 current_constant: None,
             },
+            limits,
             cancellation,
         )
     }
@@ -439,6 +471,7 @@ impl Compilation {
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
         context: ConcreteReferenceContext<'_>,
+        limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -517,12 +550,12 @@ impl Compilation {
                         )
                     };
 
-                    match self.constant_instance_with_cancellation(dependency, cancellation) {
+                    match self.constant_instance_with_limits(dependency, limits, cancellation) {
                         Ok(result) => {
                             dependency_diagnostics =
                                 dependency_diagnostics.merged(result.diagnostics());
 
-                            Ok(ConstantReferenceResolution::Value(*result.value()))
+                            Ok(ConstantReferenceResolution::Evaluated(*result.value()))
                         }
                         Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle),
                         Err(error) => Err(error),
@@ -640,7 +673,7 @@ fn imported_constant_definition(
         .get(index)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let CheckedTemplateOperation::Constant(term) = result.operation() else {
+    let CheckedTemplateOperation::Constant { term, .. } = result.operation() else {
         return Err(FactQueryError::InfrastructureFailure);
     };
 
@@ -983,7 +1016,7 @@ mod tests {
             right.unwrap_or_else(|error| panic!("constant instance must publish: {error:?}"));
 
         assert!(Arc::ptr_eq(&left, &right));
-        assert_eq!(integer_value(&compilation, *left.value()), 1);
+        assert_eq!(integer_value(&compilation, left.value().value()), 1);
         assert!(left.diagnostics().is_empty());
 
         assert!(instance_is_published(&compilation, first));
@@ -1074,7 +1107,7 @@ mod tests {
             panic!("constant callable must be eligible for evaluation");
         };
 
-        assert_eq!(integer_value(&compilation, value), 42);
+        assert_eq!(integer_value(&compilation, value.value()), 42);
     }
 
     #[test]
@@ -1140,7 +1173,7 @@ mod tests {
             panic!("constant callable must be eligible for evaluation");
         };
 
-        assert_eq!(integer_value(&compilation, value), 9);
+        assert_eq!(integer_value(&compilation, value.value()), 9);
     }
 
     #[test]
@@ -1201,7 +1234,7 @@ mod tests {
             let value = compilation
                 .semantic_value_store()
                 .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"))
-                .constant_value_data(value)
+                .constant_value_data(value.value())
                 .unwrap_or_else(|failure| {
                     panic!("propagated result value must resolve: {failure:?}")
                 });
@@ -1354,7 +1387,7 @@ mod tests {
         );
 
         assert!(matches!(
-            constant_value(&compilation, *result.value()).kind(),
+            constant_value(&compilation, result.value().value()).kind(),
             ConstantValueKind::Error
         ));
     }
@@ -1449,8 +1482,8 @@ mod tests {
             second.diagnostics()
         );
 
-        assert_eq!(integer_value(&compilation, *first.value()), 3);
-        assert_eq!(integer_value(&compilation, *second.value()), 7);
+        assert_eq!(integer_value(&compilation, first.value().value()), 3);
+        assert_eq!(integer_value(&compilation, second.value().value()), 7);
         assert!(!Arc::ptr_eq(&first, &second));
     }
 
@@ -1477,8 +1510,16 @@ mod tests {
         .unwrap_or_else(|error| panic!("alternate target profile must be valid: {error:?}"));
 
         assert_ne!(
-            ConstantInstanceFactKey::new(instance, baseline.profile().clone()),
-            ConstantInstanceFactKey::new(instance, alternate)
+            ConstantInstanceFactKey::new(
+                instance,
+                baseline.profile().clone(),
+                ConstantEvaluationLimits::default(),
+            ),
+            ConstantInstanceFactKey::new(
+                instance,
+                alternate,
+                ConstantEvaluationLimits::default(),
+            )
         );
     }
 
@@ -1516,6 +1557,7 @@ mod tests {
         ConstantInstanceFactKey::new(
             instance,
             compilation.options().selected_target().profile().clone(),
+            ConstantEvaluationLimits::default(),
         )
     }
 

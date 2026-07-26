@@ -111,6 +111,8 @@ pub enum DiagnosticKind {
     InterfaceDependencyGraphInvalid,
     /// Decoded package-interface semantic facts cannot be used in this compilation.
     InterfaceSemanticFactsInvalid,
+    /// A selected imported const callable has no compatible implementation body.
+    InterfaceConstantCallableBodyUnavailable,
     /// Name binding could not find a declaration or local with the requested spelling.
     BindingUnresolvedName,
     /// Name binding found more than one candidate for one ordinary name.
@@ -155,6 +157,8 @@ pub enum DiagnosticKind {
     CheckingConstantEvaluationStepLimitExceeded,
     /// Constant evaluation exhausted its deterministic aggregate-element budget.
     CheckingConstantAggregateLimitExceeded,
+    /// Constant evaluation exhausted its deterministic expansion budget.
+    CheckingConstantExpansionLimitExceeded,
     /// Constant evaluation exhausted its deterministic literal-byte budget.
     CheckingConstantLiteralSizeLimitExceeded,
     /// Constant evaluation exceeded its deterministic exact-integer size limit.
@@ -378,6 +382,7 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => 5011,
             Self::InterfaceDependencyGraphInvalid => 5012,
             Self::InterfaceSemanticFactsInvalid => 5013,
+            Self::InterfaceConstantCallableBodyUnavailable => 5014,
             Self::BindingUnresolvedName => 6001,
             Self::BindingAmbiguousName => 6002,
             Self::BindingInaccessibleName => 6003,
@@ -400,6 +405,7 @@ impl DiagnosticKind {
             Self::CheckingConstantLiteralNotRepresentable => 7004,
             Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
             Self::CheckingConstantAggregateLimitExceeded => 7006,
+            Self::CheckingConstantExpansionLimitExceeded => 7081,
             Self::CheckingConstantLiteralSizeLimitExceeded => 7007,
             Self::CheckingConstantIntegerSizeLimitExceeded => 7020,
             Self::CheckingCyclicConstantDefinition => 7008,
@@ -545,6 +551,9 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => "interface_product_identity_mismatch",
             Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
             Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
+            Self::InterfaceConstantCallableBodyUnavailable => {
+                "interface_constant_callable_body_unavailable"
+            }
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",
@@ -574,6 +583,9 @@ impl DiagnosticKind {
             }
             Self::CheckingConstantAggregateLimitExceeded => {
                 "checking_constant_aggregate_limit_exceeded"
+            }
+            Self::CheckingConstantExpansionLimitExceeded => {
+                "checking_constant_expansion_limit_exceeded"
             }
             Self::CheckingConstantLiteralSizeLimitExceeded => {
                 "checking_constant_literal_size_limit_exceeded"
@@ -763,7 +775,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 143] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 144] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -839,6 +851,7 @@ mod tests {
             DiagnosticKind::CheckingConstantLiteralNotRepresentable,
             DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
             DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
             DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
             DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
             DiagnosticKind::CheckingCyclicConstantDefinition,

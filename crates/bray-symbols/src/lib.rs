@@ -60,7 +60,7 @@ pub use fact::{
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, ConstantDeclaredTypeFact,
     ConstantDefinition, ConstantDefinitionFact, ConstantDefinitionState,
     ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
-    ConstantInstanceKey, ConstantInstanceValueFact, CurrentRunCancellation,
+    ConstantInstanceKey, CurrentRunCancellation,
     DeclarationCapabilityTemplate, DeclarationDirectivesFact, DeclarationExpressionTemplate,
     DeclarationPredicateClauseKind, DeclaredCopyContract, DeclaredLayoutMode,
     DeclaredTypeRepresentation, DeclaredUnionTag, DirectiveArgumentName, DirectiveArgumentTemplate,

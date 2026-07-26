@@ -158,6 +158,19 @@ pub(crate) fn compilation_with_options(source: &str, options: CompilationOptions
     }
 }
 
+pub(crate) fn compilation_with_dependencies(
+    source: &str,
+    dependencies: impl IntoIterator<Item = DependencyInterfaceInput>,
+) -> Compilation {
+    let request = CompilationRequest::new(package_identity(), vec![source_input(source, 0)])
+        .with_dependency_interfaces(dependencies);
+
+    match Compilation::load(request) {
+        Ok(compilation) => compilation,
+        Err(error) => panic!("test compilation must load: {error:?}"),
+    }
+}
+
 pub(crate) fn encoded_semantic_dependency(
     fixture: &EncodedSemanticTestInterface,
 ) -> DependencyInterfaceInput {

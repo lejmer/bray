@@ -1,12 +1,39 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_diagnostics::DiagnosticResult;
-use bray_symbols::{CallableInstanceData, ConstantValueId, ImplementationInstanceId, TypeId};
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_symbols::{
+    AnySymbolId, CallableInstanceData, ConstantInstanceKey, ConstantValueId, ExternalSymbolKey,
+    ImplementationInstanceId, TypeId,
+};
 
 use crate::CheckerFactResult;
 
-use super::ConstantEvaluationLimits;
+use super::{ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantReferenceResolution};
+
+/// One evaluated constant call and its transitive deterministic work usage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct EvaluatedConstantCall {
+    value: ConstantValueId,
+    usage: ConstantEvaluationUsage,
+}
+
+impl EvaluatedConstantCall {
+    /// Creates a completed call result with its transitive work usage.
+    pub const fn new(value: ConstantValueId, usage: ConstantEvaluationUsage) -> Self {
+        Self { value, usage }
+    }
+
+    /// Returns the closed call result.
+    pub const fn value(self) -> ConstantValueId {
+        self.value
+    }
+
+    /// Returns work consumed by the complete nested evaluation.
+    pub const fn usage(self) -> ConstantEvaluationUsage {
+        self.usage
+    }
+}
 
 /// One selected constant call after its argument expressions have evaluated.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -66,11 +93,11 @@ impl ConstantCallRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConstantCallResolution {
     /// The callable evaluated and owns the accompanying nested diagnostics.
-    Evaluated(DiagnosticResult<ConstantValueId>),
+    Evaluated(DiagnosticResult<EvaluatedConstantCall>),
     /// The compilation fact graph found a recursive constant-call cycle.
     Cycle,
     /// The selected callable cannot execute in constant context.
-    Ineligible,
+    Ineligible(DiagnosticBag),
 }
 
 /// Resolves selected constant calls through the caller's demand-driven fact graph.
@@ -80,4 +107,17 @@ pub trait ConstantCallResolver: Sync {
 
     /// Evaluates one exact call without forcing unrelated semantic facts.
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution>;
+}
+
+/// Resolves stable references used by an imported const-callable body template.
+pub trait ConstantTemplateResolver: ConstantCallResolver {
+    /// Resolves one stable declaration identity into the consuming compilation.
+    fn symbol(&self, key: &ExternalSymbolKey) -> Option<AnySymbolId>;
+
+    /// Evaluates one constant declaration retained by a checked body template.
+    fn resolve_constant(
+        &self,
+        instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
+    ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>>;
 }

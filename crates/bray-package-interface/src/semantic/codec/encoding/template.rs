@@ -50,6 +50,14 @@ fn encode_declaration_template(
     encoder.write_u32(declaration.entity().raw());
 }
 
+pub(crate) fn encode_template_payload(template: &InterfaceCheckedTemplate) -> Vec<u8> {
+    let mut encoder = WireEncoder::new();
+
+    encode_template(&mut encoder, template);
+
+    encoder.into_bytes()
+}
+
 fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplate) {
     encoder.write_u32(template.kind().to_wire());
     write_count(encoder, template.inputs().len());
@@ -122,8 +130,26 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
         InterfaceCheckedTemplateOperation::Input(input) => {
             write_tagged_template_id(encoder, 1, input.raw());
         }
-        InterfaceCheckedTemplateOperation::Constant(constant) => {
-            write_tagged_template_id(encoder, 2, constant.raw());
+        InterfaceCheckedTemplateOperation::Constant { term, usage } => {
+            write_tagged_template_id(encoder, 2, term.raw());
+            encoder.write_u64(usage.aggregate_elements());
+            encoder.write_u64(usage.literal_bytes());
+            encoder.write_u64(usage.expansions());
+        }
+        InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
+            encoder.write_u32(12);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(operand.raw());
+        }
+        InterfaceCheckedTemplateOperation::Binary {
+            operation,
+            left,
+            right,
+        } => {
+            encoder.write_u32(13);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(left.raw());
+            encoder.write_u32(right.raw());
         }
         InterfaceCheckedTemplateOperation::Declaration(declaration) => {
             encoder.write_u32(3);
@@ -131,17 +157,20 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
         }
         InterfaceCheckedTemplateOperation::Call {
             callable,
+            substitution,
             arguments,
             implementation,
         } => {
             encoder.write_u32(4);
             encode_template_reference(encoder, callable);
+            encoder.write_u32(substitution.raw());
             write_node_ids(encoder, arguments);
 
             match implementation {
-                Some(implementation) => {
+                Some((implementation, substitution)) => {
                     encoder.write_u32(1);
                     encode_implementation_reference(encoder, implementation);
+                    encoder.write_u32(substitution.raw());
                 }
                 None => encoder.write_u32(0),
             }

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    ConstantTermId, CurrentRunCancellation, DependencyContractTemplateId, ExternalSymbolKey,
+    ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation, CurrentRunCancellation,
+    DependencyContractTemplateId, ExternalSymbolKey, GenericSubstitutionId,
     LifecycleObligationKind, SymbolKind, SymbolOrdinal, TypeId,
 };
 
@@ -21,6 +22,8 @@ pub enum CheckedTemplateKind {
     GenericConstraint,
     /// A callable precondition, postcondition, or static contract clause.
     CallableContract,
+    /// A checked const-callable body retained for cross-package evaluation.
+    ConstantCallableBody,
 }
 
 impl CheckedTemplateKind {
@@ -49,6 +52,7 @@ impl CheckedTemplateKind {
             Self::CallableContract => {
                 matches!(owner, SymbolKind::CallableContract) || owner.is_callable()
             }
+            Self::ConstantCallableBody => owner.is_callable(),
         }
     }
 }
@@ -256,23 +260,80 @@ pub enum CheckedTemplateShortCircuitKind {
     Or,
 }
 
+/// Deterministic materialization work retained with one checked constant term.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CheckedTemplateConstantUsage {
+    aggregate_elements: u64,
+    literal_bytes: u64,
+    expansions: u64,
+}
+
+impl CheckedTemplateConstantUsage {
+    /// Creates an explicit constant materialization summary.
+    pub const fn new(aggregate_elements: u64, literal_bytes: u64, expansions: u64) -> Self {
+        Self {
+            aggregate_elements,
+            literal_bytes,
+            expansions,
+        }
+    }
+
+    /// Returns aggregate elements materialized while producing the term.
+    pub const fn aggregate_elements(self) -> u64 {
+        self.aggregate_elements
+    }
+
+    /// Returns source literal bytes decoded while producing the term.
+    pub const fn literal_bytes(self) -> u64 {
+        self.literal_bytes
+    }
+
+    /// Returns elements produced through constant expansion.
+    pub const fn expansions(self) -> u64 {
+        self.expansions
+    }
+}
+
 /// The closed normalized operation vocabulary of a checked template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedTemplateOperation {
     /// Reads one explicitly declared contextual or generic input.
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
-    Constant(ConstantTermId),
+    Constant {
+        /// The checked open or closed constant term.
+        term: ConstantTermId,
+        /// Materialization work no longer recoverable from a closed value.
+        usage: CheckedTemplateConstantUsage,
+    },
+    /// Applies a selected unary constant operation.
+    Unary {
+        /// Exact checked operation.
+        operation: ConstantUnaryOperation,
+        /// Operand evaluated before the operation.
+        operand: CheckedTemplateNodeId,
+    },
+    /// Applies a selected binary constant operation.
+    Binary {
+        /// Exact checked operation.
+        operation: ConstantBinaryOperation,
+        /// Left operand evaluated first.
+        left: CheckedTemplateNodeId,
+        /// Right operand evaluated second unless the operation short-circuits.
+        right: CheckedTemplateNodeId,
+    },
     /// Reads a declaration-owned value through stable semantic identity.
     Declaration(ExternalSymbolKey),
     /// Calls one selected declaration with deterministic argument order.
     Call {
         /// The selected callable declaration.
         callable: ExternalSymbolKey,
+        /// Ordered generic arguments applied to the callable declaration.
+        substitution: GenericSubstitutionId,
         /// Arguments in exact evaluation and parameter order.
         arguments: Arc<[CheckedTemplateNodeId]>,
         /// The selected implementation witness when dispatch requires one.
-        implementation: Option<ExternalSymbolKey>,
+        implementation: Option<(ExternalSymbolKey, GenericSubstitutionId)>,
     },
     /// Applies an already checked semantic conversion.
     Convert {
@@ -318,11 +379,13 @@ impl CheckedTemplateOperation {
     /// Creates a selected call operation with stable argument order.
     pub fn call(
         callable: ExternalSymbolKey,
+        substitution: GenericSubstitutionId,
         arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<ExternalSymbolKey>,
+        implementation: Option<(ExternalSymbolKey, GenericSubstitutionId)>,
     ) -> Self {
         Self::Call {
             callable,
+            substitution,
             arguments: shared_slice(arguments),
             implementation,
         }
@@ -349,6 +412,11 @@ impl CheckedTemplateOperation {
                 }
             }
             Self::Convert { value, .. } => visit(*value)?,
+            Self::Unary { operand, .. } => visit(*operand)?,
+            Self::Binary { left, right, .. } => {
+                visit(*left)?;
+                visit(*right)?;
+            }
             Self::Project { subject, .. } => visit(*subject)?,
             Self::Conditional {
                 condition,
@@ -363,7 +431,10 @@ impl CheckedTemplateOperation {
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Input(_) | Self::Constant(_) | Self::Declaration(_) | Self::Temporary(_) => {}
+            Self::Input(_)
+            | Self::Constant { .. }
+            | Self::Declaration(_)
+            | Self::Temporary(_) => {}
         }
 
         Ok(())

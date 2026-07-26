@@ -1,3 +1,4 @@
+mod body;
 mod diagnostic;
 mod model;
 mod query;

@@ -493,9 +493,9 @@ selected language representation. Integer values use arbitrary-width canonical m
 components use the selected IEEE binary format without host floating-point conversion. Equivalent typed values are interned in the
 semantic value store and published as `ConstantValueId` results.
 
-Every evaluation request has deterministic limits for evaluated operations, aggregate elements, and decoded literal bytes. Limit
-exhaustion emits a structured diagnostic and publishes a typed error constant rather than partial aggregate state. Cancellation
-publishes neither a value nor diagnostics.
+Every evaluation request has deterministic limits for evaluated operations, aggregate elements, decoded literal bytes, and
+compile-time expansion. Limit exhaustion emits a structured diagnostic and publishes a typed error constant rather than partial
+aggregate state. Cancellation publishes neither a value nor diagnostics.
 
 The evaluator operates on checked semantic operations, not syntax. It cannot call non-const behavior, read runtime storage, allocate
 runtime storage, perform I/O, start tasks, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
@@ -869,7 +869,7 @@ The pre-lowering bounded-work policy is divided by domain:
   overflow before publication,
 - generic and type work remains demand-driven per requested occurrence, detects fact cycles, and observes syntax or semantic
   recursion limits instead of expanding an eager transitive closure,
-- constant evaluation owns operation, aggregate, literal, exact-integer, and call-depth limits,
+- constant evaluation owns operation, aggregate, literal, expansion, exact-integer, and call-depth limits,
 - flow-sensitive analysis owns explicit fact and storage-cell capacities plus finite convergence arguments,
 - implementation and overload families own package-fact pair-comparison limits,
 - fact caches own finite retention independently of semantic answers,

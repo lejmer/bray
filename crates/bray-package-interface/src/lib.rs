@@ -9,6 +9,7 @@ mod diagnostic;
 mod export;
 mod hash;
 mod header;
+mod implementation;
 mod inspection;
 mod limits;
 mod section;
@@ -36,6 +37,10 @@ pub use hash::{InterfaceArtifactHash, InterfaceContentHash, InterfaceSectionHash
 pub use header::{
     CURRENT_FORMAT_REVISION, InterfaceFormatRevision, InterfaceHeader, InterfaceLanguageRevision,
     InterfaceRequiredFlags,
+};
+pub use implementation::{
+    InterfaceConstantCallableBody, PackageImplementationArtifact,
+    PackageImplementationArtifactBuildError,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,

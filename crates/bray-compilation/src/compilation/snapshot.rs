@@ -222,6 +222,15 @@ fn invalidation_roots(
 
                 roots.insert(CompilationFactKey::DependencyInterface(interface));
                 roots.insert(CompilationFactKey::ImportedSemanticGraph(interface));
+
+                roots.extend(
+                    previous
+                        .imported_constant_callable_bodies
+                        .keys()
+                        .into_iter()
+                        .filter(|address| address.interface() == interface)
+                        .map(CompilationFactKey::ImportedConstantCallableBody),
+                );
             }
         }
 
@@ -372,6 +381,10 @@ fn reuse_mapped_cells(
 
     reuse!(imported_semantic_facts, |key| {
         CompilationFactKey::ImportedSemanticFact(*key)
+    });
+
+    reuse!(imported_constant_callable_bodies, |key| {
+        CompilationFactKey::ImportedConstantCallableBody(*key)
     });
 
     reuse!(implementation_participation, |key| {
@@ -764,10 +777,7 @@ mod tests {
             ));
 
         let recursion_updated = previous
-            .updated(request(
-                [source(10, 0, source_text)],
-                recursion_options,
-            ))
+            .updated(request([source(10, 0, source_text)], recursion_options))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
         assert!(
@@ -801,10 +811,7 @@ mod tests {
             ));
 
         let comparison_updated = previous
-            .updated(request(
-                [source(10, 0, source_text)],
-                comparison_options,
-            ))
+            .updated(request([source(10, 0, source_text)], comparison_options))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
         assert!(

@@ -13,6 +13,16 @@ pub(crate) fn type_representation<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    type_representation_for_context(request.context(), ty)
+}
+
+pub(crate) fn type_representation_for_context<C>(
+    request: &C,
+    ty: TypeId,
+) -> Result<Option<RepresentationRole>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let data = request
         .semantic_values()
         .type_data(ty)

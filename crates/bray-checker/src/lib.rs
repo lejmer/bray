@@ -28,8 +28,10 @@ mod test_support;
 pub use constant::{
     ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluationLimits, ConstantLiteralError, ConstantReferenceResolution, EvaluatedConstant,
-    check_array_length, check_constant_literal, normalize_integer_literal,
+    ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
+    ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
+    EvaluatedConstantCall, check_array_length, check_constant_literal,
+    evaluate_constant_callable_template, normalize_integer_literal,
     resolve_callable_signature_template, resolve_type_expression_template,
 };
 pub use context::{
