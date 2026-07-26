@@ -586,7 +586,8 @@ where
             | BoundStructuredExpressionKind::TrustBoundary
             | BoundStructuredExpressionKind::Assertion
             | BoundStructuredExpressionKind::Catch
-            | BoundStructuredExpressionKind::BooleanFold
+            | BoundStructuredExpressionKind::BooleanAllFold
+            | BoundStructuredExpressionKind::BooleanAnyFold
             | BoundStructuredExpressionKind::Panic => {
                 Err(EvaluationFailure::invalid_expression(expression))
             }

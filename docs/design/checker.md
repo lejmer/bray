@@ -737,9 +737,9 @@ operation performed through it. Operations include reads, writes, moves, unresol
 access, indexing, slicing, and pattern projections. A single expression can produce several projected accesses with the same
 operation, as with product or sequence destructuring.
 
-Planning requests only the exact unit's bound tree, final expression types, semantic selections, checked pattern facts, and selected
-iteration sources. Nested semantic units and unrelated declarations retain independent fact identities and are not scanned or
-materialized by the enclosing request.
+Planning requests only the exact unit's bound tree, final expression types, checked pattern facts, and semantic selections,
+including selected iteration sources. Nested semantic units and unrelated declarations retain independent fact identities and are
+not scanned or materialized by the enclosing request.
 
 The planner does not decide flow legality, storage overlap, borrow duration, initialization state, or ownership validity. It
 preserves checked selections and projections when available. Missing or recovered semantic providers produce conservative

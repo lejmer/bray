@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, IndexTarget, SelectedOperation, SemanticSelection,
-    StorageAccessId, StorageAccessPurpose, StorageProjection,
+    StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageProjection,
 };
 
 use super::super::plan::{PlanError, Planner, invalid_node, iteration_purpose};
@@ -90,7 +90,12 @@ where
                     .unwrap_or_else(|| expression.source_mode());
 
                 self.record_purpose(expression.source(), Some(iteration_purpose(mode)), source)?;
-                self.plan_pattern(expression.pattern(), expression.source(), source)?;
+
+                let element = self
+                    .plan_iteration_storage(id)?
+                    .map_or(source, |(_, element)| element);
+
+                self.plan_pattern(expression.pattern(), id, element)?;
                 self.plan_block(expression.body())?;
 
                 if let Some(else_body) = expression.else_body() {
@@ -109,7 +114,12 @@ where
                     .unwrap_or_else(|| expression.source_mode());
 
                 self.record_purpose(expression.source(), Some(iteration_purpose(mode)), source)?;
-                self.plan_pattern(expression.pattern(), expression.source(), source)?;
+
+                let element = self
+                    .plan_iteration_storage(id)?
+                    .map_or(source, |(_, element)| element);
+
+                self.plan_pattern(expression.pattern(), id, element)?;
                 self.plan_block(expression.body())?;
 
                 self.temporary_access(id)?
@@ -247,6 +257,25 @@ where
             | BoundStructuredExpressionKind::NullablePropagation => {
                 self.plan_structured_projection(id, kind, operands)
             }
+            BoundStructuredExpressionKind::BooleanAllFold
+            | BoundStructuredExpressionKind::BooleanAnyFold => {
+                let Some(source) = operands.first().copied() else {
+                    return self.recovery_access(id);
+                };
+
+                let access = self.plan_expression(source, None)?;
+
+                self.record_purpose(
+                    source,
+                    Some(iteration_purpose(
+                        bray_bound_tree::IterationSourceMode::Shared,
+                    )),
+                    access,
+                )?;
+
+                self.plan_iteration_storage(id)?;
+                self.temporary_access(id)
+            }
             _ => {
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
@@ -268,6 +297,35 @@ where
                 self.temporary_access(id)
             }
         }
+    }
+
+    fn plan_iteration_storage(
+        &mut self,
+        expression: BoundExpressionId,
+    ) -> Result<Option<(StorageAccessId, StorageAccessId)>, PlanError> {
+        let Some(selection) = self.iterations.get(&expression) else {
+            return Ok(None);
+        };
+
+        let cursor_type = selection.cursor_type();
+        let element_type = selection.element_type();
+
+        let cursor = self.iteration_access(
+            expression,
+            StorageIdentity::IterationCursor(expression),
+            cursor_type,
+        )?;
+
+        let element = self.iteration_access(
+            expression,
+            StorageIdentity::IterationElement(expression),
+            element_type,
+        )?;
+
+        self.record_purpose(expression, Some(StorageAccessPurpose::Initialize), cursor)?;
+        self.record_purpose(expression, Some(StorageAccessPurpose::Initialize), element)?;
+
+        Ok(Some((cursor, element)))
     }
 
     fn plan_structured_projection(

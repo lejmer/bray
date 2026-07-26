@@ -1,13 +1,14 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
-    DependencyContractInstantiationError, SelectedCall, StoragePlan,
+    DependencyContractInstantiationContext, DependencyContractInstantiationError, SelectedCall,
+    SelectedIterationSource, StorageIdentity, StoragePlan,
 };
 use bray_symbols::{
-    CallableDependencyContracts, CallableSignatureFact, SymbolFactRequest, TypeData,
-    TypeExpressionTemplate,
+    CallableDependencyContracts, CallableInstanceData, CallableSignatureFact, SymbolFactRequest,
+    TypeData, TypeExpressionTemplate,
 };
 
-use super::instantiation::CallInstantiationContext;
+use super::instantiation::{CallInstantiationContext, expression_access, identity_access};
 use crate::{
     CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
 };
@@ -26,6 +27,82 @@ where
 
     let mut context = CallInstantiationContext::new(request, storage, expression, call);
 
+    instantiate_callable_contract(request, contracts, &mut context)
+}
+
+pub(in crate::dependency) fn selected_iteration_contract<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    selection: &SelectedIterationSource,
+) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+where
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    let source = expression_access(storage, selection.source()).ok_or(
+        DependencyContractInstantiationError::Resolution(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ),
+    )?;
+
+    let cursor = identity_access(
+        storage,
+        StorageIdentity::IterationCursor(selection.expression()),
+    )
+    .ok_or(DependencyContractInstantiationError::Resolution(
+        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+    ))?;
+
+    let element = identity_access(
+        storage,
+        StorageIdentity::IterationElement(selection.expression()),
+    )
+    .ok_or(DependencyContractInstantiationError::Resolution(
+        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+    ))?;
+
+    let iterate =
+        instantiate_hidden_iteration_call(request, storage, selection.iterate(), source, cursor)?;
+
+    let next =
+        instantiate_hidden_iteration_call(request, storage, selection.next(), cursor, element)?;
+
+    Ok(BoundDependencyContract::new(
+        iterate
+            .requirements()
+            .iter()
+            .chain(next.requirements())
+            .cloned(),
+    ))
+}
+
+fn instantiate_hidden_iteration_call<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    callable: CallableInstanceData,
+    receiver: bray_bound_tree::StorageAccessId,
+    result: bray_bound_tree::StorageAccessId,
+) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+where
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    let contracts =
+        callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
+            .map_err(DependencyContractInstantiationError::Resolution)?;
+
+    let mut context = CallInstantiationContext::hidden(request, storage, receiver, result);
+
+    instantiate_callable_contract(request, contracts, &mut context)
+}
+
+fn instantiate_callable_contract<C, I>(
+    request: CheckerUnitView<'_, C>,
+    contracts: CallableDependencyContracts,
+    context: &mut I,
+) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+where
+    C: CheckerRequestContext + ?Sized,
+    I: DependencyContractInstantiationContext<Error = CheckerInfrastructureError>,
+{
     let invocation = request
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation())
@@ -35,7 +112,7 @@ where
             )
         })?;
 
-    let mut requirements = BoundDependencyContract::try_instantiate(&invocation, &mut context)?
+    let mut requirements = BoundDependencyContract::try_instantiate(&invocation, context)?
         .requirements()
         .to_vec();
 
@@ -50,7 +127,7 @@ where
             })?;
 
         requirements.extend(
-            BoundDependencyContract::try_instantiate(&deferred, &mut context)?
+            BoundDependencyContract::try_instantiate(&deferred, context)?
                 .requirements()
                 .iter()
                 .cloned(),
@@ -164,7 +241,8 @@ mod tests {
         BoundCallResult, BoundCallableTarget, BoundDependencyGuard, BoundDependencyRequirement,
         BoundDependencyRequirementKind, BoundDependencySubject, BoundErrorExpression,
         BoundExpression, BoundResolvedCall, BoundUnitId, SelectedArgument, SelectedCall,
-        StorageAccess, StorageAccessRoot, StorageIdentity, StoragePlanBuilder, StorageProjection,
+        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+        StoragePlanBuilder, StorageProjection,
     };
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableDependencyContracts, CallableTrust,
@@ -173,8 +251,9 @@ mod tests {
         SymbolOrdinal, TypeData,
     };
 
-    use super::selected_call_contract;
+    use super::{instantiate_callable_contract, selected_call_contract};
     use crate::CheckerUnitView;
+    use crate::dependency::call::instantiation::CallInstantiationContext;
     use crate::test_support::{
         TestCheckerContext, callable_entry, error_type, expression_unit, push_expression,
         semantic_values,
@@ -203,19 +282,11 @@ mod tests {
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
-        let identity = storage
-            .push_identity(StorageIdentity::Temporary(*argument))
-            .unwrap_or_else(|error| panic!("test argument storage must build: {error:?}"));
-
-        let argument_access = storage
-            .push_access(StorageAccess::new(
-                StorageAccessRoot::Storage(identity),
-                [],
-                error_type(),
-                unit.key().source(),
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("test argument access must build: {error:?}"));
+        let (identity, argument_access) = push_direct_storage(
+            &mut storage,
+            StorageIdentity::Temporary(*argument),
+            unit.key().source(),
+        );
 
         let nullable_value_access = storage
             .push_access(StorageAccess::new(
@@ -321,5 +392,114 @@ mod tests {
                         })
             )
         }));
+    }
+
+    #[test]
+    fn hidden_iteration_calls_instantiate_receiver_and_result_dependencies() {
+        let unit_id = BoundUnitId::new(30);
+
+        let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
+            vec![
+                push_expression(
+                    tree,
+                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                ),
+                push_expression(
+                    tree,
+                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                ),
+            ]
+        });
+
+        let [source, iteration] = expressions.as_slice() else {
+            panic!("test unit must contain a source and iteration expression");
+        };
+
+        let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
+
+        let (_, source_access) = push_direct_storage(
+            &mut storage,
+            StorageIdentity::Temporary(*source),
+            unit.key().source(),
+        );
+
+        let (_, cursor_access) = push_direct_storage(
+            &mut storage,
+            StorageIdentity::IterationCursor(*iteration),
+            unit.key().source(),
+        );
+
+        let storage = storage.finish();
+
+        let template = semantic_values()
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::direct(
+                    DependencySubject::root(DependencySubjectRoot::Receiver),
+                    DependencyRequirementKind::StorageAlive,
+                ),
+                DependencyRequirement::direct(
+                    DependencySubject::root(DependencySubjectRoot::Result),
+                    DependencyRequirementKind::StorageInitialized,
+                ),
+            ]))
+            .unwrap_or_else(|error| panic!("test dependency template must intern: {error:?}"));
+
+        let context = TestCheckerContext::new(false);
+        let semantic_context = callable_entry(unit.key());
+
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
+            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+
+        let mut context =
+            CallInstantiationContext::hidden(request, &storage, source_access, cursor_access);
+
+        let contract = instantiate_callable_contract(
+            request,
+            CallableDependencyContracts::synchronous(template),
+            &mut context,
+        )
+        .unwrap_or_else(|error| panic!("hidden call contract must instantiate: {error:?}"));
+
+        assert!(contract.requirements().iter().any(|requirement| {
+            matches!(
+                requirement,
+                BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::StorageAccess(access),
+                    kind: BoundDependencyRequirementKind::StorageAlive,
+                } if *access == source_access
+            )
+        }));
+
+        assert!(contract.requirements().iter().any(|requirement| {
+            matches!(
+                requirement,
+                BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::StorageAccess(access),
+                    kind: BoundDependencyRequirementKind::StorageInitialized,
+                } if *access == cursor_access
+            )
+        }));
+    }
+
+    fn push_direct_storage(
+        storage: &mut StoragePlanBuilder,
+        identity: StorageIdentity,
+        source: bray_bound_tree::BoundSourceAnchor,
+    ) -> (StorageIdentityId, StorageAccessId) {
+        let identity = storage
+            .push_identity(identity)
+            .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+
+        let access = storage
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
+                [],
+                error_type(),
+                source,
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+
+        (identity, access)
     }
 }

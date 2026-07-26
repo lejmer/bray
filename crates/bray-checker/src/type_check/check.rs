@@ -506,7 +506,7 @@ mod tests {
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
                 origin,
-                BoundStructuredExpressionKind::BooleanFold,
+                BoundStructuredExpressionKind::BooleanAllFold,
                 [source],
                 [],
                 [],
@@ -884,7 +884,7 @@ mod tests {
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
                     origin,
-                    BoundStructuredExpressionKind::BooleanFold,
+                    BoundStructuredExpressionKind::BooleanAllFold,
                     [source],
                     [],
                     [],

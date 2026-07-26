@@ -1,8 +1,9 @@
 use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
     BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedSemanticSelections, StorageAccessPlan, StorageAccessPurpose,
-    StorageAccessRoot, StorageFlowFacts, StorageOperationDecision, StoragePlan,
+    CheckedLiteralValues, CheckedPatternFacts, CheckedSemanticSelections, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts, StorageOperationDecision,
+    StoragePlan,
 };
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::AvailableCompilerKnownSymbols;
@@ -17,6 +18,7 @@ pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlowFacts,
     expression_types: &'unit CheckedExpressionTypes,
+    pattern_facts: &'unit CheckedPatternFacts,
     semantic_selections: &'unit CheckedSemanticSelections,
     literal_values: &'unit CheckedLiteralValues,
     storage_plan: &'unit StoragePlan,
@@ -36,6 +38,7 @@ impl<'unit> LoweringInput<'unit> {
         unit: &'unit BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
         expression_types: &'unit CheckedExpressionTypes,
+        pattern_facts: &'unit CheckedPatternFacts,
         semantic_selections: &'unit CheckedSemanticSelections,
         literal_values: &'unit CheckedLiteralValues,
         storage_plan: &'unit StoragePlan,
@@ -56,6 +59,13 @@ impl<'unit> LoweringInput<'unit> {
             expression_types.unit(),
             expression_types.kind(),
             LoweringFactKind::ExpressionTypes,
+        )?;
+
+        validate_fact_owner(
+            unit,
+            pattern_facts.unit(),
+            pattern_facts.kind(),
+            LoweringFactKind::PatternFacts,
         )?;
 
         validate_fact_owner(
@@ -88,6 +98,7 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_literal_target(literal_values, &target)?;
         validate_semantic_completeness(unit, expression_types, semantic_selections)?;
+        validate_pattern_completeness(unit, pattern_facts)?;
         validate_storage_facts(unit, storage_plan, storage_flow)?;
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
@@ -98,6 +109,7 @@ impl<'unit> LoweringInput<'unit> {
             unit,
             control_flow,
             expression_types,
+            pattern_facts,
             semantic_selections,
             literal_values,
             storage_plan,
@@ -123,7 +135,12 @@ impl<'unit> LoweringInput<'unit> {
         self.expression_types
     }
 
-    /// Returns exact callable and operation choices for the unit.
+    /// Returns checked pattern operations, binding types, and match coverage.
+    pub const fn pattern_facts(&self) -> &'unit CheckedPatternFacts {
+        self.pattern_facts
+    }
+
+    /// Returns exact semantic choices for the unit.
     pub const fn semantic_selections(&self) -> &'unit CheckedSemanticSelections {
         self.semantic_selections
     }
@@ -171,6 +188,8 @@ pub enum LoweringFactKind {
     ControlFlow,
     /// Final expression types.
     ExpressionTypes,
+    /// Pattern operations, binding types, and match coverage.
+    PatternFacts,
     /// Selected callable and operation targets.
     SemanticSelections,
     /// Source-literal values.
@@ -206,6 +225,8 @@ pub enum LoweringInputError {
     MissingSemanticSelection(BoundExpressionId),
     /// A bound expression has no final checked type.
     MissingExpressionType(BoundExpressionId),
+    /// Pattern facts do not cover the bound patterns, bindings, and matches exactly.
+    InvalidPatternFacts,
     /// A checked storage operation does not match the canonical storage plan.
     InvalidStorageOperation(BoundExpressionId),
     /// Checked storage operations do not cover every canonical access plan exactly once.
@@ -259,6 +280,38 @@ fn validate_semantic_completeness(
         if requires_semantic_selection(node) && selections.expression(expression).is_none() {
             return Err(LoweringInputError::MissingSemanticSelection(expression));
         }
+    }
+
+    Ok(())
+}
+
+fn validate_pattern_completeness(
+    unit: &BoundUnit,
+    facts: &CheckedPatternFacts,
+) -> Result<(), LoweringInputError> {
+    let patterns_match = unit
+        .tree()
+        .patterns()
+        .map(|(pattern, _)| pattern)
+        .eq(facts.patterns().iter().map(|entry| entry.pattern()));
+
+    let bindings_match = unit
+        .local_symbols()
+        .bindings()
+        .iter()
+        .map(bray_symbols::LocalBindingSymbol::id)
+        .eq(facts.binding_types().iter().map(|entry| entry.binding()));
+
+    let matches_match = unit
+        .tree()
+        .expressions()
+        .filter_map(|(expression, node)| {
+            matches!(node, BoundExpression::Match(_)).then_some(expression)
+        })
+        .eq(facts.matches().iter().map(|entry| entry.expression()));
+
+    if !patterns_match || !bindings_match || !matches_match {
+        return Err(LoweringInputError::InvalidPatternFacts);
     }
 
     Ok(())
@@ -361,6 +414,8 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
         | BoundExpression::Call(_)
         | BoundExpression::Conversion(_)
         | BoundExpression::StructConstruction(_)
+        | BoundExpression::For(_)
+        | BoundExpression::Generator(_)
         | BoundExpression::MemberAccess(_)
         | BoundExpression::LeadingDotVariant(_)
         | BoundExpression::TraitQualifiedMember(_)
@@ -370,6 +425,8 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
             BoundStructuredExpressionKind::ElementIndex
                 | BoundStructuredExpressionKind::SliceIndex
                 | BoundStructuredExpressionKind::TypeFormConstruction
+                | BoundStructuredExpressionKind::BooleanAllFold
+                | BoundStructuredExpressionKind::BooleanAnyFold
         ),
         BoundExpression::Block(_)
         | BoundExpression::Literal(_)
@@ -381,9 +438,7 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
         | BoundExpression::AnonymousCallable(_)
         | BoundExpression::Await(_)
         | BoundExpression::ControlTransfer(_)
-        | BoundExpression::For(_)
         | BoundExpression::Match(_)
-        | BoundExpression::Generator(_)
         | BoundExpression::Error(_) => false,
     }
 }
@@ -421,10 +476,10 @@ mod tests {
         BorrowCapabilityOrigin, BoundConversionExpression, BoundExpression, BoundExpressionId,
         BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
         BoundUnitRoot, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedLiteralValues,
-        CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult,
-        ExpressionTypeStatus, PlannedBorrowCapability, StorageAccess, StorageAccessPurpose,
-        StorageAccessRoot, StorageFlowFacts, StorageIdentity, StorageOperationDecision,
-        StorageOperationStatus, StoragePlanBuilder,
+        CheckedPatternFacts, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, PlannedBorrowCapability, StorageAccess,
+        StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts, StorageIdentity,
+        StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{BorrowKind, SemanticValueStore, TypeData, TypeId};
@@ -448,6 +503,7 @@ mod tests {
             &unit,
             &control_flow,
             &facts.types,
+            &facts.patterns,
             &facts.selections,
             &facts.literals,
             &facts.storage,
@@ -463,6 +519,7 @@ mod tests {
         assert!(std::ptr::eq(input.unit(), &unit));
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
         assert!(std::ptr::eq(input.expression_types(), &facts.types));
+        assert!(std::ptr::eq(input.pattern_facts(), &facts.patterns));
         assert!(std::ptr::eq(input.semantic_selections(), &facts.selections));
         assert!(std::ptr::eq(input.literal_values(), &facts.literals));
         assert!(std::ptr::eq(input.storage_plan(), &facts.storage));
@@ -490,6 +547,7 @@ mod tests {
                 &unit,
                 &foreign,
                 &facts.types,
+                &facts.patterns,
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
@@ -516,6 +574,7 @@ mod tests {
                 &unit,
                 &wrong_kind,
                 &facts.types,
+                &facts.patterns,
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
@@ -550,6 +609,7 @@ mod tests {
                 &unit,
                 &control_flow,
                 &foreign.types,
+                &local.patterns,
                 &local.selections,
                 &local.literals,
                 &local.storage,
@@ -591,6 +651,7 @@ mod tests {
                 &unit,
                 &control_flow,
                 &facts.types,
+                &facts.patterns,
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
@@ -637,6 +698,7 @@ mod tests {
                 &unit,
                 &control_flow,
                 &facts.types,
+                &facts.patterns,
                 &facts.selections,
                 &facts.literals,
                 &facts.storage,
@@ -725,11 +787,14 @@ mod tests {
 
         let (storage, storage_flow) = empty_storage_facts(&unit);
 
+        let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
+
         assert_input_error(
             LoweringInput::try_new(
                 &unit,
                 &control_flow,
                 &types,
+                &patterns,
                 &selections,
                 &literals,
                 &storage,
@@ -917,6 +982,7 @@ mod tests {
 
     struct ExpressionFacts {
         types: CheckedExpressionTypes,
+        patterns: CheckedPatternFacts,
         selections: CheckedSemanticSelections,
         literals: CheckedLiteralValues,
         storage: bray_bound_tree::StoragePlan,
@@ -932,6 +998,7 @@ mod tests {
         target_integer_width_bits: NonZeroU16,
     ) -> ExpressionFacts {
         let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
+        let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
 
         let selections = CheckedSemanticSelections::try_new(unit, &types, [])
             .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));
@@ -946,6 +1013,7 @@ mod tests {
 
         ExpressionFacts {
             types,
+            patterns,
             selections,
             literals,
             storage,

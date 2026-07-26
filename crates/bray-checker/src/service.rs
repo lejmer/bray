@@ -170,16 +170,8 @@ where
         types: &CheckedExpressionTypes,
         patterns: &CheckedPatternFacts,
         selections: &bray_bound_tree::CheckedSemanticSelections,
-        iterations: &[SelectedIterationSource],
     ) -> CheckerOutcome<StoragePlan> {
-        plan_storage(
-            request,
-            declared_types,
-            types,
-            patterns,
-            selections,
-            iterations,
-        )
+        plan_storage(request, declared_types, types, patterns, selections)
     }
 }
 

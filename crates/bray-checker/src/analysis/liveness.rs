@@ -174,9 +174,10 @@ impl OperationEffects {
 const fn identity_definition(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
     match identity {
         StorageIdentity::LocalOwned(node) | StorageIdentity::Result(node) => Some(node),
-        StorageIdentity::Temporary(expression) | StorageIdentity::Allocation(expression) => {
-            Some(AnyBoundNodeId::Expression(expression))
-        }
+        StorageIdentity::Temporary(expression)
+        | StorageIdentity::IterationCursor(expression)
+        | StorageIdentity::IterationElement(expression)
+        | StorageIdentity::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)

@@ -8,7 +8,7 @@ use bray_bound_tree::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CallableSignatureFact;
 
-use super::call::selected_call_contract;
+use super::call::{selected_call_contract, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
@@ -73,11 +73,17 @@ where
     }
 
     for entry in selections.entries() {
-        let SemanticSelection::Call(call) = entry.selection() else {
-            continue;
+        let contract = match entry.selection() {
+            SemanticSelection::Call(call) => {
+                selected_call_contract(request, storage, entry.expression(), call)
+            }
+            SemanticSelection::Iteration(iteration) => {
+                selected_iteration_contract(request, storage, iteration)
+            }
+            SemanticSelection::Reference(_) | SemanticSelection::Operation(_) => continue,
         };
 
-        match selected_call_contract(request, storage, entry.expression(), call) {
+        match contract {
             Ok(contract) => expression_requirements
                 .entry(entry.expression())
                 .or_insert_with(Vec::new)
