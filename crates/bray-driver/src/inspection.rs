@@ -1,8 +1,9 @@
-use bray_diagnostics::DiagnosticBag;
 use bray_declarations::SyntaxAnchor;
-use bray_source::{
-    LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange,
-};
+use std::borrow::Cow;
+
+use bray_diagnostics::DiagnosticBag;
+use bray_source::{LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange};
+use bray_symbols::{AnySymbolId, SymbolGraph};
 use bray_syntax::SyntaxTrivia;
 use serde::Serialize;
 
@@ -83,6 +84,59 @@ pub(crate) struct InspectionSyntaxAnchor {
     span: TextRangeOutput,
     location: SourceLocationOutput,
     recovered: bool,
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize)]
+pub(crate) struct InspectionSymbolIdentity {
+    symbol_kind: &'static str,
+    id: u32,
+    name: Option<String>,
+}
+
+impl InspectionSymbolIdentity {
+    pub(crate) fn from_symbol(symbols: &SymbolGraph, id: AnySymbolId) -> Self {
+        Self {
+            symbol_kind: id.kind().as_str(),
+            id: id.symbol_id().raw(),
+            name: symbol_name(symbols, id),
+        }
+    }
+
+    pub(crate) fn text(&self) -> String {
+        let name = self
+            .name
+            .as_ref()
+            .map(|name| format!(" {name}"))
+            .unwrap_or_default();
+
+        format!("{}{name} [symbol:{}]", self.symbol_kind, self.id)
+    }
+
+    pub(crate) fn display_name(&self) -> Cow<'_, str> {
+        match &self.name {
+            Some(name) => Cow::Borrowed(name),
+            None => Cow::Owned(format!("<{}:{}>", self.symbol_kind, self.id)),
+        }
+    }
+}
+
+fn symbol_name(symbols: &SymbolGraph, id: AnySymbolId) -> Option<String> {
+    match id {
+        AnySymbolId::CompilerKnownEnvironment(_) => Some(String::from("compiler-known")),
+        AnySymbolId::Package(id) => symbols
+            .package(id)
+            .map(|package| package.identity().as_str().to_owned()),
+        AnySymbolId::Module(id) => symbols.module(id).map(|module| {
+            let path = module.path().segments().collect::<Vec<_>>().join(".");
+
+            if path.is_empty() {
+                String::from("<recovered>")
+            } else {
+                path
+            }
+        }),
+        _ => symbols.member_name(id).map(|name| name.as_str().to_owned()),
+    }
 }
 
 impl InspectionSyntaxAnchor {
@@ -239,8 +293,7 @@ impl TreeWriter {
         self.output.push_str(&self.prefix);
 
         for continues in &self.continuations {
-            self.output
-                .push_str(if *continues { "│  " } else { "   " });
+            self.output.push_str(if *continues { "│  " } else { "   " });
         }
 
         self.output.push_str(if is_last { "└─ " } else { "├─ " });
@@ -346,9 +399,6 @@ mod tests {
         writer.leave_children();
         writer.push_line(true, "second");
 
-        assert_eq!(
-            writer.into_string(),
-            "├─ first\n│  └─ nested\n└─ second\n"
-        );
+        assert_eq!(writer.into_string(), "├─ first\n│  └─ nested\n└─ second\n");
     }
 }

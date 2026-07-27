@@ -20,6 +20,7 @@ mod terminal_style;
 #[cfg(test)]
 mod test_support;
 mod token_inspection;
+mod type_inspection;
 
 pub use cli::DriverCliError;
 pub use command::{
