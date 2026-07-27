@@ -2,16 +2,16 @@ use bray_compilation::Compilation;
 use bray_parser::SourceUnitSyntaxResult;
 use bray_source::{LineIndex, SourceSnapshot, SourceStore};
 use bray_syntax::{
-    SourceUnitSyntax, SyntaxToken, SyntaxTrivia, SyntaxWalkControl, SyntaxWalkEvent,
-    walk_source_unit,
+    SourceUnitSyntax, SyntaxToken, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
 };
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
 use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
 use crate::inspection::{
-    InspectionOutput, TreeWriter, escaped_text, location_for_range, location_range_text,
-    push_text_diagnostic, quoted_text, range_text,
+    InspectionOutput, InspectionTrivia, InspectionTriviaError, TreeWriter, escaped_text,
+    location_for_range, location_range_text, push_text_diagnostic, quoted_text, range_text,
+    trivia_entries, trivia_summary,
 };
 use crate::source_location_output::{SourceLocationOutput, TextRangeOutput};
 use crate::source_origin_output::SourceOriginOutput;
@@ -145,8 +145,8 @@ enum SyntaxInspectionElement {
         location: SourceLocationOutput,
         missing: bool,
         end_of_file: bool,
-        leading_trivia: Vec<SyntaxInspectionTrivia>,
-        trailing_trivia: Vec<SyntaxInspectionTrivia>,
+        leading_trivia: Vec<InspectionTrivia>,
+        trailing_trivia: Vec<InspectionTrivia>,
     },
 }
 
@@ -190,8 +190,10 @@ impl SyntaxInspectionElement {
             location,
             missing: token.is_missing(),
             end_of_file: token.is_end_of_file(),
-            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia())?,
-            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia())?,
+            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia())
+                .map_err(map_trivia_error)?,
+            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia())
+                .map_err(map_trivia_error)?,
         })
     }
 
@@ -257,38 +259,6 @@ impl SyntaxInspectionElement {
                 )
             }
         }
-    }
-}
-
-#[derive(Serialize)]
-struct SyntaxInspectionTrivia {
-    kind: &'static str,
-    text: String,
-    escaped_text: String,
-    span: TextRangeOutput,
-    location: SourceLocationOutput,
-}
-
-impl SyntaxInspectionTrivia {
-    fn from_trivia(
-        snapshot: &SourceSnapshot,
-        line_index: &LineIndex,
-        trivia: &SyntaxTrivia,
-    ) -> Result<Self, SyntaxInspectionRenderError> {
-        let text = trivia
-            .text(snapshot.text())
-            .ok_or(SyntaxInspectionRenderError::TriviaText)?;
-
-        let location = location_for_range(snapshot, line_index, trivia.range())
-            .ok_or(SyntaxInspectionRenderError::SourceIndex)?;
-
-        Ok(Self {
-            kind: trivia.kind().as_str(),
-            text: text.to_owned(),
-            escaped_text: escaped_text(text),
-            span: TextRangeOutput::from_range(trivia.range()),
-            location,
-        })
     }
 }
 
@@ -371,53 +341,10 @@ fn finish_node(
     Ok(())
 }
 
-fn trivia_entries(
-    snapshot: &SourceSnapshot,
-    line_index: &LineIndex,
-    trivia: &[SyntaxTrivia],
-) -> Result<Vec<SyntaxInspectionTrivia>, SyntaxInspectionRenderError> {
-    trivia
-        .iter()
-        .map(|trivia| SyntaxInspectionTrivia::from_trivia(snapshot, line_index, trivia))
-        .collect()
-}
-
-fn trivia_summary(
-    leading: &[SyntaxInspectionTrivia],
-    trailing: &[SyntaxInspectionTrivia],
-) -> String {
-    let mut output = String::new();
-
-    push_trivia_summary(&mut output, "leading", leading);
-    push_trivia_summary(&mut output, "trailing", trailing);
-
-    output
-}
-
-fn push_trivia_summary(
-    output: &mut String,
-    label: &str,
-    trivia: &[SyntaxInspectionTrivia],
-) {
-    if trivia.is_empty() {
-        return;
-    }
-
-    output.push(' ');
-    output.push_str(label);
-    output.push('=');
-
-    for (index, trivia) in trivia.iter().enumerate() {
-        if index > 0 {
-            output.push_str(", ");
-        }
-
-        output.push_str(trivia.kind);
-        output.push('@');
-        output.push_str(&range_text(trivia.span));
-        output.push_str(":\"");
-        output.push_str(&trivia.escaped_text);
-        output.push('"');
+const fn map_trivia_error(error: InspectionTriviaError) -> SyntaxInspectionRenderError {
+    match error {
+        InspectionTriviaError::SourceIndex => SyntaxInspectionRenderError::SourceIndex,
+        InspectionTriviaError::Text => SyntaxInspectionRenderError::TriviaText,
     }
 }
 

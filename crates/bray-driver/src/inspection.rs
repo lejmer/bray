@@ -1,5 +1,7 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{LineIndex, SourceLocation, SourceSnapshot, SourceSpan, TextRange};
+use bray_syntax::SyntaxTrivia;
+use serde::Serialize;
 
 use crate::diagnostic_output::DiagnosticJson;
 use crate::source_location_output::{SourceLocationOutput, TextRangeOutput};
@@ -19,6 +21,90 @@ impl InspectionOutput {
 
     pub(crate) fn into_parts(self) -> (String, DiagnosticBag) {
         (self.stdout, self.diagnostics)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InspectionTriviaError {
+    SourceIndex,
+    Text,
+}
+
+#[derive(Serialize)]
+pub(crate) struct InspectionTrivia {
+    kind: &'static str,
+    text: String,
+    escaped_text: String,
+    span: TextRangeOutput,
+    location: SourceLocationOutput,
+}
+
+impl InspectionTrivia {
+    fn from_trivia(
+        snapshot: &SourceSnapshot,
+        line_index: &LineIndex,
+        trivia: &SyntaxTrivia,
+    ) -> Result<Self, InspectionTriviaError> {
+        let text = trivia
+            .text(snapshot.text())
+            .ok_or(InspectionTriviaError::Text)?;
+
+        let location = location_for_range(snapshot, line_index, trivia.range())
+            .ok_or(InspectionTriviaError::SourceIndex)?;
+
+        Ok(Self {
+            kind: trivia.kind().as_str(),
+            text: text.to_owned(),
+            escaped_text: escaped_text(text),
+            span: TextRangeOutput::from_range(trivia.range()),
+            location,
+        })
+    }
+}
+
+pub(crate) fn trivia_entries(
+    snapshot: &SourceSnapshot,
+    line_index: &LineIndex,
+    trivia: &[SyntaxTrivia],
+) -> Result<Vec<InspectionTrivia>, InspectionTriviaError> {
+    trivia
+        .iter()
+        .map(|trivia| InspectionTrivia::from_trivia(snapshot, line_index, trivia))
+        .collect()
+}
+
+pub(crate) fn trivia_summary(
+    leading: &[InspectionTrivia],
+    trailing: &[InspectionTrivia],
+) -> String {
+    let mut output = String::new();
+
+    push_trivia_summary(&mut output, "leading", leading);
+    push_trivia_summary(&mut output, "trailing", trailing);
+
+    output
+}
+
+fn push_trivia_summary(output: &mut String, label: &str, trivia: &[InspectionTrivia]) {
+    if trivia.is_empty() {
+        return;
+    }
+
+    output.push(' ');
+    output.push_str(label);
+    output.push('=');
+
+    for (index, trivia) in trivia.iter().enumerate() {
+        if index > 0 {
+            output.push_str(", ");
+        }
+
+        output.push_str(trivia.kind);
+        output.push('@');
+        output.push_str(&range_text(trivia.span));
+        output.push_str(":\"");
+        output.push_str(&trivia.escaped_text);
+        output.push('"');
     }
 }
 
