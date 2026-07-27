@@ -1,10 +1,14 @@
 use bray_diagnostics::DiagnosticBag;
-use bray_source::{LineIndex, SourceLocation, SourceSnapshot, SourceSpan, TextRange};
+use bray_declarations::SyntaxAnchor;
+use bray_source::{
+    LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange,
+};
 use bray_syntax::SyntaxTrivia;
 use serde::Serialize;
 
 use crate::diagnostic_output::DiagnosticJson;
 use crate::source_location_output::{SourceLocationOutput, TextRangeOutput};
+use crate::source_origin_output::SourceOriginOutput;
 
 pub(crate) struct InspectionOutput {
     stdout: String,
@@ -21,6 +25,113 @@ impl InspectionOutput {
 
     pub(crate) fn into_parts(self) -> (String, DiagnosticBag) {
         (self.stdout, self.diagnostics)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InspectionSourceError {
+    Source,
+    SourceIndex,
+}
+
+pub(crate) struct InspectionSources<'source> {
+    sources: &'source SourceStore,
+    line_indices: Vec<LineIndex>,
+}
+
+impl<'source> InspectionSources<'source> {
+    pub(crate) fn new(sources: &'source SourceStore) -> Result<Self, InspectionSourceError> {
+        let line_indices = sources
+            .iter()
+            .map(|snapshot| LineIndex::new(snapshot.text()))
+            .collect::<Result<_, _>>()
+            .map_err(|_| InspectionSourceError::SourceIndex)?;
+
+        Ok(Self {
+            sources,
+            line_indices,
+        })
+    }
+
+    fn snapshot_and_index(
+        &self,
+        source_id: bray_source::SourceId,
+    ) -> Result<(&SourceSnapshot, &LineIndex), InspectionSourceError> {
+        let snapshot = self
+            .sources
+            .get(source_id)
+            .ok_or(InspectionSourceError::Source)?;
+
+        let line_index = self
+            .line_indices
+            .get(
+                source_id
+                    .to_index()
+                    .ok_or(InspectionSourceError::SourceIndex)?,
+            )
+            .ok_or(InspectionSourceError::SourceIndex)?;
+
+        Ok((snapshot, line_index))
+    }
+}
+
+#[derive(Serialize)]
+pub(crate) struct InspectionSyntaxAnchor {
+    source_id: u32,
+    display_name: String,
+    syntax_kind: &'static str,
+    span: TextRangeOutput,
+    location: SourceLocationOutput,
+    recovered: bool,
+}
+
+impl InspectionSyntaxAnchor {
+    pub(crate) fn from_anchor(
+        sources: &InspectionSources<'_>,
+        anchor: SyntaxAnchor,
+    ) -> Result<Self, InspectionSourceError> {
+        let (snapshot, line_index) = sources.snapshot_and_index(anchor.source_id())?;
+
+        let location = location_for_range(snapshot, line_index, anchor.full_range())
+            .ok_or(InspectionSourceError::SourceIndex)?;
+
+        let origin = SourceOriginOutput::from_origin(snapshot.origin());
+
+        Ok(Self {
+            source_id: anchor.source_id().raw(),
+            display_name: origin.display_name().to_owned(),
+            syntax_kind: anchor.syntax_kind().as_str(),
+            span: TextRangeOutput::from_range(anchor.full_range()),
+            location,
+            recovered: anchor.is_recovered(),
+        })
+    }
+
+    pub(crate) fn text(&self) -> String {
+        format!(
+            "{} {} {} @{}{}",
+            self.syntax_kind,
+            self.display_name,
+            location_range_text(self.location),
+            range_text(self.span),
+            self.recovery_text()
+        )
+    }
+
+    pub(crate) fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    pub(crate) fn location_text(&self) -> String {
+        format!(
+            "{} @{}",
+            location_range_text(self.location),
+            range_text(self.span)
+        )
+    }
+
+    pub(crate) const fn recovery_text(&self) -> &'static str {
+        if self.recovered { " [recovered]" } else { "" }
     }
 }
 

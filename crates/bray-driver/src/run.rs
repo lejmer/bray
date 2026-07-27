@@ -13,6 +13,7 @@ use crate::exit_status::exit_code_from_diagnostics;
 use crate::file_arguments::compilation_request_from_file_arguments;
 use crate::inspection::InspectionOutput;
 use crate::source_inspection::render_source_inspection;
+use crate::symbol_inspection::render_symbol_inspection;
 use crate::syntax_inspection::render_syntax_inspection;
 use crate::token_inspection::render_token_inspection;
 
@@ -176,12 +177,17 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         return run_fact_inspection_command(request, output_format, render_declaration_inspection);
     }
 
+    if command_kind == DriverCommandKind::InspectSymbols {
+        return run_fact_inspection_command(request, output_format, render_symbol_inspection);
+    }
+
     match command_kind {
         DriverCommandKind::Check
         | DriverCommandKind::InspectSource
         | DriverCommandKind::InspectTokens
         | DriverCommandKind::InspectSyntax
-        | DriverCommandKind::InspectDeclarations => {
+        | DriverCommandKind::InspectDeclarations
+        | DriverCommandKind::InspectSymbols => {
             unreachable!("handled command kind did not return")
         }
     }
@@ -995,5 +1001,110 @@ mod tests {
         assert_eq!(output_json["kind"], "declaration_inspection");
         assert_eq!(output_json["module_part_count"], 1);
         assert_eq!(output_json["root"]["modules"][0]["module_path"], "app");
+    }
+
+    #[test]
+    fn run_writes_text_symbol_inspection_to_stdout() {
+        let file = TemporaryFile::write(
+            "symbols.bray",
+            b"module app\n{\n    struct point\n    {\n        x: i32;\n    }\n}\n",
+        );
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("inspect"),
+                OsString::from("symbols"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("kind: symbol_inspection"));
+        assert!(stdout.contains("package command.line"));
+        assert!(stdout.contains("module app"));
+        assert!(stdout.contains("struct point"));
+        assert!(stdout.contains("fields"));
+        assert!(stdout.contains("struct_field x"));
+    }
+
+    #[test]
+    fn run_writes_json_symbol_inspection_to_stdout() {
+        let file = TemporaryFile::write("symbols.bray", b"module app;\n");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("inspect"),
+                OsString::from("symbols"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&stdout) {
+            Ok(value) => value,
+            Err(error) => panic!("stdout should be symbol-inspection JSON: {error:?}"),
+        };
+
+        assert_eq!(output_json["kind"], "symbol_inspection");
+        assert_eq!(output_json["has_errors"], false);
+        assert!(output_json["symbol_count"].as_u64().is_some());
+    }
+
+    #[test]
+    fn symbol_inspection_is_deterministic_across_worker_budgets() {
+        let file = TemporaryFile::write(
+            "symbols.bray",
+            b"module app\n{\n    const first: i32 = 1;\n    const second: i32 = 2;\n}\n",
+        );
+
+        let serial = run_result([
+            OsString::from("brayc"),
+            OsString::from("--cpu-count"),
+            OsString::from("1"),
+            OsString::from("inspect"),
+            OsString::from("symbols"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        let parallel = run_result([
+            OsString::from("brayc"),
+            OsString::from("--cpu-count"),
+            OsString::from("4"),
+            OsString::from("inspect"),
+            OsString::from("symbols"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(serial.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(parallel.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(serial.stdout(), parallel.stdout());
     }
 }

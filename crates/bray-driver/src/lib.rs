@@ -14,6 +14,7 @@ mod run;
 mod source_inspection;
 mod source_location_output;
 mod source_origin_output;
+mod symbol_inspection;
 mod syntax_inspection;
 mod terminal_style;
 #[cfg(test)]

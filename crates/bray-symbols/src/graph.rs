@@ -1070,5 +1070,20 @@ mod tests {
                 .callable_parameter_default_provider(provider_id)
                 .map(crate::CallableParameterDefaultProviderSymbol::key)
         );
+
+        assert_eq!(
+            graph.symbol_origin(function.id().into()),
+            Some(SymbolOrigin::Source)
+        );
+
+        assert_eq!(
+            graph.symbol_declaration(function.id().into()),
+            function.declaration()
+        );
+
+        assert_eq!(
+            graph.symbols().filter(|symbol| *symbol == provider).count(),
+            1
+        );
     }
 }

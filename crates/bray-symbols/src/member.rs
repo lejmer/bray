@@ -12,6 +12,14 @@ pub enum MemberVisibility {
 }
 
 impl MemberVisibility {
+    /// Returns this visibility's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Internal => "internal",
+        }
+    }
+
     /// Returns whether this member is public at its declaration boundary.
     pub const fn is_public(self) -> bool {
         matches!(self, Self::Public)
