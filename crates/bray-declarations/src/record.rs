@@ -82,6 +82,51 @@ pub enum DeclarationKind {
 }
 
 impl DeclarationKind {
+    /// Returns this declaration kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Module => "module",
+            Self::Using => "using",
+            Self::Export => "export",
+            Self::Constant => "constant",
+            Self::Function => "function",
+            Self::Predicate => "predicate",
+            Self::CallableContract => "callable_contract",
+            Self::CallableOverload => "callable_overload",
+            Self::ImplementationOverload => "implementation_overload",
+            Self::Struct => "struct",
+            Self::Union => "union",
+            Self::Trait => "trait",
+            Self::InherentImplementation => "inherent_implementation",
+            Self::UnnamedTraitImplementation => "unnamed_trait_implementation",
+            Self::NamedTraitImplementation => "named_trait_implementation",
+            Self::StructField => "struct_field",
+            Self::UnionVariant => "union_variant",
+            Self::TraitConstantMember => "trait_constant_member",
+            Self::TraitTypeMember => "trait_type_valued_member",
+            Self::TraitPredicateMember => "trait_predicate_member",
+            Self::TraitCallableMember => "trait_callable_member",
+            Self::TraitFinalizerRequirement => "trait_finalizer_requirement",
+            Self::TraitDestructorRequirement => "trait_destructor_requirement",
+            Self::TraitScopeEnterRequirement => "trait_scope_enter_requirement",
+            Self::TraitScopeExitRequirement => "trait_scope_exit_requirement",
+            Self::ImplementationTypeMemberBinding => {
+                "implementation_type_valued_member_binding"
+            }
+            Self::TypeConstructorMember => "type_constructor_member",
+            Self::FinalizerMember => "finalizer_member",
+            Self::DestructorMember => "destructor_member",
+            Self::ScopeEnterMember => "scope_enter_member",
+            Self::ScopeExitMember => "scope_exit_member",
+            Self::TypeCallableMember => "type_callable_member",
+            Self::GenericTypeParameter => "generic_type_parameter",
+            Self::GenericConstParameter => "generic_const_parameter",
+            Self::CallableParameter => "callable_parameter",
+            Self::PredicateParameter => "predicate_parameter",
+            Self::UnionPayloadField => "union_payload_field",
+        }
+    }
+
     /// Returns the child container category introduced by this declaration.
     pub const fn child_container_kind(self) -> Option<ContainerKind> {
         match self {
@@ -154,6 +199,21 @@ pub enum ContainerKind {
     Signature,
     /// Union variant payload container.
     Variant,
+}
+
+impl ContainerKind {
+    /// Returns this container kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Module => "module",
+            Self::Type => "type",
+            Self::Trait => "trait",
+            Self::Implementation => "implementation",
+            Self::Signature => "signature",
+            Self::Variant => "variant",
+        }
+    }
 }
 
 /// Immutable record for one discovered syntax declaration.
@@ -391,4 +451,19 @@ pub(crate) struct ModulePartRecordInput {
     pub(crate) syntax: SyntaxAnchor,
     pub(crate) surface: DeclarationSurface,
     pub(crate) declarations: Box<[DeclarationId]>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ContainerKind, DeclarationKind};
+
+    #[test]
+    fn declaration_and_container_kinds_have_stable_names() {
+        assert_eq!(
+            DeclarationKind::TraitTypeMember.as_str(),
+            "trait_type_valued_member"
+        );
+
+        assert_eq!(ContainerKind::Signature.as_str(), "signature");
+    }
 }

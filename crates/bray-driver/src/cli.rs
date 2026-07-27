@@ -205,6 +205,9 @@ impl CliInspectCommand {
             CliInspectSubcommand::Source(files) => DriverCommand::inspect_source(files.files),
             CliInspectSubcommand::Tokens(files) => DriverCommand::inspect_tokens(files.files),
             CliInspectSubcommand::Syntax(files) => DriverCommand::inspect_syntax(files.files),
+            CliInspectSubcommand::Declarations(files) => {
+                DriverCommand::inspect_declarations(files.files)
+            }
         }
     }
 }
@@ -214,6 +217,7 @@ enum CliInspectSubcommand {
     Source(CliSourceFiles),
     Tokens(CliSourceFiles),
     Syntax(CliSourceFiles),
+    Declarations(CliSourceFiles),
 }
 
 #[derive(Args, Debug)]
@@ -370,6 +374,40 @@ mod tests {
         assert_eq!(
             invocation.command().kind(),
             DriverCommandKind::InspectSyntax
+        );
+
+        let files = [PathBuf::from("main.bray"), PathBuf::from("lib.bray")];
+
+        assert_eq!(invocation.command().files(), files.as_slice());
+    }
+
+    #[test]
+    fn parses_inspect_declarations_command_with_subcommand_options() {
+        let invocation = match DriverInvocation::try_from_arguments([
+            "brayc",
+            "inspect",
+            "declarations",
+            "--format",
+            "json",
+            "--cpu-count",
+            "1",
+            "main.bray",
+            "lib.bray",
+        ]) {
+            Ok(invocation) => invocation,
+            Err(error) => panic!("inspect declarations invocation should parse: {error:?}"),
+        };
+
+        assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
+
+        assert_eq!(
+            invocation.options().output_format(),
+            DriverOutputFormat::Json
+        );
+
+        assert_eq!(
+            invocation.command().kind(),
+            DriverCommandKind::InspectDeclarations
         );
 
         let files = [PathBuf::from("main.bray"), PathBuf::from("lib.bray")];

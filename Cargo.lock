@@ -234,6 +234,7 @@ name = "bray-driver"
 version = "0.0.0"
 dependencies = [
  "bray-compilation",
+ "bray-declarations",
  "bray-diagnostics",
  "bray-messages",
  "bray-parser",
