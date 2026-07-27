@@ -115,9 +115,8 @@ impl PackageImplementationArtifact {
         let language_revision =
             InterfaceLanguageRevision::new(reader.read_u16().map_err(map_wire_error)?);
 
-        let interface_content_hash = InterfaceContentHash::from_bytes(
-            reader.read_array::<32>().map_err(map_wire_error)?,
-        );
+        let interface_content_hash =
+            InterfaceContentHash::from_bytes(reader.read_array::<32>().map_err(map_wire_error)?);
 
         let count = reader.read_u32().map_err(map_wire_error)?;
 
@@ -160,9 +159,7 @@ impl PackageImplementationArtifact {
                 .ok_or(InterfaceValidationError::Malformed)?;
 
             let end_index = payload_start
-                .checked_add(
-                    usize::try_from(end).map_err(|_| InterfaceValidationError::Malformed)?,
-                )
+                .checked_add(usize::try_from(end).map_err(|_| InterfaceValidationError::Malformed)?)
                 .ok_or(InterfaceValidationError::Malformed)?;
 
             if end_index > bytes.len() {
@@ -257,17 +254,13 @@ fn validate_body_owner(
     template: &InterfaceCheckedTemplate,
 ) -> Result<(), PackageImplementationArtifactBuildError> {
     let Some(owner_symbol) = surface.symbols().symbol(owner) else {
-        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(
-            owner,
-        ));
+        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(owner));
     };
 
     if !owner_symbol.kind().is_callable()
         || template.kind() != CheckedTemplateKind::ConstantCallableBody
     {
-        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(
-            owner,
-        ));
+        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(owner));
     }
 
     Ok(())
@@ -283,10 +276,11 @@ fn encode_artifact(
         .map(|body| encode_template_payload(body.template()))
         .collect::<Vec<_>>();
 
-    let count = u32::try_from(bodies.len())
-        .map_err(|_| PackageImplementationArtifactBuildError::InvalidArtifact(
+    let count = u32::try_from(bodies.len()).map_err(|_| {
+        PackageImplementationArtifactBuildError::InvalidArtifact(
             InterfaceValidationError::Malformed,
-        ))?;
+        )
+    })?;
 
     let mut encoder = WireEncoder::new();
 
@@ -299,20 +293,21 @@ fn encode_artifact(
     let mut offset = 0_u64;
 
     for (body, payload) in bodies.iter().zip(&payloads) {
-        let length = u64::try_from(payload.len())
-            .map_err(|_| PackageImplementationArtifactBuildError::InvalidArtifact(
+        let length = u64::try_from(payload.len()).map_err(|_| {
+            PackageImplementationArtifactBuildError::InvalidArtifact(
                 InterfaceValidationError::Malformed,
-            ))?;
+            )
+        })?;
 
         encoder.write_u32(body.owner().raw());
         encoder.write_u64(offset);
         encoder.write_u64(length);
 
-        offset = offset
-            .checked_add(length)
-            .ok_or(PackageImplementationArtifactBuildError::InvalidArtifact(
+        offset = offset.checked_add(length).ok_or(
+            PackageImplementationArtifactBuildError::InvalidArtifact(
                 InterfaceValidationError::Malformed,
-            ))?;
+            ),
+        )?;
     }
 
     for payload in payloads {
@@ -387,14 +382,11 @@ mod tests {
     fn malformed_unrequested_payloads_do_not_block_other_body_lookups() {
         let fixture = artifact_fixture();
 
-        let second_owner = bray_symbols::InterfaceSymbolId::new(
-            fixture.body.owner().raw().saturating_add(100),
-        );
+        let second_owner =
+            bray_symbols::InterfaceSymbolId::new(fixture.body.owner().raw().saturating_add(100));
 
-        let second = InterfaceConstantCallableBody::new(
-            second_owner,
-            fixture.body.template.clone(),
-        );
+        let second =
+            InterfaceConstantCallableBody::new(second_owner, fixture.body.template.clone());
 
         let mut bytes = super::encode_artifact(
             fixture.interface.header().content_hash(),

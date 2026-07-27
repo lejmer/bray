@@ -48,8 +48,8 @@ pub use constant::{
 };
 pub use contract::{
     EnsuresClauseSyntax, EnsuresClauseSyntaxBuilder, RequiresClauseSyntax,
-    RequiresClauseSyntaxBuilder, UsesClauseSyntax, UsesClauseSyntaxBuilder, WithClauseSyntax,
-    WithClauseSyntaxBuilder,
+    RequiresClauseSyntaxBuilder, TraitSatisfactionConstraintSyntax, UsesClauseSyntax,
+    UsesClauseSyntaxBuilder, WithClauseSyntax, WithClauseSyntaxBuilder,
 };
 pub use directive::{
     AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, CopyDirectiveSyntax, CopyDirectiveSyntaxBuilder,

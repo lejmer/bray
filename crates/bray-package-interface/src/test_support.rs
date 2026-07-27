@@ -9,15 +9,16 @@ use bray_symbols::{
 use crate::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     ExportedLookupKind, InterfaceCallableParameter, InterfaceCallableParameterDefault,
-    InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
-    InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
-    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceCoherenceRecord,
-    InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
-    InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
-    InterfaceDependencyContract, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
-    InterfaceImplementationRecord, InterfaceLanguageRevision, InterfacePredicateDefinition,
-    InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceProductIdentity,
-    InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfaceCallablePhaseBehavior, InterfaceCallableSignature, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplateOperation, InterfaceCoherenceRecord, InterfaceConstantTerm,
+    InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId,
+    InterfaceConstantValueKind, InterfaceDeclarationTemplate, InterfaceDependencyContract,
+    InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationRecord,
+    InterfaceLanguageRevision, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
+    InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind,
+    InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
     InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
     InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, PackageInterfaceExportBundle,
     PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
@@ -389,17 +390,41 @@ fn template_facts(
         generic_type.clone(),
     );
 
+    let constraint_template =
+        checked_template(CheckedTemplateKind::GenericConstraint, generic_type.clone());
+
     let predicate = InterfacePredicateSummary::new(crate::InterfaceDependencyContractId::new(0));
 
-    let invocation_behavior = crate::InterfaceCallablePhaseBehavior::new(
-        [],
-        [],
-        [],
-        [],
-        [],
-        crate::InterfaceDependencyContractId::new(0),
-        bray_symbols::CurrentRunCancellation::NotEntered,
-    );
+    let invocation_behavior = callable_phase_behavior();
+
+    let mut declaration_templates = vec![
+        InterfaceDeclarationTemplate::new(
+            owner.clone(),
+            CheckedTemplateKind::CallableContract,
+            SymbolOrdinal::new(0),
+            InterfaceSupportEntityId::new(0),
+        ),
+        InterfaceDeclarationTemplate::new(
+            defined_predicate.clone(),
+            CheckedTemplateKind::PredicateDefinition,
+            SymbolOrdinal::new(0),
+            InterfaceSupportEntityId::new(1),
+        ),
+        InterfaceDeclarationTemplate::new(
+            implementation.clone(),
+            CheckedTemplateKind::GenericConstraint,
+            SymbolOrdinal::new(0),
+            InterfaceSupportEntityId::new(2),
+        ),
+    ];
+
+    declaration_templates.sort_by(|left, right| {
+        (left.owner(), left.kind(), left.ordinal()).cmp(&(
+            right.owner(),
+            right.kind(),
+            right.ordinal(),
+        ))
+    });
 
     InterfaceSemanticFacts::new()
         .with_applications(
@@ -436,21 +461,19 @@ fn template_facts(
                     .into(),
                     result: InterfaceTypeId::new(0),
                     constness: bray_symbols::CallableConstness::Runtime,
-                    execution: bray_symbols::CallableExecution::Synchronous,
                     trust: bray_symbols::CallableTrust::Safe,
                     abi: bray_symbols::CallableAbi::Bray,
-                    invocation_dependency_contract: crate::InterfaceDependencyContractId::new(0),
-                    deferred_dependency_contract: None,
+                    invocation_behavior: invocation_behavior.clone(),
+                    deferred_execution_behavior: None,
                 },
                 InterfaceType::Callable {
                     parameters: [].into(),
                     result: InterfaceTypeId::new(1),
                     constness: bray_symbols::CallableConstness::Runtime,
-                    execution: bray_symbols::CallableExecution::Synchronous,
                     trust: bray_symbols::CallableTrust::Safe,
                     abi: bray_symbols::CallableAbi::Bray,
-                    invocation_dependency_contract: crate::InterfaceDependencyContractId::new(0),
-                    deferred_dependency_contract: None,
+                    invocation_behavior: invocation_behavior.clone(),
+                    deferred_execution_behavior: None,
                 },
             ],
             [InterfaceConstantValue::new(
@@ -461,7 +484,12 @@ fn template_facts(
         )
         .with_contracts(
             [
-                crate::InterfaceConstraint::new(owner.clone(), SymbolOrdinal::new(0), predicate),
+                crate::InterfaceConstraint::trait_satisfaction(
+                    owner.clone(),
+                    SymbolOrdinal::new(0),
+                    InterfaceTypeId::new(0),
+                    crate::InterfaceTraitApplicationId::new(0),
+                ),
                 crate::InterfaceConstraint::new(
                     implementation.clone(),
                     SymbolOrdinal::new(0),
@@ -530,24 +558,12 @@ fn template_facts(
             InterfaceTypeRepresentation::new(structure.clone()).with_properties(true, true)
         ])
         .with_templates(
-            [template, predicate_template],
-            [
-                InterfaceDeclarationTemplate::new(
-                    owner,
-                    CheckedTemplateKind::CallableContract,
-                    SymbolOrdinal::new(0),
-                    InterfaceSupportEntityId::new(0),
-                ),
-                InterfaceDeclarationTemplate::new(
-                    defined_predicate,
-                    CheckedTemplateKind::PredicateDefinition,
-                    SymbolOrdinal::new(0),
-                    InterfaceSupportEntityId::new(1),
-                ),
-            ],
+            [template, predicate_template, constraint_template],
+            declaration_templates,
             [
                 InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(0)),
                 InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(1)),
+                InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(2)),
             ],
         )
         .with_implementations(
@@ -594,6 +610,18 @@ fn template_facts(
             ],
             [],
         )
+}
+
+pub(crate) fn callable_phase_behavior() -> InterfaceCallablePhaseBehavior {
+    InterfaceCallablePhaseBehavior::new(
+        [],
+        [],
+        [],
+        [],
+        [],
+        crate::InterfaceDependencyContractId::new(0),
+        bray_symbols::CurrentRunCancellation::NotEntered,
+    )
 }
 
 fn checked_template(

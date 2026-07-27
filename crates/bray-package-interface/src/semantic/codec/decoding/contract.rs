@@ -92,11 +92,23 @@ pub(super) fn decode_constraint(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceConstraint, InterfaceValidationError> {
-    Ok(InterfaceConstraint::new(
-        read_symbol_reference(reader, context)?,
-        SymbolOrdinal::new(read_u32(reader)?),
-        InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
-    ))
+    let owner = read_symbol_reference(reader, context)?;
+    let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+
+    match read_u32(reader)? {
+        1 => Ok(InterfaceConstraint::new(
+            owner,
+            ordinal,
+            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
+        )),
+        2 => Ok(InterfaceConstraint::trait_satisfaction(
+            owner,
+            ordinal,
+            crate::InterfaceTypeId::new(read_u32(reader)?),
+            crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
+        )),
+        _ => Err(InterfaceValidationError::Malformed),
+    }
 }
 
 pub(super) fn decode_callable_contract(
@@ -163,7 +175,7 @@ fn decode_callable_clauses(
     Ok(clauses)
 }
 
-fn decode_callable_behavior(
+pub(super) fn decode_callable_behavior(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,

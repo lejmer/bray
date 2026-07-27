@@ -48,7 +48,7 @@ where
             BoundExpression::MemberAccess(member) => {
                 let receiver = self.plan_expression(member.receiver(), None)?;
                 let projection = self.member_projection(id, member.selector())?;
-                let access = self.project_access(id, receiver, projection)?;
+                let access = self.member_access(id, receiver, projection)?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
 
@@ -57,7 +57,7 @@ where
             BoundExpression::TraitQualifiedMember(member) => {
                 let receiver = self.plan_expression(member.receiver(), None)?;
                 let projection = self.selected_member_projection(id)?;
-                let access = self.project_access(id, receiver, projection)?;
+                let access = self.member_access(id, receiver, projection)?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
 
@@ -347,22 +347,22 @@ where
 
         let (projection, purpose) = match kind {
             BoundStructuredExpressionKind::ElementIndex => {
-                let selected = matches!(
-                    self.selections.expression(id),
-                    Some(SemanticSelection::Operation(SelectedOperation::Index {
-                        target: IndexTarget::ArrayElement | IndexTarget::SliceElement,
-                        ..
-                    }))
-                );
+                match self.selected_index_target(id)? {
+                    Some(
+                        IndexTarget::ArrayElement
+                        | IndexTarget::SliceElement
+                        | IndexTarget::Custom { .. },
+                    ) => {}
+                    Some(IndexTarget::ArraySlice | IndexTarget::Slice) => {
+                        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    }
+                    None => {
+                        let access = self.conservative_subject_access(id, receiver_access)?;
 
-                // TODO(BRA-268): Restrict this fallback to recovery once every index provider
-                // publishes an exact selection.
-                if !selected {
-                    let access = self.conservative_subject_access(id, receiver_access)?;
+                        self.record_purpose(id, Some(StorageAccessPurpose::Index), access)?;
 
-                    self.record_purpose(id, Some(StorageAccessPurpose::Index), access)?;
-
-                    return Ok(access);
+                        return Ok(access);
+                    }
                 }
 
                 let Some(selector) = operands.get(1).copied() else {
@@ -375,22 +375,20 @@ where
                 )
             }
             BoundStructuredExpressionKind::SliceIndex => {
-                let selected = matches!(
-                    self.selections.expression(id),
-                    Some(SemanticSelection::Operation(SelectedOperation::Index {
-                        target: IndexTarget::ArraySlice | IndexTarget::Slice,
-                        ..
-                    }))
-                );
+                match self.selected_index_target(id)? {
+                    Some(
+                        IndexTarget::ArraySlice | IndexTarget::Slice | IndexTarget::Custom { .. },
+                    ) => {}
+                    Some(IndexTarget::ArrayElement | IndexTarget::SliceElement) => {
+                        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    }
+                    None => {
+                        let access = self.conservative_subject_access(id, receiver_access)?;
 
-                // TODO(BRA-268): Restrict this fallback to recovery once every slice provider
-                // publishes an exact selection.
-                if !selected {
-                    let access = self.conservative_subject_access(id, receiver_access)?;
+                        self.record_purpose(id, Some(StorageAccessPurpose::Slice), access)?;
 
-                    self.record_purpose(id, Some(StorageAccessPurpose::Slice), access)?;
-
-                    return Ok(access);
+                        return Ok(access);
+                    }
                 }
 
                 let bounds = self
@@ -423,5 +421,71 @@ where
         self.record_purpose(id, Some(purpose), access)?;
 
         Ok(access)
+    }
+
+    fn selected_index_target(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<Option<IndexTarget>, PlanError> {
+        match self.selections.expression(expression) {
+            Some(SemanticSelection::Operation(SelectedOperation::Index { target, .. })) => {
+                Ok(Some(*target))
+            }
+            Some(_) => Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
+            None => {
+                let bound = self
+                    .request
+                    .view()
+                    .expression(expression)
+                    .ok_or_else(|| invalid_node(expression))?;
+
+                let BoundExpression::Structured(structured) = bound else {
+                    return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                };
+
+                if structured.is_recovered() {
+                    return Ok(None);
+                }
+
+                let Some(receiver) = structured.operands().first().copied() else {
+                    return Ok(None);
+                };
+
+                let receiver = self
+                    .types
+                    .expression(receiver)
+                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+                if receiver.is_recovered() {
+                    return Ok(None);
+                }
+
+                let data = self
+                    .request
+                    .semantic_values()
+                    .type_data(receiver.ty())
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                Ok(match (structured.kind(), data.as_ref()) {
+                    (
+                        BoundStructuredExpressionKind::ElementIndex,
+                        bray_symbols::TypeData::Array { .. },
+                    ) => Some(IndexTarget::ArrayElement),
+                    (
+                        BoundStructuredExpressionKind::ElementIndex,
+                        bray_symbols::TypeData::Slice(_),
+                    ) => Some(IndexTarget::SliceElement),
+                    (
+                        BoundStructuredExpressionKind::SliceIndex,
+                        bray_symbols::TypeData::Array { .. },
+                    ) => Some(IndexTarget::ArraySlice),
+                    (
+                        BoundStructuredExpressionKind::SliceIndex,
+                        bray_symbols::TypeData::Slice(_),
+                    ) => Some(IndexTarget::Slice),
+                    _ => None,
+                })
+            }
+        }
     }
 }

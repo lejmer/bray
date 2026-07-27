@@ -455,6 +455,11 @@ normalized interface records.
 Consumers do not parse contract source or infer an exported dependency contract again. They instantiate and check the published
 semantic contract against local arguments and selected implementations.
 
+Each exported constant predicate constraint has one declaration-owned `GenericConstraint` checked template at the same stable
+owner-relative ordinal. Trait-satisfaction constraints instead retain their normalized subject type and exact trait application
+directly. This lets consumers evaluate concrete predicate substitutions without rebinding source while preserving demand-driven
+constraint checking.
+
 An exported dependency contract encodes the structural form of a `DependencyContractTemplateId`, not its compilation-local numeric
 ID. Its formal subjects reference receivers, parameters by stable ordinal, results, projections, scoped capabilities, and required
 implementation witnesses through interface-stable identities. It contains no bound-unit storage identities, storage-access IDs,

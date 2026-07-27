@@ -32,10 +32,9 @@ pub use contract::{
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
-    ConstantDefinitionFact, DeclarationDirectivesFact,
-    GenericConstParameterDeclaredTypeFact, GenericConstraintSatisfactionFact,
-    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCandidateSetFact,
-    ImplementationCoherenceFact, ImplementationHeadTemplateFact,
+    ConstantDefinitionFact, DeclarationDirectivesFact, GenericConstParameterDeclaredTypeFact,
+    GenericConstraintSatisfactionFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
+    ImplementationCandidateSetFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationParticipationFact,
     ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
     InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
@@ -64,7 +63,7 @@ pub use directive::{
 };
 pub use execution::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
-    CallablePhaseBehavior, CurrentRunCancellation,
+    CallablePhaseBehavior, CallablePhaseBehaviors, CurrentRunCancellation,
 };
 pub use foreign::{
     ForeignCallableContract, ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement,
@@ -83,9 +82,9 @@ pub use implementation::{
 pub use module::{ModuleReExport, ModuleSurface, ModuleUsing};
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
-    ErrorPredicateDefinition, GenericConstraintObligationKey, GenericConstraintSet,
-    PredicateDefinition, PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome,
-    TrustedCapabilityRequirement,
+    CheckedConstraintKind, ErrorPredicateDefinition, GenericConstraintObligationKey,
+    GenericConstraintSet, PredicateDefinition, PredicateDefinitionState, PredicateSemanticSummary,
+    ProofOutcome, TrustedCapabilityRequirement,
 };
 pub use representation::{
     DeclaredCopyContract, DeclaredLayoutMode, DeclaredTypeRepresentation, DeclaredUnionTag,

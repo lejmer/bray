@@ -1,5 +1,6 @@
 use crate::{
     TargetFactKind, TargetFactValue, TargetFacts, TargetIdentity, TargetMachineProperties,
+    TargetScalarKind,
 };
 
 /// The language-level identity and machine properties of one compilation target.
@@ -23,6 +24,8 @@ pub enum TargetProfileBuildError {
     AllocationAlignmentBelowPointerAlignment,
     /// A complex scalar is available while its real component is unavailable.
     ComplexScalarMissingComponent,
+    /// A scalar alignment exceeds the target storage maximum.
+    ScalarAlignmentAboveStorageMaximum,
     /// A callable ABI accepts a scalar unavailable on the target.
     AbiAcceptsUnavailableScalar,
     /// A callable ABI accepts an alignment above the target storage maximum.
@@ -46,6 +49,9 @@ impl std::fmt::Display for TargetProfileBuildError {
             }
             Self::ComplexScalarMissingComponent => {
                 formatter.write_str("a complex scalar is available without its real component")
+            }
+            Self::ScalarAlignmentAboveStorageMaximum => {
+                formatter.write_str("a scalar alignment exceeds the storage maximum")
             }
             Self::AbiAcceptsUnavailableScalar => {
                 formatter.write_str("a callable ABI accepts an unavailable scalar")
@@ -95,6 +101,13 @@ impl TargetProfile {
             || (scalars.complex256() && !scalars.real128())
         {
             return Err(TargetProfileBuildError::ComplexScalarMissingComponent);
+        }
+
+        if TargetScalarKind::ALL
+            .into_iter()
+            .any(|kind| scalars.alignment(kind).get() > alignments.max_storage().get())
+        {
+            return Err(TargetProfileBuildError::ScalarAlignmentAboveStorageMaximum);
         }
 
         let abis = facts.abis();
@@ -158,6 +171,7 @@ mod tests {
         TargetAlignmentFacts, TargetArchitecture, TargetAtomicFacts, TargetFacts,
         TargetForeignAbiFacts, TargetIdentity, TargetIdentityFacts, TargetMachineProperties,
         TargetOperationFacts, TargetProfile, TargetProfileBuildError, TargetScalarFacts,
+        TargetScalarKind,
     };
 
     #[test]
@@ -319,6 +333,26 @@ mod tests {
         assert_eq!(
             TargetProfile::try_new(test_identity(), test_target_machine(), facts),
             Err(TargetProfileBuildError::AbiAlignmentAboveStorageMaximum)
+        );
+    }
+
+    #[test]
+    fn profiles_reject_scalar_alignment_above_storage_maximum() {
+        let storage_maximum = NonZeroU64::new(16).unwrap_or(NonZeroU64::MIN);
+        let scalar_alignment = NonZeroU64::new(32).unwrap_or(NonZeroU64::MIN);
+
+        let alignments = TargetAlignmentFacts::try_new(storage_maximum, storage_maximum)
+            .unwrap_or_else(|| panic!("test alignments must be valid"));
+
+        let scalars = TargetScalarFacts::default()
+            .try_with_alignment(TargetScalarKind::I128, scalar_alignment)
+            .unwrap_or_else(|| panic!("test scalar alignment must be valid"));
+
+        let facts = facts_with(scalars, None, alignments);
+
+        assert_eq!(
+            TargetProfile::try_new(test_identity(), test_target_machine(), facts),
+            Err(TargetProfileBuildError::ScalarAlignmentAboveStorageMaximum)
         );
     }
 

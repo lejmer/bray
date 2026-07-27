@@ -169,6 +169,13 @@ pub trait CheckerRequestContext: Sync {
         subject: NamedTypeSymbolId,
     ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>>;
 
+    /// Returns whether the enclosing static context establishes a copy contract for an open type.
+    fn statically_establishes_copyability(
+        &self,
+        context: &SemanticUnitContext,
+        ty: bray_symbols::TypeId,
+    ) -> CheckerFactResult<bool>;
+
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(
         &self,

@@ -51,3 +51,49 @@ const fn status_rank(status: StorageOperationStatus) -> u8 {
         StorageOperationStatus::ConflictingBorrow => 9,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::StorageOperationStatus;
+    use bray_diagnostics::DiagnosticKind;
+
+    use super::diagnostic_kind;
+
+    #[test]
+    fn storage_failures_map_to_exact_structured_diagnostics() {
+        let cases = [
+            (
+                StorageOperationStatus::Uninitialized,
+                DiagnosticKind::CheckingUseOfUninitializedStorage,
+            ),
+            (
+                StorageOperationStatus::Moved,
+                DiagnosticKind::CheckingUseOfMovedStorage,
+            ),
+            (
+                StorageOperationStatus::ConflictingBorrow,
+                DiagnosticKind::CheckingConflictingBorrow,
+            ),
+            (
+                StorageOperationStatus::MissingMutationAuthority,
+                DiagnosticKind::CheckingMissingMutationAuthority,
+            ),
+            (
+                StorageOperationStatus::MissingOwnership,
+                DiagnosticKind::CheckingMissingStorageOwnership,
+            ),
+            (
+                StorageOperationStatus::InactiveProjection,
+                DiagnosticKind::CheckingInactiveStorageProjection,
+            ),
+            (
+                StorageOperationStatus::NotCopyable,
+                DiagnosticKind::CheckingTypeIsNotCopyable,
+            ),
+        ];
+
+        for (status, expected) in cases {
+            assert_eq!(diagnostic_kind(status), Some(expected));
+        }
+    }
+}

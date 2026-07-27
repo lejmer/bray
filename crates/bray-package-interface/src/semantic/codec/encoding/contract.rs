@@ -6,8 +6,8 @@ use crate::semantic::codec::common::{
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
-    InterfaceCallableContractClause, InterfaceCallablePhaseBehavior, InterfaceDependencyGuard,
-    InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceCallableContractClause, InterfaceCallablePhaseBehavior, InterfaceConstraintKind,
+    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
     InterfaceDependencySubject, InterfaceDependencySubjectRoot,
 };
@@ -34,7 +34,21 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
     encode_record_table(&mut encoder, &facts.constraints, |encoder, constraint| {
         write_symbol_reference(encoder, &constraint.owner);
         encoder.write_u32(constraint.ordinal.raw());
-        encoder.write_u32(constraint.predicate.dependency_contract.raw());
+
+        match constraint.kind {
+            InterfaceConstraintKind::Predicate(predicate) => {
+                encoder.write_u32(1);
+                encoder.write_u32(predicate.dependency_contract.raw());
+            }
+            InterfaceConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => {
+                encoder.write_u32(2);
+                encoder.write_u32(subject.raw());
+                encoder.write_u32(application.raw());
+            }
+        }
     });
 
     encode_record_table(
@@ -73,7 +87,10 @@ fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallab
     }
 }
 
-fn encode_callable_behavior(encoder: &mut WireEncoder, behavior: &InterfaceCallablePhaseBehavior) {
+pub(super) fn encode_callable_behavior(
+    encoder: &mut WireEncoder,
+    behavior: &InterfaceCallablePhaseBehavior,
+) {
     for requirements in [
         &behavior.effects,
         &behavior.capabilities,

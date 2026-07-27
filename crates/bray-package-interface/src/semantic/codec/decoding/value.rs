@@ -10,8 +10,8 @@ use crate::semantic::model::{
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
-    InterfaceDependencyContractId, InterfaceGenericArgument, InterfaceGenericBinding,
-    InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
+    InterfaceGenericArgument, InterfaceGenericBinding, InterfaceGenericSubstitution,
+    InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
     InterfaceImplementationInstanceId, InterfaceSemanticFacts, InterfaceTraitApplication,
     InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
 };
@@ -233,12 +233,16 @@ pub(super) fn decode_callable_type(
         parameters: parameters.into(),
         result: InterfaceTypeId::new(read_u32(reader)?),
         constness: decode_tag(read_u32(reader)?)?,
-        execution: decode_tag(read_u32(reader)?)?,
         trust: decode_tag(read_u32(reader)?)?,
         abi: decode_tag(read_u32(reader)?)?,
-        invocation_dependency_contract: InterfaceDependencyContractId::new(read_u32(reader)?),
-        deferred_dependency_contract: read_optional_u32(reader)?
-            .map(InterfaceDependencyContractId::new),
+        invocation_behavior: super::contract::decode_callable_behavior(reader, limits, context)?,
+        deferred_execution_behavior: match read_u32(reader)? {
+            0 => None,
+            1 => Some(super::contract::decode_callable_behavior(
+                reader, limits, context,
+            )?),
+            _ => return Err(InterfaceValidationError::Malformed),
+        },
     })
 }
 
@@ -612,6 +616,23 @@ mod tests {
                 .deferred_execution()
                 .is_some()
         );
+
+        let deferred = callable
+            .phase_behaviors()
+            .deferred_execution()
+            .unwrap_or_else(|| panic!("async callable type must retain deferred behavior"));
+
+        assert_eq!(
+            deferred.current_run_cancellation(),
+            bray_symbols::CurrentRunCancellation::MayEnter
+        );
+
+        assert_eq!(
+            deferred.lifecycle_obligations(),
+            [bray_symbols::LifecycleObligationKind::Finalization]
+        );
+
+        assert_eq!(deferred.execution_requirements().len(), 1);
     }
 
     #[test]
@@ -1087,11 +1108,20 @@ mod tests {
                         .into(),
                         result: InterfaceTypeId::new(0),
                         constness: CallableConstness::Runtime,
-                        execution: CallableExecution::Asynchronous,
                         trust: CallableTrust::Safe,
                         abi: CallableAbi::Bray,
-                        invocation_dependency_contract: InterfaceDependencyContractId::new(0),
-                        deferred_dependency_contract: Some(InterfaceDependencyContractId::new(0)),
+                        invocation_behavior: crate::test_support::callable_phase_behavior(),
+                        deferred_execution_behavior: Some(
+                            crate::InterfaceCallablePhaseBehavior::new(
+                                [],
+                                [],
+                                [],
+                                [function_reference.clone()],
+                                [bray_symbols::LifecycleObligationKind::Finalization],
+                                InterfaceDependencyContractId::new(0),
+                                bray_symbols::CurrentRunCancellation::MayEnter,
+                            ),
+                        ),
                     },
                 ],
                 [InterfaceConstantValue::new(
@@ -1127,15 +1157,7 @@ mod tests {
                             InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
                         ),
                     ],
-                    crate::InterfaceCallablePhaseBehavior::new(
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        InterfaceDependencyContractId::new(0),
-                        bray_symbols::CurrentRunCancellation::NotEntered,
-                    ),
+                    crate::test_support::callable_phase_behavior(),
                     Some(crate::InterfaceCallablePhaseBehavior::new(
                         [],
                         [],

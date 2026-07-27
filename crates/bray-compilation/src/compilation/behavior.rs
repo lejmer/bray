@@ -370,9 +370,19 @@ impl Compilation {
                 Some(unit) => pending.push(unit.clone()),
                 None => builder.is_recovered = true,
             },
-            BoundCallableTarget::Indirect(_) => {
-                // TODO(BRA-267): Merge phase behavior carried by indirect callable contracts.
-                builder.is_recovered = true;
+            BoundCallableTarget::Indirect(ty) => {
+                let data = facts
+                    .semantic_values()
+                    .type_data(ty)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(FactQueryError::InfrastructureFailure);
+                };
+
+                if let Some(phase) = phase_behavior_for(callable.phase_behaviors(), call.phase()) {
+                    builder.merge_phase(phase);
+                }
             }
         }
 
@@ -517,7 +527,7 @@ impl Compilation {
 
 fn callable_execution(
     facts: &CompilationBinderFacts<'_>,
-    callable: bray_symbols::CallableSymbolId,
+    callable: CallableSymbolId,
 ) -> Result<CallableExecution, FactQueryError> {
     let signature = facts
         .symbol_fact(SymbolFactRequest::<bray_symbols::CallableSignatureFact>::new(callable))
@@ -557,9 +567,16 @@ fn phase_behavior(
     contract: &bray_symbols::CallableContractSet,
     phase: BodyBehaviorPhase,
 ) -> Option<&CallablePhaseBehavior> {
+    phase_behavior_for(contract.phase_behaviors(), phase)
+}
+
+fn phase_behavior_for(
+    behaviors: &bray_symbols::CallablePhaseBehaviors,
+    phase: BodyBehaviorPhase,
+) -> Option<&CallablePhaseBehavior> {
     match phase {
-        BodyBehaviorPhase::Invocation => Some(contract.invocation_behavior()),
-        BodyBehaviorPhase::DeferredExecution => contract.deferred_execution_behavior(),
+        BodyBehaviorPhase::Invocation => Some(behaviors.invocation()),
+        BodyBehaviorPhase::DeferredExecution => behaviors.deferred_execution(),
     }
 }
 
@@ -641,6 +658,26 @@ mod tests {
         let behavior = compilation
             .body_behavior(key)
             .unwrap_or_else(|error| panic!("source defaults must participate: {error:?}"));
+
+        assert!(behavior.diagnostics().is_empty());
+        assert!(!behavior.value().is_recovered());
+    }
+
+    #[test]
+    fn indirect_calls_use_the_callable_type_contract_without_recovery() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func apply(op: func(pos value: i32) -> i32, value: i32) -> i32\n",
+            "{\n",
+            "    return op(value);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let behavior = compilation
+            .body_behavior(key)
+            .unwrap_or_else(|error| panic!("indirect behavior must summarize: {error:?}"));
 
         assert!(behavior.diagnostics().is_empty());
         assert!(!behavior.value().is_recovered());

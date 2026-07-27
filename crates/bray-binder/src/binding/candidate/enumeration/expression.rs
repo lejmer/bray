@@ -79,13 +79,11 @@ where
         BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
             operation(expression, SelectionKind::Member, bound.child_expressions())
         }
-        BoundExpression::Unary(_) | BoundExpression::Binary(_) | BoundExpression::Assignment(_) => {
-            operation(
-                expression,
-                SelectionKind::Operator,
-                bound.child_expressions(),
-            )
-        }
+        BoundExpression::Unary(_) | BoundExpression::Binary(_) => operation(
+            expression,
+            SelectionKind::Operator,
+            bound.child_expressions(),
+        ),
         BoundExpression::Conversion(_) => operation(
             expression,
             SelectionKind::Conversion,
@@ -120,6 +118,7 @@ where
                 bound.child_expressions(),
             )
         }
+        BoundExpression::Assignment(_) => ExpressionCandidateSet::NotApplicable(expression),
         _ => ExpressionCandidateSet::NotApplicable(expression),
     };
 
@@ -153,14 +152,14 @@ fn operation(
 }
 
 fn is_union_variant_call(unit: &BoundUnit, callee: BoundExpressionId) -> bool {
-    matches!(
-        unit.view().expression(callee),
-        Some(BoundExpression::Name(name))
-            if matches!(
-                name.target(),
-                bray_bound_tree::BoundReferenceTarget::Surface(
-                    bray_symbols::AnySymbolId::UnionVariant(_)
-                )
+    match unit.view().expression(callee) {
+        Some(BoundExpression::LeadingDotVariant(_)) => true,
+        Some(BoundExpression::Name(name)) => matches!(
+            name.target(),
+            bray_bound_tree::BoundReferenceTarget::Surface(
+                bray_symbols::AnySymbolId::UnionVariant(_)
             )
-    )
+        ),
+        _ => false,
+    }
 }

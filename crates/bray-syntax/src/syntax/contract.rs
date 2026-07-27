@@ -1,5 +1,58 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, PathSyntax, SyntaxKind, SyntaxToken};
+use crate::{
+    ExpressionSyntax, PathSyntax, SyntaxKind, SyntaxToken, TraitApplicationSyntax,
+    TypeExpressionSyntax,
+};
+
+/// A trait-satisfaction constraint retained inside a static predicate expression.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraitSatisfactionConstraintSyntax {
+    subject: TypeExpressionSyntax,
+    colon_token: SyntaxToken,
+    application: TraitApplicationSyntax,
+}
+
+impl TraitSatisfactionConstraintSyntax {
+    /// Returns the implementation-eligible subject type.
+    pub const fn subject(&self) -> &TypeExpressionSyntax {
+        &self.subject
+    }
+
+    /// Returns the separating colon token.
+    pub const fn colon_token(&self) -> &SyntaxToken {
+        &self.colon_token
+    }
+
+    /// Returns the exact required trait application.
+    pub const fn application(&self) -> &TraitApplicationSyntax {
+        &self.application
+    }
+}
+
+impl ExpressionSyntax {
+    /// Returns this expression as a direct trait-satisfaction constraint.
+    pub fn trait_satisfaction_constraint(&self) -> Option<TraitSatisfactionConstraintSyntax> {
+        let mut subjects = self.type_expressions();
+        let mut applications = self.trait_applications();
+
+        let subject = subjects.next()?;
+        let application = applications.next()?;
+        let colon_token = self.operator_token()?;
+
+        if subjects.next().is_some()
+            || applications.next().is_some()
+            || colon_token.kind() != SyntaxKind::ColonToken
+        {
+            return None;
+        }
+
+        Some(TraitSatisfactionConstraintSyntax {
+            subject,
+            colon_token,
+            application,
+        })
+    }
+}
 
 macro_rules! define_expression_contract_clause_syntax {
     (

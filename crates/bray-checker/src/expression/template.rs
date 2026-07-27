@@ -101,7 +101,7 @@ where
             candidate_state(template.state()),
         )
         .with_contract(template.contract().clone())
-        .with_generic_constraints(template.generic().constraints().iter().copied()),
+        .with_generic_constraints(template.generic().constraints().iter().cloned()),
     ))
 }
 

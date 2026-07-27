@@ -86,6 +86,13 @@ where
             &mut inference,
         )?;
 
+        initialize_non_value_expressions(
+            &nodes.non_value_expressions,
+            &variables,
+            types.error,
+            &mut inference,
+        );
+
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
@@ -382,6 +389,7 @@ where
 
 struct CollectedNodes {
     expressions: Vec<BoundExpressionId>,
+    non_value_expressions: Vec<BoundExpressionId>,
     blocks: Vec<BoundBlockId>,
 }
 
@@ -398,6 +406,7 @@ where
     };
 
     let mut expressions = BTreeSet::new();
+    let mut non_value_expressions = BTreeSet::new();
     let mut blocks = BTreeSet::new();
 
     let outcome = walk_bound_unit_view(request.view(), root, |event| {
@@ -409,6 +418,13 @@ where
             match node {
                 AnyBoundNodeId::Expression(id) => {
                     expressions.insert(id);
+
+                    if let Some(bray_bound_tree::BoundExpression::StructConstruction(construction)) =
+                        request.view().expression(id)
+                        && let Some(head) = construction.head()
+                    {
+                        non_value_expressions.insert(head);
+                    }
                 }
                 AnyBoundNodeId::Block(id) => {
                     blocks.insert(id);
@@ -430,8 +446,25 @@ where
 
     Ok(Some(CollectedNodes {
         expressions: expressions.into_iter().collect(),
+        non_value_expressions: non_value_expressions.into_iter().collect(),
         blocks: blocks.into_iter().collect(),
     }))
+}
+
+fn initialize_non_value_expressions(
+    expressions: &[BoundExpressionId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    error: TypeId,
+    inference: &mut TypeInferenceContext,
+) {
+    for expression in expressions {
+        let Some(variable) = variables.get(expression).copied() else {
+            continue;
+        };
+
+        inference.add_evidence(variable, error, *expression);
+        inference.mark_recovered(variable);
+    }
 }
 
 fn initialize_expression_variables<C>(

@@ -155,3 +155,83 @@ const fn diagnostic_section(section: InterfaceSectionTag) -> DiagnosticInterface
         InterfaceSectionTag::SupportGraph => DiagnosticInterfaceSection::SupportGraph,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticId, DiagnosticKind, SeverityKind};
+
+    use super::InterfaceValidationError;
+    use crate::{
+        InterfaceFormatRevision, InterfaceLanguageRevision, InterfaceLimit, InterfaceSectionTag,
+    };
+
+    #[test]
+    fn validation_failures_publish_exact_structured_diagnostic_kinds() {
+        let cases = [
+            (
+                InterfaceValidationError::InvalidMagic,
+                DiagnosticKind::InterfaceInvalidMagic,
+                0,
+            ),
+            (
+                InterfaceValidationError::UnsupportedFormatRevision {
+                    actual: InterfaceFormatRevision::new(2),
+                },
+                DiagnosticKind::InterfaceUnsupportedFormatRevision,
+                2,
+            ),
+            (
+                InterfaceValidationError::UnsupportedLanguageRevision {
+                    expected: InterfaceLanguageRevision::new(1),
+                    actual: InterfaceLanguageRevision::new(2),
+                },
+                DiagnosticKind::InterfaceUnsupportedLanguageRevision,
+                2,
+            ),
+            (
+                InterfaceValidationError::UnsupportedEncoding,
+                DiagnosticKind::InterfaceUnsupportedEncoding,
+                0,
+            ),
+            (
+                InterfaceValidationError::Truncated,
+                DiagnosticKind::InterfaceTruncated,
+                0,
+            ),
+            (
+                InterfaceValidationError::Malformed,
+                DiagnosticKind::InterfaceMalformed,
+                0,
+            ),
+            (
+                InterfaceValidationError::HashMismatch,
+                DiagnosticKind::InterfaceHashMismatch,
+                0,
+            ),
+            (
+                InterfaceValidationError::SectionChecksumMismatch {
+                    section: InterfaceSectionTag::Strings,
+                },
+                DiagnosticKind::InterfaceSectionChecksumMismatch,
+                1,
+            ),
+            (
+                InterfaceValidationError::ResourceLimitExceeded {
+                    limit: InterfaceLimit::FileSize,
+                    actual: 2,
+                    maximum: 1,
+                },
+                DiagnosticKind::InterfaceResourceLimitExceeded,
+                3,
+            ),
+        ];
+
+        for (error, expected_kind, expected_arg_count) in cases {
+            let diagnostic = error.into_diagnostic(DiagnosticId::new(0));
+
+            assert_eq!(diagnostic.kind(), expected_kind);
+            assert_eq!(diagnostic.severity(), SeverityKind::Error);
+            assert_eq!(diagnostic.args().len(), expected_arg_count);
+        }
+    }
+}

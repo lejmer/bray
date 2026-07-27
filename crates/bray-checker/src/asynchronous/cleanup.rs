@@ -117,10 +117,14 @@ where
             bray_symbols::NamedTypeSymbolId::Struct(definition) => self
                 .request
                 .available_compiler_known_symbols()
+                .provider()
+                .role_registry()
                 .symbol_representation(definition),
             bray_symbols::NamedTypeSymbolId::Union(definition) => self
                 .request
                 .available_compiler_known_symbols()
+                .provider()
+                .role_registry()
                 .symbol_representation(definition),
         };
 

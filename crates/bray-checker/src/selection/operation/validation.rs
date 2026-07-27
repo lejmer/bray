@@ -4,15 +4,15 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::CompilerKnownOperationRole;
 use bray_symbols::{
-    CallableInstanceData, CallableSignature, ImplementationRequirementKey, ImplementationSelection,
-    ReceiverMode, TypeId,
+    CallableInstanceData, CallableSignature, GenericArgument, ImplementationRequirementKey,
+    ImplementationSelection, ReceiverMode, TypeData, TypeId,
 };
 
 use crate::representation::named_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
-use super::role::operation_role;
+use super::role::compiler_known_operation_role;
 
 pub(super) fn validate_operation_instances<C>(
     request: CheckerUnitView<'_, C>,
@@ -44,7 +44,7 @@ where
             validate_trait_callable_fulfillment(request, *fulfillment)?;
         }
         SelectedOperation::Construction(construction) => {
-            if let ConstructionTarget::TypeForm(callable) = construction.target() {
+            if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                 validate_callable_instance(request, callable)?;
             }
         }
@@ -187,7 +187,7 @@ where
 {
     let mut required = Vec::new();
 
-    collect_compiler_known_operations(operation, expression, actual_types, &mut required)?;
+    collect_compiler_known_operations(request, operation, expression, actual_types, &mut required)?;
 
     required.sort_unstable_by_key(|operation| operation.requirement());
     required.dedup();
@@ -216,14 +216,14 @@ where
     Ok(true)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RequiredTraitOperation<'types> {
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum RequiredTraitOperation {
     Callable {
         role: CompilerKnownOperationRole,
         requirement: ImplementationRequirementKey,
         callable: CallableInstanceData,
         receiver: TypeId,
-        parameter_types: &'types [ExpressionTypeResult],
+        parameter_types: Vec<TypeId>,
         callable_result: RequiredCallableResult,
         receiver_mode: ReceiverMode,
     },
@@ -242,28 +242,32 @@ enum RequiredCallableResult {
     FixedContractType,
 }
 
-impl RequiredTraitOperation<'_> {
-    const fn role(self) -> CompilerKnownOperationRole {
+impl RequiredTraitOperation {
+    const fn role(&self) -> CompilerKnownOperationRole {
         match self {
-            Self::Callable { role, .. } | Self::Conversion { role, .. } => role,
+            Self::Callable { role, .. } | Self::Conversion { role, .. } => *role,
         }
     }
 
-    const fn requirement(self) -> ImplementationRequirementKey {
+    const fn requirement(&self) -> ImplementationRequirementKey {
         match self {
             Self::Callable { requirement, .. } | Self::Conversion { requirement, .. } => {
-                requirement
+                *requirement
             }
         }
     }
 }
 
-fn collect_compiler_known_operations<'types>(
+fn collect_compiler_known_operations<C>(
+    request: CheckerUnitView<'_, C>,
     operation: &SelectedOperation,
     expression: &BoundExpression,
-    actual_types: &'types [ExpressionTypeResult],
-    required: &mut Vec<RequiredTraitOperation<'types>>,
-) -> Result<(), CheckerInfrastructureError> {
+    actual_types: &[ExpressionTypeResult],
+    required: &mut Vec<RequiredTraitOperation>,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     match operation {
         SelectedOperation::Operator {
             target:
@@ -279,7 +283,7 @@ fn collect_compiler_known_operations<'types>(
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             };
 
-            let role = operation_role(expression, *operator)
+            let role = compiler_known_operation_role(expression, *operator)
                 .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
             let callable_result = if role == CompilerKnownOperationRole::Comparison {
@@ -293,7 +297,7 @@ fn collect_compiler_known_operations<'types>(
                 requirement: *requirement,
                 callable: *member,
                 receiver: receiver.ty(),
-                parameter_types,
+                parameter_types: parameter_types.iter().map(|result| result.ty()).collect(),
                 callable_result,
                 receiver_mode: ReceiverMode::Shared,
             });
@@ -326,6 +330,13 @@ fn collect_compiler_known_operations<'types>(
                 _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
             };
 
+            let parameter_types = match role {
+                CompilerKnownOperationRole::SliceIndex => {
+                    custom_slice_parameter_types(request, *requirement)?
+                }
+                _ => parameter_types.iter().map(|result| result.ty()).collect(),
+            };
+
             required.push(RequiredTraitOperation::Callable {
                 role,
                 requirement: *requirement,
@@ -349,9 +360,9 @@ fn collect_compiler_known_operations<'types>(
     Ok(())
 }
 
-fn collect_conversion_operations<'types>(
+fn collect_conversion_operations(
     conversion: &SelectedConversion,
-    required: &mut Vec<RequiredTraitOperation<'types>>,
+    required: &mut Vec<RequiredTraitOperation>,
 ) {
     let mut pending = vec![conversion];
 
@@ -376,7 +387,7 @@ fn collect_conversion_operations<'types>(
 
 fn trait_operation_matches<C>(
     request: CheckerUnitView<'_, C>,
-    required: RequiredTraitOperation<'_>,
+    required: RequiredTraitOperation,
     evidence: &CompilerKnownOperationEvidence,
 ) -> Result<bool, CheckerInfrastructureError>
 where
@@ -435,7 +446,7 @@ where
             signature_matches(
                 evidence.signature(),
                 receiver,
-                parameter_types,
+                &parameter_types,
                 callable_result,
                 receiver_mode,
             )
@@ -453,7 +464,7 @@ where
 fn signature_matches(
     signature: &CallableSignature,
     receiver_type: TypeId,
-    parameter_types: &[ExpressionTypeResult],
+    parameter_types: &[TypeId],
     result: TypeId,
     receiver_mode: ReceiverMode,
 ) -> bool {
@@ -465,7 +476,40 @@ fn signature_matches(
             .parameters()
             .iter()
             .map(|parameter| parameter.ty())
-            .eq(parameter_types.iter().map(|result| result.ty()))
+            .eq(parameter_types.iter().copied())
+}
+
+fn custom_slice_parameter_types<C>(
+    request: CheckerUnitView<'_, C>,
+    requirement: ImplementationRequirementKey,
+) -> Result<Vec<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let application = request
+        .semantic_values()
+        .trait_application_data(requirement.trait_application())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(application.substitution())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let [binding] = substitution.bindings() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let GenericArgument::Type(bound) = binding.argument() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let nullable = request
+        .semantic_values()
+        .intern_type(TypeData::Nullable(bound))
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    Ok(vec![nullable, nullable])
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use bray_bound_tree::BoundSourceAnchor;
@@ -48,6 +49,33 @@ where
     }
 }
 
+/// The source layout contract and required alignment of an aggregate crossing an ABI boundary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TargetAggregateAbi {
+    contract: TargetLayoutContract,
+    alignment: NonZeroU64,
+}
+
+impl TargetAggregateAbi {
+    /// Creates an aggregate ABI requirement.
+    pub const fn new(contract: TargetLayoutContract, alignment: NonZeroU64) -> Self {
+        Self {
+            contract,
+            alignment,
+        }
+    }
+
+    /// Returns the source layout contract exposed at the boundary.
+    pub const fn contract(self) -> TargetLayoutContract {
+        self.contract
+    }
+
+    /// Returns the aggregate's required alignment.
+    pub const fn alignment(self) -> NonZeroU64 {
+        self.alignment
+    }
+}
+
 /// One value representation crossing a selected foreign ABI boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetAbiValue {
@@ -57,8 +85,8 @@ pub enum TargetAbiValue {
     RawPointer,
     /// A callable value with its own selected ABI.
     Callable(CallableAbi),
-    /// A product or union with its selected physical layout.
-    Aggregate(TargetValueLayout),
+    /// A product or union with its source ABI contract and required alignment.
+    Aggregate(TargetAggregateAbi),
 }
 
 /// The complete selected callable ABI surface that must be valid for a call boundary.
@@ -264,12 +292,12 @@ fn callable_abi_violation(
         .copied()
         .chain(requirement.result())
         .find_map(|value| {
-            if let TargetAbiValue::Aggregate(layout) = value
-                && layout.alignment().get() > contract.max_alignment().get()
+            if let TargetAbiValue::Aggregate(aggregate) = value
+                && aggregate.alignment().get() > contract.max_alignment().get()
             {
                 return Some(TargetViolation::Alignment {
                     kind: DiagnosticAlignmentKind::CallableAbi,
-                    required: layout.alignment().get(),
+                    required: aggregate.alignment().get(),
                     maximum: contract.max_alignment().get(),
                 });
             }
@@ -300,9 +328,9 @@ fn abi_accepts_value(
         TargetAbiValue::Scalar(scalar) => contract.scalars().supports(scalar),
         TargetAbiValue::RawPointer => contract.raw_pointers(),
         TargetAbiValue::Callable(value_abi) => contract.qualified_callables() && value_abi == abi,
-        TargetAbiValue::Aggregate(layout) => {
-            layout.alignment().get() <= contract.max_alignment().get()
-                && match layout.contract() {
+        TargetAbiValue::Aggregate(aggregate) => {
+            aggregate.alignment().get() <= contract.max_alignment().get()
+                && match aggregate.contract() {
                     TargetLayoutContract::C => contract.c_layout(),
                     TargetLayoutContract::Transparent => contract.transparent_layout(),
                     TargetLayoutContract::Default | TargetLayoutContract::Stable => false,
@@ -334,11 +362,17 @@ fn layout_violation(
             if !abi_accepts_value(
                 contract,
                 abi,
-                TargetAbiValue::Aggregate(requirement.layout()),
+                TargetAbiValue::Aggregate(TargetAggregateAbi::new(
+                    requirement.layout().contract(),
+                    requirement.layout().alignment(),
+                )),
             ) {
                 return Some(TargetViolation::AbiRepresentation {
                     abi,
-                    value: TargetAbiValue::Aggregate(requirement.layout()),
+                    value: TargetAbiValue::Aggregate(TargetAggregateAbi::new(
+                        requirement.layout().contract(),
+                        requirement.layout().alignment(),
+                    )),
                 });
             }
 
@@ -457,7 +491,7 @@ fn diagnostic_abi_value(value: TargetAbiValue) -> DiagnosticTargetRepresentation
         TargetAbiValue::Scalar(scalar) => diagnostic_scalar(scalar),
         TargetAbiValue::RawPointer => DiagnosticTargetRepresentation::RawPointer,
         TargetAbiValue::Callable(_) => DiagnosticTargetRepresentation::AbiQualifiedCallable,
-        TargetAbiValue::Aggregate(layout) => match layout.contract() {
+        TargetAbiValue::Aggregate(aggregate) => match aggregate.contract() {
             TargetLayoutContract::Default => DiagnosticTargetRepresentation::DefaultLayoutAggregate,
             TargetLayoutContract::Stable => DiagnosticTargetRepresentation::StableLayoutAggregate,
             TargetLayoutContract::C => DiagnosticTargetRepresentation::CLayoutAggregate,
@@ -503,13 +537,16 @@ mod tests {
     use std::num::NonZeroU64;
 
     use bray_compiler_known::RepresentationRole;
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticTargetRepresentation,
+    };
     use bray_symbols::CallableAbi;
     use bray_target::{TargetLayoutContract, TargetValueLayout};
 
     use super::{
-        TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,
-        TargetValidity, TargetValidityRequest, TargetValidityRequirement,
+        TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,
+        TargetLayoutUse, TargetValidity, TargetValidityRequest, TargetValidityRequirement,
+        TargetViolation,
     };
     use crate::CheckerOutcome;
     use crate::service::{DefaultTargetValidityChecker, TargetValidityChecker};
@@ -533,6 +570,17 @@ mod tests {
 
         assert_eq!(*result.value(), TargetValidity::Valid);
         assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn unavailable_callable_abis_publish_exact_structured_diagnostics() {
+        let diagnostic =
+            TargetViolation::CallableAbi(CallableAbi::C).diagnostic(DiagnosticId::new(0));
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::CheckingTargetCallableAbiUnavailable
+        );
     }
 
     #[test]
@@ -581,15 +629,14 @@ mod tests {
     fn foreign_abi_checks_validate_selected_by_value_representations() {
         let context = TestCheckerContext::new(false);
 
-        let layout = TargetValueLayout::new(
-            8,
-            NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN),
+        let aggregate = TargetAggregateAbi::new(
             TargetLayoutContract::Default,
+            NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN),
         );
 
         let requirement = TargetCallableAbiRequirement::new(
             CallableAbi::C,
-            [TargetAbiValue::Aggregate(layout)],
+            [TargetAbiValue::Aggregate(aggregate)],
             None,
         );
 

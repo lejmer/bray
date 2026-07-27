@@ -123,31 +123,29 @@ impl InternState {
                 parameters,
                 result,
                 constness,
-                execution,
                 trust,
                 abi,
-                invocation_dependency_contract,
-                deferred_dependency_contract,
+                invocation_behavior,
+                deferred_execution_behavior,
             } => {
                 let Some(result) = self.type_id(*result) else {
                     return Ok(None);
                 };
 
-                let Some(invocation_dependency_contract) =
-                    self.dependency_contract_id(*invocation_dependency_contract)
-                else {
-                    return Ok(None);
-                };
+                let invocation_behavior =
+                    self.convert_callable_behavior(invocation_behavior, symbols)?;
 
-                let deferred_dependency_contract = match deferred_dependency_contract {
-                    Some(contract) => {
-                        let Some(contract) = self.dependency_contract_id(*contract) else {
-                            return Ok(None);
-                        };
+                let deferred_execution_behavior = deferred_execution_behavior
+                    .as_ref()
+                    .map(|behavior| self.convert_callable_behavior(behavior, symbols))
+                    .transpose()?;
 
-                        contract
-                    }
-                    None => invocation_dependency_contract,
+                let phase_behaviors = match deferred_execution_behavior {
+                    Some(deferred) => bray_symbols::CallablePhaseBehaviors::asynchronous(
+                        invocation_behavior,
+                        deferred,
+                    ),
+                    None => bray_symbols::CallablePhaseBehaviors::synchronous(invocation_behavior),
                 };
 
                 let mut converted = Vec::with_capacity(parameters.len());
@@ -170,18 +168,19 @@ impl InternState {
                     ));
                 }
 
-                Some(TypeData::Callable(bray_symbols::CallableTypeData::new(
-                    converted,
-                    result,
-                    *constness,
-                    *trust,
-                    *abi,
-                    bray_symbols::CallableDependencyContracts::for_execution(
-                        *execution,
-                        invocation_dependency_contract,
-                        deferred_dependency_contract,
-                    ),
-                )))
+                let dependencies = phase_behaviors.dependency_contracts();
+
+                Some(TypeData::Callable(
+                    bray_symbols::CallableTypeData::new(
+                        converted,
+                        result,
+                        *constness,
+                        *trust,
+                        *abi,
+                        dependencies,
+                    )
+                    .with_phase_behaviors(phase_behaviors),
+                ))
             }
         })
     }

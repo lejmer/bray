@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 
 use crate::{
     DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId, SymbolOrdinal,
-    TrustedCapabilitySymbolId,
+    TraitApplicationId, TrustedCapabilitySymbolId, TypeId,
 };
 
 /// The result of attempting to prove one semantic predicate.
@@ -81,17 +81,49 @@ impl PredicateSemanticSummary {
     }
 }
 
+/// Source-independent meaning of one checked generic constraint.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CheckedConstraintKind {
+    /// A constant predicate that must evaluate to true.
+    Predicate(PredicateSemanticSummary),
+    /// A subject type that must satisfy an exact applied trait.
+    TraitSatisfaction {
+        /// The implementation-eligible subject type.
+        subject: TypeId,
+        /// The required applied trait.
+        application: TraitApplicationId,
+    },
+}
+
 /// One checked generic constraint in declaration order.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedConstraint {
     ordinal: SymbolOrdinal,
-    predicate: PredicateSemanticSummary,
+    kind: CheckedConstraintKind,
 }
 
 impl CheckedConstraint {
     /// Creates a checked generic constraint.
     pub const fn new(ordinal: SymbolOrdinal, predicate: PredicateSemanticSummary) -> Self {
-        Self { ordinal, predicate }
+        Self {
+            ordinal,
+            kind: CheckedConstraintKind::Predicate(predicate),
+        }
+    }
+
+    /// Creates a checked trait-satisfaction constraint.
+    pub const fn trait_satisfaction(
+        ordinal: SymbolOrdinal,
+        subject: TypeId,
+        application: TraitApplicationId,
+    ) -> Self {
+        Self {
+            ordinal,
+            kind: CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            },
+        }
     }
 
     /// Returns the stable declaration-order position within the owning constraint list.
@@ -100,8 +132,27 @@ impl CheckedConstraint {
     }
 
     /// Returns the checked predicate meaning.
-    pub const fn predicate(self) -> PredicateSemanticSummary {
-        self.predicate
+    pub const fn kind(self) -> CheckedConstraintKind {
+        self.kind
+    }
+
+    /// Returns predicate meaning when this is a constant predicate constraint.
+    pub const fn predicate(self) -> Option<PredicateSemanticSummary> {
+        match self.kind {
+            CheckedConstraintKind::Predicate(predicate) => Some(predicate),
+            CheckedConstraintKind::TraitSatisfaction { .. } => None,
+        }
+    }
+
+    /// Returns the subject and application when this is a trait-satisfaction constraint.
+    pub const fn trait_satisfaction_requirement(self) -> Option<(TypeId, TraitApplicationId)> {
+        match self.kind {
+            CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => Some((subject, application)),
+            CheckedConstraintKind::Predicate(_) => None,
+        }
     }
 }
 
@@ -207,8 +258,7 @@ pub struct CallableContractSet {
     invocation_preconditions: Arc<[CallableContractClause]>,
     static_constraints: Arc<[CallableContractClause]>,
     normal_completion_postconditions: Arc<[CallableContractClause]>,
-    invocation_behavior: Arc<super::CallablePhaseBehavior>,
-    deferred_execution_behavior: Option<Arc<super::CallablePhaseBehavior>>,
+    phase_behaviors: super::CallablePhaseBehaviors,
 }
 
 impl CallableContractSet {
@@ -236,8 +286,12 @@ impl CallableContractSet {
             invocation_preconditions: shared_slice(invocation_preconditions),
             static_constraints: shared_slice(static_constraints),
             normal_completion_postconditions: shared_slice(normal_completion_postconditions),
-            invocation_behavior: Arc::new(invocation_behavior),
-            deferred_execution_behavior: deferred_execution_behavior.map(Arc::new),
+            phase_behaviors: match deferred_execution_behavior {
+                Some(deferred) => {
+                    super::CallablePhaseBehaviors::asynchronous(invocation_behavior, deferred)
+                }
+                None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
+            },
         }
     }
 
@@ -258,17 +312,19 @@ impl CallableContractSet {
 
     /// Returns behavior incurred while invoking the callable.
     pub fn invocation_behavior(&self) -> &super::CallablePhaseBehavior {
-        &self.invocation_behavior
+        self.phase_behaviors.invocation()
     }
 
     /// Returns behavior retained by an async future until direct await or task execution.
     ///
     /// Starting the future transfers this contract unchanged to the produced task.
     pub fn deferred_execution_behavior(&self) -> Option<&super::CallablePhaseBehavior> {
-        match &self.deferred_execution_behavior {
-            Some(behavior) => Some(behavior.as_ref()),
-            None => None,
-        }
+        self.phase_behaviors.deferred_execution()
+    }
+
+    /// Returns behavior for every callable execution phase.
+    pub const fn phase_behaviors(&self) -> &super::CallablePhaseBehaviors {
+        &self.phase_behaviors
     }
 }
 

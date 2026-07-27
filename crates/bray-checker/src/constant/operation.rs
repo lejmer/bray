@@ -352,9 +352,36 @@ mod tests {
 
     use bray_bound_tree::BoundOperator;
     use bray_compiler_known::RepresentationRole;
+    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign};
 
-    use super::{ConstantOperationError, fold_binary, fold_unary};
+    use super::{ConstantOperationError, fold_binary, fold_unary, operation_diagnostic_kind};
+
+    #[test]
+    fn operation_failures_map_to_exact_structured_diagnostics() {
+        let cases = [
+            (
+                ConstantOperationError::Invalid,
+                DiagnosticKind::CheckingInvalidConstantExpression,
+            ),
+            (
+                ConstantOperationError::DivisionByZero,
+                DiagnosticKind::CheckingConstantDivisionByZero,
+            ),
+            (
+                ConstantOperationError::NotRepresentable,
+                DiagnosticKind::CheckingConstantValueNotRepresentable,
+            ),
+            (
+                ConstantOperationError::ResourceLimitExceeded,
+                DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
+            ),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(operation_diagnostic_kind(error), expected);
+        }
+    }
 
     #[test]
     fn integer_arithmetic_keeps_exact_intermediates_beyond_the_selected_width() {

@@ -11,6 +11,7 @@ use super::declaration::validate_predicate_definition;
 use super::saturating_u64;
 use crate::semantic::model::{
     InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallablePhaseBehavior,
+    InterfaceConstraintKind,
 };
 
 impl InterfaceSemanticFacts {
@@ -70,10 +71,19 @@ impl InterfaceSemanticFacts {
         for constraint in &*self.constraints {
             validate_symbol(&constraint.owner, symbol_count, dependency_count)?;
 
-            validate_index(
-                constraint.predicate.dependency_contract.to_index(),
-                self.dependency_contracts.len(),
-            )?;
+            match constraint.kind {
+                InterfaceConstraintKind::Predicate(predicate) => validate_index(
+                    predicate.dependency_contract.to_index(),
+                    self.dependency_contracts.len(),
+                )?,
+                InterfaceConstraintKind::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    validate_index(subject.to_index(), self.types.len())?;
+                    validate_index(application.to_index(), self.trait_applications.len())?;
+                }
+            }
         }
 
         for contract in &*self.callable_contracts {
@@ -426,7 +436,7 @@ impl InterfaceSemanticFacts {
         Ok(())
     }
 
-    fn validate_callable_behavior(
+    pub(super) fn validate_callable_behavior(
         &self,
         behavior: &InterfaceCallablePhaseBehavior,
         symbol_count: usize,

@@ -137,6 +137,32 @@ impl InterfaceSemanticFacts {
     }
 }
 
+pub(crate) fn validate_constraint_templates(
+    facts: &InterfaceSemanticFacts,
+) -> Result<(), InterfaceValidationError> {
+    let constraints = facts.constraints.iter().filter_map(|constraint| {
+        matches!(
+            constraint.kind,
+            crate::InterfaceConstraintKind::Predicate(_)
+        )
+        .then_some((&constraint.owner, constraint.ordinal))
+    });
+
+    let templates = facts
+        .declaration_templates
+        .iter()
+        .filter(|template| {
+            template.kind() == bray_bound_tree::CheckedTemplateKind::GenericConstraint
+        })
+        .map(|template| (template.owner(), template.ordinal()));
+
+    if !constraints.eq(templates) {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    Ok(())
+}
+
 fn validate_declaration_order(
     facts: &InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {

@@ -14,11 +14,11 @@ use crate::{
 use super::{
     CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
-    ConstantDefinitionState, DirectiveSurface, GenericConstraintSet,
-    GenericDeclarationTemplate, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
-    ImplementationCoherenceKey, ImplementationHeadTemplate, ImplementationParticipationSet,
-    ImplementationRequirementKey, ImplementationSelection, ImplementationSubjectTemplate,
-    ModuleSurface, OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
+    ConstantDefinitionState, DirectiveSurface, GenericConstraintSet, GenericDeclarationTemplate,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceKey,
+    ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
+    ImplementationSelection, ImplementationSubjectTemplate, ModuleSurface,
+    OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
     PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
     UnevaluatedDefaultTemplate,
 };

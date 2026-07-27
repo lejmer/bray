@@ -276,3 +276,37 @@ fn diagnostic_digest(digest: ArtifactDigest) -> DiagnosticArtifactDigest {
 
     DiagnosticArtifactDigest::new(algorithm, digest.into_bytes())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use bray_diagnostics::DiagnosticKind;
+
+    use super::PublicationErrorKind;
+
+    #[test]
+    fn publication_failures_map_to_exact_structured_diagnostics() {
+        let cases = [
+            (
+                PublicationErrorKind::Read(io::ErrorKind::NotFound),
+                DiagnosticKind::EmissionArtifactReadFailed,
+            ),
+            (
+                PublicationErrorKind::LengthMismatch {
+                    expected: 1,
+                    actual: 2,
+                },
+                DiagnosticKind::EmissionArtifactLengthMismatch,
+            ),
+            (
+                PublicationErrorKind::Flush(io::ErrorKind::BrokenPipe),
+                DiagnosticKind::EmissionArtifactFlushFailed,
+            ),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(error.diagnostic_kind(), expected);
+        }
+    }
+}

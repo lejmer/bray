@@ -3,10 +3,13 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
-    BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsyncFacts, CheckedBodyBehavior,
-    CheckedControlFlowFacts, CheckedDependencyContracts, CheckedPatternFacts,
-    CheckedRefinementFacts, DeclaredValueTypeTemplates, LivenessFacts, StorageFlowFacts,
-    StoragePlan,
+    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsyncFacts,
+    CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts, CheckedPatternFacts,
+    CheckedRefinementFacts, DeclaredValueTypeTemplates, LivenessFacts, SemanticSelection,
+    StorageFlowFacts, StoragePlan,
+};
+use bray_checker::{
+    TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
@@ -19,7 +22,9 @@ use bray_symbols::{
     NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest, SymbolFactResult, SymbolGraph,
     SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
 };
-use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
+use bray_syntax::{
+    ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
+};
 
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
@@ -303,8 +308,11 @@ impl Compilation {
         let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
-        // TODO(BRA-268): Finalized invocation and layout facts must request their exact
-        // target-validity facts and retain those diagnostics in their semantic results.
+        let target_validity = self.semantic_unit_target_validity(
+            bound.result().value(),
+            expression_semantics.result().value(),
+            cancellation,
+        )?;
 
         let mut facts = vec![
             SemanticDiagnosticFact::Bound(Arc::clone(bound.result())),
@@ -320,6 +328,7 @@ impl Compilation {
             SemanticDiagnosticFact::Dependencies(Arc::clone(dependencies.result())),
             SemanticDiagnosticFact::Async(Arc::clone(async_facts.result())),
             SemanticDiagnosticFact::BodyBehavior(Arc::clone(behavior.result())),
+            SemanticDiagnosticFact::TargetValidity(target_validity),
         ];
 
         if key.kind() == BoundUnitKind::ConstantTemplate {
@@ -440,7 +449,7 @@ impl Compilation {
         syntax: &SemanticSyntaxIndex,
     ) -> Result<(), FactQueryError> {
         for anchor in declaration.surface().constraints() {
-            if syntax.has_expression(*anchor) {
+            if syntax.has_bound_constraint_expression(*anchor) {
                 push_key(
                     keys,
                     BoundUnitKey::constraint(owner.clone(), self.bound_source(*anchor)?),
@@ -449,7 +458,7 @@ impl Compilation {
         }
 
         for anchor in declaration.surface().contract_clauses() {
-            if syntax.has_expression(*anchor) {
+            if syntax.has_bound_constraint_expression(*anchor) {
                 push_key(
                     keys,
                     BoundUnitKey::contract_clause(owner.clone(), self.bound_source(*anchor)?),
@@ -480,6 +489,119 @@ impl Compilation {
             BoundUnitKey::runtime_default(provider, self.bound_source(expression)?),
         )
     }
+
+    fn semantic_unit_target_validity(
+        &self,
+        unit: &BoundUnit,
+        semantics: &CheckedExpressionSemantics,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticBag, FactQueryError> {
+        let (types, selections, _) = semantics;
+
+        let values = self.semantic_value_store()?;
+        let mut diagnostics = DiagnosticBag::new();
+
+        for entry in types.entries() {
+            cancellation.check()?;
+
+            if entry.result().is_recovered() {
+                continue;
+            }
+
+            let data = values
+                .type_data(entry.result().ty())
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
+                continue;
+            };
+
+            let bray_symbols::NamedTypeSymbolId::Struct(definition) = definition else {
+                continue;
+            };
+
+            let Some(role) = self
+                .available_compiler_known_symbols()
+                .provider()
+                .role_registry()
+                .symbol_representation(*definition)
+            else {
+                continue;
+            };
+
+            let expression = unit
+                .view()
+                .expression(entry.expression())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let request = TargetValidityRequest::new(
+                expression.origin().source_anchor(),
+                TargetValidityRequirement::Representation(role),
+            );
+
+            let result = self.target_validity_with_cancellation(request, cancellation)?;
+
+            diagnostics.add_range(result.diagnostics().iter().cloned());
+        }
+
+        for entry in selections.entries() {
+            cancellation.check()?;
+
+            let SemanticSelection::Call(call) = entry.selection() else {
+                continue;
+            };
+
+            if call.abi() == bray_symbols::CallableAbi::Bray {
+                continue;
+            }
+
+            let Some(BoundExpression::Call(expression)) =
+                unit.view().expression(entry.expression())
+            else {
+                return Err(FactQueryError::InfrastructureFailure);
+            };
+
+            let callee = types
+                .expression(expression.callee())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let data = values
+                .type_data(callee.ty())
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+                return Err(FactQueryError::InfrastructureFailure);
+            };
+
+            let parameters = callable
+                .parameters()
+                .iter()
+                .map(|parameter| {
+                    super::foreign::target_abi_value_from_type(self, parameter.ty(), cancellation)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten();
+
+            let result =
+                super::foreign::target_abi_value_from_type(self, callable.result(), cancellation)?;
+
+            let request = TargetValidityRequest::new(
+                expression.origin().source_anchor(),
+                TargetValidityRequirement::CallableAbi(TargetCallableAbiRequirement::new(
+                    call.abi(),
+                    parameters,
+                    result,
+                )),
+            );
+
+            let result = self.target_validity_with_cancellation(request, cancellation)?;
+
+            diagnostics.add_range(result.diagnostics().iter().cloned());
+        }
+
+        Ok(diagnostics)
+    }
 }
 
 enum SemanticDiagnosticFact {
@@ -496,6 +618,7 @@ enum SemanticDiagnosticFact {
     Dependencies(Arc<DiagnosticResult<CheckedDependencyContracts>>),
     Async(Arc<DiagnosticResult<CheckedAsyncFacts>>),
     BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
+    TargetValidity(DiagnosticBag),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
@@ -520,6 +643,7 @@ impl SemanticDiagnosticFact {
             Self::Dependencies(result) => result.diagnostics(),
             Self::Async(result) => result.diagnostics(),
             Self::BodyBehavior(result) => result.diagnostics(),
+            Self::TargetValidity(diagnostics) => diagnostics,
             Self::ConstantTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
@@ -593,6 +717,11 @@ impl SemanticSyntaxIndex {
 
                 if node.kind() == SyntaxKind::Expression && entry.first_expression.is_none() {
                     entry.first_expression = Some(anchor);
+
+                    entry.first_expression_is_trait_satisfaction =
+                        node.cast::<ExpressionSyntax>().is_some_and(|expression| {
+                            expression.trait_satisfaction_constraint().is_some()
+                        });
                 }
             }
 
@@ -608,8 +737,10 @@ impl SemanticSyntaxIndex {
             .is_some_and(|entry| entry.has_callable_body)
     }
 
-    fn has_expression(&self, anchor: SyntaxAnchor) -> bool {
-        self.first_expression(anchor).is_some()
+    fn has_bound_constraint_expression(&self, anchor: SyntaxAnchor) -> bool {
+        self.entries.get(&anchor).is_some_and(|entry| {
+            entry.first_expression.is_some() && !entry.first_expression_is_trait_satisfaction
+        })
     }
 
     fn first_expression(&self, anchor: SyntaxAnchor) -> Option<SyntaxAnchor> {
@@ -620,6 +751,7 @@ impl SemanticSyntaxIndex {
 #[derive(Default)]
 struct SemanticSyntaxEntry {
     first_expression: Option<SyntaxAnchor>,
+    first_expression_is_trait_satisfaction: bool,
     has_callable_body: bool,
 }
 
@@ -783,6 +915,24 @@ mod tests {
         assert_eq!(
             diagnostic_kinds(first),
             [DiagnosticKind::BindingNameAlreadyDefined]
+        );
+    }
+
+    #[test]
+    fn check_diagnostics_include_expression_target_validity() {
+        let compilation = compilation(
+            r#"module app;
+
+func main(value: r16)
+{
+    value;
+}
+"#,
+        );
+
+        assert!(
+            diagnostic_kinds(compilation.check_diagnostics())
+                .contains(&DiagnosticKind::CheckingTargetRepresentationUnavailable)
         );
     }
 

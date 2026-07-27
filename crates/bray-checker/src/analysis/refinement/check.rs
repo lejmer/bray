@@ -90,12 +90,7 @@ where
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(0),
-        DiagnosticKind::CheckingRefinementCapacityExceeded,
-        SeverityKind::Error,
-    )
-    .with_primary_span(source.span());
+    let diagnostic = capacity_diagnostic(source.span());
 
     let facts =
         CheckedRefinementFacts::try_new(request.view().unit(), request.view().kind(), [], true)
@@ -104,6 +99,15 @@ where
             });
 
     CheckerOutcome::complete(facts, DiagnosticBag::single(diagnostic))
+}
+
+fn capacity_diagnostic(span: bray_source::SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingRefinementCapacityExceeded,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
 }
 
 struct RefinementResult<'universe> {
@@ -298,5 +302,31 @@ fn transfer_operation(
             phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
             ..
         } => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticKind, SeverityKind};
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+
+    use super::capacity_diagnostic;
+
+    #[test]
+    fn refinement_capacity_recovery_publishes_an_exact_structured_diagnostic() {
+        let span = SourceSpan::new(
+            SourceId::new(1),
+            TextRange::new(TextSize::new(2), TextSize::new(3)),
+        );
+
+        let diagnostic = capacity_diagnostic(span);
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::CheckingRefinementCapacityExceeded
+        );
+
+        assert_eq!(diagnostic.severity(), SeverityKind::Error);
+        assert_eq!(diagnostic.primary_span(), Some(span));
     }
 }

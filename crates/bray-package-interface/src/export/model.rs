@@ -192,6 +192,9 @@ impl PackageInterfaceExportBundle {
             .validate(&surface, crate::InterfaceValidationLimits::default())
             .map_err(PackageInterfaceExportBuildError::Validation)?;
 
+        crate::semantic::validate_constraint_templates(&semantic_facts)
+            .map_err(PackageInterfaceExportBuildError::Validation)?;
+
         Ok(Self {
             surface,
             semantic_facts,
@@ -347,6 +350,7 @@ const fn requires_owned_semantic_fact(kind: bray_symbols::SymbolKind) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::CheckedTemplateKind;
     use bray_symbols::{CallableAbi, ExternalSymbolKey, SymbolKind};
 
     use crate::test_support::package_interface_export_bundle;
@@ -368,6 +372,43 @@ mod tests {
                 .iter()
                 .cloned(),
             [],
+        );
+
+        assert_eq!(
+            PackageInterfaceExportBundle::try_new(
+                complete.surface().clone(),
+                facts,
+                InterfaceLanguageRevision::new(0),
+            ),
+            Err(PackageInterfaceExportBuildError::Validation(
+                InterfaceValidationError::Malformed
+            ))
+        );
+    }
+
+    #[test]
+    fn bundles_require_checked_templates_for_predicate_constraints() {
+        let complete = package_interface_export_bundle();
+
+        let facts = complete.semantic_facts().clone().with_templates(
+            complete
+                .semantic_facts()
+                .checked_templates
+                .iter()
+                .filter(|template| template.kind() != CheckedTemplateKind::GenericConstraint)
+                .cloned(),
+            complete
+                .semantic_facts()
+                .declaration_templates
+                .iter()
+                .filter(|template| template.kind() != CheckedTemplateKind::GenericConstraint)
+                .cloned(),
+            complete
+                .semantic_facts()
+                .support_entities
+                .iter()
+                .take(2)
+                .cloned(),
         );
 
         assert_eq!(

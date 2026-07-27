@@ -28,6 +28,8 @@ pub(crate) use literal::literal_diagnostic_kind;
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub use template::{
     CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_callable_signature_template,
-    resolve_type_expression_template,
+    resolve_trait_application_template, resolve_type_expression_template,
 };
-pub use template_evaluation::evaluate_constant_callable_template;
+pub use template_evaluation::{
+    evaluate_constant_callable_template, evaluate_generic_constraint_template,
+};

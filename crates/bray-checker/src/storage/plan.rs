@@ -89,7 +89,8 @@ where
     pub(super) expression_accesses: BTreeMap<BoundExpressionId, StorageAccessId>,
     pub(super) planned_blocks: BTreeSet<BoundBlockId>,
     pub(super) planned_patterns: BTreeSet<BoundPatternId>,
-    pub(super) conservative_pattern_bindings: BTreeSet<bray_symbols::LocalBindingSymbolId>,
+    pub(super) alternative_pattern_bindings:
+        BTreeMap<bray_symbols::LocalBindingSymbolId, Vec<Vec<StorageAccessId>>>,
     pub(super) result_storage: bray_bound_tree::StorageIdentityId,
     pub(super) receiver_storage: Option<bray_bound_tree::StorageIdentityId>,
     receiver_entry: Option<(
@@ -170,7 +171,7 @@ where
             expression_accesses: BTreeMap::new(),
             planned_blocks: BTreeSet::new(),
             planned_patterns: BTreeSet::new(),
-            conservative_pattern_bindings: BTreeSet::new(),
+            alternative_pattern_bindings: BTreeMap::new(),
             result_storage,
             receiver_storage: None,
             receiver_entry,
@@ -637,10 +638,10 @@ pub(super) const fn iteration_purpose(
 ) -> StorageAccessPurpose {
     match mode {
         bray_bound_tree::IterationSourceMode::Shared => {
-            StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Shared)
+            StorageAccessPurpose::Borrow(BorrowKind::Shared)
         }
         bray_bound_tree::IterationSourceMode::Mutable => {
-            StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable)
         }
         bray_bound_tree::IterationSourceMode::Move => StorageAccessPurpose::Move,
     }

@@ -5,6 +5,52 @@ use bray_symbols::{GenericArgument, TypeData, TypeId};
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
+/// Resolves the complete compiler-defined conversion plan when one applies.
+pub fn built_in_conversion_plan<C>(
+    request: CheckerUnitView<'_, C>,
+    source: TypeId,
+    target: TypeId,
+) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if source == target {
+        return Ok(Some(SelectedConversion::new(
+            source,
+            target,
+            ConversionTarget::Identity,
+        )));
+    }
+
+    if scalar_conversion_is_valid(request, source, target)? {
+        return Ok(Some(SelectedConversion::new(
+            source,
+            target,
+            ConversionTarget::BuiltInScalar,
+        )));
+    }
+
+    let Some(children) = composite_conversion_children(request, source, target)? else {
+        return Ok(None);
+    };
+
+    let mut plans = Vec::with_capacity(children.len());
+
+    for (source, target) in children {
+        let Some(plan) = built_in_conversion_plan(request, source, target)? else {
+            return Ok(None);
+        };
+
+        plans.push(plan);
+    }
+
+    Ok(Some(SelectedConversion::new(
+        source,
+        target,
+        ConversionTarget::Composite(plans.into()),
+    )))
+}
+
 pub(super) fn validate_conversion<C>(
     request: CheckerUnitView<'_, C>,
     conversion: &SelectedConversion,
@@ -76,6 +122,32 @@ fn composite_conversion_shape_is_valid<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    let Some(expected) = composite_conversion_children(request, source, target)? else {
+        return Ok(false);
+    };
+
+    if expected.len() != children.len() {
+        return Ok(false);
+    }
+
+    for ((source, target), child) in expected.into_iter().zip(children) {
+        if child.source_type() != source || child.target_type() != target {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+/// Returns the ordered child conversion pairs for a compiler-defined composite conversion.
+pub fn composite_conversion_children<C>(
+    request: CheckerUnitView<'_, C>,
+    source: TypeId,
+    target: TypeId,
+) -> Result<Option<Vec<(TypeId, TypeId)>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let source_data = request
         .semantic_values()
         .type_data(source)
@@ -107,7 +179,7 @@ where
         (TypeData::Nullable(source), TypeData::Nullable(target)) => vec![(*source, *target)],
         (TypeData::Tuple(elements), _) if elements.len() == 2 => {
             let Some(component) = complex_component_type(request, target)? else {
-                return Ok(false);
+                return Ok(None);
             };
 
             elements
@@ -116,20 +188,10 @@ where
                 .map(|element| (element, component))
                 .collect()
         }
-        _ => return Ok(false),
+        _ => return Ok(None),
     };
 
-    if expected.len() != children.len() {
-        return Ok(false);
-    }
-
-    for ((source, target), child) in expected.into_iter().zip(children) {
-        if child.source_type() != source || child.target_type() != target {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
+    Ok(Some(expected))
 }
 
 fn complex_component_type<C>(

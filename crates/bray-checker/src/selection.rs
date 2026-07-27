@@ -27,3 +27,6 @@ pub use model::{
     OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
     SelectionFailure,
 };
+pub use operation::{
+    built_in_conversion_plan, compiler_known_operation_role, composite_conversion_children,
+};

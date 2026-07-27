@@ -8,9 +8,9 @@ use bray_symbols::{
 };
 
 use crate::{
-    BorrowCapabilityId, BoundExpressionId, BoundSourceAnchor, BoundUnitId, BoundUnitKind,
-    StorageAccess, StorageAccessId, StorageIdentity, StorageIdentityId, StorageProjection,
-    StorageRelationship,
+    BorrowCapabilityId, BoundExpressionId, BoundPatternId, BoundSourceAnchor, BoundUnitId,
+    BoundUnitKind, StorageAccess, StorageAccessId, StorageAlternativeId, StorageIdentity,
+    StorageIdentityId, StorageProjection, StorageRelationship,
 };
 
 /// The semantic construct that establishes a borrow capability.
@@ -137,6 +137,32 @@ impl StorageBinding {
     }
 }
 
+/// Exact source accesses represented by one branch-dependent logical binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageAlternative {
+    pattern: BoundPatternId,
+    accesses: Arc<[StorageAccessId]>,
+}
+
+impl StorageAlternative {
+    pub(super) fn new(pattern: BoundPatternId, accesses: Vec<StorageAccessId>) -> Self {
+        Self {
+            pattern,
+            accesses: accesses.into(),
+        }
+    }
+
+    /// Returns the alternative pattern that establishes the logical binding.
+    pub const fn pattern(&self) -> BoundPatternId {
+        self.pattern
+    }
+
+    /// Returns one exact source access for each branch that establishes the binding.
+    pub fn accesses(&self) -> &[StorageAccessId] {
+        &self.accesses
+    }
+}
+
 /// The source-semantic purpose of one evaluated storage access.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageAccessPurpose {
@@ -219,6 +245,7 @@ pub struct StoragePlan {
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
     accesses: Arc<[StorageAccess]>,
+    alternatives: Arc<[StorageAlternative]>,
     resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
     borrow_capabilities: Arc<[PlannedBorrowCapability]>,
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
@@ -227,30 +254,48 @@ pub struct StoragePlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ResolvedStorageAccess {
+    logical_root: StorageIdentityId,
+    logical_projections: Arc<[StorageProjection]>,
+    paths: Arc<[ResolvedStoragePath]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResolvedStoragePath {
     root: StorageIdentityId,
     projections: Arc<[StorageProjection]>,
 }
 
 impl StoragePlan {
-    pub(super) fn new(
-        unit: BoundUnitId,
-        kind: BoundUnitKind,
-        identities: Vec<StorageIdentity>,
-        accesses: Vec<StorageAccess>,
-        borrow_capabilities: Vec<PlannedBorrowCapability>,
-        bindings: Vec<(StorageBindingTarget, StorageBinding)>,
-        plans: Vec<StorageAccessPlan>,
-    ) -> Self {
-        let resolved_accesses = resolve_accesses(unit, &accesses, &borrow_capabilities);
+    pub(super) fn new(builder: super::builder::StoragePlanBuilder) -> Self {
+        let super::builder::StoragePlanBuilder {
+            unit,
+            kind,
+            identities,
+            accesses,
+            alternatives,
+            borrow_capabilities,
+            bindings,
+            plans,
+            planned_accesses: _,
+        } = builder;
+
+        let resolved_accesses = resolve_accesses(
+            unit,
+            &identities,
+            &accesses,
+            &alternatives,
+            &borrow_capabilities,
+        );
 
         Self {
             unit,
             kind,
             identities: identities.into(),
             accesses: accesses.into(),
+            alternatives: alternatives.into(),
             resolved_accesses: resolved_accesses.into(),
             borrow_capabilities: borrow_capabilities.into(),
-            bindings: bindings.into(),
+            bindings: bindings.into_iter().collect(),
             plans: plans.into(),
         }
     }
@@ -304,6 +349,11 @@ impl StoragePlan {
             })
     }
 
+    /// Returns branch-dependent aliases in deterministic allocation order.
+    pub fn alternatives(&self) -> &[StorageAlternative] {
+        &self.alternatives
+    }
+
     /// Returns planned borrow capabilities in deterministic allocation order.
     pub fn borrow_capabilities(&self) -> &[PlannedBorrowCapability] {
         &self.borrow_capabilities
@@ -346,6 +396,11 @@ impl StoragePlan {
         self.entry(id.unit(), id.storage_index(), &self.accesses)
     }
 
+    /// Returns one branch-dependent storage alias.
+    pub fn alternative(&self, id: StorageAlternativeId) -> Option<&StorageAlternative> {
+        self.entry(id.unit(), id.storage_index(), &self.alternatives)
+    }
+
     /// Returns one planned borrow capability.
     pub fn borrow_capability(&self, id: BorrowCapabilityId) -> Option<PlannedBorrowCapability> {
         self.entry(id.unit(), id.storage_index(), &self.borrow_capabilities)
@@ -382,26 +437,37 @@ impl StoragePlan {
             return StorageRelationship::Error;
         };
 
-        if left.root != right.root {
-            return if self.roots_are_proven_disjoint(left.root, right.root) {
-                StorageRelationship::Disjoint
-            } else {
-                StorageRelationship::PotentiallyOverlapping
-            };
+        if left == right {
+            return StorageRelationship::Identical;
         }
 
-        projection_relationship(&left.projections, &right.projections)
+        let mut relationship = None;
+
+        for left in left.paths.iter() {
+            for right in right.paths.iter() {
+                let current = self.path_relationship(left, right);
+
+                relationship = Some(match relationship {
+                    None => current,
+                    Some(previous) if previous == current => previous,
+                    Some(_) => StorageRelationship::PotentiallyOverlapping,
+                });
+            }
+        }
+
+        relationship.unwrap_or(StorageRelationship::Error)
     }
 
     /// Returns the persistent storage root reached by one access.
     pub fn root_identity(&self, access: StorageAccessId) -> Option<StorageIdentityId> {
-        self.resolved_access(access).map(|access| access.root)
+        self.resolved_access(access)
+            .map(|access| access.logical_root)
     }
 
     /// Returns the complete resolved projection path reached by one access.
     pub fn resolved_projections(&self, access: StorageAccessId) -> Option<&[StorageProjection]> {
         self.resolved_access(access)
-            .map(|access| access.projections.as_ref())
+            .map(|access| access.logical_projections.as_ref())
     }
 
     /// Returns whether the first access contains the complete second access.
@@ -413,19 +479,18 @@ impl StoragePlan {
             return false;
         };
 
-        container.root == contained.root
-            && container.projections.len() <= contained.projections.len()
-            && container
-                .projections
+        contained.paths.iter().all(|contained| {
+            container
+                .paths
                 .iter()
-                .zip(contained.projections.iter())
-                .all(|(container, contained)| container == contained)
+                .any(|container| path_contains(container, contained))
+        })
     }
 
     /// Returns whether an access names its complete persistent storage root.
     pub fn is_root_access(&self, access: StorageAccessId) -> bool {
         self.resolved_access(access)
-            .is_some_and(|access| access.projections.is_empty())
+            .is_some_and(|access| access.logical_projections.is_empty())
     }
 
     fn entry<'plan, T>(
@@ -457,11 +522,29 @@ impl StoragePlan {
 
         identity_is_distinct_storage(left) || identity_is_distinct_storage(right)
     }
+
+    fn path_relationship(
+        &self,
+        left: &ResolvedStoragePath,
+        right: &ResolvedStoragePath,
+    ) -> StorageRelationship {
+        if left.root != right.root {
+            return if self.roots_are_proven_disjoint(left.root, right.root) {
+                StorageRelationship::Disjoint
+            } else {
+                StorageRelationship::PotentiallyOverlapping
+            };
+        }
+
+        projection_relationship(&left.projections, &right.projections)
+    }
 }
 
 fn resolve_accesses(
     unit: BoundUnitId,
+    identities: &[StorageIdentity],
     accesses: &[StorageAccess],
+    alternatives: &[StorageAlternative],
     capabilities: &[PlannedBorrowCapability],
 ) -> Vec<Option<ResolvedStorageAccess>> {
     let mut resolved = Vec::with_capacity(accesses.len());
@@ -476,10 +559,7 @@ fn resolve_accesses(
         let current = match access.root() {
             crate::StorageAccessRoot::Storage(root)
             | crate::StorageAccessRoot::OwnedIndirection { storage: root, .. } => {
-                Some(ResolvedStorageAccess {
-                    root,
-                    projections: shared_slice(access.projections().iter().copied()),
-                })
+                resolve_storage_access(unit, access, root, identities, alternatives, &resolved)
             }
             crate::StorageAccessRoot::Recovery(_) => None,
             crate::StorageAccessRoot::Borrow(capability) => {
@@ -514,15 +594,71 @@ fn resolve_borrowed_access(
         .get(capability.access().storage_index()?)?
         .as_ref()?;
 
-    let projections = inherited
-        .projections
+    let logical_projections = inherited
+        .logical_projections
         .iter()
         .chain(access.projections())
         .copied();
 
+    let paths = inherited.paths.iter().map(|path| ResolvedStoragePath {
+        root: path.root,
+        projections: shared_slice(path.projections.iter().chain(access.projections()).copied()),
+    });
+
     Some(ResolvedStorageAccess {
-        root: inherited.root,
-        projections: shared_slice(projections),
+        logical_root: inherited.logical_root,
+        logical_projections: shared_slice(logical_projections),
+        paths: shared_slice(paths),
+    })
+}
+
+fn resolve_storage_access(
+    unit: BoundUnitId,
+    access: &StorageAccess,
+    root: StorageIdentityId,
+    identities: &[StorageIdentity],
+    alternatives: &[StorageAlternative],
+    resolved: &[Option<ResolvedStorageAccess>],
+) -> Option<ResolvedStorageAccess> {
+    let identity = identities.get(root.storage_index()?)?;
+
+    let paths = match identity {
+        StorageIdentity::Alternative { alternative, .. } => {
+            if alternative.unit() != unit {
+                return None;
+            }
+
+            let alternative = alternatives.get(alternative.storage_index()?)?;
+
+            let mut paths = Vec::new();
+
+            for branch in alternative.accesses() {
+                if branch.unit() != unit {
+                    return None;
+                }
+
+                let branch = resolved.get(branch.storage_index()?)?.as_ref()?;
+
+                paths.extend(branch.paths.iter().map(|path| ResolvedStoragePath {
+                    root: path.root,
+                    projections: shared_slice(
+                        path.projections.iter().chain(access.projections()).copied(),
+                    ),
+                }));
+            }
+
+            paths
+        }
+        _ => vec![ResolvedStoragePath {
+            root,
+            projections: shared_slice(access.projections().iter().copied()),
+        }],
+    };
+
+    Some(ResolvedStorageAccess {
+        logical_root: root,
+        logical_projections: shared_slice(access.projections().iter().copied()),
+        paths: paths.into(),
     })
 }
 
@@ -537,6 +673,16 @@ const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
             | StorageIdentity::Allocation(_)
             | StorageIdentity::CompilerCreated(_)
     )
+}
+
+fn path_contains(container: &ResolvedStoragePath, contained: &ResolvedStoragePath) -> bool {
+    container.root == contained.root
+        && container.projections.len() <= contained.projections.len()
+        && container
+            .projections
+            .iter()
+            .zip(contained.projections.iter())
+            .all(|(container, contained)| container == contained)
 }
 
 fn projection_relationship(
@@ -651,18 +797,23 @@ mod tests {
             false,
         );
 
-        let plan = StoragePlan::new(
-            unit,
-            BoundUnitKind::CallableBody,
-            [StorageIdentity::Temporary(BoundExpressionId::from_slot(
+        let mut builder = crate::StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        let root = builder
+            .push_identity(StorageIdentity::Temporary(BoundExpressionId::from_slot(
                 unit, 1,
-            ))]
-            .into(),
-            vec![first, second, nested],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        );
+            )))
+            .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+
+        assert_eq!(root, StorageIdentityId::from_slot(unit, 0));
+
+        for access in [first, second, nested] {
+            builder
+                .push_access(access)
+                .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+        }
+
+        let plan = builder.finish();
 
         let first = StorageAccessId::from_slot(unit, 0);
         let second = StorageAccessId::from_slot(unit, 1);
@@ -721,24 +872,28 @@ mod tests {
             false,
         );
 
-        let plan = StoragePlan::new(
-            unit,
-            BoundUnitKind::CallableBody,
-            vec![
-                StorageIdentity::Parameter(
-                    bray_symbols::CallableParameterSymbolId::from_symbol_id(
-                        bray_symbols::SymbolId::new(1),
-                    ),
-                ),
-                StorageIdentity::Result(crate::AnyBoundNodeId::Expression(
-                    BoundExpressionId::from_slot(unit, 0),
-                )),
-            ],
-            vec![parameter, result],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        );
+        let mut builder = crate::StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        for identity in [
+            StorageIdentity::Parameter(bray_symbols::CallableParameterSymbolId::from_symbol_id(
+                bray_symbols::SymbolId::new(1),
+            )),
+            StorageIdentity::Result(crate::AnyBoundNodeId::Expression(
+                BoundExpressionId::from_slot(unit, 0),
+            )),
+        ] {
+            builder
+                .push_identity(identity)
+                .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+        }
+
+        for access in [parameter, result] {
+            builder
+                .push_access(access)
+                .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+        }
+
+        let plan = builder.finish();
 
         assert_eq!(
             plan.relationship(

@@ -109,6 +109,10 @@ where
             self.plan_pattern(*child, subject_expression, access)?;
         }
 
+        if pattern.kind() == BoundPatternKind::Alternative {
+            self.finalize_alternative_bindings(id, &pattern)?;
+        }
+
         Ok(())
     }
 
@@ -126,7 +130,11 @@ where
 
         let target = StorageBindingTarget::Local(binding);
 
-        if !self.conservative_pattern_bindings.contains(&binding) {
+        if let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) {
+            for accesses in alternatives {
+                accesses.push(access);
+            }
+        } else {
             let binding = match checked.operation() {
                 PatternOperation::Consume
                 | PatternOperation::Copy
@@ -187,10 +195,7 @@ where
 
     fn install_alternative_bindings(&mut self, pattern: &BoundPattern) -> Result<(), PlanError> {
         let bindings = self.descendant_bindings(pattern)?;
-        let source = pattern.origin().source_anchor();
 
-        // TODO(BRA-268): Replace recovery-backed logical storage with exact branch-dependent
-        // alias alternatives once the storage relationship domain can retain them.
         for binding in bindings {
             let checked = self
                 .patterns
@@ -206,13 +211,51 @@ where
                 continue;
             }
 
-            self.conservative_pattern_bindings.insert(binding);
+            self.alternative_pattern_bindings
+                .entry(binding)
+                .or_default()
+                .push(Vec::new());
+        }
 
-            let target = StorageBindingTarget::Local(binding);
+        Ok(())
+    }
 
-            if self.builder()?.binding(target).is_none() {
-                self.bind_identity(target, StorageIdentity::Error(source))?;
+    fn finalize_alternative_bindings(
+        &mut self,
+        pattern_id: BoundPatternId,
+        pattern: &BoundPattern,
+    ) -> Result<(), PlanError> {
+        for binding in self.descendant_bindings(pattern)? {
+            let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) else {
+                continue;
+            };
+
+            let Some(accesses) = alternatives.pop() else {
+                return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+            };
+
+            if accesses.is_empty() {
+                return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
             }
+
+            if !alternatives.is_empty() {
+                continue;
+            }
+
+            self.alternative_pattern_bindings.remove(&binding);
+
+            let alternative = self
+                .builder_mut()?
+                .push_alternative(pattern_id, accesses)
+                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+            self.bind_identity(
+                StorageBindingTarget::Local(binding),
+                StorageIdentity::Alternative {
+                    pattern: pattern_id,
+                    alternative,
+                },
+            )?;
         }
 
         Ok(())

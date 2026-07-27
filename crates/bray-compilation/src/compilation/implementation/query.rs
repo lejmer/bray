@@ -244,7 +244,7 @@ impl super::super::Compilation {
                     header.key().clone(),
                     header.implementation(),
                     substitution,
-                    header.constraints().iter().copied(),
+                    header.constraints().iter().cloned(),
                     header.target_dependencies().iter().cloned(),
                     coherence.clone(),
                 )
@@ -593,7 +593,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
     }
 
     impl CandidateFixture {
-        fn new(compilation: &crate::Compilation) -> Self {
+        fn new(compilation: &Compilation) -> Self {
             let requirement = candidate_requirement(compilation);
 
             let symbols = compilation
@@ -628,7 +628,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
         boolean: bray_symbols::TypeId,
     }
 
-    fn candidate_requirement(compilation: &crate::Compilation) -> CandidateRequirement {
+    fn candidate_requirement(compilation: &Compilation) -> CandidateRequirement {
         let symbols = compilation
             .symbol_graph()
             .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));

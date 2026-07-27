@@ -141,7 +141,7 @@ fn collect_operation_behavior(
             ..
         } => calls.push(invocation(*fulfillment)),
         SelectedOperation::Construction(construction) => {
-            if let ConstructionTarget::TypeForm(callable) = construction.target() {
+            if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                 calls.push(invocation(callable));
             }
 

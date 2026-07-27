@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     BorrowCapabilityId, BoundUnitId, BoundUnitKind, PlannedBorrowCapability, StorageAccess,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageBinding, StorageBindingTarget,
-    StorageIdentity, StorageIdentityId, StoragePlan,
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAlternative,
+    StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
+    StoragePlan,
 };
 
 /// A contract violation that prevents construction of one storage plan.
@@ -27,14 +28,15 @@ pub enum StoragePlanBuildError {
 
 /// Builds one validated immutable storage plan.
 pub struct StoragePlanBuilder {
-    unit: BoundUnitId,
-    kind: BoundUnitKind,
-    identities: Vec<StorageIdentity>,
-    accesses: Vec<StorageAccess>,
-    borrow_capabilities: Vec<PlannedBorrowCapability>,
-    bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
-    plans: Vec<StorageAccessPlan>,
-    planned_accesses: BTreeSet<(
+    pub(super) unit: BoundUnitId,
+    pub(super) kind: BoundUnitKind,
+    pub(super) identities: Vec<StorageIdentity>,
+    pub(super) accesses: Vec<StorageAccess>,
+    pub(super) alternatives: Vec<StorageAlternative>,
+    pub(super) borrow_capabilities: Vec<PlannedBorrowCapability>,
+    pub(super) bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
+    pub(super) plans: Vec<StorageAccessPlan>,
+    pub(super) planned_accesses: BTreeSet<(
         crate::BoundExpressionId,
         StorageAccessPurpose,
         StorageAccessId,
@@ -49,6 +51,7 @@ impl StoragePlanBuilder {
             kind,
             identities: Vec::new(),
             accesses: Vec::new(),
+            alternatives: Vec::new(),
             borrow_capabilities: Vec::new(),
             bindings: BTreeMap::new(),
             plans: Vec::new(),
@@ -123,6 +126,31 @@ impl StoragePlanBuilder {
         let id = StorageAccessId::from_storage_slot(self.unit, slot);
 
         self.accesses.push(access);
+
+        Ok(id)
+    }
+
+    /// Adds one branch-dependent alias after all source accesses are established.
+    pub fn push_alternative(
+        &mut self,
+        pattern: crate::BoundPatternId,
+        accesses: impl IntoIterator<Item = StorageAccessId>,
+    ) -> Result<StorageAlternativeId, StoragePlanBuildError> {
+        if pattern.unit() != self.unit {
+            return Err(StoragePlanBuildError::ForeignUnit);
+        }
+
+        let accesses = accesses.into_iter().collect::<Vec<_>>();
+
+        if accesses.is_empty() || accesses.iter().any(|access| self.access(*access).is_none()) {
+            return Err(StoragePlanBuildError::MissingAccess);
+        }
+
+        let slot = next_slot(self.alternatives.len())?;
+        let id = StorageAlternativeId::from_storage_slot(self.unit, slot);
+
+        self.alternatives
+            .push(StorageAlternative::new(pattern, accesses));
 
         Ok(id)
     }
@@ -204,15 +232,7 @@ impl StoragePlanBuilder {
 
     /// Completes the immutable storage plan.
     pub fn finish(self) -> StoragePlan {
-        StoragePlan::new(
-            self.unit,
-            self.kind,
-            self.identities,
-            self.accesses,
-            self.borrow_capabilities,
-            self.bindings.into_iter().collect(),
-            self.plans,
-        )
+        StoragePlan::new(self)
     }
 
     fn validate_access_root(
@@ -287,7 +307,11 @@ impl StoragePlanBuilder {
             ) => expected == actual,
             (
                 StorageBindingTarget::Local(_),
-                Some(StorageIdentity::LocalOwned(_) | StorageIdentity::Error(_)),
+                Some(
+                    StorageIdentity::LocalOwned(_)
+                    | StorageIdentity::Alternative { .. }
+                    | StorageIdentity::Error(_),
+                ),
             )
             | (
                 StorageBindingTarget::PostconditionResult(_) | StorageBindingTarget::Result,

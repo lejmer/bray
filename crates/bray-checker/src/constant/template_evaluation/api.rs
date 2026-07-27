@@ -1,11 +1,14 @@
-use bray_bound_tree::CheckedTemplate;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, SeverityKind};
-use bray_source::SourceSpan;
 use super::super::call::{ConstantTemplateResolver, EvaluatedConstantCall};
 use super::super::limits::EvaluationBudget;
 use super::evaluator::TemplateEvaluator;
 use super::support::{TemplateEvaluationFailure, recovery_value};
 use crate::{CheckerOutcome, CheckerRequestContext, ConstantCallRequest};
+use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, SeverityKind};
+use bray_source::SourceSpan;
+use bray_symbols::{
+    ConcreteGenericSubstitutionId, ConstantValueId, ImplementationInstanceId, TypeId,
+};
 
 /// Evaluates one source-independent checked const-callable body.
 pub fn evaluate_constant_callable_template<C>(
@@ -45,7 +48,10 @@ where
         diagnostics: DiagnosticBag::new(),
     };
 
-    let evaluated = evaluator.evaluate_result(request.result_type());
+    let evaluated = evaluator.evaluate_result(
+        CheckedTemplateKind::ConstantCallableBody,
+        request.result_type(),
+    );
 
     match evaluated {
         Ok(value) => CheckerOutcome::complete(
@@ -78,6 +84,55 @@ where
     }
 }
 
+/// Evaluates one source-independent checked generic predicate.
+pub fn evaluate_generic_constraint_template<C>(
+    context: &C,
+    template: &CheckedTemplate,
+    substitution: ConcreteGenericSubstitutionId,
+    result_type: TypeId,
+    resolver: &dyn ConstantTemplateResolver,
+    diagnostic_span: Option<SourceSpan>,
+) -> CheckerOutcome<Option<ConstantValueId>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let limits = crate::ConstantEvaluationLimits::default();
+
+    let mut evaluator = TemplateEvaluator {
+        context,
+        template,
+        substitution,
+        selected_implementation: None::<ImplementationInstanceId>,
+        arguments: &[],
+        resolver,
+        limits,
+        budget: EvaluationBudget::from_limits(limits),
+        values: vec![None; template.nodes().len()],
+        diagnostics: DiagnosticBag::new(),
+    };
+
+    let evaluated = evaluator.evaluate_result(CheckedTemplateKind::GenericConstraint, result_type);
+
+    match evaluated {
+        Ok(value) => CheckerOutcome::complete(Some(value), evaluator.diagnostics),
+        Err(TemplateEvaluationFailure::Diagnostic(kind)) => {
+            let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error);
+
+            if let Some(span) = diagnostic_span {
+                diagnostic = diagnostic.with_primary_span(span);
+            }
+
+            evaluator.diagnostics.add(diagnostic);
+
+            CheckerOutcome::complete(None, evaluator.diagnostics)
+        }
+        Err(TemplateEvaluationFailure::Cancelled) => CheckerOutcome::Cancelled,
+        Err(TemplateEvaluationFailure::Infrastructure(error)) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -97,7 +152,7 @@ mod tests {
         ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
     };
     use super::super::super::limits::ConstantEvaluationLimits;
-    use super::evaluate_constant_callable_template;
+    use super::{evaluate_constant_callable_template, evaluate_generic_constraint_template};
     use crate::test_support::{TestCheckerContext, semantic_values};
     use crate::{CheckerFactResult, ConstantReferenceResolution};
 
@@ -215,6 +270,83 @@ mod tests {
 
             assert_eq!(outcome.diagnostics().by_kind(expected).count(), 1);
         }
+    }
+
+    #[test]
+    fn generic_constraint_templates_evaluate_concrete_predicates() {
+        let values = semantic_values();
+
+        let ty = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
+
+        let value = values
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
+            .unwrap_or_else(|error| panic!("predicate value must intern: {error:?}"));
+
+        let term = values
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap_or_else(|error| panic!("predicate term must intern: {error:?}"));
+
+        let dependency_contract = values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .unwrap_or_else(|error| panic!("empty dependency contract must intern: {error:?}"));
+
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
+            [],
+            dependency_contract,
+            [],
+        );
+
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::GenericConstraint, behavior);
+
+        let result = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term,
+                    usage: bray_bound_tree::CheckedTemplateConstantUsage::new(1, 0, 0),
+                },
+                ty,
+            ))
+            .unwrap_or_else(|error| panic!("predicate node must validate: {error:?}"));
+
+        let template = builder
+            .finish(result, CheckedTemplateCompletion::Complete)
+            .unwrap_or_else(|error| panic!("predicate template must validate: {error:?}"));
+
+        let owner =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(999)).into())
+                .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        let substitution = GenericSubstitutionData::try_new(owner, [], [])
+            .unwrap_or_else(|error| panic!("empty substitution must validate: {error:?}"));
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let substitution = values
+            .require_concrete_substitution(substitution)
+            .unwrap_or_else(|error| panic!("empty substitution must be concrete: {error:?}"));
+
+        let outcome = evaluate_generic_constraint_template(
+            &TestCheckerContext::new(false),
+            &template,
+            substitution,
+            ty,
+            &UnusedTemplateResolver,
+            None,
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("generic predicate template must evaluate"));
+
+        assert!(outcome.diagnostics().is_empty());
+        assert_eq!(*outcome.value(), Some(value));
     }
 
     struct UnusedTemplateResolver;

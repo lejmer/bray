@@ -130,8 +130,15 @@ pub enum ConstructionTarget {
     Struct(StructSymbolId),
     /// A union variant and its payload surface.
     UnionVariant(UnionVariantSymbolId),
-    /// A selected type-form construction callable.
-    TypeForm(CallableInstanceData),
+    /// A selected type-form construction callable and implementation witness.
+    TypeForm {
+        /// The exact callable that performs construction.
+        callable: CallableInstanceData,
+        /// The exact implementation requirement selected for the type form.
+        requirement: ImplementationRequirementKey,
+        /// The exact implementation witness.
+        witness: bray_symbols::ImplementationInstanceId,
+    },
 }
 
 impl ConstructionTarget {
@@ -144,7 +151,10 @@ impl ConstructionTarget {
                     Self::UnionVariant(_),
                     ConstructionInputId::UnionPayloadField(_)
                 )
-                | (Self::TypeForm(_), ConstructionInputId::CallableParameter(_))
+                | (
+                    Self::TypeForm { .. },
+                    ConstructionInputId::CallableParameter(_)
+                )
         )
     }
 }
@@ -378,7 +388,7 @@ impl SelectedOperation {
                 matches!(construction.target(), ConstructionTarget::Struct(_))
             }
             (Self::Construction(construction), BoundExpression::Structured(source)) => {
-                matches!(construction.target(), ConstructionTarget::TypeForm(_))
+                matches!(construction.target(), ConstructionTarget::TypeForm { .. })
                     && source.kind() == BoundStructuredExpressionKind::TypeFormConstruction
             }
             (
@@ -387,9 +397,9 @@ impl SelectedOperation {
                 | BoundExpression::MemberAccess(_)
                 | BoundExpression::Call(_),
             ) => matches!(construction.target(), ConstructionTarget::UnionVariant(_)),
-            (Self::Conversion(conversion), BoundExpression::Conversion(source)) => {
-                source.target_type() == Some(conversion.target_type())
-            }
+            (Self::Conversion(conversion), BoundExpression::Conversion(source)) => source
+                .target_type()
+                .is_none_or(|target| target == conversion.target_type()),
             (Self::Implementation(_), _) => true,
             _ => false,
         }
@@ -419,7 +429,15 @@ impl SelectedOperation {
             } => vec![SelectedImplementationWitness::new(*requirement, *witness)],
             Self::Conversion(conversion) => conversion_witnesses(conversion),
             Self::Implementation(witness) => vec![*witness],
-            Self::Operator { .. } | Self::Index { .. } | Self::Construction(_) => Vec::new(),
+            Self::Construction(construction) => match construction.target() {
+                ConstructionTarget::TypeForm {
+                    requirement,
+                    witness,
+                    ..
+                } => vec![SelectedImplementationWitness::new(requirement, witness)],
+                ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => Vec::new(),
+            },
+            Self::Operator { .. } | Self::Index { .. } => Vec::new(),
         };
 
         witnesses.sort_unstable();

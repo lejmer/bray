@@ -6,7 +6,7 @@ use crate::semantic::codec::common::{
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
-    InterfaceDependencyContractId, InterfaceGenericArgument, InterfaceType,
+    InterfaceGenericArgument, InterfaceType,
 };
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
@@ -140,11 +140,10 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             parameters,
             result,
             constness,
-            execution,
             trust,
             abi,
-            invocation_dependency_contract,
-            deferred_dependency_contract,
+            invocation_behavior,
+            deferred_execution_behavior,
         } => {
             encoder.write_u32(11);
 
@@ -160,15 +159,17 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
 
             encoder.write_u32(result.raw());
             encoder.write_u32((*constness).to_wire());
-            encoder.write_u32((*execution).to_wire());
             encoder.write_u32((*trust).to_wire());
             encoder.write_u32((*abi).to_wire());
-            encoder.write_u32(invocation_dependency_contract.raw());
+            super::contract::encode_callable_behavior(encoder, invocation_behavior);
 
-            write_optional_u32(
-                encoder,
-                deferred_dependency_contract.map(InterfaceDependencyContractId::raw),
-            );
+            match deferred_execution_behavior {
+                Some(behavior) => {
+                    encoder.write_u32(1);
+                    super::contract::encode_callable_behavior(encoder, behavior);
+                }
+                None => encoder.write_u32(0),
+            }
         }
     }
 }

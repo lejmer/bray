@@ -227,11 +227,13 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
+    use bray_target::{TargetAbiFacts, TargetForeignAbiFacts, TargetProfile};
 
     use crate::test_support::{compilation, compilation_with_options, source_function};
     use crate::{CompilationOptions, WorkerBudget};
@@ -457,6 +459,39 @@ extern func native_read(pos value: &i32) -> i32;
     }
 
     #[test]
+    fn source_foreign_abi_rejects_target_overalignment() {
+        let compilation = compilation_with_foreign_alignment(
+            r#"trusted module app;
+
+@layout(c)
+struct Wide
+{
+    value: i64;
+}
+
+@link(name = "native")
+@symbol(name = "native_read")
+@abi(c)
+extern trusted func native_read(pos value: Wide)
+    uses(foreign_call);
+"#,
+            4,
+        );
+
+        let function = source_function(&compilation, "native_read");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("foreign contract query must complete: {error:?}"));
+
+        assert!(result.diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingTargetAlignmentUnsupported
+        }));
+
+        assert!(result.value().is_none());
+    }
+
+    #[test]
     fn foreign_imports_require_the_exact_compiler_known_capability() {
         let compilation = compilation_with_link(
             r#"trusted module app;
@@ -597,6 +632,59 @@ func third()
             crate::SelectedTarget::baseline(),
         )
         .with_native_link_inputs([NativeLinkRequirement::new(name, kind)]);
+
+        compilation_with_options(source, options)
+    }
+
+    fn compilation_with_foreign_alignment(source: &str, maximum: u64) -> crate::Compilation {
+        let baseline = crate::SelectedTarget::baseline();
+        let baseline_facts = baseline.profile().facts();
+
+        let maximum = NonZeroU64::new(maximum)
+            .unwrap_or_else(|| panic!("test foreign ABI alignment must be nonzero"));
+
+        let foreign = TargetForeignAbiFacts::new(
+            baseline_facts
+                .abis()
+                .c_contract()
+                .unwrap_or_else(|| panic!("baseline target must provide a C ABI"))
+                .scalars(),
+            true,
+            true,
+            true,
+            true,
+            maximum,
+        );
+
+        let facts = bray_target::TargetFacts::new(
+            baseline_facts.identity().clone(),
+            baseline_facts.scalars(),
+            baseline_facts.atomics(),
+            TargetAbiFacts::new(Some(foreign), Some(foreign)),
+            baseline_facts.address_spaces(),
+            baseline_facts.alignments(),
+            baseline_facts.operations(),
+        );
+
+        let profile = TargetProfile::try_new(
+            baseline.profile().identity().clone(),
+            baseline.profile().machine().clone(),
+            facts,
+        )
+        .unwrap_or_else(|error| panic!("test target profile must be valid: {error:?}"));
+
+        let target = crate::SelectedTarget::new(profile, baseline.runtime_abi());
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            target,
+        )
+        .with_native_link_inputs([NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("native")
+                .unwrap_or_else(|| panic!("test link input name must be valid")),
+            NativeLinkKind::Dynamic,
+        )]);
 
         compilation_with_options(source, options)
     }

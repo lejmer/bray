@@ -30,7 +30,7 @@ pub(crate) fn check_expression_semantics<C>(
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
     pattern_input: &PatternCheckInput,
-    iteration_sources: &[SelectedIterationSource],
+    operation_input: &crate::ExpressionTypeInput,
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -61,9 +61,8 @@ where
             declared_types,
             nested_callables,
             candidate_sets,
-            &pending,
-            None,
-            iteration_sources,
+            PreparedPatternReferences::default(),
+            operation_input,
         );
     }
 
@@ -90,20 +89,19 @@ where
             }
         };
 
-    let prepared =
-        match prepare_pattern_binding_references(request, &provisional_patterns, &pending) {
-            Ok(prepared) => prepared,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+    let prepared = match prepare_pattern_binding_references(request, &provisional_patterns, pending)
+    {
+        Ok(prepared) => prepared,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    };
 
     check_expression_semantics_once(
         request,
         declared_types,
         nested_callables,
         candidate_sets,
-        &pending,
-        Some(prepared),
-        iteration_sources,
+        prepared,
+        operation_input,
     )
 }
 
@@ -124,6 +122,7 @@ where
         candidate_sets,
         &[],
         deferred,
+        &crate::ExpressionTypeInput::new(),
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
@@ -138,9 +137,8 @@ fn check_expression_semantics_once<C>(
     declared_types: &DeclaredValueTypeTemplates,
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
-    supplemental_deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
-    supplemental: Option<PreparedPatternReferences>,
-    iteration_sources: &[SelectedIterationSource],
+    supplemental: PreparedPatternReferences,
+    operation_input: &crate::ExpressionTypeInput,
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -149,35 +147,28 @@ fn check_expression_semantics_once<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let evidence = supplemental
-        .as_ref()
-        .map_or(&[][..], |prepared| prepared.evidence.as_slice());
-
     let (session, prepared) = match prepare_expression_check(
         request,
         declared_types,
         nested_callables,
         candidate_sets,
-        evidence,
-        supplemental_deferred,
+        &supplemental.evidence,
+        &supplemental.deferred,
+        operation_input,
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    let (selections, diagnostics) = supplemental.map_or_else(
-        || (Vec::new(), DiagnosticBag::new()),
-        |prepared| (prepared.selections, prepared.diagnostics),
-    );
-
     finish_expression_check(
         request,
         session,
         prepared,
-        selections,
-        diagnostics,
-        iteration_sources,
+        supplemental.selections,
+        supplemental.diagnostics,
+        operation_input.iteration_sources(),
+        operation_input.operation_selections(),
     )
 }
 
@@ -188,6 +179,7 @@ fn prepare_expression_check<'view, C>(
     candidate_sets: &[ExpressionCandidateSet],
     supplemental_evidence: &[ExpressionTypeEvidence],
     supplemental_deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+    operation_input: &crate::ExpressionTypeInput,
 ) -> Result<
     SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
     CheckerInfrastructureError,
@@ -232,6 +224,7 @@ where
     }
 
     session.apply_input(&input)?;
+    session.apply_input(operation_input)?;
 
     for evidence in supplemental_evidence {
         session.add_evidence(evidence.expression(), evidence.ty())?;
@@ -256,6 +249,7 @@ fn finish_expression_check<C>(
     mut supplemental_selections: Vec<SemanticSelectionEntry>,
     supplemental_diagnostics: DiagnosticBag,
     iteration_sources: &[SelectedIterationSource],
+    operation_selections: &[SemanticSelectionEntry],
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
     CheckedSemanticSelections,
@@ -286,6 +280,7 @@ where
     };
 
     entries.append(&mut supplemental_selections);
+    entries.extend(operation_selections.iter().cloned());
 
     // Iteration discovery retains its cached selections while this table owns its entries.
     entries.extend(iteration_sources.iter().cloned().map(|selection| {
@@ -358,7 +353,7 @@ mod tests {
             &[],
             &[ExpressionCandidateSet::NotApplicable(foreign)],
             &crate::PatternCheckInput::new(),
-            &[],
+            &crate::ExpressionTypeInput::new(),
         );
 
         assert_eq!(

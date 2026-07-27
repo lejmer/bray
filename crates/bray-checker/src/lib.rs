@@ -25,14 +25,16 @@ mod unit;
 #[cfg(test)]
 mod test_support;
 
+pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use constant::{
     ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
     ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
     ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
-    evaluate_constant_callable_template, normalize_integer_literal,
-    resolve_callable_signature_template, resolve_type_expression_template,
+    evaluate_constant_callable_template, evaluate_generic_constraint_template,
+    normalize_integer_literal, resolve_callable_signature_template,
+    resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
@@ -53,7 +55,8 @@ pub use selection::{
     ImplementationSelectionEvidence, IterationSourceCandidate, IterationSourceSelectionRequest,
     OperationCandidate, OperationCandidateSource, OperationCandidateState,
     OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
-    SelectionFailure,
+    SelectionFailure, built_in_conversion_plan, compiler_known_operation_role,
+    composite_conversion_children,
 };
 pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
@@ -70,8 +73,9 @@ pub use service::{
     TargetValidityChecker,
 };
 pub use target::{
-    TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,
-    TargetValidity, TargetValidityContext, TargetValidityRequest, TargetValidityRequirement,
+    TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,
+    TargetLayoutUse, TargetValidity, TargetValidityContext, TargetValidityRequest,
+    TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 pub use type_representation::{

@@ -372,9 +372,18 @@ impl<'bytes> SelectionBuilder<'bytes> {
             return Err(InterfaceValidationError::Malformed);
         }
 
-        self.enqueue(PendingRecord::DependencyContract(
-            constraint.predicate.dependency_contract.raw(),
-        ));
+        match constraint.kind {
+            crate::InterfaceConstraintKind::Predicate(predicate) => self.enqueue(
+                PendingRecord::DependencyContract(predicate.dependency_contract.raw()),
+            ),
+            crate::InterfaceConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => {
+                self.enqueue(PendingRecord::Type(subject.raw()));
+                self.enqueue(PendingRecord::TraitApplication(application.raw()));
+            }
+        }
 
         self.records.constraints.insert(index, constraint);
 
@@ -581,8 +590,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
             InterfaceType::Callable {
                 parameters,
                 result,
-                invocation_dependency_contract,
-                deferred_dependency_contract,
+                invocation_behavior,
+                deferred_execution_behavior,
                 ..
             } => {
                 for parameter in &**parameters {
@@ -592,11 +601,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 self.enqueue(PendingRecord::Type(result.raw()));
 
                 self.enqueue(PendingRecord::DependencyContract(
-                    invocation_dependency_contract.raw(),
+                    invocation_behavior.dependency_contract.raw(),
                 ));
 
-                if let Some(contract) = deferred_dependency_contract {
-                    self.enqueue(PendingRecord::DependencyContract(contract.raw()));
+                if let Some(behavior) = deferred_execution_behavior {
+                    self.enqueue(PendingRecord::DependencyContract(
+                        behavior.dependency_contract.raw(),
+                    ));
                 }
             }
             InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}

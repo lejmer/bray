@@ -19,6 +19,34 @@ pub(super) fn empty_substitution(
         .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
+pub(super) fn substitution_for_owner(
+    values: &SemanticValueStore,
+    owner: AnySymbolId,
+    substitutions: impl IntoIterator<Item = GenericSubstitutionId>,
+) -> Result<GenericSubstitutionId, FactQueryError> {
+    let owner = GenericOwnerId::try_new(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+    let mut parameters = Vec::new();
+    let mut arguments = Vec::new();
+
+    for substitution in substitutions {
+        let substitution = values
+            .generic_substitution_data(substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        for binding in substitution.bindings() {
+            parameters.push(binding.parameter());
+            arguments.push(binding.argument());
+        }
+    }
+
+    let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    values
+        .intern_generic_substitution(substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+}
+
 pub(super) fn named_type(
     values: &SemanticValueStore,
     definition: NamedTypeSymbolId,
