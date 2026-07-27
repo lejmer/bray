@@ -14,11 +14,13 @@ mod run;
 mod source_inspection;
 mod source_location_output;
 mod source_origin_output;
+mod symbol_inspection;
 mod syntax_inspection;
 mod terminal_style;
 #[cfg(test)]
 mod test_support;
 mod token_inspection;
+mod type_inspection;
 
 pub use cli::DriverCliError;
 pub use command::{

@@ -24,6 +24,7 @@ mod snapshot;
 mod source_graph;
 mod source_module;
 mod substitution;
+mod symbol_surface;
 mod tooling;
 mod type_representation;
 mod type_surface;

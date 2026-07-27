@@ -20,6 +20,7 @@ mod kind;
 mod local;
 mod member;
 mod name;
+mod observation;
 mod origin;
 mod product;
 mod provider;

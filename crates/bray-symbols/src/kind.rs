@@ -129,6 +129,65 @@ macro_rules! define_symbol_kind {
 for_each_compilation_symbol_kind!(define_symbol_kind);
 
 impl SymbolKind {
+    /// Returns this symbol kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompilerKnownEnvironment => "compiler_known_environment",
+            Self::Package => "package",
+            Self::Module => "module",
+            Self::TrustedCapability => "trusted_capability",
+            Self::Constant => "constant",
+            Self::Function => "function",
+            Self::Predicate => "predicate",
+            Self::CallableContract => "callable_contract",
+            Self::CallableOverload => "callable_overload",
+            Self::ImplementationOverload => "implementation_overload",
+            Self::Struct => "struct",
+            Self::Union => "union",
+            Self::Trait => "trait",
+            Self::InherentImplementation => "inherent_implementation",
+            Self::UnnamedTraitImplementation => "unnamed_trait_implementation",
+            Self::NamedTraitImplementation => "named_trait_implementation",
+            Self::StructField => "struct_field",
+            Self::UnionVariant => "union_variant",
+            Self::UnionPayloadField => "union_payload_field",
+            Self::TypeCallableMember => "type_callable_member",
+            Self::Constructor => "constructor",
+            Self::Finalizer => "finalizer",
+            Self::Destructor => "destructor",
+            Self::ScopeEnter => "scope_enter",
+            Self::ScopeExit => "scope_exit",
+            Self::InherentTypeMember => "inherent_type_valued_member",
+            Self::TraitCallableMember => "trait_callable_member",
+            Self::TraitConstantMember => "trait_constant_member",
+            Self::TraitTypeMember => "trait_type_valued_member",
+            Self::TraitPredicateMember => "trait_predicate_member",
+            Self::TraitFinalizerRequirement => "trait_finalizer_requirement",
+            Self::TraitDestructorRequirement => "trait_destructor_requirement",
+            Self::TraitScopeEnterRequirement => "trait_scope_enter_requirement",
+            Self::TraitScopeExitRequirement => "trait_scope_exit_requirement",
+            Self::TraitCallableFulfillment => "trait_callable_fulfillment",
+            Self::TraitConstantFulfillment => "trait_constant_fulfillment",
+            Self::TraitTypeFulfillment => "trait_type_valued_fulfillment",
+            Self::TraitPredicateFulfillment => "trait_predicate_fulfillment",
+            Self::TraitScopeEnterFulfillment => "trait_scope_enter_fulfillment",
+            Self::TraitScopeExitFulfillment => "trait_scope_exit_fulfillment",
+            Self::GenericTypeParameter => "generic_type_parameter",
+            Self::GenericConstParameter => "generic_const_parameter",
+            Self::CallableParameter => "callable_parameter",
+            Self::PredicateParameter => "predicate_parameter",
+            Self::ReceiverParameter => "receiver_parameter",
+            Self::CallableParameterDefaultProvider => "callable_parameter_default_provider",
+            Self::StructFieldDefaultProvider => "struct_field_default_provider",
+            Self::UnionPayloadDefaultProvider => "union_payload_default_provider",
+            Self::LocalBinding => "local_binding",
+            Self::LocalConstant => "local_constant",
+            Self::AnonymousCallable => "anonymous_callable",
+            Self::AnonymousCallableParameter => "anonymous_callable_parameter",
+            Self::PostconditionResult => "postcondition_result",
+        }
+    }
+
     /// Returns whether symbols of this kind use the body-local identity space.
     pub const fn is_local(self) -> bool {
         matches!(
@@ -227,6 +286,51 @@ pub enum SymbolRelationshipKind {
 }
 
 impl SymbolRelationshipKind {
+    /// Every closed symbol relationship in stable presentation order.
+    pub const ALL: [Self; 14] = [
+        Self::PackageModule,
+        Self::ModuleMember,
+        Self::TypeMember,
+        Self::TraitMember,
+        Self::ImplementationMember,
+        Self::StructField,
+        Self::UnionVariant,
+        Self::UnionPayloadField,
+        Self::GenericParameter,
+        Self::CallableParameter,
+        Self::PredicateParameter,
+        Self::OverloadArm,
+        Self::ImplementationFulfillment,
+        Self::DefaultProvider,
+    ];
+
+    /// Returns this relationship kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PackageModule => "package_module",
+            Self::ModuleMember => "module_member",
+            Self::TypeMember => "type_member",
+            Self::TraitMember => "trait_member",
+            Self::ImplementationMember => "implementation_member",
+            Self::StructField => "struct_field",
+            Self::UnionVariant => "union_variant",
+            Self::UnionPayloadField => "union_payload_field",
+            Self::GenericParameter => "generic_parameter",
+            Self::CallableParameter => "callable_parameter",
+            Self::PredicateParameter => "predicate_parameter",
+            Self::OverloadArm => "overload_arm",
+            Self::ImplementationFulfillment => "implementation_fulfillment",
+            Self::DefaultProvider => "default_provider",
+        }
+    }
+
+    /// Classifies a supported owner-member pair.
+    pub fn between(owner: SymbolKind, member: SymbolKind) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|relationship| relationship.supports(owner, member))
+    }
+
     /// Returns whether the owner and member categories satisfy this relationship contract.
     pub fn supports(self, owner: SymbolKind, member: SymbolKind) -> bool {
         match self {
@@ -425,24 +529,7 @@ mod tests {
     fn relationship_support_matches_every_accepted_owner_member_pair() {
         let kinds = all_symbol_kinds();
 
-        let relationships = [
-            SymbolRelationshipKind::PackageModule,
-            SymbolRelationshipKind::ModuleMember,
-            SymbolRelationshipKind::TypeMember,
-            SymbolRelationshipKind::TraitMember,
-            SymbolRelationshipKind::ImplementationMember,
-            SymbolRelationshipKind::StructField,
-            SymbolRelationshipKind::UnionVariant,
-            SymbolRelationshipKind::UnionPayloadField,
-            SymbolRelationshipKind::GenericParameter,
-            SymbolRelationshipKind::CallableParameter,
-            SymbolRelationshipKind::PredicateParameter,
-            SymbolRelationshipKind::OverloadArm,
-            SymbolRelationshipKind::ImplementationFulfillment,
-            SymbolRelationshipKind::DefaultProvider,
-        ];
-
-        for relationship in relationships {
+        for relationship in SymbolRelationshipKind::ALL {
             let expected = accepted_pairs(relationship, &kinds);
 
             for owner in &kinds {
@@ -455,6 +542,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn symbol_and_relationship_kinds_have_stable_names() {
+        assert_eq!(
+            SymbolKind::TraitTypeMember.as_str(),
+            "trait_type_valued_member"
+        );
+
+        assert_eq!(
+            SymbolRelationshipKind::GenericParameter.as_str(),
+            "generic_parameter"
+        );
     }
 
     #[test]

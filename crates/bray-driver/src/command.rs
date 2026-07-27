@@ -67,6 +67,8 @@ pub enum DriverCommandKind {
     InspectSyntax,
     /// Inspects discovered declarations.
     InspectDeclarations,
+    /// Inspects the compilation-wide symbol graph.
+    InspectSymbols,
 }
 
 /// Driver command selected by the CLI.
@@ -94,6 +96,11 @@ pub enum DriverCommand {
     },
     /// Inspects discovered declarations.
     InspectDeclarations {
+        /// Source files to inspect.
+        files: Vec<PathBuf>,
+    },
+    /// Inspects the compilation-wide symbol graph.
+    InspectSymbols {
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
@@ -125,6 +132,11 @@ impl DriverCommand {
         Self::InspectDeclarations { files }
     }
 
+    /// Creates an inspect-symbols command.
+    pub fn inspect_symbols(files: Vec<PathBuf>) -> Self {
+        Self::InspectSymbols { files }
+    }
+
     /// Returns this command's stable category.
     pub const fn kind(&self) -> DriverCommandKind {
         match self {
@@ -133,6 +145,7 @@ impl DriverCommand {
             Self::InspectTokens { .. } => DriverCommandKind::InspectTokens,
             Self::InspectSyntax { .. } => DriverCommandKind::InspectSyntax,
             Self::InspectDeclarations { .. } => DriverCommandKind::InspectDeclarations,
+            Self::InspectSymbols { .. } => DriverCommandKind::InspectSymbols,
         }
     }
 
@@ -143,7 +156,8 @@ impl DriverCommand {
             | Self::InspectSource { files }
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
-            | Self::InspectDeclarations { files } => files,
+            | Self::InspectDeclarations { files }
+            | Self::InspectSymbols { files } => files,
         }
     }
 
@@ -153,7 +167,8 @@ impl DriverCommand {
             | Self::InspectSource { files }
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
-            | Self::InspectDeclarations { files } => files,
+            | Self::InspectDeclarations { files }
+            | Self::InspectSymbols { files } => files,
         }
     }
 }

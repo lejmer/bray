@@ -13,6 +13,19 @@ pub enum SymbolOrigin {
     Synthesized,
 }
 
+impl SymbolOrigin {
+    /// Returns this origin's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Imported => "imported",
+            Self::CompilerKnown => "compiler_known",
+            Self::CompilerProvided => "compiler_provided",
+            Self::Synthesized => "synthesized",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
