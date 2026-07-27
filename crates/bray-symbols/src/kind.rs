@@ -1,5 +1,3 @@
-// rust-style: allow(module-too-large, reason = "symbol kinds and their generated identity mappings form one exhaustive flat inventory")
-
 macro_rules! for_each_compilation_symbol_kind {
     ($consumer:ident) => {
         $consumer! {
