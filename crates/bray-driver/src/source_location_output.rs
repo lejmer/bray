@@ -45,6 +45,10 @@ impl SourceLocationOutput {
     pub(crate) const fn start(self) -> LineColumnOutput {
         self.start
     }
+
+    pub(crate) const fn end(self) -> LineColumnOutput {
+        self.end
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

@@ -11,6 +11,7 @@ use crate::diagnostic_output::write_driver_output;
 use crate::exit_status::exit_code_from_diagnostics;
 use crate::file_arguments::compilation_request_from_file_arguments;
 use crate::source_inspection::render_source_inspection;
+use crate::syntax_inspection::render_syntax_inspection;
 use crate::token_inspection::render_token_inspection;
 
 /// Structured result from running the Bray compiler driver.
@@ -165,10 +166,15 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         return run_inspect_tokens_command(request, output_format);
     }
 
+    if command_kind == DriverCommandKind::InspectSyntax {
+        return run_inspect_syntax_command(request, output_format);
+    }
+
     match command_kind {
         DriverCommandKind::Check
         | DriverCommandKind::InspectSource
-        | DriverCommandKind::InspectTokens => unreachable!("handled command kind did not return"),
+        | DriverCommandKind::InspectTokens
+        | DriverCommandKind::InspectSyntax => unreachable!("handled command kind did not return"),
     }
 }
 
@@ -239,6 +245,33 @@ fn run_inspect_tokens_command(
     }
 
     let output = match render_token_inspection(&compilation, output_format) {
+        Ok(output) => output,
+        Err(_) => return compilation_load_failure_result(output_format),
+    };
+
+    let (stdout, diagnostics) = output.into_parts();
+
+    let exit_code = exit_code_from_diagnostics(&diagnostics);
+
+    DriverRunResult::with_output(exit_code, diagnostics, output_format, stdout, String::new())
+}
+
+fn run_inspect_syntax_command(
+    request: CompilationRequest,
+    output_format: DriverOutputFormat,
+) -> DriverRunResult {
+    let compilation = match Compilation::load(request) {
+        Ok(compilation) => compilation,
+        Err(_) => return compilation_load_failure_result(output_format),
+    };
+
+    if !compilation.source_diagnostics().is_empty() {
+        let diagnostics = compilation.source_diagnostics().clone();
+
+        return diagnostic_result_from_compilation(compilation, diagnostics, output_format);
+    }
+
+    let output = match render_syntax_inspection(&compilation, output_format) {
         Ok(output) => output,
         Err(_) => return compilation_load_failure_result(output_format),
     };
@@ -831,5 +864,79 @@ mod tests {
         );
 
         assert_eq!(output_json["sources"][1]["diagnostics"][0]["code"], 2001);
+    }
+
+    #[test]
+    fn run_writes_text_syntax_inspection_to_stdout() {
+        let file = TemporaryFile::write("syntax.bray", b"module main\n");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("inspect"),
+                OsString::from("syntax"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("kind: syntax_inspection"));
+        assert!(stdout.contains("source_count: 1"));
+        assert!(stdout.contains("source_unit: file"));
+        assert!(stdout.contains("└─ source_unit"));
+        assert!(stdout.contains("├─ module_keyword"));
+        assert!(stdout.contains("semicolon_token"));
+        assert!(stdout.contains("[missing]"));
+    }
+
+    #[test]
+    fn run_writes_json_syntax_inspection_to_stdout() {
+        let file = TemporaryFile::write("syntax.bray", b"module main;\n");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("inspect"),
+                OsString::from("syntax"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&stdout) {
+            Ok(value) => value,
+            Err(error) => panic!("stdout should be syntax-inspection JSON: {error:?}"),
+        };
+
+        assert_eq!(output_json["kind"], "syntax_inspection");
+        assert_eq!(output_json["source_count"], 1);
+        assert_eq!(output_json["has_errors"], false);
+        assert_eq!(output_json["sources"][0]["tree"]["kind"], "source_unit");
     }
 }

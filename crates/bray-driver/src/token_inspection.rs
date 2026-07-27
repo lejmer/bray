@@ -1,12 +1,17 @@
 use bray_compilation::Compilation;
 use bray_diagnostics::DiagnosticBag;
 use bray_parser::lex_source_unit;
-use bray_source::{LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange};
-use bray_syntax::{SyntaxToken, SyntaxTrivia};
+use bray_source::{LineIndex, SourceSnapshot, SourceStore};
+use bray_syntax::SyntaxToken;
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
 use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
+use crate::inspection::{
+    InspectionOutput, InspectionTrivia, InspectionTriviaError, escaped_text, location_for_range,
+    location_start_text, push_text_diagnostic, quoted_text, range_text, trivia_entries,
+    trivia_summary,
+};
 use crate::source_location_output::{SourceLocationOutput, TextRangeOutput};
 use crate::source_origin_output::SourceOriginOutput;
 
@@ -18,21 +23,10 @@ pub(crate) enum TokenInspectionRenderError {
     Json,
 }
 
-pub(crate) struct TokenInspectionOutput {
-    stdout: String,
-    diagnostics: DiagnosticBag,
-}
-
-impl TokenInspectionOutput {
-    pub(crate) fn into_parts(self) -> (String, DiagnosticBag) {
-        (self.stdout, self.diagnostics)
-    }
-}
-
 pub(crate) fn render_token_inspection(
     compilation: &Compilation,
     output_format: DriverOutputFormat,
-) -> Result<TokenInspectionOutput, TokenInspectionRenderError> {
+) -> Result<InspectionOutput, TokenInspectionRenderError> {
     let (report, diagnostics) = TokenInspectionReport::from_compilation(compilation)?;
 
     let stdout = match output_format {
@@ -40,10 +34,7 @@ pub(crate) fn render_token_inspection(
         DriverOutputFormat::Json => render_json_report(&report)?,
     };
 
-    Ok(TokenInspectionOutput {
-        stdout,
-        diagnostics,
-    })
+    Ok(InspectionOutput::new(stdout, diagnostics))
 }
 
 #[derive(Serialize)]
@@ -145,8 +136,8 @@ struct TokenInspectionToken {
     escaped_text: String,
     span: TextRangeOutput,
     location: SourceLocationOutput,
-    leading_trivia: Vec<TokenInspectionTrivia>,
-    trailing_trivia: Vec<TokenInspectionTrivia>,
+    leading_trivia: Vec<InspectionTrivia>,
+    trailing_trivia: Vec<InspectionTrivia>,
 }
 
 impl TokenInspectionToken {
@@ -163,71 +154,23 @@ impl TokenInspectionToken {
         Ok(Self {
             kind: token.kind().as_str(),
             text: text.to_owned(),
-            escaped_text: escape_text(text),
+            escaped_text: escaped_text(text),
             span: TextRangeOutput::from_range(token.range()),
-            location: location_for_range(snapshot, line_index, token.range())?,
-            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia())?,
-            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia())?,
+            location: location_for_range(snapshot, line_index, token.range())
+                .ok_or(TokenInspectionRenderError::SourceIndex)?,
+            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia())
+                .map_err(map_trivia_error)?,
+            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia())
+                .map_err(map_trivia_error)?,
         })
     }
 }
 
-#[derive(Serialize)]
-struct TokenInspectionTrivia {
-    kind: &'static str,
-    text: String,
-    escaped_text: String,
-    span: TextRangeOutput,
-    location: SourceLocationOutput,
-}
-
-impl TokenInspectionTrivia {
-    fn from_trivia(
-        snapshot: &SourceSnapshot,
-        line_index: &LineIndex,
-        trivia: &SyntaxTrivia,
-    ) -> Result<Self, TokenInspectionRenderError> {
-        let text = match trivia.text(snapshot.text()) {
-            Some(text) => text,
-            None => return Err(TokenInspectionRenderError::TriviaText),
-        };
-
-        Ok(Self {
-            kind: trivia.kind().as_str(),
-            text: text.to_owned(),
-            escaped_text: escape_text(text),
-            span: TextRangeOutput::from_range(trivia.range()),
-            location: location_for_range(snapshot, line_index, trivia.range())?,
-        })
+const fn map_trivia_error(error: InspectionTriviaError) -> TokenInspectionRenderError {
+    match error {
+        InspectionTriviaError::SourceIndex => TokenInspectionRenderError::SourceIndex,
+        InspectionTriviaError::Text => TokenInspectionRenderError::TriviaText,
     }
-}
-
-fn trivia_entries(
-    snapshot: &SourceSnapshot,
-    line_index: &LineIndex,
-    trivia: &[SyntaxTrivia],
-) -> Result<Vec<TokenInspectionTrivia>, TokenInspectionRenderError> {
-    trivia
-        .iter()
-        .map(|trivia| TokenInspectionTrivia::from_trivia(snapshot, line_index, trivia))
-        .collect()
-}
-
-fn location_for_range(
-    snapshot: &SourceSnapshot,
-    line_index: &LineIndex,
-    range: TextRange,
-) -> Result<SourceLocationOutput, TokenInspectionRenderError> {
-    let span = SourceSpan::new(snapshot.source_id(), range);
-
-    let location = SourceLocation::resolve(snapshot, line_index, span)
-        .ok_or(TokenInspectionRenderError::SourceIndex)?;
-
-    Ok(SourceLocationOutput::from_location(location))
-}
-
-fn escape_text(text: &str) -> String {
-    text.escape_debug().to_string()
 }
 
 fn render_text_report(report: &TokenInspectionReport) -> String {
@@ -331,7 +274,7 @@ impl TokenTextRow {
             span: range_text(token.span),
             kind: token.kind,
             text: quoted_text(&token.escaped_text),
-            trivia: trivia_summary(token),
+            trivia: trivia_summary(&token.leading_trivia, &token.trailing_trivia),
         }
     }
 }
@@ -356,58 +299,8 @@ fn push_text_token(output: &mut String, row: &TokenTextRow, widths: TokenColumnW
     output.push('\n');
 }
 
-fn push_text_diagnostic(output: &mut String, diagnostic: &DiagnosticJson) {
-    output.push_str("    ");
-    output.push_str(diagnostic.severity());
-    output.push('[');
-    output.push_str(&diagnostic.code().to_string());
-    output.push_str("]: ");
-    output.push_str(diagnostic.kind());
-
-    if let Some(primary_span) = diagnostic.primary_span() {
-        if let Some(location) = primary_span.location() {
-            output.push(' ');
-            push_location(output, location);
-        }
-
-        output.push(' ');
-        output.push_str(&primary_span.start().to_string());
-        output.push_str("..");
-        output.push_str(&primary_span.end().to_string());
-    }
-
-    output.push('\n');
-}
-
-fn push_location(output: &mut String, location: SourceLocationOutput) {
-    output.push_str(&location_text(location));
-}
-
-fn push_range(output: &mut String, span: TextRangeOutput) {
-    output.push_str(&range_text(span));
-}
-
 fn location_text(location: SourceLocationOutput) -> String {
-    let start = location.start();
-
-    format!("{}:{}", start.line(), start.column())
-}
-
-fn range_text(span: TextRangeOutput) -> String {
-    format!("{}..{}", span.start(), span.end())
-}
-
-fn quoted_text(text: &str) -> String {
-    format!("\"{text}\"")
-}
-
-fn trivia_summary(token: &TokenInspectionToken) -> String {
-    let mut output = String::new();
-
-    push_trivia_summary(&mut output, "leading", &token.leading_trivia);
-    push_trivia_summary(&mut output, "trailing", &token.trailing_trivia);
-
-    output
+    location_start_text(location)
 }
 
 fn push_padded(output: &mut String, value: &str, width: usize) {
@@ -415,29 +308,6 @@ fn push_padded(output: &mut String, value: &str, width: usize) {
 
     for _ in value.len()..width {
         output.push(' ');
-    }
-}
-
-fn push_trivia_summary(output: &mut String, label: &str, trivia: &[TokenInspectionTrivia]) {
-    if trivia.is_empty() {
-        return;
-    }
-
-    output.push(' ');
-    output.push_str(label);
-    output.push('=');
-
-    for (index, trivia) in trivia.iter().enumerate() {
-        if index > 0 {
-            output.push_str(", ");
-        }
-
-        output.push_str(trivia.kind);
-        output.push('@');
-        push_range(output, trivia.span);
-        output.push_str(":\"");
-        output.push_str(&trivia.escaped_text);
-        output.push('"');
     }
 }
 
