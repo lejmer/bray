@@ -69,6 +69,10 @@ impl FactScheduler {
     where
         T: Send,
     {
+        if self.is_active()? {
+            return Ok((0..len).map(operation).collect());
+        }
+
         let pool = self.pool(priority)?;
 
         let slots = (0..len)
@@ -395,7 +399,7 @@ struct ActiveScheduler {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, mpsc};
+    use std::sync::{Arc, Barrier, mpsc};
     use std::time::Duration;
 
     use super::{ExecutionSlots, FactScheduler};
@@ -407,13 +411,14 @@ mod tests {
         let scheduler = FactScheduler::new(worker_budget(2));
         let active = AtomicUsize::new(0);
         let maximum = AtomicUsize::new(0);
+        let rendezvous = Barrier::new(2);
 
         let results = scheduler
             .map_indexed(QueryPriority::Normal, 8, |index| {
                 let current = active.fetch_add(1, Ordering::SeqCst) + 1;
 
                 maximum.fetch_max(current, Ordering::SeqCst);
-                std::thread::sleep(Duration::from_millis(5));
+                rendezvous.wait();
                 active.fetch_sub(1, Ordering::SeqCst);
 
                 index
@@ -562,6 +567,20 @@ mod tests {
             .unwrap_or_else(|error| panic!("outer work must complete: {error:?}"));
 
         assert_eq!(outer, inner);
+    }
+
+    #[test]
+    fn nested_indexed_work_reuses_the_owned_worker_without_waiting_for_another_slot() {
+        let scheduler = FactScheduler::new(WorkerBudget::serial());
+
+        let results = scheduler
+            .run(QueryPriority::Normal, || {
+                scheduler.map_indexed(QueryPriority::Normal, 8, |index| index)
+            })
+            .unwrap_or_else(|error| panic!("outer work must complete: {error:?}"))
+            .unwrap_or_else(|error| panic!("nested indexed work must complete: {error:?}"));
+
+        assert_eq!(results, (0..8).collect::<Vec<_>>());
     }
 
     fn worker_budget(workers: usize) -> WorkerBudget {

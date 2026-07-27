@@ -31,6 +31,8 @@ pub(crate) use key::{
 };
 pub(crate) use priority::QueryPriorityDemand;
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};
+#[cfg(test)]
+pub(crate) use runtime::FactEvaluationTestObserver;
 pub(crate) use symbol::SymbolFactCache;
 pub(crate) use task::FactTaskIdentity;
 pub(crate) use unit::{PublishedUnitFact, UnitFactCache};

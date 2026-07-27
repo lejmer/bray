@@ -131,6 +131,14 @@ impl<T> FactCell<T> {
         matches!(&*state, FactCellState::Ready(ready_key) if ready_key == key)
     }
 
+    pub(super) fn is_vacant(&self) -> bool {
+        let Ok(state) = self.storage.state.lock() else {
+            return false;
+        };
+
+        matches!(*state, FactCellState::Vacant)
+    }
+
     pub(crate) fn get_or_compute(
         &self,
         runtime: &FactRuntime,
@@ -523,6 +531,7 @@ mod tests {
     use super::{FactCell, FactCellState, FactCellTestEvent, FactCellTestObserver};
     use crate::fact::task::FactTaskContext;
     use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
+    use crate::test_support::FactTestGate;
 
     #[test]
     fn concurrent_requests_compute_one_value() {
@@ -531,6 +540,9 @@ mod tests {
 
         let cell = FactCell::new();
         let computations = AtomicUsize::new(0);
+        let gate = FactTestGate::holding(FactCellTestEvent::Computing);
+
+        assert_eq!(cell.set_test_observer(gate.observer()), Ok(()));
 
         std::thread::scope(|scope| {
             let handles = (0..8)
@@ -542,7 +554,6 @@ mod tests {
                             &cancellation,
                             || {
                                 computations.fetch_add(1, Ordering::SeqCst);
-                                std::thread::sleep(Duration::from_millis(20));
 
                                 Ok(42_u32)
                             },
@@ -551,6 +562,10 @@ mod tests {
                     })
                 })
                 .collect::<Vec<_>>();
+
+            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+            gate.wait_until_observed(FactCellTestEvent::Waiting, 7);
+            gate.release();
 
             for handle in handles {
                 let result = join(handle);
@@ -1310,6 +1325,16 @@ mod tests {
 
         let (result_sender, result_receiver) = mpsc::channel();
 
+        let (waiting_sender, waiting_receiver) = mpsc::sync_channel(1);
+
+        let observer = FactCellTestObserver::new(move |event| {
+            if event == FactCellTestEvent::Waiting {
+                let _ = waiting_sender.try_send(());
+            }
+        });
+
+        assert_eq!(cell.set_test_observer(observer), Ok(()));
+
         let observed = std::thread::scope(|scope| {
             let owner_cell = &cell;
             let owner_runtime = &runtime;
@@ -1353,7 +1378,9 @@ mod tests {
                 }
             });
 
-            std::thread::sleep(Duration::from_millis(20));
+            waiting_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap_or_else(|_| panic!("waiting fact request must be observed"));
 
             waiter_cancellation.cancel();
 

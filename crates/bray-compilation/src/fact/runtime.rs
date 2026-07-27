@@ -2,6 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map:
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
+#[cfg(test)]
+use std::fmt;
+#[cfg(test)]
+use std::sync::Arc;
+
 use crate::WorkerBudget;
 
 use super::scheduler::FactScheduler;
@@ -16,6 +21,34 @@ pub(crate) struct FactRuntime {
     next_task: AtomicU64,
     state: Mutex<RuntimeState>,
     scheduler: FactScheduler,
+    #[cfg(test)]
+    observer: Mutex<Option<FactEvaluationTestObserver>>,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct FactEvaluationTestObserver(
+    Arc<dyn Fn(&CompilationFactKey) + Send + Sync>,
+);
+
+#[cfg(test)]
+impl FactEvaluationTestObserver {
+    pub(crate) fn new(
+        observe: impl Fn(&CompilationFactKey) + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(observe))
+    }
+
+    fn observe(&self, key: &CompilationFactKey) {
+        self.0(key);
+    }
+}
+
+#[cfg(test)]
+impl fmt::Debug for FactEvaluationTestObserver {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("FactEvaluationTestObserver")
+    }
 }
 
 #[derive(Debug, Default)]
@@ -37,6 +70,8 @@ impl FactRuntime {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState::default()),
             scheduler: FactScheduler::new(worker_budget),
+            #[cfg(test)]
+            observer: Mutex::new(None),
         }
     }
 
@@ -94,6 +129,8 @@ impl FactRuntime {
                 ..RuntimeState::default()
             }),
             scheduler: FactScheduler::new(worker_budget),
+            #[cfg(test)]
+            observer: Mutex::new(None),
         };
 
         (runtime, reusable)
@@ -202,12 +239,49 @@ impl FactRuntime {
             Entry::Occupied(_) => return Err(FactQueryError::InfrastructureFailure),
         }
 
-        Ok(EvaluationGuard {
+        let evaluation = EvaluationGuard {
             runtime: self,
             key,
             context,
             active: true,
-        })
+        };
+
+        drop(state);
+
+        #[cfg(test)]
+        self.observe(&evaluation.key)?;
+
+        Ok(evaluation)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_observer(
+        &self,
+        observer: FactEvaluationTestObserver,
+    ) -> Result<(), FactQueryError> {
+        let mut current = self
+            .observer
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        *current = Some(observer);
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn observe(&self, key: &CompilationFactKey) -> Result<(), FactQueryError> {
+        let observer = self
+            .observer
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .clone();
+
+        if let Some(observer) = observer {
+            observer.observe(key);
+        }
+
+        Ok(())
     }
 
     pub(crate) fn same_task_cycle(
@@ -530,5 +604,121 @@ impl Drop for WaitingGuard<'_> {
         if let Some(task) = self.task {
             self.runtime.finish_waiting(task, &self.edge);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::{Arc, Mutex};
+
+    use bray_source::SourceId;
+
+    use super::{FactEvaluationTestObserver, FactRuntime};
+    use crate::fact::{CancellationToken, CompilationFactKey, FactCell};
+    use crate::WorkerBudget;
+
+    #[test]
+    fn evaluation_observation_records_only_started_computations() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let observer_keys = Arc::clone(&observed);
+
+        runtime
+            .set_test_observer(FactEvaluationTestObserver::new(move |key| {
+                observer_keys
+                    .lock()
+                    .unwrap_or_else(|_| panic!("evaluation log must remain available"))
+                    .push(key.clone());
+            }))
+            .unwrap_or_else(|error| panic!("runtime must accept test observation: {error:?}"));
+
+        let first = cell.get_or_compute(
+            &runtime,
+            CompilationFactKey::SyntaxTree,
+            &cancellation,
+            || Ok(7_u32),
+        );
+
+        let repeated = cell.get_or_compute(
+            &runtime,
+            CompilationFactKey::SyntaxTree,
+            &cancellation,
+            || Ok(9_u32),
+        );
+
+        assert_eq!(first, Ok(&7));
+        assert_eq!(repeated, Ok(&7));
+
+        assert_eq!(
+            *observed
+                .lock()
+                .unwrap_or_else(|_| panic!("evaluation log must remain available")),
+            [CompilationFactKey::SyntaxTree]
+        );
+    }
+
+    #[test]
+    fn deep_and_expansion_heavy_invalidation_is_iterative_and_precise() {
+        const DEPTH: u32 = 20_000;
+        const WIDTH: u32 = 20_000;
+
+        let runtime = FactRuntime::default();
+        let deep_root = source_syntax_key(0);
+        let wide_root = CompilationFactKey::SyntaxTree;
+        let unrelated = CompilationFactKey::SelectedTarget;
+
+        {
+            let mut state = runtime
+                .state()
+                .unwrap_or_else(|error| panic!("runtime state must be available: {error:?}"));
+
+            state
+                .dependencies
+                .insert(deep_root.clone(), BTreeSet::new());
+
+            for index in 1..DEPTH {
+                state.dependencies.insert(
+                    source_syntax_key(index),
+                    BTreeSet::from([source_syntax_key(index - 1)]),
+                );
+            }
+
+            state
+                .dependencies
+                .insert(wide_root.clone(), BTreeSet::new());
+
+            for index in 0..WIDTH {
+                state.dependencies.insert(
+                    declaration_chunk_key(index),
+                    BTreeSet::from([wide_root.clone()]),
+                );
+            }
+
+            state
+                .dependencies
+                .insert(unrelated.clone(), BTreeSet::new());
+        }
+
+        let (_, reusable) = runtime.updated(
+            WorkerBudget::serial(),
+            [deep_root.clone(), wide_root.clone()],
+        );
+
+        assert_eq!(reusable, BTreeSet::from([unrelated]));
+        assert!(!reusable.contains(&deep_root));
+        assert!(!reusable.contains(&wide_root));
+        assert!(!reusable.contains(&source_syntax_key(DEPTH - 1)));
+        assert!(!reusable.contains(&declaration_chunk_key(WIDTH - 1)));
+    }
+
+    fn source_syntax_key(index: u32) -> CompilationFactKey {
+        CompilationFactKey::SourceUnitSyntax(SourceId::new(index))
+    }
+
+    fn declaration_chunk_key(index: u32) -> CompilationFactKey {
+        CompilationFactKey::DeclarationChunk(SourceId::new(index))
     }
 }
