@@ -329,6 +329,7 @@ feature strings, object-format controls, relocation model, code model, and toolc
 - endianness and alignment,
 - data layout and address spaces,
 - supported callable ABI mappings,
+- panic ABI identity,
 - relocation and code model,
 - CPU and enabled target features,
 - symbol and linkage encoding rules,
@@ -394,6 +395,11 @@ distinguished main-thread lane, completes checked root lexical cleanup before te
 terminal outcome through subsequent product shutdown.
 
 Frame descriptor and runtime ABI lowering follows `docs/design/async-runtime.md`.
+
+Each codegen request must use the same target and panic ABI identities as its validated executable-host contract. Generated
+protected-frame metadata must exactly cover the unit's frame descriptors and retain each descriptor's independently versioned
+operation contract. Cached runtime metadata is reusable only when frame identities, frame ABI versions, and executable-host
+contracts still match the codegen unit.
 
 The LLVM backend may lower a known MIR operation to an LLVM intrinsic or a declared runtime call. That mapping is typed backend
 policy and must have a conformance test.

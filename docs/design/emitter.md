@@ -345,7 +345,8 @@ The plan is assembled from already resolved compilation and target facts:
 - entry point,
 - startup and termination objects,
 - runtime libraries,
-- selected async runtime ABI version, root entry stub, execution-lane requirements, and runtime feature metadata when applicable,
+- selected async runtime identity, artifact, ABI versions, root entry stub, execution-lane requirements, and capability metadata
+  when applicable,
 - product-host cleanup-report sink ABI identity when reachable cleanup can produce suppressed entries, independently of async
   runtime selection,
 - native and system libraries,
@@ -359,6 +360,9 @@ that every plan input exists in the emission plan.
 
 Async runtime requirements arrive as already resolved product facts defined by `docs/design/async-runtime.md`. The emitter does not
 select a runtime, infer requirements from MIR, or locate runtime components by source-level names.
+
+The executable-host contract and every codegen contribution must agree on target, panic ABI, protected-frame operation versions,
+and selected runtime identity before link-plan construction.
 
 `.brayi` is excluded from the native link plan.
 

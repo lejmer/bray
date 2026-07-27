@@ -366,6 +366,11 @@ behavior, result propagation, affinity requirements, dependency contracts, and t
 It emits explicit MIR frame, state, suspend, resume, task, cancellation, completion, and destruction operations. These operations
 use typed runtime roles rather than source-level runtime or standard-library names.
 
+Lowering also emits immutable runtime requirements for the roles, capabilities, execution lanes, target, panic ABI, and minimum
+runtime ABI versions needed by each lowered unit. Protected-frame descriptors carry independent ABI versions for resume,
+task-broadcast, lifecycle-resolution, completion-move, and destruction operations. MIR does not contain selected runtime artifact
+identities or target-specific binary symbol spellings because product formation resolves those after reachable requirements merge.
+
 Async lowering must not rediscover live-across-suspension storage, choose task semantics, infer affinity, or derive cleanup by
 walking types. Those are semantic decisions supplied by its input.
 
