@@ -231,6 +231,10 @@ fn inspect_target_dependencies(
             InterfaceInspectionRecordKind::AbiDependencies,
             decoded.abi_dependencies.len(),
         ),
+        record(
+            InterfaceInspectionRecordKind::RuntimeRequirements,
+            decoded.runtime_requirements.len(),
+        ),
     ])
 }
 

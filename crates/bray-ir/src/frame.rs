@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
-use bray_runtime_interface::{ExecutionLaneRequirement, ProtectedAsyncFrameId, RuntimeAbiVersion};
+use bray_runtime_interface::{
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    RuntimeAbiVersion,
+};
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
 use crate::{MirBlockId, MirFrameStateId, MirStorageId};
@@ -66,6 +69,7 @@ impl MirFrameStateFacts {
 pub struct MirFrameDescriptor {
     frame: ProtectedAsyncFrameId,
     abi_version: RuntimeAbiVersion,
+    frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
     states: Arc<[MirFrameStateFacts]>,
 }
@@ -75,6 +79,7 @@ impl MirFrameDescriptor {
     pub fn try_new(
         frame: ProtectedAsyncFrameId,
         abi_version: RuntimeAbiVersion,
+        frame_abi: ProtectedFrameAbiVersions,
         result_type: TypeId,
         states: impl IntoIterator<Item = MirFrameStateFacts>,
     ) -> Result<Self, MirFrameDescriptorBuildError> {
@@ -96,6 +101,7 @@ impl MirFrameDescriptor {
         Ok(Self {
             frame,
             abi_version,
+            frame_abi,
             result_type,
             states: shared_slice(states),
         })
@@ -109,6 +115,11 @@ impl MirFrameDescriptor {
     /// Returns the selected private runtime ABI version.
     pub const fn abi_version(&self) -> RuntimeAbiVersion {
         self.abi_version
+    }
+
+    /// Returns the independently versioned protected-frame operation contract.
+    pub const fn frame_abi(&self) -> ProtectedFrameAbiVersions {
+        self.frame_abi
     }
 
     /// Returns the frame's completed result type.
@@ -133,7 +144,9 @@ pub enum MirFrameDescriptorBuildError {
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiVersion};
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
+    };
     use bray_testing::test_bound_unit;
 
     use super::{
@@ -163,16 +176,23 @@ mod tests {
 
         let result_type = crate::test_support::test_type();
         let abi = RuntimeAbiVersion::new(1, 0);
+        let frame_abi = ProtectedFrameAbiVersions::uniform(abi);
 
         assert_eq!(
-            MirFrameDescriptor::try_new(frame, abi, result_type, []),
+            MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, []),
             Err(MirFrameDescriptorBuildError::MissingState)
         );
 
         let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
 
         assert_eq!(
-            MirFrameDescriptor::try_new(frame, abi, result_type, [state.clone(), state]),
+            MirFrameDescriptor::try_new(
+                frame,
+                abi,
+                frame_abi,
+                result_type,
+                [state.clone(), state]
+            ),
             Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
         );
     }

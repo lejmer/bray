@@ -6,8 +6,9 @@ use bray_codegen::{
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
+    RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeRequirements, RuntimeRoleBinding,
+    RuntimeRoleImplementation,
 };
 use bray_symbols::PackageIdentity;
 use bray_target::test_support::test_target_profile;
@@ -55,7 +56,7 @@ pub(crate) fn executable_host_contract() -> ExecutableHostContract {
         product_identity(),
         entry,
         RootExecution::Synchronous,
-        RuntimeAbiVersion::new(1, 0),
+        runtime_requirements(),
     );
 
     for role in roles {
@@ -67,6 +68,23 @@ pub(crate) fn executable_host_contract() -> ExecutableHostContract {
     };
 
     host
+}
+
+fn runtime_requirements() -> RuntimeRequirements {
+    let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+        panic!("test panic ABI identity must be valid");
+    };
+
+    RuntimeRequirements::new(
+        None,
+        RuntimeAbiVersion::new(1, 0),
+        None,
+        target_identity(),
+        panic_abi,
+        [],
+        [],
+        [],
+    )
 }
 
 pub(crate) fn interface_artifact() -> bray_package_interface::InterfaceArtifact {

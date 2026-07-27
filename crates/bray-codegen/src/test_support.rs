@@ -1,6 +1,7 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use bray_base::Cancellation;
+use bray_runtime_interface::PanicAbiIdentity;
 use bray_symbols::CallableAbi;
 use bray_target::test_support::test_target_profile;
 use bray_target::{CodeModel, RelocationModel};
@@ -186,9 +187,14 @@ pub(crate) fn codegen_target() -> CodegenTarget {
 }
 
 fn target_contract() -> TargetContract {
+    let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+        panic!("test panic ABI identity must be valid");
+    };
+
     TargetContract::new(
         target_data_layout(),
         target_abi(),
+        panic_abi,
         target_symbols(),
         target_compatibility(),
     )

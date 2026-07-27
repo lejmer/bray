@@ -16,8 +16,8 @@ pub use declaration_model::{
 };
 pub use model::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
-    ImportedDeclarationTemplateFact, ImportedImplementationFact, ImportedSemanticFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
+    ImportedDeclarationTemplateFact, ImportedImplementationFact, ImportedRuntimeRequirement,
+    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
     InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub(super) use state::InternState;

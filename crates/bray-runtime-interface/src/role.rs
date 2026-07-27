@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::BinarySymbolName;
 
 /// Closed binary execution ABI role understood by lowering, backends, and product hosts.
@@ -51,6 +53,80 @@ pub enum RuntimeAbiRole {
     FrameDestruction,
 }
 
+impl RuntimeAbiRole {
+    /// Returns the compiler-owned semantic contract of this closed ABI role.
+    pub const fn contract(self) -> RuntimeRoleContract {
+        RuntimeRoleContract::new(self, role_effects(self))
+    }
+}
+
+/// Semantic effect fixed by one closed private ABI role.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RuntimeRoleContractEffect {
+    /// Establish a new root run owned by the product host.
+    EstablishRootRun,
+    /// Transfer ownership of a protected frame.
+    TransferFrame,
+    /// Allocate runtime-owned task storage.
+    AllocateTask,
+    /// Publish work for execution by a compatible lane.
+    PublishWork,
+    /// Execute a protected callback root.
+    ExecuteCallbackRoot,
+    /// Register a suspended continuation.
+    RegisterContinuation,
+    /// Establish release-to-acquire visibility.
+    EstablishVisibility,
+    /// Request cancellation of another run.
+    RequestCancellation,
+    /// Observe cancellation of the current run.
+    ObserveCancellation,
+    /// Publish one terminal run state.
+    PublishTerminalState,
+    /// Acquire one terminal run state.
+    AcquireTerminalState,
+    /// Transfer ownership of a cleanup incident.
+    TransferCleanupIncident,
+    /// Report and destroy owned cleanup incidents.
+    ReportCleanupIncidents,
+    /// Broadcast cancellation to frame-owned tasks.
+    BroadcastFrameTasks,
+    /// Resolve frame-owned lifecycle state.
+    ResolveFrameLifecycle,
+    /// Move an initialized completion result.
+    MoveCompletion,
+    /// Infallibly destroy terminal frame storage.
+    DestroyFrame,
+    /// Shut product execution infrastructure down.
+    StructuredShutdown,
+}
+
+/// Compiler-owned semantic record for one closed private ABI role.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeRoleContract {
+    role: RuntimeAbiRole,
+    effects: &'static [RuntimeRoleContractEffect],
+}
+
+impl RuntimeRoleContract {
+    const fn new(
+        role: RuntimeAbiRole,
+        effects: &'static [RuntimeRoleContractEffect],
+    ) -> Self {
+        Self { role, effects }
+    }
+
+    /// Returns the exact ABI role whose signature and behavior this record defines.
+    pub const fn role(self) -> RuntimeAbiRole {
+        self.role
+    }
+
+    /// Returns the role's immutable semantic effects.
+    pub const fn effects(self) -> &'static [RuntimeRoleContractEffect] {
+        self.effects
+    }
+}
+
 /// Implementation boundary supplying one private ABI role.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeRoleImplementation {
@@ -99,5 +175,82 @@ impl RuntimeRoleBinding {
     /// Returns the mechanism boundary supplying the role.
     pub const fn implementation(&self) -> RuntimeRoleImplementation {
         self.implementation
+    }
+}
+
+pub(crate) fn canonical_role_bindings(
+    bindings: impl IntoIterator<Item = RuntimeRoleBinding>,
+) -> Result<Arc<[RuntimeRoleBinding]>, RuntimeAbiRole> {
+    let mut bindings: Vec<_> = bindings.into_iter().collect();
+
+    bindings.sort_unstable_by_key(RuntimeRoleBinding::role);
+
+    if let Some(pair) = bindings
+        .windows(2)
+        .find(|pair| pair[0].role() == pair[1].role())
+    {
+        return Err(pair[0].role());
+    }
+
+    Ok(bindings.into())
+}
+
+const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffect] {
+    use RuntimeRoleContractEffect as Effect;
+
+    match role {
+        RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun],
+        RuntimeAbiRole::RootCancellationRequest
+        | RuntimeAbiRole::TaskCancellationRequest => &[Effect::RequestCancellation],
+        RuntimeAbiRole::TaskAllocation => &[Effect::AllocateTask],
+        RuntimeAbiRole::TaskStart => &[Effect::TransferFrame, Effect::PublishWork],
+        RuntimeAbiRole::FrameResume => &[Effect::ExecuteCallbackRoot],
+        RuntimeAbiRole::SuspensionRegistration => &[Effect::RegisterContinuation],
+        RuntimeAbiRole::Wake => &[Effect::PublishWork, Effect::EstablishVisibility],
+        RuntimeAbiRole::CurrentRunCancellationObservation => &[Effect::ObserveCancellation],
+        RuntimeAbiRole::JoinRegistration => &[
+            Effect::RegisterContinuation,
+            Effect::AcquireTerminalState,
+            Effect::EstablishVisibility,
+        ],
+        RuntimeAbiRole::TerminalPublication => &[
+            Effect::PublishTerminalState,
+            Effect::EstablishVisibility,
+        ],
+        RuntimeAbiRole::RuntimeEvent => &[Effect::ExecuteCallbackRoot],
+        RuntimeAbiRole::CompatibleLaneSelection
+        | RuntimeAbiRole::MainThreadLaneStartup
+        | RuntimeAbiRole::MainThreadLaneDrive => &[],
+        RuntimeAbiRole::CleanupIncidentTransfer => &[Effect::TransferCleanupIncident],
+        RuntimeAbiRole::CleanupIncidentReporting => &[Effect::ReportCleanupIncidents],
+        RuntimeAbiRole::RootTerminalObservation => &[
+            Effect::AcquireTerminalState,
+            Effect::EstablishVisibility,
+        ],
+        RuntimeAbiRole::StructuredShutdown => &[Effect::StructuredShutdown],
+        RuntimeAbiRole::FrameTaskBroadcast => &[Effect::BroadcastFrameTasks],
+        RuntimeAbiRole::FrameLifecycleResolution => &[Effect::ResolveFrameLifecycle],
+        RuntimeAbiRole::FrameCompletionMove => &[Effect::MoveCompletion],
+        RuntimeAbiRole::FrameDestruction => &[Effect::DestroyFrame],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RuntimeAbiRole, RuntimeRoleContractEffect};
+
+    #[test]
+    fn role_contracts_are_closed_and_typed() {
+        let contract = RuntimeAbiRole::TaskStart.contract();
+
+        assert_eq!(contract.role(), RuntimeAbiRole::TaskStart);
+
+        assert_eq!(
+            contract.effects(),
+            [
+                RuntimeRoleContractEffect::TransferFrame,
+                RuntimeRoleContractEffect::PublishWork
+            ]
+        );
     }
 }

@@ -1,12 +1,14 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use bray_base::sorted_unique_shared_slice;
 use bray_symbols::ProductIdentity;
+use bray_target::TargetIdentity;
 
+use crate::role::canonical_role_bindings;
 use crate::{
-    BinarySymbolName, ProtectedAsyncFrameId, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId,
-    RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, RuntimeAbiRole,
+    RuntimeAbiVersion, RuntimeArtifactId, RuntimeCompatibilityError, RuntimeContract,
+    RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 
 /// Execution-lane predicate that reachable code requires the product to satisfy.
@@ -22,7 +24,7 @@ pub enum ExecutionLaneRequirement {
 
 /// Runtime facility required by reachable product code.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum RuntimeFeature {
+pub enum RuntimeCapability {
     /// Baseline cooperative task execution.
     CooperativeExecution,
     /// Thread-local task lanes.
@@ -37,8 +39,6 @@ pub enum RuntimeFeature {
     MainThreadLane,
     /// Reactor-backed external event integration.
     Reactor,
-    /// Product-host cleanup-incident reporting.
-    CleanupIncidentReporting,
 }
 
 /// Product-wide hard execution capacity selected independently of library budgets.
@@ -94,14 +94,17 @@ pub enum RootExecution {
 /// Complete selected execution contract for one compiler-generated executable host stub.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutableHostContract {
+    data: Arc<ExecutableHostContractData>,
+}
+
+#[derive(Debug, Eq, Hash, PartialEq)]
+struct ExecutableHostContractData {
     product: ProductIdentity,
     native_entry: BinarySymbolName,
     root: RootExecution,
-    abi_version: RuntimeAbiVersion,
-    runtime_artifact: Option<RuntimeArtifactId>,
-    role_bindings: Arc<[RuntimeRoleBinding]>,
-    runtime_features: Arc<[RuntimeFeature]>,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
+    requirements: RuntimeRequirements,
+    runtime: Option<RuntimeContract>,
+    host_role_bindings: Arc<[RuntimeRoleBinding]>,
     capacity_limits: ExecutionCapacityLimits,
 }
 
@@ -111,53 +114,39 @@ pub struct ExecutableHostContractBuilder {
     product: ProductIdentity,
     native_entry: BinarySymbolName,
     root: RootExecution,
-    abi_version: RuntimeAbiVersion,
-    runtime_artifact: Option<RuntimeArtifactId>,
-    role_bindings: Vec<RuntimeRoleBinding>,
-    runtime_features: Vec<RuntimeFeature>,
-    lane_requirements: Vec<ExecutionLaneRequirement>,
+    requirements: RuntimeRequirements,
+    runtime: Option<RuntimeContract>,
+    host_role_bindings: Vec<RuntimeRoleBinding>,
     capacity_limits: ExecutionCapacityLimits,
 }
 
 impl ExecutableHostContractBuilder {
-    /// Starts a host contract from its product, native entry, root mode, and ABI version.
+    /// Starts a host contract from its product, native entry, root mode, and requirements.
     pub const fn new(
         product: ProductIdentity,
         native_entry: BinarySymbolName,
         root: RootExecution,
-        abi_version: RuntimeAbiVersion,
+        requirements: RuntimeRequirements,
     ) -> Self {
         Self {
             product,
             native_entry,
             root,
-            abi_version,
-            runtime_artifact: None,
-            role_bindings: Vec::new(),
-            runtime_features: Vec::new(),
-            lane_requirements: Vec::new(),
+            requirements,
+            runtime: None,
+            host_role_bindings: Vec::new(),
             capacity_limits: ExecutionCapacityLimits::new(None, None, None),
         }
     }
 
-    /// Selects the separately linked async-runtime artifact.
-    pub fn select_runtime(&mut self, runtime: RuntimeArtifactId) {
-        self.runtime_artifact = Some(runtime);
+    /// Selects the validated target-specific execution runtime.
+    pub fn select_runtime(&mut self, runtime: RuntimeContract) {
+        self.runtime = Some(runtime);
     }
 
-    /// Adds one exact private ABI role binding.
+    /// Adds one private ABI role supplied outside the selected runtime artifact.
     pub fn push_role_binding(&mut self, binding: RuntimeRoleBinding) {
-        self.role_bindings.push(binding);
-    }
-
-    /// Adds one required runtime facility.
-    pub fn require_runtime_feature(&mut self, feature: RuntimeFeature) {
-        self.runtime_features.push(feature);
-    }
-
-    /// Adds one reachable execution-lane requirement.
-    pub fn require_lane(&mut self, lane: ExecutionLaneRequirement) {
-        self.lane_requirements.push(lane);
+        self.host_role_bindings.push(binding);
     }
 
     /// Replaces product-wide hard execution capacity limits.
@@ -167,91 +156,134 @@ impl ExecutableHostContractBuilder {
 
     /// Completes the host contract after validating selected runtime coverage.
     pub fn finish(self) -> Result<ExecutableHostContract, ExecutableHostContractBuildError> {
-        let role_bindings = canonical_role_bindings(self.role_bindings)?;
-        let runtime_features = sorted_unique_shared_slice(self.runtime_features);
-        let lane_requirements = sorted_unique_shared_slice(self.lane_requirements);
+        let host_role_bindings = canonical_role_bindings(self.host_role_bindings)
+            .map_err(ExecutableHostContractBuildError::DuplicateRole)?;
+
+        if let Some(binding) = host_role_bindings
+            .iter()
+            .find(|binding| binding.implementation() == RuntimeRoleImplementation::BrayRuntime)
+        {
+            return Err(
+                ExecutableHostContractBuildError::RuntimeOwnedHostBinding(binding.role()),
+            );
+        }
+
+        if let Some(runtime) = &self.runtime {
+            runtime
+                .validate(&self.requirements)
+                .map_err(ExecutableHostContractBuildError::IncompatibleRuntime)?;
+
+            if let Some(role) = host_role_bindings
+                .iter()
+                .map(RuntimeRoleBinding::role)
+                .find(|role| runtime.role_binding(*role).is_some())
+            {
+                return Err(ExecutableHostContractBuildError::DuplicateRole(role));
+            }
+        } else if requires_runtime(&self.requirements) {
+            return Err(ExecutableHostContractBuildError::MissingRuntime);
+        }
 
         validate_root_contract(
             self.root,
-            self.runtime_artifact.as_ref(),
-            &role_bindings,
-            &runtime_features,
+            &self.requirements,
+            self.runtime.as_ref(),
+            &host_role_bindings,
         )?;
 
-        if self.runtime_artifact.is_none()
-            && role_bindings
-                .iter()
-                .any(|binding| binding.implementation() == RuntimeRoleImplementation::BrayRuntime)
-        {
-            return Err(ExecutableHostContractBuildError::RuntimeBindingWithoutArtifact);
-        }
-
         Ok(ExecutableHostContract {
-            product: self.product,
-            native_entry: self.native_entry,
-            root: self.root,
-            abi_version: self.abi_version,
-            runtime_artifact: self.runtime_artifact,
-            role_bindings,
-            runtime_features,
-            lane_requirements,
-            capacity_limits: self.capacity_limits,
+            data: Arc::new(ExecutableHostContractData {
+                product: self.product,
+                native_entry: self.native_entry,
+                root: self.root,
+                requirements: self.requirements,
+                runtime: self.runtime,
+                host_role_bindings,
+                capacity_limits: self.capacity_limits,
+            }),
         })
     }
 }
 
 impl ExecutableHostContract {
     /// Returns the product owned and observed by this host stub.
-    pub const fn product(&self) -> &ProductIdentity {
-        &self.product
+    pub fn product(&self) -> &ProductIdentity {
+        &self.data.product
     }
 
     /// Returns the binary symbol name of the compiler-generated native process entry point.
-    pub const fn native_entry(&self) -> &BinarySymbolName {
-        &self.native_entry
+    pub fn native_entry(&self) -> &BinarySymbolName {
+        &self.data.native_entry
     }
 
     /// Returns how the source entry body becomes the root run.
-    pub const fn root(&self) -> RootExecution {
-        self.root
+    pub fn root(&self) -> RootExecution {
+        self.data.root
     }
 
-    /// Returns the selected private execution ABI version.
-    pub const fn abi_version(&self) -> RuntimeAbiVersion {
-        self.abi_version
+    /// Returns the complete reachable runtime requirements.
+    pub fn requirements(&self) -> &RuntimeRequirements {
+        &self.data.requirements
     }
 
-    /// Returns the selected async-runtime artifact, when reachable behavior needs one.
-    pub const fn runtime_artifact(&self) -> Option<&RuntimeArtifactId> {
-        self.runtime_artifact.as_ref()
+    /// Returns the minimum private execution ABI version required by the product.
+    pub fn abi_version(&self) -> RuntimeAbiVersion {
+        self.requirements().abi_version()
     }
 
-    /// Returns exact private role bindings in canonical role order.
-    pub fn role_bindings(&self) -> &[RuntimeRoleBinding] {
-        &self.role_bindings
+    /// Returns the exact compilation target identity.
+    pub fn target(&self) -> &TargetIdentity {
+        self.requirements().target()
+    }
+
+    /// Returns the exact target panic ABI.
+    pub fn panic_abi(&self) -> &PanicAbiIdentity {
+        self.requirements().panic_abi()
+    }
+
+    /// Returns the selected runtime implementation, when one is required.
+    pub fn runtime(&self) -> Option<&RuntimeContract> {
+        self.data.runtime.as_ref()
+    }
+
+    /// Returns the selected runtime identity, when one is required.
+    pub fn runtime_identity(&self) -> Option<&RuntimeIdentity> {
+        self.runtime().map(RuntimeContract::identity)
+    }
+
+    /// Returns the selected runtime artifact, when one is required.
+    pub fn runtime_artifact(&self) -> Option<&RuntimeArtifactId> {
+        self.runtime().map(RuntimeContract::artifact)
     }
 
     /// Returns the selected binding for one closed ABI role.
     pub fn role_binding(&self, role: RuntimeAbiRole) -> Option<&RuntimeRoleBinding> {
-        self.role_bindings
+        self.data
+            .host_role_bindings
             .binary_search_by_key(&role, RuntimeRoleBinding::role)
             .ok()
-            .map(|index| &self.role_bindings[index])
+            .map(|index| &self.data.host_role_bindings[index])
+            .or_else(|| {
+                self.data
+                    .runtime
+                    .as_ref()
+                    .and_then(|runtime| runtime.role_binding(role))
+            })
     }
 
-    /// Returns required runtime facilities in canonical order.
-    pub fn runtime_features(&self) -> &[RuntimeFeature] {
-        &self.runtime_features
+    /// Returns required runtime capabilities in canonical order.
+    pub fn runtime_capabilities(&self) -> &[RuntimeCapability] {
+        self.requirements().capabilities()
     }
 
     /// Returns reachable execution-lane requirements in canonical order.
     pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
-        &self.lane_requirements
+        self.requirements().lanes()
     }
 
     /// Returns product-wide execution capacity limits.
-    pub const fn capacity_limits(&self) -> ExecutionCapacityLimits {
-        self.capacity_limits
+    pub fn capacity_limits(&self) -> ExecutionCapacityLimits {
+        self.data.capacity_limits
     }
 }
 
@@ -260,51 +292,41 @@ impl ExecutableHostContract {
 pub enum ExecutableHostContractBuildError {
     /// More than one binary binding was supplied for one closed ABI role.
     DuplicateRole(RuntimeAbiRole),
-    /// An async root has no selected async-runtime artifact.
-    MissingAsyncRuntime,
-    /// A role names the Bray runtime mechanism without selecting a runtime artifact.
-    RuntimeBindingWithoutArtifact,
+    /// Reachable requirements need an execution runtime but none was selected.
+    MissingRuntime,
+    /// A host binding claims a role owned by the selected Bray runtime.
+    RuntimeOwnedHostBinding(RuntimeAbiRole),
+    /// The selected runtime cannot satisfy reachable product requirements.
+    IncompatibleRuntime(RuntimeCompatibilityError),
     /// An async root does not require the distinguished main-thread lane.
-    MissingMainThreadLaneFeature,
+    MissingMainThreadLaneCapability,
+    /// An async root has no protected-frame operation compatibility contract.
+    MissingProtectedFrameAbi,
     /// A mandatory executable-host role has no selected binding.
     MissingRole(RuntimeAbiRole),
 }
 
-fn canonical_role_bindings(
-    bindings: impl IntoIterator<Item = RuntimeRoleBinding>,
-) -> Result<Arc<[RuntimeRoleBinding]>, ExecutableHostContractBuildError> {
-    let mut bindings: Vec<_> = bindings.into_iter().collect();
-
-    bindings.sort_unstable_by_key(RuntimeRoleBinding::role);
-
-    if let Some(pair) = bindings
-        .windows(2)
-        .find(|pair| pair[0].role() == pair[1].role())
-    {
-        return Err(ExecutableHostContractBuildError::DuplicateRole(
-            pair[0].role(),
-        ));
-    }
-
-    Ok(bindings.into())
-}
-
 fn validate_root_contract(
     root: RootExecution,
-    runtime_artifact: Option<&RuntimeArtifactId>,
-    role_bindings: &[RuntimeRoleBinding],
-    runtime_features: &[RuntimeFeature],
+    requirements: &RuntimeRequirements,
+    runtime: Option<&RuntimeContract>,
+    host_role_bindings: &[RuntimeRoleBinding],
 ) -> Result<(), ExecutableHostContractBuildError> {
-    let required_roles = [
+    let has_role = |role| {
+        host_role_bindings
+            .binary_search_by_key(&role, RuntimeRoleBinding::role)
+            .is_ok()
+            || runtime.is_some_and(|runtime| runtime.role_binding(role).is_some())
+    };
+
+    for role in [
         RuntimeAbiRole::RootExecution,
         RuntimeAbiRole::RootCancellationRequest,
         RuntimeAbiRole::CleanupIncidentReporting,
         RuntimeAbiRole::RootTerminalObservation,
         RuntimeAbiRole::StructuredShutdown,
-    ];
-
-    for role in required_roles {
-        if !has_role(role_bindings, role) {
+    ] {
+        if !has_role(role) {
             return Err(ExecutableHostContractBuildError::MissingRole(role));
         }
     }
@@ -313,22 +335,27 @@ fn validate_root_contract(
         return Ok(());
     }
 
-    if runtime_artifact.is_none() {
-        return Err(ExecutableHostContractBuildError::MissingAsyncRuntime);
+    if runtime.is_none() {
+        return Err(ExecutableHostContractBuildError::MissingRuntime);
     }
 
-    if runtime_features
-        .binary_search(&RuntimeFeature::MainThreadLane)
+    if requirements.frame_abi().is_none() {
+        return Err(ExecutableHostContractBuildError::MissingProtectedFrameAbi);
+    }
+
+    if requirements
+        .capabilities()
+        .binary_search(&RuntimeCapability::MainThreadLane)
         .is_err()
     {
-        return Err(ExecutableHostContractBuildError::MissingMainThreadLaneFeature);
+        return Err(ExecutableHostContractBuildError::MissingMainThreadLaneCapability);
     }
 
     for role in [
         RuntimeAbiRole::MainThreadLaneStartup,
         RuntimeAbiRole::MainThreadLaneDrive,
     ] {
-        if !has_role(role_bindings, role) {
+        if !has_role(role) {
             return Err(ExecutableHostContractBuildError::MissingRole(role));
         }
     }
@@ -336,98 +363,132 @@ fn validate_root_contract(
     Ok(())
 }
 
-fn has_role(bindings: &[RuntimeRoleBinding], role: RuntimeAbiRole) -> bool {
-    bindings
-        .binary_search_by_key(&role, RuntimeRoleBinding::role)
-        .is_ok()
+fn requires_runtime(requirements: &RuntimeRequirements) -> bool {
+    requirements.runtime().is_some()
+        || requirements.frame_abi().is_some()
+        || !requirements.roles().is_empty()
+        || !requirements.capabilities().is_empty()
+        || !requirements.lanes().is_empty()
 }
 
 #[cfg(test)]
 mod tests {
     use bray_symbols::{PackageIdentity, ProductIdentity};
+    use bray_target::TargetIdentity;
 
     use super::{
         ExecutableHostContract, ExecutableHostContractBuildError, ExecutableHostContractBuilder,
-        RootExecution, RuntimeFeature,
+        RootExecution, RuntimeCapability,
     };
     use crate::{
-        BinarySymbolName, ProtectedAsyncFrameId, RuntimeAbiRole, RuntimeAbiVersion,
-        RuntimeArtifactId, RuntimeRoleBinding, RuntimeRoleImplementation,
+        BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeContract, RuntimeIdentity,
+        RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
     };
 
     #[test]
-    fn async_hosts_require_runtime_and_main_thread_contracts() {
+    fn async_hosts_require_runtime_frame_and_main_thread_contracts() {
         let root = RootExecution::Asynchronous {
             frame: ProtectedAsyncFrameId::new([7; 32]),
         };
 
         assert_eq!(
-            host(root, None, base_bindings(), []),
-            Err(ExecutableHostContractBuildError::MissingAsyncRuntime)
+            host(root, synchronous_requirements(), None, base_bindings()),
+            Err(ExecutableHostContractBuildError::MissingRuntime)
         );
 
-        let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
-            panic!("test runtime identity must be valid");
-        };
+        let requirements = runtime_requirements([]);
 
         assert_eq!(
-            host(root, Some(runtime), base_bindings(), []),
-            Err(ExecutableHostContractBuildError::MissingMainThreadLaneFeature)
+            host(
+                root,
+                requirements,
+                Some(runtime_contract()),
+                base_bindings()
+            ),
+            Err(ExecutableHostContractBuildError::MissingMainThreadLaneCapability)
         );
     }
 
     #[test]
-    fn complete_async_hosts_publish_canonical_role_bindings() {
-        let mut bindings = base_bindings();
-        bindings.push(binding(RuntimeAbiRole::MainThreadLaneDrive));
-        bindings.push(binding(RuntimeAbiRole::MainThreadLaneStartup));
+    fn runtime_roles_cannot_be_left_unselected() {
+        let requirements = RuntimeRequirements::new(
+            None,
+            RuntimeAbiVersion::new(1, 0),
+            None,
+            target(),
+            panic_abi(),
+            [RuntimeAbiRole::TaskStart],
+            [],
+            [],
+        );
 
-        let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
-            panic!("test runtime identity must be valid");
+        assert_eq!(
+            host(
+                RootExecution::Synchronous,
+                requirements,
+                None,
+                base_bindings()
+            ),
+            Err(ExecutableHostContractBuildError::MissingRuntime)
+        );
+    }
+
+    #[test]
+    fn synchronous_hosts_report_cleanup_incidents_without_a_runtime() {
+        let Ok(host) = host(
+            RootExecution::Synchronous,
+            synchronous_requirements(),
+            None,
+            base_bindings(),
+        ) else {
+            panic!("synchronous host contract must not require an execution runtime");
         };
 
+        assert_eq!(host.runtime(), None);
+
+        assert_eq!(
+            host.role_binding(RuntimeAbiRole::CleanupIncidentReporting)
+                .map(RuntimeRoleBinding::implementation),
+            Some(RuntimeRoleImplementation::CompilerLowering)
+        );
+    }
+
+    #[test]
+    fn complete_async_hosts_resolve_runtime_and_compiler_role_bindings() {
+        let root = RootExecution::Asynchronous {
+            frame: ProtectedAsyncFrameId::new([7; 32]),
+        };
+
+        let requirements = runtime_requirements([RuntimeCapability::MainThreadLane]);
+
         let Ok(host) = host(
-            RootExecution::Asynchronous {
-                frame: ProtectedAsyncFrameId::new([7; 32]),
-            },
-            Some(runtime),
-            bindings,
-            [RuntimeFeature::MainThreadLane],
+            root,
+            requirements,
+            Some(runtime_contract()),
+            base_bindings(),
         ) else {
             panic!("complete async host contract must validate");
         };
 
         assert_eq!(
-            host.role_bindings()[0].role(),
-            RuntimeAbiRole::RootExecution
+            host.role_binding(RuntimeAbiRole::RootExecution)
+                .map(RuntimeRoleBinding::implementation),
+            Some(RuntimeRoleImplementation::CompilerLowering)
         );
-
-        assert!(
-            host.role_binding(RuntimeAbiRole::MainThreadLaneDrive)
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn runtime_role_bindings_require_a_selected_runtime_artifact() {
-        let mut bindings = base_bindings();
-
-        bindings.push(binding_with_implementation(
-            RuntimeAbiRole::TaskStart,
-            RuntimeRoleImplementation::BrayRuntime,
-        ));
 
         assert_eq!(
-            host(RootExecution::Synchronous, None, bindings, []),
-            Err(ExecutableHostContractBuildError::RuntimeBindingWithoutArtifact)
+            host.role_binding(RuntimeAbiRole::MainThreadLaneDrive)
+                .map(RuntimeRoleBinding::implementation),
+            Some(RuntimeRoleImplementation::BrayRuntime)
         );
     }
 
     fn host(
         root: RootExecution,
-        runtime: Option<RuntimeArtifactId>,
+        requirements: RuntimeRequirements,
+        runtime: Option<RuntimeContract>,
         bindings: impl IntoIterator<Item = RuntimeRoleBinding>,
-        features: impl IntoIterator<Item = RuntimeFeature>,
     ) -> Result<ExecutableHostContract, ExecutableHostContractBuildError> {
         let Some(package) = PackageIdentity::try_new("example.app") else {
             panic!("test package identity must be valid");
@@ -441,8 +502,7 @@ mod tests {
             panic!("test host entry symbol name must be valid");
         };
 
-        let mut builder =
-            ExecutableHostContractBuilder::new(product, entry, root, RuntimeAbiVersion::new(1, 0));
+        let mut builder = ExecutableHostContractBuilder::new(product, entry, root, requirements);
 
         if let Some(runtime) = runtime {
             builder.select_runtime(runtime);
@@ -452,11 +512,63 @@ mod tests {
             builder.push_role_binding(binding);
         }
 
-        for feature in features {
-            builder.require_runtime_feature(feature);
-        }
-
         builder.finish()
+    }
+
+    fn synchronous_requirements() -> RuntimeRequirements {
+        RuntimeRequirements::new(
+            None,
+            RuntimeAbiVersion::new(1, 0),
+            None,
+            target(),
+            panic_abi(),
+            [],
+            [],
+            [],
+        )
+    }
+
+    fn runtime_requirements<const N: usize>(
+        additional: [RuntimeCapability; N],
+    ) -> RuntimeRequirements {
+        RuntimeRequirements::new(
+            Some(runtime_identity()),
+            RuntimeAbiVersion::new(1, 0),
+            Some(ProtectedFrameAbiVersions::uniform(
+                RuntimeAbiVersion::new(1, 0),
+            )),
+            target(),
+            panic_abi(),
+            [
+                RuntimeAbiRole::MainThreadLaneStartup,
+                RuntimeAbiRole::MainThreadLaneDrive,
+            ],
+            [RuntimeCapability::CooperativeExecution]
+                .into_iter()
+                .chain(additional),
+            [],
+        )
+    }
+
+    fn runtime_contract() -> RuntimeContract {
+        RuntimeContract::try_new(
+            runtime_identity(),
+            RuntimeArtifactId::try_new("runtime.test")
+                .unwrap_or_else(|| panic!("test runtime artifact must be valid")),
+            RuntimeAbiVersion::new(1, 0),
+            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+            target(),
+            panic_abi(),
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ],
+            [
+                runtime_binding(RuntimeAbiRole::MainThreadLaneStartup),
+                runtime_binding(RuntimeAbiRole::MainThreadLaneDrive),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("test runtime contract must be valid: {error:?}"))
     }
 
     fn base_bindings() -> Vec<RuntimeRoleBinding> {
@@ -468,15 +580,19 @@ mod tests {
             RuntimeAbiRole::RootExecution,
         ]
         .into_iter()
-        .map(binding)
+        .map(compiler_binding)
         .collect()
     }
 
-    fn binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
-        binding_with_implementation(role, RuntimeRoleImplementation::CompilerLowering)
+    fn runtime_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
+        binding(role, RuntimeRoleImplementation::BrayRuntime)
     }
 
-    fn binding_with_implementation(
+    fn compiler_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
+        binding(role, RuntimeRoleImplementation::CompilerLowering)
+    }
+
+    fn binding(
         role: RuntimeAbiRole,
         implementation: RuntimeRoleImplementation,
     ) -> RuntimeRoleBinding {
@@ -485,5 +601,20 @@ mod tests {
         };
 
         RuntimeRoleBinding::new(role, symbol_name, implementation)
+    }
+
+    fn runtime_identity() -> RuntimeIdentity {
+        RuntimeIdentity::try_new("bray.runtime.test")
+            .unwrap_or_else(|| panic!("test runtime identity must be valid"))
+    }
+
+    fn target() -> TargetIdentity {
+        TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("test target identity must be valid"))
+    }
+
+    fn panic_abi() -> PanicAbiIdentity {
+        PanicAbiIdentity::try_new("bray.panic.test")
+            .unwrap_or_else(|| panic!("test panic ABI identity must be valid"))
     }
 }

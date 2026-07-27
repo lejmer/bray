@@ -209,8 +209,9 @@ Diagnostics from lazily evaluated facts must be merged and ordered deterministic
 ## Selected Target Facts
 
 One product compilation selects one immutable target context before requesting target-dependent semantic facts. The context owns
-the canonical `bray_target::TargetProfile`, the selected private runtime ABI version, and the capabilities used to derive the
-target-available compiler-known declaration view. It must not infer any of these values from the compiler host.
+the canonical `bray_target::TargetProfile`, the applicable runtime compatibility facts, and the capabilities used to derive the
+target-available compiler-known declaration view. Product formation selects a runtime only after reachable requirements are known.
+None of these values may be inferred from the compiler host.
 
 The target profile contains the complete typed language-defined fact surface. Pointer, endian, architecture, and target-name facts
 are derived from the profile's identity and machine properties so independently supplied values cannot contradict them. Profile
@@ -754,6 +755,9 @@ Resolved references on bound nodes belong to binding.
 Semantic facts associated with source-shaped bound nodes belong to semantic checker services.
 
 Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
+
+Private runtime ABI contracts belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime.
+Executable and test products select one target-specific runtime before code generation and linking.
 
 Stable target identities, architectures, object formats, byte order, relocation models, code models, and validated machine
 properties belong to `bray-target`.

@@ -371,6 +371,20 @@ structured shutdown. The frame-descriptor ABI versions phase-one broadcast and p
 resume and destruction. Cleanup-report sink support is part of the product-host ABI and remains available to synchronous products
 without linking an async scheduler.
 
+Runtime dependencies use immutable requirements that retain every compatibility dimension needed for product formation. Protected
+frames retain independently versioned resume, task-broadcast, lifecycle-resolution, completion-move, and destruction operations.
+Product formation merges reachable requirements deterministically and rejects contradictory identities, targets, panic ABIs, or
+incompatible major ABI versions.
+
+Executable and test products select one target-specific runtime after merging reachable requirements. Compatibility validation
+requires:
+
+- exact agreement for constrained runtime identity, target identity, and panic ABI identity,
+- matching ABI major versions and a provided minor version no older than the required minor version,
+- compatible versions for every protected-frame operation,
+- every required role, capability, and execution lane,
+- the baseline cooperative-execution capability.
+
 ABI symbol spellings and calling conventions are selected by the target/runtime contract. They do not become source declarations.
 The ABI artifact also carries immutable compiler-readable semantic-contract records keyed by closed binary ABI roles. Records cover
 ownership transfer, open run-transfer subjects, synchronization and visibility edges, callback-root execution facts, cancellation,
@@ -378,6 +392,10 @@ panic behavior, lifecycle ownership, and capabilities. A private standard-librar
 compatible role during the trusted product-and-standard-library build. The compiler validates the role, signature, ABI version,
 target, and record schema, checks wrappers using the record, and trusts the substrate implementation. It never discovers these
 contracts from source spelling or an extern body.
+
+The role set and each role's semantic effect are closed compiler contracts. A runtime selects implementations for runtime-owned
+roles but cannot publish replacement semantics for them. Compiler-lowering roles remain compiler-owned and cannot be claimed by a
+runtime artifact.
 
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 
@@ -390,8 +408,7 @@ The product runtime advertises:
 - `compute_execution()` availability,
 - distinguished `main_thread_execution()` lane support,
 - reactor and event support required by the selected standard library,
-- target and panic ABI compatibility,
-- cleanup-report sink support and cleanup-incident descriptor compatibility.
+- target and panic ABI compatibility.
 
 Runtime implementations must be deterministic with respect to language-defined ownership and lifecycle outcomes even though task
 interleaving is not deterministic.
@@ -419,8 +436,10 @@ An exported async declaration records:
 Public APIs expose `Future<T>` as the invocation type without exposing hidden frame layout through source reflection. A consuming
 compiler validates descriptor version and target compatibility before reuse.
 
-Libraries record runtime requirements but never select a runtime. Executable and test product formation unions reachable runtime
-requirements and selects one runtime implementation before code generation and linking.
+Package interfaces correlate each runtime requirement with its declaration owner and any concrete hidden frame. Library
+requirements contain portable compatibility facts, never a selected runtime identity, private ABI role identity, or binary
+binding. Executable and test product formation derives private roles from selected lowered operations and selects the runtime before
+code generation and linking.
 
 ---
 

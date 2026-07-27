@@ -12,8 +12,9 @@ pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
     ImportedCallableSignatureFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
     ImportedGenericDeclarationFact, ImportedImplementationFact, ImportedPredicateDefinitionFact,
-    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
-    InterfaceSemanticInternError, InterfaceSymbolResolver,
+    ImportedRuntimeRequirement, ImportedSemanticFact, ImportedSemanticFacts,
+    ImportedSourceProvenance, ImportedTargetFact, InterfaceSemanticInternError,
+    InterfaceSymbolResolver,
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
@@ -35,10 +36,10 @@ pub use model::{
     InterfaceImplementationInstanceId, InterfaceImplementationRecord,
     InterfaceImplementationReference, InterfacePredicateDefinition,
     InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSourceProvenance,
-    InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetFactDependency,
-    InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
-    InterfaceTypeRepresentation, InterfaceUnionTag,
+    InterfaceRuntimeRequirement, InterfaceSemanticFactKind, InterfaceSemanticFacts,
+    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceSupportImplementation,
+    InterfaceTargetFactDependency, InterfaceTemplateReference, InterfaceTraitApplication,
+    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
+    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
 };
 pub(crate) use validation::validate_constraint_templates;

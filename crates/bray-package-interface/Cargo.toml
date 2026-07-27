@@ -13,7 +13,9 @@ blake3 = "1"
 bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-symbols = { path = "../bray-symbols" }
+bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
 bray-messages = { path = "../bray-messages" }

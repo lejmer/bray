@@ -172,6 +172,9 @@ An async executable or test plan also identifies the selected runtime artifact, 
 facts, reactor and event features, and target/panic compatibility. The linker validates those typed inputs against runtime artifact
 metadata. It does not choose a runtime or infer async requirements from unresolved symbols.
 
+The selected runtime artifact must occur exactly once as a typed runtime input and must match the executable-host contract. The
+host contract's target must match the link target before invocation.
+
 A synchronous-only product omits the async runtime unless another selected dependency explicitly requires it. The full selection and
 ABI contract is defined in `docs/design/async-runtime.md`. The product-host cleanup-report sink is a separate typed startup and
 termination service and remains linkable without an async scheduler when synchronous lifecycle or native-thread cleanup requires it.

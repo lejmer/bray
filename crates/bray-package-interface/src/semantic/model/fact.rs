@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
+use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeRequirements};
 use bray_symbols::{
     CallableAbi, CallableContractClauseKind, CurrentRunCancellation, LifecycleObligationKind,
     SymbolOrdinal,
@@ -387,6 +388,46 @@ pub struct InterfaceAbiDependency {
     pub(crate) abi: CallableAbi,
 }
 
+/// Portable runtime requirements published by one exported callable or support entity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceRuntimeRequirement {
+    pub(crate) owner: InterfaceSymbolReference,
+    pub(crate) frame: Option<ProtectedAsyncFrameId>,
+    pub(crate) requirements: RuntimeRequirements,
+}
+
+impl InterfaceRuntimeRequirement {
+    /// Creates one owner-correlated portable runtime requirement.
+    ///
+    /// Interface validation rejects exact runtime identities and private ABI roles.
+    pub const fn new(
+        owner: InterfaceSymbolReference,
+        frame: Option<ProtectedAsyncFrameId>,
+        requirements: RuntimeRequirements,
+    ) -> Self {
+        Self {
+            owner,
+            frame,
+            requirements,
+        }
+    }
+
+    /// Returns the exported semantic owner.
+    pub const fn owner(&self) -> &InterfaceSymbolReference {
+        &self.owner
+    }
+
+    /// Returns the hidden protected-frame identity when this requirement exports one.
+    pub const fn frame(&self) -> Option<ProtectedAsyncFrameId> {
+        self.frame
+    }
+
+    /// Returns target-specific portable runtime compatibility requirements.
+    pub const fn requirements(&self) -> &RuntimeRequirements {
+        &self.requirements
+    }
+}
+
 impl InterfaceAbiDependency {
     /// Creates one ABI dependency.
     pub const fn new(symbol: InterfaceSymbolReference, abi: CallableAbi) -> Self {
@@ -428,6 +469,8 @@ pub enum InterfaceSemanticFactKind {
     TargetFact,
     /// Required callable ABI.
     Abi,
+    /// Required portable runtime ABI and protected-frame compatibility.
+    Runtime,
 }
 
 /// One stable fact-directory entry.

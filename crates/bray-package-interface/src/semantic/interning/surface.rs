@@ -23,8 +23,9 @@ use super::common::{
 };
 use super::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
-    ImportedImplementationFact, ImportedSemanticFacts, ImportedSourceProvenance,
-    ImportedTargetFact, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
+    ImportedImplementationFact, ImportedRuntimeRequirement, ImportedSemanticFacts,
+    ImportedSourceProvenance, ImportedTargetFact, InterfaceSemanticInternError,
+    InterfaceSymbolResolver, InternState,
 };
 
 impl InternState {
@@ -58,6 +59,7 @@ impl InternState {
         )?;
 
         let abi_dependencies = self.convert_abi_dependencies(facts, symbols)?;
+        let runtime_requirements = self.convert_runtime_requirements(facts, symbols)?;
         let provenance = self.convert_provenance(facts, symbols)?;
         let declaration_templates = self.convert_declaration_templates(facts, symbols)?;
 
@@ -83,6 +85,7 @@ impl InternState {
             coherence: coherence.into(),
             target_dependencies: target_dependencies.into(),
             abi_dependencies: abi_dependencies.into(),
+            runtime_requirements: runtime_requirements.into(),
             provenance: provenance.into(),
         })
     }
@@ -400,6 +403,28 @@ impl InternState {
                 Ok(ImportedAbiDependency {
                     symbol: resolve_family::<CallableSymbolId>(symbols, &input.symbol)?,
                     abi: input.abi,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn convert_runtime_requirements(
+        &self,
+        facts: &InterfaceSemanticFacts,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<ImportedRuntimeRequirement>, InterfaceSemanticInternError> {
+        facts
+            .runtime_requirements
+            .iter()
+            .map(|input| {
+                // Runtime requirements contain shared immutable identity strings, so this clone is
+                // shallow.
+                let requirements = input.requirements.clone();
+
+                Ok(ImportedRuntimeRequirement {
+                    owner: resolve_symbol(symbols, &input.owner)?,
+                    frame: input.frame,
+                    requirements,
                 })
             })
             .collect()

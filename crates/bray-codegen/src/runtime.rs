@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use bray_ir::MirUnitKind;
-use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId};
+use bray_runtime_interface::{
+    BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+};
 
 use crate::CodegenUnit;
 
@@ -63,6 +65,7 @@ impl ProtectedAsyncFrameOperationNames {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedAsyncFrameMetadata {
     frame: ProtectedAsyncFrameId,
+    frame_abi: ProtectedFrameAbiVersions,
     operation_names: ProtectedAsyncFrameOperationNames,
 }
 
@@ -70,10 +73,12 @@ impl ProtectedAsyncFrameMetadata {
     /// Creates target-specific descriptor metadata for one protected frame.
     pub const fn new(
         frame: ProtectedAsyncFrameId,
+        frame_abi: ProtectedFrameAbiVersions,
         operation_names: ProtectedAsyncFrameOperationNames,
     ) -> Self {
         Self {
             frame,
+            frame_abi,
             operation_names,
         }
     }
@@ -81,6 +86,11 @@ impl ProtectedAsyncFrameMetadata {
     /// Returns the stable protected frame identity.
     pub const fn frame(&self) -> ProtectedAsyncFrameId {
         self.frame
+    }
+
+    /// Returns the generated protected-frame operation ABI versions.
+    pub const fn frame_abi(&self) -> ProtectedFrameAbiVersions {
+        self.frame_abi
     }
 
     /// Returns the binary symbol names of the generated descriptor operations.
@@ -127,6 +137,14 @@ impl CodegenRuntimeMetadata {
             return Err(CodegenRuntimeMetadataBuildError::FrameCoverageMismatch);
         }
 
+        for metadata in &frames {
+            if !frame_metadata_matches(unit, metadata) {
+                return Err(CodegenRuntimeMetadataBuildError::FrameAbiMismatch(
+                    metadata.frame(),
+                ));
+            }
+        }
+
         if executable_host.as_ref() != expected_host {
             return Err(CodegenRuntimeMetadataBuildError::ExecutableHostMismatch);
         }
@@ -158,7 +176,12 @@ impl CodegenRuntimeMetadata {
             return false;
         };
 
-        frames == expected_frames(unit) && self.executable_host.as_ref() == host
+        frames == expected_frames(unit)
+            && self
+                .frames
+                .iter()
+                .all(|metadata| frame_metadata_matches(unit, metadata))
+            && self.executable_host.as_ref() == host
     }
 }
 
@@ -171,6 +194,8 @@ pub enum CodegenRuntimeMetadataBuildError {
     DuplicateFrame(ProtectedAsyncFrameId),
     /// Generated frame descriptors do not exactly cover protected-frame MIR units.
     FrameCoverageMismatch,
+    /// Generated operation entry points use another protected-frame ABI contract.
+    FrameAbiMismatch(ProtectedAsyncFrameId),
     /// Generated host metadata does not exactly match the executable-host MIR unit.
     ExecutableHostMismatch,
 }
@@ -188,6 +213,15 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
     frames.sort_unstable();
 
     frames
+}
+
+fn frame_metadata_matches(unit: &CodegenUnit, metadata: &ProtectedAsyncFrameMetadata) -> bool {
+    unit.mir_units().iter().any(|unit| {
+        unit.frame_descriptor().is_some_and(|descriptor| {
+            descriptor.frame() == metadata.frame()
+                && descriptor.frame_abi() == metadata.frame_abi()
+        })
+    })
 }
 
 fn expected_host(
@@ -216,7 +250,9 @@ mod tests {
         MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
         MirTerminatorKind, MirUnitBuilder, MirUnitKind,
     };
-    use bray_runtime_interface::{BinarySymbolName, ProtectedAsyncFrameId};
+    use bray_runtime_interface::{
+        BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    };
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type, test_mir_unit};
 
     use super::{
@@ -251,7 +287,26 @@ mod tests {
             Err(CodegenRuntimeMetadataBuildError::FrameCoverageMismatch)
         );
 
-        let descriptor = ProtectedAsyncFrameMetadata::new(frame, frame_operation_names());
+        let incompatible = ProtectedAsyncFrameMetadata::new(
+            frame,
+            ProtectedFrameAbiVersions::uniform(
+                bray_runtime_interface::RuntimeAbiVersion::new(2, 0),
+            ),
+            frame_operation_names(),
+        );
+
+        assert_eq!(
+            CodegenRuntimeMetadata::try_new(&unit, [incompatible], None),
+            Err(CodegenRuntimeMetadataBuildError::FrameAbiMismatch(frame))
+        );
+
+        let descriptor = ProtectedAsyncFrameMetadata::new(
+            frame,
+            ProtectedFrameAbiVersions::uniform(
+                bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+            ),
+            frame_operation_names(),
+        );
 
         let Ok(metadata) = CodegenRuntimeMetadata::try_new(&unit, [descriptor], None) else {
             panic!("matching frame descriptor metadata must validate");
@@ -302,6 +357,9 @@ mod tests {
         match MirFrameDescriptor::try_new(
             frame,
             bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+            ProtectedFrameAbiVersions::uniform(
+                bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+            ),
             test_mir_type(),
             [state],
         ) {

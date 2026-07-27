@@ -134,6 +134,7 @@ fn selected_fact_sections(
         crate::InterfaceSemanticFactKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticFactKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
         crate::InterfaceSemanticFactKind::TargetFact => Some(TARGET_FACT_SECTIONS),
+        crate::InterfaceSemanticFactKind::Runtime => Some(TARGET_FACT_SECTIONS),
         crate::InterfaceSemanticFactKind::CallableContracts
         | crate::InterfaceSemanticFactKind::DeclarationTemplate
         | crate::InterfaceSemanticFactKind::Abi => None,
@@ -201,7 +202,13 @@ fn optional_section<'bytes>(
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::CheckedTemplateKind;
+    use bray_runtime_interface::{
+        ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
+        ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion, RuntimeCapability,
+        RuntimeIdentity, RuntimeRequirements,
+    };
     use bray_symbols::{InterfaceSymbolId, SymbolKind, SymbolOrdinal};
+    use bray_target::TargetIdentity;
 
     use super::super::test_support::{
         OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
@@ -216,8 +223,9 @@ mod tests {
         InterfaceDependencyRequirementKind, InterfaceDependencySubject,
         InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
         InterfacePredicateDefinitionState, InterfaceSectionTag, InterfaceSemanticFactKind,
-        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceTypeId,
-        InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
+        InterfaceRuntimeRequirement, InterfaceSemanticFacts, InterfaceSymbolReference,
+        InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
+        PackageInterfaceSurface,
     };
 
     #[test]
@@ -365,6 +373,69 @@ mod tests {
 
         assert_eq!(forward_implementation, reverse_implementation);
         assert_eq!(forward_constraint, reverse_constraint);
+    }
+
+    #[test]
+    fn runtime_requirements_round_trip_and_decode_as_exact_owner_facts() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+        let owner = local_by_kind(&surface, SymbolKind::Function);
+
+        let facts = bundle
+            .semantic_facts()
+            .clone()
+            .with_runtime_requirements([runtime_requirement(owner.clone())]);
+
+        let sections = semantic_sections(&facts, &surface);
+        let views = owned_section_views(&sections);
+        let limits = InterfaceValidationLimits::default();
+
+        assert_eq!(
+            decode_semantic_facts(&views, &surface, limits),
+            Ok(facts.clone())
+        );
+
+        let InterfaceSymbolReference::Local(owner_id) = owner else {
+            panic!("test runtime requirement owner must be local");
+        };
+
+        let decoded = decode_semantic_fact_graph(
+            &views,
+            &surface,
+            owner_id,
+            InterfaceSemanticFactKind::Runtime,
+            limits,
+        )
+        .unwrap_or_else(|error| panic!("runtime requirement must decode: {error:?}"));
+
+        assert_eq!(decoded.runtime_requirements(), facts.runtime_requirements());
+        assert!(decoded.types().is_empty());
+        assert!(decoded.callable_contracts().is_empty());
+    }
+
+    #[test]
+    fn runtime_requirements_reject_private_product_selection_facts() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface();
+        let owner = local_by_kind(surface, SymbolKind::Function);
+
+        let Some(runtime) = RuntimeIdentity::try_new("bray.runtime.test") else {
+            panic!("test runtime identity must be valid");
+        };
+
+        for requirements in [
+            runtime_requirements(Some(runtime), []),
+            runtime_requirements(None, [RuntimeAbiRole::TaskStart]),
+        ] {
+            let facts = bundle.semantic_facts().clone().with_runtime_requirements([
+                InterfaceRuntimeRequirement::new(owner.clone(), None, requirements),
+            ]);
+
+            assert_eq!(
+                encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
+                Err(InterfaceValidationError::Malformed)
+            );
+        }
     }
 
     #[test]
@@ -783,6 +854,43 @@ mod tests {
             .into_iter()
             .map(crate::EncodedSemanticSection::into_parts)
             .collect()
+    }
+
+    fn runtime_requirement(owner: InterfaceSymbolReference) -> InterfaceRuntimeRequirement {
+        InterfaceRuntimeRequirement::new(
+            owner,
+            Some(ProtectedAsyncFrameId::new([23; 32])),
+            runtime_requirements(None, []),
+        )
+    }
+
+    fn runtime_requirements<const R: usize>(
+        runtime: Option<RuntimeIdentity>,
+        roles: [RuntimeAbiRole; R],
+    ) -> RuntimeRequirements {
+        let Some(target) = TargetIdentity::try_new("x86_64-unknown-linux-gnu") else {
+            panic!("test target identity must be valid");
+        };
+
+        let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+            panic!("test panic ABI identity must be valid");
+        };
+
+        let abi = RuntimeAbiVersion::new(1, 0);
+
+        RuntimeRequirements::new(
+            runtime,
+            abi,
+            Some(ProtectedFrameAbiVersions::uniform(abi)),
+            target,
+            panic_abi,
+            roles,
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ],
+            [ExecutionLaneRequirement::MainThread],
+        )
     }
 
     fn section_mut(sections: &mut [OwnedSection], tag: InterfaceSectionTag) -> &mut OwnedSection {

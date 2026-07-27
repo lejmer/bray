@@ -1,4 +1,5 @@
 use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
+use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeCapability};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
     CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
@@ -221,6 +222,23 @@ wire_tags!(InterfaceSemanticFactKind {
     9 => InterfaceSemanticFactKind::CallableParameterDefault,
     10 => InterfaceSemanticFactKind::PredicateDefinition,
     11 => InterfaceSemanticFactKind::TypeRepresentation,
+    12 => InterfaceSemanticFactKind::Runtime,
+});
+
+wire_tags!(RuntimeCapability {
+    1 => RuntimeCapability::CooperativeExecution,
+    2 => RuntimeCapability::LocalLanes,
+    3 => RuntimeCapability::MigratableLanes,
+    4 => RuntimeCapability::BlockingLanes,
+    5 => RuntimeCapability::ComputeLanes,
+    6 => RuntimeCapability::MainThreadLane,
+    7 => RuntimeCapability::Reactor,
+});
+
+wire_tags!(ExecutionLaneRequirement {
+    1 => ExecutionLaneRequirement::Blocking,
+    2 => ExecutionLaneRequirement::Compute,
+    3 => ExecutionLaneRequirement::MainThread,
 });
 
 wire_tags!(InterfacePredicateDefinitionState {

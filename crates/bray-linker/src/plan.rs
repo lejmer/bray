@@ -180,6 +180,7 @@ impl LinkPlan {
         validate_entry_contract(
             &builder.product,
             builder.product_kind,
+            &builder.target,
             builder.entry_point.as_ref(),
             builder.executable_host.as_ref(),
         )?;
@@ -250,7 +251,7 @@ impl LinkPlan {
     }
 
     /// Returns the selected native entry point when the product has one.
-    pub const fn entry_point(&self) -> Option<&BinarySymbolName> {
+    pub fn entry_point(&self) -> Option<&BinarySymbolName> {
         match &self.executable_host {
             Some(host) => Some(host.native_entry()),
             None => self.entry_point.as_ref(),
@@ -294,6 +295,8 @@ pub enum LinkPlanBuildError {
     DuplicateSearchPath,
     /// A selected runtime artifact has no corresponding link input.
     MissingRuntimeComponent,
+    /// A selected runtime artifact has more than one corresponding link input.
+    MultipleRuntimeComponents,
     /// A runtime component is present without a selected runtime artifact.
     UnexpectedRuntimeComponent,
     /// A runtime component belongs to a different runtime artifact.
@@ -319,6 +322,8 @@ pub enum LinkPlanBuildError {
     UnexpectedExecutableHost,
     /// The executable-host contract belongs to another product.
     ExecutableHostProductMismatch,
+    /// The executable-host contract was validated for another target.
+    ExecutableHostTargetMismatch,
     /// An executable or static-library product contains an inapplicable explicit entry point.
     UnexpectedEntryPoint,
     /// Companion debug output was requested without a staged debug destination.
@@ -365,6 +370,7 @@ fn validate_search_paths(search_paths: &[LinkSearchPath]) -> Result<(), LinkPlan
 fn validate_entry_contract(
     product: &ProductIdentity,
     product_kind: LinkedProductKind,
+    target: &LinkTarget,
     entry_point: Option<&BinarySymbolName>,
     executable_host: Option<&ExecutableHostContract>,
 ) -> Result<(), LinkPlanBuildError> {
@@ -376,6 +382,11 @@ fn validate_entry_contract(
         }
         (LinkedProductKind::Executable, None, Some(host)) if host.product() != product => {
             Err(LinkPlanBuildError::ExecutableHostProductMismatch)
+        }
+        (LinkedProductKind::Executable, None, Some(host))
+            if host.target() != target.identity() =>
+        {
+            Err(LinkPlanBuildError::ExecutableHostTargetMismatch)
         }
         (LinkedProductKind::SharedLibrary | LinkedProductKind::StaticLibrary, _, Some(_)) => {
             Err(LinkPlanBuildError::UnexpectedExecutableHost)
@@ -711,6 +722,32 @@ mod tests {
         };
 
         assert_eq!(plan.inputs().len(), 2);
+    }
+
+    #[test]
+    fn async_host_plans_reject_multiple_selected_runtime_components() {
+        let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
+            panic!("test runtime identity must be valid");
+        };
+
+        let mut builder = link_plan_builder();
+        builder.push_input(link_input(0, "main.o"));
+        builder.push_input(runtime_input(1, runtime.clone()));
+        builder.push_input(runtime_input(2, runtime.clone()));
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+
+        builder.set_executable_host(async_executable_host_contract(runtime));
+
+        assert_eq!(
+            builder.finish(),
+            Err(LinkPlanBuildError::MultipleRuntimeComponents)
+        );
     }
 
     #[test]

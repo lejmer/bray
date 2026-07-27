@@ -1,5 +1,6 @@
 use super::facts::section;
 use super::model::EncodedSemanticSection;
+use bray_runtime_interface::{ProtectedFrameAbiOperation, RuntimeAbiVersion};
 use crate::semantic::codec::coherence::coherence_record_indexes;
 use crate::semantic::codec::common::{
     write_count, write_optional_u32, write_string, write_symbol_reference,
@@ -82,11 +83,69 @@ pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> Enco
         },
     );
 
+    encode_record_table(
+        &mut encoder,
+        &facts.runtime_requirements,
+        |encoder, requirement| {
+            write_symbol_reference(encoder, requirement.owner());
+            write_optional_frame(encoder, requirement.frame());
+
+            let requirements = requirement.requirements();
+
+            write_version(encoder, requirements.abi_version());
+
+            match requirements.frame_abi() {
+                Some(frame_abi) => {
+                    encoder.write_u32(1);
+
+                    for operation in ProtectedFrameAbiOperation::ALL {
+                        write_version(encoder, frame_abi.operation(operation));
+                    }
+                }
+                None => encoder.write_u32(0),
+            }
+
+            write_string(encoder, requirements.target().as_str());
+            write_string(encoder, requirements.panic_abi().as_str());
+
+            write_tags(encoder, requirements.capabilities());
+            write_tags(encoder, requirements.lanes());
+        },
+    );
+
     section(
         InterfaceSectionTag::TargetDependencies,
-        facts.target_dependencies.len() + facts.abi_dependencies.len(),
+        facts.target_dependencies.len()
+            + facts.abi_dependencies.len()
+            + facts.runtime_requirements.len(),
         encoder,
     )
+}
+
+fn write_optional_frame(
+    encoder: &mut WireEncoder,
+    frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
+) {
+    match frame {
+        Some(frame) => {
+            encoder.write_u32(1);
+            encoder.write_bytes(&frame.digest());
+        }
+        None => encoder.write_u32(0),
+    }
+}
+
+fn write_version(encoder: &mut WireEncoder, version: RuntimeAbiVersion) {
+    encoder.write_u32(u32::from(version.major()));
+    encoder.write_u32(u32::from(version.minor()));
+}
+
+fn write_tags<T: Copy + WireTag>(encoder: &mut WireEncoder, values: &[T]) {
+    write_count(encoder, values.len());
+
+    for value in values {
+        encoder.write_u32(value.to_wire());
+    }
 }
 
 pub(super) fn encode_provenance(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {

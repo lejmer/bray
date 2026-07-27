@@ -22,7 +22,7 @@ impl InterfaceSemanticFacts {
         self.validate_template_facts(surface, limits)
     }
 
-    fn table_counts(&self) -> [usize; 22] {
+    fn table_counts(&self) -> [usize; 23] {
         [
             self.substitutions.len(),
             self.trait_applications.len(),
@@ -46,6 +46,7 @@ impl InterfaceSemanticFacts {
             self.coherence.len(),
             self.target_dependencies.len(),
             self.abi_dependencies.len(),
+            self.runtime_requirements.len(),
         ]
     }
 }
