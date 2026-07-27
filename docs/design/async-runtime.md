@@ -410,8 +410,7 @@ The product runtime advertises:
 - `compute_execution()` availability,
 - distinguished `main_thread_execution()` lane support,
 - reactor and event support required by the selected standard library,
-- target and panic ABI compatibility,
-- cleanup-report sink support and cleanup-incident descriptor compatibility.
+- target and panic ABI compatibility.
 
 Runtime implementations must be deterministic with respect to language-defined ownership and lifecycle outcomes even though task
 interleaving is not deterministic.

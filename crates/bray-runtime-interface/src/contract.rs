@@ -39,8 +39,6 @@ pub enum RuntimeCapability {
     MainThreadLane,
     /// Reactor-backed external event integration.
     Reactor,
-    /// Product-host cleanup-incident reporting.
-    CleanupIncidentReporting,
 }
 
 /// Product-wide hard execution capacity selected independently of library budgets.
@@ -433,6 +431,26 @@ mod tests {
                 base_bindings()
             ),
             Err(ExecutableHostContractBuildError::MissingRuntime)
+        );
+    }
+
+    #[test]
+    fn synchronous_hosts_report_cleanup_incidents_without_a_runtime() {
+        let Ok(host) = host(
+            RootExecution::Synchronous,
+            synchronous_requirements(),
+            None,
+            base_bindings(),
+        ) else {
+            panic!("synchronous host contract must not require an execution runtime");
+        };
+
+        assert_eq!(host.runtime(), None);
+
+        assert_eq!(
+            host.role_binding(RuntimeAbiRole::CleanupIncidentReporting)
+                .map(RuntimeRoleBinding::implementation),
+            Some(RuntimeRoleImplementation::CompilerLowering)
         );
     }
 

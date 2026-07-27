@@ -233,7 +233,6 @@ wire_tags!(RuntimeCapability {
     5 => RuntimeCapability::ComputeLanes,
     6 => RuntimeCapability::MainThreadLane,
     7 => RuntimeCapability::Reactor,
-    8 => RuntimeCapability::CleanupIncidentReporting,
 });
 
 wire_tags!(ExecutionLaneRequirement {

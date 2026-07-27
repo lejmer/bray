@@ -23,9 +23,10 @@ pub(crate) fn validate_execution_inputs(
         (Some(_), []) => Err(LinkPlanBuildError::MissingRuntimeComponent),
         (None, []) => Ok(()),
         (None, [_first, ..]) => Err(LinkPlanBuildError::UnexpectedRuntimeComponent),
-        (Some(selected), runtimes) if runtimes.iter().any(|runtime| *runtime != selected) => {
+        (Some(_), [_first, _second, ..]) => Err(LinkPlanBuildError::MultipleRuntimeComponents),
+        (Some(selected), [runtime]) if runtime != &selected => {
             Err(LinkPlanBuildError::RuntimeArtifactMismatch)
         }
-        (Some(_), [_first, ..]) => Ok(()),
+        (Some(_), [_runtime]) => Ok(()),
     }
 }
