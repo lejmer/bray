@@ -9,12 +9,12 @@ use bray_symbols::{AnySymbolId, SemanticValueStore, SymbolGraph, SymbolOrigin};
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
-use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
-    InspectionSyntaxAnchor, TreeWriter, push_text_diagnostic,
+    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError,
+    push_text_diagnostic,
 };
-use crate::type_inspection::{InspectionType, TypeInspectionError};
+use crate::output::{DiagnosticJson, diagnostic_jsons};
 
 use super::relationship::{
     InspectionRelationship, InspectionRelationshipKind, InspectionSymbolReference,

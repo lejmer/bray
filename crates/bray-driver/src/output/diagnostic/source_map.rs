@@ -1,6 +1,6 @@
 use bray_source::{LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore};
 
-use crate::source_origin_output::SourceOriginOutput;
+use crate::output::SourceOriginOutput;
 
 pub(crate) struct DiagnosticSourceMap<'source> {
     sources: Option<&'source SourceStore>,

@@ -6,14 +6,14 @@ use bray_syntax::SyntaxToken;
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
-use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
 use crate::inspection::{
     InspectionOutput, InspectionTrivia, InspectionTriviaError, escaped_text, location_for_range,
     location_start_text, push_text_diagnostic, quoted_text, range_text, trivia_entries,
     trivia_summary,
 };
-use crate::source_location_output::{SourceLocationOutput, TextRangeOutput};
-use crate::source_origin_output::SourceOriginOutput;
+use crate::output::{
+    DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TokenInspectionRenderError {

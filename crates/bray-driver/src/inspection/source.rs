@@ -3,7 +3,7 @@ use bray_source::{LineIndex, SourceNewlinePolicy, SourceSnapshot};
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
-use crate::source_origin_output::SourceOriginOutput;
+use crate::output::SourceOriginOutput;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SourceInspectionRenderError {

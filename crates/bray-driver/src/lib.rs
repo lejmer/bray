@@ -2,34 +2,16 @@
 
 #![forbid(unsafe_code)]
 
-mod bound_inspection;
-mod cli;
 mod command;
-mod declaration_inspection;
-mod diagnostic_output;
-mod exit_status;
-mod file_arguments;
 mod inspection;
-mod output_path;
+mod output;
 mod run;
-mod source_inspection;
-mod source_location_output;
-mod source_origin_output;
-mod symbol_inspection;
-mod syntax_inspection;
-mod terminal_style;
 #[cfg(test)]
 mod test_support;
-mod token_inspection;
-mod type_inspection;
 
-pub use cli::DriverCliError;
 pub use command::{
-    BoundInspectionTarget, DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
-    DriverOutputFormat,
-};
-pub use file_arguments::{
-    DriverSourceInputError, compilation_request_from_file_arguments,
-    source_inputs_from_file_arguments,
+    BoundInspectionTarget, DriverCliError, DriverCommand, DriverCommandKind, DriverInvocation,
+    DriverOptions, DriverOutputFormat, DriverSourceInputError,
+    compilation_request_from_file_arguments, source_inputs_from_file_arguments,
 };
 pub use run::{DriverRunResult, run, run_result};
