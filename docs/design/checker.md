@@ -12,6 +12,8 @@ policy into binding, publishing checker-private analysis state, or creating circ
 `docs/design/binder.md` defines binding orchestration, bound semantic units, storage terminology, and the shared control-flow graph
 boundary.
 
+`docs/design/lowering.md` defines the durable checker-fact boundary consumed by lowering.
+
 This document is authoritative for checker domain ownership, dependencies, inputs, outputs, convergence, recovery, and durable
 facts.
 

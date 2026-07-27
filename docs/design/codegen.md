@@ -9,8 +9,8 @@ The language documents define Bray semantics, target profiles, layout, ABI, and 
 
 `docs/design/binder.md` and `docs/design/checker.md` define how source semantics become complete checked facts.
 
-`bray-lowering` makes implicit execution behavior explicit and constructs the backend-independent representation owned by
-`bray-ir`.
+`docs/design/lowering.md` defines how `bray-lowering` makes implicit execution behavior explicit and constructs the
+backend-independent representation owned by `bray-ir`.
 
 This document defines the backend boundary, the first LLVM implementation, codegen-unit contracts, artifact requests, backend IR
 construction, serialization, determinism, diagnostics, and the boundary with emission.

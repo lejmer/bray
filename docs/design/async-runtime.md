@@ -3,6 +3,8 @@
 This document defines compiler ownership and implementation boundaries for Bray's async computation, task, cancellation, and runtime
 model. Observable semantics remain owned by `docs/language/async-and-concurrency.md`.
 
+`docs/design/lowering.md` defines the general HIR-to-MIR boundary, semantic primitive reuse, MIR ownership, and lazy lowering model.
+
 ---
 
 ## Design boundaries

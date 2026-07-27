@@ -15,6 +15,8 @@ The language documents define Bray semantics.
 
 `docs/design/checker.md` defines focused semantic checker domains, their dependencies, and their durable facts.
 
+`docs/design/lowering.md` defines how checked bound units and their required facts become execution-shaped MIR.
+
 This document defines how syntax and symbols become complete source-correlated semantic facts without moving checker policy into the
 binder or making lowering reinterpret source.
 
@@ -1591,6 +1593,9 @@ unchanged tree merely to attach one changed side fact.
 
 ## Lowering Contract
 
+The complete lowering and MIR representation contract is defined in `docs/design/lowering.md`. This section defines the
+binder-facing input boundary.
+
 Lowering consumes canonical bound units only through a query that guarantees every semantic fact required by lowering is available.
 `bray-lowering::LoweringInput` must be a borrowing view over that canonical `BoundUnit` and the exact independently published side
 facts required by lowering. Its constructor must validate the compilation-local unit identity and semantic unit category of every
@@ -1618,25 +1623,6 @@ The bound representation must provide lowering with:
 - effect, capability, trust, lifecycle, destruction, and finalization facts,
 - nested callable unit references,
 - source anchors required for downstream diagnostics.
-
-Lowering must transform the completed source-shaped HIR and its required side facts into one immutable MIR unit owned by `bray-ir`.
-MIR must be execution-shaped rather than another family mirroring bound expressions, patterns, blocks, and callable bodies. It may
-introduce temporaries, explicit control-flow blocks, merge values, cleanup paths, and other execution machinery that do not need
-source-level symbol identities.
-
-The MIR unit must retain its canonical bound-unit key and only the source anchors required for diagnostics. It must not retain bound
-node IDs as deferred semantic decisions for code generation to reinterpret. Control-flow, value, storage, and cleanup identities
-belong to the MIR unit itself.
-
-Lowering must validate `LoweringInput` before starting MIR construction and pass the bound unit's narrow canonical identity view to
-the MIR builder. The builder must assign compact block identities in deterministic construction order and validate source-snapshot
-correlation while blocks are committed. Publication requires an exact committed entry block and freezes the result as an immutable
-MIR unit. Semantic operation types must be introduced only with their complete lowering contracts. Placeholder operations are
-forbidden.
-
-`bray-lowering` owns the transformation and lowering-specific task-local construction state. `bray-ir` owns the published MIR
-types, generic MIR builders, and validation contracts. Compilation caches the completed MIR as one lazy fact keyed by the canonical
-bound-unit key.
 
 Lowering must not perform name lookup, overload resolution, implementation selection, type inference, borrow checking, or contract
 proof. If lowering cannot proceed without one of those decisions, the lowering input query is incomplete and must require the missing

@@ -25,6 +25,8 @@ Binder and bound-tree implementation rules live in `docs/design/binder.md`.
 
 Semantic checker domain and analysis rules live in `docs/design/checker.md`.
 
+Lowering and MIR implementation rules live in `docs/design/lowering.md`.
+
 Code generation and backend implementation rules live in `docs/design/codegen.md`.
 
 Artifact planning, serialization, and publication rules live in `docs/design/emitter.md`.
@@ -589,6 +591,8 @@ checker-local representation.
 ### Lowering
 
 Lowering converts the completed source-shaped bound HIR view into backend-independent mid-level IR owned by `bray-ir`.
+
+The complete lowering and MIR representation contract is defined in `docs/design/lowering.md`.
 
 Lowering owns desugaring and normalization after semantic validity is established.
 
