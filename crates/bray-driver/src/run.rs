@@ -7,9 +7,11 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::PackageIdentity;
 
 use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
+use crate::declaration_inspection::render_declaration_inspection;
 use crate::diagnostic_output::write_driver_output;
 use crate::exit_status::exit_code_from_diagnostics;
 use crate::file_arguments::compilation_request_from_file_arguments;
+use crate::inspection::InspectionOutput;
 use crate::source_inspection::render_source_inspection;
 use crate::syntax_inspection::render_syntax_inspection;
 use crate::token_inspection::render_token_inspection;
@@ -163,18 +165,25 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     }
 
     if command_kind == DriverCommandKind::InspectTokens {
-        return run_inspect_tokens_command(request, output_format);
+        return run_fact_inspection_command(request, output_format, render_token_inspection);
     }
 
     if command_kind == DriverCommandKind::InspectSyntax {
-        return run_inspect_syntax_command(request, output_format);
+        return run_fact_inspection_command(request, output_format, render_syntax_inspection);
+    }
+
+    if command_kind == DriverCommandKind::InspectDeclarations {
+        return run_fact_inspection_command(request, output_format, render_declaration_inspection);
     }
 
     match command_kind {
         DriverCommandKind::Check
         | DriverCommandKind::InspectSource
         | DriverCommandKind::InspectTokens
-        | DriverCommandKind::InspectSyntax => unreachable!("handled command kind did not return"),
+        | DriverCommandKind::InspectSyntax
+        | DriverCommandKind::InspectDeclarations => {
+            unreachable!("handled command kind did not return")
+        }
     }
 }
 
@@ -229,9 +238,10 @@ fn run_inspect_source_command(
     )
 }
 
-fn run_inspect_tokens_command(
+fn run_fact_inspection_command<E>(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
+    render: impl FnOnce(&Compilation, DriverOutputFormat) -> Result<InspectionOutput, E>,
 ) -> DriverRunResult {
     let compilation = match Compilation::load(request) {
         Ok(compilation) => compilation,
@@ -244,34 +254,7 @@ fn run_inspect_tokens_command(
         return diagnostic_result_from_compilation(compilation, diagnostics, output_format);
     }
 
-    let output = match render_token_inspection(&compilation, output_format) {
-        Ok(output) => output,
-        Err(_) => return compilation_load_failure_result(output_format),
-    };
-
-    let (stdout, diagnostics) = output.into_parts();
-
-    let exit_code = exit_code_from_diagnostics(&diagnostics);
-
-    DriverRunResult::with_output(exit_code, diagnostics, output_format, stdout, String::new())
-}
-
-fn run_inspect_syntax_command(
-    request: CompilationRequest,
-    output_format: DriverOutputFormat,
-) -> DriverRunResult {
-    let compilation = match Compilation::load(request) {
-        Ok(compilation) => compilation,
-        Err(_) => return compilation_load_failure_result(output_format),
-    };
-
-    if !compilation.source_diagnostics().is_empty() {
-        let diagnostics = compilation.source_diagnostics().clone();
-
-        return diagnostic_result_from_compilation(compilation, diagnostics, output_format);
-    }
-
-    let output = match render_syntax_inspection(&compilation, output_format) {
+    let output = match render(&compilation, output_format) {
         Ok(output) => output,
         Err(_) => return compilation_load_failure_result(output_format),
     };
@@ -938,5 +921,79 @@ mod tests {
         assert_eq!(output_json["source_count"], 1);
         assert_eq!(output_json["has_errors"], false);
         assert_eq!(output_json["sources"][0]["tree"]["kind"], "source_unit");
+    }
+
+    #[test]
+    fn run_writes_text_declaration_inspection_to_stdout() {
+        let file = TemporaryFile::write(
+            "declarations.bray",
+            b"module app\n{\n    struct point\n    {\n        x: i32;\n    }\n}\n",
+        );
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("inspect"),
+                OsString::from("declarations"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("kind: declaration_inspection"));
+        assert!(stdout.contains("module app [container:"));
+        assert!(stdout.contains("module_contribution"));
+        assert!(stdout.contains("struct point"));
+        assert!(stdout.contains("struct_field x"));
+    }
+
+    #[test]
+    fn run_writes_json_declaration_inspection_to_stdout() {
+        let file = TemporaryFile::write("declarations.bray", b"module app;\n");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("inspect"),
+                OsString::from("declarations"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&stdout) {
+            Ok(value) => value,
+            Err(error) => panic!("stdout should be declaration-inspection JSON: {error:?}"),
+        };
+
+        assert_eq!(output_json["kind"], "declaration_inspection");
+        assert_eq!(output_json["module_part_count"], 1);
+        assert_eq!(output_json["root"]["modules"][0]["module_path"], "app");
     }
 }

@@ -4,6 +4,7 @@
 
 mod cli;
 mod command;
+mod declaration_inspection;
 mod diagnostic_output;
 mod exit_status;
 mod file_arguments;

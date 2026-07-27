@@ -1,0 +1,744 @@
+use bray_compilation::Compilation;
+use bray_declarations::{
+    ContainerId, ContainerKind, ContainerRecord, DeclarationKind, DeclarationName,
+    DeclarationRecord, DeclarationSurface, DeclarationTable, ModulePartRecord, SyntaxAnchor,
+};
+use bray_diagnostics::DiagnosticBag;
+use bray_source::LineIndex;
+use serde::Serialize;
+
+use crate::command::DriverOutputFormat;
+use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
+use crate::inspection::{
+    InspectionOutput, TreeWriter, location_for_range, location_range_text, push_text_diagnostic,
+    range_text,
+};
+use crate::source_location_output::{SourceLocationOutput, TextRangeOutput};
+use crate::source_origin_output::SourceOriginOutput;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DeclarationInspectionRenderError {
+    Container,
+    Declaration,
+    ModulePart,
+    Source,
+    SourceIndex,
+    Json,
+}
+
+pub(crate) fn render_declaration_inspection(
+    compilation: &Compilation,
+    output_format: DriverOutputFormat,
+) -> Result<InspectionOutput, DeclarationInspectionRenderError> {
+    let result = compilation.declaration_table_result();
+
+    let diagnostics = compilation
+        .syntax_tree_result()
+        .diagnostics()
+        .merged(result.diagnostics());
+
+    let report =
+        DeclarationInspectionReport::from_compilation(compilation, result.table(), &diagnostics)?;
+
+    let stdout = match output_format {
+        DriverOutputFormat::Text => render_text_report(&report),
+        DriverOutputFormat::Json => render_json_report(&report)?,
+    };
+
+    Ok(InspectionOutput::new(stdout, diagnostics))
+}
+
+#[derive(Serialize)]
+struct DeclarationInspectionReport {
+    kind: &'static str,
+    declaration_count: usize,
+    container_count: usize,
+    module_part_count: usize,
+    has_errors: bool,
+    root: InspectionContainer,
+    diagnostics: Vec<DiagnosticJson>,
+}
+
+impl DeclarationInspectionReport {
+    fn from_compilation(
+        compilation: &Compilation,
+        table: &DeclarationTable,
+        diagnostics: &DiagnosticBag,
+    ) -> Result<Self, DeclarationInspectionRenderError> {
+        let root = table
+            .container(table.root_container())
+            .ok_or(DeclarationInspectionRenderError::Container)?;
+
+        let root = InspectionContainer::from_record(compilation, table, root)?;
+
+        let diagnostic_jsons = diagnostic_jsons(diagnostics, Some(compilation.sources()));
+
+        Ok(Self {
+            kind: "declaration_inspection",
+            declaration_count: table.declarations().len(),
+            container_count: table.containers().len(),
+            module_part_count: table.module_parts().len(),
+            has_errors: diagnostics.has_errors(),
+            root,
+            diagnostics: diagnostic_jsons,
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionContainer {
+    container_kind: &'static str,
+    id: u32,
+    module_path: Option<String>,
+    contributions: Vec<InspectionModulePart>,
+    declarations: Vec<InspectionDeclaration>,
+    modules: Vec<InspectionContainer>,
+}
+
+impl InspectionContainer {
+    fn from_record(
+        compilation: &Compilation,
+        table: &DeclarationTable,
+        container: &ContainerRecord,
+    ) -> Result<Self, DeclarationInspectionRenderError> {
+        let contributions = container
+            .module_parts()
+            .iter()
+            .map(|id| {
+                table
+                    .module_part(*id)
+                    .ok_or(DeclarationInspectionRenderError::ModulePart)
+                    .and_then(|part| InspectionModulePart::from_record(compilation, table, part))
+            })
+            .collect::<Result<_, _>>()?;
+
+        let declarations = if matches!(
+            container.kind(),
+            ContainerKind::Root | ContainerKind::Module
+        ) {
+            Vec::new()
+        } else {
+            container
+                .declarations()
+                .iter()
+                .map(|id| {
+                    table
+                        .declaration(*id)
+                        .ok_or(DeclarationInspectionRenderError::Declaration)
+                        .and_then(|declaration| {
+                            InspectionDeclaration::from_record(compilation, table, declaration)
+                        })
+                })
+                .collect::<Result<_, _>>()?
+        };
+
+        let modules = if container.kind() == ContainerKind::Root {
+            table
+                .module_containers()
+                .map(|module| Self::from_record(compilation, table, module))
+                .collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+
+        Ok(Self {
+            container_kind: container_kind_text(container.kind()),
+            id: container.id().raw(),
+            module_path: container.module_path().map(|path| path.dotted()),
+            contributions,
+            declarations,
+            modules,
+        })
+    }
+
+    fn push_text(&self, writer: &mut TreeWriter, is_last: bool) {
+        writer.push_line(is_last, &self.text_line());
+        writer.enter_children(is_last);
+
+        let child_count =
+            self.contributions.len() + self.declarations.len() + self.modules.len();
+
+        let mut child_index = 0;
+
+        for contribution in &self.contributions {
+            child_index += 1;
+            contribution.push_text(writer, child_index == child_count);
+        }
+
+        for declaration in &self.declarations {
+            child_index += 1;
+            declaration.push_text(writer, child_index == child_count);
+        }
+
+        for module in &self.modules {
+            child_index += 1;
+            module.push_text(writer, child_index == child_count);
+        }
+
+        writer.leave_children();
+    }
+
+    fn text_line(&self) -> String {
+        match &self.module_path {
+            Some(path) => format!(
+                "{} {path} [container:{}]",
+                self.container_kind, self.id
+            ),
+            None => format!("{} [container:{}]", self.container_kind, self.id),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionModulePart {
+    part_kind: &'static str,
+    id: u32,
+    declaration_id: u32,
+    anchor: InspectionAnchor,
+    surface: InspectionSurface,
+    declarations: Vec<InspectionDeclaration>,
+}
+
+impl InspectionModulePart {
+    fn from_record(
+        compilation: &Compilation,
+        table: &DeclarationTable,
+        part: &ModulePartRecord,
+    ) -> Result<Self, DeclarationInspectionRenderError> {
+        let declarations = part
+            .declarations()
+            .iter()
+            .map(|id| {
+                table
+                    .declaration(*id)
+                    .ok_or(DeclarationInspectionRenderError::Declaration)
+                    .and_then(|declaration| {
+                        InspectionDeclaration::from_record(compilation, table, declaration)
+                    })
+            })
+            .collect::<Result<_, _>>()?;
+
+        Ok(Self {
+            part_kind: "module_contribution",
+            id: part.id().raw(),
+            declaration_id: part.declaration().raw(),
+            anchor: InspectionAnchor::from_anchor(compilation, part.syntax_anchor())?,
+            surface: InspectionSurface::from_surface(compilation, part.surface())?,
+            declarations,
+        })
+    }
+
+    fn push_text(&self, writer: &mut TreeWriter, is_last: bool) {
+        writer.push_line(
+            is_last,
+            &format!(
+                "{} {} {} [part:{} declaration:{}]{}",
+                self.part_kind,
+                self.anchor.display_name,
+                self.anchor.location_text(),
+                self.id,
+                self.declaration_id,
+                self.anchor.recovery_text()
+            ),
+        );
+
+        writer.enter_children(is_last);
+
+        let surface_entries = self.surface.text_entries();
+        let child_count = surface_entries.len() + self.declarations.len();
+        let mut child_index = 0;
+
+        for entry in surface_entries {
+            child_index += 1;
+            writer.push_line(child_index == child_count, &entry);
+        }
+
+        for declaration in &self.declarations {
+            child_index += 1;
+            declaration.push_text(writer, child_index == child_count);
+        }
+
+        writer.leave_children();
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionDeclaration {
+    declaration_kind: &'static str,
+    id: u32,
+    name: Option<InspectionDeclarationName>,
+    owning_container: u32,
+    anchor: InspectionAnchor,
+    surface: InspectionSurface,
+    child_container: Option<Box<InspectionContainer>>,
+}
+
+impl InspectionDeclaration {
+    fn from_record(
+        compilation: &Compilation,
+        table: &DeclarationTable,
+        declaration: &DeclarationRecord,
+    ) -> Result<Self, DeclarationInspectionRenderError> {
+        let child_container = declaration
+            .child_container()
+            .map(|id| inspection_container(compilation, table, id))
+            .transpose()?
+            .map(Box::new);
+
+        Ok(Self {
+            declaration_kind: declaration_kind_text(declaration.kind()),
+            id: declaration.id().raw(),
+            name: declaration.name().map(InspectionDeclarationName::from_name),
+            owning_container: declaration.owning_container().raw(),
+            anchor: InspectionAnchor::from_anchor(compilation, declaration.syntax_anchor())?,
+            surface: InspectionSurface::from_surface(compilation, declaration.surface())?,
+            child_container,
+        })
+    }
+
+    fn push_text(&self, writer: &mut TreeWriter, is_last: bool) {
+        let name = self
+            .name
+            .as_ref()
+            .map(|name| format!(" {}", name.text()))
+            .unwrap_or_default();
+
+        writer.push_line(
+            is_last,
+            &format!(
+                "{}{name} [declaration:{}] {} {}{}",
+                self.declaration_kind,
+                self.id,
+                self.anchor.display_name,
+                self.anchor.location_text(),
+                self.anchor.recovery_text()
+            ),
+        );
+
+        let surface_entries = self.surface.text_entries();
+
+        if surface_entries.is_empty() && self.child_container.is_none() {
+            return;
+        }
+
+        writer.enter_children(is_last);
+
+        let child_count = surface_entries.len() + usize::from(self.child_container.is_some());
+        let mut child_index = 0;
+
+        for entry in surface_entries {
+            child_index += 1;
+            writer.push_line(child_index == child_count, &entry);
+        }
+
+        if let Some(container) = &self.child_container {
+            container.push_text(writer, true);
+        }
+
+        writer.leave_children();
+    }
+}
+
+fn inspection_container(
+    compilation: &Compilation,
+    table: &DeclarationTable,
+    id: ContainerId,
+) -> Result<InspectionContainer, DeclarationInspectionRenderError> {
+    let container = table
+        .container(id)
+        .ok_or(DeclarationInspectionRenderError::Container)?;
+
+    InspectionContainer::from_record(compilation, table, container)
+}
+
+#[derive(Serialize)]
+#[serde(tag = "name_kind", content = "value", rename_all = "snake_case")]
+enum InspectionDeclarationName {
+    Identifier(String),
+    Keyword(&'static str),
+    Path(String),
+    Implementation {
+        subject: String,
+        trait_path: Option<String>,
+    },
+}
+
+impl InspectionDeclarationName {
+    fn from_name(name: &DeclarationName) -> Self {
+        match name {
+            DeclarationName::Identifier(name) => Self::Identifier(name.clone()),
+            DeclarationName::Keyword(kind) => Self::Keyword(kind.as_str()),
+            DeclarationName::Path(path) => Self::Path(path.dotted()),
+            DeclarationName::Implementation(name) => Self::Implementation {
+                subject: name.subject().dotted(),
+                trait_path: name.trait_path().map(|path| path.dotted()),
+            },
+        }
+    }
+
+    fn text(&self) -> String {
+        match self {
+            Self::Identifier(name) | Self::Path(name) => name.clone(),
+            Self::Keyword(kind) => String::from(*kind),
+            Self::Implementation {
+                subject,
+                trait_path,
+            } => match trait_path {
+                Some(trait_path) => format!("{trait_path} for {subject}"),
+                None => subject.clone(),
+            },
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionAnchor {
+    source_id: u32,
+    display_name: String,
+    syntax_kind: &'static str,
+    span: TextRangeOutput,
+    location: SourceLocationOutput,
+    recovered: bool,
+}
+
+impl InspectionAnchor {
+    fn from_anchor(
+        compilation: &Compilation,
+        anchor: SyntaxAnchor,
+    ) -> Result<Self, DeclarationInspectionRenderError> {
+        let snapshot = compilation
+            .source(anchor.source_id())
+            .ok_or(DeclarationInspectionRenderError::Source)?;
+
+        let line_index = LineIndex::new(snapshot.text())
+            .map_err(|_| DeclarationInspectionRenderError::SourceIndex)?;
+
+        let location = location_for_range(snapshot, &line_index, anchor.full_range())
+            .ok_or(DeclarationInspectionRenderError::SourceIndex)?;
+
+        let origin = SourceOriginOutput::from_origin(snapshot.origin());
+
+        Ok(Self {
+            source_id: anchor.source_id().raw(),
+            display_name: origin.display_name().to_owned(),
+            syntax_kind: anchor.syntax_kind().as_str(),
+            span: TextRangeOutput::from_range(anchor.full_range()),
+            location,
+            recovered: anchor.is_recovered(),
+        })
+    }
+
+    fn location_text(&self) -> String {
+        format!(
+            "{} @{}",
+            location_range_text(self.location),
+            range_text(self.span)
+        )
+    }
+
+    const fn recovery_text(&self) -> &'static str {
+        if self.recovered { " [recovered]" } else { "" }
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionSurface {
+    visibility: Option<&'static str>,
+    modifiers: Vec<&'static str>,
+    directives: Vec<InspectionAnchor>,
+    constraints: Vec<InspectionAnchor>,
+    contract_clauses: Vec<InspectionAnchor>,
+    runtime_default: Option<InspectionAnchor>,
+    overload_arms: Vec<InspectionAnchor>,
+}
+
+impl InspectionSurface {
+    fn from_surface(
+        compilation: &Compilation,
+        surface: &DeclarationSurface,
+    ) -> Result<Self, DeclarationInspectionRenderError> {
+        Ok(Self {
+            visibility: surface.visibility().map(|kind| kind.as_str()),
+            modifiers: surface
+                .modifiers()
+                .iter()
+                .map(|kind| kind.as_str())
+                .collect(),
+            directives: inspection_anchors(compilation, surface.directives())?,
+            constraints: inspection_anchors(compilation, surface.constraints())?,
+            contract_clauses: inspection_anchors(compilation, surface.contract_clauses())?,
+            runtime_default: surface
+                .runtime_default()
+                .map(|anchor| InspectionAnchor::from_anchor(compilation, anchor))
+                .transpose()?,
+            overload_arms: inspection_anchors(compilation, surface.overload_arms())?,
+        })
+    }
+
+    fn text_entries(&self) -> Vec<String> {
+        let mut entries = Vec::new();
+
+        if let Some(visibility) = self.visibility {
+            entries.push(format!("visibility {visibility}"));
+        }
+
+        if !self.modifiers.is_empty() {
+            entries.push(format!("modifiers {}", self.modifiers.join(", ")));
+        }
+
+        push_anchor_entries(&mut entries, "directive", &self.directives);
+        push_anchor_entries(&mut entries, "constraint", &self.constraints);
+        push_anchor_entries(&mut entries, "contract_clause", &self.contract_clauses);
+
+        if let Some(default) = &self.runtime_default {
+            entries.push(anchor_text("runtime_default", default));
+        }
+
+        push_anchor_entries(&mut entries, "overload_arm", &self.overload_arms);
+
+        entries
+    }
+}
+
+fn inspection_anchors(
+    compilation: &Compilation,
+    anchors: &[SyntaxAnchor],
+) -> Result<Vec<InspectionAnchor>, DeclarationInspectionRenderError> {
+    anchors
+        .iter()
+        .map(|anchor| InspectionAnchor::from_anchor(compilation, *anchor))
+        .collect()
+}
+
+fn push_anchor_entries(
+    entries: &mut Vec<String>,
+    label: &str,
+    anchors: &[InspectionAnchor],
+) {
+    entries.extend(anchors.iter().map(|anchor| anchor_text(label, anchor)));
+}
+
+fn anchor_text(label: &str, anchor: &InspectionAnchor) -> String {
+    format!(
+        "{label} {} {} {}{}",
+        anchor.syntax_kind,
+        anchor.display_name,
+        anchor.location_text(),
+        anchor.recovery_text()
+    )
+}
+
+fn render_text_report(report: &DeclarationInspectionReport) -> String {
+    let mut output = String::new();
+
+    output.push_str("kind: ");
+    output.push_str(report.kind);
+    output.push('\n');
+    output.push_str("declaration_count: ");
+    output.push_str(&report.declaration_count.to_string());
+    output.push('\n');
+    output.push_str("container_count: ");
+    output.push_str(&report.container_count.to_string());
+    output.push('\n');
+    output.push_str("module_part_count: ");
+    output.push_str(&report.module_part_count.to_string());
+    output.push('\n');
+    output.push_str("has_errors: ");
+    output.push_str(&report.has_errors.to_string());
+    output.push('\n');
+    output.push_str("tree:\n");
+
+    let mut writer = TreeWriter::new("  ");
+
+    report.root.push_text(&mut writer, true);
+    output.push_str(&writer.into_string());
+    output.push_str("diagnostics:\n");
+
+    if report.diagnostics.is_empty() {
+        output.push_str("  none\n");
+    } else {
+        for diagnostic in &report.diagnostics {
+            push_text_diagnostic(&mut output, diagnostic);
+        }
+    }
+
+    output
+}
+
+fn render_json_report(
+    report: &DeclarationInspectionReport,
+) -> Result<String, DeclarationInspectionRenderError> {
+    let mut output =
+        serde_json::to_string_pretty(report).map_err(|_| DeclarationInspectionRenderError::Json)?;
+
+    output.push('\n');
+
+    Ok(output)
+}
+
+const fn container_kind_text(kind: ContainerKind) -> &'static str {
+    match kind {
+        ContainerKind::Root => "root",
+        ContainerKind::Module => "module",
+        ContainerKind::Type => "type",
+        ContainerKind::Trait => "trait",
+        ContainerKind::Implementation => "implementation",
+        ContainerKind::Signature => "signature",
+        ContainerKind::Variant => "variant",
+    }
+}
+
+const fn declaration_kind_text(kind: DeclarationKind) -> &'static str {
+    match kind {
+        DeclarationKind::Module => "module",
+        DeclarationKind::Using => "using",
+        DeclarationKind::Export => "export",
+        DeclarationKind::Constant => "constant",
+        DeclarationKind::Function => "function",
+        DeclarationKind::Predicate => "predicate",
+        DeclarationKind::CallableContract => "callable_contract",
+        DeclarationKind::CallableOverload => "callable_overload",
+        DeclarationKind::ImplementationOverload => "implementation_overload",
+        DeclarationKind::Struct => "struct",
+        DeclarationKind::Union => "union",
+        DeclarationKind::Trait => "trait",
+        DeclarationKind::InherentImplementation => "inherent_implementation",
+        DeclarationKind::UnnamedTraitImplementation => "unnamed_trait_implementation",
+        DeclarationKind::NamedTraitImplementation => "named_trait_implementation",
+        DeclarationKind::StructField => "struct_field",
+        DeclarationKind::UnionVariant => "union_variant",
+        DeclarationKind::TraitConstantMember => "trait_constant_member",
+        DeclarationKind::TraitTypeMember => "trait_type_valued_member",
+        DeclarationKind::TraitPredicateMember => "trait_predicate_member",
+        DeclarationKind::TraitCallableMember => "trait_callable_member",
+        DeclarationKind::TraitFinalizerRequirement => "trait_finalizer_requirement",
+        DeclarationKind::TraitDestructorRequirement => "trait_destructor_requirement",
+        DeclarationKind::TraitScopeEnterRequirement => "trait_scope_enter_requirement",
+        DeclarationKind::TraitScopeExitRequirement => "trait_scope_exit_requirement",
+        DeclarationKind::ImplementationTypeMemberBinding => {
+            "implementation_type_valued_member_binding"
+        }
+        DeclarationKind::TypeConstructorMember => "type_constructor_member",
+        DeclarationKind::FinalizerMember => "finalizer_member",
+        DeclarationKind::DestructorMember => "destructor_member",
+        DeclarationKind::ScopeEnterMember => "scope_enter_member",
+        DeclarationKind::ScopeExitMember => "scope_exit_member",
+        DeclarationKind::TypeCallableMember => "type_callable_member",
+        DeclarationKind::GenericTypeParameter => "generic_type_parameter",
+        DeclarationKind::GenericConstParameter => "generic_const_parameter",
+        DeclarationKind::CallableParameter => "callable_parameter",
+        DeclarationKind::PredicateParameter => "predicate_parameter",
+        DeclarationKind::UnionPayloadField => "union_payload_field",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compilation::Compilation;
+    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+
+    use super::render_declaration_inspection;
+    use crate::DriverOutputFormat;
+    use crate::test_support::package_identity;
+
+    #[test]
+    fn text_inspection_merges_partial_modules_and_keeps_contributions_visible() {
+        let compilation = compilation([
+            concat!(
+                "module app\n",
+                "{\n",
+                "    public struct first\n",
+                "    {\n",
+                "        value: i32;\n",
+                "    }\n",
+                "}\n",
+            ),
+            concat!(
+                "module app\n",
+                "{\n",
+                "    func second()\n",
+                "    {\n",
+                "    }\n",
+                "}\n",
+            ),
+        ]);
+
+        let output =
+            match render_declaration_inspection(&compilation, DriverOutputFormat::Text) {
+                Ok(output) => output,
+                Err(error) => panic!("declaration inspection should render: {error:?}"),
+            };
+
+        let (text, diagnostics) = output.into_parts();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(text.matches("module app [container:").count(), 1);
+        assert_eq!(text.matches("module_contribution").count(), 2);
+        assert!(text.contains("struct first"));
+        assert!(text.contains("struct_field value"));
+        assert!(text.contains("function second"));
+        assert!(text.contains("├─ module_contribution"));
+    }
+
+    #[test]
+    fn json_inspection_preserves_typed_names_surface_and_recovery() {
+        let compilation = compilation([concat!(
+            "module app\n",
+            "{\n",
+            "    public trusted func run(value: i32)\n",
+            "    {\n",
+            "    }\n",
+        )]);
+
+        let output =
+            match render_declaration_inspection(&compilation, DriverOutputFormat::Json) {
+                Ok(output) => output,
+                Err(error) => panic!("declaration inspection should render: {error:?}"),
+            };
+
+        let (json, diagnostics) = output.into_parts();
+
+        assert!(!diagnostics.is_empty());
+
+        let value: serde_json::Value = match serde_json::from_str(&json) {
+            Ok(value) => value,
+            Err(error) => panic!("declaration inspection should be JSON: {error:?}"),
+        };
+
+        let module = &value["root"]["modules"][0];
+        let function = &module["contributions"][0]["declarations"][0];
+
+        assert_eq!(module["container_kind"], "module");
+        assert_eq!(function["declaration_kind"], "function");
+        assert_eq!(function["name"]["name_kind"], "identifier");
+        assert_eq!(function["name"]["value"], "run");
+        assert_eq!(function["surface"]["visibility"], "public_keyword");
+        assert_eq!(function["surface"]["modifiers"][0], "trusted_keyword");
+        assert_eq!(module["contributions"][0]["anchor"]["recovered"], true);
+
+        assert_eq!(
+            function["child_container"]["declarations"][0]["declaration_kind"],
+            "callable_parameter"
+        );
+    }
+
+    fn compilation<const N: usize>(sources: [&str; N]) -> Compilation {
+        let inputs = sources
+            .into_iter()
+            .enumerate()
+            .map(|(index, text)| {
+                SourceInput::virtual_text(
+                    SourceIdentity::new(u32::try_from(index).unwrap_or(u32::MAX)),
+                    format!("source-{index}.bray"),
+                    SourceVersion::new(0),
+                    text,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        match Compilation::load_sources(package_identity(), inputs) {
+            Ok(compilation) => compilation,
+            Err(_) => panic!("test compilation should load"),
+        }
+    }
+}
