@@ -116,13 +116,7 @@ where
         return CheckerOutcome::without_diagnostics(selection);
     };
 
-    let Some(diagnostic_kind) = (match failure {
-        SelectionFailure::Unavailable => Some(DiagnosticKind::CheckingNoApplicableCandidate),
-        SelectionFailure::Ambiguous(_) => Some(DiagnosticKind::CheckingAmbiguousCandidate),
-        SelectionFailure::Inaccessible => Some(DiagnosticKind::CheckingInaccessibleCandidate),
-        SelectionFailure::Incompatible => Some(DiagnosticKind::CheckingIncompatibleCandidate),
-        SelectionFailure::Recovered => None,
-    }) else {
+    let Some(diagnostic_kind) = failure_diagnostic_kind(failure) else {
         return CheckerOutcome::without_diagnostics(selection);
     };
 
@@ -138,6 +132,16 @@ where
     CheckerOutcome::complete(selection, DiagnosticBag::single(diagnostic))
 }
 
+const fn failure_diagnostic_kind(failure: &SelectionFailure) -> Option<DiagnosticKind> {
+    match failure {
+        SelectionFailure::Unavailable => Some(DiagnosticKind::CheckingNoApplicableCandidate),
+        SelectionFailure::Ambiguous(_) => Some(DiagnosticKind::CheckingAmbiguousCandidate),
+        SelectionFailure::Inaccessible => Some(DiagnosticKind::CheckingInaccessibleCandidate),
+        SelectionFailure::Incompatible => Some(DiagnosticKind::CheckingIncompatibleCandidate),
+        SelectionFailure::Recovered => None,
+    }
+}
+
 const fn diagnostic_selection_kind(kind: SelectionKind) -> DiagnosticSelectionKind {
     match kind {
         SelectionKind::Callable => DiagnosticSelectionKind::Callable,
@@ -147,5 +151,40 @@ const fn diagnostic_selection_kind(kind: SelectionKind) -> DiagnosticSelectionKi
         SelectionKind::Construction => DiagnosticSelectionKind::Construction,
         SelectionKind::Conversion => DiagnosticSelectionKind::Conversion,
         SelectionKind::Implementation => DiagnosticSelectionKind::Implementation,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticKind;
+
+    use super::failure_diagnostic_kind;
+    use crate::selection::SelectionFailure;
+
+    #[test]
+    fn selection_failures_map_to_exact_structured_diagnostics() {
+        let cases = [
+            (
+                SelectionFailure::Unavailable,
+                Some(DiagnosticKind::CheckingNoApplicableCandidate),
+            ),
+            (
+                SelectionFailure::Ambiguous([].into()),
+                Some(DiagnosticKind::CheckingAmbiguousCandidate),
+            ),
+            (
+                SelectionFailure::Inaccessible,
+                Some(DiagnosticKind::CheckingInaccessibleCandidate),
+            ),
+            (
+                SelectionFailure::Incompatible,
+                Some(DiagnosticKind::CheckingIncompatibleCandidate),
+            ),
+            (SelectionFailure::Recovered, None),
+        ];
+
+        for (failure, expected) in cases {
+            assert_eq!(failure_diagnostic_kind(&failure), expected);
+        }
     }
 }

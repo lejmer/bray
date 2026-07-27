@@ -410,7 +410,7 @@ impl super::super::Compilation {
             Ok(facts) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(facts)))),
             Err(_) => Ok(DiagnosticResult::new(
                 None,
-                interface_diagnostics(DiagnosticKind::InterfaceSemanticFactsInvalid, input),
+                semantic_facts_diagnostics(input),
             )),
         }
     }
@@ -527,6 +527,10 @@ fn dependency_graph_diagnostics(compilation: &super::super::Compilation) -> Diag
     )
 }
 
+fn semantic_facts_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
+    interface_diagnostics(DiagnosticKind::InterfaceSemanticFactsInvalid, input)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -547,6 +551,8 @@ mod tests {
         CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput,
         FactQueryError, ImportedSemanticFactKey,
     };
+
+    use super::{dependency_graph_diagnostics, semantic_facts_diagnostics};
 
     #[test]
     fn dependency_interface_validation_is_lazy_cached_and_diagnostic_backed() {
@@ -592,6 +598,63 @@ mod tests {
         assert!(
             diagnostic_kinds(compilation.check_diagnostics())
                 .contains(&DiagnosticKind::InterfaceInvalidMagic)
+        );
+    }
+
+    #[test]
+    fn dependency_interface_identity_mismatches_publish_exact_diagnostics() {
+        let fixture = encoded_semantic_test_interface();
+
+        let cases = [
+            (
+                package("example.other"),
+                fixture.product.clone(),
+                DiagnosticKind::InterfacePackageIdentityMismatch,
+            ),
+            (
+                fixture.package.clone(),
+                product("other"),
+                DiagnosticKind::InterfaceProductIdentityMismatch,
+            ),
+        ];
+
+        for (expected_package, expected_product, expected_kind) in cases {
+            let dependency = DependencyInterfaceInput::new(
+                expected_package.clone(),
+                expected_product.clone(),
+                "identity-mismatch.brayi",
+                Arc::<[u8]>::from(fixture.bytes.clone()),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            );
+
+            let compilation = compilation([dependency]);
+
+            let interface = compilation
+                .dependency_interface_id(&expected_package, &expected_product)
+                .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
+
+            let result = compilation
+                .dependency_interface_result(interface)
+                .unwrap_or_else(|| panic!("selected dependency interface must have a result"));
+
+            assert_eq!(diagnostic_kinds(result.diagnostics()), [expected_kind]);
+        }
+    }
+
+    #[test]
+    fn imported_graph_and_semantic_failures_publish_exact_diagnostics() {
+        let compilation = compilation([]);
+
+        assert_eq!(
+            diagnostic_kinds(&dependency_graph_diagnostics(&compilation)),
+            [DiagnosticKind::InterfaceDependencyGraphInvalid]
+        );
+
+        let dependency = dependency("example.alpha", "main");
+
+        assert_eq!(
+            diagnostic_kinds(&semantic_facts_diagnostics(&dependency)),
+            [DiagnosticKind::InterfaceSemanticFactsInvalid]
         );
     }
 

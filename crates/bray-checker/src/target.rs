@@ -537,13 +537,16 @@ mod tests {
     use std::num::NonZeroU64;
 
     use bray_compiler_known::RepresentationRole;
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticTargetRepresentation,
+    };
     use bray_symbols::CallableAbi;
     use bray_target::{TargetLayoutContract, TargetValueLayout};
 
     use super::{
         TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,
         TargetLayoutUse, TargetValidity, TargetValidityRequest, TargetValidityRequirement,
+        TargetViolation,
     };
     use crate::CheckerOutcome;
     use crate::service::{DefaultTargetValidityChecker, TargetValidityChecker};
@@ -567,6 +570,17 @@ mod tests {
 
         assert_eq!(*result.value(), TargetValidity::Valid);
         assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn unavailable_callable_abis_publish_exact_structured_diagnostics() {
+        let diagnostic =
+            TargetViolation::CallableAbi(CallableAbi::C).diagnostic(DiagnosticId::new(0));
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::CheckingTargetCallableAbiUnavailable
+        );
     }
 
     #[test]

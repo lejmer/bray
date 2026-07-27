@@ -152,6 +152,23 @@ mod tests {
     };
 
     #[test]
+    fn renderer_renders_every_diagnostic_kind() {
+        let renderer = DiagnosticRenderer::english();
+
+        for (index, &kind) in DiagnosticKind::ALL.iter().enumerate() {
+            let id = u32::try_from(index)
+                .map(DiagnosticId::new)
+                .unwrap_or_else(|_| panic!("diagnostic inventory must fit diagnostic IDs"));
+
+            let diagnostic = Diagnostic::new(id, kind, SeverityKind::Error);
+            let rendered = renderer.render(&diagnostic);
+
+            assert_eq!(rendered.kind(), kind);
+            assert!(!rendered.message().is_empty(), "{kind:?}");
+        }
+    }
+
+    #[test]
     fn renderer_renders_diagnostic_messages_from_structured_catalog() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(7),

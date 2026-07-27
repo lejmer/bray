@@ -1,7 +1,13 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use bray_diagnostics::DiagnosticKind;
 use serde::Deserialize;
+
+#[path = "support/readiness.rs"]
+mod support;
+
+use support::{RustTest, rust_tests, rust_workspace, workspace_root};
 
 const REQUIRED_RULE_FAMILIES: &[&str] = &[
     "name-resolution",
@@ -95,14 +101,40 @@ fn semantic_coverage_fixture_names_complete_executable_contracts() {
     assert_source_tests_use_source_integration_crates(&fixture.rule_families, &rust);
 }
 
-fn workspace_root() -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+#[test]
+fn every_diagnostic_kind_has_an_executable_producer_test() {
+    let root = workspace_root();
+    let rust = rust_workspace(&root);
+    let tests = rust_tests(&rust);
+    let mut coverage = BTreeMap::new();
 
-    let Some(root) = manifest_dir.parent().and_then(Path::parent) else {
-        panic!("could not resolve workspace root from {manifest_dir:?}");
-    };
+    for &kind in DiagnosticKind::ALL {
+        let variant = format!("{kind:?}");
+        let reference = format!("DiagnosticKind :: {variant}");
 
-    root.to_path_buf()
+        let producers = tests
+            .iter()
+            .filter(|test| test.body().contains(&reference))
+            .map(test_location)
+            .collect::<Vec<_>>();
+
+        coverage.insert(kind, producers);
+    }
+
+    let missing = coverage
+        .iter()
+        .filter(|(_, tests)| tests.is_empty())
+        .map(|(kind, _)| format!("{kind:?}"))
+        .collect::<Vec<_>>();
+
+    assert!(
+        missing.is_empty(),
+        "diagnostic kinds without executable producer tests: {missing:?}"
+    );
+}
+
+fn test_location(test: &RustTest) -> String {
+    format!("{}::{}", test.path(), test.name())
 }
 
 fn coverage_fixture(root: &Path) -> CoverageFixture {
@@ -116,54 +148,6 @@ fn coverage_fixture(root: &Path) -> CoverageFixture {
     match serde_json::from_str(&contents) {
         Ok(fixture) => fixture,
         Err(error) => panic!("could not decode {}: {error}", path.display()),
-    }
-}
-
-fn rust_workspace(root: &Path) -> BTreeMap<String, String> {
-    let mut files = Vec::new();
-
-    collect_rust_files(&root.join("crates"), &mut files);
-
-    files.sort();
-
-    files
-        .into_iter()
-        .map(|path| {
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or_else(|_| panic!("{} is outside the workspace", path.display()))
-                .to_string_lossy()
-                .replace('\\', "/");
-
-            let contents = match std::fs::read_to_string(&path) {
-                Ok(contents) => contents,
-                Err(error) => panic!("could not read {}: {error}", path.display()),
-            };
-
-            (relative, contents)
-        })
-        .collect()
-}
-
-fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) => panic!("could not read {}: {error}", directory.display()),
-    };
-
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => panic!("could not read directory entry: {error}"),
-        };
-
-        let path = entry.path();
-
-        if path.is_dir() {
-            collect_rust_files(&path, files);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            files.push(path);
-        }
     }
 }
 
@@ -313,36 +297,8 @@ fn assert_source_tests_use_source_integration_crates(
 }
 
 fn rust_test_locations(rust: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    let mut tests = BTreeMap::new();
-
-    for (path, contents) in rust {
-        let mut is_test = false;
-
-        for line in contents.lines() {
-            let trimmed = line.trim();
-
-            if trimmed == "#[test]" {
-                is_test = true;
-                continue;
-            }
-
-            if !is_test {
-                continue;
-            }
-
-            if trimmed.starts_with("#[") || trimmed.is_empty() {
-                continue;
-            }
-
-            if let Some(after_fn) = trimmed.strip_prefix("fn ")
-                && let Some((name, _)) = after_fn.split_once('(')
-            {
-                tests.insert(name.to_owned(), path.clone());
-            }
-
-            is_test = false;
-        }
-    }
-
-    tests
+    rust_tests(rust)
+        .into_iter()
+        .map(|test| (test.name().to_owned(), test.path().to_owned()))
+        .collect()
 }

@@ -318,6 +318,32 @@ func main()
     }
 
     #[test]
+    fn test_products_reject_invalid_test_results() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "@test\n",
+                "func returns_value() -> i32\n",
+                "{\n",
+                "    1\n",
+                "}\n",
+            ),
+            ProductKind::Test,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert!(
+            diagnostic_kinds(facts.diagnostics())
+                .contains(&DiagnosticKind::CheckingInvalidTestResult)
+        );
+
+        assert!(facts.value().test_entries().is_empty());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
     fn invalid_entry_contracts_remain_diagnostic_product_facts() {
         let compilation = compilation_with_product(
             concat!(

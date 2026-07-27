@@ -156,20 +156,14 @@ where
                         })
                     });
 
-                if !dependency_satisfied {
-                    let span = match expression_span(request, expression) {
-                        Ok(span) => span,
-                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                    };
-
-                    diagnostics.add(
-                        Diagnostic::new(
-                            diagnostic_id(diagnostics.len()),
-                            DiagnosticKind::CheckingUnavailableAwaitDependency,
-                            SeverityKind::Error,
-                        )
-                        .with_primary_span(span),
-                    );
+                if !dependency_satisfied
+                    && let Err(error) = add_unavailable_await_dependency_diagnostic(
+                        request,
+                        expression,
+                        &mut diagnostics,
+                    )
+                {
+                    return CheckerOutcome::InfrastructureFailure(error);
                 }
 
                 let suspension_recovered = request
@@ -600,6 +594,28 @@ where
     Ok(())
 }
 
+fn add_unavailable_await_dependency_diagnostic<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let span = expression_span(request, expression)?;
+
+    diagnostics.add(
+        Diagnostic::new(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingUnavailableAwaitDependency,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span),
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
@@ -609,7 +625,10 @@ mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{CallableAbi, CallableExecution, TypeCallableMemberSymbolId};
 
-    use super::{AnalysisTaskOperationKind, add_task_context_diagnostic, selected_task_operation};
+    use super::{
+        AnalysisTaskOperationKind, add_task_context_diagnostic,
+        add_unavailable_await_dependency_diagnostic, selected_task_operation,
+    };
     use crate::CheckerUnitView;
     use crate::test_support::{
         TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol, error_type,
@@ -687,6 +706,35 @@ mod tests {
                 .map(|diagnostic| diagnostic.kind())
                 .collect::<Vec<_>>(),
             [DiagnosticKind::CheckingTaskStartOutsideAsyncCallable]
+        );
+    }
+
+    #[test]
+    fn unavailable_await_dependencies_publish_exact_structured_diagnostics() {
+        let (unit, expressions) = expression_unit(BoundUnitId::new(72), |tree, origin| {
+            vec![push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+            )]
+        });
+
+        let context = TestCheckerContext::new(false);
+        let semantic_context = callable_entry(unit.key());
+
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
+            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        add_unavailable_await_dependency_diagnostic(request, expressions[0], &mut diagnostics)
+            .unwrap_or_else(|error| panic!("test expression span must resolve: {error:?}"));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::CheckingUnavailableAwaitDependency]
         );
     }
 }

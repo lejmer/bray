@@ -80,3 +80,45 @@ impl TypeExpressionBinder<'_> {
         abi
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticKind;
+    use bray_testing::{test_source_at, test_source_store};
+
+    use super::bind_callable_abi;
+
+    #[test]
+    fn repeated_callable_abi_directives_publish_exact_structured_diagnostics() {
+        let sources = test_source_store([concat!(
+            "module app;\n",
+            "@abi(c)\n",
+            "@abi(system)\n",
+            "func main()\n",
+            "{\n",
+            "}\n",
+        )]);
+
+        let parsed = bray_parser::parse_source_unit(test_source_at(&sources, 0));
+
+        let declarations = parsed
+            .source_unit()
+            .function_declarations()
+            .collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("test source must contain one function declaration");
+        };
+
+        let result = bind_callable_abi(declaration.function_directives().abi_directives());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::BindingDuplicateCallableAbi]
+        );
+    }
+}

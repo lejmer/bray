@@ -192,9 +192,11 @@ dependencies = [
  "bray-symbols",
  "bray-syntax",
  "bray-target",
+ "quote",
  "rayon",
  "serde",
  "serde_json",
+ "syn",
 ]
 
 [[package]]
