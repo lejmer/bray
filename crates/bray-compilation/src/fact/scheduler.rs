@@ -69,28 +69,37 @@ impl FactScheduler {
     where
         T: Send,
     {
-        let pool = self.pool(priority)?;
-
         let slots = (0..len)
             .map(|_| Mutex::new(None))
             .collect::<Vec<Mutex<Option<T>>>>();
 
-        pool.scope(|scope| {
-            for (index, slot) in slots.iter().enumerate() {
-                let operation = &operation;
+        let evaluate = |index: usize| {
+            let value = operation(index);
 
-                scope.spawn(move |_| {
-                    let priority = QueryPriorityDemand::new(priority);
-                    let value = self.execute(&priority, || operation(index));
+            let mut slot = slots[index]
+                .lock()
+                .unwrap_or_else(|_| panic!("scheduled result slot must remain available"));
 
-                    let mut slot = slot
-                        .lock()
-                        .unwrap_or_else(|_| panic!("scheduled result slot must remain available"));
+            *slot = Some(value);
+        };
 
-                    *slot = Some(value);
-                });
-            }
-        });
+        if self.is_active()? {
+            self.map_indexed_nested(priority, len, &evaluate)?;
+        } else {
+            let pool = self.pool(priority)?;
+
+            pool.scope(|scope| {
+                for index in 0..len {
+                    let evaluate = &evaluate;
+
+                    scope.spawn(move |_| {
+                        let priority = QueryPriorityDemand::new(priority);
+
+                        self.execute(&priority, || evaluate(index));
+                    });
+                }
+            });
+        }
 
         let results = slots
             .into_iter()
@@ -102,6 +111,53 @@ impl FactScheduler {
             .collect();
 
         Ok(results)
+    }
+
+    fn map_indexed_nested(
+        &self,
+        priority: QueryPriority,
+        len: usize,
+        evaluate: &(impl Fn(usize) + Send + Sync),
+    ) -> Result<(), FactQueryError> {
+        let priority_demand = QueryPriorityDemand::new(priority);
+        let mut reserved = Vec::new();
+
+        while reserved.len() < len.saturating_sub(1) {
+            let Some(slot) = self.slots.try_acquire(&priority_demand)? else {
+                break;
+            };
+
+            reserved.push(slot);
+        }
+
+        let lane_count = reserved.len() + 1;
+
+        if lane_count == 1 {
+            (0..len).for_each(evaluate);
+
+            return Ok(());
+        }
+
+        let pool = self.pool(priority)?;
+
+        pool.scope(|scope| {
+            for (lane, slot) in reserved.into_iter().enumerate() {
+                scope.spawn(move |_| {
+                    let _slot = slot;
+
+                    let _active = ActiveSchedulerGuard::enter(self.identity(), priority)
+                        .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
+
+                    ((lane + 1)..len)
+                        .step_by(lane_count)
+                        .for_each(evaluate);
+                });
+            }
+
+            (0..len).step_by(lane_count).for_each(evaluate);
+        });
+
+        Ok(())
     }
 
     #[cfg(test)]
@@ -245,16 +301,27 @@ impl ExecutionSlots {
         }
 
         unregister_waiter(&mut state, interactive);
-
-        if interactive {
-            state.interactive_streak += 1;
-        } else {
-            state.interactive_streak = 0;
-        }
-
-        state.active += 1;
+        grant_slot(&mut state, interactive);
 
         Ok(ExecutionSlot { slots: self })
+    }
+
+    fn try_acquire(
+        &self,
+        priority: &QueryPriorityDemand,
+    ) -> Result<Option<ExecutionSlot<'_>>, FactQueryError> {
+        let interactive = priority.current() == QueryPriority::Interactive;
+        let mut state = self.state()?;
+
+        if !self.can_acquire(&state, interactive) {
+            return Ok(None);
+        }
+
+        grant_slot(&mut state, interactive);
+
+        drop(state);
+
+        Ok(Some(ExecutionSlot { slots: self }))
     }
 
     fn can_acquire(&self, state: &SlotState, interactive: bool) -> bool {
@@ -304,6 +371,16 @@ impl ExecutionSlots {
             state = waited.0;
         }
     }
+}
+
+fn grant_slot(state: &mut SlotState, interactive: bool) {
+    if interactive {
+        state.interactive_streak += 1;
+    } else {
+        state.interactive_streak = 0;
+    }
+
+    state.active += 1;
 }
 
 fn register_waiter(state: &mut SlotState, interactive: bool) {
@@ -395,7 +472,7 @@ struct ActiveScheduler {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, mpsc};
+    use std::sync::{Arc, Barrier, mpsc};
     use std::time::Duration;
 
     use super::{ExecutionSlots, FactScheduler};
@@ -407,13 +484,14 @@ mod tests {
         let scheduler = FactScheduler::new(worker_budget(2));
         let active = AtomicUsize::new(0);
         let maximum = AtomicUsize::new(0);
+        let rendezvous = Barrier::new(2);
 
         let results = scheduler
             .map_indexed(QueryPriority::Normal, 8, |index| {
                 let current = active.fetch_add(1, Ordering::SeqCst) + 1;
 
                 maximum.fetch_max(current, Ordering::SeqCst);
-                std::thread::sleep(Duration::from_millis(5));
+                rendezvous.wait();
                 active.fetch_sub(1, Ordering::SeqCst);
 
                 index
@@ -562,6 +640,50 @@ mod tests {
             .unwrap_or_else(|error| panic!("outer work must complete: {error:?}"));
 
         assert_eq!(outer, inner);
+    }
+
+    #[test]
+    fn nested_indexed_work_reuses_the_owned_worker_without_waiting_for_another_slot() {
+        let scheduler = FactScheduler::new(WorkerBudget::serial());
+
+        let results = scheduler
+            .run(QueryPriority::Normal, || {
+                scheduler.map_indexed(QueryPriority::Normal, 8, |index| index)
+            })
+            .unwrap_or_else(|error| panic!("outer work must complete: {error:?}"))
+            .unwrap_or_else(|error| panic!("nested indexed work must complete: {error:?}"));
+
+        assert_eq!(results, (0..8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn nested_indexed_work_uses_available_workers_without_exceeding_the_budget() {
+        let scheduler = FactScheduler::new(worker_budget(3));
+        let active = AtomicUsize::new(0);
+        let maximum = AtomicUsize::new(0);
+        let rendezvous = Barrier::new(3);
+
+        let results = scheduler
+            .run(QueryPriority::Normal, || {
+                scheduler.map_indexed(QueryPriority::Normal, 6, |index| {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+
+                    maximum.fetch_max(current, Ordering::SeqCst);
+
+                    if index < 3 {
+                        rendezvous.wait();
+                    }
+
+                    active.fetch_sub(1, Ordering::SeqCst);
+
+                    index
+                })
+            })
+            .unwrap_or_else(|error| panic!("outer work must complete: {error:?}"))
+            .unwrap_or_else(|error| panic!("nested indexed work must complete: {error:?}"));
+
+        assert_eq!(results, (0..6).collect::<Vec<_>>());
+        assert_eq!(maximum.load(Ordering::SeqCst), 3);
     }
 
     fn worker_budget(workers: usize) -> WorkerBudget {

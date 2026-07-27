@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -17,7 +18,9 @@ use bray_symbols::{
     SymbolOrigin, SymbolRootKey,
 };
 
-use crate::fact::{FactCellTestEvent, FactCellTestObserver};
+use crate::fact::{
+    CompilationFactKey, FactCellTestEvent, FactCellTestObserver, FactEvaluationTestObserver,
+};
 use crate::{
     Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, WorkerBudget,
 };
@@ -27,6 +30,32 @@ const FACT_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) struct FactTestGate {
     held_event: FactCellTestEvent,
     shared: Arc<(Mutex<FactTestGateState>, Condvar)>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct FactEvaluationLog {
+    keys: Arc<Mutex<Vec<CompilationFactKey>>>,
+}
+
+impl FactEvaluationLog {
+    pub(crate) fn observer(&self) -> FactEvaluationTestObserver {
+        let keys = Arc::clone(&self.keys);
+
+        FactEvaluationTestObserver::new(move |key| {
+            keys.lock()
+                .unwrap_or_else(|_| panic!("fact evaluation log must remain available"))
+                .push(key.clone());
+        })
+    }
+
+    pub(crate) fn keys(&self) -> BTreeSet<CompilationFactKey> {
+        self.keys
+            .lock()
+            .unwrap_or_else(|_| panic!("fact evaluation log must remain available"))
+            .iter()
+            .cloned()
+            .collect()
+    }
 }
 
 #[derive(Default)]

@@ -140,7 +140,6 @@ where
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::{Condvar, Mutex};
-    use std::time::Duration;
 
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
@@ -183,15 +182,6 @@ mod tests {
             let Some(index) = ordinals.get(&request).copied() else {
                 return Err(());
             };
-
-            let reverse_delay = plan.requests().len().saturating_sub(index);
-
-            let reverse_delay = match u64::try_from(reverse_delay) {
-                Ok(delay) => delay,
-                Err(_) => return Err(()),
-            };
-
-            std::thread::sleep(Duration::from_micros(reverse_delay));
 
             let diagnostic_id = match u32::try_from(index) {
                 Ok(index) => DiagnosticId::new(index),

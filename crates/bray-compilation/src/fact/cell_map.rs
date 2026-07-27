@@ -61,12 +61,12 @@ where
 
             let cell = Arc::clone(&entry.cell);
 
-            reclaim_ready_entries(&mut state.cells, self.retention_limit, Some(access));
+            reclaim_entries(&mut state.cells, self.retention_limit, Some(access));
 
             return Ok(cell);
         }
 
-        reclaim_ready_entries(
+        reclaim_entries(
             &mut state.cells,
             self.retention_limit.saturating_sub(1),
             None,
@@ -181,7 +181,7 @@ where
     }
 }
 
-fn reclaim_ready_entries<K, V>(
+fn reclaim_entries<K, V>(
     cells: &mut BTreeMap<K, FactCellMapEntry<V>>,
     retained: usize,
     protected_access: Option<u64>,
@@ -192,7 +192,10 @@ fn reclaim_ready_entries<K, V>(
         let oldest_access = cells
             .values()
             .filter(|entry| {
-                entry.cell.get().is_some() && Some(entry.last_access) != protected_access
+                let reclaimable = entry.cell.get().is_some()
+                    || (Arc::strong_count(&entry.cell) == 1 && entry.cell.is_vacant());
+
+                reclaimable && Some(entry.last_access) != protected_access
             })
             .min_by_key(|entry| entry.last_access)
             .map(|entry| entry.last_access);
@@ -208,7 +211,9 @@ fn reclaim_ready_entries<K, V>(
 #[cfg(test)]
 mod tests {
     use super::FactCellMap;
-    use crate::fact::{CancellationToken, CompilationFactKey, FactRuntime};
+    use crate::fact::{
+        CancellationToken, CompilationFactKey, FactQueryError, FactRuntime,
+    };
 
     #[test]
     fn completed_entries_are_reclaimed_by_recent_use() {
@@ -256,6 +261,30 @@ mod tests {
 
         assert_eq!(cache.keys().len(), 2);
         assert!(cache.keys().contains(&3));
+    }
+
+    #[test]
+    fn abandoned_entries_are_reclaimed_to_the_retention_limit() {
+        let cache = FactCellMap::<u32, u32>::with_retention_limit(2);
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        for key in 0..32 {
+            let cell = cache
+                .cell(key)
+                .unwrap_or_else(|error| panic!("fact cell must be available: {error:?}"));
+
+            let result = cell.get_or_compute(
+                &runtime,
+                CompilationFactKey::SyntaxTree,
+                &cancellation,
+                || Err(FactQueryError::InfrastructureFailure),
+            );
+
+            assert_eq!(result, Err(FactQueryError::InfrastructureFailure));
+        }
+
+        assert_eq!(cache.keys().len(), 2);
     }
 
     fn publish(

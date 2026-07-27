@@ -632,7 +632,12 @@ mod tests {
 
     use super::SemanticAvailability;
     use crate::fact::{CancellationToken, FactCellTestEvent, QueryPriority};
-    use crate::test_support::{FactTestGate, compilation};
+    use crate::test_support::{
+        FactEvaluationLog, FactTestGate, compilation, compilation_with_options,
+    };
+    use crate::{
+        CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
+    };
 
     const SOURCE: &str = concat!(
         "module app;\n",
@@ -750,6 +755,13 @@ mod tests {
         let compilation = compilation(SOURCE);
         let cancellation = CancellationToken::new();
         let call_position = position(SOURCE, "identity(1)");
+        let evaluations = FactEvaluationLog::default();
+
+        compilation
+            .state
+            .fact_runtime
+            .set_test_observer(evaluations.observer())
+            .unwrap_or_else(|error| panic!("runtime must accept test observation: {error:?}"));
 
         let symbol = compilation
             .symbol_at(
@@ -795,6 +807,20 @@ mod tests {
             compilation.state.expression_semantics.is_published(main),
             Ok(false)
         );
+
+        let evaluated = evaluations.keys();
+
+        assert!(evaluated.contains(&crate::fact::CompilationFactKey::BoundUnit(main.clone())));
+
+        assert!(!evaluated.contains(&crate::fact::CompilationFactKey::BoundUnit(
+            identity.clone()
+        )));
+
+        assert!(!evaluated.contains(&crate::fact::CompilationFactKey::CheckDiagnostics));
+
+        assert!(!evaluated.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
+            main.clone()
+        )));
     }
 
     #[test]
@@ -925,6 +951,120 @@ mod tests {
         );
 
         assert!(compilation.state.check_diagnostics.get().is_some());
+    }
+
+    #[test]
+    fn resource_exhaustion_is_deterministic_across_workers_priorities_and_shared_waiters() {
+        const SOURCE: &str = concat!(
+            "module app;\n",
+            "\n",
+            "func first(pos value: bool)\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "func second(pos value: bool)\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "overload choose =\n",
+            "{\n",
+            "    first,\n",
+            "    second,\n",
+            "}\n",
+        );
+
+        let limits = SemanticAnalysisLimits::new(256, 0);
+
+        let serial = compilation_with_options(
+            SOURCE,
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
+                SelectedTarget::baseline(),
+            )
+            .with_semantic_analysis_limits(limits),
+        );
+
+        let serial_diagnostics = serial
+            .diagnostics_for_package(
+                &CancellationToken::new(),
+                QueryPriority::Interactive,
+            )
+            .unwrap_or_else(|error| panic!("serial limited query must complete: {error:?}"));
+
+        let parallel_budget = WorkerBudget::new(2)
+            .unwrap_or_else(|error| panic!("parallel worker budget must be valid: {error:?}"));
+
+        let parallel = compilation_with_options(
+            SOURCE,
+            CompilationOptions::new(
+                parallel_budget,
+                bray_symbols::ProductKind::Library,
+                SelectedTarget::baseline(),
+            )
+            .with_semantic_analysis_limits(limits),
+        );
+
+        let gate = FactTestGate::holding(FactCellTestEvent::Computing);
+
+        parallel
+            .state
+            .check_diagnostics
+            .set_test_observer(gate.observer())
+            .unwrap_or_else(|error| panic!("diagnostic fact must accept observation: {error:?}"));
+
+        let parallel_diagnostics = std::thread::scope(|scope| {
+            let parallel = &parallel;
+            let background_cancellation = CancellationToken::new();
+            let interactive_cancellation = CancellationToken::new();
+
+            let background = scope.spawn(move || {
+                parallel.diagnostics_for_package(
+                    &background_cancellation,
+                    QueryPriority::Background,
+                )
+            });
+
+            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+
+            let interactive = scope.spawn(move || {
+                parallel.diagnostics_for_package(
+                    &interactive_cancellation,
+                    QueryPriority::Interactive,
+                )
+            });
+
+            gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
+            gate.release();
+
+            [background, interactive].map(|request| {
+                request
+                    .join()
+                    .unwrap_or_else(|_| panic!("limited query must not panic"))
+                    .unwrap_or_else(|error| panic!("limited query must complete: {error:?}"))
+            })
+        });
+
+        assert_eq!(parallel_diagnostics[0], serial_diagnostics);
+        assert_eq!(parallel_diagnostics[1], serial_diagnostics);
+
+        assert!(
+            serial_diagnostics
+                .iter()
+                .any(|diagnostic| {
+                    diagnostic.kind()
+                        == DiagnosticKind::CheckingCallableOverloadLimitExceeded
+                })
+        );
+
+        let repeated = parallel
+            .diagnostics_for_package(
+                &CancellationToken::new(),
+                QueryPriority::Normal,
+            )
+            .unwrap_or_else(|error| panic!("repeated limited query must complete: {error:?}"));
+
+        assert_eq!(repeated, serial_diagnostics);
     }
 
     #[test]
