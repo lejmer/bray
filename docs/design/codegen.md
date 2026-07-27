@@ -396,10 +396,9 @@ terminal outcome through subsequent product shutdown.
 
 Frame descriptor and runtime ABI lowering follows `docs/design/async-runtime.md`.
 
-Each codegen request must use the same target and panic ABI identities as its validated executable-host contract. Generated
-protected-frame metadata must exactly cover the unit's frame descriptors and retain each descriptor's independently versioned
-operation contract. Cached runtime metadata is reusable only when frame identities, frame ABI versions, and executable-host
-contracts still match the codegen unit.
+Code generation consumes the runtime and protected-frame contracts selected by earlier phases. It must reject target, panic ABI, or
+frame-operation incompatibilities rather than infer replacements. Reuse keys must include every compatibility fact that can change
+generated runtime-facing code.
 
 The LLVM backend may lower a known MIR operation to an LLVM intrinsic or a declared runtime call. That mapping is typed backend
 policy and must have a conformance test.

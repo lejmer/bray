@@ -371,15 +371,13 @@ structured shutdown. The frame-descriptor ABI versions phase-one broadcast and p
 resume and destruction. Cleanup-report sink support is part of the product-host ABI and remains available to synchronous products
 without linking an async scheduler.
 
-Each runtime dependency is expressed as an immutable requirement. A requirement may constrain an exact runtime identity and always
-records its minimum compatible runtime ABI version, target identity, panic ABI identity, required roles, capabilities, and execution
-lanes. A protected-frame requirement additionally records independently versioned resume, task-broadcast, lifecycle-resolution,
-completion-move, and destruction operations. Requirements for one product merge by sorted set union and reject contradictory exact
-identities, targets, panic ABIs, or incompatible major ABI versions.
+Runtime dependencies use immutable requirements that retain every compatibility dimension needed for product formation. Protected
+frames retain independently versioned resume, task-broadcast, lifecycle-resolution, completion-move, and destruction operations.
+Product formation merges reachable requirements deterministically and rejects contradictory identities, targets, panic ABIs, or
+incompatible major ABI versions.
 
-Executable and test products select one target-specific runtime contract after merging reachable requirements. The selected
-contract identifies the runtime artifact, supplies its ABI and protected-frame operation versions, and binds every advertised
-runtime role to a binary symbol. Compatibility validation is deterministic and requires:
+Executable and test products select one target-specific runtime after merging reachable requirements. Compatibility validation
+requires:
 
 - exact agreement for constrained runtime identity, target identity, and panic ABI identity,
 - matching ABI major versions and a provided minor version no older than the required minor version,
@@ -438,11 +436,10 @@ An exported async declaration records:
 Public APIs expose `Future<T>` as the invocation type without exposing hidden frame layout through source reflection. A consuming
 compiler validates descriptor version and target compatibility before reuse.
 
-Each package-interface runtime requirement is correlated with its owning declaration and, for a concrete async frame, its hidden
-frame identity. Exact semantic-fact lookup therefore loads one owner's requirement without decoding unrelated declarations.
-Library requirements contain portable ABI versions, target and panic compatibility, capabilities, and lanes. They contain neither
-an exact runtime identity nor private ABI role identities. Executable and test product formation unions reachable requirements,
-derives private roles from selected lowered operations, and selects one runtime implementation before code generation and linking.
+Package interfaces correlate each runtime requirement with its declaration owner and any concrete hidden frame. Library
+requirements contain portable compatibility facts, never a selected runtime identity, private ABI role identity, or binary
+binding. Executable and test product formation derives private roles from selected lowered operations and selects the runtime before
+code generation and linking.
 
 ---
 

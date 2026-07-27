@@ -493,10 +493,9 @@ A consuming compiler rejects an incompatible frame descriptor or runtime ABI rev
 requirements but never select a runtime implementation. Executable and test product formation unions reachable requirements before
 code generation and linking.
 
-Runtime requirements are owner-correlated semantic facts. Each record identifies its declaration owner, optional concrete hidden
-frame identity, exact target and panic ABI identities, minimum runtime and protected-frame operation versions, and sorted required
-capability and execution-lane sets. Exact owner lookup can decode this record independently. Runtime identities, private ABI role
-identities, and binary role bindings are product-selection facts and must not be exported as library requirements.
+Runtime requirements are owner-correlated semantic facts that remain independently queryable. They retain the portable
+compatibility facts required by consumers, including hidden-frame compatibility where applicable. Runtime identities, private ABI
+roles, and binary bindings are product-selection facts and must not be exported as library requirements.
 
 The complete metadata and compatibility contract is defined in `docs/design/async-runtime.md`.
 

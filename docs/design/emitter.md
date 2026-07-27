@@ -361,9 +361,6 @@ that every plan input exists in the emission plan.
 Async runtime requirements arrive as already resolved product facts defined by `docs/design/async-runtime.md`. The emitter does not
 select a runtime, infer requirements from MIR, or locate runtime components by source-level names.
 
-The executable-host contract and every codegen contribution must agree on target, panic ABI, protected-frame operation versions,
-and selected runtime identity before link-plan construction.
-
 `.brayi` is excluded from the native link plan.
 
 ---
