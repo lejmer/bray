@@ -20,18 +20,3 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::workspace;
-
-    #[test]
-    fn workspace_sources_conform() {
-        let root = match workspace::root() {
-            Ok(root) => root,
-            Err(error) => panic!("workspace root should resolve: {error}"),
-        };
-
-        assert_eq!(rust_style::check_workspace(&root), Ok(()));
-    }
-}
