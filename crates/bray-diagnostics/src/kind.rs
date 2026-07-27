@@ -1,10 +1,28 @@
 use crate::code::DiagnosticCode;
 
-/// Locale-neutral category for a compiler diagnostic.
-///
-/// Variants are grouped by owning phase.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticKind {
+macro_rules! define_diagnostic_kinds {
+    ($( $(#[$attribute:meta])* $kind:ident, )+) => {
+        /// Locale-neutral category for a compiler diagnostic.
+        ///
+        /// Variants are grouped by owning phase.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum DiagnosticKind {
+            $(
+                $(#[$attribute])*
+                $kind,
+            )+
+        }
+
+        impl DiagnosticKind {
+            /// Every diagnostic category in declaration order.
+            pub const ALL: &'static [Self] = &[
+                $(Self::$kind,)+
+            ];
+        }
+    };
+}
+
+define_diagnostic_kinds! {
     /// A requested source file could not be read.
     SourceFileReadFailed,
     /// Source input contains bytes that are not valid UTF-8.
@@ -765,7 +783,7 @@ mod tests {
     fn diagnostic_kind_codes_are_unique() {
         let mut codes = Vec::new();
 
-        for kind in all_diagnostic_kinds() {
+        for &kind in DiagnosticKind::ALL {
             assert!(
                 !codes.contains(&kind.code()),
                 "duplicate diagnostic code for {kind:?}"
@@ -773,154 +791,5 @@ mod tests {
 
             codes.push(kind.code());
         }
-    }
-
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 144] {
-        [
-            DiagnosticKind::SourceFileReadFailed,
-            DiagnosticKind::SourceInvalidUtf8,
-            DiagnosticKind::SourceTooManyInputs,
-            DiagnosticKind::SourceTextTooLarge,
-            DiagnosticKind::RequestMissingSourceInput,
-            DiagnosticKind::RequestInvalidSourceInput,
-            DiagnosticKind::RequestDuplicateSourceInput,
-            DiagnosticKind::RequestInvalidWorkerBudget,
-            DiagnosticKind::LexicalInvalidCharacter,
-            DiagnosticKind::LexicalMisplacedBom,
-            DiagnosticKind::LexicalLoneCarriageReturn,
-            DiagnosticKind::LexicalNonAsciiIdentifier,
-            DiagnosticKind::LexicalInvalidIdentifier,
-            DiagnosticKind::LexicalInvalidOperatorOrPunctuation,
-            DiagnosticKind::LexicalMalformedNumericLiteral,
-            DiagnosticKind::LexicalInvalidNumericSuffix,
-            DiagnosticKind::LexicalMalformedCharacterLiteral,
-            DiagnosticKind::LexicalUnterminatedCharacterLiteral,
-            DiagnosticKind::LexicalUnterminatedStringLiteral,
-            DiagnosticKind::LexicalUnknownEscape,
-            DiagnosticKind::LexicalInvalidUnicodeEscape,
-            DiagnosticKind::LexicalUnterminatedBlockComment,
-            DiagnosticKind::SyntaxExpectedToken,
-            DiagnosticKind::SyntaxExpectedExpression,
-            DiagnosticKind::SyntaxUnexpectedEof,
-            DiagnosticKind::DeclarationDuplicateName,
-            DiagnosticKind::DeclarationConflictingModuleVisibility,
-            DiagnosticKind::DeclarationConflictingModuleTrust,
-            DiagnosticKind::DeclarationDuplicateModifier,
-            DiagnosticKind::DeclarationIncompatibleModifiers,
-            DiagnosticKind::DeclarationInvalidModifier,
-            DiagnosticKind::DeclarationBodyRequired,
-            DiagnosticKind::DeclarationBodyNotAllowed,
-            DiagnosticKind::DeclarationDuplicateDirective,
-            DiagnosticKind::DeclarationIncompatibleDirectives,
-            DiagnosticKind::DeclarationInvalidDirectiveTarget,
-            DiagnosticKind::DeclarationInvalidParameterOrder,
-            DiagnosticKind::DeclarationInvalidMemberPlacement,
-            DiagnosticKind::DeclarationDuplicateLifecycleSlot,
-            DiagnosticKind::InterfaceInvalidMagic,
-            DiagnosticKind::InterfaceUnsupportedFormatRevision,
-            DiagnosticKind::InterfaceUnsupportedLanguageRevision,
-            DiagnosticKind::InterfaceUnsupportedEncoding,
-            DiagnosticKind::InterfaceTruncated,
-            DiagnosticKind::InterfaceMalformed,
-            DiagnosticKind::InterfaceHashMismatch,
-            DiagnosticKind::InterfaceSectionChecksumMismatch,
-            DiagnosticKind::InterfaceResourceLimitExceeded,
-            DiagnosticKind::InterfacePackageIdentityMismatch,
-            DiagnosticKind::InterfaceProductIdentityMismatch,
-            DiagnosticKind::InterfaceDependencyGraphInvalid,
-            DiagnosticKind::InterfaceSemanticFactsInvalid,
-            DiagnosticKind::BindingUnresolvedName,
-            DiagnosticKind::BindingAmbiguousName,
-            DiagnosticKind::BindingInaccessibleName,
-            DiagnosticKind::BindingWrongNameKind,
-            DiagnosticKind::BindingMalformedName,
-            DiagnosticKind::BindingNameAlreadyDefined,
-            DiagnosticKind::BindingIncoherentAlternativePattern,
-            DiagnosticKind::BindingInvalidCallableAbi,
-            DiagnosticKind::BindingDuplicateCallableAbi,
-            DiagnosticKind::BindingPredicateBodyRequired,
-            DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
-            DiagnosticKind::BindingCyclicModuleExport,
-            DiagnosticKind::BindingConflictingModuleExport,
-            DiagnosticKind::BindingInvalidModuleExportTarget,
-            DiagnosticKind::BindingMalformedDirectiveArgument,
-            DiagnosticKind::CheckingIncompatibleExpressionType,
-            DiagnosticKind::CheckingCannotInferExpressionType,
-            DiagnosticKind::CheckingInvalidConstantExpression,
-            DiagnosticKind::CheckingArrayLengthNotPositive,
-            DiagnosticKind::CheckingConstantLiteralNotRepresentable,
-            DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
-            DiagnosticKind::CheckingConstantAggregateLimitExceeded,
-            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
-            DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
-            DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
-            DiagnosticKind::CheckingCyclicConstantDefinition,
-            DiagnosticKind::CheckingConstantDivisionByZero,
-            DiagnosticKind::CheckingConstantValueNotRepresentable,
-            DiagnosticKind::CheckingNoApplicableCandidate,
-            DiagnosticKind::CheckingAmbiguousCandidate,
-            DiagnosticKind::CheckingInaccessibleCandidate,
-            DiagnosticKind::CheckingIncompatibleCandidate,
-            DiagnosticKind::CheckingTargetRepresentationUnavailable,
-            DiagnosticKind::CheckingTargetCallableAbiUnavailable,
-            DiagnosticKind::CheckingTargetAlignmentUnsupported,
-            DiagnosticKind::CheckingTargetAbiRepresentationUnsupported,
-            DiagnosticKind::CheckingIncompatiblePattern,
-            DiagnosticKind::CheckingRefutablePattern,
-            DiagnosticKind::CheckingNonExhaustiveMatch,
-            DiagnosticKind::CheckingUnreachableMatchArm,
-            DiagnosticKind::CheckingUnreachablePatternAlternative,
-            DiagnosticKind::CheckingDuplicateModuleContributionDirective,
-            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
-            DiagnosticKind::CheckingInvalidStoredType,
-            DiagnosticKind::CheckingRecursiveTypeRepresentation,
-            DiagnosticKind::CheckingInvalidLayoutDirective,
-            DiagnosticKind::CheckingInvalidCopyContract,
-            DiagnosticKind::CheckingInvalidUnionTag,
-            DiagnosticKind::CheckingRefinementCapacityExceeded,
-            DiagnosticKind::CheckingUseOfUninitializedStorage,
-            DiagnosticKind::CheckingUseOfMovedStorage,
-            DiagnosticKind::CheckingConflictingBorrow,
-            DiagnosticKind::CheckingMissingMutationAuthority,
-            DiagnosticKind::CheckingTypeIsNotCopyable,
-            DiagnosticKind::CheckingMissingStorageOwnership,
-            DiagnosticKind::CheckingInactiveStorageProjection,
-            DiagnosticKind::CheckingMissingTraitFulfillment,
-            DiagnosticKind::CheckingExtraTraitFulfillment,
-            DiagnosticKind::CheckingIncompatibleTraitFulfillment,
-            DiagnosticKind::CheckingDuplicateTraitFulfillment,
-            DiagnosticKind::CheckingOverlappingImplementation,
-            DiagnosticKind::CheckingUngroupedImplementationOverloads,
-            DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
-            DiagnosticKind::CheckingInvalidImplementationOverloadArm,
-            DiagnosticKind::CheckingInvalidCallableOverloadArm,
-            DiagnosticKind::CheckingDuplicateCallableOverloadArm,
-            DiagnosticKind::CheckingConflictingCallableOverloadFamily,
-            DiagnosticKind::CheckingConflictingCallableOverloadSignature,
-            DiagnosticKind::CheckingMissingForeignCallableDirective,
-            DiagnosticKind::CheckingForeignCallableRequiresTrusted,
-            DiagnosticKind::CheckingForeignCallableRequiresCapability,
-            DiagnosticKind::CheckingForeignCallableExecutionUnsupported,
-            DiagnosticKind::CheckingForeignAbiTypeUnsupported,
-            DiagnosticKind::CheckingInvalidNativeLinkDirective,
-            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
-            DiagnosticKind::CheckingDuplicateNativeSymbol,
-            DiagnosticKind::CheckingUnavailableNativeLinkInput,
-            DiagnosticKind::CheckingUndeclaredTrustedCapability,
-            DiagnosticKind::CheckingUnusedTrustedCapability,
-            DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
-            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
-            DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
-            DiagnosticKind::CheckingUnavailableAwaitDependency,
-            DiagnosticKind::EmissionMissingContribution,
-            DiagnosticKind::EmissionInvalidContribution,
-            DiagnosticKind::EmissionArtifactReadFailed,
-            DiagnosticKind::EmissionArtifactOpenFailed,
-            DiagnosticKind::EmissionArtifactWriteFailed,
-            DiagnosticKind::EmissionArtifactFlushFailed,
-            DiagnosticKind::EmissionArtifactDigestMismatch,
-            DiagnosticKind::EmissionArtifactLengthMismatch,
-            DiagnosticKind::EmissionArtifactCommitFailed,
-        ]
     }
 }
