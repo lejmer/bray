@@ -32,6 +32,21 @@ pub enum SelectionKind {
     Implementation,
 }
 
+impl SelectionKind {
+    /// Returns this selection kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Callable => "callable",
+            Self::Member => "member",
+            Self::Operator => "operator",
+            Self::Index => "index",
+            Self::Construction => "construction",
+            Self::Conversion => "conversion",
+            Self::Implementation => "implementation",
+        }
+    }
+}
+
 /// The exact semantic target of a member selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MemberTarget {

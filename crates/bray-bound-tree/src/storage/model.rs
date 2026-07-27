@@ -85,6 +85,25 @@ pub enum StorageIdentity {
 }
 
 impl StorageIdentity {
+    /// Returns this storage identity's stable machine-readable category.
+    pub const fn kind_name(self) -> &'static str {
+        match self {
+            Self::LocalOwned(_) => "local_owned",
+            Self::Parameter(_) => "parameter",
+            Self::Receiver(_) => "receiver",
+            Self::AnonymousParameter(_) => "anonymous_parameter",
+            Self::PredicateParameter(_) => "predicate_parameter",
+            Self::Result(_) => "result",
+            Self::Temporary(_) => "temporary",
+            Self::IterationCursor(_) => "iteration_cursor",
+            Self::IterationElement(_) => "iteration_element",
+            Self::Allocation(_) => "allocation",
+            Self::CompilerCreated(_) => "compiler_created",
+            Self::Alternative { .. } => "alternative",
+            Self::Error(_) => "error",
+        }
+    }
+
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,

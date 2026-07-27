@@ -30,6 +30,21 @@ pub enum BoundUnitKind {
 }
 
 impl BoundUnitKind {
+    /// Returns this bound-unit kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CallableBody => "callable_body",
+            Self::AnonymousCallable => "anonymous_callable",
+            Self::RuntimeDefault => "runtime_default",
+            Self::ConstantTemplate => "constant_template",
+            Self::EmbeddedConstant => "embedded_constant",
+            Self::PredicateDefinition => "predicate_definition",
+            Self::Constraint => "constraint",
+            Self::ContractClause => "contract_clause",
+            Self::TargetGate => "target_gate",
+        }
+    }
+
     const fn accepts_owner(self, owner: SymbolKind) -> bool {
         match self {
             Self::CallableBody => owner.is_callable(),

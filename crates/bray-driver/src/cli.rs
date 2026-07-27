@@ -7,7 +7,9 @@ use bray_diagnostics::DiagnosticBag;
 use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::command::{DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat};
+use crate::command::{
+    BoundInspectionTarget, DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat,
+};
 use crate::exit_status::exit_code_from_diagnostics;
 use crate::terminal_style::{clap_styles, render_styled_text};
 
@@ -209,6 +211,10 @@ impl CliInspectCommand {
                 DriverCommand::inspect_declarations(files.files)
             }
             CliInspectSubcommand::Symbols(files) => DriverCommand::inspect_symbols(files.files),
+            CliInspectSubcommand::Bound(request) => DriverCommand::inspect_bound(
+                BoundInspectionTarget::new(request.source_id, request.offset.into()),
+                request.files,
+            ),
         }
     }
 }
@@ -220,6 +226,17 @@ enum CliInspectSubcommand {
     Syntax(CliSourceFiles),
     Declarations(CliSourceFiles),
     Symbols(CliSourceFiles),
+    Bound(CliBoundInspection),
+}
+
+#[derive(Args, Debug)]
+struct CliBoundInspection {
+    #[arg(long, default_value_t = 0)]
+    source_id: u32,
+    #[arg(long)]
+    offset: u32,
+    #[arg(value_name = "FILE", num_args = 0..)]
+    files: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -446,6 +463,36 @@ mod tests {
         let files = [PathBuf::from("main.bray"), PathBuf::from("lib.bray")];
 
         assert_eq!(invocation.command().files(), files.as_slice());
+    }
+
+    #[test]
+    fn parses_inspect_bound_command_with_source_target() {
+        let invocation = match DriverInvocation::try_from_arguments([
+            "brayc",
+            "inspect",
+            "bound",
+            "--source-id",
+            "2",
+            "--offset",
+            "31",
+            "--format",
+            "json",
+            "main.bray",
+        ]) {
+            Ok(invocation) => invocation,
+            Err(error) => panic!("inspect bound invocation should parse: {error:?}"),
+        };
+
+        assert_eq!(invocation.command().kind(), DriverCommandKind::InspectBound);
+
+        let target = invocation
+            .command()
+            .bound_inspection_target()
+            .unwrap_or_else(|| panic!("inspect bound command must retain its target"));
+
+        assert_eq!(target.source_id(), 2);
+        assert_eq!(target.position(), 31.into());
+        assert_eq!(invocation.command().files(), [PathBuf::from("main.bray")]);
     }
 
     #[test]

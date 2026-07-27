@@ -6,6 +6,7 @@ use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::PackageIdentity;
 
+use crate::bound_inspection::render_bound_inspection;
 use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
 use crate::declaration_inspection::render_declaration_inspection;
 use crate::diagnostic_output::write_driver_output;
@@ -143,6 +144,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
 
     let output_format = options.output_format();
     let command_kind = command.kind();
+    let bound_inspection_target = command.bound_inspection_target();
 
     let request = match compilation_request_from_file_arguments(
         command_line_package_identity(),
@@ -181,13 +183,24 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         return run_fact_inspection_command(request, output_format, render_symbol_inspection);
     }
 
+    if command_kind == DriverCommandKind::InspectBound {
+        let Some(target) = bound_inspection_target else {
+            unreachable!("bound inspection command must retain its source target");
+        };
+
+        return run_fact_inspection_command(request, output_format, |compilation, output_format| {
+            render_bound_inspection(compilation, target, output_format)
+        });
+    }
+
     match command_kind {
         DriverCommandKind::Check
         | DriverCommandKind::InspectSource
         | DriverCommandKind::InspectTokens
         | DriverCommandKind::InspectSyntax
         | DriverCommandKind::InspectDeclarations
-        | DriverCommandKind::InspectSymbols => {
+        | DriverCommandKind::InspectSymbols
+        | DriverCommandKind::InspectBound => {
             unreachable!("handled command kind did not return")
         }
     }
@@ -1102,6 +1115,95 @@ mod tests {
             OsString::from("symbols"),
             file.path().as_os_str().to_os_string(),
         ]);
+
+        assert_eq!(serial.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(parallel.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(serial.stdout(), parallel.stdout());
+    }
+
+    #[test]
+    fn run_writes_json_bound_inspection_to_stdout() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "func main(value: i32) -> i32\n",
+            "{\n",
+            "    let result: i32 = value;\n",
+            "\n",
+            "    result;\n",
+            "}\n",
+        );
+
+        let file = TemporaryFile::write("bound.bray", source.as_bytes());
+
+        let offset = source
+            .find("let result")
+            .unwrap_or_else(|| panic!("test source must contain selected statement"));
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("--format"),
+            OsString::from("json"),
+            OsString::from("inspect"),
+            OsString::from("bound"),
+            OsString::from("--offset"),
+            OsString::from(offset.to_string()),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+
+        let output_json: serde_json::Value = match serde_json::from_str(result.stdout()) {
+            Ok(value) => value,
+            Err(error) => panic!("stdout should be bound-inspection JSON: {error:?}"),
+        };
+
+        assert_eq!(output_json["kind"], "bound_inspection");
+
+        assert_eq!(
+            output_json["selected_unit"]["unit_kind"],
+            "callable_body"
+        );
+
+        assert_eq!(
+            output_json["selected_unit"]["root"]["node_kind"],
+            "callable_body"
+        );
+    }
+
+    #[test]
+    fn bound_inspection_is_deterministic_across_worker_budgets() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "func main(value: i32) -> i32\n",
+            "{\n",
+            "    value;\n",
+            "}\n",
+        );
+
+        let file = TemporaryFile::write("bound.bray", source.as_bytes());
+
+        let offset = source
+            .find("value;")
+            .unwrap_or_else(|| panic!("test source must contain selected expression"))
+            .to_string();
+
+        let inspect = |cpu_count: &str| {
+            run_result([
+                OsString::from("brayc"),
+                OsString::from("--cpu-count"),
+                OsString::from(cpu_count),
+                OsString::from("inspect"),
+                OsString::from("bound"),
+                OsString::from("--offset"),
+                OsString::from(&offset),
+                file.path().as_os_str().to_os_string(),
+            ])
+        };
+
+        let serial = inspect("1");
+        let parallel = inspect("4");
 
         assert_eq!(serial.exit_code(), ExitCode::SUCCESS);
         assert_eq!(parallel.exit_code(), ExitCode::SUCCESS);

@@ -41,6 +41,11 @@ macro_rules! define_local_ids {
                     SymbolKind::$kind
                 }
 
+                /// Returns this identity's region-local allocation ordinal.
+                pub const fn ordinal(self) -> u32 {
+                    self.slot
+                }
+
                 pub(super) fn to_index(self) -> Option<usize> {
                     usize::try_from(self.slot).ok()
                 }

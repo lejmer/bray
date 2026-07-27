@@ -282,6 +282,36 @@ pub enum BoundStructuredExpressionKind {
     Panic,
 }
 
+impl BoundStructuredExpressionKind {
+    /// Returns this structured expression kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unit => "unit",
+            Self::Absence => "absence",
+            Self::ElementIndex => "element_index",
+            Self::SliceIndex => "slice_index",
+            Self::NullablePropagation => "nullable_propagation",
+            Self::Tuple => "tuple",
+            Self::Array => "array",
+            Self::RepeatedArray => "repeated_array",
+            Self::ArrayGenerator => "array_generator",
+            Self::GeneralGenerator => "general_generator",
+            Self::Conditional => "conditional",
+            Self::While => "while",
+            Self::Loop => "loop",
+            Self::With => "with",
+            Self::Borrow => "borrow",
+            Self::TrustBoundary => "trust_boundary",
+            Self::Assertion => "assertion",
+            Self::ResultPropagation => "result_propagation",
+            Self::Catch => "catch",
+            Self::TypeFormConstruction => "type_form_construction",
+            Self::BooleanAllFold => "boolean_all_fold",
+            Self::BooleanAnyFold => "boolean_any_fold",
+            Self::Panic => "panic",
+        }
+    }
+}
 /// The optional lower and upper bounds of one slice operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundSliceBounds {
