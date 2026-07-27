@@ -4,10 +4,11 @@ use bray_diagnostics::DiagnosticBag;
 use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticNote};
 use bray_source::SourceStore;
 
-use crate::terminal_style::{color_bright_text, color_note_heading, color_severity_label};
-
 use super::frame::write_source_frame;
-use crate::diagnostic_output::source_map::DiagnosticSourceMap;
+use super::super::source_map::DiagnosticSourceMap;
+use crate::output::{
+    color_bright_text, color_note_heading, color_severity_label,
+};
 
 pub(crate) fn write_text_diagnostics(
     diagnostics: &DiagnosticBag,
@@ -96,7 +97,7 @@ mod tests {
     use bray_source::{SourceId, SourceSpan, SourceStore, TextRange, TextSize};
 
     use super::write_text_diagnostics;
-    use crate::diagnostic_output::test_support::file_source_store;
+    use crate::output::diagnostic::test_support::file_source_store;
 
     #[test]
     fn text_output_renders_colored_terminal_diagnostics() {

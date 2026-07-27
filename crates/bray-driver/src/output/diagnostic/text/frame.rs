@@ -4,10 +4,11 @@ use std::ops::Range;
 use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticNote};
 use bray_source::{LineColumn, LineIndex, SourceLocation, SourceOrigin, SourceSnapshot};
 
-use crate::diagnostic_output::source_map::ResolvedSourceSpan;
-use crate::output_path::path_to_output_string;
-use crate::terminal_style::{color_frame_text, color_note_heading, color_severity_label};
+use crate::output::{
+    color_frame_text, color_note_heading, color_severity_label, path_to_output_string,
+};
 
+use super::super::source_map::ResolvedSourceSpan;
 const SOURCE_FRAME_MAX_COLUMNS: usize = 88;
 const SOURCE_FRAME_MAX_LINES: u32 = 6;
 const SOURCE_FRAME_OMISSION: &str = "...";

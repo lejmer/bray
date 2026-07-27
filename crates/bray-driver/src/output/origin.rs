@@ -1,7 +1,7 @@
 use bray_source::SourceOrigin;
 use serde::Serialize;
 
-use crate::output_path::path_to_output_string;
+use crate::output::path_to_output_string;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct SourceOriginOutput {

@@ -12,12 +12,12 @@ use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
 
 use crate::command::{BoundInspectionTarget, DriverOutputFormat};
-use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
-    InspectionSyntaxAnchor, TreeWriter, push_text_diagnostic,
+    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError,
+    push_text_diagnostic,
 };
-use crate::type_inspection::{InspectionType, TypeInspectionError};
+use crate::output::{DiagnosticJson, diagnostic_jsons};
 
 use super::locals::InspectionLocals;
 use super::selection::{

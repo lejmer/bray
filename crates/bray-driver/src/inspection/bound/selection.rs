@@ -11,8 +11,9 @@ use bray_symbols::{
 };
 use serde::Serialize;
 
-use crate::inspection::InspectionSymbolIdentity;
-use crate::type_inspection::{InspectionType, TypeInspectionError};
+use crate::inspection::{
+    InspectionSymbolIdentity, InspectionType, TypeInspectionError,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SelectionInspectionError {

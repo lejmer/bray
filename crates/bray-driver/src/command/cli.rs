@@ -10,8 +10,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::command::{
     BoundInspectionTarget, DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat,
 };
-use crate::exit_status::exit_code_from_diagnostics;
-use crate::terminal_style::{clap_styles, render_styled_text};
+use crate::output::{clap_styles, render_styled_text};
+use crate::run::exit_code_from_diagnostics;
 
 /// Error returned when parsing driver command-line arguments.
 #[derive(Debug)]

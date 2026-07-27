@@ -7,9 +7,9 @@ use bray_source::{SourceSpan, SourceStore};
 use serde::Serialize;
 
 use super::source_map::DiagnosticSourceMap;
-use crate::output_path::path_to_output_string;
-use crate::source_location_output::SourceLocationOutput;
-use crate::source_origin_output::SourceOriginOutput;
+use crate::output::{
+    SourceLocationOutput, SourceOriginOutput, path_to_output_string,
+};
 
 pub(crate) fn write_json_diagnostics(
     diagnostics: &DiagnosticBag,
@@ -418,7 +418,7 @@ mod tests {
     use bray_syntax::SyntaxKind;
 
     use super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson, write_json_diagnostics};
-    use crate::diagnostic_output::test_support::file_source_store;
+    use crate::output::diagnostic::test_support::file_source_store;
 
     #[test]
     fn json_output_serializes_structured_diagnostics() {

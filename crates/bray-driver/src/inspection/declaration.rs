@@ -7,11 +7,11 @@ use bray_diagnostics::DiagnosticBag;
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
-use crate::diagnostic_output::{DiagnosticJson, diagnostic_jsons};
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSyntaxAnchor, TreeWriter,
     push_text_diagnostic,
 };
+use crate::output::{DiagnosticJson, diagnostic_jsons};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DeclarationInspectionRenderError {

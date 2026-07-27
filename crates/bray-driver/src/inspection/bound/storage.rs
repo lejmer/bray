@@ -10,8 +10,8 @@ use serde::Serialize;
 
 use crate::inspection::{
     InspectionSourceError, InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor,
+    InspectionType, TypeInspectionError,
 };
-use crate::type_inspection::{InspectionType, TypeInspectionError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StorageInspectionError {
