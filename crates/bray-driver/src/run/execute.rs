@@ -1122,7 +1122,7 @@ mod tests {
     }
 
     #[test]
-    fn run_writes_json_bound_inspection_to_stdout() {
+    fn run_writes_source_wide_json_bound_inspection_to_stdout() {
         let source = concat!(
             "module app;\n",
             "\n",
@@ -1136,18 +1136,12 @@ mod tests {
 
         let file = TemporaryFile::write("bound.bray", source.as_bytes());
 
-        let offset = source
-            .find("let result")
-            .unwrap_or_else(|| panic!("test source must contain selected statement"));
-
         let result = run_result([
             OsString::from("brayc"),
             OsString::from("--format"),
             OsString::from("json"),
             OsString::from("inspect"),
             OsString::from("bound"),
-            OsString::from("--offset"),
-            OsString::from(offset.to_string()),
             file.path().as_os_str().to_os_string(),
         ]);
 
@@ -1161,12 +1155,12 @@ mod tests {
         assert_eq!(output_json["kind"], "bound_inspection");
 
         assert_eq!(
-            output_json["selected_unit"]["unit_kind"],
+            output_json["units"][0]["unit_kind"],
             "callable_body"
         );
 
         assert_eq!(
-            output_json["selected_unit"]["root"]["node_kind"],
+            output_json["units"][0]["root"]["node_kind"],
             "callable_body"
         );
     }

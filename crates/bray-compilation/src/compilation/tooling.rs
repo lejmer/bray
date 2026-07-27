@@ -259,6 +259,42 @@ impl Compilation {
         })
     }
 
+    /// Returns every independently checked bound unit rooted in one source.
+    pub fn bound_units_for_source(
+        &self,
+        source_id: SourceId,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Vec<BoundUnitFact>, FactQueryError> {
+        self.run_semantic_query(cancellation, priority, || {
+            let mut keys = self
+                .declared_unit_keys()?
+                .into_iter()
+                .filter(|key| key.source().syntax().source_id() == source_id)
+                .collect::<Vec<_>>();
+
+            keys.sort_by_key(|key| {
+                let source = key.source().syntax();
+
+                (source.full_range().start(), source.full_range().end(), key.kind())
+            });
+
+            let mut pending = keys.into_iter().rev().collect::<Vec<_>>();
+            let mut units = Vec::new();
+
+            while let Some(key) = pending.pop() {
+                cancellation.check()?;
+
+                let bound = self.bound_unit_with_cancellation(key, cancellation)?;
+
+                pending.extend(bound.result().value().nested_units().iter().rev().cloned());
+                units.push(Arc::clone(bound.result()));
+            }
+
+            Ok(units)
+        })
+    }
+
     /// Returns source-load, syntax, and declaration diagnostics for one source.
     pub fn diagnostics_for_source(
         &self,
@@ -652,6 +688,7 @@ mod tests {
     use crate::fact::{CancellationToken, FactCellTestEvent, QueryPriority};
     use crate::test_support::{
         FactEvaluationLog, FactTestGate, compilation, compilation_with_options,
+        compilation_with_sources_and_worker_budget,
     };
     use crate::{
         CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
@@ -669,6 +706,47 @@ mod tests {
         "    let answer: i32 = identity(1);\n",
         "}\n",
     );
+
+    #[test]
+    fn source_unit_query_does_not_bind_units_from_other_sources() {
+        let first = concat!("module app;\n", "func first()\n", "{\n", "}\n");
+        let second = concat!("module app;\n", "func second()\n", "{\n", "}\n");
+
+        let compilation = compilation_with_sources_and_worker_budget(
+            &[first, second],
+            WorkerBudget::serial(),
+        );
+
+        let units = compilation
+            .bound_units_for_source(
+                SourceId::new(0),
+                &CancellationToken::new(),
+                QueryPriority::Interactive,
+            )
+            .unwrap_or_else(|error| panic!("source bound units must be available: {error:?}"));
+
+        assert_eq!(units.len(), 1);
+
+        assert!(units.iter().all(|unit| {
+            unit.value().key().source().syntax().source_id() == SourceId::new(0)
+        }));
+
+        let keys = compilation
+            .declared_unit_keys()
+            .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"));
+
+        let second_source_keys = keys.iter().filter(|key| {
+            key.source().syntax().source_id() == SourceId::new(1)
+        });
+
+        assert!(second_source_keys.into_iter().all(|key| {
+            compilation
+                .state
+                .bound_units
+                .is_published(key)
+                .is_ok_and(|published| !published)
+        }));
+    }
 
     #[test]
     fn position_queries_resolve_syntax_declarations_symbols_definitions_and_types() {

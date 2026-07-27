@@ -211,10 +211,14 @@ impl CliInspectCommand {
                 DriverCommand::inspect_declarations(files.files)
             }
             CliInspectSubcommand::Symbols(files) => DriverCommand::inspect_symbols(files.files),
-            CliInspectSubcommand::Bound(request) => DriverCommand::inspect_bound(
-                BoundInspectionTarget::new(request.source_id, request.offset.into()),
-                request.files,
-            ),
+            CliInspectSubcommand::Bound(request) => {
+                let target = request.offset.map_or_else(
+                    || BoundInspectionTarget::source(request.source_id),
+                    |offset| BoundInspectionTarget::at(request.source_id, offset.into()),
+                );
+
+                DriverCommand::inspect_bound(target, request.files)
+            }
         }
     }
 }
@@ -234,7 +238,7 @@ struct CliBoundInspection {
     #[arg(long, default_value_t = 0)]
     source_id: u32,
     #[arg(long)]
-    offset: u32,
+    offset: Option<u32>,
     #[arg(value_name = "FILE", num_args = 0..)]
     files: Vec<PathBuf>,
 }
@@ -491,7 +495,29 @@ mod tests {
             .unwrap_or_else(|| panic!("inspect bound command must retain its target"));
 
         assert_eq!(target.source_id(), 2);
-        assert_eq!(target.position(), 31.into());
+        assert_eq!(target.position(), Some(31.into()));
+        assert_eq!(invocation.command().files(), [PathBuf::from("main.bray")]);
+    }
+
+    #[test]
+    fn parses_inspect_bound_command_without_a_position_filter() {
+        let invocation = match DriverInvocation::try_from_arguments([
+            "brayc",
+            "inspect",
+            "bound",
+            "main.bray",
+        ]) {
+            Ok(invocation) => invocation,
+            Err(error) => panic!("inspect bound invocation should parse: {error:?}"),
+        };
+
+        let target = invocation
+            .command()
+            .bound_inspection_target()
+            .unwrap_or_else(|| panic!("inspect bound command must retain its source target"));
+
+        assert_eq!(target.source_id(), 0);
+        assert_eq!(target.position(), None);
         assert_eq!(invocation.command().files(), [PathBuf::from("main.bray")]);
     }
 

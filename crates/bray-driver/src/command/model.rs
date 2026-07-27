@@ -70,23 +70,31 @@ pub enum DriverCommandKind {
     InspectDeclarations,
     /// Inspects the compilation-wide symbol graph.
     InspectSymbols,
-    /// Inspects one source-selected bound semantic unit.
+    /// Inspects bound semantic units from one source.
     InspectBound,
 }
 
-/// Selects the innermost bound semantic unit covering one source position.
+/// Selects bound semantic units from one source, optionally at one position.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundInspectionTarget {
     source_id: u32,
-    position: TextSize,
+    position: Option<TextSize>,
 }
 
 impl BoundInspectionTarget {
-    /// Creates a bound-unit inspection target from a source ID and UTF-8 byte offset.
-    pub const fn new(source_id: u32, position: TextSize) -> Self {
+    /// Creates a target covering every independently checked unit in one source.
+    pub const fn source(source_id: u32) -> Self {
         Self {
             source_id,
-            position,
+            position: None,
+        }
+    }
+
+    /// Creates a target for the innermost unit covering one UTF-8 byte offset.
+    pub const fn at(source_id: u32, position: TextSize) -> Self {
+        Self {
+            source_id,
+            position: Some(position),
         }
     }
 
@@ -95,8 +103,8 @@ impl BoundInspectionTarget {
         self.source_id
     }
 
-    /// Returns the selected UTF-8 byte offset.
-    pub const fn position(self) -> TextSize {
+    /// Returns the selected UTF-8 byte offset, if inspection is position-filtered.
+    pub const fn position(self) -> Option<TextSize> {
         self.position
     }
 }
@@ -134,9 +142,9 @@ pub enum DriverCommand {
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
-    /// Inspects one source-selected bound semantic unit.
+    /// Inspects bound semantic units from one source.
     InspectBound {
-        /// Source position used to select the innermost semantic unit.
+        /// Source and optional position used to select semantic units.
         target: BoundInspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
@@ -205,7 +213,7 @@ impl DriverCommand {
         }
     }
 
-    /// Returns the source position selected for bound inspection.
+    /// Returns the source and optional position selected for bound inspection.
     pub const fn bound_inspection_target(&self) -> Option<BoundInspectionTarget> {
         match self {
             Self::InspectBound { target, .. } => Some(*target),
