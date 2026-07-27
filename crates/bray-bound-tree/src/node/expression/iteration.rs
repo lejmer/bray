@@ -11,6 +11,17 @@ pub enum IterationSourceMode {
     Move,
 }
 
+impl IterationSourceMode {
+    /// Returns this iteration source mode's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Mutable => "mutable",
+            Self::Move => "move",
+        }
+    }
+}
+
 /// One bound iteration source expression and its selected access mode.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BoundIterationSource {

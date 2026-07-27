@@ -13,6 +13,11 @@ macro_rules! define_unit_scoped_id {
                 self.unit
             }
 
+            /// Returns this identity's unit-local allocation ordinal.
+            pub const fn ordinal(self) -> u32 {
+                self.slot
+            }
+
             #[cfg(test)]
             pub(crate) const fn from_slot(unit: crate::BoundUnitId, slot: u32) -> Self {
                 Self { unit, slot }

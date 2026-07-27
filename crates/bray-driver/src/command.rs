@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use bray_compilation::{CompilationOptions, WorkerBudget};
+use bray_source::TextSize;
 
 /// Output format selected for driver-produced output.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -69,6 +70,35 @@ pub enum DriverCommandKind {
     InspectDeclarations,
     /// Inspects the compilation-wide symbol graph.
     InspectSymbols,
+    /// Inspects one source-selected bound semantic unit.
+    InspectBound,
+}
+
+/// Selects the innermost bound semantic unit covering one source position.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct BoundInspectionTarget {
+    source_id: u32,
+    position: TextSize,
+}
+
+impl BoundInspectionTarget {
+    /// Creates a bound-unit inspection target from a source ID and UTF-8 byte offset.
+    pub const fn new(source_id: u32, position: TextSize) -> Self {
+        Self {
+            source_id,
+            position,
+        }
+    }
+
+    /// Returns the raw loaded-source identity.
+    pub const fn source_id(self) -> u32 {
+        self.source_id
+    }
+
+    /// Returns the selected UTF-8 byte offset.
+    pub const fn position(self) -> TextSize {
+        self.position
+    }
 }
 
 /// Driver command selected by the CLI.
@@ -101,6 +131,13 @@ pub enum DriverCommand {
     },
     /// Inspects the compilation-wide symbol graph.
     InspectSymbols {
+        /// Source files to inspect.
+        files: Vec<PathBuf>,
+    },
+    /// Inspects one source-selected bound semantic unit.
+    InspectBound {
+        /// Source position used to select the innermost semantic unit.
+        target: BoundInspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
@@ -137,6 +174,11 @@ impl DriverCommand {
         Self::InspectSymbols { files }
     }
 
+    /// Creates an inspect-bound command.
+    pub fn inspect_bound(target: BoundInspectionTarget, files: Vec<PathBuf>) -> Self {
+        Self::InspectBound { target, files }
+    }
+
     /// Returns this command's stable category.
     pub const fn kind(&self) -> DriverCommandKind {
         match self {
@@ -146,6 +188,7 @@ impl DriverCommand {
             Self::InspectSyntax { .. } => DriverCommandKind::InspectSyntax,
             Self::InspectDeclarations { .. } => DriverCommandKind::InspectDeclarations,
             Self::InspectSymbols { .. } => DriverCommandKind::InspectSymbols,
+            Self::InspectBound { .. } => DriverCommandKind::InspectBound,
         }
     }
 
@@ -157,7 +200,16 @@ impl DriverCommand {
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
             | Self::InspectDeclarations { files }
-            | Self::InspectSymbols { files } => files,
+            | Self::InspectSymbols { files }
+            | Self::InspectBound { files, .. } => files,
+        }
+    }
+
+    /// Returns the source position selected for bound inspection.
+    pub const fn bound_inspection_target(&self) -> Option<BoundInspectionTarget> {
+        match self {
+            Self::InspectBound { target, .. } => Some(*target),
+            _ => None,
         }
     }
 
@@ -168,7 +220,8 @@ impl DriverCommand {
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
             | Self::InspectDeclarations { files }
-            | Self::InspectSymbols { files } => files,
+            | Self::InspectSymbols { files }
+            | Self::InspectBound { files, .. } => files,
         }
     }
 }

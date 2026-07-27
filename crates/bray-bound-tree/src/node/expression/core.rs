@@ -67,6 +67,36 @@ pub enum BoundExpression {
 }
 
 impl BoundExpression {
+    /// Returns this expression's stable machine-readable category name.
+    pub const fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Block(_) => "block",
+            Self::Literal(_) => "literal",
+            Self::Name(_) => "name",
+            Self::PatternReference(_) => "pattern_reference",
+            Self::UnresolvedReference(_) => "unresolved_reference",
+            Self::Unary(_) => "unary",
+            Self::Binary(_) => "binary",
+            Self::Assignment(_) => "assignment",
+            Self::Call(_) => "call",
+            Self::ErrorCall(_) => "error_call",
+            Self::Conversion(_) => "conversion",
+            Self::ErrorConversion(_) => "error_conversion",
+            Self::AnonymousCallable(_) => "anonymous_callable",
+            Self::Await(_) => "await",
+            Self::Structured(expression) => expression.kind().as_str(),
+            Self::StructConstruction(_) => "struct_construction",
+            Self::MemberAccess(_) => "member_access",
+            Self::LeadingDotVariant(_) => "leading_dot_variant",
+            Self::TraitQualifiedMember(_) => "trait_qualified_member",
+            Self::ControlTransfer(_) => "control_transfer",
+            Self::For(_) => "for",
+            Self::Match(_) => "match",
+            Self::Generator(_) => "generator",
+            Self::Error(_) => "error",
+        }
+    }
+
     /// Returns the source or synthesized origin of this expression.
     pub const fn origin(&self) -> BoundNodeOrigin {
         match self {

@@ -17,6 +17,18 @@ pub enum BoundNodeKind {
     CallableBody,
 }
 
+impl BoundNodeKind {
+    /// Returns this bound-node kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Expression => "expression",
+            Self::Pattern => "pattern",
+            Self::Block => "block",
+            Self::CallableBody => "callable_body",
+        }
+    }
+}
+
 /// Identifies one exact bound node category at the type level.
 ///
 /// This trait is sealed so heterogeneous infrastructure cannot claim a category that does not
@@ -48,6 +60,11 @@ macro_rules! define_bound_node_ids {
                 /// Returns the stable substantial node category associated with this exact ID.
                 pub const fn kind(self) -> BoundNodeKind {
                     BoundNodeKind::$kind
+                }
+
+                /// Returns the node's unit-local arena ordinal.
+                pub const fn ordinal(self) -> u32 {
+                    self.slot
                 }
 
                 pub(crate) const fn from_slot(unit: BoundUnitId, slot: u32) -> Self {
@@ -94,6 +111,13 @@ macro_rules! define_bound_node_ids {
             pub const fn kind(self) -> BoundNodeKind {
                 match self {
                     $(Self::$variant(id) => id.kind(),)+
+                }
+            }
+
+            /// Returns the node's unit-local arena ordinal.
+            pub const fn ordinal(self) -> u32 {
+                match self {
+                    $(Self::$variant(id) => id.ordinal(),)+
                 }
             }
 

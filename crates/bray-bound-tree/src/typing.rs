@@ -13,6 +13,16 @@ pub enum ExpressionTypeStatus {
     Recovered,
 }
 
+impl ExpressionTypeStatus {
+    /// Returns this expression-type status's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::Recovered => "recovered",
+        }
+    }
+}
+
 /// The canonical type and validity state of one expression occurrence.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExpressionTypeResult {

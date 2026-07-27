@@ -241,6 +241,24 @@ impl Compilation {
         })
     }
 
+    /// Returns the innermost independently checked bound unit covering a source position.
+    pub fn bound_unit_at(
+        &self,
+        source_id: SourceId,
+        position: TextSize,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Option<Arc<DiagnosticResult<BoundUnit>>>, FactQueryError> {
+        let Some(source) = self.syntax_at(source_id, position, cancellation, priority)? else {
+            return Ok(None);
+        };
+
+        self.run_semantic_query(cancellation, priority, || {
+            self.bound_unit_for_syntax(source.syntax(), cancellation)
+                .map(|bound| bound.map(|(_, result)| result))
+        })
+    }
+
     /// Returns source-load, syntax, and declaration diagnostics for one source.
     pub fn diagnostics_for_source(
         &self,

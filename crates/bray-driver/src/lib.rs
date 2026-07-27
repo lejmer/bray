@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod bound_inspection;
 mod cli;
 mod command;
 mod declaration_inspection;
@@ -24,7 +25,8 @@ mod type_inspection;
 
 pub use cli::DriverCliError;
 pub use command::{
-    DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions, DriverOutputFormat,
+    BoundInspectionTarget, DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
+    DriverOutputFormat,
 };
 pub use file_arguments::{
     DriverSourceInputError, compilation_request_from_file_arguments,

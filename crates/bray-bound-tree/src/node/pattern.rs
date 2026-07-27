@@ -19,6 +19,18 @@ pub enum BoundPatternMode {
     MatchConsume,
 }
 
+impl BoundPatternMode {
+    /// Returns this pattern mode's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Declaration => "declaration",
+            Self::Assignment => "assignment",
+            Self::MatchObserve => "match_observe",
+            Self::MatchConsume => "match_consume",
+        }
+    }
+}
+
 /// The source-shaped semantic form retained for a bound pattern.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundPatternKind {
@@ -54,6 +66,28 @@ pub enum BoundPatternKind {
     Error,
 }
 
+impl BoundPatternKind {
+    /// Returns this pattern kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Binding => "binding",
+            Self::Discard => "discard",
+            Self::Literal => "literal",
+            Self::NullableAbsent => "nullable_absent",
+            Self::NullablePresent => "nullable_present",
+            Self::Box => "box",
+            Self::Path => "path",
+            Self::Variant => "variant",
+            Self::Product => "product",
+            Self::Tuple => "tuple",
+            Self::Array => "array",
+            Self::Grouped => "grouped",
+            Self::Alternative => "alternative",
+            Self::Remaining => "remaining",
+            Self::Error => "error",
+        }
+    }
+}
 /// An existing semantic entity selected by a non-binding pattern.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundPatternTarget {

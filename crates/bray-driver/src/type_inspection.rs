@@ -41,6 +41,27 @@ impl InspectionType {
         })
     }
 
+    pub(crate) fn from_type(
+        semantic_values: &SemanticValueStore,
+        symbols: &SymbolGraph,
+        ty: TypeId,
+    ) -> Result<Self, TypeInspectionError> {
+        let mut formatter = TypeFormatter::new(semantic_values, symbols);
+
+        let data = semantic_values
+            .type_data(ty)
+            .map_err(|_| TypeInspectionError::SemanticValue)?;
+
+        let type_kind = type_data_kind(data.as_ref());
+        let text = formatter.ty(ty, 0)?;
+
+        Ok(Self {
+            type_kind,
+            text,
+            symbol_references: formatter.references(),
+        })
+    }
+
     pub(crate) fn text(&self) -> &str {
         &self.text
     }
@@ -384,5 +405,24 @@ fn template_kind(template: &TypeExpressionTemplate) -> &'static str {
         TypeExpressionTemplate::TraitView(_) => "trait_view",
         TypeExpressionTemplate::OwnedIndirection { .. } => "owned_indirection",
         TypeExpressionTemplate::Callable(_) => "callable",
+    }
+}
+
+fn type_data_kind(data: &TypeData) -> &'static str {
+    match data {
+        TypeData::Error => "error",
+        TypeData::Named { .. } => "named",
+        TypeData::TypeParameter(_) => "type_parameter",
+        TypeData::ContextualSelf(_) => "contextual_self",
+        TypeData::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
+        TypeData::Tuple(_) => "tuple",
+        TypeData::Array { .. } => "array",
+        TypeData::Slice(_) => "slice",
+        TypeData::Generator(_) => "generator",
+        TypeData::Nullable(_) => "nullable",
+        TypeData::Borrow { .. } => "borrow",
+        TypeData::TraitView(_) => "trait_view",
+        TypeData::OwnedIndirection { .. } => "owned_indirection",
+        TypeData::Callable(_) => "callable",
     }
 }

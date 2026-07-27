@@ -193,6 +193,24 @@ pub enum StorageAccessPurpose {
 }
 
 impl StorageAccessPurpose {
+    /// Returns this access purpose's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Initialize => "initialize",
+            Self::Write => "write",
+            Self::Move => "move",
+            Self::Copy => "copy",
+            Self::ValueTransfer => "value_transfer",
+            Self::Borrow(_) => "borrow",
+            Self::Assignment => "assignment",
+            Self::Member => "member",
+            Self::Index => "index",
+            Self::Slice => "slice",
+            Self::Projection => "projection",
+        }
+    }
+
     /// Returns whether a checked purpose is a valid resolution of this planned purpose.
     pub fn matches_checked(self, checked: Self) -> bool {
         self == checked

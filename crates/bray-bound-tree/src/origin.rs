@@ -38,6 +38,20 @@ pub enum BoundSynthesisRole {
     Recovery,
 }
 
+impl BoundSynthesisRole {
+    /// Returns this synthesis role's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Conversion => "conversion",
+            Self::DefaultValue => "default_value",
+            Self::Temporary => "temporary",
+            Self::OwnershipOperation => "ownership_operation",
+            Self::ControlFlow => "control_flow",
+            Self::Recovery => "recovery",
+        }
+    }
+}
+
 /// Source-correlated provenance for a synthesized bound node.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SynthesizedBoundNodeOrigin {

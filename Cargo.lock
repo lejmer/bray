@@ -233,6 +233,7 @@ dependencies = [
 name = "bray-driver"
 version = "0.0.0"
 dependencies = [
+ "bray-bound-tree",
  "bray-compilation",
  "bray-declarations",
  "bray-diagnostics",

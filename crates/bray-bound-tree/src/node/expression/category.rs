@@ -282,6 +282,67 @@ pub enum BoundStructuredExpressionKind {
     Panic,
 }
 
+impl BoundOperator {
+    /// Returns this operator's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Assign => "assign",
+            Self::LogicalOr => "logical_or",
+            Self::LogicalAnd => "logical_and",
+            Self::Equal => "equal",
+            Self::NotEqual => "not_equal",
+            Self::Less => "less",
+            Self::LessEqual => "less_equal",
+            Self::Greater => "greater",
+            Self::GreaterEqual => "greater_equal",
+            Self::BitwiseOr => "bitwise_or",
+            Self::BitwiseXor => "bitwise_xor",
+            Self::BitwiseAnd => "bitwise_and",
+            Self::ShiftLeft => "shift_left",
+            Self::ShiftRight => "shift_right",
+            Self::Add => "add",
+            Self::Subtract => "subtract",
+            Self::Multiply => "multiply",
+            Self::Divide => "divide",
+            Self::Remainder => "remainder",
+            Self::MatrixMultiply => "matrix_multiply",
+            Self::Exponentiate => "exponentiate",
+            Self::BitwiseNot => "bitwise_not",
+            Self::LogicalNot => "logical_not",
+        }
+    }
+}
+
+impl BoundStructuredExpressionKind {
+    /// Returns this structured expression kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unit => "unit",
+            Self::Absence => "absence",
+            Self::ElementIndex => "element_index",
+            Self::SliceIndex => "slice_index",
+            Self::NullablePropagation => "nullable_propagation",
+            Self::Tuple => "tuple",
+            Self::Array => "array",
+            Self::RepeatedArray => "repeated_array",
+            Self::ArrayGenerator => "array_generator",
+            Self::GeneralGenerator => "general_generator",
+            Self::Conditional => "conditional",
+            Self::While => "while",
+            Self::Loop => "loop",
+            Self::With => "with",
+            Self::Borrow => "borrow",
+            Self::TrustBoundary => "trust_boundary",
+            Self::Assertion => "assertion",
+            Self::ResultPropagation => "result_propagation",
+            Self::Catch => "catch",
+            Self::TypeFormConstruction => "type_form_construction",
+            Self::BooleanAllFold => "boolean_all_fold",
+            Self::BooleanAnyFold => "boolean_any_fold",
+            Self::Panic => "panic",
+        }
+    }
+}
 /// The optional lower and upper bounds of one slice operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundSliceBounds {
