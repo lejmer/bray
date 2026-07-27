@@ -7,11 +7,13 @@ mod command;
 mod diagnostic_output;
 mod exit_status;
 mod file_arguments;
+mod inspection;
 mod output_path;
 mod run;
 mod source_inspection;
 mod source_location_output;
 mod source_origin_output;
+mod syntax_inspection;
 mod terminal_style;
 #[cfg(test)]
 mod test_support;

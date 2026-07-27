@@ -63,6 +63,8 @@ pub enum DriverCommandKind {
     InspectSource,
     /// Inspects lexed source tokens.
     InspectTokens,
+    /// Inspects parsed source syntax trees.
+    InspectSyntax,
 }
 
 /// Driver command selected by the CLI.
@@ -80,6 +82,11 @@ pub enum DriverCommand {
     },
     /// Inspects lexed source tokens.
     InspectTokens {
+        /// Source files to inspect.
+        files: Vec<PathBuf>,
+    },
+    /// Inspects parsed source syntax trees.
+    InspectSyntax {
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
@@ -101,12 +108,18 @@ impl DriverCommand {
         Self::InspectTokens { files }
     }
 
+    /// Creates an inspect-syntax command.
+    pub fn inspect_syntax(files: Vec<PathBuf>) -> Self {
+        Self::InspectSyntax { files }
+    }
+
     /// Returns this command's stable category.
     pub const fn kind(&self) -> DriverCommandKind {
         match self {
             Self::Check { .. } => DriverCommandKind::Check,
             Self::InspectSource { .. } => DriverCommandKind::InspectSource,
             Self::InspectTokens { .. } => DriverCommandKind::InspectTokens,
+            Self::InspectSyntax { .. } => DriverCommandKind::InspectSyntax,
         }
     }
 
@@ -115,7 +128,8 @@ impl DriverCommand {
         match self {
             Self::Check { files }
             | Self::InspectSource { files }
-            | Self::InspectTokens { files } => files,
+            | Self::InspectTokens { files }
+            | Self::InspectSyntax { files } => files,
         }
     }
 
@@ -123,7 +137,8 @@ impl DriverCommand {
         match self {
             Self::Check { files }
             | Self::InspectSource { files }
-            | Self::InspectTokens { files } => files,
+            | Self::InspectTokens { files }
+            | Self::InspectSyntax { files } => files,
         }
     }
 }
