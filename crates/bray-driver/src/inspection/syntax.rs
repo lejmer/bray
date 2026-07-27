@@ -213,7 +213,6 @@ impl SyntaxInspectionElement {
 
         writer.enter_children(is_last);
 
-        // TODO(BRA-271): Use an explicit rendering stack once pathological syntax nesting is accepted.
         for (index, child) in children.iter().enumerate() {
             child.push_text(writer, index + 1 == children.len());
         }
