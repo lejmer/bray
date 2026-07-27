@@ -1,7 +1,7 @@
 use bray_compilation::Compilation;
 use bray_declarations::{
-    ContainerId, ContainerKind, ContainerRecord, DeclarationKind, DeclarationName,
-    DeclarationRecord, DeclarationSurface, DeclarationTable, ModulePartRecord, SyntaxAnchor,
+    ContainerId, ContainerKind, ContainerRecord, DeclarationName, DeclarationRecord,
+    DeclarationSurface, DeclarationTable, ModulePartRecord, SyntaxAnchor,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_source::LineIndex;
@@ -65,11 +65,18 @@ impl DeclarationInspectionReport {
         table: &DeclarationTable,
         diagnostics: &DiagnosticBag,
     ) -> Result<Self, DeclarationInspectionRenderError> {
+        let line_indices = compilation
+            .sources()
+            .iter()
+            .map(|snapshot| LineIndex::new(snapshot.text()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| DeclarationInspectionRenderError::SourceIndex)?;
+
         let root = table
             .container(table.root_container())
             .ok_or(DeclarationInspectionRenderError::Container)?;
 
-        let root = InspectionContainer::from_record(compilation, table, root)?;
+        let root = InspectionContainer::from_record(compilation, &line_indices, table, root)?;
 
         let diagnostic_jsons = diagnostic_jsons(diagnostics, Some(compilation.sources()));
 
@@ -98,6 +105,7 @@ struct InspectionContainer {
 impl InspectionContainer {
     fn from_record(
         compilation: &Compilation,
+        line_indices: &[LineIndex],
         table: &DeclarationTable,
         container: &ContainerRecord,
     ) -> Result<Self, DeclarationInspectionRenderError> {
@@ -108,7 +116,14 @@ impl InspectionContainer {
                 table
                     .module_part(*id)
                     .ok_or(DeclarationInspectionRenderError::ModulePart)
-                    .and_then(|part| InspectionModulePart::from_record(compilation, table, part))
+                    .and_then(|part| {
+                        InspectionModulePart::from_record(
+                            compilation,
+                            line_indices,
+                            table,
+                            part,
+                        )
+                    })
             })
             .collect::<Result<_, _>>()?;
 
@@ -126,7 +141,12 @@ impl InspectionContainer {
                         .declaration(*id)
                         .ok_or(DeclarationInspectionRenderError::Declaration)
                         .and_then(|declaration| {
-                            InspectionDeclaration::from_record(compilation, table, declaration)
+                            InspectionDeclaration::from_record(
+                                compilation,
+                                line_indices,
+                                table,
+                                declaration,
+                            )
                         })
                 })
                 .collect::<Result<_, _>>()?
@@ -135,14 +155,14 @@ impl InspectionContainer {
         let modules = if container.kind() == ContainerKind::Root {
             table
                 .module_containers()
-                .map(|module| Self::from_record(compilation, table, module))
+                .map(|module| Self::from_record(compilation, line_indices, table, module))
                 .collect::<Result<_, _>>()?
         } else {
             Vec::new()
         };
 
         Ok(Self {
-            container_kind: container_kind_text(container.kind()),
+            container_kind: container.kind().as_str(),
             id: container.id().raw(),
             module_path: container.module_path().map(|path| path.dotted()),
             contributions,
@@ -202,6 +222,7 @@ struct InspectionModulePart {
 impl InspectionModulePart {
     fn from_record(
         compilation: &Compilation,
+        line_indices: &[LineIndex],
         table: &DeclarationTable,
         part: &ModulePartRecord,
     ) -> Result<Self, DeclarationInspectionRenderError> {
@@ -213,7 +234,12 @@ impl InspectionModulePart {
                     .declaration(*id)
                     .ok_or(DeclarationInspectionRenderError::Declaration)
                     .and_then(|declaration| {
-                        InspectionDeclaration::from_record(compilation, table, declaration)
+                        InspectionDeclaration::from_record(
+                            compilation,
+                            line_indices,
+                            table,
+                            declaration,
+                        )
                     })
             })
             .collect::<Result<_, _>>()?;
@@ -222,8 +248,16 @@ impl InspectionModulePart {
             part_kind: "module_contribution",
             id: part.id().raw(),
             declaration_id: part.declaration().raw(),
-            anchor: InspectionAnchor::from_anchor(compilation, part.syntax_anchor())?,
-            surface: InspectionSurface::from_surface(compilation, part.surface())?,
+            anchor: InspectionAnchor::from_anchor(
+                compilation,
+                line_indices,
+                part.syntax_anchor(),
+            )?,
+            surface: InspectionSurface::from_surface(
+                compilation,
+                line_indices,
+                part.surface(),
+            )?,
             declarations,
         })
     }
@@ -276,22 +310,31 @@ struct InspectionDeclaration {
 impl InspectionDeclaration {
     fn from_record(
         compilation: &Compilation,
+        line_indices: &[LineIndex],
         table: &DeclarationTable,
         declaration: &DeclarationRecord,
     ) -> Result<Self, DeclarationInspectionRenderError> {
         let child_container = declaration
             .child_container()
-            .map(|id| inspection_container(compilation, table, id))
+            .map(|id| inspection_container(compilation, line_indices, table, id))
             .transpose()?
             .map(Box::new);
 
         Ok(Self {
-            declaration_kind: declaration_kind_text(declaration.kind()),
+            declaration_kind: declaration.kind().as_str(),
             id: declaration.id().raw(),
             name: declaration.name().map(InspectionDeclarationName::from_name),
             owning_container: declaration.owning_container().raw(),
-            anchor: InspectionAnchor::from_anchor(compilation, declaration.syntax_anchor())?,
-            surface: InspectionSurface::from_surface(compilation, declaration.surface())?,
+            anchor: InspectionAnchor::from_anchor(
+                compilation,
+                line_indices,
+                declaration.syntax_anchor(),
+            )?,
+            surface: InspectionSurface::from_surface(
+                compilation,
+                line_indices,
+                declaration.surface(),
+            )?,
             child_container,
         })
     }
@@ -341,6 +384,7 @@ impl InspectionDeclaration {
 
 fn inspection_container(
     compilation: &Compilation,
+    line_indices: &[LineIndex],
     table: &DeclarationTable,
     id: ContainerId,
 ) -> Result<InspectionContainer, DeclarationInspectionRenderError> {
@@ -348,7 +392,7 @@ fn inspection_container(
         .container(id)
         .ok_or(DeclarationInspectionRenderError::Container)?;
 
-    InspectionContainer::from_record(compilation, table, container)
+    InspectionContainer::from_record(compilation, line_indices, table, container)
 }
 
 #[derive(Serialize)]
@@ -404,16 +448,23 @@ struct InspectionAnchor {
 impl InspectionAnchor {
     fn from_anchor(
         compilation: &Compilation,
+        line_indices: &[LineIndex],
         anchor: SyntaxAnchor,
     ) -> Result<Self, DeclarationInspectionRenderError> {
         let snapshot = compilation
             .source(anchor.source_id())
             .ok_or(DeclarationInspectionRenderError::Source)?;
 
-        let line_index = LineIndex::new(snapshot.text())
-            .map_err(|_| DeclarationInspectionRenderError::SourceIndex)?;
+        let line_index = line_indices
+            .get(
+                anchor
+                    .source_id()
+                    .to_index()
+                    .ok_or(DeclarationInspectionRenderError::SourceIndex)?,
+            )
+            .ok_or(DeclarationInspectionRenderError::SourceIndex)?;
 
-        let location = location_for_range(snapshot, &line_index, anchor.full_range())
+        let location = location_for_range(snapshot, line_index, anchor.full_range())
             .ok_or(DeclarationInspectionRenderError::SourceIndex)?;
 
         let origin = SourceOriginOutput::from_origin(snapshot.origin());
@@ -455,6 +506,7 @@ struct InspectionSurface {
 impl InspectionSurface {
     fn from_surface(
         compilation: &Compilation,
+        line_indices: &[LineIndex],
         surface: &DeclarationSurface,
     ) -> Result<Self, DeclarationInspectionRenderError> {
         Ok(Self {
@@ -464,14 +516,22 @@ impl InspectionSurface {
                 .iter()
                 .map(|kind| kind.as_str())
                 .collect(),
-            directives: inspection_anchors(compilation, surface.directives())?,
-            constraints: inspection_anchors(compilation, surface.constraints())?,
-            contract_clauses: inspection_anchors(compilation, surface.contract_clauses())?,
+            directives: inspection_anchors(compilation, line_indices, surface.directives())?,
+            constraints: inspection_anchors(compilation, line_indices, surface.constraints())?,
+            contract_clauses: inspection_anchors(
+                compilation,
+                line_indices,
+                surface.contract_clauses(),
+            )?,
             runtime_default: surface
                 .runtime_default()
-                .map(|anchor| InspectionAnchor::from_anchor(compilation, anchor))
+                .map(|anchor| InspectionAnchor::from_anchor(compilation, line_indices, anchor))
                 .transpose()?,
-            overload_arms: inspection_anchors(compilation, surface.overload_arms())?,
+            overload_arms: inspection_anchors(
+                compilation,
+                line_indices,
+                surface.overload_arms(),
+            )?,
         })
     }
 
@@ -502,11 +562,12 @@ impl InspectionSurface {
 
 fn inspection_anchors(
     compilation: &Compilation,
+    line_indices: &[LineIndex],
     anchors: &[SyntaxAnchor],
 ) -> Result<Vec<InspectionAnchor>, DeclarationInspectionRenderError> {
     anchors
         .iter()
-        .map(|anchor| InspectionAnchor::from_anchor(compilation, *anchor))
+        .map(|anchor| InspectionAnchor::from_anchor(compilation, line_indices, *anchor))
         .collect()
 }
 
@@ -574,62 +635,6 @@ fn render_json_report(
     output.push('\n');
 
     Ok(output)
-}
-
-const fn container_kind_text(kind: ContainerKind) -> &'static str {
-    match kind {
-        ContainerKind::Root => "root",
-        ContainerKind::Module => "module",
-        ContainerKind::Type => "type",
-        ContainerKind::Trait => "trait",
-        ContainerKind::Implementation => "implementation",
-        ContainerKind::Signature => "signature",
-        ContainerKind::Variant => "variant",
-    }
-}
-
-const fn declaration_kind_text(kind: DeclarationKind) -> &'static str {
-    match kind {
-        DeclarationKind::Module => "module",
-        DeclarationKind::Using => "using",
-        DeclarationKind::Export => "export",
-        DeclarationKind::Constant => "constant",
-        DeclarationKind::Function => "function",
-        DeclarationKind::Predicate => "predicate",
-        DeclarationKind::CallableContract => "callable_contract",
-        DeclarationKind::CallableOverload => "callable_overload",
-        DeclarationKind::ImplementationOverload => "implementation_overload",
-        DeclarationKind::Struct => "struct",
-        DeclarationKind::Union => "union",
-        DeclarationKind::Trait => "trait",
-        DeclarationKind::InherentImplementation => "inherent_implementation",
-        DeclarationKind::UnnamedTraitImplementation => "unnamed_trait_implementation",
-        DeclarationKind::NamedTraitImplementation => "named_trait_implementation",
-        DeclarationKind::StructField => "struct_field",
-        DeclarationKind::UnionVariant => "union_variant",
-        DeclarationKind::TraitConstantMember => "trait_constant_member",
-        DeclarationKind::TraitTypeMember => "trait_type_valued_member",
-        DeclarationKind::TraitPredicateMember => "trait_predicate_member",
-        DeclarationKind::TraitCallableMember => "trait_callable_member",
-        DeclarationKind::TraitFinalizerRequirement => "trait_finalizer_requirement",
-        DeclarationKind::TraitDestructorRequirement => "trait_destructor_requirement",
-        DeclarationKind::TraitScopeEnterRequirement => "trait_scope_enter_requirement",
-        DeclarationKind::TraitScopeExitRequirement => "trait_scope_exit_requirement",
-        DeclarationKind::ImplementationTypeMemberBinding => {
-            "implementation_type_valued_member_binding"
-        }
-        DeclarationKind::TypeConstructorMember => "type_constructor_member",
-        DeclarationKind::FinalizerMember => "finalizer_member",
-        DeclarationKind::DestructorMember => "destructor_member",
-        DeclarationKind::ScopeEnterMember => "scope_enter_member",
-        DeclarationKind::ScopeExitMember => "scope_exit_member",
-        DeclarationKind::TypeCallableMember => "type_callable_member",
-        DeclarationKind::GenericTypeParameter => "generic_type_parameter",
-        DeclarationKind::GenericConstParameter => "generic_const_parameter",
-        DeclarationKind::CallableParameter => "callable_parameter",
-        DeclarationKind::PredicateParameter => "predicate_parameter",
-        DeclarationKind::UnionPayloadField => "union_payload_field",
-    }
 }
 
 #[cfg(test)]
