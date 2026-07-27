@@ -757,6 +757,7 @@ fn rollback_name_entry<I>(index: &mut BTreeMap<SymbolName, Vec<I>>, name: &Symbo
     let remove_entry = match index.get_mut(name) {
         Some(entries) => {
             entries.pop();
+
             entries.is_empty()
         }
         None => false,

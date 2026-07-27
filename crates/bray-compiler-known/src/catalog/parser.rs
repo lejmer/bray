@@ -596,6 +596,7 @@ impl CatalogParser {
 
     fn at_word(&mut self, word: &str) -> bool {
         let token = self.peek();
+
         self.token_text(&token).as_ref() == word
     }
 

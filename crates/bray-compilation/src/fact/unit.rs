@@ -166,11 +166,13 @@ mod tests {
 
         let first = published(&cache, &runtime, &cancellation, key.clone(), || {
             computations.fetch_add(1, Ordering::SeqCst);
+
             computation(11)
         });
 
         let second = published(&cache, &runtime, &cancellation, key, || {
             computations.fetch_add(1, Ordering::SeqCst);
+
             computation(22)
         });
 

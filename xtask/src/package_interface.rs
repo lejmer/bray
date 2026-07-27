@@ -20,10 +20,12 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> ExitCode {
     match execute(arguments) {
         Ok(output) => {
             print!("{output}");
+
             ExitCode::SUCCESS
         }
         Err(error) => {
             eprintln!("{error}");
+
             ExitCode::FAILURE
         }
     }

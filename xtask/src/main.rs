@@ -17,6 +17,7 @@ fn main() -> std::process::ExitCode {
         Some("style") => style::run(arguments),
         _ => {
             eprintln!("{USAGE}");
+
             std::process::ExitCode::FAILURE
         }
     }

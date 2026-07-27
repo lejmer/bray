@@ -415,6 +415,7 @@ impl InterfaceSemanticFacts {
             }
             InterfaceDependencyGuard::ActiveUnionVariant { subject, variant } => {
                 self.validate_dependency_subject(subject, symbol_count, dependency_count)?;
+
                 validate_symbol(variant, symbol_count, dependency_count)
             }
         }

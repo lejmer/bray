@@ -118,6 +118,7 @@ impl DeclarationSurface {
 
     pub(crate) fn with_runtime_default(mut self, runtime_default: Option<SyntaxAnchor>) -> Self {
         self.runtime_default = runtime_default;
+
         self
     }
 

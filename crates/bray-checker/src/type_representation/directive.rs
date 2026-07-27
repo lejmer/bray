@@ -57,6 +57,7 @@ where
                             );
 
                             *recovered = true;
+
                             DeclaredLayoutMode::Default
                         }
                     };
@@ -277,6 +278,7 @@ where
                             );
 
                             *recovered = true;
+
                             None
                         }
                     }

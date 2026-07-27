@@ -94,6 +94,7 @@ where
                 let mut shape = self.resolve(*target)?;
 
                 shape.lifecycle = true;
+
                 shape
             }
             TypeData::Slice(_) | TypeData::Borrow { .. } | TypeData::TraitView(_) => {

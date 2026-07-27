@@ -506,6 +506,7 @@ fn sort_by_symbol_key<T>(
             (Some(left), Some(right)) => left.cmp(right),
             _ => {
                 missing_key = true;
+
                 std::cmp::Ordering::Equal
             }
         }

@@ -265,6 +265,7 @@ fn validate_operation(
     node_index: usize,
 ) -> Result<(), InterfaceValidationError> {
     validate_operation_references(context, node.operation(), node_index)?;
+
     validate_operation_type(context.facts, context.template, node)
 }
 
@@ -422,6 +423,7 @@ fn validate_template_reference(
     match reference {
         InterfaceTemplateReference::Symbol(symbol) => {
             validate_symbol(symbol, context.symbol_count, context.dependency_count)?;
+
             validate_symbol_kind(symbol, context.surface)
         }
         InterfaceTemplateReference::Support(entity) => {

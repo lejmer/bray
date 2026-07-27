@@ -46,6 +46,7 @@ fn write_text_diagnostic(
     match resolved {
         Some(resolved) => {
             writeln!(writer)?;
+
             write_source_frame(renderer, diagnostic, resolved, writer)
         }
         None => write_notes(renderer, diagnostic.notes(), writer),

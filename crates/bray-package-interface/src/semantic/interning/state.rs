@@ -8,7 +8,7 @@ use crate::InterfaceSemanticFacts;
 
 use super::{ImportedSemanticFacts, InterfaceSemanticInternError, InterfaceSymbolResolver};
 
-pub(super) struct InternState {
+pub(in crate::semantic) struct InternState {
     pub(super) types: Vec<Option<TypeId>>,
     pub(super) constant_values: Vec<Option<ConstantValueId>>,
     pub(super) constant_terms: Vec<Option<ConstantTermId>>,
@@ -95,6 +95,7 @@ impl InternState {
         self.intern_implementation_instances(facts, store, symbols)?;
         self.intern_types(facts, store, symbols)?;
         self.intern_constant_values(facts, store, symbols)?;
+
         self.intern_constant_terms(facts, store, symbols)
     }
 }

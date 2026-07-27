@@ -145,6 +145,7 @@ mod tests {
     impl MirVisitor for BlockVisitor {
         fn visit_block(&mut self, id: MirBlockId, _block: &MirBlock) -> MirVisitControl {
             self.blocks.push(id);
+
             MirVisitControl::Continue
         }
 
@@ -154,6 +155,7 @@ mod tests {
             _terminator: &crate::MirTerminator,
         ) -> MirVisitControl {
             self.terminators.push(block);
+
             MirVisitControl::Continue
         }
     }

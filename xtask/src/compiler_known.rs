@@ -14,6 +14,7 @@ const GENERATED_DIGEST_PATH: &str =
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let Some(action) = arguments.next() else {
         eprintln!("{USAGE}");
+
         return ExitCode::FAILURE;
     };
 
@@ -27,6 +28,7 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
+
             ExitCode::FAILURE
         }
     }
@@ -40,6 +42,7 @@ fn generate_command(mut arguments: impl Iterator<Item = String>) -> Result<(), S
     };
 
     command::reject_trailing_argument(arguments)?;
+
     generate(check_only)
 }
 

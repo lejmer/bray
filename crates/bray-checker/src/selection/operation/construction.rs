@@ -50,6 +50,7 @@ where
         let surface_index = match input.name {
             Some(name) => {
                 saw_named = true;
+
                 surfaces.iter().position(|surface| surface.name() == name)
             }
             None if saw_named => return Ok(None),

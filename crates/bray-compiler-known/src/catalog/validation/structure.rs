@@ -439,6 +439,7 @@ fn reject_duplicates<T, K: Ord>(
             false
         } else {
             previous = Some(item_key);
+
             true
         }
     });

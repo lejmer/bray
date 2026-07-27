@@ -75,6 +75,7 @@ fn source_order_chunks<'chunk>(
     let mut indexed_chunks = chunks.into_iter().enumerate().collect::<Vec<_>>();
 
     indexed_chunks.sort_by_key(|(index, result)| (result.chunk().source_id(), *index));
+
     indexed_chunks.into_iter().map(|(_, chunk)| chunk).collect()
 }
 

@@ -103,6 +103,7 @@ where
                             PatternProjection::ElementFromStart(symbol_ordinal(prefix_position));
 
                         prefix_position += 1;
+
                         projection
                     };
 

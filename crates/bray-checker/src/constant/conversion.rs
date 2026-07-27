@@ -64,6 +64,7 @@ mod tests {
 
         let fixed = convert_scalar(&value, RepresentationRole::ScalarU16, || {
             observations.set(observations.get() + 1);
+
             NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN)
         });
 
@@ -77,6 +78,7 @@ mod tests {
 
         let target_sized = convert_scalar(&too_wide, RepresentationRole::ScalarUsize, || {
             observations.set(observations.get() + 1);
+
             NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN)
         });
 

@@ -391,6 +391,7 @@ impl InterfaceSemanticFacts {
             .collect();
 
         entries.sort();
+
         entries.into()
     }
 }

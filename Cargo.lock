@@ -861,6 +861,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-style"
+version = "0.0.0"
+dependencies = [
+ "ra_ap_syntax",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1090,8 +1097,7 @@ dependencies = [
  "bray-compilation",
  "bray-compiler-known",
  "bray-package-interface",
- "bray-source",
- "ra_ap_syntax",
+ "rust-style",
  "serde",
  "serde_json",
 ]

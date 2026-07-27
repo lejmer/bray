@@ -77,6 +77,7 @@ impl CompilationOptions {
         inputs: impl IntoIterator<Item = NativeLinkRequirement>,
     ) -> Self {
         self.native_link_inputs = shared_slice(inputs);
+
         self
     }
 

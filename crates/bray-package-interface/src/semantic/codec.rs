@@ -4,9 +4,7 @@ mod decoding;
 mod encoding;
 mod record;
 
-const DECLARATION_FACT_FORMAT_VERSION: u32 = 1;
-const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
-
+pub(super) use common::{DECLARATION_FACT_FORMAT_VERSION, DECLARATION_TEMPLATE_FORMAT_VERSION};
 pub use decoding::decode_semantic_facts;
 pub(crate) use decoding::{
     decode_inspection_records, decode_semantic_fact_graph, decode_template_payload,

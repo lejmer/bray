@@ -15,6 +15,9 @@ use crate::{
     InterfaceValidationLimits,
 };
 
+pub(in crate::semantic) const DECLARATION_FACT_FORMAT_VERSION: u32 = 1;
+pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
+
 pub(super) fn write_symbol_reference(
     encoder: &mut WireEncoder,
     reference: &InterfaceSymbolReference,
