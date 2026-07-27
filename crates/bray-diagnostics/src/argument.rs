@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "diagnostic argument names, values, and typed constructors form one cohesive protocol inventory")
+
 use std::path::PathBuf;
 
 use bray_source::{SourceInputKind, SourceSpan, TextSize};
