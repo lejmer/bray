@@ -77,6 +77,7 @@ pub struct ImportedSemanticFacts {
     pub(super) coherence: Arc<[ImplementationCoherenceEvidence]>,
     pub(super) target_dependencies: Arc<[ImportedTargetFact]>,
     pub(super) abi_dependencies: Arc<[ImportedAbiDependency]>,
+    pub(super) runtime_requirements: Arc<[ImportedRuntimeRequirement]>,
     pub(super) provenance: Arc<[ImportedSourceProvenance]>,
 }
 
@@ -115,6 +116,8 @@ pub enum ImportedSemanticFact {
     TargetFact(TargetFactDependency),
     /// One required callable ABI.
     Abi(ImportedAbiDependency),
+    /// One required private runtime ABI surface.
+    Runtime(ImportedRuntimeRequirement),
 }
 
 impl ImportedDeclarationTemplateFact {
@@ -251,6 +254,31 @@ pub struct ImportedAbiDependency {
     pub(super) abi: bray_symbols::CallableAbi,
 }
 
+/// One imported runtime requirement and its exact semantic owner.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedRuntimeRequirement {
+    pub(super) owner: AnySymbolId,
+    pub(super) frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
+    pub(super) requirements: bray_runtime_interface::RuntimeRequirements,
+}
+
+impl ImportedRuntimeRequirement {
+    /// Returns the semantic declaration or support entity that owns this requirement.
+    pub const fn owner(&self) -> AnySymbolId {
+        self.owner
+    }
+
+    /// Returns the hidden protected-frame identity when one is exported.
+    pub const fn frame(&self) -> Option<bray_runtime_interface::ProtectedAsyncFrameId> {
+        self.frame
+    }
+
+    /// Returns target-specific private runtime requirements.
+    pub const fn requirements(&self) -> &bray_runtime_interface::RuntimeRequirements {
+        &self.requirements
+    }
+}
+
 impl ImportedAbiDependency {
     /// Returns the declaration exposing the ABI dependency.
     pub const fn symbol(self) -> CallableSymbolId {
@@ -384,6 +412,13 @@ impl ImportedSemanticFacts {
                 .filter(|fact| fact.symbol().into_any() == owner)
                 .map(ImportedSemanticFact::Abi)
                 .collect(),
+            InterfaceSemanticFactKind::Runtime => self
+                .runtime_requirements
+                .iter()
+                .filter(|fact| fact.owner() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::Runtime)
+                .collect(),
         }
     }
 
@@ -485,6 +520,11 @@ impl ImportedSemanticFacts {
     /// Returns imported ABI dependencies in canonical order.
     pub fn abi_dependencies(&self) -> &[ImportedAbiDependency] {
         &self.abi_dependencies
+    }
+
+    /// Returns imported private runtime requirements in canonical owner order.
+    pub fn runtime_requirements(&self) -> &[ImportedRuntimeRequirement] {
+        &self.runtime_requirements
     }
 
     /// Returns optional imported source provenance.

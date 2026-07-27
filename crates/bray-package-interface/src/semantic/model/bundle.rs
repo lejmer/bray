@@ -6,9 +6,10 @@ use super::{
     InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
     InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceGenericDeclaration,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfacePredicateDefinition, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceTargetFactDependency,
-    InterfaceTraitApplication, InterfaceType, InterfaceTypeRepresentation,
+    InterfacePredicateDefinition, InterfaceRuntimeRequirement, InterfaceSemanticFactEntry,
+    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceSupportEntity,
+    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceType,
+    InterfaceTypeRepresentation,
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
@@ -36,6 +37,7 @@ pub struct InterfaceSemanticFacts {
     pub(crate) coherence: Arc<[InterfaceCoherenceRecord]>,
     pub(crate) target_dependencies: Arc<[InterfaceTargetFactDependency]>,
     pub(crate) abi_dependencies: Arc<[InterfaceAbiDependency]>,
+    pub(crate) runtime_requirements: Arc<[InterfaceRuntimeRequirement]>,
     pub(crate) provenance: Arc<[InterfaceSourceProvenance]>,
 }
 
@@ -153,6 +155,16 @@ impl InterfaceSemanticFacts {
         self
     }
 
+    /// Replaces portable runtime compatibility requirements in canonical owner order.
+    pub fn with_runtime_requirements(
+        mut self,
+        runtime_requirements: impl IntoIterator<Item = InterfaceRuntimeRequirement>,
+    ) -> Self {
+        self.runtime_requirements = runtime_requirements.into_iter().collect();
+
+        self
+    }
+
     /// Replaces optional source provenance excluded from semantic identity.
     pub fn with_provenance(
         mut self,
@@ -246,6 +258,11 @@ impl InterfaceSemanticFacts {
     /// Returns ABI dependencies in canonical symbol order.
     pub fn abi_dependencies(&self) -> &[InterfaceAbiDependency] {
         &self.abi_dependencies
+    }
+
+    /// Returns portable runtime compatibility requirements in canonical owner order.
+    pub fn runtime_requirements(&self) -> &[InterfaceRuntimeRequirement] {
+        &self.runtime_requirements
     }
 
     /// Returns optional source provenance.
@@ -377,6 +394,17 @@ impl InterfaceSemanticFacts {
                 record: checked_record(index),
             });
 
+        let runtime = self
+            .runtime_requirements
+            .iter()
+            .enumerate()
+            .map(|(index, fact)| InterfaceSemanticFactEntry {
+                owner: fact.owner.clone(),
+                kind: InterfaceSemanticFactKind::Runtime,
+                section: crate::InterfaceSectionTag::TargetDependencies,
+                record: checked_record(index),
+            });
+
         let mut entries: Vec<_> = constraints
             .chain(callable_contracts)
             .chain(callable_signatures)
@@ -388,6 +416,7 @@ impl InterfaceSemanticFacts {
             .chain(implementations)
             .chain(targets)
             .chain(abis)
+            .chain(runtime)
             .collect();
 
         entries.sort();

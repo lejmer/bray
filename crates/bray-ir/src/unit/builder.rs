@@ -310,7 +310,9 @@ fn compact_slot(index: usize) -> Result<u32, MirUnitBuildError> {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
-    use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiRole, RuntimeAbiVersion};
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion,
+    };
     use bray_source::SourceVersion;
     use bray_symbols::BorrowKind;
     use bray_testing::test_bound_unit;
@@ -733,8 +735,15 @@ mod tests {
     ) -> MirFrameDescriptor {
         let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
 
-        match MirFrameDescriptor::try_new(frame, RuntimeAbiVersion::new(1, 0), result_type, [state])
-        {
+        let abi = RuntimeAbiVersion::new(1, 0);
+
+        match MirFrameDescriptor::try_new(
+            frame,
+            abi,
+            ProtectedFrameAbiVersions::uniform(abi),
+            result_type,
+            [state],
+        ) {
             Ok(descriptor) => descriptor,
             Err(error) => panic!("test frame descriptor must be valid: {error:?}"),
         }

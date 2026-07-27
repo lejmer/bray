@@ -36,6 +36,16 @@ impl<'request> CodegenRequest<'request> {
             return Err(CodegenRequestBuildError::TargetMismatch);
         }
 
+        if unit.mir_units().iter().any(|mir| {
+            let bray_ir::MirUnitKind::ExecutableHost(host) = mir.kind() else {
+                return false;
+            };
+
+            host.target() != target.identity() || host.panic_abi() != target.panic_abi()
+        }) {
+            return Err(CodegenRequestBuildError::RuntimeContractMismatch);
+        }
+
         let debug_information = options.debug_information();
         let debug_output = artifacts.debug_information();
 
@@ -93,6 +103,8 @@ pub enum CodegenRequestBuildError {
     DebugInformationMismatch,
     /// MIR lowering facts do not match the selected codegen target.
     TargetMismatch,
+    /// Executable-host runtime facts do not match target code generation.
+    RuntimeContractMismatch,
 }
 
 const fn debug_contract_matches(

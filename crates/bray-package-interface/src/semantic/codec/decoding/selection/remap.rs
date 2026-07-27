@@ -184,6 +184,8 @@ pub(super) fn remap_selected_records(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
+    let runtime_requirements = records.runtime_requirements.into_values();
+
     Ok(InterfaceSemanticFacts::new()
         .with_applications(
             substitutions,
@@ -200,7 +202,8 @@ pub(super) fn remap_selected_records(
             [],
         )
         .with_implementations(implementations, coherence)
-        .with_target_dependencies(target_dependencies, []))
+        .with_target_dependencies(target_dependencies, [])
+        .with_runtime_requirements(runtime_requirements))
 }
 
 fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), InterfaceValidationError> {

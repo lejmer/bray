@@ -87,7 +87,9 @@ impl<'bytes> SelectedTables<'bytes> {
 
         let targets = if matches!(
             kind,
-            InterfaceSemanticFactKind::Implementation | InterfaceSemanticFactKind::TargetFact
+            InterfaceSemanticFactKind::Implementation
+                | InterfaceSemanticFactKind::TargetFact
+                | InterfaceSemanticFactKind::Runtime
         ) {
             let section =
                 facts::required_section(sections, InterfaceSectionTag::TargetDependencies)?;
@@ -128,6 +130,7 @@ enum PendingRecord {
     Implementation(u32),
     Coherence(u32),
     Target(u32),
+    Runtime(u32),
     Substitution(u32),
     TraitApplication(u32),
     CallableInstance(u32),
@@ -230,6 +233,16 @@ impl<'bytes> SelectionBuilder<'bytes> {
             }
         }
 
+        if kind == InterfaceSemanticFactKind::Runtime {
+            let index = self.one_record_index(
+                directory,
+                InterfaceSemanticFactKind::Runtime,
+                InterfaceSectionTag::TargetDependencies,
+            )?;
+
+            self.enqueue(PendingRecord::Runtime(index));
+        }
+
         self.include_pending_records()
     }
 
@@ -252,6 +265,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 PendingRecord::Implementation(index) => self.include_implementation(index)?,
                 PendingRecord::Coherence(index) => self.include_coherence(index)?,
                 PendingRecord::Target(index) => self.include_target(index)?,
+                PendingRecord::Runtime(index) => self.include_runtime(index)?,
                 PendingRecord::Substitution(index) => self.include_substitution(index)?,
                 PendingRecord::TraitApplication(index) => self.include_trait_application(index)?,
                 PendingRecord::CallableInstance(index) => self.include_callable_instance(index)?,
@@ -471,6 +485,26 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         self.enqueue(PendingRecord::ConstantValue(target.value.raw()));
         self.records.target_dependencies.insert(index, target);
+
+        Ok(())
+    }
+
+    fn include_runtime(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let tables = self
+            .tables
+            .targets
+            .as_ref()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let runtime = tables.runtimes.decode(index, &mut self.context, |reader, context| {
+            surface::decode_runtime_record(reader, context.limits(), context)
+        })?;
+
+        if runtime.owner != self.owner {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        self.records.runtime_requirements.insert(index, runtime);
 
         Ok(())
     }

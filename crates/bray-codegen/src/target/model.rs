@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
+use bray_runtime_interface::PanicAbiIdentity;
 use bray_target::{
     CodeModel, RelocationModel, TargetIdentity, TargetMachineProperties, TargetProfile,
 };
@@ -12,6 +13,7 @@ use super::{TargetAbi, TargetCompatibility, TargetDataLayout, TargetSymbolConven
 pub struct TargetContract {
     data_layout: TargetDataLayout,
     abi: TargetAbi,
+    panic_abi: PanicAbiIdentity,
     symbols: TargetSymbolConvention,
     compatibility: TargetCompatibility,
 }
@@ -21,12 +23,14 @@ impl TargetContract {
     pub const fn new(
         data_layout: TargetDataLayout,
         abi: TargetAbi,
+        panic_abi: PanicAbiIdentity,
         symbols: TargetSymbolConvention,
         compatibility: TargetCompatibility,
     ) -> Self {
         Self {
             data_layout,
             abi,
+            panic_abi,
             symbols,
             compatibility,
         }
@@ -133,6 +137,11 @@ impl CodegenTarget {
     /// Returns exact callable ABI mappings.
     pub const fn abi(&self) -> &TargetAbi {
         &self.contract.abi
+    }
+
+    /// Returns the exact panic ABI selected for generated code.
+    pub const fn panic_abi(&self) -> &PanicAbiIdentity {
+        &self.contract.panic_abi
     }
 
     /// Returns target symbol spelling and linkage rules.

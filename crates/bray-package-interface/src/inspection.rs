@@ -169,6 +169,8 @@ pub enum InterfaceInspectionRecordKind {
     TargetFacts,
     /// Required callable ABIs.
     AbiDependencies,
+    /// Required private runtime ABI surfaces.
+    RuntimeRequirements,
     /// Optional source provenance.
     SourceProvenance,
     /// Private support entities summarized without exposing their layout.
@@ -207,6 +209,7 @@ impl InterfaceInspectionRecordKind {
             Self::Coherence => "coherence",
             Self::TargetFacts => "target_facts",
             Self::AbiDependencies => "abi_dependencies",
+            Self::RuntimeRequirements => "runtime_requirements",
             Self::SourceProvenance => "source_provenance",
             Self::SupportEntities => "support_entities",
         }
@@ -557,6 +560,7 @@ mod tests {
             [
                 InterfaceInspectionRecordKind::TargetFacts,
                 InterfaceInspectionRecordKind::AbiDependencies,
+                InterfaceInspectionRecordKind::RuntimeRequirements,
             ]
         );
 

@@ -180,6 +180,7 @@ impl LinkPlan {
         validate_entry_contract(
             &builder.product,
             builder.product_kind,
+            &builder.target,
             builder.entry_point.as_ref(),
             builder.executable_host.as_ref(),
         )?;
@@ -250,7 +251,7 @@ impl LinkPlan {
     }
 
     /// Returns the selected native entry point when the product has one.
-    pub const fn entry_point(&self) -> Option<&BinarySymbolName> {
+    pub fn entry_point(&self) -> Option<&BinarySymbolName> {
         match &self.executable_host {
             Some(host) => Some(host.native_entry()),
             None => self.entry_point.as_ref(),
@@ -319,6 +320,8 @@ pub enum LinkPlanBuildError {
     UnexpectedExecutableHost,
     /// The executable-host contract belongs to another product.
     ExecutableHostProductMismatch,
+    /// The executable-host contract was validated for another target.
+    ExecutableHostTargetMismatch,
     /// An executable or static-library product contains an inapplicable explicit entry point.
     UnexpectedEntryPoint,
     /// Companion debug output was requested without a staged debug destination.
@@ -365,6 +368,7 @@ fn validate_search_paths(search_paths: &[LinkSearchPath]) -> Result<(), LinkPlan
 fn validate_entry_contract(
     product: &ProductIdentity,
     product_kind: LinkedProductKind,
+    target: &LinkTarget,
     entry_point: Option<&BinarySymbolName>,
     executable_host: Option<&ExecutableHostContract>,
 ) -> Result<(), LinkPlanBuildError> {
@@ -376,6 +380,11 @@ fn validate_entry_contract(
         }
         (LinkedProductKind::Executable, None, Some(host)) if host.product() != product => {
             Err(LinkPlanBuildError::ExecutableHostProductMismatch)
+        }
+        (LinkedProductKind::Executable, None, Some(host))
+            if host.target() != target.identity() =>
+        {
+            Err(LinkPlanBuildError::ExecutableHostTargetMismatch)
         }
         (LinkedProductKind::SharedLibrary | LinkedProductKind::StaticLibrary, _, Some(_)) => {
             Err(LinkPlanBuildError::UnexpectedExecutableHost)

@@ -53,8 +53,9 @@ mod tests {
         MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitId, MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
-        BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
-        RuntimeAbiRole, RuntimeAbiVersion, RuntimeRoleBinding, RuntimeRoleImplementation,
+        BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
+        RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeRequirements, RuntimeRoleBinding,
+        RuntimeRoleImplementation,
     };
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_testing::test_mir_target;
@@ -116,7 +117,7 @@ mod tests {
             product,
             entry,
             RootExecution::Synchronous,
-            RuntimeAbiVersion::new(1, 0),
+            runtime_requirements(),
         );
 
         for role in roles {
@@ -128,6 +129,25 @@ mod tests {
         };
 
         host
+    }
+
+    fn runtime_requirements() -> RuntimeRequirements {
+        let target = test_mir_target();
+
+        let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+            panic!("test panic ABI identity must be valid");
+        };
+
+        RuntimeRequirements::new(
+            None,
+            RuntimeAbiVersion::new(1, 0),
+            None,
+            target.identity().clone(),
+            panic_abi,
+            [],
+            [],
+            [],
+        )
     }
 
     fn role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {

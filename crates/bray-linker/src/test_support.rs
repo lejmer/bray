@@ -1,9 +1,10 @@
 use std::num::NonZeroU64;
 
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeFeature, RuntimeRoleBinding,
-    RuntimeRoleImplementation,
+    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
+    ProtectedFrameAbiVersions, RootExecution, RuntimeAbiRole, RuntimeAbiVersion,
+    RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRequirements,
+    RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity};
 use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
@@ -136,31 +137,26 @@ fn host_contract(
         panic!("test host entry symbol name must be valid");
     };
 
-    let mut roles = vec![
+    let roles = [
         RuntimeAbiRole::RootExecution,
         RuntimeAbiRole::RootCancellationRequest,
         RuntimeAbiRole::CleanupIncidentReporting,
         RuntimeAbiRole::RootTerminalObservation,
         RuntimeAbiRole::StructuredShutdown,
-    ];
+    ]
+    .into_iter()
+    .map(compiler_role_binding);
 
-    if runtime.is_some() {
-        roles.extend([
-            RuntimeAbiRole::MainThreadLaneStartup,
-            RuntimeAbiRole::MainThreadLaneDrive,
-        ]);
-    }
+    let requirements = runtime_requirements(runtime.is_some());
 
-    let mut builder =
-        ExecutableHostContractBuilder::new(product(), entry, root, RuntimeAbiVersion::new(1, 0));
+    let mut builder = ExecutableHostContractBuilder::new(product(), entry, root, requirements);
 
     for role in roles {
-        builder.push_role_binding(runtime_role_binding(role));
+        builder.push_role_binding(role);
     }
 
     if let Some(runtime) = runtime {
-        builder.select_runtime(runtime);
-        builder.require_runtime_feature(RuntimeFeature::MainThreadLane);
+        builder.select_runtime(runtime_contract(runtime));
     }
 
     let Ok(host) = builder.finish() else {
@@ -168,6 +164,74 @@ fn host_contract(
     };
 
     host
+}
+
+fn runtime_requirements(is_async: bool) -> RuntimeRequirements {
+    let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+        panic!("test panic ABI identity must be valid");
+    };
+
+    let runtime = is_async.then(runtime_identity);
+
+    let frame_abi = is_async.then(|| {
+        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0))
+    });
+
+    let roles = is_async
+        .then_some([
+            RuntimeAbiRole::MainThreadLaneStartup,
+            RuntimeAbiRole::MainThreadLaneDrive,
+        ])
+        .into_iter()
+        .flatten();
+
+    let capabilities = is_async
+        .then_some([
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::MainThreadLane,
+        ])
+        .into_iter()
+        .flatten();
+
+    RuntimeRequirements::new(
+        runtime,
+        RuntimeAbiVersion::new(1, 0),
+        frame_abi,
+        link_target().identity().clone(),
+        panic_abi,
+        roles,
+        capabilities,
+        [],
+    )
+}
+
+fn runtime_contract(artifact: RuntimeArtifactId) -> RuntimeContract {
+    let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+        panic!("test panic ABI identity must be valid");
+    };
+
+    RuntimeContract::try_new(
+        runtime_identity(),
+        artifact,
+        RuntimeAbiVersion::new(1, 0),
+        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+        link_target().identity().clone(),
+        panic_abi,
+        [
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::MainThreadLane,
+        ],
+        [
+            runtime_role_binding(RuntimeAbiRole::MainThreadLaneStartup),
+            runtime_role_binding(RuntimeAbiRole::MainThreadLaneDrive),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("test runtime contract must be valid: {error:?}"))
+}
+
+fn runtime_identity() -> RuntimeIdentity {
+    RuntimeIdentity::try_new("bray.runtime.test")
+        .unwrap_or_else(|| panic!("test runtime identity must be valid"))
 }
 
 pub(crate) fn product() -> ProductIdentity {
@@ -183,15 +247,22 @@ pub(crate) fn product() -> ProductIdentity {
 }
 
 fn runtime_role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
+    role_binding(role, RuntimeRoleImplementation::BrayRuntime)
+}
+
+fn compiler_role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
+    role_binding(role, RuntimeRoleImplementation::CompilerLowering)
+}
+
+fn role_binding(
+    role: RuntimeAbiRole,
+    implementation: RuntimeRoleImplementation,
+) -> RuntimeRoleBinding {
     let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
         panic!("test runtime role symbol name must be valid");
     };
 
-    RuntimeRoleBinding::new(
-        role,
-        symbol_name,
-        RuntimeRoleImplementation::CompilerLowering,
-    )
+    RuntimeRoleBinding::new(role, symbol_name, implementation)
 }
 
 fn link_target() -> LinkTarget {

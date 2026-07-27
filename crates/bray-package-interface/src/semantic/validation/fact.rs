@@ -63,6 +63,10 @@ impl InterfaceSemanticFacts {
                 .abi_dependencies
                 .windows(2)
                 .all(|pair| pair[0].symbol < pair[1].symbol)
+            || !self
+                .runtime_requirements
+                .windows(2)
+                .all(|pair| pair[0].owner < pair[1].owner)
             || !is_strictly_sorted(&self.provenance)
         {
             return Err(InterfaceValidationError::Malformed);
@@ -234,6 +238,8 @@ impl InterfaceSemanticFacts {
             validate_symbol(&dependency.symbol, symbol_count, dependency_count)?;
         }
 
+        self.validate_runtime_requirements(symbol_count, dependency_count, limits)?;
+
         for provenance in &*self.provenance {
             validate_symbol(&provenance.symbol, symbol_count, dependency_count)?;
 
@@ -244,6 +250,40 @@ impl InterfaceSemanticFacts {
 
             if provenance.start > provenance.end {
                 return Err(InterfaceValidationError::Malformed);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_runtime_requirements(
+        &self,
+        symbol_count: usize,
+        dependency_count: usize,
+        limits: InterfaceValidationLimits,
+    ) -> Result<(), InterfaceValidationError> {
+        for runtime in &*self.runtime_requirements {
+            validate_symbol(runtime.owner(), symbol_count, dependency_count)?;
+
+            if runtime.requirements().runtime().is_some()
+                || !runtime.requirements().roles().is_empty()
+                || runtime.frame().is_some() && runtime.requirements().frame_abi().is_none()
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            for value in [
+                runtime.requirements().target().as_str(),
+                runtime.requirements().panic_abi().as_str(),
+            ] {
+                limits.check(InterfaceLimit::StringLength, saturating_u64(value.len()))?;
+            }
+
+            if let Some(identity) = runtime.requirements().runtime() {
+                limits.check(
+                    InterfaceLimit::StringLength,
+                    saturating_u64(identity.as_str().len()),
+                )?;
             }
         }
 

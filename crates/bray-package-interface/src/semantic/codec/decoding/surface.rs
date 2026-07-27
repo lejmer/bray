@@ -1,14 +1,21 @@
 use super::common::{decode_tag, validate_record_count};
+use bray_runtime_interface::{
+    ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
+    ProtectedFrameAbiVersions, RuntimeAbiVersion, RuntimeCapability, RuntimeRequirements,
+};
+use bray_target::TargetIdentity;
 use crate::semantic::codec::coherence::coherence_record_indexes;
 use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_string,
     read_symbol_reference, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
+use crate::tag::WireTag;
 use crate::semantic::model::{
     InterfaceAbiDependency, InterfaceCoherenceRecord, InterfaceConstantValueId,
-    InterfaceImplementationRecord, InterfaceSemanticFacts, InterfaceSourceProvenance,
-    InterfaceTargetFactDependency, InterfaceTraitApplicationId, InterfaceTypeId,
+    InterfaceImplementationRecord, InterfaceRuntimeRequirement, InterfaceSemanticFacts,
+    InterfaceSourceProvenance, InterfaceTargetFactDependency, InterfaceTraitApplicationId,
+    InterfaceTypeId,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -136,6 +143,7 @@ pub(super) fn decode_coherence_record(
 pub(super) struct TargetRecordTables<'bytes> {
     pub(super) targets: RecordTable<'bytes>,
     pub(super) abis: RecordTable<'bytes>,
+    pub(super) runtimes: RecordTable<'bytes>,
 }
 
 pub(super) fn decode_target_tables<'bytes>(
@@ -146,16 +154,21 @@ pub(super) fn decode_target_tables<'bytes>(
 
     let targets = RecordTable::read_from(&mut reader, context)?;
     let abis = RecordTable::read_from(&mut reader, context)?;
+    let runtimes = RecordTable::read_from(&mut reader, context)?;
 
-    validate_record_count(section, [targets.len(), abis.len()])?;
+    validate_record_count(section, [targets.len(), abis.len(), runtimes.len()])?;
     reader.finish().map_err(map_wire_error)?;
 
-    Ok(TargetRecordTables { targets, abis })
+    Ok(TargetRecordTables {
+        targets,
+        abis,
+        runtimes,
+    })
 }
 
 pub(super) fn decode_target_dependencies(
     section: ValidatedInterfaceSection<'_>,
-    _limits: InterfaceValidationLimits,
+    limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
@@ -164,8 +177,13 @@ pub(super) fn decode_target_dependencies(
     let targets = tables.targets.decode_all(context, decode_target_record)?;
     let abis = tables.abis.decode_all(context, decode_abi_record)?;
 
+    let runtimes = tables.runtimes.decode_all(context, |reader, context| {
+        decode_runtime_record(reader, limits, context)
+    })?;
+
     facts.target_dependencies = targets.into();
     facts.abi_dependencies = abis.into();
+    facts.runtime_requirements = runtimes.into();
 
     Ok(())
 }
@@ -189,6 +207,104 @@ pub(super) fn decode_abi_record(
         read_symbol_reference(reader, context)?,
         decode_tag(read_u32(reader)?)?,
     ))
+}
+
+pub(super) fn decode_runtime_record(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceRuntimeRequirement, InterfaceValidationError> {
+    let owner = read_symbol_reference(reader, context)?;
+    let frame = read_optional_frame(reader)?;
+
+    let abi_version = read_version(reader)?;
+
+    let frame_abi = match read_presence(reader)? {
+        true => Some(ProtectedFrameAbiVersions::new(
+            read_version(reader)?,
+            read_version(reader)?,
+            read_version(reader)?,
+            read_version(reader)?,
+            read_version(reader)?,
+        )),
+        false => None,
+    };
+
+    let target = TargetIdentity::try_new(read_string(reader, context)?)
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, context)?)
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+    let capabilities = read_tags::<RuntimeCapability>(reader, limits, context)?;
+    let lanes = read_tags::<ExecutionLaneRequirement>(reader, limits, context)?;
+
+    Ok(InterfaceRuntimeRequirement::new(
+        owner,
+        frame,
+        RuntimeRequirements::new(
+            None,
+            abi_version,
+            frame_abi,
+            target,
+            panic_abi,
+            [],
+            capabilities,
+            lanes,
+        ),
+    ))
+}
+
+fn read_optional_frame(
+    reader: &mut WireReader<'_>,
+) -> Result<Option<ProtectedAsyncFrameId>, InterfaceValidationError> {
+    if !read_presence(reader)? {
+        return Ok(None);
+    }
+
+    let bytes = reader.read_bytes(32).map_err(map_wire_error)?;
+    let digest = <[u8; 32]>::try_from(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+
+    Ok(Some(ProtectedAsyncFrameId::new(digest)))
+}
+
+fn read_presence(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
+    match read_u32(reader)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(InterfaceValidationError::Malformed),
+    }
+}
+
+fn read_version(
+    reader: &mut WireReader<'_>,
+) -> Result<RuntimeAbiVersion, InterfaceValidationError> {
+    let major =
+        u16::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
+
+    let minor =
+        u16::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
+
+    Ok(RuntimeAbiVersion::new(major, minor))
+}
+
+fn read_tags<T: WireTag + Ord>(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Vec<T>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut values = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        values.push(decode_tag(read_u32(reader)?)?);
+    }
+
+    if !values.windows(2).all(|pair| pair[0] < pair[1]) {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    Ok(values)
 }
 
 pub(super) fn decode_provenance(

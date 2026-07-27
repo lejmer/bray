@@ -40,6 +40,11 @@ impl RuntimeAbiVersion {
     pub const fn minor(self) -> u16 {
         self.minor
     }
+
+    /// Returns whether this provided version satisfies one required version.
+    pub const fn supports(self, required: Self) -> bool {
+        self.major == required.major && self.minor >= required.minor
+    }
 }
 
 /// Canonical binary symbol name selected before backend translation.
@@ -69,6 +74,38 @@ impl RuntimeArtifactId {
     }
 
     /// Returns the canonical artifact identity.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+/// Stable identity of one execution-runtime implementation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeIdentity(NonEmptySharedStr);
+
+impl RuntimeIdentity {
+    /// Creates a runtime identity unless its canonical value is empty.
+    pub fn try_new(identity: impl Into<Arc<str>>) -> Option<Self> {
+        NonEmptySharedStr::try_new(identity).map(Self)
+    }
+
+    /// Returns the canonical runtime identity.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+/// Stable identity of one target panic ABI.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PanicAbiIdentity(NonEmptySharedStr);
+
+impl PanicAbiIdentity {
+    /// Creates a panic ABI identity unless its canonical value is empty.
+    pub fn try_new(identity: impl Into<Arc<str>>) -> Option<Self> {
+        NonEmptySharedStr::try_new(identity).map(Self)
+    }
+
+    /// Returns the canonical panic ABI identity.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
