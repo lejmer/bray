@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "the English diagnostic catalog is intentionally one exhaustive flat message mapping")
+
 use bray_diagnostics::{DiagnosticArgName, DiagnosticKind, DiagnosticNoteKind, SeverityKind};
 
 use crate::catalog::{MessageTemplate, MessageTemplatePart};

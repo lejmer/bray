@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "declaration records form one cohesive symbol protocol inventory generated from shared macros")
+
 use bray_compiler_known::{CatalogDeclarationSurface, CompilerKnownDeclarationId};
 use bray_declarations::{DeclarationId, SyntaxAnchor};
 

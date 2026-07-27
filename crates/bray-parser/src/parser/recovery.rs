@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "grammar-neutral recovery dispatch forms one exhaustive mapping over recoverable syntax kinds")
+
 use bray_syntax::{
     AccessExpressionSyntaxBuilder, ArgumentListSyntaxBuilder, ArgumentSyntaxBuilder,
     ArrayExpressionSyntaxBuilder, AssertionExpressionSyntaxBuilder, AwaitExpressionSyntaxBuilder,

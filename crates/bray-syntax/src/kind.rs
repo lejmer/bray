@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "syntax kinds and their exhaustive classifications form one cohesive language vocabulary")
+
 /// Stable syntax vocabulary for Bray syntax nodes, tokens, and trivia.
 ///
 /// Syntax kinds are locale-neutral and source-shaped. They describe lexical
