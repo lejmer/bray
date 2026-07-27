@@ -2,10 +2,12 @@
 
 use bray_bound_tree::{
     BoundCallableTarget, BoundReferenceTarget, CheckedSemanticSelections, ConstructionTarget,
-    SemanticSelection, SelectedOperation,
+    ConversionTarget, IndexTarget, OperatorTarget, SelectedConversion, SelectedIterationSource,
+    SelectedOperation, SemanticSelection,
 };
 use bray_symbols::{
-    AnyLocalSymbolId, LocalSymbolSnapshot, SemanticValueStore, SymbolGraph, TypeId,
+    AnyLocalSymbolId, CallableInstanceData, ImplementationInstanceId, ImplementationRequirementKey,
+    LocalSymbolSnapshot, SemanticValueStore, SymbolGraph, TypeId,
 };
 use serde::Serialize;
 
@@ -15,6 +17,7 @@ use crate::type_inspection::{InspectionType, TypeInspectionError};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SelectionInspectionError {
     Local,
+    SemanticValue,
     Type,
 }
 
@@ -59,6 +62,37 @@ enum InspectionSelectionTarget {
     Indirect {
         r#type: InspectionType,
     },
+    BuiltInOperator {
+        operator: &'static str,
+    },
+    TraitOperator {
+        operator: &'static str,
+        member: InspectionSymbolIdentity,
+        fulfillment: InspectionSymbolIdentity,
+        evidence: Box<InspectionImplementationEvidence>,
+    },
+    BuiltInIndex {
+        operation: &'static str,
+    },
+    CustomIndex {
+        member: InspectionSymbolIdentity,
+        fulfillment: InspectionSymbolIdentity,
+        evidence: Box<InspectionImplementationEvidence>,
+    },
+    Construction {
+        callable: InspectionSymbolIdentity,
+        evidence: Box<InspectionImplementationEvidence>,
+    },
+    Conversion {
+        conversion: Box<InspectionConversion>,
+    },
+    Implementation {
+        evidence: Box<InspectionImplementationEvidence>,
+    },
+    Iteration {
+        #[serde(flatten)]
+        iteration: Box<InspectionIteration>,
+    },
 }
 
 impl InspectionSelectionTarget {
@@ -78,6 +112,107 @@ impl InspectionSelectionTarget {
                 format!("{symbol_kind}{name} [local:{id}]")
             }
             Self::Indirect { r#type } => format!("indirect {}", r#type.text()),
+            Self::BuiltInOperator { operator } => format!("built-in {operator}"),
+            Self::TraitOperator {
+                operator,
+                fulfillment,
+                ..
+            } => format!("trait {operator} via {}", fulfillment.text()),
+            Self::BuiltInIndex { operation } => format!("built-in {operation}"),
+            Self::CustomIndex { fulfillment, .. } => {
+                format!("custom index via {}", fulfillment.text())
+            }
+            Self::Construction { callable, .. } => {
+                format!("type-form construction via {}", callable.text())
+            }
+            Self::Conversion { conversion } => conversion.text(),
+            Self::Implementation { evidence } => evidence.text(),
+            Self::Iteration { iteration } => format!(
+                "{} iteration via {} then {}",
+                iteration.mode,
+                iteration.iterate.fulfillment.text(),
+                iteration.next.fulfillment.text()
+            ),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionImplementationEvidence {
+    subject: InspectionType,
+    required_trait: InspectionSymbolIdentity,
+    implementation: InspectionSymbolIdentity,
+}
+
+impl InspectionImplementationEvidence {
+    fn text(&self) -> String {
+        format!(
+            "{} for {} via {}",
+            self.required_trait.display_name(),
+            self.subject.text(),
+            self.implementation.display_name()
+        )
+    }
+}
+
+#[derive(Serialize)]
+struct InspectionProtocolOperation {
+    member: InspectionSymbolIdentity,
+    fulfillment: InspectionSymbolIdentity,
+    evidence: Box<InspectionImplementationEvidence>,
+}
+
+#[derive(Serialize)]
+struct InspectionIteration {
+    mode: &'static str,
+    source_type: InspectionType,
+    cursor_type: InspectionType,
+    element_type: InspectionType,
+    iterate: InspectionProtocolOperation,
+    next: InspectionProtocolOperation,
+    has_exact_count: bool,
+}
+
+#[derive(Serialize)]
+struct InspectionConversion {
+    source_type: InspectionType,
+    target_type: InspectionType,
+    rule: InspectionConversionRule,
+}
+
+impl InspectionConversion {
+    fn text(&self) -> String {
+        format!(
+            "{} {} -> {}",
+            self.rule.kind_name(),
+            self.source_type.text(),
+            self.target_type.text()
+        )
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "rule_kind", rename_all = "snake_case")]
+enum InspectionConversionRule {
+    Identity,
+    BuiltInScalar,
+    Composite {
+        components: Vec<InspectionConversion>,
+    },
+    Trait {
+        member: InspectionSymbolIdentity,
+        fulfillment: InspectionSymbolIdentity,
+        evidence: Box<InspectionImplementationEvidence>,
+    },
+}
+
+impl InspectionConversionRule {
+    const fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::BuiltInScalar => "built-in scalar",
+            Self::Composite { .. } => "composite",
+            Self::Trait { .. } => "trait",
         }
     }
 }
@@ -95,12 +230,7 @@ pub(super) fn selection_entries(
             Ok(InspectionSelectionEntry {
                 expression: entry.expression().ordinal(),
                 selection_kind: selection_kind(entry.selection()),
-                target: selection_target(
-                    entry.selection(),
-                    locals,
-                    symbols,
-                    semantic_values,
-                )?,
+                target: selection_target(entry.selection(), locals, symbols, semantic_values)?,
             })
         })
         .collect()
@@ -125,17 +255,15 @@ fn selection_target(
         SemanticSelection::Reference(target) => {
             reference_target(*target, locals, symbols).map(Some)
         }
-        SemanticSelection::Call(call) => callable_target(
-            call.target(),
-            locals,
-            symbols,
-            semantic_values,
-        )
-        .map(Some),
-        SemanticSelection::Operation(operation) => {
-            Ok(operation_target(operation, symbols))
+        SemanticSelection::Call(call) => {
+            callable_target(call.target(), locals, symbols, semantic_values).map(Some)
         }
-        SemanticSelection::Iteration(_) => Ok(None),
+        SemanticSelection::Operation(operation) => {
+            operation_target(operation, symbols, semantic_values).map(Some)
+        }
+        SemanticSelection::Iteration(iteration) => {
+            iteration_target(iteration, symbols, semantic_values).map(Some)
+        }
     }
 }
 
@@ -160,14 +288,9 @@ fn callable_target(
 ) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
     match target {
         BoundCallableTarget::Declaration(instance) => Ok(InspectionSelectionTarget::Surface {
-            symbol: InspectionSymbolIdentity::from_symbol(
-                symbols,
-                instance.definition().symbol(),
-            ),
+            symbol: InspectionSymbolIdentity::from_symbol(symbols, instance.definition().symbol()),
         }),
-        BoundCallableTarget::Anonymous(callable) => {
-            local_target(callable.into(), locals)
-        }
+        BoundCallableTarget::Anonymous(callable) => local_target(callable.into(), locals),
         BoundCallableTarget::Indirect(ty) => indirect_target(semantic_values, symbols, ty),
     }
 }
@@ -175,25 +298,248 @@ fn callable_target(
 fn operation_target(
     operation: &SelectedOperation,
     symbols: &SymbolGraph,
-) -> Option<InspectionSelectionTarget> {
-    let symbol = match operation {
-        SelectedOperation::Member(target) => Some(target.member()),
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+    match operation {
+        SelectedOperation::Member(target) => Ok(InspectionSelectionTarget::Surface {
+            symbol: InspectionSymbolIdentity::from_symbol(symbols, target.member()),
+        }),
         SelectedOperation::Construction(construction) => match construction.target() {
-            ConstructionTarget::Struct(symbol) => Some(symbol.into()),
-            ConstructionTarget::UnionVariant(symbol) => Some(symbol.into()),
-            ConstructionTarget::TypeForm { callable, .. } => {
-                Some(callable.definition().symbol())
-            }
+            ConstructionTarget::Struct(symbol) => Ok(InspectionSelectionTarget::Surface {
+                symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
+            }),
+            ConstructionTarget::UnionVariant(symbol) => Ok(InspectionSelectionTarget::Surface {
+                symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
+            }),
+            ConstructionTarget::TypeForm {
+                callable,
+                requirement,
+                witness,
+            } => Ok(InspectionSelectionTarget::Construction {
+                callable: callable_identity(symbols, callable),
+                evidence: Box::new(implementation_evidence(
+                    requirement,
+                    witness,
+                    symbols,
+                    semantic_values,
+                )?),
+            }),
         },
-        SelectedOperation::Operator { .. }
-        | SelectedOperation::Index { .. }
-        | SelectedOperation::Conversion(_)
-        | SelectedOperation::Implementation(_) => None,
+        SelectedOperation::Operator { target, .. } => {
+            operator_target(*target, symbols, semantic_values)
+        }
+        SelectedOperation::Index { target, .. } => index_target(*target, symbols, semantic_values),
+        SelectedOperation::Conversion(conversion) => Ok(InspectionSelectionTarget::Conversion {
+            conversion: Box::new(inspection_conversion(conversion, symbols, semantic_values)?),
+        }),
+        SelectedOperation::Implementation(witness) => {
+            Ok(InspectionSelectionTarget::Implementation {
+                evidence: Box::new(implementation_evidence(
+                    witness.requirement(),
+                    witness.witness(),
+                    symbols,
+                    semantic_values,
+                )?),
+            })
+        }
+    }
+}
+
+fn operator_target(
+    target: OperatorTarget,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+    match target {
+        OperatorTarget::BuiltIn(operator) => Ok(InspectionSelectionTarget::BuiltInOperator {
+            operator: operator.as_str(),
+        }),
+        OperatorTarget::Trait {
+            operator,
+            member,
+            fulfillment,
+            requirement,
+            witness,
+        } => Ok(InspectionSelectionTarget::TraitOperator {
+            operator: operator.as_str(),
+            member: callable_identity(symbols, member),
+            fulfillment: callable_identity(symbols, fulfillment),
+            evidence: Box::new(implementation_evidence(
+                requirement,
+                witness,
+                symbols,
+                semantic_values,
+            )?),
+        }),
+    }
+}
+
+fn index_target(
+    target: IndexTarget,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+    let operation = match target {
+        IndexTarget::ArrayElement => "array_element",
+        IndexTarget::SliceElement => "slice_element",
+        IndexTarget::ArraySlice => "array_slice",
+        IndexTarget::Slice => "slice",
+        IndexTarget::Custom {
+            member,
+            fulfillment,
+            requirement,
+            witness,
+        } => {
+            return Ok(InspectionSelectionTarget::CustomIndex {
+                member: callable_identity(symbols, member),
+                fulfillment: callable_identity(symbols, fulfillment),
+                evidence: Box::new(implementation_evidence(
+                    requirement,
+                    witness,
+                    symbols,
+                    semantic_values,
+                )?),
+            });
+        }
     };
 
-    symbol.map(|symbol| InspectionSelectionTarget::Surface {
-        symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol),
+    Ok(InspectionSelectionTarget::BuiltInIndex { operation })
+}
+
+fn inspection_conversion(
+    conversion: &SelectedConversion,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionConversion, SelectionInspectionError> {
+    let rule = match conversion.target() {
+        ConversionTarget::Identity => InspectionConversionRule::Identity,
+        ConversionTarget::BuiltInScalar => InspectionConversionRule::BuiltInScalar,
+        ConversionTarget::Composite(components) => InspectionConversionRule::Composite {
+            components: components
+                .iter()
+                .map(|component| inspection_conversion(component, symbols, semantic_values))
+                .collect::<Result<_, _>>()?,
+        },
+        ConversionTarget::Trait {
+            member,
+            fulfillment,
+            requirement,
+            witness,
+        } => InspectionConversionRule::Trait {
+            member: callable_identity(symbols, *member),
+            fulfillment: callable_identity(symbols, *fulfillment),
+            evidence: Box::new(implementation_evidence(
+                *requirement,
+                *witness,
+                symbols,
+                semantic_values,
+            )?),
+        },
+    };
+
+    Ok(InspectionConversion {
+        source_type: InspectionType::from_type(semantic_values, symbols, conversion.source_type())?,
+        target_type: InspectionType::from_type(semantic_values, symbols, conversion.target_type())?,
+        rule,
     })
+}
+
+fn iteration_target(
+    iteration: &SelectedIterationSource,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+    Ok(InspectionSelectionTarget::Iteration {
+        iteration: Box::new(InspectionIteration {
+            mode: iteration.mode().as_str(),
+            source_type: InspectionType::from_type(
+                semantic_values,
+                symbols,
+                iteration.source_type(),
+            )?,
+            cursor_type: InspectionType::from_type(
+                semantic_values,
+                symbols,
+                iteration.cursor_type(),
+            )?,
+            element_type: InspectionType::from_type(
+                semantic_values,
+                symbols,
+                iteration.element_type(),
+            )?,
+            iterate: protocol_operation(
+                iteration.iterate_member(),
+                iteration.iterate(),
+                iteration.iterable_requirement(),
+                iteration.iterable_witness(),
+                symbols,
+                semantic_values,
+            )?,
+            next: protocol_operation(
+                iteration.next_member(),
+                iteration.next(),
+                iteration.iterator_requirement(),
+                iteration.iterator_witness(),
+                symbols,
+                semantic_values,
+            )?,
+            has_exact_count: iteration.exact_count().is_some(),
+        }),
+    })
+}
+
+fn protocol_operation(
+    member: CallableInstanceData,
+    fulfillment: CallableInstanceData,
+    requirement: ImplementationRequirementKey,
+    witness: ImplementationInstanceId,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionProtocolOperation, SelectionInspectionError> {
+    Ok(InspectionProtocolOperation {
+        member: callable_identity(symbols, member),
+        fulfillment: callable_identity(symbols, fulfillment),
+        evidence: Box::new(implementation_evidence(
+            requirement,
+            witness,
+            symbols,
+            semantic_values,
+        )?),
+    })
+}
+
+fn implementation_evidence(
+    requirement: ImplementationRequirementKey,
+    witness: ImplementationInstanceId,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionImplementationEvidence, SelectionInspectionError> {
+    let trait_application = semantic_values
+        .trait_application_data(requirement.trait_application())
+        .map_err(|_| SelectionInspectionError::SemanticValue)?;
+
+    let implementation = semantic_values
+        .implementation_instance_data(witness)
+        .map_err(|_| SelectionInspectionError::SemanticValue)?;
+
+    Ok(InspectionImplementationEvidence {
+        subject: InspectionType::from_type(semantic_values, symbols, requirement.subject())?,
+        required_trait: InspectionSymbolIdentity::from_symbol(
+            symbols,
+            trait_application.definition().into(),
+        ),
+        implementation: InspectionSymbolIdentity::from_symbol(
+            symbols,
+            implementation.definition().into_any(),
+        ),
+    })
+}
+
+fn callable_identity(
+    symbols: &SymbolGraph,
+    callable: CallableInstanceData,
+) -> InspectionSymbolIdentity {
+    InspectionSymbolIdentity::from_symbol(symbols, callable.definition().symbol())
 }
 
 fn indirect_target(
@@ -210,8 +556,7 @@ fn local_target(
     target: AnyLocalSymbolId,
     locals: &LocalSymbolSnapshot,
 ) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
-    let (id, name) =
-        local_identity(target, locals).ok_or(SelectionInspectionError::Local)?;
+    let (id, name) = local_identity(target, locals).ok_or(SelectionInspectionError::Local)?;
 
     Ok(InspectionSelectionTarget::Local {
         symbol_kind: target.kind().as_str(),
@@ -225,41 +570,20 @@ fn local_identity(
     locals: &LocalSymbolSnapshot,
 ) -> Option<(u32, Option<String>)> {
     match target {
-        AnyLocalSymbolId::Binding(target) => locals.binding(target).map(|symbol| {
-            (
-                target.ordinal(),
-                Some(symbol.name().as_str().to_owned()),
-            )
-        }),
-        AnyLocalSymbolId::Constant(target) => locals.constant(target).map(|symbol| {
-            (
-                target.ordinal(),
-                Some(symbol.name().as_str().to_owned()),
-            )
-        }),
+        AnyLocalSymbolId::Binding(target) => locals
+            .binding(target)
+            .map(|symbol| (target.ordinal(), Some(symbol.name().as_str().to_owned()))),
+        AnyLocalSymbolId::Constant(target) => locals
+            .constant(target)
+            .map(|symbol| (target.ordinal(), Some(symbol.name().as_str().to_owned()))),
         AnyLocalSymbolId::AnonymousCallable(target) => locals
             .anonymous_callable(target)
-            .map(|_| {
-                (
-                    target.ordinal(),
-                    None,
-                )
-            }),
-        AnyLocalSymbolId::AnonymousCallableParameter(target) => {
-            locals.anonymous_parameter(target).map(|symbol| {
-                (
-                    target.ordinal(),
-                    Some(symbol.name().as_str().to_owned()),
-                )
-            })
-        }
+            .map(|_| (target.ordinal(), None)),
+        AnyLocalSymbolId::AnonymousCallableParameter(target) => locals
+            .anonymous_parameter(target)
+            .map(|symbol| (target.ordinal(), Some(symbol.name().as_str().to_owned()))),
         AnyLocalSymbolId::PostconditionResult(target) => locals
             .postcondition_result(target)
-            .map(|_| {
-                (
-                    target.ordinal(),
-                    None,
-                )
-            }),
+            .map(|_| (target.ordinal(), None)),
     }
 }

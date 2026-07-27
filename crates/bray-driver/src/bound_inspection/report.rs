@@ -23,6 +23,7 @@ use super::locals::InspectionLocals;
 use super::selection::{
     InspectionSelectionEntry, SelectionInspectionError, selection_entries, selection_kind,
 };
+use super::storage::{InspectionStorage, InspectionStoragePlan, StorageInspectionError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BoundInspectionRenderError {
@@ -61,6 +62,15 @@ impl From<SelectionInspectionError> for BoundInspectionRenderError {
     }
 }
 
+impl From<StorageInspectionError> for BoundInspectionRenderError {
+    fn from(error: StorageInspectionError) -> Self {
+        match error {
+            StorageInspectionError::Source => Self::Source,
+            StorageInspectionError::Type => Self::Type,
+        }
+    }
+}
+
 pub(crate) fn render_bound_inspection(
     compilation: &Compilation,
     target: BoundInspectionTarget,
@@ -69,7 +79,18 @@ pub(crate) fn render_bound_inspection(
     let source_id =
         SourceId::stored(target.source_id()).ok_or(BoundInspectionRenderError::Source)?;
 
+    let source = compilation
+        .source(source_id)
+        .ok_or(BoundInspectionRenderError::Source)?;
+
+    let source_length = bray_source::TextSize::try_from(source.text().len())
+        .map_err(|_| BoundInspectionRenderError::Source)?;
+
     let cancellation = CancellationToken::new();
+
+    if target.position() > source_length {
+        return Err(BoundInspectionRenderError::Source);
+    }
 
     let source_diagnostics = compilation
         .diagnostics_for_source(source_id, &cancellation, QueryPriority::Interactive)
@@ -85,11 +106,7 @@ pub(crate) fn render_bound_inspection(
         .map_err(|_| BoundInspectionRenderError::BoundFact)?;
 
     let Some(bound) = bound else {
-        let report = BoundInspectionReport::empty(
-            target,
-            &source_diagnostics,
-            compilation,
-        );
+        let report = BoundInspectionReport::empty(target, &source_diagnostics, compilation);
 
         return render_report(report, source_diagnostics, output_format);
     };
@@ -244,10 +261,7 @@ impl InspectionBoundUnit {
         semantic_values: &SemanticValueStore,
         sources: &InspectionSources<'_>,
     ) -> Result<Self, BoundInspectionRenderError> {
-        let source = InspectionSyntaxAnchor::from_anchor(
-            sources,
-            unit.key().source().syntax(),
-        )?;
+        let source = InspectionSyntaxAnchor::from_anchor(sources, unit.key().source().syntax())?;
 
         let owner = unit_owner(unit.key(), symbols)?;
 
@@ -268,10 +282,7 @@ impl InspectionBoundUnit {
                 Ok(InspectionNestedUnit {
                     unit_kind: key.kind().as_str(),
                     owner: unit_owner(key, symbols)?,
-                    source: InspectionSyntaxAnchor::from_anchor(
-                        sources,
-                        key.source().syntax(),
-                    )?,
+                    source: InspectionSyntaxAnchor::from_anchor(sources, key.source().syntax())?,
                 })
             })
             .collect::<Result<_, BoundInspectionRenderError>>()?;
@@ -283,7 +294,7 @@ impl InspectionBoundUnit {
             source,
             root,
             locals: InspectionLocals::from_snapshot(unit.local_symbols()),
-            storage: InspectionStorage::from_plan(storage),
+            storage: InspectionStorage::from_plan(storage, symbols, semantic_values, sources)?,
             selections: selection_entries(
                 selections,
                 unit.local_symbols(),
@@ -337,63 +348,6 @@ struct InspectionSynthesis {
 struct InspectionCheckedType {
     status: &'static str,
     r#type: InspectionType,
-}
-
-#[derive(Serialize)]
-struct InspectionStorage {
-    identities: Vec<InspectionStorageIdentity>,
-    access_count: usize,
-    alternative_count: usize,
-    borrow_capability_count: usize,
-    binding_count: usize,
-    plans: Vec<InspectionStoragePlan>,
-}
-
-impl InspectionStorage {
-    fn from_plan(plan: &StoragePlan) -> Self {
-        Self {
-            identities: plan
-                .identity_entries()
-                .map(|(id, identity)| InspectionStorageIdentity {
-                    id: id.ordinal(),
-                    storage_kind: identity.kind_name(),
-                })
-                .collect(),
-            access_count: plan.accesses().len(),
-            alternative_count: plan.alternatives().len(),
-            borrow_capability_count: plan.borrow_capabilities().len(),
-            binding_count: plan.bindings().len(),
-            plans: plan
-                .access_plans()
-                .iter()
-                .copied()
-                .map(InspectionStoragePlan::from)
-                .collect(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct InspectionStorageIdentity {
-    id: u32,
-    storage_kind: &'static str,
-}
-
-#[derive(Clone, Serialize)]
-struct InspectionStoragePlan {
-    expression: u32,
-    purpose: &'static str,
-    access: u32,
-}
-
-impl From<bray_bound_tree::StorageAccessPlan> for InspectionStoragePlan {
-    fn from(plan: bray_bound_tree::StorageAccessPlan) -> Self {
-        Self {
-            expression: plan.expression().ordinal(),
-            purpose: plan.purpose().as_str(),
-            access: plan.access().ordinal(),
-        }
-    }
 }
 
 fn build_tree(
@@ -487,11 +441,7 @@ fn inspection_node(
             let checked_type = match types.expression(expression_id) {
                 Some(result) => Some(InspectionCheckedType {
                     status: result.status().as_str(),
-                    r#type: InspectionType::from_type(
-                        semantic_values,
-                        symbols,
-                        result.ty(),
-                    )?,
+                    r#type: InspectionType::from_type(semantic_values, symbols, result.ty())?,
                 }),
                 None => None,
             };
@@ -535,13 +485,7 @@ fn inspection_node(
                 .block(block_id)
                 .ok_or(BoundInspectionRenderError::MissingNode)?;
 
-            (
-                "block",
-                block.origin(),
-                block.is_recovered(),
-                None,
-                None,
-            )
+            ("block", block.origin(), block.is_recovered(), None, None)
         }
         AnyBoundNodeId::CallableBody(body_id) => {
             let body = unit
@@ -560,19 +504,21 @@ fn inspection_node(
 
     let source = InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax())?;
 
-    let synthesis = origin.synthesized_origin().map(|origin| InspectionSynthesis {
-        role: origin.role().as_str(),
-        ordinal: origin.ordinal().raw(),
-    });
+    let synthesis = origin
+        .synthesized_origin()
+        .map(|origin| InspectionSynthesis {
+            role: origin.role().as_str(),
+            ordinal: origin.ordinal().raw(),
+        });
 
     let storage_accesses = match id {
         AnyBoundNodeId::Expression(expression) => storage
             .expression_plans(expression)
             .map(InspectionStoragePlan::from)
             .collect(),
-        AnyBoundNodeId::Pattern(_)
-        | AnyBoundNodeId::Block(_)
-        | AnyBoundNodeId::CallableBody(_) => Vec::new(),
+        AnyBoundNodeId::Pattern(_) | AnyBoundNodeId::Block(_) | AnyBoundNodeId::CallableBody(_) => {
+            Vec::new()
+        }
     };
 
     Ok(InspectionBoundNode {
@@ -635,15 +581,21 @@ fn render_text_report(report: &BoundInspectionReport) -> String {
 
             output.push_str(&format!(
                 "\nStorage: {} identities, {} accesses, {} plans\n",
-                unit.storage.identities.len(),
-                unit.storage.access_count,
-                unit.storage.plans.len()
+                unit.storage.identity_count(),
+                unit.storage.access_count(),
+                unit.storage.plans().len()
             ));
 
-            for plan in &unit.storage.plans {
+            for access in unit.storage.accesses() {
+                output.push_str(&format!("  {}\n", access.text()));
+            }
+
+            for plan in unit.storage.plans() {
                 output.push_str(&format!(
                     "  expression:{} {} -> access:{}\n",
-                    plan.expression, plan.purpose, plan.access
+                    plan.expression(),
+                    plan.purpose(),
+                    plan.access()
                 ));
             }
 
@@ -755,11 +707,10 @@ mod tests {
         let compilation = compilation(SOURCE);
         let target = target_at(SOURCE, "let result");
 
-        let output =
-            match render_bound_inspection(&compilation, target, DriverOutputFormat::Text) {
-                Ok(output) => output,
-                Err(error) => panic!("bound inspection should render: {error:?}"),
-            };
+        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Text) {
+            Ok(output) => output,
+            Err(error) => panic!("bound inspection should render: {error:?}"),
+        };
 
         let (text, diagnostics) = output.into_parts();
 
@@ -779,11 +730,10 @@ mod tests {
         let compilation = compilation(SOURCE);
         let target = target_at(SOURCE, "let result");
 
-        let output =
-            match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-                Ok(output) => output,
-                Err(error) => panic!("bound inspection should render: {error:?}"),
-            };
+        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
+            Ok(output) => output,
+            Err(error) => panic!("bound inspection should render: {error:?}"),
+        };
 
         let (json, diagnostics) = output.into_parts();
 
@@ -811,8 +761,94 @@ mod tests {
         );
 
         assert!(unit.get("locals").is_some());
-        assert!(unit.get("storage").is_some());
         assert!(unit.get("selections").is_some());
+
+        let storage = unit
+            .get("storage")
+            .unwrap_or_else(|| panic!("storage must be present"));
+
+        let access_ids = storage["accesses"]
+            .as_array()
+            .unwrap_or_else(|| panic!("storage accesses must be an array"))
+            .iter()
+            .filter_map(|access| access["id"].as_u64())
+            .collect::<Vec<_>>();
+
+        for plan in storage["plans"]
+            .as_array()
+            .unwrap_or_else(|| panic!("storage plans must be an array"))
+        {
+            let access = plan["access"]
+                .as_u64()
+                .unwrap_or_else(|| panic!("storage plan access must be an integer"));
+
+            assert!(access_ids.contains(&access), "dangling access:{access}");
+        }
+
+        assert!(
+            storage["accesses"]
+                .as_array()
+                .is_some_and(|accesses| accesses.iter().all(|access| {
+                    access.get("root").is_some()
+                        && access.get("reached_type").is_some()
+                        && access.get("source").is_some()
+                }))
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn index_and_conversion_selections_expose_the_selected_operation_targets() {
+        let source = concat!(
+            "module example;\n",
+            "\n",
+            "func main(pos values: [i32; 2])\n",
+            "{\n",
+            "    let widened = values[0] as i64;\n",
+            "}\n",
+        );
+
+        let compilation = compilation(source);
+        let target = target_at(source, "let widened");
+
+        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
+            Ok(output) => output,
+            Err(error) => panic!("bound inspection should render: {error:?}"),
+        };
+
+        let (json, diagnostics) = output.into_parts();
+
+        let value: Value = match serde_json::from_str(&json) {
+            Ok(value) => value,
+            Err(error) => panic!("bound inspection JSON must parse: {error}"),
+        };
+
+        let selections = value["selected_unit"]["selections"]
+            .as_array()
+            .unwrap_or_else(|| panic!("selections must be an array"));
+
+        assert!(selections.iter().any(|selection| {
+            selection["target"]["target_kind"].as_str() == Some("built_in_index")
+                && selection["target"]["operation"].as_str() == Some("array_element")
+        }));
+
+        assert!(selections.iter().any(|selection| {
+            selection["target"]["target_kind"].as_str() == Some("conversion")
+                && selection["target"]["conversion"]["rule"]["rule_kind"].as_str()
+                    == Some("built_in_scalar")
+        }));
+
+        assert!(
+            value["selected_unit"]["storage"]["accesses"]
+                .as_array()
+                .is_some_and(|accesses| accesses.iter().any(|access| {
+                    access["projections"]
+                        .as_array()
+                        .is_some_and(|projections| !projections.is_empty())
+                }))
+        );
+
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
@@ -821,11 +857,10 @@ mod tests {
         let compilation = compilation(SOURCE);
         let target = BoundInspectionTarget::new(0, TextSize::ZERO);
 
-        let output =
-            match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-                Ok(output) => output,
-                Err(error) => panic!("empty bound inspection should render: {error:?}"),
-            };
+        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
+            Ok(output) => output,
+            Err(error) => panic!("empty bound inspection should render: {error:?}"),
+        };
 
         let (json, diagnostics) = output.into_parts();
 
@@ -836,6 +871,34 @@ mod tests {
 
         assert!(value.get("selected_unit").is_some_and(Value::is_null));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn inspection_rejects_an_unknown_source() {
+        let compilation = compilation(SOURCE);
+        let target = BoundInspectionTarget::new(1, TextSize::ZERO);
+
+        assert_eq!(
+            render_bound_inspection(&compilation, target, DriverOutputFormat::Json).map(|_| ()),
+            Err(super::BoundInspectionRenderError::Source)
+        );
+    }
+
+    #[test]
+    fn inspection_rejects_an_offset_past_the_source() {
+        let compilation = compilation(SOURCE);
+
+        let position = match TextSize::try_from(SOURCE.len() + 1) {
+            Ok(position) => position,
+            Err(_) => panic!("test source offset must fit"),
+        };
+
+        let target = BoundInspectionTarget::new(0, position);
+
+        assert_eq!(
+            render_bound_inspection(&compilation, target, DriverOutputFormat::Json).map(|_| ()),
+            Err(super::BoundInspectionRenderError::Source)
+        );
     }
 
     #[test]
@@ -852,11 +915,10 @@ mod tests {
         let compilation = compilation(source);
         let target = target_at(source, "let broken");
 
-        let output =
-            match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-                Ok(output) => output,
-                Err(error) => panic!("recovered bound inspection should render: {error:?}"),
-            };
+        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
+            Ok(output) => output,
+            Err(error) => panic!("recovered bound inspection should render: {error:?}"),
+        };
 
         let (json, diagnostics) = output.into_parts();
 

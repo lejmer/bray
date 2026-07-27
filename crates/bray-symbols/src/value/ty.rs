@@ -20,6 +20,16 @@ pub enum BorrowKind {
     Mutable,
 }
 
+impl BorrowKind {
+    /// Returns this borrow kind's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Mutable => "mutable",
+        }
+    }
+}
+
 /// The callable ABI participating in callable type identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableAbi {
