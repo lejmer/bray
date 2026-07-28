@@ -88,7 +88,10 @@ pub(crate) fn render_bound_inspection(
 
     let cancellation = CancellationToken::new();
 
-    if target.position() > source_length {
+    if target
+        .position()
+        .is_some_and(|position| position > source_length)
+    {
         return Err(BoundInspectionRenderError::Source);
     }
 
@@ -96,43 +99,27 @@ pub(crate) fn render_bound_inspection(
         .diagnostics_for_source(source_id, &cancellation, QueryPriority::Interactive)
         .map_err(|_| BoundInspectionRenderError::Source)?;
 
-    let bound = compilation
-        .bound_unit_at(
-            source_id,
-            target.position(),
-            &cancellation,
-            QueryPriority::Interactive,
-        )
-        .map_err(|_| BoundInspectionRenderError::BoundFact)?;
-
-    let Some(bound) = bound else {
-        let report = BoundInspectionReport::empty(target, &source_diagnostics, compilation);
-
-        return render_report(report, source_diagnostics, output_format);
+    let bounds = match target.position() {
+        Some(position) => compilation
+            .bound_unit_at(
+                source_id,
+                position,
+                &cancellation,
+                QueryPriority::Interactive,
+            )
+            .map(|bound| bound.into_iter().collect())
+            .map_err(|_| BoundInspectionRenderError::BoundFact)?,
+        None => compilation
+            .bound_units_for_source(source_id, &cancellation, QueryPriority::Interactive)
+            .map_err(|_| BoundInspectionRenderError::BoundFact)?,
     };
 
-    // Each demanded fact retains the same small Arc-backed unit identity.
-    let key = bound.value().key().clone();
+    if bounds.is_empty() {
+        let report =
+            BoundInspectionReport::new(target, Vec::new(), &source_diagnostics, compilation);
 
-    let expression_types = compilation
-        .expression_types(key.clone())
-        .map_err(|_| BoundInspectionRenderError::TypeFact)?;
-
-    let selections = compilation
-        .semantic_selections(key.clone())
-        .map_err(|_| BoundInspectionRenderError::SelectionFact)?;
-
-    let storage = compilation
-        .storage_plan(key)
-        .map_err(|_| BoundInspectionRenderError::StorageFact)?;
-
-    let diagnostics = DiagnosticBag::merged_all([
-        &source_diagnostics,
-        bound.diagnostics(),
-        expression_types.diagnostics(),
-        selections.diagnostics(),
-        storage.diagnostics(),
-    ]);
+        return render_report(report, source_diagnostics, output_format);
+    }
 
     let symbols = compilation
         .symbol_graph()
@@ -144,18 +131,45 @@ pub(crate) fn render_bound_inspection(
 
     let sources = InspectionSources::new(compilation.sources())?;
 
-    let report = BoundInspectionReport::from_unit(
-        target,
-        bound.value(),
-        expression_types.value(),
-        selections.value(),
-        storage.value(),
-        symbols,
-        semantic_values,
-        &sources,
-        &diagnostics,
-        compilation,
-    )?;
+    let mut diagnostics = source_diagnostics;
+    let mut units = Vec::with_capacity(bounds.len());
+
+    for bound in bounds {
+        // Each demanded fact retains the same small Arc-backed unit identity.
+        let key = bound.value().key().clone();
+
+        let expression_types = compilation
+            .expression_types(key.clone())
+            .map_err(|_| BoundInspectionRenderError::TypeFact)?;
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .map_err(|_| BoundInspectionRenderError::SelectionFact)?;
+
+        let storage = compilation
+            .storage_plan(key)
+            .map_err(|_| BoundInspectionRenderError::StorageFact)?;
+
+        diagnostics = DiagnosticBag::merged_all([
+            &diagnostics,
+            bound.diagnostics(),
+            expression_types.diagnostics(),
+            selections.diagnostics(),
+            storage.diagnostics(),
+        ]);
+
+        units.push(InspectionBoundUnit::new(
+            bound.value(),
+            expression_types.value(),
+            selections.value(),
+            storage.value(),
+            symbols,
+            semantic_values,
+            &sources,
+        )?);
+    }
+
+    let report = BoundInspectionReport::new(target, units, &diagnostics, compilation);
 
     render_report(report, diagnostics, output_format)
 }
@@ -179,62 +193,27 @@ fn render_report(
 struct BoundInspectionReport {
     kind: &'static str,
     source_id: u32,
-    offset: u32,
-    selected_unit: Option<InspectionBoundUnit>,
+    offset: Option<u32>,
+    units: Vec<InspectionBoundUnit>,
     has_errors: bool,
     diagnostics: Vec<DiagnosticJson>,
 }
 
 impl BoundInspectionReport {
-    fn empty(
+    fn new(
         target: BoundInspectionTarget,
+        units: Vec<InspectionBoundUnit>,
         diagnostics: &DiagnosticBag,
         compilation: &Compilation,
     ) -> Self {
         Self {
             kind: "bound_inspection",
             source_id: target.source_id(),
-            offset: u32::from(target.position()),
-            selected_unit: None,
+            offset: target.position().map(u32::from),
+            units,
             has_errors: diagnostics.has_errors(),
             diagnostics: diagnostic_jsons(diagnostics, Some(compilation.sources())),
         }
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the report joins the independently demanded facts for one selected bound unit"
-    )]
-    fn from_unit(
-        target: BoundInspectionTarget,
-        unit: &BoundUnit,
-        types: &CheckedExpressionTypes,
-        selections: &CheckedSemanticSelections,
-        storage: &StoragePlan,
-        symbols: &SymbolGraph,
-        semantic_values: &SemanticValueStore,
-        sources: &InspectionSources<'_>,
-        diagnostics: &DiagnosticBag,
-        compilation: &Compilation,
-    ) -> Result<Self, BoundInspectionRenderError> {
-        let selected_unit = InspectionBoundUnit::new(
-            unit,
-            types,
-            selections,
-            storage,
-            symbols,
-            semantic_values,
-            sources,
-        )?;
-
-        Ok(Self {
-            kind: "bound_inspection",
-            source_id: target.source_id(),
-            offset: u32::from(target.position()),
-            selected_unit: Some(selected_unit),
-            has_errors: diagnostics.has_errors(),
-            diagnostics: diagnostic_jsons(diagnostics, Some(compilation.sources())),
-        })
     }
 }
 
@@ -536,96 +515,30 @@ fn inspection_node(
 }
 
 fn render_text_report(report: &BoundInspectionReport) -> String {
-    let mut output = format!(
-        "Bound tree at source {} offset {}\n",
-        report.source_id, report.offset
-    );
+    let mut output = match report.offset {
+        Some(offset) => format!(
+            "Bound tree at source {} offset {offset}\n",
+            report.source_id
+        ),
+        None => format!("Bound trees for source {}\n", report.source_id),
+    };
 
-    match &report.selected_unit {
-        Some(unit) => {
-            output.push_str(&format!(
-                "Unit {} [unit:{}] {}\n",
-                unit.unit_kind,
-                unit.unit_id,
-                unit.source.location_text()
-            ));
+    if report.units.is_empty() {
+        let message = if report.offset.is_some() {
+            "No independently checked bound unit covers this position.\n"
+        } else {
+            "No independently checked bound units originate in this source.\n"
+        };
 
-            output.push_str(&format!("Owner: {}\n", unit.owner.text()));
+        output.push_str(message);
+    }
 
-            let mut writer = TreeWriter::new("  ");
-
-            push_text_node(&mut writer, &unit.root, true);
-
-            output.push_str(&writer.into_string());
-
-            output.push_str(&format!(
-                "\nLocals: {} symbols, {} scopes\n",
-                unit.locals.symbols.len(),
-                unit.locals.scope_count
-            ));
-
-            for symbol in &unit.locals.symbols {
-                let name = symbol
-                    .name
-                    .as_ref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default();
-
-                let recovered = if symbol.recovered { " [recovered]" } else { "" };
-
-                output.push_str(&format!(
-                    "  {}{name} [local:{}]{recovered}\n",
-                    symbol.symbol_kind, symbol.id
-                ));
-            }
-
-            output.push_str(&format!(
-                "\nStorage: {} identities, {} accesses, {} plans\n",
-                unit.storage.identity_count(),
-                unit.storage.access_count(),
-                unit.storage.plans().len()
-            ));
-
-            for access in unit.storage.accesses() {
-                output.push_str(&format!("  {}\n", access.text()));
-            }
-
-            for plan in unit.storage.plans() {
-                output.push_str(&format!(
-                    "  expression:{} {} -> access:{}\n",
-                    plan.expression(),
-                    plan.purpose(),
-                    plan.access()
-                ));
-            }
-
-            output.push_str(&format!("\nSelections: {}\n", unit.selections.len()));
-
-            for selection in &unit.selections {
-                let target = selection
-                    .target_text()
-                    .map(|target| format!(" -> {target}"))
-                    .unwrap_or_default();
-
-                output.push_str(&format!(
-                    "  expression:{} {}{target}\n",
-                    selection.expression(),
-                    selection.selection_kind()
-                ));
-            }
-
-            output.push_str(&format!("\nNested units: {}\n", unit.nested_units.len()));
-
-            for nested in &unit.nested_units {
-                output.push_str(&format!(
-                    "  {} {} {}\n",
-                    nested.unit_kind,
-                    nested.owner.text(),
-                    nested.source.location_text()
-                ));
-            }
+    for (index, unit) in report.units.iter().enumerate() {
+        if index > 0 {
+            output.push('\n');
         }
-        None => output.push_str("No independently checked bound unit covers this position.\n"),
+
+        push_text_unit(&mut output, unit);
     }
 
     if !report.diagnostics.is_empty() {
@@ -637,6 +550,90 @@ fn render_text_report(report: &BoundInspectionReport) -> String {
     }
 
     output
+}
+
+fn push_text_unit(output: &mut String, unit: &InspectionBoundUnit) {
+    output.push_str(&format!(
+        "Unit {} [unit:{}] {}\n",
+        unit.unit_kind,
+        unit.unit_id,
+        unit.source.location_text()
+    ));
+
+    output.push_str(&format!("Owner: {}\n", unit.owner.text()));
+
+    let mut writer = TreeWriter::new("  ");
+
+    push_text_node(&mut writer, &unit.root, true);
+
+    output.push_str(&writer.into_string());
+
+    output.push_str(&format!(
+        "\nLocals: {} symbols, {} scopes\n",
+        unit.locals.symbols.len(),
+        unit.locals.scope_count
+    ));
+
+    for symbol in &unit.locals.symbols {
+        let name = symbol
+            .name
+            .as_ref()
+            .map(|name| format!(" {name}"))
+            .unwrap_or_default();
+
+        let recovered = if symbol.recovered { " [recovered]" } else { "" };
+
+        output.push_str(&format!(
+            "  {}{name} [local:{}]{recovered}\n",
+            symbol.symbol_kind, symbol.id
+        ));
+    }
+
+    output.push_str(&format!(
+        "\nStorage: {} identities, {} accesses, {} plans\n",
+        unit.storage.identity_count(),
+        unit.storage.access_count(),
+        unit.storage.plans().len()
+    ));
+
+    for access in unit.storage.accesses() {
+        output.push_str(&format!("  {}\n", access.text()));
+    }
+
+    for plan in unit.storage.plans() {
+        output.push_str(&format!(
+            "  expression:{} {} -> access:{}\n",
+            plan.expression(),
+            plan.purpose(),
+            plan.access()
+        ));
+    }
+
+    output.push_str(&format!("\nSelections: {}\n", unit.selections.len()));
+
+    for selection in &unit.selections {
+        let target = selection
+            .target_text()
+            .map(|target| format!(" -> {target}"))
+            .unwrap_or_default();
+
+        output.push_str(&format!(
+            "  expression:{} {}{target}\n",
+            selection.expression(),
+            selection.selection_kind()
+        ));
+    }
+
+    output.push_str(&format!("\nNested units: {}\n", unit.nested_units.len()));
+
+    for nested in &unit.nested_units {
+        output.push_str(&format!(
+            "  {} {} {}\n",
+            nested.unit_kind,
+            nested.owner.text(),
+            nested.source.location_text()
+        ));
+    }
 }
 
 fn push_text_node(writer: &mut TreeWriter, node: &InspectionBoundNode, is_last: bool) {
@@ -684,6 +681,7 @@ fn push_text_node(writer: &mut TreeWriter, node: &InspectionBoundNode, is_last: 
 #[cfg(test)]
 mod tests {
     use bray_compilation::Compilation;
+    use bray_diagnostics::DiagnosticBag;
     use bray_source::{SourceIdentity, SourceInput, SourceVersion, TextSize};
     use bray_symbols::PackageIdentity;
     use serde_json::Value;
@@ -730,20 +728,12 @@ mod tests {
         let compilation = compilation(SOURCE);
         let target = target_at(SOURCE, "let result");
 
-        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-            Ok(output) => output,
-            Err(error) => panic!("bound inspection should render: {error:?}"),
-        };
-
-        let (json, diagnostics) = output.into_parts();
-
-        let value: Value = match serde_json::from_str(&json) {
-            Ok(value) => value,
-            Err(error) => panic!("bound inspection JSON must parse: {error}"),
-        };
+        let (value, diagnostics) = json_inspection(&compilation, target);
 
         let unit = value
-            .get("selected_unit")
+            .get("units")
+            .and_then(Value::as_array)
+            .and_then(|units| units.first())
             .unwrap_or_else(|| panic!("selected unit must be present"));
 
         let root = unit
@@ -812,19 +802,9 @@ mod tests {
         let compilation = compilation(source);
         let target = target_at(source, "let widened");
 
-        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-            Ok(output) => output,
-            Err(error) => panic!("bound inspection should render: {error:?}"),
-        };
+        let (value, diagnostics) = json_inspection(&compilation, target);
 
-        let (json, diagnostics) = output.into_parts();
-
-        let value: Value = match serde_json::from_str(&json) {
-            Ok(value) => value,
-            Err(error) => panic!("bound inspection JSON must parse: {error}"),
-        };
-
-        let selections = value["selected_unit"]["selections"]
+        let selections = value["units"][0]["selections"]
             .as_array()
             .unwrap_or_else(|| panic!("selections must be an array"));
 
@@ -840,7 +820,7 @@ mod tests {
         }));
 
         assert!(
-            value["selected_unit"]["storage"]["accesses"]
+            value["units"][0]["storage"]["accesses"]
                 .as_array()
                 .is_some_and(|accesses| accesses.iter().any(|access| {
                     access["projections"]
@@ -855,28 +835,88 @@ mod tests {
     #[test]
     fn inspection_outside_a_semantic_unit_is_explicit() {
         let compilation = compilation(SOURCE);
-        let target = BoundInspectionTarget::new(0, TextSize::ZERO);
+        let target = BoundInspectionTarget::at(0, TextSize::ZERO);
 
-        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-            Ok(output) => output,
-            Err(error) => panic!("empty bound inspection should render: {error:?}"),
-        };
+        let (value, diagnostics) = json_inspection(&compilation, target);
 
-        let (json, diagnostics) = output.into_parts();
+        assert!(
+            value
+                .get("units")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+        );
 
-        let value: Value = match serde_json::from_str(&json) {
-            Ok(value) => value,
-            Err(error) => panic!("bound inspection JSON must parse: {error}"),
-        };
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
 
-        assert!(value.get("selected_unit").is_some_and(Value::is_null));
+    #[test]
+    fn source_inspection_renders_every_bound_unit_in_source_order() {
+        let source = concat!(
+            "module example;\n",
+            "\n",
+            "func first()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "func second()\n",
+            "{\n",
+            "}\n",
+        );
+
+        let compilation = compilation(source);
+        let target = BoundInspectionTarget::source(0);
+
+        let (value, diagnostics) = json_inspection(&compilation, target);
+
+        let units = value["units"]
+            .as_array()
+            .unwrap_or_else(|| panic!("bound units must be an array"));
+
+        assert_eq!(value["offset"], Value::Null);
+        assert_eq!(units.len(), 2);
+
+        let starts = units
+            .iter()
+            .filter_map(|unit| unit["source"]["range"]["start"].as_u64())
+            .collect::<Vec<_>>();
+
+        assert!(starts.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn source_inspection_includes_nested_anonymous_callable_units() {
+        let source = concat!(
+            "module example;\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let callable = lambda(value: i32)\n",
+            "    {\n",
+            "        value;\n",
+            "    };\n",
+            "}\n",
+        );
+
+        let compilation = compilation(source);
+        let target = BoundInspectionTarget::source(0);
+
+        let (value, diagnostics) = json_inspection(&compilation, target);
+
+        let units = value["units"]
+            .as_array()
+            .unwrap_or_else(|| panic!("bound units must be an array"));
+
+        assert_eq!(units.len(), 2);
+        assert_eq!(units[0]["nested_units"][0]["unit_kind"], "anonymous_callable");
+        assert_eq!(units[1]["unit_kind"], "anonymous_callable");
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]
     fn inspection_rejects_an_unknown_source() {
         let compilation = compilation(SOURCE);
-        let target = BoundInspectionTarget::new(1, TextSize::ZERO);
+        let target = BoundInspectionTarget::at(1, TextSize::ZERO);
 
         assert_eq!(
             render_bound_inspection(&compilation, target, DriverOutputFormat::Json).map(|_| ()),
@@ -893,7 +933,7 @@ mod tests {
             Err(_) => panic!("test source offset must fit"),
         };
 
-        let target = BoundInspectionTarget::new(0, position);
+        let target = BoundInspectionTarget::at(0, position);
 
         assert_eq!(
             render_bound_inspection(&compilation, target, DriverOutputFormat::Json).map(|_| ()),
@@ -915,20 +955,16 @@ mod tests {
         let compilation = compilation(source);
         let target = target_at(source, "let broken");
 
-        let output = match render_bound_inspection(&compilation, target, DriverOutputFormat::Json) {
-            Ok(output) => output,
-            Err(error) => panic!("recovered bound inspection should render: {error:?}"),
-        };
+        let (value, diagnostics) = json_inspection(&compilation, target);
 
-        let (json, diagnostics) = output.into_parts();
+        assert!(
+            value
+                .get("units")
+                .and_then(Value::as_array)
+                .is_some_and(|units| units.len() == 1)
+        );
 
-        let value: Value = match serde_json::from_str(&json) {
-            Ok(value) => value,
-            Err(error) => panic!("bound inspection JSON must parse: {error}"),
-        };
-
-        assert!(value.get("selected_unit").is_some_and(Value::is_object));
-        assert!(json.contains("\"recovered\": true"));
+        assert_eq!(value["units"][0]["root"]["recovered"], true);
         assert!(diagnostics.has_errors());
     }
 
@@ -942,7 +978,26 @@ mod tests {
             Err(_) => panic!("test source offset must fit"),
         };
 
-        BoundInspectionTarget::new(0, position)
+        BoundInspectionTarget::at(0, position)
+    }
+
+    fn json_inspection(
+        compilation: &Compilation,
+        target: BoundInspectionTarget,
+    ) -> (Value, DiagnosticBag) {
+        let output = match render_bound_inspection(compilation, target, DriverOutputFormat::Json) {
+            Ok(output) => output,
+            Err(error) => panic!("bound inspection should render: {error:?}"),
+        };
+
+        let (json, diagnostics) = output.into_parts();
+
+        let value = match serde_json::from_str(&json) {
+            Ok(value) => value,
+            Err(error) => panic!("bound inspection JSON must parse: {error}"),
+        };
+
+        (value, diagnostics)
     }
 
     fn compilation(source: &str) -> Compilation {
