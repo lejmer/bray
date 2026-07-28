@@ -8,6 +8,32 @@ use bray_runtime_interface::{
 
 use crate::{ExecutionLane, RunOutcomeKind, TaskId, TaskState};
 
+/// Cancellation request and observation state at one inspection point.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CancellationObservation {
+    requested: bool,
+    observable: bool,
+}
+
+impl CancellationObservation {
+    pub(crate) const fn new(requested: bool, observable: bool) -> Self {
+        Self {
+            requested,
+            observable,
+        }
+    }
+
+    /// Returns whether cancellation has been requested.
+    pub const fn requested(self) -> bool {
+        self.requested
+    }
+
+    /// Returns whether the request is currently observable by run code.
+    pub const fn observable(self) -> bool {
+        self.observable
+    }
+}
+
 /// Runtime location that created one independently executing task.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TaskStartSite {
@@ -39,7 +65,7 @@ pub struct TaskSnapshot {
     descriptor: ProtectedFrameDescriptor,
     state: TaskState,
     frame_state: ProtectedFrameStateId,
-    cancellation_requested: bool,
+    cancellation: CancellationObservation,
     join_waiters: usize,
     unobserved_outcome: Option<RunOutcomeKind>,
 }
@@ -55,7 +81,7 @@ impl TaskSnapshot {
         descriptor: ProtectedFrameDescriptor,
         state: TaskState,
         frame_state: ProtectedFrameStateId,
-        cancellation_requested: bool,
+        cancellation: CancellationObservation,
         join_waiters: usize,
         unobserved_outcome: Option<RunOutcomeKind>,
     ) -> Self {
@@ -65,7 +91,7 @@ impl TaskSnapshot {
             descriptor,
             state,
             frame_state,
-            cancellation_requested,
+            cancellation,
             join_waiters,
             unobserved_outcome,
         }
@@ -96,9 +122,9 @@ impl TaskSnapshot {
         self.frame_state
     }
 
-    /// Returns whether cancellation has been requested.
-    pub const fn cancellation_requested(&self) -> bool {
-        self.cancellation_requested
+    /// Returns pending and currently observable cancellation state.
+    pub const fn cancellation(&self) -> CancellationObservation {
+        self.cancellation
     }
 
     /// Returns the number of observers waiting for terminal publication.
@@ -164,7 +190,7 @@ pub struct ScheduledTaskSnapshot {
     wake_count: u64,
     wake_cause: Option<TaskWakeCause>,
     queue_age: Option<Duration>,
-    cancellation_requested: bool,
+    cancellation: CancellationObservation,
 }
 
 impl ScheduledTaskSnapshot {
@@ -182,7 +208,7 @@ impl ScheduledTaskSnapshot {
         wake_count: u64,
         wake_cause: Option<TaskWakeCause>,
         queue_age: Option<Duration>,
-        cancellation_requested: bool,
+        cancellation: CancellationObservation,
     ) -> Self {
         Self {
             task,
@@ -194,7 +220,7 @@ impl ScheduledTaskSnapshot {
             wake_count,
             wake_cause,
             queue_age,
-            cancellation_requested,
+            cancellation,
         }
     }
 
@@ -243,9 +269,9 @@ impl ScheduledTaskSnapshot {
         self.queue_age
     }
 
-    /// Returns whether cancellation has been requested.
-    pub const fn cancellation_requested(&self) -> bool {
-        self.cancellation_requested
+    /// Returns pending and currently observable cancellation state.
+    pub const fn cancellation(&self) -> CancellationObservation {
+        self.cancellation
     }
 }
 

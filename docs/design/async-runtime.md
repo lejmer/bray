@@ -601,10 +601,11 @@ product-and-standard-library inspection additionally renders each private bindin
 signature, target, and ABI version without exposing that role through ordinary package lookup.
 
 Runtime observation is demand-driven. A task snapshot combines its task identity, parent start site, current execution and frame
-state, cancellation state, join-waiter count, unobserved outcome category, and immutable frame descriptor. Consumers derive retained
-storage and cleanup blockers from the descriptor state rather than copying those tables into another representation. A scheduler
-snapshot reports registered tasks in task-identity order together with dispatch ownership, selected lane, checked lane requirements,
-affinity, accepted wake count, current wake cause, cancellation state, and pending timer count.
+state, pending and currently observable cancellation state, join-waiter count, unobserved outcome category, and immutable frame
+descriptor. Consumers derive retained storage and cleanup blockers from the descriptor state rather than copying those tables into
+another representation. A scheduler snapshot reports registered tasks in task-identity order together with dispatch ownership,
+selected lane, checked lane requirements, affinity, accepted wake count, current wake cause, pending and observable cancellation
+state, and pending timer count.
 
 Ready-queue timing is an explicit observation cost. Ordinary schedulers do not read the clock or retain enqueue timestamps.
 Schedulers created for observation expose queue age in snapshots and queue latency on dispatched work. This difference must not

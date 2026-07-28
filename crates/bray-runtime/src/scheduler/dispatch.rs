@@ -171,6 +171,6 @@ fn scheduled_task_snapshot(
         task.wake_count,
         wake_cause,
         queued.and_then(|queued| queued.age),
-        task.cancellation.is_requested(),
+        task.cancellation.observation(),
     ))
 }

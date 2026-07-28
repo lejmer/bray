@@ -81,8 +81,8 @@ pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
     })
 }
 
-/// Returns whether cancellation is observable in the current run.
-pub fn current_run_cancellation_requested() -> bool {
+/// Returns whether cancellation is currently observable in the current run.
+pub fn current_run_cancellation_observable() -> bool {
     CURRENT_RUN_CANCELLATION.with(|context| {
         context
             .borrow()
@@ -162,7 +162,7 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
-        TaskExecutionContext, current_run_cancellation_requested,
+        TaskExecutionContext, current_run_cancellation_observable,
         current_task_execution_context, with_task_execution_context,
     };
     use crate::test_support::TestFrame;
@@ -217,7 +217,7 @@ mod tests {
         assert!(current_task_execution_context().is_none());
 
         with_task_execution_context(context, || {
-            assert!(!current_run_cancellation_requested());
+            assert!(!current_run_cancellation_observable());
 
             assert_eq!(
                 current_task_execution_context()

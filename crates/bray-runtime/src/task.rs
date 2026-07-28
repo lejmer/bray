@@ -285,7 +285,7 @@ where
             self.descriptor.clone(),
             data.state,
             data.frame_state,
-            self.cancellation_requested(),
+            self.cancellation.observation(),
             data.join_waiters.len(),
             unobserved_outcome,
         ))
@@ -298,9 +298,9 @@ where
         self.cancellation.request()
     }
 
-    /// Returns whether cancellation has been requested.
-    pub fn cancellation_requested(&self) -> bool {
-        self.cancellation.is_requested()
+    /// Returns whether cancellation is currently observable by this task.
+    pub fn cancellation_observable(&self) -> bool {
+        self.cancellation.observation().observable()
     }
 
     /// Returns the structured cancellation context owned by this task.
@@ -322,7 +322,7 @@ where
 
         data.state = TaskState::Running;
 
-        let context = FrameContext::new(self.cancellation_requested());
+        let context = FrameContext::new(self.cancellation_observable());
 
         let progress = {
             let Some(frame) = data.frame.as_mut() else {
@@ -693,7 +693,7 @@ mod tests {
         );
 
         let child = with_task_execution_context(context, || {
-            TaskControlBlock::start(TestFrame::suspending_then_completing(2))
+            TaskControlBlock::start(TestFrame::retaining_state(2))
         })
         .unwrap_or_else(|error| panic!("child task must start: {error:?}"));
 
@@ -715,6 +715,16 @@ mod tests {
         assert_eq!(snapshot.state(), TaskState::Suspended(ProtectedFrameStateId::new(1)));
         assert_eq!(snapshot.join_waiters(), 0);
         assert_eq!(snapshot.unobserved_outcome(), None);
+
+        assert_eq!(
+            snapshot.retained_storage(),
+            &[bray_runtime_interface::ProtectedFrameStorageId::new(4)]
+        );
+
+        assert_eq!(
+            snapshot.cleanup_blockers(),
+            &[bray_runtime_interface::ProtectedFrameDependencyId::new(6)]
+        );
     }
 
     #[test]
@@ -848,7 +858,7 @@ mod tests {
 
         parent.request();
 
-        assert!(task.cancellation_requested());
+        assert!(task.cancellation_observable());
 
         assert_eq!(
             task.resume(),

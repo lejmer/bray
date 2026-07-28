@@ -198,7 +198,7 @@ mod tests {
     use crate::{
         CleanupReportSink, RunOutcome, Scheduler, SchedulerLimits,
         TaskControlBlock, TaskExecutionContext, TaskResumeStatus,
-        current_run_cancellation_requested,
+        current_run_cancellation_observable,
     };
     use crate::context::with_task_execution_context;
 
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
-        let outcome = execute_synchronous_root(current_run_cancellation_requested, |root| {
+        let outcome = execute_synchronous_root(current_run_cancellation_observable, |root| {
             assert!(root.request());
         });
 
