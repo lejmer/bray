@@ -109,9 +109,17 @@ impl MirFrameDescriptor {
         let mut state_ids = BTreeSet::new();
         let mut entry_blocks = BTreeSet::new();
 
-        for state in &states {
+        for (ordinal, state) in states.iter().enumerate() {
             if !state_ids.insert(state.state()) || !entry_blocks.insert(state.entry()) {
                 return Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry);
+            }
+
+            let Some(ordinal) = crate::id::compact_slot(ordinal) else {
+                return Err(MirFrameDescriptorBuildError::IdentityCapacityExceeded);
+            };
+
+            if state.state().raw() != ordinal {
+                return Err(MirFrameDescriptorBuildError::NonContiguousState);
             }
         }
 
@@ -155,8 +163,12 @@ impl MirFrameDescriptor {
 pub enum MirFrameDescriptorBuildError {
     /// The descriptor has no resumable state.
     MissingState,
+    /// The descriptor's ordered states do not use contiguous descriptor-local ordinals.
+    NonContiguousState,
     /// Two states use the same state identity or entry block.
     DuplicateStateOrEntry,
+    /// The state table exceeded its compact identity representation.
+    IdentityCapacityExceeded,
 }
 
 #[cfg(test)]
@@ -205,6 +217,20 @@ mod tests {
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),
             Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
+        );
+
+        let non_contiguous =
+            MirFrameStateFacts::new(MirFrameStateId::new(1), entry, [], None, [], []);
+
+        assert_eq!(
+            MirFrameDescriptor::try_new(
+                frame,
+                abi,
+                frame_abi,
+                result_type,
+                [non_contiguous]
+            ),
+            Err(MirFrameDescriptorBuildError::NonContiguousState)
         );
     }
 }

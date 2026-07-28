@@ -181,14 +181,15 @@ mod tests {
 
     use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
     use bray_diagnostics::DiagnosticResult;
-    use bray_ir::MirUnit;
+    use bray_ir::{MirOperand, MirTerminatorKind, MirUnit};
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_symbols::ProductKind;
+    use bray_symbols::{ProductKind, TypeData};
 
     use super::Compilation;
     use crate::test_support::{
-        compilation, package_identity, source_callable_body_key, source_input,
+        compilation, compilation_with_sources_and_worker_budget, package_identity,
+        source_callable_body_key, source_input,
     };
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
@@ -516,6 +517,127 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
 
         assert_eq!(compilation.state.lowered_units.is_published(&key), Ok(true));
+    }
+
+    #[test]
+    fn lowering_is_deterministic_across_worker_widths() {
+        let parallel_budget = WorkerBudget::new(4)
+            .unwrap_or_else(|error| panic!("parallel worker budget must build: {error:?}"));
+
+        let serial =
+            compilation_with_sources_and_worker_budget(&[LOWERING_SOURCE], WorkerBudget::serial());
+
+        let parallel =
+            compilation_with_sources_and_worker_budget(&[LOWERING_SOURCE], parallel_budget);
+
+        let serial_key = source_callable_body_key(&serial);
+        let parallel_key = source_callable_body_key(&parallel);
+
+        let serial_unit = serial
+            .lowered_unit(serial_key)
+            .unwrap_or_else(|error| panic!("serial MIR must publish: {error:?}"));
+
+        let parallel_unit = parallel
+            .lowered_unit(parallel_key)
+            .unwrap_or_else(|error| panic!("parallel MIR must publish: {error:?}"));
+
+        assert_eq!(serial_unit.diagnostics(), parallel_unit.diagnostics());
+
+        let serial_mir = lowered_mir(&serial_unit);
+        let parallel_mir = lowered_mir(&parallel_unit);
+
+        assert_eq!(serial_mir.key(), parallel_mir.key());
+        assert_eq!(serial_mir.unit(), parallel_mir.unit());
+        assert_eq!(serial_mir.source(), parallel_mir.source());
+        assert_eq!(serial_mir.target(), parallel_mir.target());
+        assert_eq!(serial_mir.kind(), parallel_mir.kind());
+        assert_eq!(serial_mir.entry(), parallel_mir.entry());
+        assert_eq!(serial_mir.frame_descriptor(), parallel_mir.frame_descriptor());
+        assert_eq!(serial_mir.storages(), parallel_mir.storages());
+        assert_eq!(serial_mir.values(), parallel_mir.values());
+        assert_eq!(serial_mir.operations(), parallel_mir.operations());
+
+        let [serial_block] = serial_mir.blocks() else {
+            panic!("simple lowering source must produce one MIR block");
+        };
+
+        let [parallel_block] = parallel_mir.blocks() else {
+            panic!("simple lowering source must produce one MIR block");
+        };
+
+        assert_eq!(serial_block.source(), parallel_block.source());
+        assert_eq!(serial_block.kind(), parallel_block.kind());
+        assert_eq!(serial_block.parameters(), parallel_block.parameters());
+        assert_eq!(serial_block.operations(), parallel_block.operations());
+
+        assert_eq!(
+            serial_block.terminator().source(),
+            parallel_block.terminator().source()
+        );
+
+        let (
+            MirTerminatorKind::Return(Some(MirOperand::Constant {
+                value: serial_value,
+                ty: serial_type,
+            })),
+            MirTerminatorKind::Return(Some(MirOperand::Constant {
+                value: parallel_value,
+                ty: parallel_type,
+            })),
+        ) = (
+            serial_block.terminator().kind(),
+            parallel_block.terminator().kind(),
+        )
+        else {
+            panic!("simple lowering source must return one constant");
+        };
+
+        let serial_values = serial
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("serial values must be available: {error:?}"));
+
+        let parallel_values = parallel
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("parallel values must be available: {error:?}"));
+
+        let serial_type = serial_values
+            .type_data(*serial_type)
+            .unwrap_or_else(|error| panic!("serial type must be available: {error:?}"));
+
+        let parallel_type = parallel_values
+            .type_data(*parallel_type)
+            .unwrap_or_else(|error| panic!("parallel type must be available: {error:?}"));
+
+        let (
+            TypeData::Named {
+                definition: serial_definition,
+                substitution: serial_substitution,
+            },
+            TypeData::Named {
+                definition: parallel_definition,
+                substitution: parallel_substitution,
+            },
+        ) = (serial_type.as_ref(), parallel_type.as_ref())
+        else {
+            panic!("simple lowering source must return one named integer type");
+        };
+
+        assert_eq!(serial_definition, parallel_definition);
+
+        assert_eq!(
+            serial_values.generic_substitution_data(*serial_substitution),
+            parallel_values.generic_substitution_data(*parallel_substitution)
+        );
+
+        let serial_constant = serial_values
+            .constant_value_data(*serial_value)
+            .unwrap_or_else(|error| panic!("serial constant must be available: {error:?}"));
+
+        let parallel_constant = parallel_values
+            .constant_value_data(*parallel_value)
+            .unwrap_or_else(|error| panic!("parallel constant must be available: {error:?}"));
+
+        assert_eq!(serial_constant.kind(), parallel_constant.kind());
     }
 
     #[test]

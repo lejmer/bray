@@ -14,6 +14,16 @@ Update the fixture when a semantic rule family or its owning query changes. Ever
 in `bray-binder` or `bray-compilation`. Boundary-test anchors may identify focused tests in other compiler crates. The integration test
 rejects missing rows, placeholders, stale code anchors, and non-executable test anchors.
 
+## Lowering coverage fixture
+
+`crates/bray-compilation/tests/fixtures/lowering-coverage.json` is the machine-checked lowering boundary inventory. It maps every
+bound-expression variant, structured-expression kind, pattern form, bound-unit root, and required semantic fact to its production
+lowering owner and an executable test. Cross-cutting rows cover MIR validation, lazy publication, worker-count determinism,
+recovery, and the MIR-only codegen dependency boundary.
+
+Update the fixture whenever one of those closed enums or its lowering owner changes. The integration test rejects missing,
+duplicate, placeholder, stale production, and non-executable test anchors.
+
 ## Diagnostic coverage
 
 Every `DiagnosticKind` must have an executable test that directly references the kind at its production or conversion boundary.
