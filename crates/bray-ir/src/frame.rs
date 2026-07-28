@@ -92,7 +92,8 @@ pub struct MirFrameDescriptor {
 }
 
 impl MirFrameDescriptor {
-    /// Creates a descriptor when state identities and entry blocks are unique.
+    /// Creates a descriptor from a nonempty state table with unique entries and
+    /// contiguous descriptor-local state identities in order.
     pub fn try_new(
         frame: ProtectedAsyncFrameId,
         abi_version: RuntimeAbiVersion,
