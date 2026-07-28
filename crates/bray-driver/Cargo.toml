@@ -10,6 +10,8 @@ bray-bound-tree = { path = "../bray-bound-tree" }
 bray-compilation = { path = "../bray-compilation" }
 bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-ir = { path = "../bray-ir" }
+bray-lowering = { path = "../bray-lowering" }
 bray-messages = { path = "../bray-messages" }
 bray-parser = { path = "../bray-parser" }
 bray-source = { path = "../bray-source" }

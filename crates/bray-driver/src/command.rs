@@ -10,6 +10,6 @@ pub use file_arguments::{
     source_inputs_from_file_arguments,
 };
 pub use model::{
-    BoundInspectionTarget, DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
-    DriverOutputFormat,
+    DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions, DriverOutputFormat,
+    UnitInspectionTarget,
 };

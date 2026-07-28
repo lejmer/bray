@@ -8,7 +8,7 @@ use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::command::{
-    BoundInspectionTarget, DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat,
+    DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat, UnitInspectionTarget,
 };
 use crate::output::{clap_styles, render_styled_text};
 use crate::run::exit_code_from_diagnostics;
@@ -144,10 +144,9 @@ impl Cli {
                 },
             })?;
 
-        Ok(DriverInvocation::new(
-            options,
-            self.command.into_driver_command(),
-        ))
+        let (command, output_file) = self.command.into_driver_parts();
+
+        Ok(DriverInvocation::new(options, command, output_file))
     }
 }
 
@@ -187,23 +186,25 @@ enum CliCommand {
 }
 
 impl CliCommand {
-    fn into_driver_command(self) -> DriverCommand {
+    fn into_driver_parts(self) -> (DriverCommand, Option<PathBuf>) {
         match self {
-            Self::Check(files) => DriverCommand::check(files.files),
-            Self::Inspect(command) => command.into_driver_command(),
+            Self::Check(files) => (DriverCommand::check(files.files), None),
+            Self::Inspect(command) => command.into_driver_parts(),
         }
     }
 }
 
 #[derive(Args, Debug)]
 struct CliInspectCommand {
+    #[arg(long, global = true, value_name = "PATH")]
+    output_file: Option<PathBuf>,
     #[command(subcommand)]
     command: CliInspectSubcommand,
 }
 
 impl CliInspectCommand {
-    fn into_driver_command(self) -> DriverCommand {
-        match self.command {
+    fn into_driver_parts(self) -> (DriverCommand, Option<PathBuf>) {
+        let command = match self.command {
             CliInspectSubcommand::Source(files) => DriverCommand::inspect_source(files.files),
             CliInspectSubcommand::Tokens(files) => DriverCommand::inspect_tokens(files.files),
             CliInspectSubcommand::Syntax(files) => DriverCommand::inspect_syntax(files.files),
@@ -212,14 +213,23 @@ impl CliInspectCommand {
             }
             CliInspectSubcommand::Symbols(files) => DriverCommand::inspect_symbols(files.files),
             CliInspectSubcommand::Bound(request) => {
-                let target = request.offset.map_or_else(
-                    || BoundInspectionTarget::source(request.source_id),
-                    |offset| BoundInspectionTarget::at(request.source_id, offset.into()),
-                );
+                let target = request.target();
 
                 DriverCommand::inspect_bound(target, request.files)
             }
-        }
+            CliInspectSubcommand::Lowered(request) => {
+                let target = request.target();
+
+                DriverCommand::inspect_lowered(target, request.files)
+            }
+            CliInspectSubcommand::Mir(request) => {
+                let target = request.target();
+
+                DriverCommand::inspect_mir(target, request.files)
+            }
+        };
+
+        (command, self.output_file)
     }
 }
 
@@ -230,17 +240,28 @@ enum CliInspectSubcommand {
     Syntax(CliSourceFiles),
     Declarations(CliSourceFiles),
     Symbols(CliSourceFiles),
-    Bound(CliBoundInspection),
+    Bound(CliUnitInspection),
+    Lowered(CliUnitInspection),
+    Mir(CliUnitInspection),
 }
 
 #[derive(Args, Debug)]
-struct CliBoundInspection {
+struct CliUnitInspection {
     #[arg(long, default_value_t = 0)]
     source_id: u32,
     #[arg(long)]
     offset: Option<u32>,
     #[arg(value_name = "FILE", num_args = 0..)]
     files: Vec<PathBuf>,
+}
+
+impl CliUnitInspection {
+    fn target(&self) -> UnitInspectionTarget {
+        self.offset.map_or_else(
+            || UnitInspectionTarget::source(self.source_id),
+            |offset| UnitInspectionTarget::at(self.source_id, offset.into()),
+        )
+    }
 }
 
 #[derive(Args, Debug)]
@@ -491,7 +512,7 @@ mod tests {
 
         let target = invocation
             .command()
-            .bound_inspection_target()
+            .unit_inspection_target()
             .unwrap_or_else(|| panic!("inspect bound command must retain its target"));
 
         assert_eq!(target.source_id(), 2);
@@ -513,12 +534,75 @@ mod tests {
 
         let target = invocation
             .command()
-            .bound_inspection_target()
+            .unit_inspection_target()
             .unwrap_or_else(|| panic!("inspect bound command must retain its source target"));
 
         assert_eq!(target.source_id(), 0);
         assert_eq!(target.position(), None);
         assert_eq!(invocation.command().files(), [PathBuf::from("main.bray")]);
+    }
+
+    #[test]
+    fn parses_lowered_and_mir_inspection_commands() {
+        let cases = [
+            ("lowered", DriverCommandKind::InspectLowered),
+            ("mir", DriverCommandKind::InspectMir),
+        ];
+
+        for (command, expected_kind) in cases {
+            let invocation = DriverInvocation::try_from_arguments([
+                "brayc",
+                "inspect",
+                command,
+                "--source-id",
+                "3",
+                "--offset",
+                "12",
+                "main.bray",
+            ])
+            .unwrap_or_else(|error| panic!("inspect {command} should parse: {error:?}"));
+
+            assert_eq!(invocation.command().kind(), expected_kind);
+
+            let target = invocation
+                .command()
+                .unit_inspection_target()
+                .unwrap_or_else(|| panic!("inspect {command} must retain its target"));
+
+            assert_eq!(target.source_id(), 3);
+            assert_eq!(target.position(), Some(12.into()));
+        }
+    }
+
+    #[test]
+    fn parses_report_file_for_every_inspection_command() {
+        let commands = [
+            "source",
+            "tokens",
+            "syntax",
+            "declarations",
+            "symbols",
+            "bound",
+            "lowered",
+            "mir",
+        ];
+
+        for command in commands {
+            let invocation = DriverInvocation::try_from_arguments([
+                "brayc",
+                "inspect",
+                command,
+                "--output-file",
+                "report.txt",
+                "main.bray",
+            ])
+            .unwrap_or_else(|error| panic!("inspect {command} should accept a report file: {error:?}"));
+
+            assert_eq!(
+                invocation.output_file(),
+                Some(std::path::Path::new("report.txt"))
+            );
+        }
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bray_compilation::{Compilation, CompilationRequest};
@@ -12,8 +13,8 @@ use crate::command::{
 };
 use crate::inspection::{
     InspectionOutput, render_bound_inspection, render_declaration_inspection,
-    render_source_inspection, render_symbol_inspection, render_syntax_inspection,
-    render_token_inspection,
+    render_lowered_inspection, render_mir_inspection, render_source_inspection,
+    render_symbol_inspection, render_syntax_inspection, render_token_inspection,
 };
 use crate::output::write_driver_output;
 use crate::run::exit_code_from_diagnostics;
@@ -27,6 +28,7 @@ pub struct DriverRunResult {
     output_format: DriverOutputFormat,
     stdout: String,
     stderr: String,
+    report_file: Option<PathBuf>,
 }
 
 impl DriverRunResult {
@@ -58,6 +60,7 @@ impl DriverRunResult {
             output_format,
             stdout,
             stderr,
+            report_file: None,
         }
     }
 
@@ -74,6 +77,7 @@ impl DriverRunResult {
             output_format,
             stdout: String::new(),
             stderr: String::new(),
+            report_file: None,
         }
     }
 
@@ -106,9 +110,20 @@ impl DriverRunResult {
         &self.stderr
     }
 
+    /// Returns the destination that should receive a copy of an inspection report.
+    pub fn report_file(&self) -> Option<&Path> {
+        self.report_file.as_deref()
+    }
+
     /// Returns whether this result carries driver-owned terminal output.
     pub fn has_terminal_output(&self) -> bool {
         !self.stdout.is_empty() || !self.stderr.is_empty()
+    }
+
+    fn with_report_file(mut self, report_file: Option<PathBuf>) -> Self {
+        self.report_file = report_file;
+
+        self
     }
 }
 
@@ -140,11 +155,11 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         }
     };
 
-    let (options, command) = invocation.into_parts();
+    let (options, command, report_file) = invocation.into_parts();
 
     let output_format = options.output_format();
     let command_kind = command.kind();
-    let bound_inspection_target = command.bound_inspection_target();
+    let unit_inspection_target = command.unit_inspection_target();
 
     let request = match compilation_request_from_file_arguments(
         command_line_package_identity(),
@@ -164,33 +179,72 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     }
 
     if command_kind == DriverCommandKind::InspectSource {
-        return run_inspect_source_command(request, output_format);
+        return run_inspect_source_command(request, output_format).with_report_file(report_file);
     }
 
     if command_kind == DriverCommandKind::InspectTokens {
-        return run_fact_inspection_command(request, output_format, render_token_inspection);
+        return run_fact_inspection_command(request, output_format, render_token_inspection)
+            .with_report_file(report_file);
     }
 
     if command_kind == DriverCommandKind::InspectSyntax {
-        return run_fact_inspection_command(request, output_format, render_syntax_inspection);
+        return run_fact_inspection_command(request, output_format, render_syntax_inspection)
+            .with_report_file(report_file);
     }
 
     if command_kind == DriverCommandKind::InspectDeclarations {
-        return run_fact_inspection_command(request, output_format, render_declaration_inspection);
+        return run_fact_inspection_command(request, output_format, render_declaration_inspection)
+            .with_report_file(report_file);
     }
 
     if command_kind == DriverCommandKind::InspectSymbols {
-        return run_fact_inspection_command(request, output_format, render_symbol_inspection);
+        return run_fact_inspection_command(request, output_format, render_symbol_inspection)
+            .with_report_file(report_file);
     }
 
     if command_kind == DriverCommandKind::InspectBound {
-        let Some(target) = bound_inspection_target else {
+        let Some(target) = unit_inspection_target else {
             unreachable!("bound inspection command must retain its source target");
         };
 
-        return run_fact_inspection_command(request, output_format, |compilation, output_format| {
-            render_bound_inspection(compilation, target, output_format)
-        });
+        return run_fact_inspection_command(
+            request,
+            output_format,
+            |compilation, output_format| {
+                render_bound_inspection(compilation, target, output_format)
+            },
+        )
+        .with_report_file(report_file);
+    }
+
+    if command_kind == DriverCommandKind::InspectLowered {
+        let Some(target) = unit_inspection_target else {
+            unreachable!("lowered inspection command must retain its source target");
+        };
+
+        return run_fact_inspection_command(
+            request,
+            output_format,
+            |compilation, output_format| {
+                render_lowered_inspection(compilation, target, output_format)
+            },
+        )
+        .with_report_file(report_file);
+    }
+
+    if command_kind == DriverCommandKind::InspectMir {
+        let Some(target) = unit_inspection_target else {
+            unreachable!("MIR inspection command must retain its source target");
+        };
+
+        return run_fact_inspection_command(
+            request,
+            output_format,
+            |compilation, output_format| {
+                render_mir_inspection(compilation, target, output_format)
+            },
+        )
+        .with_report_file(report_file);
     }
 
     match command_kind {
@@ -200,7 +254,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         | DriverCommandKind::InspectSyntax
         | DriverCommandKind::InspectDeclarations
         | DriverCommandKind::InspectSymbols
-        | DriverCommandKind::InspectBound => {
+        | DriverCommandKind::InspectBound
+        | DriverCommandKind::InspectLowered
+        | DriverCommandKind::InspectMir => {
             unreachable!("handled command kind did not return")
         }
     }
@@ -1202,5 +1258,138 @@ mod tests {
         assert_eq!(serial.exit_code(), ExitCode::SUCCESS);
         assert_eq!(parallel.exit_code(), ExitCode::SUCCESS);
         assert_eq!(serial.stdout(), parallel.stdout());
+    }
+
+    #[test]
+    fn run_writes_lowered_and_mir_inspections() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        );
+
+        let file = TemporaryFile::write("main.bray", source.as_bytes());
+
+        let lowered = run_result([
+            OsString::from("brayc"),
+            OsString::from("--format"),
+            OsString::from("json"),
+            OsString::from("inspect"),
+            OsString::from("lowered"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        let mir = run_result([
+            OsString::from("brayc"),
+            OsString::from("inspect"),
+            OsString::from("mir"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(lowered.exit_code(), ExitCode::SUCCESS);
+        assert!(lowered.stdout().contains("\"kind\": \"lowered_inspection\""));
+        assert!(lowered.stdout().contains("\"blocks\""));
+
+        assert_eq!(mir.exit_code(), ExitCode::SUCCESS);
+        assert!(mir.stdout().contains("mir unit"));
+        assert!(mir.stdout().contains("bb0("));
+    }
+
+    #[test]
+    fn lowered_and_mir_inspections_are_deterministic_across_worker_budgets() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        );
+
+        let file = TemporaryFile::write("main.bray", source.as_bytes());
+
+        for command in ["lowered", "mir"] {
+            let inspect = |cpu_count: &str| {
+                run_result([
+                    OsString::from("brayc"),
+                    OsString::from("--cpu-count"),
+                    OsString::from(cpu_count),
+                    OsString::from("inspect"),
+                    OsString::from(command),
+                    file.path().as_os_str().to_os_string(),
+                ])
+            };
+
+            let serial = inspect("1");
+            let parallel = inspect("4");
+
+            assert_eq!(serial.exit_code(), ExitCode::SUCCESS, "{command}");
+            assert_eq!(parallel.exit_code(), ExitCode::SUCCESS, "{command}");
+            assert_eq!(serial.stdout(), parallel.stdout(), "{command}");
+        }
+    }
+
+    #[test]
+    fn inspection_report_files_exactly_mirror_stdout_for_text_and_json() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+        let text_report = TemporaryFile::write("report.txt", b"stale");
+        let json_report = TemporaryFile::write("report.json", b"stale");
+
+        for (format, report) in [("text", &text_report), ("json", &json_report)] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+
+            let exit_code = run_with_writers(
+                [
+                    OsString::from("brayc"),
+                    OsString::from("--format"),
+                    OsString::from(format),
+                    OsString::from("inspect"),
+                    OsString::from("source"),
+                    OsString::from("--output-file"),
+                    report.path().as_os_str().to_os_string(),
+                    file.path().as_os_str().to_os_string(),
+                ],
+                &mut stdout,
+                &mut stderr,
+            );
+
+            let report_bytes = std::fs::read(report.path())
+                .unwrap_or_else(|error| panic!("inspection report should be readable: {error:?}"));
+
+            assert_eq!(exit_code, ExitCode::SUCCESS);
+            assert_eq!(report_bytes, stdout);
+            assert!(stderr.is_empty());
+        }
+    }
+
+    #[test]
+    fn inspection_report_file_failures_fail_without_publishing_stdout() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+        let report = unique_temporary_directory().join("missing").join("report.txt");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("inspect"),
+                OsString::from("source"),
+                OsString::from("--output-file"),
+                report.as_os_str().to_os_string(),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+        assert!(stderr.is_empty());
+        assert!(!report.exists());
     }
 }

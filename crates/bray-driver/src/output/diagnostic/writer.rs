@@ -11,6 +11,10 @@ pub(crate) fn write_driver_output(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> io::Result<()> {
+    if let Some(path) = result.report_file() {
+        std::fs::write(path, result.stdout().as_bytes())?;
+    }
+
     stdout.write_all(result.stdout().as_bytes())?;
     stderr.write_all(result.stderr().as_bytes())?;
 

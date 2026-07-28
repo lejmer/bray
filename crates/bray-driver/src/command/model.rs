@@ -72,16 +72,20 @@ pub enum DriverCommandKind {
     InspectSymbols,
     /// Inspects bound semantic units from one source.
     InspectBound,
+    /// Inspects lowered units from one source.
+    InspectLowered,
+    /// Renders lowered units as MIR notation.
+    InspectMir,
 }
 
-/// Selects bound semantic units from one source, optionally at one position.
+/// Selects semantic units from one source, optionally at one position.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct BoundInspectionTarget {
+pub struct UnitInspectionTarget {
     source_id: u32,
     position: Option<TextSize>,
 }
 
-impl BoundInspectionTarget {
+impl UnitInspectionTarget {
     /// Creates a target covering every independently checked unit in one source.
     pub const fn source(source_id: u32) -> Self {
         Self {
@@ -145,7 +149,21 @@ pub enum DriverCommand {
     /// Inspects bound semantic units from one source.
     InspectBound {
         /// Source and optional position used to select semantic units.
-        target: BoundInspectionTarget,
+        target: UnitInspectionTarget,
+        /// Source files to inspect.
+        files: Vec<PathBuf>,
+    },
+    /// Inspects lowered units from one source.
+    InspectLowered {
+        /// Source and optional position used to select semantic units.
+        target: UnitInspectionTarget,
+        /// Source files to inspect.
+        files: Vec<PathBuf>,
+    },
+    /// Renders lowered units as MIR notation.
+    InspectMir {
+        /// Source and optional position used to select semantic units.
+        target: UnitInspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
@@ -183,8 +201,18 @@ impl DriverCommand {
     }
 
     /// Creates an inspect-bound command.
-    pub fn inspect_bound(target: BoundInspectionTarget, files: Vec<PathBuf>) -> Self {
+    pub fn inspect_bound(target: UnitInspectionTarget, files: Vec<PathBuf>) -> Self {
         Self::InspectBound { target, files }
+    }
+
+    /// Creates an inspect-lowered command.
+    pub fn inspect_lowered(target: UnitInspectionTarget, files: Vec<PathBuf>) -> Self {
+        Self::InspectLowered { target, files }
+    }
+
+    /// Creates an inspect-MIR command.
+    pub fn inspect_mir(target: UnitInspectionTarget, files: Vec<PathBuf>) -> Self {
+        Self::InspectMir { target, files }
     }
 
     /// Returns this command's stable category.
@@ -197,6 +225,8 @@ impl DriverCommand {
             Self::InspectDeclarations { .. } => DriverCommandKind::InspectDeclarations,
             Self::InspectSymbols { .. } => DriverCommandKind::InspectSymbols,
             Self::InspectBound { .. } => DriverCommandKind::InspectBound,
+            Self::InspectLowered { .. } => DriverCommandKind::InspectLowered,
+            Self::InspectMir { .. } => DriverCommandKind::InspectMir,
         }
     }
 
@@ -209,14 +239,18 @@ impl DriverCommand {
             | Self::InspectSyntax { files }
             | Self::InspectDeclarations { files }
             | Self::InspectSymbols { files }
-            | Self::InspectBound { files, .. } => files,
+            | Self::InspectBound { files, .. }
+            | Self::InspectLowered { files, .. }
+            | Self::InspectMir { files, .. } => files,
         }
     }
 
-    /// Returns the source and optional position selected for bound inspection.
-    pub const fn bound_inspection_target(&self) -> Option<BoundInspectionTarget> {
+    /// Returns the source and optional position selected for semantic-unit inspection.
+    pub const fn unit_inspection_target(&self) -> Option<UnitInspectionTarget> {
         match self {
-            Self::InspectBound { target, .. } => Some(*target),
+            Self::InspectBound { target, .. }
+            | Self::InspectLowered { target, .. }
+            | Self::InspectMir { target, .. } => Some(*target),
             _ => None,
         }
     }
@@ -229,7 +263,9 @@ impl DriverCommand {
             | Self::InspectSyntax { files }
             | Self::InspectDeclarations { files }
             | Self::InspectSymbols { files }
-            | Self::InspectBound { files, .. } => files,
+            | Self::InspectBound { files, .. }
+            | Self::InspectLowered { files, .. }
+            | Self::InspectMir { files, .. } => files,
         }
     }
 }
@@ -239,12 +275,21 @@ impl DriverCommand {
 pub struct DriverInvocation {
     options: DriverOptions,
     command: DriverCommand,
+    output_file: Option<PathBuf>,
 }
 
 impl DriverInvocation {
     /// Creates a parsed driver invocation from options and a command.
-    pub const fn new(options: DriverOptions, command: DriverCommand) -> Self {
-        Self { options, command }
+    pub const fn new(
+        options: DriverOptions,
+        command: DriverCommand,
+        output_file: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            options,
+            command,
+            output_file,
+        }
     }
 
     /// Returns shared driver options.
@@ -257,8 +302,13 @@ impl DriverInvocation {
         &self.command
     }
 
-    /// Consumes this invocation into options and command.
-    pub fn into_parts(self) -> (DriverOptions, DriverCommand) {
-        (self.options, self.command)
+    /// Returns the inspection report destination, when one was requested.
+    pub fn output_file(&self) -> Option<&std::path::Path> {
+        self.output_file.as_deref()
+    }
+
+    /// Consumes this invocation into options, command, and report destination.
+    pub fn into_parts(self) -> (DriverOptions, DriverCommand, Option<PathBuf>) {
+        (self.options, self.command, self.output_file)
     }
 }

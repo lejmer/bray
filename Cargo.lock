@@ -239,6 +239,8 @@ dependencies = [
  "bray-compilation",
  "bray-declarations",
  "bray-diagnostics",
+ "bray-ir",
+ "bray-lowering",
  "bray-messages",
  "bray-parser",
  "bray-source",
