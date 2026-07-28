@@ -142,6 +142,25 @@ pub struct TaskControlBlock<
     resuming: AtomicBool,
 }
 
+impl<T, F> Drop for TaskControlBlock<T, F>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    fn drop(&mut self) {
+        let data = self
+            .data
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let Some(frame) = data.frame.as_mut() else {
+            return;
+        };
+
+        fail_frame(frame.as_mut());
+        destroy_failed_frame(data.frame.take());
+    }
+}
+
 impl<T: 'static> TaskControlBlock<T> {
     /// Moves a concrete inactive frame into stable task-owned storage.
     pub fn start<F>(frame: F) -> Result<Arc<Self>, TaskStartError>
@@ -587,6 +606,29 @@ mod tests {
     }
 
     #[test]
+    fn dropping_nonterminal_task_storage_resolves_retained_frame_state() {
+        let broadcasts = Arc::new(AtomicUsize::new(0));
+        let resolutions = Arc::new(AtomicUsize::new(0));
+
+        let task = TaskControlBlock::start(TrackedFrame {
+            frame: TestFrame::suspending_then_completing(1),
+            broadcasts: Arc::clone(&broadcasts),
+            resolutions: Arc::clone(&resolutions),
+        })
+        .unwrap_or_else(|error| panic!("tracked task must start: {error:?}"));
+
+        assert!(matches!(
+            task.resume(),
+            Ok(TaskResumeStatus::Suspended(_))
+        ));
+
+        drop(task);
+
+        assert_eq!(broadcasts.load(Ordering::Relaxed), 1);
+        assert_eq!(resolutions.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
     fn erased_inactive_frames_use_the_same_task_storage_contract() {
         let frame = erase_sendable_protected_frame(TestFrame::completing(41));
 
@@ -793,6 +835,37 @@ mod tests {
     struct LocalFrame {
         inner: TestFrame,
         _thread_affinity: Rc<()>,
+    }
+
+    struct TrackedFrame {
+        frame: TestFrame,
+        broadcasts: Arc<AtomicUsize>,
+        resolutions: Arc<AtomicUsize>,
+    }
+
+    impl ProtectedFrame for TrackedFrame {
+        type Output = i32;
+
+        fn descriptor(&self) -> &bray_runtime_interface::ProtectedFrameDescriptor {
+            self.frame.descriptor()
+        }
+
+        fn resume(
+            self: Pin<&mut Self>,
+            context: FrameContext,
+        ) -> FrameProgress<Self::Output> {
+            Pin::new(&mut self.get_mut().frame).resume(context)
+        }
+
+        fn broadcast_tasks(self: Pin<&mut Self>) {
+            self.broadcasts.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn resolve_lifecycle(self: Pin<&mut Self>, exit: FrameExit) {
+            assert_eq!(exit, FrameExit::RuntimeFailure);
+
+            self.resolutions.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     impl ProtectedFrame for LocalFrame {

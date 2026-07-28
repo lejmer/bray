@@ -4,20 +4,22 @@ use std::pin::Pin;
 use std::sync::{Arc, Barrier};
 
 use bray_runtime_interface::{
-    BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
-    ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameLayout,
-    ProtectedFrameOperations, ProtectedFrameStateDescriptor,
+    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
+    ProtectedFrameAbiVersions, ProtectedFrameAffinity, ProtectedFrameDescriptor,
+    ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,
     ProtectedFrameStateId, RuntimeAbiVersion,
 };
 
 use crate::{
     FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame,
+    current_task_execution_context,
 };
 
 pub(crate) struct TestFrame {
     descriptor: ProtectedFrameDescriptor,
     behavior: TestFrameBehavior,
     cleanup_panics: bool,
+    wake_on_suspension: bool,
 }
 
 enum TestFrameBehavior {
@@ -53,6 +55,7 @@ impl TestFrame {
             descriptor: descriptor(1),
             behavior: TestFrameBehavior::CancellationAware,
             cleanup_panics: false,
+            wake_on_suspension: false,
         }
     }
 
@@ -61,6 +64,7 @@ impl TestFrame {
             descriptor: descriptor(1),
             behavior: TestFrameBehavior::Panics,
             cleanup_panics: true,
+            wake_on_suspension: false,
         }
     }
 
@@ -77,6 +81,7 @@ impl TestFrame {
                 value,
             },
             cleanup_panics: false,
+            wake_on_suspension: false,
         }
     }
 
@@ -89,6 +94,40 @@ impl TestFrame {
         )
     }
 
+    pub(crate) fn main_thread_self_waking(value: i32) -> Self {
+        Self {
+            descriptor: descriptor_with(
+                2,
+                [ExecutionLaneRequirement::MainThread],
+                ProtectedFrameAffinity::MainThread,
+            ),
+            behavior: TestFrameBehavior::Sequence(
+                [
+                    FrameProgress::Suspended(FrameSuspension::new(
+                        ProtectedFrameStateId::new(1),
+                    )),
+                    FrameProgress::Completed(value),
+                ]
+                .into(),
+            ),
+            cleanup_panics: false,
+            wake_on_suspension: true,
+        }
+    }
+
+    pub(crate) fn main_thread_cancellation_aware() -> Self {
+        Self {
+            descriptor: descriptor_with(
+                1,
+                [ExecutionLaneRequirement::MainThread],
+                ProtectedFrameAffinity::MainThread,
+            ),
+            behavior: TestFrameBehavior::CancellationAware,
+            cleanup_panics: false,
+            wake_on_suspension: false,
+        }
+    }
+
     fn sequence<const N: usize>(
         progress: [FrameProgress<i32>; N],
         state_count: u32,
@@ -97,6 +136,7 @@ impl TestFrame {
             descriptor: descriptor(state_count),
             behavior: TestFrameBehavior::Sequence(progress.into()),
             cleanup_panics: false,
+            wake_on_suspension: false,
         }
     }
 }
@@ -114,7 +154,7 @@ impl ProtectedFrame for TestFrame {
     ) -> FrameProgress<Self::Output> {
         let frame = self.get_mut();
 
-        match &mut frame.behavior {
+        let progress = match &mut frame.behavior {
             TestFrameBehavior::Sequence(progress) => progress
                 .pop_front()
                 .unwrap_or_else(|| panic!("test frame must have another transition")),
@@ -137,7 +177,19 @@ impl ProtectedFrame for TestFrame {
                 FrameProgress::Completed(*value)
             }
             TestFrameBehavior::Panics => panic!("primary test panic"),
+        };
+
+        if frame.wake_on_suspension
+            && let FrameProgress::Suspended(suspension) = &progress
+        {
+            current_task_execution_context()
+                .unwrap_or_else(|| panic!("self-waking frame must have a task context"))
+                .wake_handle()
+                .wake(suspension.state())
+                .unwrap_or_else(|error| panic!("self-waking frame must wake: {error:?}"));
         }
+
+        progress
     }
 
     fn broadcast_tasks(self: Pin<&mut Self>) {}
@@ -150,6 +202,14 @@ impl ProtectedFrame for TestFrame {
 }
 
 fn descriptor(state_count: u32) -> ProtectedFrameDescriptor {
+    descriptor_with(state_count, [], ProtectedFrameAffinity::Movable)
+}
+
+fn descriptor_with(
+    state_count: u32,
+    requirements: impl IntoIterator<Item = ExecutionLaneRequirement> + Clone,
+    affinity: ProtectedFrameAffinity,
+) -> ProtectedFrameDescriptor {
     let Some(alignment) = NonZeroUsize::new(8) else {
         panic!("test frame alignment must be nonzero");
     };
@@ -163,10 +223,10 @@ fn descriptor(state_count: u32) -> ProtectedFrameDescriptor {
     let states = (0..state_count).map(|state| {
         ProtectedFrameStateDescriptor::new(
             ProtectedFrameStateId::new(state),
+            requirements.clone(),
             [],
             [],
-            [],
-            ProtectedFrameAffinity::Movable,
+            affinity,
         )
     });
 

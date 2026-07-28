@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::{CancellationContext, ExecutionLane, TaskId};
+use crate::{CancellationContext, ExecutionLane, TaskId, TaskWakeHandle};
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
@@ -13,15 +13,22 @@ pub struct TaskExecutionContext {
     task: TaskId,
     cancellation: CancellationContext,
     lane: ExecutionLane,
+    wake: TaskWakeHandle,
 }
 
 impl TaskExecutionContext {
     /// Creates the context for one task resume.
-    pub const fn new(task: TaskId, cancellation: CancellationContext, lane: ExecutionLane) -> Self {
+    pub(crate) const fn new(
+        task: TaskId,
+        cancellation: CancellationContext,
+        lane: ExecutionLane,
+        wake: TaskWakeHandle,
+    ) -> Self {
         Self {
             task,
             cancellation,
             lane,
+            wake,
         }
     }
 
@@ -38,6 +45,11 @@ impl TaskExecutionContext {
     /// Returns the lane selected for this resume.
     pub const fn lane(&self) -> ExecutionLane {
         self.lane
+    }
+
+    /// Returns authority to wake the current suspended continuation.
+    pub const fn wake_handle(&self) -> &TaskWakeHandle {
+        &self.wake
     }
 }
 
@@ -71,7 +83,10 @@ impl Drop for ContextGuard {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use bray_platform::RuntimeThreadScope;
+    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
         TaskExecutionContext, current_task_execution_context, with_task_execution_context,
@@ -79,7 +94,7 @@ mod tests {
     use crate::test_support::TestFrame;
     use crate::{
         CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-        TaskControlBlock,
+        Scheduler, SchedulerLimits, TaskControlBlock,
     };
 
     #[test]
@@ -95,7 +110,29 @@ mod tests {
             ExecutionWorkload::Cooperative,
         );
 
-        let context = TaskExecutionContext::new(task.id(), CancellationContext::root(), lane);
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ],
+            runtime.runtime().id(),
+            SchedulerLimits::new(nonzero(1), nonzero(1)),
+        );
+
+        let cancellation = CancellationContext::root();
+
+        let registration = scheduler
+            .register_task(
+                task.id(),
+                task.descriptor().clone(),
+                runtime.runtime().id(),
+                ProtectedFrameStateId::new(0),
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+
+        let context =
+            TaskExecutionContext::new(task.id(), cancellation, lane, registration.wake_handle());
 
         assert!(current_task_execution_context().is_none());
 
@@ -109,5 +146,10 @@ mod tests {
         });
 
         assert!(current_task_execution_context().is_none());
+    }
+
+    fn nonzero(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value)
+            .unwrap_or_else(|| panic!("test scheduler capacity must be nonzero"))
     }
 }

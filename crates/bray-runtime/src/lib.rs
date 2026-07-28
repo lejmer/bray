@@ -7,7 +7,9 @@ mod context;
 mod frame;
 mod lane;
 mod outcome;
+mod root;
 mod scheduler;
+mod shutdown;
 mod task;
 
 #[cfg(test)]
@@ -26,8 +28,15 @@ pub use lane::{
     ExecutionLane, ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
 };
 pub use outcome::{RunOutcome, RunOutcomeKind};
+pub use root::{
+    RootCancellationHandle, RootExecutionError, execute_async_root,
+    execute_synchronous_root,
+};
 pub use scheduler::{
     ReadyTask, Scheduler, SchedulerError, SchedulerLimits, TaskRegistration, TaskWakeHandle,
+};
+pub use shutdown::{
+    CleanupIncident, CleanupReportSink, finish_product_shutdown,
 };
 pub use task::{
     JoinWake, TaskControlBlock, TaskFailureKind, TaskId, TaskObservationError, TaskResumeError,
