@@ -73,7 +73,7 @@ impl Lowerer<'_> {
                 self.lower_nullable_propagation(id, expression, current)
             }
             BoundStructuredExpressionKind::ResultPropagation => {
-                self.lower_result_propagation(id, expression, current)
+                self.lower_result_or_run_result_propagation(id, expression, current)
             }
             BoundStructuredExpressionKind::TrustBoundary => {
                 self.lower_trust_boundary(id, expression, current)

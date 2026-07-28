@@ -123,7 +123,7 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(present, Some(value), source))
     }
 
-    pub(super) fn lower_result_propagation(
+    pub(super) fn lower_result_or_run_result_propagation(
         &mut self,
         id: BoundExpressionId,
         expression: &BoundStructuredExpression,
@@ -136,7 +136,7 @@ impl Lowerer<'_> {
         let operand_type = self.expression_type(*operand_id)?;
 
         match self.type_representation(operand_type)? {
-            Some(RepresentationRole::Result) => self.lower_language_result_propagation(
+            Some(RepresentationRole::Result) => self.lower_result_propagation(
                 id,
                 expression,
                 *operand_id,
@@ -154,7 +154,7 @@ impl Lowerer<'_> {
         }
     }
 
-    fn lower_language_result_propagation(
+    fn lower_result_propagation(
         &mut self,
         id: BoundExpressionId,
         expression: &BoundStructuredExpression,
