@@ -363,13 +363,11 @@ fn push_text_mir(output: &mut String, mir: &InspectionMirUnit) {
 
         writer.enter_children(block_is_last);
 
-        let operation_count = block.operations.len();
-
         for operation in &block.operations {
             push_text_operation(&mut writer, operation, false);
         }
 
-        push_text_terminator(&mut writer, &block.terminator, operation_count == 0);
+        push_text_terminator(&mut writer, &block.terminator);
         writer.leave_children();
     }
 
@@ -481,12 +479,8 @@ fn push_text_operation(
 fn push_text_terminator(
     writer: &mut TreeWriter,
     terminator: &InspectionMirTerminator,
-    only_child: bool,
 ) {
-    writer.push_line(
-        only_child,
-        &format!("{} terminator", terminator.terminator_kind),
-    );
+    writer.push_line(true, &format!("{} terminator", terminator.terminator_kind));
 
     let detail_count = terminator.attributes.len()
         + terminator.operands.len()
@@ -500,7 +494,7 @@ fn push_text_terminator(
         return;
     }
 
-    writer.enter_children(only_child);
+    writer.enter_children(true);
 
     let mut detail_index = 0;
 
@@ -709,6 +703,30 @@ mod tests {
         assert_eq!(value["units"][0]["representation"], "mir");
         assert!(value["units"][0]["mir"]["blocks"].is_array());
         assert!(value["units"][0]["mir"]["values"].is_array());
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn structural_text_uses_final_connector_for_block_terminators() {
+        let compilation = compilation(SOURCE);
+
+        let output = render_lowered_inspection(
+            &compilation,
+            UnitInspectionTarget::source(0),
+            DriverOutputFormat::Text,
+        )
+        .unwrap_or_else(|error| panic!("lowered inspection should render: {error:?}"));
+
+        let (text, diagnostics) = output.into_parts();
+
+        assert!(text.lines().any(|line| {
+            line.trim_start() == "└─ return terminator"
+        }));
+
+        assert!(!text.lines().any(|line| {
+            line.trim_start() == "├─ return terminator"
+        }));
+
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
