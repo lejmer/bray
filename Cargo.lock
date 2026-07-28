@@ -356,6 +356,7 @@ dependencies = [
 name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
+ "bray-platform",
  "bray-runtime-interface",
 ]
 

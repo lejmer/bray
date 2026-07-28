@@ -6,6 +6,7 @@ version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-platform = { path = "../bray-platform" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 
 [lints]
