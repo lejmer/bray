@@ -1,30 +1,115 @@
+use std::any::Any;
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use crate::{RunOutcome, RuntimePanic};
+use bray_runtime_interface::{ProtectedAsyncFrameId, ProtectedFrameStateId};
+
+use crate::{RunOutcome, TaskId};
 
 /// A cleanup failure transferred to the product host for reporting.
-#[derive(Debug)]
 pub struct CleanupIncident {
-    panic: RuntimePanic,
+    ordinal: u64,
+    producer: CleanupIncidentProducer,
+    origin: CleanupIncidentOrigin,
+    payload: Box<dyn Any + Send>,
 }
 
 impl CleanupIncident {
-    /// Creates a host-owned cleanup incident.
-    pub const fn new(panic: RuntimePanic) -> Self {
-        Self { panic }
+    fn new(
+        ordinal: u64,
+        producer: CleanupIncidentProducer,
+        origin: CleanupIncidentOrigin,
+        payload: impl Any + Send,
+    ) -> Self {
+        Self {
+            ordinal,
+            producer,
+            origin,
+            payload: Box::new(payload),
+        }
     }
 
-    /// Returns the retained cleanup panic.
-    pub const fn panic(&self) -> &RuntimePanic {
-        &self.panic
+    /// Returns the deterministic encounter ordinal.
+    pub const fn ordinal(&self) -> u64 {
+        self.ordinal
+    }
+
+    /// Returns the run that produced the incident.
+    pub const fn producer(&self) -> CleanupIncidentProducer {
+        self.producer
+    }
+
+    /// Returns the protected-frame location that produced the incident.
+    pub const fn origin(&self) -> CleanupIncidentOrigin {
+        self.origin
+    }
+
+    /// Returns whether the erased payload has one exact host representation.
+    pub fn payload_is<T: Any>(&self) -> bool {
+        self.payload.is::<T>()
+    }
+
+    /// Returns the host type identity carried by the erased payload descriptor.
+    pub fn payload_type_id(&self) -> std::any::TypeId {
+        self.payload.as_ref().type_id()
+    }
+}
+
+impl fmt::Debug for CleanupIncident {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CleanupIncident")
+            .field("ordinal", &self.ordinal)
+            .field("producer", &self.producer)
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Runtime run boundary that produced a cleanup incident.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CleanupIncidentProducer {
+    /// The directly executing synchronous root run.
+    SynchronousRoot,
+    /// One host-owned or source-owned runtime task.
+    Task(TaskId),
+}
+
+/// Protected-frame location correlated with a cleanup incident.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CleanupIncidentOrigin {
+    frame: ProtectedAsyncFrameId,
+    state: ProtectedFrameStateId,
+}
+
+impl CleanupIncidentOrigin {
+    /// Creates a cleanup origin from its frame and retained state.
+    pub const fn new(frame: ProtectedAsyncFrameId, state: ProtectedFrameStateId) -> Self {
+        Self { frame, state }
+    }
+
+    /// Returns the protected frame that ran cleanup.
+    pub const fn frame(self) -> ProtectedAsyncFrameId {
+        self.frame
+    }
+
+    /// Returns the retained frame state that produced the incident.
+    pub const fn state(self) -> ProtectedFrameStateId {
+        self.state
     }
 }
 
 /// Mandatory product-host sink for cleanup incidents not attached to a returned panic.
 #[derive(Clone, Debug, Default)]
 pub struct CleanupReportSink {
-    incidents: Arc<Mutex<VecDeque<CleanupIncident>>>,
+    state: Arc<Mutex<CleanupReportState>>,
+}
+
+#[derive(Debug, Default)]
+struct CleanupReportState {
+    next_ordinal: u64,
+    incidents: VecDeque<CleanupIncident>,
 }
 
 impl CleanupReportSink {
@@ -33,21 +118,35 @@ impl CleanupReportSink {
         Self::default()
     }
 
-    /// Transfers one cleanup incident to the product host.
-    pub fn transfer(&self, incident: CleanupIncident) {
-        self.incidents
+    /// Transfers one owned cleanup failure to the product host.
+    pub fn transfer(
+        &self,
+        producer: CleanupIncidentProducer,
+        origin: CleanupIncidentOrigin,
+        payload: impl Any + Send,
+    ) {
+        let mut state = self
+            .state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push_back(incident);
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let ordinal = state.next_ordinal;
+
+        state.next_ordinal = state.next_ordinal.saturating_add(1);
+
+        state.incidents.push_back(CleanupIncident::new(
+            ordinal, producer, origin, payload,
+        ));
     }
 
     /// Reports and removes every incident in transfer order.
     pub fn drain(&self, mut report: impl FnMut(CleanupIncident)) {
         loop {
             let incident = self
-                .incidents
+                .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .incidents
                 .pop_front();
 
             let Some(incident) = incident else {
@@ -60,9 +159,10 @@ impl CleanupReportSink {
 
     /// Returns the number of incidents awaiting product-host reporting.
     pub fn pending_count(&self) -> usize {
-        self.incidents
+        self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .incidents
             .len()
     }
 }
@@ -88,16 +188,31 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{
-        CleanupIncident, CleanupReportSink, finish_product_shutdown,
+        CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
+        finish_product_shutdown,
     };
-    use crate::{RunOutcome, RuntimePanic};
+    use crate::RunOutcome;
 
     #[test]
     fn product_shutdown_maps_then_reports_then_stops_infrastructure() {
         let reports = CleanupReportSink::new();
 
-        reports.transfer(CleanupIncident::new(RuntimePanic::new("first")));
-        reports.transfer(CleanupIncident::new(RuntimePanic::new("second")));
+        let origin = CleanupIncidentOrigin::new(
+            bray_runtime_interface::ProtectedAsyncFrameId::new([9; 32]),
+            bray_runtime_interface::ProtectedFrameStateId::new(3),
+        );
+
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            "first",
+        );
+
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            "second",
+        );
 
         let events = RefCell::new(Vec::new());
 
@@ -112,7 +227,16 @@ mod tests {
                     RunOutcome::Cancelled | RunOutcome::Panicked(_) => 0,
                 }
             },
-            |_| events.borrow_mut().push("report"),
+            |incident| {
+                assert!(incident.payload_is::<&'static str>());
+
+                assert_eq!(
+                    incident.payload_type_id(),
+                    std::any::TypeId::of::<&'static str>()
+                );
+
+                events.borrow_mut().push("report");
+            },
             || {
                 events.borrow_mut().push("shutdown");
 

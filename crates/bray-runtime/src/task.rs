@@ -61,6 +61,8 @@ pub enum TaskFailureKind {
     UnknownSuspensionState(ProtectedFrameStateId),
     /// The task lost its executable frame before reaching a terminal state.
     MissingFrame,
+    /// Runtime infrastructure could not continue driving the frame.
+    ExecutionInfrastructure,
 }
 
 /// Result of one successful task resume.
@@ -152,12 +154,12 @@ where
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let Some(frame) = data.frame.as_mut() else {
+        if data.frame.is_none() {
             return;
-        };
+        }
 
-        fail_frame(frame.as_mut());
-        destroy_failed_frame(data.frame.take());
+        // This is the invariant fallback when an explicit owner failed to terminalize the task.
+        let _ = resolve_failed_frame(&mut data.frame);
     }
 }
 
@@ -310,11 +312,7 @@ where
                 if suspension_state(&self.descriptor, suspension).is_none() {
                     let failure = TaskFailureKind::UnknownSuspensionState(suspension.state());
 
-                    if let Some(frame) = data.frame.as_mut() {
-                        fail_frame(frame.as_mut());
-                    }
-
-                    destroy_failed_frame(data.frame.take());
+                    let _ = resolve_failed_frame(&mut data.frame);
                     data.state = TaskState::Failed(failure);
 
                     let waiters = std::mem::take(&mut data.join_waiters);
@@ -425,6 +423,44 @@ where
             .map_err(|_| TaskObservationError::SynchronizationPoisoned)
     }
 
+    pub(crate) fn resolve_runtime_failure(&self) -> Option<RuntimePanic> {
+        let (panic, waiters) = {
+            let mut data = self
+                .data
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            data.frame.as_ref()?;
+
+            let panic = resolve_failed_frame(&mut data.frame);
+
+            data.state = TaskState::Failed(TaskFailureKind::ExecutionInfrastructure);
+
+            (panic, std::mem::take(&mut data.join_waiters))
+        };
+
+        wake_all(waiters);
+
+        panic
+    }
+
+    pub(crate) fn state_id_for_reporting(&self) -> ProtectedFrameStateId {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        match data.state {
+            TaskState::Suspended(state) => state,
+            TaskState::Ready
+            | TaskState::Running
+            | TaskState::Completed
+            | TaskState::Cancelled
+            | TaskState::Panicked
+            | TaskState::Failed(_) => ProtectedFrameStateId::new(0),
+        }
+    }
+
     fn lock_data(&self) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {
         self.data
             .lock()
@@ -504,24 +540,31 @@ where
     outcome
 }
 
-fn fail_frame<T, F>(mut frame: Pin<&mut F>)
+fn resolve_failed_frame<T, F>(frame: &mut Option<Pin<Box<F>>>) -> Option<RuntimePanic>
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        frame.as_mut().broadcast_tasks();
-    }));
+    let mut panic = None;
 
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        frame.as_mut().resolve_lifecycle(FrameExit::RuntimeFailure);
-    }));
-}
+    if let Some(frame) = frame.as_mut() {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            frame.as_mut().broadcast_tasks();
+        })) {
+            merge_cleanup_panic(&mut panic, payload);
+        }
 
-fn destroy_failed_frame<T, F>(frame: Option<Pin<Box<F>>>)
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    let _ = catch_unwind(AssertUnwindSafe(|| drop(frame)));
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            frame.as_mut().resolve_lifecycle(FrameExit::RuntimeFailure);
+        })) {
+            merge_cleanup_panic(&mut panic, payload);
+        }
+    }
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame.take()))) {
+        merge_cleanup_panic(&mut panic, payload);
+    }
+
+    panic
 }
 
 fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + Send>) {
@@ -530,6 +573,17 @@ fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + 
         RunOutcome::Completed(_) | RunOutcome::Cancelled => {
             *outcome = RunOutcome::Panicked(RuntimePanic::from_payload(payload));
         }
+    }
+}
+
+fn merge_cleanup_panic(
+    panic: &mut Option<RuntimePanic>,
+    payload: Box<dyn std::any::Any + Send>,
+) {
+    if let Some(panic) = panic {
+        panic.push_suppressed(payload);
+    } else {
+        *panic = Some(RuntimePanic::from_payload(payload));
     }
 }
 

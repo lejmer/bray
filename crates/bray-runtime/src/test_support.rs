@@ -128,6 +128,30 @@ impl TestFrame {
         }
     }
 
+    pub(crate) fn main_thread_then_movable(value: i32) -> Self {
+        Self {
+            descriptor: descriptor_from_states([
+                state_descriptor(
+                    0,
+                    [ExecutionLaneRequirement::MainThread],
+                    ProtectedFrameAffinity::MainThread,
+                ),
+                state_descriptor(1, [], ProtectedFrameAffinity::Movable),
+            ]),
+            behavior: TestFrameBehavior::Sequence(
+                [
+                    FrameProgress::Suspended(FrameSuspension::new(
+                        ProtectedFrameStateId::new(1),
+                    )),
+                    FrameProgress::Completed(value),
+                ]
+                .into(),
+            ),
+            cleanup_panics: false,
+            wake_on_suspension: true,
+        }
+    }
+
     fn sequence<const N: usize>(
         progress: [FrameProgress<i32>; N],
         state_count: u32,
@@ -210,6 +234,29 @@ fn descriptor_with(
     requirements: impl IntoIterator<Item = ExecutionLaneRequirement> + Clone,
     affinity: ProtectedFrameAffinity,
 ) -> ProtectedFrameDescriptor {
+    let states = (0..state_count)
+        .map(|state| state_descriptor(state, requirements.clone(), affinity));
+
+    descriptor_from_states(states)
+}
+
+fn state_descriptor(
+    state: u32,
+    requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
+    affinity: ProtectedFrameAffinity,
+) -> ProtectedFrameStateDescriptor {
+    ProtectedFrameStateDescriptor::new(
+        ProtectedFrameStateId::new(state),
+        requirements,
+        [],
+        [],
+        affinity,
+    )
+}
+
+fn descriptor_from_states(
+    states: impl IntoIterator<Item = ProtectedFrameStateDescriptor>,
+) -> ProtectedFrameDescriptor {
     let Some(alignment) = NonZeroUsize::new(8) else {
         panic!("test frame alignment must be nonzero");
     };
@@ -219,16 +266,6 @@ fn descriptor_with(
     };
 
     let abi = RuntimeAbiVersion::new(1, 0);
-
-    let states = (0..state_count).map(|state| {
-        ProtectedFrameStateDescriptor::new(
-            ProtectedFrameStateId::new(state),
-            requirements.clone(),
-            [],
-            [],
-            affinity,
-        )
-    });
 
     ProtectedFrameDescriptor::try_new(
         ProtectedAsyncFrameId::new([7; 32]),
