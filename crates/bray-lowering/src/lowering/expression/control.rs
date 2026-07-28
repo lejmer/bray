@@ -3,9 +3,10 @@ use bray_bound_tree::{
     BoundStructuredExpression, BoundStructuredExpressionKind,
 };
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirSourceAnchor, MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirEdge, MirImmediateValue, MirOperand, MirSourceAnchor,
+    MirTerminatorKind,
 };
-use bray_symbols::{ConstantValueKind, TypeId};
+use bray_symbols::TypeId;
 
 use super::super::block::LoweredExpression;
 use super::super::lowerer::{Lowerer, YieldTarget};
@@ -21,7 +22,7 @@ impl Lowerer<'_> {
         match expression.kind() {
             BoundStructuredExpressionKind::Unit => {
                 let ty = self.expression_type(id)?;
-                let value = self.unit_operand(ty)?;
+                let value = self.unit_operand(ty);
 
                 Ok(LoweredExpression::continuing(
                     current,
@@ -31,7 +32,7 @@ impl Lowerer<'_> {
             }
             BoundStructuredExpressionKind::Absence => {
                 let ty = self.expression_type(id)?;
-                let value = self.constant_operand(ty, ConstantValueKind::NullableAbsent)?;
+                let value = Self::immediate_operand(ty, MirImmediateValue::NullableAbsent);
 
                 Ok(LoweredExpression::continuing(
                     current,
@@ -115,7 +116,7 @@ impl Lowerer<'_> {
             Some(block) => self.lower_block(block, else_entry)?,
             None => LoweredExpression::continuing(
                 else_entry,
-                Some(self.unit_operand(ty)?),
+                Some(self.unit_operand(ty)),
                 Self::retained_source(&source),
             ),
         };
@@ -143,7 +144,7 @@ impl Lowerer<'_> {
 
         let value = match completion.value {
             Some(value) => value,
-            None => self.unit_operand(result_type)?,
+            None => self.unit_operand(result_type),
         };
 
         self.builder.set_terminator(
@@ -287,7 +288,7 @@ impl Lowerer<'_> {
 
                 let value = match value {
                     Some(value) => value,
-                    None => self.unit_operand(result_type)?,
+                    None => self.unit_operand(result_type),
                 };
 
                 MirTerminatorKind::Goto(MirEdge::new(block, [value]))

@@ -5,10 +5,11 @@ use bray_bound_tree::{
     StorageOperationStatus,
 };
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirOperand,
-    MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirUnaryOperator,
+    MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference,
+    MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind,
+    MirUnaryOperator,
 };
-use bray_symbols::{CallableAbi, ConstantValueData, ConstantValueKind, TypeId};
+use bray_symbols::{CallableAbi, TypeId};
 
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
@@ -145,18 +146,18 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(id)?;
 
-        if operator == BoundOperator::Add {
-            return Ok(LoweredExpression::continuing(
-                current,
-                Some(operand),
-                source,
-            ));
-        }
-
         let selection = self.selected_operator(id)?;
 
         let value = match selection {
             OperatorTarget::BuiltIn(_) => {
+                if operator == BoundOperator::Add {
+                    return Ok(LoweredExpression::continuing(
+                        current,
+                        Some(operand),
+                        source,
+                    ));
+                }
+
                 let operator = match operator {
                     BoundOperator::Subtract => MirUnaryOperator::Negate,
                     BoundOperator::LogicalNot => MirUnaryOperator::Not,
@@ -300,7 +301,7 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let value = self.unit_operand(self.expression_type(id)?)?;
+        let value = self.unit_operand(self.expression_type(id)?);
 
         Ok(LoweredExpression::continuing(
             current,
@@ -441,19 +442,33 @@ impl Lowerer<'_> {
         operand: MirOperand,
         conversion: &SelectedConversion,
     ) -> Result<MirOperand, LoweringError> {
-        if matches!(conversion.target(), ConversionTarget::Identity) {
-            return Ok(operand);
+        match conversion.target() {
+            ConversionTarget::Identity => Ok(operand),
+            ConversionTarget::BuiltInScalar => self.push_value_operation(
+                expression,
+                current,
+                source,
+                MirOperationKind::Convert {
+                    operand,
+                    target: conversion.target_type(),
+                },
+            ),
+            ConversionTarget::Trait { fulfillment, .. } => self.push_value_operation(
+                expression,
+                current,
+                source,
+                MirOperationKind::Call(MirCall::new(
+                    MirCallTarget::Direct(MirCallableReference::new(
+                        *fulfillment,
+                        CallableAbi::Bray,
+                    )),
+                    [operand],
+                )),
+            ),
+            ConversionTarget::Composite(_) => {
+                Err(LoweringError::UnsupportedExpression(expression))
+            }
         }
-
-        self.push_value_operation(
-            expression,
-            current,
-            source,
-            MirOperationKind::Convert {
-                operand,
-                target: conversion.target_type(),
-            },
-        )
     }
 
     fn selected_operation(
@@ -524,21 +539,12 @@ impl Lowerer<'_> {
             .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))
     }
 
-    pub(super) fn unit_operand(&self, ty: TypeId) -> Result<MirOperand, LoweringError> {
-        self.constant_operand(ty, ConstantValueKind::Unit)
+    pub(super) const fn unit_operand(&self, ty: TypeId) -> MirOperand {
+        Self::immediate_operand(ty, MirImmediateValue::Unit)
     }
 
-    pub(super) fn constant_operand(
-        &self,
-        ty: TypeId,
-        kind: ConstantValueKind,
-    ) -> Result<MirOperand, LoweringError> {
-        let value = self
-            .input
-            .semantic_values()
-            .intern_constant_value(ConstantValueData::new(ty, kind))?;
-
-        Ok(MirOperand::Constant { value, ty })
+    pub(super) const fn immediate_operand(ty: TypeId, value: MirImmediateValue) -> MirOperand {
+        MirOperand::Immediate { value, ty }
     }
 
     fn storage_operand(&mut self, expression: BoundExpressionId) -> Result<MirOperand, LoweringError> {

@@ -3,7 +3,6 @@ use bray_bound_tree::{
     StorageAccessId, StorageIdentityId,
 };
 use bray_ir::MirUnitBuildError;
-use bray_symbols::SemanticValueStoreError;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,16 +39,8 @@ pub enum LoweringError {
     UnsupportedStorageAccess(StorageAccessId),
     /// A value-producing MIR operation did not publish its required result.
     MissingOperationResult(BoundExpressionId),
-    /// The supplied semantic-value store rejected a checked identity or value.
-    SemanticValue(SemanticValueStoreError),
     /// The MIR builder or validator rejected the lowered unit.
     Mir(MirUnitBuildError),
-}
-
-impl From<SemanticValueStoreError> for LoweringError {
-    fn from(error: SemanticValueStoreError) -> Self {
-        Self::SemanticValue(error)
-    }
 }
 
 impl From<MirUnitBuildError> for LoweringError {

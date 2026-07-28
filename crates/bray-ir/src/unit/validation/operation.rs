@@ -281,7 +281,7 @@ pub(super) fn validate_operand(
 ) -> Result<(), MirUnitBuildError> {
     match operand {
         MirOperand::Value(value) => validate_value_at(unit, *value, block, before),
-        MirOperand::Constant { .. } => Ok(()),
+        MirOperand::Constant { .. } | MirOperand::Immediate { .. } => Ok(()),
         MirOperand::Copy(place) | MirOperand::Move(place) => {
             validate_place(unit, place, block, before)
         }
@@ -300,7 +300,7 @@ pub(super) fn operand_type(
 
             Ok(value.ty())
         }
-        MirOperand::Constant { ty, .. } => Ok(*ty),
+        MirOperand::Constant { ty, .. } | MirOperand::Immediate { ty, .. } => Ok(*ty),
         MirOperand::Copy(place) | MirOperand::Move(place) => Ok(place.ty()),
     }
 }
