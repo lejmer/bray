@@ -63,7 +63,9 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 
 ## General code quality
 
-- Never use `unsafe`.
+- Never use unsafe operations, blocks, functions, traits, or implementations.
+- An unsafe attribute is allowed only in a dedicated native ABI boundary when Rust requires it to publish a stable symbol. Keep the
+  item body safe and add a narrow `#[expect(unsafe_code, reason = "...")]` explaining the boundary requirement.
 - Do not use wildcard imports such as `::*`.
 - Always import items explicitly.
 - Keep invariants represented in types where practical.
@@ -311,7 +313,7 @@ Before finishing a change:
 - Verify visibility is no broader than needed.
 - Verify imports are explicit and no wildcard imports were added.
 - Verify `lib.rs` files remain thin.
-- Verify no `unsafe` was introduced.
+- Verify no unsafe operation was introduced and every unsafe attribute follows the native ABI exception.
 - Verify equivalent behavior was not duplicated.
 - Verify hardcoded user-facing English text was not introduced.
 - Verify diagnostics use structured message IDs and typed arguments.

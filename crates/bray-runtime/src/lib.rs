@@ -1,6 +1,6 @@
 //! Target-independent protected-frame and execution-runtime services.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod cancellation;
 #[cfg(test)]
@@ -8,6 +8,7 @@ mod conformance;
 mod context;
 mod frame;
 mod lane;
+mod native;
 mod observation;
 mod outcome;
 mod root;

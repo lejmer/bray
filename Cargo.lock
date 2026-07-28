@@ -367,6 +367,8 @@ dependencies = [
  "bray-base",
  "bray-symbols",
  "bray-target",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1164,9 +1166,13 @@ dependencies = [
  "bray-compilation",
  "bray-compiler-known",
  "bray-package-interface",
+ "bray-runtime-interface",
+ "bray-target",
  "rust-style",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]
