@@ -157,7 +157,10 @@ pub(crate) fn expression_unit(
         tree.finish(),
         symbols,
         [],
-        BoundUnitRoot::CallableBody(root),
+        BoundUnitRoot::CallableBody {
+            execution: bray_symbols::CallableExecution::Synchronous,
+            body: root,
+        },
     ) {
         Ok(unit) => unit,
         Err(error) => panic!("test bound unit must validate: {error:?}"),

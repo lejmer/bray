@@ -396,7 +396,10 @@ pub(crate) fn callable_unit(
         tree,
         symbols,
         [],
-        BoundUnitRoot::CallableBody(root),
+        BoundUnitRoot::CallableBody {
+            execution: bray_symbols::CallableExecution::Synchronous,
+            body: root,
+        },
     ) {
         Ok(unit) => unit,
         Err(error) => panic!("callable test unit must validate: {error:?}"),

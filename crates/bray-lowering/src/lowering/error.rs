@@ -2,8 +2,8 @@ use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
     StorageAccessId, StorageIdentityId,
 };
-use bray_ir::MirUnitBuildError;
 use bray_compiler_known::RepresentationRole;
+use bray_ir::MirUnitBuildError;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,6 +16,14 @@ pub enum LoweringError {
     RecoveredBoundNode(AnyBoundNodeId),
     /// A checked expression has no final type.
     MissingExpressionType(BoundExpressionId),
+    /// Direct await reached lowering without a protected current frame.
+    AwaitOutsideProtectedFrame(BoundExpressionId),
+    /// Checked async facts omitted a direct-await suspension decision.
+    MissingSuspensionPoint(BoundExpressionId),
+    /// A checked future or task operation has an incompatible call shape.
+    InvalidTaskOperation(BoundExpressionId),
+    /// A protected callable frame has no checked completion type.
+    MissingCallableResultType,
     /// A literal has no canonical checked value.
     MissingLiteralValue(BoundExpressionId),
     /// A checked expression has no required semantic selection.
@@ -46,6 +54,8 @@ pub enum LoweringError {
     MissingRepresentation(RepresentationRole),
     /// A checked semantic value could not be read or interned.
     SemanticValueUnavailable,
+    /// Checked async facts could not form one coherent frame descriptor.
+    InvalidFrameDescriptor,
     /// The MIR builder or validator rejected the lowered unit.
     Mir(MirUnitBuildError),
 }

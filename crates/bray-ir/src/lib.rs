@@ -22,13 +22,15 @@ pub use control::{
     MirCleanupEdge, MirCleanupPhase, MirEdge, MirRunResultEdges, MirSwitchCase, MirTerminator,
     MirTerminatorKind,
 };
-pub use frame::{MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameStateFacts};
+pub use frame::{
+    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameStateFacts,
+};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,
-    MirConstructionInput, MirGeneratorKind, MirGeneratorOperation, MirOperation,
-    MirOperationCommit, MirOperationKind, MirPanicCause, MirStoreKind, MirTaskTerminalState,
-    MirUnaryOperator,
+    MirConstructionInput, MirFrameInitializer, MirGeneratorKind, MirGeneratorOperation,
+    MirHostOperation, MirOperation, MirOperationCommit, MirOperationKind, MirPanicCause,
+    MirStoreKind, MirTaskTerminalState, MirUnaryOperator,
 };
 pub use reference::{
     MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirFieldReference,

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    CallableConstness, CallableParameterSymbolId, ReceiverParameterSymbolId, SemanticValueStore,
-    SemanticValueStoreError, TypeData, TypeExpressionTemplate, TypeId,
+    CallableConstness, CallableExecution, CallableParameterSymbolId, ReceiverParameterSymbolId,
+    SemanticValueStore, SemanticValueStoreError, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 /// The ownership and mutation authority carried by an implicit receiver.
@@ -179,6 +179,28 @@ impl CallableSignatureTemplate {
                 };
 
                 Ok(callable.constness())
+            }
+            _ => Err(CallableSignatureTemplateError::InvalidCallableType),
+        }
+    }
+
+    /// Returns the callable execution mode carried by this signature.
+    pub fn execution(
+        &self,
+        semantic_values: &SemanticValueStore,
+    ) -> Result<CallableExecution, CallableSignatureTemplateError> {
+        match self.callable_type() {
+            TypeExpressionTemplate::Callable(callable) => Ok(callable.execution()),
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = semantic_values
+                    .type_data(*ty)
+                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(CallableSignatureTemplateError::InvalidCallableType);
+                };
+
+                Ok(callable.execution())
             }
             _ => Err(CallableSignatureTemplateError::InvalidCallableType),
         }

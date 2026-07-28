@@ -898,7 +898,10 @@ mod tests {
             tree.finish(),
             template.local_symbols().clone(),
             template.nested_units().iter().cloned(),
-            BoundUnitRoot::CallableBody(body),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body,
+            },
         )
         .unwrap_or_else(|error| panic!("test bound unit must be valid: {error:?}"));
 

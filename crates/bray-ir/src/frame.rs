@@ -2,12 +2,22 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
+use bray_bound_tree::{BodyBehaviorCall, BoundDependencyContractId};
 use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
 };
-use bray_symbols::{DependencyContractTemplateId, TypeId};
+use bray_symbols::TypeId;
 
 use crate::{MirBlockId, MirFrameStateId, MirStorageId};
+
+/// How one inactive future identifies its protected frame representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirFrameReference {
+    /// The exact protected frame representation is statically known.
+    Known(ProtectedAsyncFrameId),
+    /// The future value carries an existential frame descriptor.
+    Erased,
+}
 
 /// Checked lane, affinity, and storage facts for one protected-frame state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -15,7 +25,8 @@ pub struct MirFrameStateFacts {
     state: MirFrameStateId,
     entry: MirBlockId,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
-    affinity: Option<DependencyContractTemplateId>,
+    dependency_contract: Option<BoundDependencyContractId>,
+    deferred_calls: Arc<[BodyBehaviorCall]>,
     initialized_storages: Arc<[MirStorageId]>,
 }
 
@@ -25,14 +36,16 @@ impl MirFrameStateFacts {
         state: MirFrameStateId,
         entry: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
-        affinity: Option<DependencyContractTemplateId>,
+        dependency_contract: Option<BoundDependencyContractId>,
+        deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
         initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
             state,
             entry,
             lane_requirements: sorted_unique_shared_slice(lane_requirements),
-            affinity,
+            dependency_contract,
+            deferred_calls: sorted_unique_shared_slice(deferred_calls),
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
     }
@@ -52,9 +65,14 @@ impl MirFrameStateFacts {
         &self.lane_requirements
     }
 
-    /// Returns the checked state-local affinity contract, when constrained.
-    pub const fn affinity(&self) -> Option<DependencyContractTemplateId> {
-        self.affinity
+    /// Returns the checked dependency contract carried by the suspended future.
+    pub const fn dependency_contract(&self) -> Option<BoundDependencyContractId> {
+        self.dependency_contract
+    }
+
+    /// Returns deferred callable bodies that can execute from this state.
+    pub fn deferred_calls(&self) -> &[BodyBehaviorCall] {
+        &self.deferred_calls
     }
 
     /// Returns storages known to be initialized when this state is entered.
@@ -182,7 +200,7 @@ mod tests {
             Err(MirFrameDescriptorBuildError::MissingState)
         );
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),

@@ -138,16 +138,12 @@ impl Lowerer<'_> {
                     ),
                 )?;
 
-                Ok(LoweredExpression::continuing(
-                    current,
-                    Some(value),
-                    source,
-                ))
+                Ok(LoweredExpression::continuing(current, Some(value), source))
             }
+            BoundExpression::Await(expression) => self.lower_await(id, *expression, current),
             BoundExpression::UnresolvedReference(_)
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
-            | BoundExpression::Await(_)
             | BoundExpression::Error(_) => Err(LoweringError::UnsupportedExpression(id)),
         }
     }
@@ -493,24 +489,21 @@ impl Lowerer<'_> {
         }
 
         // MIR owns the immutable checked call contract independently of the selection table.
-        let value = self.push_value_operation(
-            id,
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::selected(
-                target,
-                selection.resolution().result(),
-                arguments,
-                selection.phase_behaviors().clone(),
-                selection.contract().cloned(),
-                selection
-                    .resolution()
-                    .implementation_witnesses()
-                    .iter()
-                    .copied(),
-                selection.witnesses().iter().copied(),
-            )),
-        )?;
+        let call = MirCall::selected(
+            target,
+            selection.resolution().result(),
+            arguments,
+            selection.phase_behaviors().clone(),
+            selection.contract().cloned(),
+            selection
+                .resolution()
+                .implementation_witnesses()
+                .iter()
+                .copied(),
+            selection.witnesses().iter().copied(),
+        );
+
+        let value = self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
@@ -615,7 +608,7 @@ impl Lowerer<'_> {
         Ok(*target)
     }
 
-    pub(super) fn push_value_operation(
+    pub(in crate::lowering) fn push_value_operation(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -657,7 +650,7 @@ impl Lowerer<'_> {
             .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))
     }
 
-    pub(super) const fn unit_operand(&self, ty: TypeId) -> MirOperand {
+    pub(in crate::lowering) const fn unit_operand(&self, ty: TypeId) -> MirOperand {
         Self::immediate_operand(ty, MirImmediateValue::Unit)
     }
 

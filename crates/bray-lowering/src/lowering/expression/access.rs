@@ -470,7 +470,10 @@ impl Lowerer<'_> {
         Ok(MirPlace::new(root.storage(), lowered, reached_type))
     }
 
-    fn storage_identity_type(&self, identity: StorageIdentityId) -> Result<TypeId, LoweringError> {
+    pub(in crate::lowering) fn storage_identity_type(
+        &self,
+        identity: StorageIdentityId,
+    ) -> Result<TypeId, LoweringError> {
         let plan = self.input.storage_plan();
 
         plan.access_entries()

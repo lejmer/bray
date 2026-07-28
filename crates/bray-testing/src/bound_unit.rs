@@ -30,7 +30,10 @@ pub fn test_bound_unit(unit: u32) -> BoundUnit {
         tree.finish(),
         local_symbols,
         [],
-        BoundUnitRoot::CallableBody(root),
+        BoundUnitRoot::CallableBody {
+            execution: bray_symbols::CallableExecution::Synchronous,
+            body: root,
+        },
     ) {
         Ok(unit) => unit,
         Err(error) => panic!("test bound unit must validate: {error:?}"),
@@ -63,7 +66,6 @@ fn test_expression_unit(
     local_symbols: LocalSymbolSnapshot,
     build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> BoundExpressionId,
 ) -> BoundUnit {
-
     let origin = BoundNodeOrigin::source(key.source());
     let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
     let root = build(&mut tree, origin);

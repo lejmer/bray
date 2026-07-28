@@ -60,9 +60,8 @@ pub enum CheckerUnitViewError {
 impl CheckerUnitRoot {
     const fn from_bound_root(root: BoundUnitRoot) -> Self {
         match root {
-            BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
-                Self::CallableBody(body)
-            }
+            BoundUnitRoot::CallableBody { body, .. }
+            | BoundUnitRoot::AnonymousCallable { body, .. } => Self::CallableBody(body),
             BoundUnitRoot::Expression(expression) => Self::Expression(expression),
             BoundUnitRoot::ExpressionSequence(block) => Self::ExpressionSequence(block),
         }

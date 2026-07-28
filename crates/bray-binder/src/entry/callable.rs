@@ -18,6 +18,7 @@ use crate::{BinderFactContext, BoundUnitComputation, SymbolFactProvider};
 pub struct PendingBoundCallableBody {
     output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
+    execution: CallableExecution,
     root: BoundCallableBodyId,
 }
 
@@ -29,7 +30,7 @@ impl PendingBoundCallableBody {
 
     /// Completes and returns the bound callable unit.
     pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
-        assemble_callable_body(self.output, self.nested_units, self.root)
+        assemble_callable_body(self.output, self.nested_units, self.execution, self.root)
             .map_err(map_assembly_error)
     }
 }
@@ -79,7 +80,7 @@ where
     let mut binder = super::support::create_binder(facts, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
-    push_callable_inputs(&mut binder, root_scope)?;
+    let execution = push_callable_inputs(&mut binder, root_scope)?;
 
     let path_context = super::support::path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
@@ -116,6 +117,7 @@ where
     Ok(PendingBoundCallableBody {
         output,
         nested_units,
+        execution,
         root,
     })
 }

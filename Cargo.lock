@@ -296,6 +296,7 @@ dependencies = [
 name = "bray-lowering"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "bray-bound-tree",
  "bray-compiler-known",
  "bray-declarations",

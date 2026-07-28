@@ -218,8 +218,7 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
 fn frame_metadata_matches(unit: &CodegenUnit, metadata: &ProtectedAsyncFrameMetadata) -> bool {
     unit.mir_units().iter().any(|unit| {
         unit.frame_descriptor().is_some_and(|descriptor| {
-            descriptor.frame() == metadata.frame()
-                && descriptor.frame_abi() == metadata.frame_abi()
+            descriptor.frame() == metadata.frame() && descriptor.frame_abi() == metadata.frame_abi()
         })
     })
 }
@@ -289,9 +288,9 @@ mod tests {
 
         let incompatible = ProtectedAsyncFrameMetadata::new(
             frame,
-            ProtectedFrameAbiVersions::uniform(
-                bray_runtime_interface::RuntimeAbiVersion::new(2, 0),
-            ),
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
+                2, 0,
+            )),
             frame_operation_names(),
         );
 
@@ -302,9 +301,9 @@ mod tests {
 
         let descriptor = ProtectedAsyncFrameMetadata::new(
             frame,
-            ProtectedFrameAbiVersions::uniform(
-                bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
-            ),
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
+                1, 0,
+            )),
             frame_operation_names(),
         );
 
@@ -352,14 +351,14 @@ mod tests {
         frame: ProtectedAsyncFrameId,
         entry: bray_ir::MirBlockId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
 
         match MirFrameDescriptor::try_new(
             frame,
             bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
-            ProtectedFrameAbiVersions::uniform(
-                bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
-            ),
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
+                1, 0,
+            )),
             test_mir_type(),
             [state],
         ) {
