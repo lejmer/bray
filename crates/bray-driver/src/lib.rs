@@ -10,8 +10,8 @@ mod run;
 mod test_support;
 
 pub use command::{
-    BoundInspectionTarget, DriverCliError, DriverCommand, DriverCommandKind, DriverInvocation,
-    DriverOptions, DriverOutputFormat, DriverSourceInputError,
+    DriverCliError, DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
+    DriverOutputFormat, DriverSourceInputError, UnitInspectionTarget,
     compilation_request_from_file_arguments, source_inputs_from_file_arguments,
 };
 pub use run::{DriverRunResult, run, run_result};

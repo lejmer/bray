@@ -18,6 +18,11 @@ macro_rules! define_unit_local_ids {
                     self.unit
                 }
 
+                /// Returns the unit-local numeric representation.
+                pub const fn slot(self) -> u32 {
+                    self.slot
+                }
+
                 pub(crate) fn to_index(self) -> Option<usize> {
                     usize::try_from(self.slot).ok()
                 }

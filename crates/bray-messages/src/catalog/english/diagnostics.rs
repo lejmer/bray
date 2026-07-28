@@ -29,6 +29,13 @@ const SOURCE_TEXT_TOO_LARGE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" bytes"),
 ];
 
+const INSPECTION_REPORT_WRITE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not write inspection report to "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
 const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("no source inputs were provided")];
 
@@ -873,6 +880,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::RequestInvalidWorkerBudget => {
             MessageTemplate::new(REQUEST_INVALID_WORKER_BUDGET)
+        }
+        DiagnosticKind::InspectionReportWriteFailed => {
+            MessageTemplate::new(INSPECTION_REPORT_WRITE_FAILED)
         }
         DiagnosticKind::LexicalInvalidCharacter => MessageTemplate::new(LEXICAL_INVALID_CHARACTER),
         DiagnosticKind::LexicalMisplacedBom => MessageTemplate::new(LEXICAL_MISPLACED_BOM),

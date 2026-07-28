@@ -2,15 +2,18 @@
 
 mod bound;
 mod declaration;
+mod lowered;
 mod source;
 mod support;
 mod symbol;
 mod syntax;
 mod token;
 mod types;
+mod unit;
 
 pub(crate) use bound::render_bound_inspection;
 pub(crate) use declaration::render_declaration_inspection;
+pub(crate) use lowered::{render_lowered_inspection, render_mir_inspection};
 pub(crate) use source::render_source_inspection;
 pub(crate) use support::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,

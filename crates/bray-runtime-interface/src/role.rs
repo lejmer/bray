@@ -54,6 +54,35 @@ pub enum RuntimeAbiRole {
 }
 
 impl RuntimeAbiRole {
+    /// Returns this role's stable textual name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RootExecution => "root_execution",
+            Self::RootCancellationRequest => "root_cancellation_request",
+            Self::TaskAllocation => "task_allocation",
+            Self::TaskStart => "task_start",
+            Self::FrameResume => "frame_resume",
+            Self::SuspensionRegistration => "suspension_registration",
+            Self::Wake => "wake",
+            Self::TaskCancellationRequest => "task_cancellation_request",
+            Self::CurrentRunCancellationObservation => "current_run_cancellation_observation",
+            Self::JoinRegistration => "join_registration",
+            Self::TerminalPublication => "terminal_publication",
+            Self::RuntimeEvent => "runtime_event",
+            Self::CompatibleLaneSelection => "compatible_lane_selection",
+            Self::CleanupIncidentTransfer => "cleanup_incident_transfer",
+            Self::CleanupIncidentReporting => "cleanup_incident_reporting",
+            Self::MainThreadLaneStartup => "main_thread_lane_startup",
+            Self::MainThreadLaneDrive => "main_thread_lane_drive",
+            Self::RootTerminalObservation => "root_terminal_observation",
+            Self::StructuredShutdown => "structured_shutdown",
+            Self::FrameTaskBroadcast => "frame_task_broadcast",
+            Self::FrameLifecycleResolution => "frame_lifecycle_resolution",
+            Self::FrameCompletionMove => "frame_completion_move",
+            Self::FrameDestruction => "frame_destruction",
+        }
+    }
+
     /// Returns the compiler-owned semantic contract of this closed ABI role.
     pub const fn contract(self) -> RuntimeRoleContract {
         RuntimeRoleContract::new(self, role_effects(self))

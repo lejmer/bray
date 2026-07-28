@@ -65,6 +65,11 @@ macro_rules! define_semantic_value_ids {
                 pub const fn store_id(self) -> SemanticValueStoreId {
                     self.0.store()
                 }
+
+                /// Returns the stable slot within the issuing semantic value store.
+                pub const fn slot(self) -> u32 {
+                    self.0.slot
+                }
             }
 
             impl InternedValueId for $id {

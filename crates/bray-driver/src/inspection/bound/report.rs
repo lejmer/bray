@@ -5,18 +5,18 @@ use bray_bound_tree::{
     BoundWalkOutcome, CheckedExpressionTypes, CheckedSemanticSelections, StoragePlan,
     walk_bound_unit_view,
 };
-use bray_compilation::{CancellationToken, Compilation, QueryPriority};
+use bray_compilation::Compilation;
 use bray_diagnostics::DiagnosticBag;
-use bray_source::SourceId;
 use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
 
-use crate::command::{BoundInspectionTarget, DriverOutputFormat};
+use crate::command::{DriverOutputFormat, UnitInspectionTarget};
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
     InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError,
     push_text_diagnostic,
 };
+use crate::inspection::unit::{UnitInspectionSelectionError, select_units};
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 
 use super::locals::InspectionLocals;
@@ -71,48 +71,23 @@ impl From<StorageInspectionError> for BoundInspectionRenderError {
     }
 }
 
+impl From<UnitInspectionSelectionError> for BoundInspectionRenderError {
+    fn from(error: UnitInspectionSelectionError) -> Self {
+        match error {
+            UnitInspectionSelectionError::BoundFact => Self::BoundFact,
+            UnitInspectionSelectionError::Source => Self::Source,
+        }
+    }
+}
+
 pub(crate) fn render_bound_inspection(
     compilation: &Compilation,
-    target: BoundInspectionTarget,
+    target: UnitInspectionTarget,
     output_format: DriverOutputFormat,
 ) -> Result<InspectionOutput, BoundInspectionRenderError> {
-    let source_id =
-        SourceId::stored(target.source_id()).ok_or(BoundInspectionRenderError::Source)?;
+    let selection = select_units(compilation, target)?;
 
-    let source = compilation
-        .source(source_id)
-        .ok_or(BoundInspectionRenderError::Source)?;
-
-    let source_length = bray_source::TextSize::try_from(source.text().len())
-        .map_err(|_| BoundInspectionRenderError::Source)?;
-
-    let cancellation = CancellationToken::new();
-
-    if target
-        .position()
-        .is_some_and(|position| position > source_length)
-    {
-        return Err(BoundInspectionRenderError::Source);
-    }
-
-    let source_diagnostics = compilation
-        .diagnostics_for_source(source_id, &cancellation, QueryPriority::Interactive)
-        .map_err(|_| BoundInspectionRenderError::Source)?;
-
-    let bounds = match target.position() {
-        Some(position) => compilation
-            .bound_unit_at(
-                source_id,
-                position,
-                &cancellation,
-                QueryPriority::Interactive,
-            )
-            .map(|bound| bound.into_iter().collect())
-            .map_err(|_| BoundInspectionRenderError::BoundFact)?,
-        None => compilation
-            .bound_units_for_source(source_id, &cancellation, QueryPriority::Interactive)
-            .map_err(|_| BoundInspectionRenderError::BoundFact)?,
-    };
+    let (source_diagnostics, bounds) = selection.into_parts();
 
     if bounds.is_empty() {
         let report =
@@ -201,7 +176,7 @@ struct BoundInspectionReport {
 
 impl BoundInspectionReport {
     fn new(
-        target: BoundInspectionTarget,
+        target: UnitInspectionTarget,
         units: Vec<InspectionBoundUnit>,
         diagnostics: &DiagnosticBag,
         compilation: &Compilation,
@@ -687,7 +662,7 @@ mod tests {
     use serde_json::Value;
 
     use super::render_bound_inspection;
-    use crate::command::{BoundInspectionTarget, DriverOutputFormat};
+    use crate::command::{DriverOutputFormat, UnitInspectionTarget};
 
     const SOURCE: &str = concat!(
         "module example;\n",
@@ -835,7 +810,7 @@ mod tests {
     #[test]
     fn inspection_outside_a_semantic_unit_is_explicit() {
         let compilation = compilation(SOURCE);
-        let target = BoundInspectionTarget::at(0, TextSize::ZERO);
+        let target = UnitInspectionTarget::at(0, TextSize::ZERO);
 
         let (value, diagnostics) = json_inspection(&compilation, target);
 
@@ -864,7 +839,7 @@ mod tests {
         );
 
         let compilation = compilation(source);
-        let target = BoundInspectionTarget::source(0);
+        let target = UnitInspectionTarget::source(0);
 
         let (value, diagnostics) = json_inspection(&compilation, target);
 
@@ -899,7 +874,7 @@ mod tests {
         );
 
         let compilation = compilation(source);
-        let target = BoundInspectionTarget::source(0);
+        let target = UnitInspectionTarget::source(0);
 
         let (value, diagnostics) = json_inspection(&compilation, target);
 
@@ -916,7 +891,7 @@ mod tests {
     #[test]
     fn inspection_rejects_an_unknown_source() {
         let compilation = compilation(SOURCE);
-        let target = BoundInspectionTarget::at(1, TextSize::ZERO);
+        let target = UnitInspectionTarget::at(1, TextSize::ZERO);
 
         assert_eq!(
             render_bound_inspection(&compilation, target, DriverOutputFormat::Json).map(|_| ()),
@@ -933,7 +908,7 @@ mod tests {
             Err(_) => panic!("test source offset must fit"),
         };
 
-        let target = BoundInspectionTarget::at(0, position);
+        let target = UnitInspectionTarget::at(0, position);
 
         assert_eq!(
             render_bound_inspection(&compilation, target, DriverOutputFormat::Json).map(|_| ()),
@@ -968,7 +943,7 @@ mod tests {
         assert!(diagnostics.has_errors());
     }
 
-    fn target_at(source: &str, needle: &str) -> BoundInspectionTarget {
+    fn target_at(source: &str, needle: &str) -> UnitInspectionTarget {
         let offset = source
             .find(needle)
             .unwrap_or_else(|| panic!("test source must contain {needle}"));
@@ -978,12 +953,12 @@ mod tests {
             Err(_) => panic!("test source offset must fit"),
         };
 
-        BoundInspectionTarget::at(0, position)
+        UnitInspectionTarget::at(0, position)
     }
 
     fn json_inspection(
         compilation: &Compilation,
-        target: BoundInspectionTarget,
+        target: UnitInspectionTarget,
     ) -> (Value, DiagnosticBag) {
         let output = match render_bound_inspection(compilation, target, DriverOutputFormat::Json) {
             Ok(output) => output,
