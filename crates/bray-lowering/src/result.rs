@@ -37,7 +37,7 @@ pub struct CompileTimeUnit {
 impl CompileTimeUnit {
     /// Classifies a bound unit whose semantics are complete before runtime.
     pub fn try_new(key: BoundUnitKey) -> Option<Self> {
-        is_compile_time_only(key.kind()).then_some(Self { key })
+        (!requires_mir(key.kind())).then_some(Self { key })
     }
 
     /// Returns the exact checked semantic unit.
@@ -51,23 +51,25 @@ impl CompileTimeUnit {
     }
 }
 
-const fn is_compile_time_only(kind: BoundUnitKind) -> bool {
-    matches!(
-        kind,
+pub(crate) const fn requires_mir(kind: BoundUnitKind) -> bool {
+    match kind {
         BoundUnitKind::ConstantTemplate
-            | BoundUnitKind::EmbeddedConstant
-            | BoundUnitKind::PredicateDefinition
-            | BoundUnitKind::Constraint
-            | BoundUnitKind::ContractClause
-            | BoundUnitKind::TargetGate
-    )
+        | BoundUnitKind::EmbeddedConstant
+        | BoundUnitKind::PredicateDefinition
+        | BoundUnitKind::Constraint
+        | BoundUnitKind::ContractClause
+        | BoundUnitKind::TargetGate => false,
+        BoundUnitKind::CallableBody
+        | BoundUnitKind::AnonymousCallable
+        | BoundUnitKind::RuntimeDefault => true,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::BoundUnitKind;
 
-    use super::is_compile_time_only;
+    use super::requires_mir;
 
     #[test]
     fn compile_time_classification_covers_every_non_executable_unit_kind() {
@@ -86,7 +88,7 @@ mod tests {
             BoundUnitKind::RuntimeDefault,
         ];
 
-        assert!(compile_time.into_iter().all(is_compile_time_only));
-        assert!(!executable.into_iter().any(is_compile_time_only));
+        assert!(!compile_time.into_iter().any(requires_mir));
+        assert!(executable.into_iter().all(requires_mir));
     }
 }

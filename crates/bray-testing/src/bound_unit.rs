@@ -8,7 +8,7 @@ use bray_source::TextSize;
 use bray_symbols::{
     LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
     LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
-    SymbolFactKind, SymbolKey, SymbolKind, SymbolRootKey,
+    SymbolFactKind, SymbolKey, SymbolKind, SymbolOrdinal, SymbolRootKey, SynthesizedSymbolKey,
 };
 
 use crate::test_source_snapshot;
@@ -37,12 +37,32 @@ pub fn test_bound_unit(unit: u32) -> BoundUnit {
     }
 }
 
-/// Builds one expression-rooted bound unit through a caller-provided tree fixture.
-pub fn test_expression_unit(
+/// Builds one runtime-default unit through a caller-provided expression fixture.
+pub fn test_runtime_default_unit(
     unit: u32,
     build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> BoundExpressionId,
 ) -> BoundUnit {
-    let (key, local_symbols) = expression_unit_identity(unit);
+    let (key, local_symbols) = runtime_default_unit_identity(unit);
+
+    test_expression_unit(unit, key, local_symbols, build)
+}
+
+/// Builds one constant-template unit through a caller-provided expression fixture.
+pub fn test_constant_template_unit(
+    unit: u32,
+    build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> BoundExpressionId,
+) -> BoundUnit {
+    let (key, local_symbols) = constant_template_unit_identity(unit);
+
+    test_expression_unit(unit, key, local_symbols, build)
+}
+
+fn test_expression_unit(
+    unit: u32,
+    key: BoundUnitKey,
+    local_symbols: LocalSymbolSnapshot,
+    build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> BoundExpressionId,
+) -> BoundUnit {
 
     let origin = BoundNodeOrigin::source(key.source());
     let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
@@ -74,7 +94,35 @@ fn callable_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     (key, symbols)
 }
 
-fn expression_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
+fn runtime_default_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
+    let (source, syntax) = source_anchor();
+
+    let callable = source_declaration(SymbolKind::Function);
+
+    let parameter = SymbolKey::synthesized(SynthesizedSymbolKey::callable_parameter(
+        callable,
+        SymbolOrdinal::new(0),
+    ));
+
+    let owner = SymbolKey::synthesized(SynthesizedSymbolKey::callable_parameter_default_provider(
+        parameter,
+    ));
+
+    let Some(key) = BoundUnitKey::runtime_default(owner.clone(), source) else {
+        panic!("default provider must support a runtime-default unit");
+    };
+
+    let symbols = local_symbols(
+        unit,
+        owner,
+        LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableParameterDefault),
+        syntax,
+    );
+
+    (key, symbols)
+}
+
+fn constant_template_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     let (source, syntax) = source_anchor();
 
     let owner = source_declaration(SymbolKind::Constant);
