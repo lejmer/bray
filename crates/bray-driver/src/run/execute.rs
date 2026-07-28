@@ -16,7 +16,7 @@ use crate::inspection::{
     render_lowered_inspection, render_mir_inspection, render_source_inspection,
     render_symbol_inspection, render_syntax_inspection, render_token_inspection,
 };
-use crate::output::write_driver_output;
+use crate::output::{write_driver_output, write_driver_output_error};
 use crate::run::exit_code_from_diagnostics;
 
 /// Structured result from running the Bray compiler driver.
@@ -364,7 +364,11 @@ fn run_with_writers(
 
     match write_driver_output(&result, stdout, stderr) {
         Ok(()) => result.exit_code(),
-        Err(_) => ExitCode::FAILURE,
+        Err(error) => {
+            let _ = write_driver_output_error(error, result.output_format(), stdout, stderr);
+
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -1389,7 +1393,44 @@ mod tests {
 
         assert_eq!(exit_code, ExitCode::FAILURE);
         assert!(stdout.is_empty());
+
+        assert!(String::from_utf8_lossy(&stderr)
+            .contains("could not write inspection report"));
+
+        assert!(!report.exists());
+    }
+
+    #[test]
+    fn inspection_report_file_failures_publish_structured_json_diagnostics() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+        let report = unique_temporary_directory().join("missing").join("report.json");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("inspect"),
+                OsString::from("source"),
+                OsString::from("--output-file"),
+                report.as_os_str().to_os_string(),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
         assert!(stderr.is_empty());
+
+        let stdout = String::from_utf8(stdout)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should be UTF-8: {error:?}"));
+
+        assert!(stdout.contains(DiagnosticKind::InspectionReportWriteFailed.as_str()));
+
         assert!(!report.exists());
     }
 }

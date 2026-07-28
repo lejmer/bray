@@ -243,6 +243,7 @@ dependencies = [
  "bray-lowering",
  "bray-messages",
  "bray-parser",
+ "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
  "bray-syntax",

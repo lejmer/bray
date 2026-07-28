@@ -101,19 +101,14 @@ mod tests {
         MirBlockKind, MirHostOperation, MirOperationKind, MirSourceAnchor, MirTerminatorKind,
         MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
     };
-    use bray_runtime_interface::{
-        BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
-        RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeRequirements, RuntimeRoleBinding,
-        RuntimeRoleImplementation,
-    };
-    use bray_symbols::{PackageIdentity, ProductIdentity};
-    use bray_testing::test_mir_target;
+    use bray_runtime_interface::{RootExecution, RuntimeAbiRole};
+    use bray_testing::{test_executable_host_contract, test_mir_target};
 
     use super::ExecutableHostLoweringInput;
 
     #[test]
     fn host_input_creates_generated_mir_without_a_bound_unit() {
-        let host = host_contract();
+        let host = test_executable_host_contract();
         let product = host.product().clone();
 
         let root = bray_testing::test_bound_unit(90).key().clone();
@@ -162,7 +157,7 @@ mod tests {
 
     #[test]
     fn executable_host_validation_rejects_reordered_shutdown_operations() {
-        let host = host_contract();
+        let host = test_executable_host_contract();
         let source = MirSourceAnchor::executable_host(host.product().clone());
         let target = test_mir_target();
         let runtime_abi = target.runtime_abi();
@@ -225,75 +220,4 @@ mod tests {
         );
     }
 
-    fn host_contract() -> ExecutableHostContract {
-        let Some(package) = PackageIdentity::try_new("example.app") else {
-            panic!("test package identity must be valid");
-        };
-
-        let Some(product) = ProductIdentity::try_new(package, "application") else {
-            panic!("test product identity must be valid");
-        };
-
-        let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
-            panic!("test host entry symbol name must be valid");
-        };
-
-        let roles = [
-            RuntimeAbiRole::RootExecution,
-            RuntimeAbiRole::RootCancellationRequest,
-            RuntimeAbiRole::CleanupIncidentReporting,
-            RuntimeAbiRole::RootTerminalObservation,
-            RuntimeAbiRole::StructuredShutdown,
-        ]
-        .into_iter()
-        .map(role_binding);
-
-        let mut builder = ExecutableHostContractBuilder::new(
-            product,
-            entry,
-            RootExecution::Synchronous,
-            runtime_requirements(),
-        );
-
-        for role in roles {
-            builder.push_role_binding(role);
-        }
-
-        let Ok(host) = builder.finish() else {
-            panic!("test host contract must be valid");
-        };
-
-        host
-    }
-
-    fn runtime_requirements() -> RuntimeRequirements {
-        let target = test_mir_target();
-
-        let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
-            panic!("test panic ABI identity must be valid");
-        };
-
-        RuntimeRequirements::new(
-            None,
-            RuntimeAbiVersion::new(1, 0),
-            None,
-            target.identity().clone(),
-            panic_abi,
-            [],
-            [],
-            [],
-        )
-    }
-
-    fn role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
-        let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
-            panic!("test role symbol name must be valid");
-        };
-
-        RuntimeRoleBinding::new(
-            role,
-            symbol_name,
-            RuntimeRoleImplementation::CompilerLowering,
-        )
-    }
 }

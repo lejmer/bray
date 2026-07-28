@@ -415,7 +415,9 @@ fn push_text_operation(
     let detail_count = operation.attributes.len()
         + operation.operands.len()
         + operation.places.len()
-        + operation.symbols.len();
+        + operation.symbols.len()
+        + operation.types.len()
+        + operation.semantic_values.len();
 
     let mut detail_index = 0;
 
@@ -455,35 +457,142 @@ fn push_text_operation(
         );
     }
 
+    for r#type in &operation.types {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &format!("{}={}", r#type.role, r#type.r#type.text()),
+        );
+    }
+
+    for semantic_value in &operation.semantic_values {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &semantic_value_text(semantic_value),
+        );
+    }
+
     writer.leave_children();
 }
 
 fn push_text_terminator(
     writer: &mut TreeWriter,
     terminator: &InspectionMirTerminator,
-    _only_child: bool,
+    only_child: bool,
 ) {
-    writer.push_line(true, &format!("{} terminator", terminator.terminator_kind));
+    writer.push_line(
+        only_child,
+        &format!("{} terminator", terminator.terminator_kind),
+    );
 
-    if terminator.edges.is_empty() {
+    let detail_count = terminator.attributes.len()
+        + terminator.operands.len()
+        + terminator.places.len()
+        + terminator.symbols.len()
+        + terminator.types.len()
+        + terminator.semantic_values.len()
+        + terminator.edges.len();
+
+    if detail_count == 0 {
         return;
     }
 
-    writer.enter_children(true);
+    writer.enter_children(only_child);
 
-    for (index, edge) in terminator.edges.iter().enumerate() {
+    let mut detail_index = 0;
+
+    for attribute in &terminator.attributes {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &format!("{}={}", attribute.name, attribute.value.text()),
+        );
+    }
+
+    for operand in &terminator.operands {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &format!("{}={}", operand.role, operand_text(&operand.operand)),
+        );
+    }
+
+    for place in &terminator.places {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &format!("{}=storage:{}", place.role, place.place.storage),
+        );
+    }
+
+    for symbol in &terminator.symbols {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &format!("{}={}", symbol.role, symbol.symbol.text()),
+        );
+    }
+
+    for r#type in &terminator.types {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &format!("{}={}", r#type.role, r#type.r#type.text()),
+        );
+    }
+
+    for semantic_value in &terminator.semantic_values {
+        detail_index += 1;
+
+        writer.push_line(
+            detail_index == detail_count,
+            &semantic_value_text(semantic_value),
+        );
+    }
+
+    for edge in &terminator.edges {
+        detail_index += 1;
+
         let cleanup = edge
             .cleanup_phase
             .map(|phase| format!(" [{phase}]"))
             .unwrap_or_default();
 
+        let arguments = edge
+            .arguments
+            .iter()
+            .map(operand_text)
+            .collect::<Vec<_>>()
+            .join(", ");
+
         writer.push_line(
-            index + 1 == terminator.edges.len(),
-            &format!("{} -> block:{}{cleanup}", edge.role, edge.target),
+            detail_index == detail_count,
+            &format!(
+                "{} -> block:{}({arguments}){cleanup}",
+                edge.role, edge.target
+            ),
         );
     }
 
     writer.leave_children();
+}
+
+fn semantic_value_text(value: &super::model::InspectionMirSemanticValue) -> String {
+    let text = value
+        .text
+        .as_ref()
+        .map(|text| format!(" {text}"))
+        .unwrap_or_default();
+
+    format!("{}={}:{}{}", value.role, value.value_kind, value.id, text)
 }
 
 fn render_notation_text(
@@ -556,13 +665,18 @@ fn operand_text(operand: &super::model::InspectionMirOperand) -> String {
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::BoundUnitKind;
     use bray_compilation::Compilation;
+    use bray_ir::MirUnitId;
+    use bray_lowering::{ExecutableHostLoweringInput, lower_executable_host};
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::PackageIdentity;
+    use bray_testing::{test_executable_host_contract, test_mir_target};
     use serde_json::Value;
 
-    use super::{render_lowered_inspection, render_mir_inspection};
+    use super::{InspectionMirUnit, render_lowered_inspection, render_mir_inspection};
     use crate::command::{DriverOutputFormat, UnitInspectionTarget};
+    use crate::inspection::InspectionSources;
 
     const SOURCE: &str = concat!(
         "module app;\n",
@@ -714,6 +828,57 @@ mod tests {
         assert!(units.iter().any(|unit| unit["representation"] == "compile_time"));
         assert!(units.iter().any(|unit| unit["representation"] == "mir"));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn generated_executable_host_mir_has_a_complete_structural_projection() {
+        let compilation = compilation(SOURCE);
+
+        let (_, units) = crate::inspection::unit::select_units(
+            &compilation,
+            UnitInspectionTarget::source(0),
+        )
+        .unwrap_or_else(|error| panic!("source units must be available: {error:?}"))
+        .into_parts();
+
+        let root = units
+            .into_iter()
+            .find(|unit| unit.value().key().kind() == BoundUnitKind::CallableBody)
+            .map(|unit| unit.value().key().clone())
+            .unwrap_or_else(|| panic!("test source must contain a callable body"));
+
+        let input = ExecutableHostLoweringInput::new(
+            MirUnitId::new(91),
+            root,
+            test_executable_host_contract(),
+            test_mir_target(),
+        );
+
+        let mir = lower_executable_host(input)
+            .unwrap_or_else(|error| panic!("generated host MIR must lower: {error:?}"));
+
+        let sources = InspectionSources::new(compilation.sources())
+            .unwrap_or_else(|error| panic!("inspection sources must be available: {error:?}"));
+
+        let model = InspectionMirUnit::from_mir(
+            &mir,
+            compilation
+                .symbol_graph()
+                .unwrap_or_else(|error| panic!("symbols must be available: {error:?}")),
+            compilation
+                .semantic_value_store()
+                .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}")),
+            &sources,
+        )
+        .unwrap_or_else(|error| panic!("generated host MIR must project: {error:?}"));
+
+        let value = serde_json::to_value(model)
+            .unwrap_or_else(|error| panic!("generated host JSON must serialize: {error:?}"));
+
+        assert_eq!(value["unit_kind"], "executable_host");
+        assert_eq!(value["key"]["kind"], "executable_host");
+        assert!(value.to_string().contains("root_execution"));
+        assert!(value.to_string().contains("\"runtime_abi\""));
     }
 
     #[test]

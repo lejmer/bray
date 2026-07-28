@@ -3,19 +3,22 @@
 use std::fmt::Write;
 
 use bray_bound_tree::{
-    ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation,
-    PatternProjection,
+    BoundCallResult, BoundLiteralKind, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, PatternOperation, PatternPredicate, PatternProjection,
+    SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
-    MirCallTarget, MirCleanupEdge, MirCleanupPhase, MirConstructionInput, MirEdge,
-    MirFieldReference, MirGeneratorKind, MirGeneratorOperation, MirHostOperation,
-    MirImmediateValue, MirOperand, MirOperation, MirOperationKind, MirPanicCause, MirPlace,
-    MirProjectionKind, MirSourceAnchor, MirSourceOrigin, MirStorageKind, MirStoreKind,
-    MirTaskTerminalState, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind,
-    MirValueOrigin,
+    MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirConstructionInput,
+    MirEdge, MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
+    MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirOperand, MirOperation,
+    MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind, MirRuntimeReference,
+    MirSourceAnchor, MirSourceOrigin, MirStorageKind, MirStoreKind, MirTaskTerminalState,
+    MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind, MirValueOrigin,
 };
-use bray_symbols::{AnySymbolId, BorrowKind, SemanticValueStore, SymbolGraph};
+use bray_symbols::{
+    AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, SymbolGraph, TypeId,
+};
 use serde::Serialize;
 
 use crate::inspection::{
@@ -289,11 +292,13 @@ pub(crate) struct InspectionMirOperation {
     pub(crate) operands: Vec<InspectionMirNamedOperand>,
     pub(crate) places: Vec<InspectionMirNamedPlace>,
     pub(crate) symbols: Vec<InspectionMirNamedSymbol>,
+    pub(crate) types: Vec<InspectionMirNamedType>,
+    pub(crate) semantic_values: Vec<InspectionMirSemanticValue>,
 }
 
 #[derive(Serialize)]
 pub(crate) struct InspectionMirAttribute {
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     pub(crate) value: InspectionMirAttributeValue,
 }
 
@@ -359,6 +364,20 @@ pub(crate) struct InspectionMirNamedSymbol {
 }
 
 #[derive(Serialize)]
+pub(crate) struct InspectionMirNamedType {
+    pub(crate) role: String,
+    pub(crate) r#type: InspectionType,
+}
+
+#[derive(Serialize)]
+pub(crate) struct InspectionMirSemanticValue {
+    pub(crate) role: String,
+    pub(crate) value_kind: &'static str,
+    pub(crate) id: u32,
+    pub(crate) text: Option<String>,
+}
+
+#[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum InspectionMirOperand {
     Value {
@@ -403,6 +422,9 @@ pub(crate) struct InspectionMirTerminator {
     pub(crate) places: Vec<InspectionMirNamedPlace>,
     pub(crate) edges: Vec<InspectionMirEdge>,
     pub(crate) attributes: Vec<InspectionMirAttribute>,
+    pub(crate) symbols: Vec<InspectionMirNamedSymbol>,
+    pub(crate) types: Vec<InspectionMirNamedType>,
+    pub(crate) semantic_values: Vec<InspectionMirSemanticValue>,
 }
 
 #[derive(Serialize)]
@@ -418,6 +440,8 @@ struct OperationParts {
     operands: Vec<InspectionMirNamedOperand>,
     places: Vec<InspectionMirNamedPlace>,
     symbols: Vec<InspectionMirNamedSymbol>,
+    types: Vec<InspectionMirNamedType>,
+    semantic_values: Vec<InspectionMirSemanticValue>,
 }
 
 impl OperationParts {
@@ -427,16 +451,14 @@ impl OperationParts {
             operands: Vec::new(),
             places: Vec::new(),
             symbols: Vec::new(),
+            types: Vec::new(),
+            semantic_values: Vec::new(),
         }
     }
 
-    fn attribute(
-        &mut self,
-        name: &'static str,
-        value: impl Into<InspectionMirAttributeValue>,
-    ) {
+    fn attribute(&mut self, name: impl Into<String>, value: impl Into<InspectionMirAttributeValue>) {
         self.attributes.push(InspectionMirAttribute {
-            name,
+            name: name.into(),
             value: value.into(),
         });
     }
@@ -475,6 +497,35 @@ impl OperationParts {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol),
         });
     }
+
+    fn r#type(
+        &mut self,
+        role: impl Into<String>,
+        ty: TypeId,
+        context: &MirInspectionContext<'_>,
+    ) -> Result<(), MirInspectionModelError> {
+        self.types.push(InspectionMirNamedType {
+            role: role.into(),
+            r#type: InspectionType::from_type(context.semantic_values, context.symbols, ty)?,
+        });
+
+        Ok(())
+    }
+
+    fn semantic_value(
+        &mut self,
+        role: impl Into<String>,
+        value_kind: &'static str,
+        id: u32,
+        text: Option<String>,
+    ) {
+        self.semantic_values.push(InspectionMirSemanticValue {
+            role: role.into(),
+            value_kind,
+            id,
+            text,
+        });
+    }
 }
 
 struct MirInspectionContext<'model> {
@@ -506,6 +557,8 @@ fn inspection_operation(
         operands: parts.operands,
         places: parts.places,
         symbols: parts.symbols,
+        types: parts.types,
+        semantic_values: parts.semantic_values,
     })
 }
 
@@ -564,7 +617,7 @@ fn operation_parts(
             "aggregate"
         }
         MirOperationKind::Construct(construction) => {
-            construction_target(construction.target(), parts, context.symbols);
+            construction_target(construction.target(), parts, context)?;
 
             for input in construction.inputs() {
                 match input {
@@ -574,12 +627,35 @@ fn operation_parts(
                         value,
                     } => {
                         parts.attribute("input", format!("{}:{ordinal}", construction_input(*input)));
+
+                        parts.symbol(
+                            format!("input[{ordinal}]"),
+                            construction_input_symbol(*input),
+                            context.symbols,
+                        );
+
                         parts.operand(format!("input[{ordinal}]"), value, context)?;
                     }
-                    MirConstructionInput::Default { input, ordinal, .. } => {
+                    MirConstructionInput::Default {
+                        input,
+                        ordinal,
+                        provider,
+                    } => {
                         parts.attribute(
                             "default",
                             format!("{}:{ordinal}", construction_input(*input)),
+                        );
+
+                        parts.symbol(
+                            format!("input[{ordinal}]"),
+                            construction_input_symbol(*input),
+                            context.symbols,
+                        );
+
+                        parts.symbol(
+                            format!("default_provider[{ordinal}]"),
+                            construction_default_provider_symbol(*provider),
+                            context.symbols,
                         );
                     }
                 }
@@ -591,7 +667,7 @@ fn operation_parts(
             operand,
             conversion,
         } => {
-            parts.attribute("conversion", conversion_kind(conversion.target()));
+            conversion_parts("conversion", conversion, parts, context)?;
             parts.operand("operand", operand, context)?;
 
             "convert"
@@ -601,7 +677,7 @@ fn operation_parts(
             projection,
             operation,
         } => {
-            parts.attribute("projection", pattern_projection(*projection));
+            pattern_projection_parts(*projection, parts, context.symbols);
             parts.attribute("operation", pattern_operation(*operation));
             parts.operand("subject", subject, context)?;
 
@@ -613,35 +689,7 @@ fn operation_parts(
             "generator"
         }
         MirOperationKind::Call(call) => {
-            match call.target() {
-                MirCallTarget::Direct(reference) => {
-                    parts.symbol(
-                        "callee",
-                        reference.instance().definition().symbol(),
-                        context.symbols,
-                    );
-
-                    parts.attribute("dispatch", "direct");
-                }
-                MirCallTarget::Indirect { callee, .. } => {
-                    parts.attribute("dispatch", "indirect");
-                    parts.operand("callee", callee, context)?;
-                }
-            }
-
-            for argument in call.arguments() {
-                match argument {
-                    MirCallArgument::Receiver { value, .. } => {
-                        parts.operand("receiver", value, context)?;
-                    }
-                    MirCallArgument::Explicit { ordinal, value, .. } => {
-                        parts.operand(format!("argument[{ordinal}]"), value, context)?;
-                    }
-                    MirCallArgument::Default { ordinal, .. } => {
-                        parts.attribute("default_argument", *ordinal);
-                    }
-                }
-            }
+            call_parts(call, parts, context)?;
 
             "call"
         }
@@ -682,6 +730,224 @@ fn operation_parts(
     Ok(kind)
 }
 
+fn call_parts(
+    call: &bray_ir::MirCall,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    match call.target() {
+        MirCallTarget::Direct(reference) => {
+            parts.attribute("dispatch", "direct");
+            callable_reference("callee", *reference, parts, context);
+        }
+        MirCallTarget::Indirect { callee, abi } => {
+            parts.attribute("dispatch", "indirect");
+            parts.attribute("callable_abi", callable_abi(*abi));
+            parts.operand("callee", callee, context)?;
+        }
+    }
+
+    match call.result() {
+        BoundCallResult::Immediate(ty) => {
+            parts.attribute("result_mode", "immediate");
+            parts.r#type("result", ty, context)?;
+        }
+        BoundCallResult::LazyFuture(result) => {
+            parts.attribute("result_mode", "lazy_future");
+            parts.r#type("completion", result.completion_type(), context)?;
+            parts.r#type("result", result.future_type(), context)?;
+        }
+    }
+
+    for argument in call.arguments() {
+        match argument {
+            MirCallArgument::Receiver { parameter, value } => {
+                parts.symbol("receiver_parameter", (*parameter).into(), context.symbols);
+                parts.operand("receiver", value, context)?;
+            }
+            MirCallArgument::Explicit {
+                parameter,
+                ordinal,
+                value,
+            } => {
+                if let Some(parameter) = parameter {
+                    parts.symbol(
+                        format!("parameter[{ordinal}]"),
+                        (*parameter).into(),
+                        context.symbols,
+                    );
+                }
+
+                parts.operand(format!("argument[{ordinal}]"), value, context)?;
+            }
+            MirCallArgument::Default {
+                parameter,
+                ordinal,
+                provider,
+            } => {
+                parts.symbol(
+                    format!("parameter[{ordinal}]"),
+                    (*parameter).into(),
+                    context.symbols,
+                );
+
+                parts.symbol(
+                    format!("default_provider[{ordinal}]"),
+                    (*provider).into(),
+                    context.symbols,
+                );
+            }
+        }
+    }
+
+    if let Some(behaviors) = call.phase_behaviors() {
+        parts.attribute(
+            "execution",
+            match behaviors.execution() {
+                bray_symbols::CallableExecution::Synchronous => "synchronous",
+                bray_symbols::CallableExecution::Asynchronous => "asynchronous",
+            },
+        );
+
+        phase_behavior("invocation", behaviors.invocation(), parts, context.symbols);
+
+        if let Some(deferred) = behaviors.deferred_execution() {
+            phase_behavior("deferred", deferred, parts, context.symbols);
+        }
+    }
+
+    if let Some(contract) = call.contract() {
+        match contract {
+            bray_symbols::CallableContractTemplate::Source(contract) => {
+                parts.attribute("contract_kind", "source");
+                parts.symbol("contract_owner", contract.owner().into_any(), context.symbols);
+                parts.attribute("contract_expression_count", compact_id(contract.expressions().len()));
+
+                parts.attribute(
+                    "contract_capability_count",
+                    compact_id(contract.capabilities().len()),
+                );
+            }
+            bray_symbols::CallableContractTemplate::Resolved(contract) => {
+                parts.attribute("contract_kind", "resolved");
+
+                parts.attribute(
+                    "contract_precondition_count",
+                    compact_id(contract.invocation_preconditions().len()),
+                );
+
+                parts.attribute(
+                    "contract_postcondition_count",
+                    compact_id(contract.normal_completion_postconditions().len()),
+                );
+            }
+        }
+    }
+
+    for (index, witness) in call.dispatch_witnesses().iter().enumerate() {
+        parts.semantic_value(
+            format!("dispatch_witness[{index}]"),
+            "implementation_instance",
+            witness.slot(),
+            None,
+        );
+    }
+
+    for (index, witness) in call.witnesses().iter().enumerate() {
+        parts.semantic_value(
+            format!("witness[{index}]"),
+            "implementation_instance",
+            witness.witness().slot(),
+            None,
+        );
+
+        parts.r#type(
+            format!("witness_subject[{index}]"),
+            witness.requirement().subject(),
+            context,
+        )?;
+
+        parts.semantic_value(
+            format!("witness_trait[{index}]"),
+            "trait_application",
+            witness.requirement().trait_application().slot(),
+            None,
+        );
+    }
+
+    Ok(())
+}
+
+fn callable_reference(
+    role: &str,
+    reference: MirCallableReference,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) {
+    let instance = reference.instance();
+
+    parts.symbol(
+        role,
+        instance.definition().symbol(),
+        context.symbols,
+    );
+
+    parts.attribute(format!("{role}_abi"), callable_abi(reference.abi()));
+
+    parts.semantic_value(
+        format!("{role}_substitution"),
+        "generic_substitution",
+        instance.substitution().slot(),
+        None,
+    );
+}
+
+fn phase_behavior(
+    role: &str,
+    behavior: &bray_symbols::CallablePhaseBehavior,
+    parts: &mut OperationParts,
+    symbols: &SymbolGraph,
+) {
+    parts.semantic_value(
+        format!("{role}_dependency_contract"),
+        "dependency_contract_template",
+        behavior.dependency_contract().slot(),
+        None,
+    );
+
+    for (index, effect) in behavior.effects().iter().enumerate() {
+        parts.symbol(
+            format!("{role}_effect[{index}]"),
+            effect.declaration(),
+            symbols,
+        );
+    }
+
+    for (index, capability) in behavior.capabilities().iter().enumerate() {
+        parts.symbol(
+            format!("{role}_capability[{index}]"),
+            capability.declaration(),
+            symbols,
+        );
+    }
+
+    for (index, requirement) in behavior.execution_requirements().iter().enumerate() {
+        parts.symbol(
+            format!("{role}_execution_requirement[{index}]"),
+            requirement.declaration(),
+            symbols,
+        );
+    }
+
+    parts.attribute(
+        format!("{role}_may_cancel"),
+        matches!(
+            behavior.current_run_cancellation(),
+            bray_symbols::CurrentRunCancellation::MayEnter
+        ),
+    );
+}
+
 fn generator_operation(
     operation: &MirGeneratorOperation,
     parts: &mut OperationParts,
@@ -697,6 +963,15 @@ fn generator_operation(
             parts.attribute("generator_kind", generator_kind(*kind));
 
             parts.attribute("has_exact_count", exact_count.is_some());
+
+            if let Some(exact_count) = exact_count {
+                parts.semantic_value(
+                    "exact_count",
+                    "constant_term",
+                    exact_count.slot(),
+                    None,
+                );
+            }
 
             parts.place("destination", destination, context)?;
         }
@@ -720,12 +995,35 @@ fn async_operation(
     context: &MirInspectionContext<'_>,
 ) -> Result<&'static str, MirInspectionModelError> {
     let kind = match operation {
-        MirAsyncOperation::CreateFrame { .. } => "create_frame",
+        MirAsyncOperation::CreateFrame { frame, initializer } => {
+            frame_reference("frame", *frame, parts);
+
+            match initializer {
+                MirFrameInitializer::Callable(call) => {
+                    parts.attribute("initializer", "callable");
+                    call_parts(call, parts, context)?;
+                }
+                MirFrameInitializer::TaskObservation {
+                    task,
+                    result,
+                    request_cancellation,
+                } => {
+                    parts.attribute("initializer", "task_observation");
+                    parts.attribute("request_cancellation", *request_cancellation);
+                    parts.operand("task", task, context)?;
+                    parts.r#type("completion", result.completion_type(), context)?;
+                    parts.r#type("result", result.future_type(), context)?;
+                }
+            }
+
+            "create_frame"
+        }
         MirAsyncOperation::MoveInactiveFrame {
+            frame,
             source,
             destination,
-            ..
         } => {
+            frame_reference("frame", *frame, parts);
             parts.place("source", source, context)?;
             parts.place("destination", destination, context)?;
 
@@ -735,51 +1033,63 @@ fn async_operation(
             state,
             storage,
             runtime,
-            ..
+            frame,
         } => {
+            parts.attribute("frame", digest_text(frame.digest()));
             parts.attribute("state", state.raw());
             parts.attribute("storage", storage.slot());
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             "resume_frame"
         }
-        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
+        MirAsyncOperation::ComposeAwaitedFrame {
+            parent,
+            child,
+            frame,
+        } => {
+            parts.attribute("parent_frame", digest_text(parent.digest()));
+            frame_reference("child_frame", *child, parts);
             parts.operand("frame", frame, context)?;
 
             "compose_awaited_frame"
         }
-        MirAsyncOperation::CommitAwaitedCompletion { .. } => "commit_awaited_completion",
+        MirAsyncOperation::CommitAwaitedCompletion { child } => {
+            frame_reference("child_frame", *child, parts);
+
+            "commit_awaited_completion"
+        }
         MirAsyncOperation::StartTask {
+            frame,
             value,
             allocation,
             start,
-            ..
         } => {
-            parts.attribute("allocation_runtime", allocation.role().as_str());
-            parts.attribute("start_runtime", start.role().as_str());
+            frame_reference("frame", *frame, parts);
+            runtime_reference("allocation_runtime", *allocation, parts);
+            runtime_reference("start_runtime", *start, parts);
             parts.operand("frame", value, context)?;
 
             "start_task"
         }
         MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
             parts.operand("task", task, context)?;
 
             "request_task_cancellation"
         }
         MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             "observe_current_run_cancellation"
         }
         MirAsyncOperation::ResolveTask { task, runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
             parts.operand("task", task, context)?;
 
             "resolve_task"
         }
         MirAsyncOperation::PublishTerminalState { state, runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             match state {
                 MirTaskTerminalState::Completed(value) => {
@@ -795,18 +1105,20 @@ fn async_operation(
 
             "publish_terminal_state"
         }
-        MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. } => {
-            parts.attribute("runtime", runtime.role().as_str());
+        MirAsyncOperation::ExecuteCleanupBroadcast { frame, runtime } => {
+            parts.attribute("frame", digest_text(frame.digest()));
+            runtime_reference("runtime", *runtime, parts);
 
             "execute_cleanup_broadcast"
         }
-        MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. } => {
-            parts.attribute("runtime", runtime.role().as_str());
+        MirAsyncOperation::ExecuteLifecycleResolution { frame, runtime } => {
+            parts.attribute("frame", digest_text(frame.digest()));
+            runtime_reference("runtime", *runtime, parts);
 
             "execute_lifecycle_resolution"
         }
         MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
             parts.operand("incident", incident, context)?;
 
             "transfer_cleanup_incident"
@@ -821,34 +1133,70 @@ fn async_operation(
     Ok(kind)
 }
 
+fn frame_reference(role: &str, frame: MirFrameReference, parts: &mut OperationParts) {
+    match frame {
+        MirFrameReference::Known(frame) => {
+            parts.attribute(format!("{role}_kind"), "known");
+            parts.attribute(role, digest_text(frame.digest()));
+        }
+        MirFrameReference::Erased => parts.attribute(format!("{role}_kind"), "erased"),
+    }
+}
+
+fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut OperationParts) {
+    parts.attribute(role, runtime.role().as_str());
+
+    let version = runtime.abi_version();
+
+    parts.attribute(
+        format!("{role}_abi"),
+        format_abi(version.major(), version.minor()),
+    );
+}
+
 fn host_operation(
     operation: &MirHostOperation,
     parts: &mut OperationParts,
 ) -> &'static str {
     match operation {
-        MirHostOperation::ExecuteRoot { root, runtime, .. } => {
+        MirHostOperation::ExecuteRoot {
+            root,
+            execution,
+            runtime,
+        } => {
             parts.attribute("root_kind", root.kind().as_str());
-            parts.attribute("runtime", runtime.role().as_str());
+
+            match execution {
+                bray_runtime_interface::RootExecution::Synchronous => {
+                    parts.attribute("execution", "synchronous");
+                }
+                bray_runtime_interface::RootExecution::Asynchronous { frame } => {
+                    parts.attribute("execution", "asynchronous");
+                    parts.attribute("frame", digest_text(frame.digest()));
+                }
+            }
+
+            runtime_reference("runtime", *runtime, parts);
 
             "execute_root"
         }
         MirHostOperation::RequestRootCancellation { runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             "request_root_cancellation"
         }
         MirHostOperation::ObserveRootTerminal { runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             "observe_root_terminal"
         }
         MirHostOperation::ReportCleanupIncidents { runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             "report_cleanup_incidents"
         }
         MirHostOperation::StructuredShutdown { runtime } => {
-            parts.attribute("runtime", runtime.role().as_str());
+            runtime_reference("runtime", *runtime, parts);
 
             "structured_shutdown"
         }
@@ -888,11 +1236,12 @@ fn inspection_terminator(
         }
         MirTerminatorKind::PatternBranch {
             subject,
+            predicate,
             matched,
             unmatched,
-            ..
         } => {
             parts.operand("subject", subject, &context)?;
+            pattern_predicate(*predicate, &mut parts, &context)?;
             parts.edge("matched", matched, None, &context)?;
             parts.edge("unmatched", unmatched, None, &context)?;
 
@@ -900,11 +1249,14 @@ fn inspection_terminator(
         }
         MirTerminatorKind::Iterate {
             cursor,
+            next,
+            element_type,
             item,
             exhausted,
-            ..
         } => {
             parts.place("cursor", cursor, &context)?;
+            parts.callable_reference("next", *next, &context);
+            parts.r#type("element", *element_type, &context)?;
 
             parts.edges.push(InspectionMirEdge {
                 role: String::from("item"),
@@ -925,6 +1277,13 @@ fn inspection_terminator(
             parts.operand("discriminant", discriminant, &context)?;
 
             for (index, case) in cases.iter().enumerate() {
+                parts.semantic_value(
+                    format!("case[{index}]"),
+                    "constant_value",
+                    case.value().slot(),
+                    Some(constant_text(case.value(), semantic_values)),
+                );
+
                 parts.edge(format!("case[{index}]"), case.edge(), None, &context)?;
             }
 
@@ -949,7 +1308,14 @@ fn inspection_terminator(
         } => {
             parts.attribute("resume_state", resume_state.raw());
             parts.attribute("registration_runtime", registration.role().as_str());
+
+            parts.attribute(
+                "registration_runtime_abi",
+                runtime_abi_text(*registration),
+            );
+
             parts.attribute("wake_runtime", wake.role().as_str());
+            parts.attribute("wake_runtime_abi", runtime_abi_text(*wake));
             parts.edge("resume", resume, None, &context)?;
             parts.cleanup_edge("cancellation", cancellation, &context)?;
 
@@ -993,6 +1359,9 @@ fn inspection_terminator(
         places: parts.places,
         edges: parts.edges,
         attributes: parts.attributes,
+        symbols: parts.symbols,
+        types: parts.types,
+        semantic_values: parts.semantic_values,
     })
 }
 
@@ -1001,6 +1370,9 @@ struct TerminatorParts {
     places: Vec<InspectionMirNamedPlace>,
     edges: Vec<InspectionMirEdge>,
     attributes: Vec<InspectionMirAttribute>,
+    symbols: Vec<InspectionMirNamedSymbol>,
+    types: Vec<InspectionMirNamedType>,
+    semantic_values: Vec<InspectionMirSemanticValue>,
 }
 
 impl TerminatorParts {
@@ -1010,6 +1382,9 @@ impl TerminatorParts {
             places: Vec::new(),
             edges: Vec::new(),
             attributes: Vec::new(),
+            symbols: Vec::new(),
+            types: Vec::new(),
+            semantic_values: Vec::new(),
         }
     }
 
@@ -1076,15 +1451,66 @@ impl TerminatorParts {
         )
     }
 
-    fn attribute(
-        &mut self,
-        name: &'static str,
-        value: impl Into<InspectionMirAttributeValue>,
-    ) {
+    fn attribute(&mut self, name: impl Into<String>, value: impl Into<InspectionMirAttributeValue>) {
         self.attributes.push(InspectionMirAttribute {
-            name,
+            name: name.into(),
             value: value.into(),
         });
+    }
+
+    fn symbol(&mut self, role: impl Into<String>, symbol: AnySymbolId, symbols: &SymbolGraph) {
+        self.symbols.push(InspectionMirNamedSymbol {
+            role: role.into(),
+            symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol),
+        });
+    }
+
+    fn r#type(
+        &mut self,
+        role: impl Into<String>,
+        ty: TypeId,
+        context: &MirInspectionContext<'_>,
+    ) -> Result<(), MirInspectionModelError> {
+        self.types.push(InspectionMirNamedType {
+            role: role.into(),
+            r#type: InspectionType::from_type(context.semantic_values, context.symbols, ty)?,
+        });
+
+        Ok(())
+    }
+
+    fn semantic_value(
+        &mut self,
+        role: impl Into<String>,
+        value_kind: &'static str,
+        id: u32,
+        text: Option<String>,
+    ) {
+        self.semantic_values.push(InspectionMirSemanticValue {
+            role: role.into(),
+            value_kind,
+            id,
+            text,
+        });
+    }
+
+    fn callable_reference(
+        &mut self,
+        role: &str,
+        reference: MirCallableReference,
+        context: &MirInspectionContext<'_>,
+    ) {
+        let instance = reference.instance();
+
+        self.symbol(role, instance.definition().symbol(), context.symbols);
+        self.attribute(format!("{role}_abi"), callable_abi(reference.abi()));
+
+        self.semantic_value(
+            format!("{role}_substitution"),
+            "generic_substitution",
+            instance.substitution().slot(),
+            None,
+        );
     }
 }
 
@@ -1257,9 +1683,7 @@ fn integer_text(value: &bray_symbols::IntegerConstant) -> String {
         IntegerSign::NonNegative => String::from("0x"),
     };
 
-    for byte in value.magnitude() {
-        let _ = write!(text, "{byte:02x}");
-    }
+    push_hex_bytes(&mut text, value.magnitude().iter().copied());
 
     text
 }
@@ -1272,9 +1696,7 @@ fn real_bits_text(value: bray_symbols::RealConstantBits) -> String {
         bray_symbols::RealConstantBits::Binary128(bits) => {
             let mut text = String::from("f128:0x");
 
-            for byte in bits {
-                let _ = write!(text, "{byte:02x}");
-            }
+            push_hex_bytes(&mut text, bits);
 
             text
         }
@@ -1331,23 +1753,192 @@ fn projection_kind(
     }
 }
 
+fn pattern_predicate(
+    predicate: PatternPredicate,
+    parts: &mut TerminatorParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    match predicate {
+        PatternPredicate::Literal(literal) => {
+            parts.attribute("predicate", "literal");
+            parts.attribute("literal_kind", literal_kind(literal.kind()));
+            parts.attribute("literal_start", u32::from(literal.range().start()));
+            parts.attribute("literal_end", u32::from(literal.range().end()));
+        }
+        PatternPredicate::Constant(constant) => {
+            parts.attribute("predicate", "constant");
+            parts.semantic_value("predicate", "constant_term", constant.slot(), None);
+        }
+        PatternPredicate::NullableAbsent => parts.attribute("predicate", "nullable_absent"),
+        PatternPredicate::NullablePresent => parts.attribute("predicate", "nullable_present"),
+        PatternPredicate::ActiveUnionVariant(variant) => {
+            parts.attribute("predicate", "active_union_variant");
+            parts.symbol("variant", variant.into(), context.symbols);
+        }
+        PatternPredicate::ProductShape(product) => {
+            parts.attribute("predicate", "product_shape");
+            parts.symbol("product", product.into(), context.symbols);
+        }
+        PatternPredicate::TupleShape(arity) => {
+            parts.attribute("predicate", "tuple_shape");
+            parts.attribute("arity", arity);
+        }
+        PatternPredicate::ArrayShape(length) => {
+            parts.attribute("predicate", "array_shape");
+            parts.attribute("length", length);
+        }
+        PatternPredicate::OwnedTarget => parts.attribute("predicate", "owned_target"),
+    }
+
+    Ok(())
+}
+
 fn construction_target(
     target: ConstructionTarget,
     parts: &mut OperationParts,
-    symbols: &SymbolGraph,
-) {
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
     match target {
         ConstructionTarget::Struct(symbol) => {
             parts.attribute("target_kind", "struct");
-            parts.symbol("target", symbol.into(), symbols);
+            parts.symbol("target", symbol.into(), context.symbols);
         }
         ConstructionTarget::UnionVariant(symbol) => {
             parts.attribute("target_kind", "union_variant");
-            parts.symbol("target", symbol.into(), symbols);
+            parts.symbol("target", symbol.into(), context.symbols);
         }
-        ConstructionTarget::TypeForm { callable, .. } => {
+        ConstructionTarget::TypeForm {
+            callable,
+            requirement,
+            witness,
+        } => {
             parts.attribute("target_kind", "type_form");
-            parts.symbol("target", callable.definition().symbol(), symbols);
+            callable_instance("target", callable, parts, context.symbols);
+            implementation_requirement("target", requirement, parts, context)?;
+
+            parts.semantic_value(
+                "target_witness",
+                "implementation_instance",
+                witness.slot(),
+                None,
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn conversion_parts(
+    role: &str,
+    conversion: &SelectedConversion,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    parts.attribute(format!("{role}_kind"), conversion_kind(conversion.target()));
+    parts.r#type(format!("{role}_source"), conversion.source_type(), context)?;
+    parts.r#type(format!("{role}_target"), conversion.target_type(), context)?;
+
+    match conversion.target() {
+        ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+        ConversionTarget::Composite(elements) => {
+            for (index, element) in elements.iter().enumerate() {
+                conversion_parts(&format!("{role}[{index}]"), element, parts, context)?;
+            }
+        }
+        ConversionTarget::Trait {
+            member,
+            fulfillment,
+            requirement,
+            witness,
+        } => {
+            callable_instance(
+                &format!("{role}_member"),
+                *member,
+                parts,
+                context.symbols,
+            );
+
+            callable_instance(
+                &format!("{role}_fulfillment"),
+                *fulfillment,
+                parts,
+                context.symbols,
+            );
+
+            implementation_requirement(role, *requirement, parts, context)?;
+
+            parts.semantic_value(
+                format!("{role}_witness"),
+                "implementation_instance",
+                witness.slot(),
+                None,
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn callable_instance(
+    role: &str,
+    callable: bray_symbols::CallableInstanceData,
+    parts: &mut OperationParts,
+    symbols: &SymbolGraph,
+) {
+    parts.symbol(role, callable.definition().symbol(), symbols);
+
+    parts.semantic_value(
+        format!("{role}_substitution"),
+        "generic_substitution",
+        callable.substitution().slot(),
+        None,
+    );
+}
+
+fn implementation_requirement(
+    role: &str,
+    requirement: bray_symbols::ImplementationRequirementKey,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    parts.r#type(
+        format!("{role}_requirement_subject"),
+        requirement.subject(),
+        context,
+    )?;
+
+    parts.semantic_value(
+        format!("{role}_requirement_trait"),
+        "trait_application",
+        requirement.trait_application().slot(),
+        None,
+    );
+
+    Ok(())
+}
+
+const fn construction_input_symbol(input: ConstructionInputId) -> AnySymbolId {
+    match input {
+        ConstructionInputId::StructField(field) => AnySymbolId::StructField(field),
+        ConstructionInputId::UnionPayloadField(field) => AnySymbolId::UnionPayloadField(field),
+        ConstructionInputId::CallableParameter(parameter) => {
+            AnySymbolId::CallableParameter(parameter)
+        }
+    }
+}
+
+const fn construction_default_provider_symbol(
+    provider: ConstructionDefaultProvider,
+) -> AnySymbolId {
+    match provider {
+        ConstructionDefaultProvider::StructField(provider) => {
+            AnySymbolId::StructFieldDefaultProvider(provider)
+        }
+        ConstructionDefaultProvider::UnionPayload(provider) => {
+            AnySymbolId::UnionPayloadDefaultProvider(provider)
+        }
+        ConstructionDefaultProvider::CallableParameter(provider) => {
+            AnySymbolId::CallableParameterDefaultProvider(provider)
         }
     }
 }
@@ -1357,6 +1948,25 @@ fn construction_input(input: ConstructionInputId) -> &'static str {
         ConstructionInputId::StructField(_) => "struct_field",
         ConstructionInputId::UnionPayloadField(_) => "union_payload_field",
         ConstructionInputId::CallableParameter(_) => "callable_parameter",
+    }
+}
+
+const fn callable_abi(abi: CallableAbi) -> &'static str {
+    match abi {
+        CallableAbi::Bray => "bray",
+        CallableAbi::C => "c",
+        CallableAbi::System => "system",
+    }
+}
+
+const fn literal_kind(kind: BoundLiteralKind) -> &'static str {
+    match kind {
+        BoundLiteralKind::Integer => "integer",
+        BoundLiteralKind::Real => "real",
+        BoundLiteralKind::Imaginary => "imaginary",
+        BoundLiteralKind::Boolean => "boolean",
+        BoundLiteralKind::Character => "character",
+        BoundLiteralKind::String => "string",
     }
 }
 
@@ -1474,15 +2084,35 @@ fn pattern_operation(operation: PatternOperation) -> &'static str {
     }
 }
 
-fn pattern_projection(projection: PatternProjection) -> &'static str {
+fn pattern_projection_parts(
+    projection: PatternProjection,
+    parts: &mut OperationParts,
+    symbols: &SymbolGraph,
+) {
     match projection {
-        PatternProjection::ProductField(_) => "product_field",
-        PatternProjection::TupleElement(_) => "tuple_element",
-        PatternProjection::ActiveUnionPayloadField { .. } => "active_union_payload_field",
-        PatternProjection::ElementFromStart(_) => "element_from_start",
-        PatternProjection::ElementFromEnd(_) => "element_from_end",
-        PatternProjection::NullableValue => "nullable_value",
-        PatternProjection::OwnedTarget => "owned_target",
+        PatternProjection::ProductField(field) => {
+            parts.attribute("projection", "product_field");
+            parts.symbol("projected_field", field.into(), symbols);
+        }
+        PatternProjection::TupleElement(ordinal) => {
+            parts.attribute("projection", "tuple_element");
+            parts.attribute("projection_ordinal", ordinal.raw());
+        }
+        PatternProjection::ActiveUnionPayloadField { variant, field } => {
+            parts.attribute("projection", "active_union_payload_field");
+            parts.symbol("active_variant", variant.into(), symbols);
+            parts.symbol("projected_field", field.into(), symbols);
+        }
+        PatternProjection::ElementFromStart(ordinal) => {
+            parts.attribute("projection", "element_from_start");
+            parts.attribute("projection_ordinal", ordinal.raw());
+        }
+        PatternProjection::ElementFromEnd(ordinal) => {
+            parts.attribute("projection", "element_from_end");
+            parts.attribute("projection_ordinal", ordinal.raw());
+        }
+        PatternProjection::NullableValue => parts.attribute("projection", "nullable_value"),
+        PatternProjection::OwnedTarget => parts.attribute("projection", "owned_target"),
     }
 }
 
@@ -1499,14 +2129,24 @@ fn format_abi(major: u16, minor: u16) -> String {
     format!("{major}.{minor}")
 }
 
+fn runtime_abi_text(reference: MirRuntimeReference) -> String {
+    let version = reference.abi_version();
+
+    format_abi(version.major(), version.minor())
+}
+
 fn digest_text(digest: [u8; 32]) -> String {
     let mut text = String::with_capacity(64);
 
-    for byte in digest {
-        let _ = write!(text, "{byte:02x}");
-    }
+    push_hex_bytes(&mut text, digest);
 
     text
+}
+
+fn push_hex_bytes(text: &mut String, bytes: impl IntoIterator<Item = u8>) {
+    for byte in bytes {
+        let _ = write!(text, "{byte:02x}");
+    }
 }
 
 fn compact_id(index: usize) -> u32 {

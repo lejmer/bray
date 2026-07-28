@@ -39,6 +39,8 @@ define_diagnostic_kinds! {
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
     RequestInvalidWorkerBudget,
+    /// An inspection report could not be written to its requested file.
+    InspectionReportWriteFailed,
     /// Source input contains a character that the lexer cannot accept.
     LexicalInvalidCharacter,
     /// Source input contains a byte order mark after the start of the source.
@@ -357,6 +359,7 @@ impl DiagnosticKind {
             Self::RequestInvalidSourceInput => 1102,
             Self::RequestInvalidWorkerBudget => 1103,
             Self::RequestDuplicateSourceInput => 1104,
+            Self::InspectionReportWriteFailed => 1105,
             Self::LexicalInvalidCharacter => 2001,
             Self::LexicalMisplacedBom => 2002,
             Self::LexicalLoneCarriageReturn => 2003,
@@ -525,6 +528,7 @@ impl DiagnosticKind {
             Self::RequestInvalidSourceInput => "request_invalid_source_input",
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
+            Self::InspectionReportWriteFailed => "inspection_report_write_failed",
             Self::LexicalInvalidCharacter => "lexical_invalid_character",
             Self::LexicalMisplacedBom => "lexical_misplaced_bom",
             Self::LexicalLoneCarriageReturn => "lexical_lone_carriage_return",

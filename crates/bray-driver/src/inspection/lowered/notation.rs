@@ -118,10 +118,9 @@ fn push_operation(
     push_attributes(output, &operation.attributes);
     push_operands(output, &operation.operands);
     push_places(output, &operation.places);
-
-    for symbol in &operation.symbols {
-        let _ = write!(output, " {}={}", symbol.role, symbol.symbol.display_name());
-    }
+    push_symbols(output, &operation.symbols);
+    push_types(output, &operation.types);
+    push_semantic_values(output, &operation.semantic_values);
 
     let _ = writeln!(
         output,
@@ -137,6 +136,9 @@ fn push_terminator(output: &mut String, terminator: &InspectionMirTerminator) {
     push_attributes(output, &terminator.attributes);
     push_operands(output, &terminator.operands);
     push_places(output, &terminator.places);
+    push_symbols(output, &terminator.symbols);
+    push_types(output, &terminator.types);
+    push_semantic_values(output, &terminator.semantic_values);
 
     for edge in &terminator.edges {
         push_edge(output, edge);
@@ -168,6 +170,37 @@ fn push_operands(output: &mut String, operands: &[InspectionMirNamedOperand]) {
 fn push_places(output: &mut String, places: &[InspectionMirNamedPlace]) {
     for place in places {
         let _ = write!(output, " {}={}", place.role, place_text(&place.place));
+    }
+}
+
+fn push_symbols(output: &mut String, symbols: &[super::model::InspectionMirNamedSymbol]) {
+    for symbol in symbols {
+        let _ = write!(output, " {}={}", symbol.role, symbol.symbol.display_name());
+    }
+}
+
+fn push_types(output: &mut String, types: &[super::model::InspectionMirNamedType]) {
+    for r#type in types {
+        let _ = write!(output, " {}={}", r#type.role, r#type.r#type.text());
+    }
+}
+
+fn push_semantic_values(
+    output: &mut String,
+    values: &[super::model::InspectionMirSemanticValue],
+) {
+    for value in values {
+        let text = value
+            .text
+            .as_ref()
+            .map(|text| format!("({text})"))
+            .unwrap_or_default();
+
+        let _ = write!(
+            output,
+            " {}={}:{}{}",
+            value.role, value.value_kind, value.id, text
+        );
     }
 }
 
