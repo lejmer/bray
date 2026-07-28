@@ -65,6 +65,10 @@ documents.
     - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other host mechanisms used by trusted
       runtime and standard-library layers.
 
+- `bray-runtime`
+    - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root
+      services over `bray-platform` mechanisms.
+
 - `bray-linker`
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.
 
