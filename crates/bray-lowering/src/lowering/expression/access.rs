@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirOperand,
-    MirOperationKind, MirPlace, MirProjection,
+    MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
 };
 use bray_symbols::{AnySymbolId, CallableAbi, TypeId};
 
@@ -203,7 +203,9 @@ impl Lowerer<'_> {
             .iter()
             .copied()
             .find(|decision| {
-                decision.expression() == expression && decision.access() == plan.access()
+                decision.expression() == expression
+                    && decision.access() == plan.access()
+                    && plan.purpose().matches_checked(decision.purpose())
             })
             .ok_or(LoweringError::MissingStorageAccess(expression))?;
 
@@ -253,10 +255,18 @@ impl Lowerer<'_> {
                 }
             };
 
-        let mut lowered = Vec::new();
+        let mut lowered = Vec::with_capacity(projections.len());
+        let mut source_type = self.storage_identity_type(identity)?;
 
-        for projection in projections {
-            current = self.lower_projection(projection, current, &mut lowered)?;
+        for (index, projection) in projections.iter().copied().enumerate() {
+            let result_type =
+                self.projection_result_type(identity, &projections[..=index])?;
+
+            let (continuation, kind) = self.lower_projection(projection, current)?;
+
+            current = continuation;
+            lowered.push(MirProjection::new(kind, source_type, result_type));
+            source_type = result_type;
         }
 
         Ok(LoweredPlace::Continuing {
@@ -397,34 +407,49 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
     }
 
+    fn projection_result_type(
+        &self,
+        identity: StorageIdentityId,
+        projections: &[StorageProjection],
+    ) -> Result<TypeId, LoweringError> {
+        let plan = self.input.storage_plan();
+
+        plan.access_entries()
+            .find_map(|(access, model)| {
+                (plan.root_identity(access) == Some(identity)
+                    && plan.resolved_projections(access) == Some(projections))
+                .then_some(model.reached_type())
+            })
+            .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
+    }
+
     fn lower_projection(
         &mut self,
         projection: StorageProjection,
         mut current: MirBlockId,
-        lowered: &mut Vec<MirProjection>,
-    ) -> Result<MirBlockId, LoweringError> {
-        match projection {
+    ) -> Result<(MirBlockId, MirProjectionKind), LoweringError> {
+        let kind = match projection {
             StorageProjection::ProductField(field) => {
-                lowered.push(MirProjection::Field(MirFieldReference::Struct(field)));
+                MirProjectionKind::Field(MirFieldReference::Struct(field))
             }
             StorageProjection::TupleElement(ordinal) => {
-                lowered.push(MirProjection::TupleField(ordinal.raw()));
+                MirProjectionKind::TupleField(ordinal.raw())
             }
             StorageProjection::ElementFromStart(ordinal) => {
-                lowered.push(MirProjection::ElementFromStart(ordinal.raw()));
+                MirProjectionKind::ElementFromStart(ordinal.raw())
             }
             StorageProjection::ElementFromEnd(ordinal) => {
-                lowered.push(MirProjection::ElementFromEnd(ordinal.raw()));
+                MirProjectionKind::ElementFromEnd(ordinal.raw())
             }
             StorageProjection::ActiveUnionPayloadField { variant, field } => {
-                lowered.push(MirProjection::Variant(variant));
-                lowered.push(MirProjection::Field(MirFieldReference::UnionPayload(field)));
+                MirProjectionKind::ActiveUnionPayloadField { variant, field }
             }
             StorageProjection::Element(selector) => {
                 let (continuation, selector) = self.lower_selector(selector, current)?;
 
                 current = continuation;
-                lowered.push(MirProjection::Index(selector));
+
+                MirProjectionKind::Index(selector)
             }
             StorageProjection::SliceRange { start, end } => {
                 let (continuation, start) = self.lower_optional_selector(start, current)?;
@@ -432,13 +457,14 @@ impl Lowerer<'_> {
                 let (continuation, end) = self.lower_optional_selector(end, continuation)?;
 
                 current = continuation;
-                lowered.push(MirProjection::Slice { start, end });
-            }
-            StorageProjection::NullableValue => lowered.push(MirProjection::NullableValue),
-            StorageProjection::OwnedTarget => lowered.push(MirProjection::Dereference),
-        }
 
-        Ok(current)
+                MirProjectionKind::Slice { start, end }
+            }
+            StorageProjection::NullableValue => MirProjectionKind::NullableValue,
+            StorageProjection::OwnedTarget => MirProjectionKind::Dereference,
+        };
+
+        Ok((current, kind))
     }
 
     fn lower_optional_selector(

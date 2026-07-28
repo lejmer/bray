@@ -321,8 +321,9 @@ mod tests {
     use crate::{
         MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCleanupEdge,
         MirCleanupPhase, MirEdge, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId,
-        MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference,
-        MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnitBuildError, MirUnitKind,
+        MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirProjection,
+        MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirTerminatorKind,
+        MirUnitBuildError, MirUnitKind,
     };
 
     #[test]
@@ -608,6 +609,46 @@ mod tests {
         assert_eq!(
             builder.finish(entry),
             Err(MirUnitBuildError::InvalidAggregateOperation(operation))
+        );
+    }
+
+    #[test]
+    fn builders_reject_incoherent_projected_place_types() {
+        let bound = test_bound_unit(13);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let storage_type = crate::test_support::test_type();
+        let projected_type = crate::test_support::test_other_type();
+
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let storage = push_storage(&mut builder, source.clone(), storage_type);
+
+        let projection = MirProjection::new(
+            MirProjectionKind::TupleField(0),
+            storage_type,
+            projected_type,
+        );
+
+        let place = MirPlace::new(storage, [projection], storage_type);
+
+        match builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Borrow {
+                kind: BorrowKind::Shared,
+                place,
+            },
+            Some(storage_type),
+        ) {
+            Ok(_) => {}
+            Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
+        }
+
+        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::StorageTypeMismatch(storage))
         );
     }
 

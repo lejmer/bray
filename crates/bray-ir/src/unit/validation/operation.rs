@@ -5,8 +5,9 @@ use bray_symbols::TypeId;
 
 use crate::{
     MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallTarget, MirConstructionInput,
-    MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace, MirProjection, MirStorage,
-    MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
+    MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace, MirProjectionKind,
+    MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError,
+    MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -388,10 +389,20 @@ fn validate_place(
 ) -> Result<(), MirUnitBuildError> {
     validate_storage(unit, place.storage())?;
 
+    let Some(storage) = unit.storage(place.storage()) else {
+        return Err(MirUnitBuildError::MissingStorage(place.storage()));
+    };
+
+    let mut expected_type = storage.ty();
+
     for projection in place.projections() {
-        match projection {
-            MirProjection::Index(value) => validate_operand(unit, value, block, before)?,
-            MirProjection::Slice { start, end } => {
+        if projection.source_type() != expected_type {
+            return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
+        }
+
+        match projection.kind() {
+            MirProjectionKind::Index(value) => validate_operand(unit, value, block, before)?,
+            MirProjectionKind::Slice { start, end } => {
                 if let Some(value) = start {
                     validate_operand(unit, value, block, before)?;
                 }
@@ -400,21 +411,20 @@ fn validate_place(
                     validate_operand(unit, value, block, before)?;
                 }
             }
-            MirProjection::Dereference
-            | MirProjection::Field(_)
-            | MirProjection::TupleField(_)
-            | MirProjection::ElementFromStart(_)
-            | MirProjection::ElementFromEnd(_)
-            | MirProjection::Variant(_)
-            | MirProjection::NullableValue => {}
+            MirProjectionKind::Dereference
+            | MirProjectionKind::Field(_)
+            | MirProjectionKind::TupleField(_)
+            | MirProjectionKind::ElementFromStart(_)
+            | MirProjectionKind::ElementFromEnd(_)
+            | MirProjectionKind::Variant(_)
+            | MirProjectionKind::ActiveUnionPayloadField { .. }
+            | MirProjectionKind::NullableValue => {}
         }
+
+        expected_type = projection.result_type();
     }
 
-    let Some(storage) = unit.storage(place.storage()) else {
-        return Err(MirUnitBuildError::MissingStorage(place.storage()));
-    };
-
-    if place.projections().is_empty() && storage.ty() != place.ty() {
+    if expected_type != place.ty() {
         return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
     }
 

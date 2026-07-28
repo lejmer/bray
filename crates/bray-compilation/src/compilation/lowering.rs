@@ -220,6 +220,8 @@ mod tests {
         "    let choice: Choice = .Value(value = pair.first);\n",
         "    let empty: Choice = .Empty;\n",
         "    let owned: box i32 = box(8);\n",
+        "    let owned_tuple: (box i32,) = (owned,);\n",
+        "    let moved: box i32 = owned_tuple.0;\n",
         "    return pair.first as i64;\n",
         "}\n",
     );
@@ -360,6 +362,7 @@ mod tests {
                 bray_ir::MirAggregateKind::Tuple,
                 bray_ir::MirAggregateKind::Array,
                 bray_ir::MirAggregateKind::RepeatedArray,
+                bray_ir::MirAggregateKind::Tuple,
             ]
         );
 
@@ -418,6 +421,14 @@ mod tests {
                 )
             })
         }));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Store {
+                value: bray_ir::MirOperand::Move(place),
+                ..
+            } if !place.projections().is_empty()
+        )));
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),

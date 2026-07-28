@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{TypeId, UnionVariantSymbolId};
+use bray_symbols::{TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 
 use crate::{MirFieldReference, MirOperand, MirSourceAnchor, MirStorageId};
 
@@ -57,7 +57,7 @@ impl MirStorage {
 
 /// One typed projection from a storage place.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MirProjection {
+pub enum MirProjectionKind {
     /// Dereference a pointer or reference.
     Dereference,
     /// Select a declared field or payload field.
@@ -79,8 +79,53 @@ pub enum MirProjection {
     },
     /// Select the payload of a checked union variant.
     Variant(UnionVariantSymbolId),
+    /// Select a field from the checked active union payload.
+    ActiveUnionPayloadField {
+        /// The variant proven active for this projection.
+        variant: UnionVariantSymbolId,
+        /// The selected payload field.
+        field: UnionPayloadFieldSymbolId,
+    },
     /// Select the present contents of nullable storage.
     NullableValue,
+}
+
+/// One projection step with its checked input and result types.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirProjection {
+    kind: MirProjectionKind,
+    source_type: TypeId,
+    result_type: TypeId,
+}
+
+impl MirProjection {
+    /// Creates a typed projection step.
+    pub const fn new(
+        kind: MirProjectionKind,
+        source_type: TypeId,
+        result_type: TypeId,
+    ) -> Self {
+        Self {
+            kind,
+            source_type,
+            result_type,
+        }
+    }
+
+    /// Returns the projection operation.
+    pub const fn kind(&self) -> &MirProjectionKind {
+        &self.kind
+    }
+
+    /// Returns the checked type before this projection.
+    pub const fn source_type(&self) -> TypeId {
+        self.source_type
+    }
+
+    /// Returns the checked type after this projection.
+    pub const fn result_type(&self) -> TypeId {
+        self.result_type
+    }
 }
 
 /// A typed addressable storage location and its projections.
