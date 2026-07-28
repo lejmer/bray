@@ -18,8 +18,11 @@ pub use contract::{
     ExecutionCapacityLimits, ExecutionLaneRequirement, RootExecution, RuntimeCapability,
 };
 pub use frame::{
-    ProtectedFrameDescriptor, ProtectedFrameDescriptorBuildError, ProtectedFrameLayout,
-    ProtectedFrameLayoutBuildError, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
+    ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
+    ProtectedFrameDescriptorBuildError, ProtectedFrameLayout,
+    ProtectedFrameLayoutBuildError, ProtectedFrameOperation,
+    ProtectedFrameOperations, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
+    ProtectedFrameStorageId,
 };
 pub use identity::{
     BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, RuntimeAbiVersion,

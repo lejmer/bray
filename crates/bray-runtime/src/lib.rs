@@ -10,11 +10,13 @@ mod task;
 mod test_support;
 
 pub use frame::{
-    ErasedProtectedFrame, FrameContext, FrameExit, FrameProgress, FrameSuspension,
-    ProtectedFrame, RuntimePanic, erase_protected_frame, resume_direct,
+    ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExit,
+    FrameProgress, FrameSuspension, ProtectedFrame, RuntimePanic,
+    SendableProtectedFrame, erase_protected_frame, erase_sendable_protected_frame,
+    resume_direct,
 };
 pub use outcome::{RunOutcome, RunOutcomeKind};
 pub use task::{
-    JoinWake, TaskControlBlock, TaskId, TaskObservationError, TaskResumeError,
-    TaskResumeStatus, TaskStartError, TaskState,
+    JoinWake, TaskControlBlock, TaskFailureKind, TaskId, TaskObservationError,
+    TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
 };

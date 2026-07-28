@@ -66,6 +66,8 @@ pub enum FrameExit {
     Cancelled,
     /// The frame terminated through panic propagation.
     Panicked,
+    /// The frame violated its compiler/runtime contract.
+    RuntimeFailure,
 }
 
 /// Opaque owned panic crossing a protected runtime boundary.
@@ -111,12 +113,12 @@ impl fmt::Debug for RuntimePanic {
     }
 }
 
-/// Executable protected-frame behavior emitted by compiler-generated code.
+/// Safe in-process adapter over validated compiler-emitted frame operations.
 ///
-/// Implementations own their retained values and child computations. Resume,
-/// cancellation broadcast, lifecycle resolution, and destruction are separate
-/// operations so erased and recursive representations preserve the same order.
-pub trait ProtectedFrame: Send + 'static {
+/// The binary operation identities and retained-state contract live in
+/// [`ProtectedFrameDescriptor`]. Implementations own their retained values and
+/// child computations while exposing those operations without unsafe code.
+pub trait ProtectedFrame: 'static {
     /// Result moved out after normal completion.
     type Output;
 
@@ -136,14 +138,33 @@ pub trait ProtectedFrame: Send + 'static {
     fn resolve_lifecycle(self: Pin<&mut Self>, exit: FrameExit);
 }
 
+/// A protected frame whose retained state may cross thread boundaries.
+pub trait SendableProtectedFrame: ProtectedFrame + Send {}
+
+impl<F> SendableProtectedFrame for F where F: ProtectedFrame + Send {}
+
 /// Type-erased pinned protected frame with one known completion type.
 pub type ErasedProtectedFrame<T> =
-    Pin<Box<dyn ProtectedFrame<Output = T> + Send + 'static>>;
+    Pin<Box<dyn ProtectedFrame<Output = T> + 'static>>;
+
+/// Type-erased pinned frame whose retained state may cross threads.
+pub type ErasedSendableProtectedFrame<T> =
+    Pin<Box<dyn SendableProtectedFrame<Output = T> + 'static>>;
 
 /// Moves a concrete inactive frame into stable erased storage.
 pub fn erase_protected_frame<F>(frame: F) -> ErasedProtectedFrame<F::Output>
 where
     F: ProtectedFrame,
+{
+    Box::pin(frame)
+}
+
+/// Moves a sendable inactive frame into stable erased storage.
+pub fn erase_sendable_protected_frame<F>(
+    frame: F,
+) -> ErasedSendableProtectedFrame<F::Output>
+where
+    F: SendableProtectedFrame,
 {
     Box::pin(frame)
 }

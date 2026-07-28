@@ -1,5 +1,6 @@
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -7,8 +8,10 @@ use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::frame::suspension_state;
 use crate::{
-    ErasedProtectedFrame, FrameContext, FrameExit, FrameProgress, FrameSuspension,
-    ProtectedFrame, RunOutcome, RunOutcomeKind, RuntimePanic, erase_protected_frame,
+    ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExit,
+    FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
+    RuntimePanic, SendableProtectedFrame, erase_protected_frame,
+    erase_sendable_protected_frame,
 };
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
@@ -40,16 +43,25 @@ pub enum TaskState {
     /// The frame terminated through panic.
     Panicked,
     /// The compiler/runtime frame contract was violated.
-    Failed,
+    Failed(TaskFailureKind),
 }
 
 impl TaskState {
     const fn is_terminal(self) -> bool {
         matches!(
             self,
-            Self::Completed | Self::Cancelled | Self::Panicked | Self::Failed
+            Self::Completed | Self::Cancelled | Self::Panicked | Self::Failed(_)
         )
     }
+}
+
+/// Terminal runtime-contract failure retained by one task.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TaskFailureKind {
+    /// The frame suspended with a state absent from its descriptor.
+    UnknownSuspensionState(ProtectedFrameStateId),
+    /// The task lost its executable frame before reaching a terminal state.
+    MissingFrame,
 }
 
 /// Result of one successful task resume.
@@ -89,7 +101,7 @@ pub enum TaskObservationError {
     /// The terminal outcome was already moved to its observer.
     AlreadyObserved,
     /// The task failed its compiler/runtime frame contract.
-    RuntimeFailed,
+    RuntimeFailed(TaskFailureKind),
     /// Internal task state was poisoned by an unexpected runtime panic.
     SynchronizationPoisoned,
 }
@@ -109,18 +121,24 @@ where
     }
 }
 
-struct TaskData<T> {
-    frame: Option<ErasedProtectedFrame<T>>,
+struct TaskData<T, F>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    frame: Option<Pin<Box<F>>>,
     state: TaskState,
     outcome: Option<RunOutcome<T>>,
     join_waiters: Vec<Arc<dyn JoinWake>>,
 }
 
 /// Stable runtime-owned storage for one independently executing task.
-pub struct TaskControlBlock<T> {
+pub struct TaskControlBlock<
+    T,
+    F: ?Sized + ProtectedFrame<Output = T> = dyn SendableProtectedFrame<Output = T>,
+> {
     id: TaskId,
     descriptor: ProtectedFrameDescriptor,
-    data: Mutex<TaskData<T>>,
+    data: Mutex<TaskData<T, F>>,
     cancellation_requested: AtomicBool,
     resuming: AtomicBool,
 }
@@ -129,19 +147,42 @@ impl<T: 'static> TaskControlBlock<T> {
     /// Moves a concrete inactive frame into stable task-owned storage.
     pub fn start<F>(frame: F) -> Result<Arc<Self>, TaskStartError>
     where
-        F: ProtectedFrame<Output = T>,
+        F: SendableProtectedFrame<Output = T>,
     {
-        Self::start_erased(erase_protected_frame(frame))
+        Self::start_erased(erase_sendable_protected_frame(frame))
     }
 
     /// Moves an erased inactive frame into stable task-owned storage.
     pub fn start_erased(
+        frame: ErasedSendableProtectedFrame<T>,
+    ) -> Result<Arc<Self>, TaskStartError> {
+        Self::start_frame(frame)
+    }
+}
+
+impl<T: 'static> TaskControlBlock<T, dyn ProtectedFrame<Output = T>> {
+    /// Moves a thread-affine inactive frame into local task-owned storage.
+    pub fn start_local<F>(frame: F) -> Result<Arc<Self>, TaskStartError>
+    where
+        F: ProtectedFrame<Output = T>,
+    {
+        Self::start_local_erased(erase_protected_frame(frame))
+    }
+
+    /// Moves an erased thread-affine frame into local task-owned storage.
+    pub fn start_local_erased(
         frame: ErasedProtectedFrame<T>,
     ) -> Result<Arc<Self>, TaskStartError> {
-        let id = next_task_id()?;
+        Self::start_frame(frame)
+    }
+}
 
-        // The descriptor clone shares immutable state metadata while the frame
-        // retains its own executable reference.
+impl<T: 'static, F> TaskControlBlock<T, F>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    fn start_frame(frame: Pin<Box<F>>) -> Result<Arc<Self>, TaskStartError> {
+        let id = next_task_id()?;
         let descriptor = frame.descriptor().clone();
 
         Ok(Arc::new(Self {
@@ -206,9 +247,13 @@ impl<T: 'static> TaskControlBlock<T> {
 
         let progress = {
             let Some(frame) = data.frame.as_mut() else {
-                data.state = TaskState::Failed;
+                let failure = TaskFailureKind::MissingFrame;
 
-                return Err(TaskResumeError::NotResumable(TaskState::Failed));
+                data.state = TaskState::Failed(failure);
+
+                return Err(TaskResumeError::NotResumable(TaskState::Failed(
+                    failure,
+                )));
             };
 
             catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context)))
@@ -220,7 +265,21 @@ impl<T: 'static> TaskControlBlock<T> {
         let (status, waiters) = match progress {
             FrameProgress::Suspended(suspension) => {
                 if suspension_state(&self.descriptor, suspension).is_none() {
-                    data.state = TaskState::Failed;
+                    let failure =
+                        TaskFailureKind::UnknownSuspensionState(suspension.state());
+
+                    if let Some(frame) = data.frame.as_mut() {
+                        fail_frame(frame.as_mut());
+                    }
+
+                    destroy_failed_frame(data.frame.take());
+                    data.state = TaskState::Failed(failure);
+
+                    let waiters = std::mem::take(&mut data.join_waiters);
+
+                    drop(data);
+
+                    wake_all(waiters);
 
                     return Err(TaskResumeError::UnknownSuspensionState(
                         suspension.state(),
@@ -233,12 +292,16 @@ impl<T: 'static> TaskControlBlock<T> {
             }
             terminal => {
                 let Some(frame) = data.frame.as_mut() else {
-                    data.state = TaskState::Failed;
+                    let failure = TaskFailureKind::MissingFrame;
 
-                    return Err(TaskResumeError::NotResumable(TaskState::Failed));
+                    data.state = TaskState::Failed(failure);
+
+                    return Err(TaskResumeError::NotResumable(TaskState::Failed(
+                        failure,
+                    )));
                 };
 
-                let outcome = finish_frame(frame, terminal);
+                let outcome = finish_frame(frame.as_mut(), terminal);
                 let outcome = destroy_frame(data.frame.take(), outcome);
                 let kind = outcome.kind();
 
@@ -296,12 +359,26 @@ impl<T: 'static> TaskControlBlock<T> {
             TaskState::Ready
             | TaskState::Running
             | TaskState::Suspended(_) => Err(TaskObservationError::Pending),
-            TaskState::Failed => Err(TaskObservationError::RuntimeFailed),
+            TaskState::Failed(failure) => {
+                Err(TaskObservationError::RuntimeFailed(failure))
+            }
             TaskState::Completed | TaskState::Cancelled | TaskState::Panicked => data
                 .outcome
                 .take()
                 .ok_or(TaskObservationError::AlreadyObserved),
         }
+    }
+
+    /// Resolves the terminal outcome when no ordinary join observer consumes it.
+    pub fn resolve_unobserved(
+        &self,
+        resolver: impl FnOnce(RunOutcome<T>),
+    ) -> Result<(), TaskObservationError> {
+        let outcome = self.take_outcome()?;
+
+        resolver(outcome);
+
+        Ok(())
     }
 
     /// Returns whether a terminal outcome still belongs to this task storage.
@@ -312,7 +389,9 @@ impl<T: 'static> TaskControlBlock<T> {
             .map_err(|_| TaskObservationError::SynchronizationPoisoned)
     }
 
-    fn lock_data(&self) -> Result<MutexGuard<'_, TaskData<T>>, TaskResumeError> {
+    fn lock_data(
+        &self,
+    ) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {
         self.data
             .lock()
             .map_err(|_| TaskResumeError::SynchronizationPoisoned)
@@ -348,10 +427,13 @@ fn next_task_id() -> Result<TaskId, TaskStartError> {
         .ok_or(TaskStartError::IdentityExhausted)
 }
 
-fn finish_frame<T: 'static>(
-    frame: &mut ErasedProtectedFrame<T>,
+fn finish_frame<T: 'static, F>(
+    mut frame: Pin<&mut F>,
     progress: FrameProgress<T>,
-) -> RunOutcome<T> {
+) -> RunOutcome<T>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
     let (mut outcome, mut exit) = match progress {
         FrameProgress::Suspended(_) => {
             unreachable!("suspended frames are not terminalized")
@@ -381,15 +463,38 @@ fn finish_frame<T: 'static>(
     outcome
 }
 
-fn destroy_frame<T: 'static>(
-    frame: Option<ErasedProtectedFrame<T>>,
+fn destroy_frame<T: 'static, F>(
+    frame: Option<Pin<Box<F>>>,
     mut outcome: RunOutcome<T>,
-) -> RunOutcome<T> {
+) -> RunOutcome<T>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame))) {
         merge_panic(&mut outcome, payload);
     }
 
     outcome
+}
+
+fn fail_frame<T, F>(mut frame: Pin<&mut F>)
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        frame.as_mut().broadcast_tasks();
+    }));
+
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        frame.as_mut().resolve_lifecycle(FrameExit::RuntimeFailure);
+    }));
+}
+
+fn destroy_failed_frame<T, F>(frame: Option<Pin<Box<F>>>)
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let _ = catch_unwind(AssertUnwindSafe(|| drop(frame)));
 }
 
 fn merge_panic<T>(
@@ -420,16 +525,21 @@ fn wake_all(waiters: Vec<Arc<dyn JoinWake>>) {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+    use std::rc::Rc;
     use std::sync::{Arc, Barrier};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
     use super::{
-        TaskControlBlock, TaskObservationError, TaskResumeError, TaskResumeStatus,
-        TaskState,
+        TaskControlBlock, TaskFailureKind, TaskObservationError,
+        TaskResumeError, TaskResumeStatus, TaskState,
     };
     use crate::test_support::TestFrame;
-    use crate::{RunOutcome, erase_protected_frame};
+    use crate::{
+        FrameContext, FrameExit, FrameProgress, ProtectedFrame, RunOutcome,
+        erase_sendable_protected_frame,
+    };
 
     #[test]
     fn starting_moves_the_frame_into_stable_task_owned_storage() {
@@ -477,7 +587,7 @@ mod tests {
 
     #[test]
     fn erased_inactive_frames_use_the_same_task_storage_contract() {
-        let frame = erase_protected_frame(TestFrame::completing(41));
+        let frame = erase_sendable_protected_frame(TestFrame::completing(41));
 
         let task = TaskControlBlock::start_erased(frame)
             .unwrap_or_else(|error| panic!("erased test task must start: {error:?}"));
@@ -490,6 +600,26 @@ mod tests {
         );
 
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(41))));
+    }
+
+    #[test]
+    fn local_task_storage_accepts_thread_affine_frames() {
+        let frame = LocalFrame {
+            inner: TestFrame::completing(43),
+            _thread_affinity: Rc::new(()),
+        };
+
+        let task = TaskControlBlock::start_local(frame)
+            .unwrap_or_else(|error| panic!("local test task must start: {error:?}"));
+
+        assert_eq!(
+            task.resume(),
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed
+            ))
+        );
+
+        assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(43))));
     }
 
     #[test]
@@ -581,6 +711,18 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::invalid_suspension())
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let waiter_count = Arc::clone(&wake_count);
+
+        task.register_join_waiter(Arc::new(move || {
+            waiter_count.fetch_add(1, Ordering::Relaxed);
+        }))
+        .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
+
+        let failure = TaskFailureKind::UnknownSuspensionState(
+            bray_runtime_interface::ProtectedFrameStateId::new(9),
+        );
+
         assert_eq!(
             task.resume(),
             Err(TaskResumeError::UnknownSuspensionState(
@@ -588,12 +730,20 @@ mod tests {
             ))
         );
 
-        assert_eq!(task.state(), Ok(TaskState::Failed));
+        assert_eq!(task.state(), Ok(TaskState::Failed(failure)));
+        assert_eq!(wake_count.load(Ordering::Relaxed), 1);
 
         assert_eq!(
             task.resume(),
-            Err(TaskResumeError::NotResumable(TaskState::Failed))
+            Err(TaskResumeError::NotResumable(TaskState::Failed(
+                failure
+            )))
         );
+
+        assert!(matches!(
+            task.take_outcome(),
+            Err(TaskObservationError::RuntimeFailed(found)) if found == failure
+        ));
     }
 
     #[test]
@@ -605,5 +755,71 @@ mod tests {
             task.take_outcome(),
             Err(TaskObservationError::Pending)
         ));
+    }
+
+    #[test]
+    fn unobserved_outcomes_follow_the_explicit_resolution_path() {
+        let task = TaskControlBlock::start(TestFrame::completing(47))
+            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+
+        task.resume()
+            .unwrap_or_else(|error| panic!("test task must complete: {error:?}"));
+
+        let resolved = std::cell::Cell::new(None);
+
+        task.resolve_unobserved(|outcome| {
+            let RunOutcome::Completed(value) = outcome else {
+                panic!("test outcome must complete");
+            };
+
+            resolved.set(Some(value));
+        })
+            .unwrap_or_else(|error| panic!("test outcome must resolve: {error:?}"));
+
+        assert_eq!(resolved.get(), Some(47));
+
+        assert!(matches!(
+            task.take_outcome(),
+            Err(TaskObservationError::AlreadyObserved)
+        ));
+    }
+
+    struct LocalFrame {
+        inner: TestFrame,
+        _thread_affinity: Rc<()>,
+    }
+
+    impl ProtectedFrame for LocalFrame {
+        type Output = i32;
+
+        fn descriptor(
+            &self,
+        ) -> &bray_runtime_interface::ProtectedFrameDescriptor {
+            self.inner.descriptor()
+        }
+
+        fn resume(
+            self: Pin<&mut Self>,
+            context: FrameContext,
+        ) -> FrameProgress<Self::Output> {
+            let frame = self.get_mut();
+
+            Pin::new(&mut frame.inner).resume(context)
+        }
+
+        fn broadcast_tasks(self: Pin<&mut Self>) {
+            let frame = self.get_mut();
+
+            Pin::new(&mut frame.inner).broadcast_tasks();
+        }
+
+        fn resolve_lifecycle(
+            self: Pin<&mut Self>,
+            exit: FrameExit,
+        ) {
+            let frame = self.get_mut();
+
+            Pin::new(&mut frame.inner).resolve_lifecycle(exit);
+        }
     }
 }

@@ -4,9 +4,10 @@ use std::pin::Pin;
 use std::sync::{Arc, Barrier};
 
 use bray_runtime_interface::{
-    ProtectedAsyncFrameId, ProtectedFrameAbiVersions, ProtectedFrameDescriptor,
-    ProtectedFrameLayout, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
-    RuntimeAbiVersion,
+    BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameLayout,
+    ProtectedFrameOperations, ProtectedFrameStateDescriptor,
+    ProtectedFrameStateId, RuntimeAbiVersion,
 };
 
 use crate::{
@@ -160,7 +161,13 @@ fn descriptor(state_count: u32) -> ProtectedFrameDescriptor {
     let abi = RuntimeAbiVersion::new(1, 0);
 
     let states = (0..state_count).map(|state| {
-        ProtectedFrameStateDescriptor::new(ProtectedFrameStateId::new(state), [])
+        ProtectedFrameStateDescriptor::new(
+            ProtectedFrameStateId::new(state),
+            [],
+            [],
+            [],
+            ProtectedFrameAffinity::Movable,
+        )
     });
 
     ProtectedFrameDescriptor::try_new(
@@ -168,7 +175,26 @@ fn descriptor(state_count: u32) -> ProtectedFrameDescriptor {
         abi,
         ProtectedFrameAbiVersions::uniform(abi),
         layout,
+        layout,
+        operations(),
         states,
     )
     .unwrap_or_else(|error| panic!("test frame descriptor must be valid: {error:?}"))
+}
+
+fn operations() -> ProtectedFrameOperations {
+    ProtectedFrameOperations::new(
+        symbol("__bray_test_move"),
+        symbol("__bray_test_resume"),
+        symbol("__bray_test_cancel"),
+        symbol("__bray_test_broadcast"),
+        symbol("__bray_test_resolve_lifecycle"),
+        symbol("__bray_test_move_completion"),
+        symbol("__bray_test_destroy"),
+    )
+}
+
+fn symbol(name: &'static str) -> BinarySymbolName {
+    BinarySymbolName::try_new(name)
+        .unwrap_or_else(|| panic!("test operation symbol must be nonempty"))
 }
