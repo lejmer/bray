@@ -632,7 +632,7 @@ mod tests {
     use crate::CheckerUnitView;
     use crate::test_support::{
         TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol, error_type,
-        expression_unit, push_expression,
+        empty_callable_phase_behaviors, expression_unit, push_expression,
     };
 
     #[test]
@@ -661,6 +661,7 @@ mod tests {
             let selection = SemanticSelection::Call(SelectedCall::new(
                 resolution,
                 CallableAbi::Bray,
+                empty_callable_phase_behaviors(),
                 None,
                 [],
                 [],

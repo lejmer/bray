@@ -255,8 +255,8 @@ mod tests {
     use crate::CheckerUnitView;
     use crate::dependency::call::instantiation::CallInstantiationContext;
     use crate::test_support::{
-        TestCheckerContext, callable_entry, error_type, expression_unit, push_expression,
-        semantic_values,
+        TestCheckerContext, callable_entry, empty_callable_phase_behaviors, error_type,
+        expression_unit, push_expression, semantic_values,
     };
 
     #[test]
@@ -342,6 +342,7 @@ mod tests {
                 BoundCallResult::Immediate(error_type()),
             ),
             CallableAbi::Bray,
+            empty_callable_phase_behaviors(),
             None,
             [SelectedArgument::Explicit {
                 expression: *argument,

@@ -226,7 +226,10 @@ where
         &mut |argument| selected_arguments.push(argument),
         &mut |witness| witnesses.push(witness),
     )? {
-        CandidateApplicability::Applicable { abi } => {
+        CandidateApplicability::Applicable {
+            abi,
+            phase_behaviors,
+        } => {
             // The durable selection owns Arc-backed candidate data after the probe ends.
             let key = candidate.key().clone();
             let resolution = candidate.resolution().clone();
@@ -236,6 +239,7 @@ where
                 call: SelectedCall::new(
                     resolution,
                     abi,
+                    phase_behaviors,
                     selected_receiver,
                     selected_arguments,
                     witnesses,
@@ -249,7 +253,10 @@ where
 }
 
 enum CandidateApplicability {
-    Applicable { abi: CallableAbi },
+    Applicable {
+        abi: CallableAbi,
+        phase_behaviors: bray_symbols::CallablePhaseBehaviors,
+    },
     Incompatible,
     Recovered,
 }
@@ -345,6 +352,7 @@ where
 
     Ok(CandidateApplicability::Applicable {
         abi: callable_type.abi(),
+        phase_behaviors: callable_type.phase_behaviors().clone(),
     })
 }
 
