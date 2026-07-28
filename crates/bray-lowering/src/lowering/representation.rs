@@ -1,7 +1,7 @@
-use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
+use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    GenericArgument, NamedTypeSymbolId, StructSymbolId, TypeData, TypeId, UnionPayloadFieldSymbolId,
-    UnionVariantSymbolId,
+    GenericArgument, NamedTypeSymbolId, StructSymbolId, TypeData, TypeId,
+    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use super::LoweringError;
@@ -95,42 +95,35 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn result_representation(&self) -> Result<ResultRepresentation, LoweringError> {
+        let representation = self
+            .input
+            .available_compiler_known_symbols()
+            .result_representation()
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
         Ok(ResultRepresentation {
-            success_variant: self.compiler_known_declaration("ResultVariant0Ok")?,
-            success_field: self.compiler_known_declaration("ResultVariant0OkValue")?,
-            error_variant: self.compiler_known_declaration("ResultVariant1Error")?,
-            error_field: self.compiler_known_declaration("ResultVariant1ErrorError")?,
+            success_variant: representation.success_variant(),
+            success_field: representation.success_field(),
+            error_variant: representation.error_variant(),
+            error_field: representation.error_field(),
         })
     }
 
     pub(super) fn run_result_representation(
         &self,
     ) -> Result<RunResultRepresentation, LoweringError> {
-        Ok(RunResultRepresentation {
-            completed_variant: self.compiler_known_declaration("RunResultVariant0Completed")?,
-            completed_field: self
-                .compiler_known_declaration("RunResultVariant0CompletedValue")?,
-            panicked_variant: self.compiler_known_declaration("RunResultVariant1Panicked")?,
-            panicked_field: self
-                .compiler_known_declaration("RunResultVariant1PanickedReport")?,
-            cancelled_variant: self.compiler_known_declaration("RunResultVariant2Cancelled")?,
-        })
-    }
-
-    fn compiler_known_declaration<I>(
-        &self,
-        key: &'static str,
-    ) -> Result<I, LoweringError>
-    where
-        I: bray_symbols::ExactSymbolId,
-    {
-        let Some(key) = CompilerKnownDeclarationKey::try_new(key) else {
-            unreachable!("lowering uses validated compiler-known declaration keys");
-        };
-
-        self.input
+        let representation = self
+            .input
             .available_compiler_known_symbols()
-            .declaration_symbol(&key)
-            .ok_or(LoweringError::SemanticValueUnavailable)
+            .run_result_representation()
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
+        Ok(RunResultRepresentation {
+            completed_variant: representation.completed_variant(),
+            completed_field: representation.completed_field(),
+            panicked_variant: representation.panicked_variant(),
+            panicked_field: representation.panicked_field(),
+            cancelled_variant: representation.cancelled_variant(),
+        })
     }
 }

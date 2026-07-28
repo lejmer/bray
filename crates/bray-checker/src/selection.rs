@@ -10,6 +10,7 @@ mod iteration;
 mod model;
 mod operation;
 mod order;
+mod propagation;
 
 pub(crate) use call::{map_argument_parameter_indices, viable_candidate_indices};
 pub(crate) use check::{
@@ -30,3 +31,4 @@ pub use model::{
 pub use operation::{
     built_in_conversion_plan, compiler_known_operation_role, composite_conversion_children,
 };
+pub(crate) use propagation::select_propagations;

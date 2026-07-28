@@ -384,6 +384,15 @@ mod tests {
         "}\n",
     );
 
+    const DIVERGING_ASSERTION_MESSAGE_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    assert(false, panic(\"message\"));\n",
+        "}\n",
+    );
+
     const RESULT_PROPAGATION_LOWERING_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
@@ -392,6 +401,29 @@ mod tests {
         "    let unwrapped: i32 = try value;\n",
         "\n",
         "    return value;\n",
+        "}\n",
+    );
+
+    const CONVERTED_RESULT_PROPAGATION_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main(\n",
+        "    pos value: Result<i32, i32>,\n",
+        "    pos fallback: Result<i32, i64>,\n",
+        ") -> Result<i32, i64>\n",
+        "{\n",
+        "    let unwrapped: i32 = try value;\n",
+        "\n",
+        "    return fallback;\n",
+        "}\n",
+    );
+
+    const INCOMPATIBLE_RESULT_PROPAGATION_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main(pos value: Result<i32, i32>) -> i32\n",
+        "{\n",
+        "    return try value;\n",
         "}\n",
     );
 
@@ -707,8 +739,7 @@ mod tests {
                 exact_count: None,
             },
             bray_ir::MirGeneratorOperation::Push {
-                destination: push,
-                ..
+                destination: push, ..
             },
             bray_ir::MirGeneratorOperation::Push {
                 destination: second_push,
@@ -751,9 +782,24 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::BeginCleanup(_)
-                | bray_ir::MirTerminatorKind::Panic { .. }
+            bray_ir::MirTerminatorKind::BeginCleanup(_) | bray_ir::MirTerminatorKind::Panic { .. }
         )));
+    }
+
+    #[test]
+    fn diverging_assertion_messages_leave_the_success_path_available() {
+        let compilation = compilation(DIVERGING_ASSERTION_MESSAGE_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("assertion MIR must be available: {error:?}"));
+
+        assert!(
+            result.value().is_some(),
+            "a diverging failure message must not terminate the assertion success path: {:?}",
+            result.diagnostics()
+        );
     }
 
     #[test]
@@ -783,11 +829,50 @@ mod tests {
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
             bray_ir::MirOperationKind::PatternProjection {
-                projection:
-                    bray_bound_tree::PatternProjection::ActiveUnionPayloadField { .. },
+                projection: bray_bound_tree::PatternProjection::ActiveUnionPayloadField { .. },
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn result_propagation_applies_the_checked_error_conversion() {
+        let compilation = compilation(CONVERTED_RESULT_PROPAGATION_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("result propagation MIR must be available: {error:?}"));
+
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "compatible propagated errors must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Convert { .. }
+        )));
+    }
+
+    #[test]
+    fn result_propagation_requires_a_compatible_lexical_boundary() {
+        let compilation = compilation(INCOMPATIBLE_RESULT_PROPAGATION_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("semantic selections must be available: {error:?}"));
+
+        assert!(
+            selections
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary)
+                .next()
+                .is_some()
+        );
     }
 
     #[test]

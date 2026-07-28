@@ -258,6 +258,32 @@ where
     }
 }
 
+pub(crate) fn expression_block_owners<C>(
+    request: CheckerUnitView<'_, C>,
+    expressions: impl IntoIterator<Item = BoundExpressionId>,
+) -> Result<BTreeMap<BoundBlockId, BoundExpressionId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut owners = BTreeMap::new();
+
+    for expression in expressions {
+        if request.is_cancelled() {
+            return Ok(owners);
+        }
+
+        let Some(bound) = request.view().expression(expression) else {
+            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+        };
+
+        for block in bound.child_blocks() {
+            owners.insert(block, expression);
+        }
+    }
+
+    Ok(owners)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CheckerUnitRoot, CheckerUnitView};

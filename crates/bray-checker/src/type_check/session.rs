@@ -101,7 +101,8 @@ where
 
         initialize_block_variables(request, &nodes.blocks, &mut block_variables, &mut inference)?;
 
-        let block_owners = collect_block_owners(request, &nodes.expressions)?;
+        let block_owners =
+            crate::unit::expression_block_owners(request, nodes.expressions.iter().copied())?;
 
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
@@ -545,32 +546,6 @@ where
     }
 
     Ok(())
-}
-
-fn collect_block_owners<C>(
-    request: CheckerUnitView<'_, C>,
-    expressions: &[BoundExpressionId],
-) -> Result<BTreeMap<BoundBlockId, BoundExpressionId>, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut owners = BTreeMap::new();
-
-    for &expression in expressions {
-        if request.is_cancelled() {
-            return Ok(owners);
-        }
-
-        let Some(bound) = request.view().expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
-        };
-
-        for block in bound.child_blocks() {
-            owners.insert(block, expression);
-        }
-    }
-
-    Ok(owners)
 }
 
 fn validate_input<C>(

@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundExpressionId, BoundStructuredExpression, PatternOperation, PatternPredicate,
-    PatternProjection,
+    PatternProjection, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
@@ -63,7 +63,18 @@ impl Lowerer<'_> {
         };
 
         let value_type = *value_type;
-        let target = self.propagation_target(|ty| self.is_nullable_type(ty))?;
+
+        let (boundary, result_type) = match self.selected_propagation(id)? {
+            SelectedPropagation::Nullable {
+                boundary,
+                result_type,
+            } => (*boundary, *result_type),
+            SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun => {
+                return Err(LoweringError::MissingSemanticSelection(id));
+            }
+        };
+
+        let target = self.propagation_target(boundary, result_type)?;
         let operand = self.lower_expression(*operand_id, current)?;
 
         let Some(current) = operand.block else {
@@ -109,11 +120,7 @@ impl Lowerer<'_> {
 
         self.finish_propagation(absent, &source, target, propagated)?;
 
-        Ok(LoweredExpression::continuing(
-            present,
-            Some(value),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(present, Some(value), source))
     }
 
     pub(super) fn lower_result_propagation(
@@ -163,8 +170,21 @@ impl Lowerer<'_> {
 
         let representation = self.result_representation()?;
 
-        let target =
-            self.propagation_target(|ty| self.type_has_role(ty, RepresentationRole::Result))?;
+        let (boundary, result_type, error_conversion) = match self.selected_propagation(id)? {
+            SelectedPropagation::Result {
+                boundary,
+                result_type,
+                error_conversion,
+            } => {
+                // MIR owns the selected conversion independently of the checked selection table.
+                (*boundary, *result_type, error_conversion.clone())
+            }
+            SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun => {
+                return Err(LoweringError::MissingSemanticSelection(id));
+            }
+        };
+
+        let target = self.propagation_target(boundary, result_type)?;
 
         let operand = self.lower_expression(operand_id, current)?;
 
@@ -221,22 +241,20 @@ impl Lowerer<'_> {
             *error_type,
         )?;
 
-        let propagated = self.construct_result(
+        let error_value = self.convert_operand(
             id,
             error,
-            &source,
-            target.result_type,
-            false,
+            Self::retained_source(&source),
             error_value,
+            &error_conversion,
         )?;
+
+        let propagated =
+            self.construct_result(id, error, &source, target.result_type, false, error_value)?;
 
         self.finish_propagation(error, &source, target, propagated)?;
 
-        Ok(LoweredExpression::continuing(
-            success,
-            Some(value),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(success, Some(value), source))
     }
 
     fn lower_run_result_propagation(
@@ -247,6 +265,10 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        if self.selected_propagation(id)? != &SelectedPropagation::CurrentRun {
+            return Err(LoweringError::MissingSemanticSelection(id));
+        }
+
         let arguments = self.named_type_arguments(operand_type)?;
 
         let [value_type] = arguments.as_slice() else {
@@ -288,9 +310,7 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
-                predicate: PatternPredicate::ActiveUnionVariant(
-                    representation.completed_variant,
-                ),
+                predicate: PatternPredicate::ActiveUnionVariant(representation.completed_variant),
                 matched: MirEdge::new(completed, []),
                 unmatched: MirEdge::new(incomplete, []),
             },
@@ -301,9 +321,7 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
-                predicate: PatternPredicate::ActiveUnionVariant(
-                    representation.cancelled_variant,
-                ),
+                predicate: PatternPredicate::ActiveUnionVariant(representation.cancelled_variant),
                 matched: MirEdge::new(cancelled, []),
                 unmatched: MirEdge::new(panicked, []),
             },
@@ -345,41 +363,45 @@ impl Lowerer<'_> {
 
     fn propagation_target(
         &self,
-        accepts: impl Fn(TypeId) -> Result<bool, LoweringError>,
+        boundary: SelectedPropagationBoundary,
+        result_type: TypeId,
     ) -> Result<PropagationTarget, LoweringError> {
-        for target in self.yield_targets.iter().rev() {
-            let YieldTarget::Result {
-                block,
-                result_type,
-                scope_depth,
-                ..
-            } = target
-            else {
-                continue;
-            };
+        match boundary {
+            SelectedPropagationBoundary::YieldRegion(syntax) => {
+                for target in self.yield_targets.iter().rev() {
+                    let YieldTarget::Result {
+                        syntax: target_syntax,
+                        block,
+                        result_type: target_type,
+                        scope_depth,
+                    } = target
+                    else {
+                        continue;
+                    };
 
-            if accepts(*result_type)? {
-                return Ok(PropagationTarget {
-                    destination: PropagationDestination::Block(*block),
-                    result_type: *result_type,
-                    scope_depth: *scope_depth,
-                });
+                    if *target_syntax == syntax && *target_type == result_type {
+                        return Ok(PropagationTarget {
+                            destination: PropagationDestination::Block(*block),
+                            result_type,
+                            scope_depth: *scope_depth,
+                        });
+                    }
+                }
+
+                Err(LoweringError::SemanticValueUnavailable)
+            }
+            SelectedPropagationBoundary::Callable => {
+                if self.input.expression_types().callable_result_type() != Some(result_type) {
+                    return Err(LoweringError::SemanticValueUnavailable);
+                }
+
+                Ok(PropagationTarget {
+                    destination: PropagationDestination::Return,
+                    result_type,
+                    scope_depth: 0,
+                })
             }
         }
-
-        let Some(result_type) = self.input.expression_types().callable_result_type() else {
-            return Err(LoweringError::SemanticValueUnavailable);
-        };
-
-        if !accepts(result_type)? {
-            return Err(LoweringError::SemanticValueUnavailable);
-        }
-
-        Ok(PropagationTarget {
-            destination: PropagationDestination::Return,
-            result_type,
-            scope_depth: 0,
-        })
     }
 
     fn finish_propagation(
@@ -429,20 +451,17 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingOperationResult(id))
     }
 
-    fn is_nullable_type(&self, ty: TypeId) -> Result<bool, LoweringError> {
-        self.input
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
-            .map_err(|_| LoweringError::SemanticValueUnavailable)
-    }
-
-    fn type_has_role(
+    fn selected_propagation(
         &self,
-        ty: TypeId,
-        role: RepresentationRole,
-    ) -> Result<bool, LoweringError> {
-        self.type_representation(ty)
-            .map(|representation| representation == Some(role))
+        expression: BoundExpressionId,
+    ) -> Result<&SelectedPropagation, LoweringError> {
+        self.input
+            .semantic_selections()
+            .expression(expression)
+            .and_then(|selection| match selection {
+                SemanticSelection::Propagation(selection) => Some(selection),
+                _ => None,
+            })
+            .ok_or(LoweringError::MissingSemanticSelection(expression))
     }
 }

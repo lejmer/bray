@@ -165,6 +165,8 @@ define_diagnostic_kinds! {
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
     CheckingCannotInferExpressionType,
+    /// No enclosing boundary accepts the propagated value.
+    CheckingNoCompatiblePropagationBoundary,
     /// An expression is not permitted in compile-time constant context.
     CheckingInvalidConstantExpression,
     /// A fixed array length is not greater than zero.
@@ -418,6 +420,7 @@ impl DiagnosticKind {
             Self::BindingMalformedDirectiveArgument => 6015,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
+            Self::CheckingNoCompatiblePropagationBoundary => 7082,
             Self::CheckingInvalidConstantExpression => 7003,
             Self::CheckingArrayLengthNotPositive => 7013,
             Self::CheckingConstantLiteralNotRepresentable => 7004,
@@ -591,6 +594,9 @@ impl DiagnosticKind {
             Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
+            Self::CheckingNoCompatiblePropagationBoundary => {
+                "checking_no_compatible_propagation_boundary"
+            }
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
             Self::CheckingArrayLengthNotPositive => "checking_array_length_not_positive",
             Self::CheckingConstantLiteralNotRepresentable => {

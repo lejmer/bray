@@ -153,8 +153,9 @@ mod tests {
         CheckedLiteralValueEntry, CheckedLiteralValues, CheckedPatternFacts,
         CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
         ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        LivenessFacts, OperatorTarget, SelectedOperation, SemanticSelection,
-        SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
+        LivenessFacts, OperatorTarget, SelectedOperation, SelectedPropagation,
+        SelectedPropagationBoundary, SemanticSelection, SemanticSelectionEntry, StorageFlowFacts,
+        StoragePlanBuilder,
     };
     use bray_ir::{MirBinaryOperator, MirOperationKind, MirTerminatorKind, MirUnitKind};
     use bray_symbols::testing::available_compiler_known_symbols;
@@ -526,8 +527,16 @@ mod tests {
         let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), entries)
             .with_callable_result_type(nullable_type);
 
-        let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
-            .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));
+        let selection = SemanticSelectionEntry::new(
+            propagation,
+            SemanticSelection::Propagation(SelectedPropagation::Nullable {
+                boundary: SelectedPropagationBoundary::Callable,
+                result_type: nullable_type,
+            }),
+        );
+
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [selection])
+            .unwrap_or_else(|error| panic!("propagation selection must validate: {error:?}"));
 
         let literals = CheckedLiteralValues::try_new(
             &unit,

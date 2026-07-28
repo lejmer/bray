@@ -15,7 +15,9 @@ pub use error::CompilerKnownSymbolBuildError;
 pub use fact::{CompilerKnownDeclarationFact, CompilerKnownSymbolFactKey};
 pub use provider::{CompilerKnownScopeSymbolId, CompilerKnownSymbolProvider};
 pub use role::{
-    CompilerKnownIterationProtocol, CompilerKnownOperationContract, CompilerKnownSymbolRoleRegistry,
+    CompilerKnownIterationProtocol, CompilerKnownOperationContract,
+    CompilerKnownResultRepresentation, CompilerKnownRunResultRepresentation,
+    CompilerKnownSymbolRoleRegistry,
 };
 
 #[cfg(test)]

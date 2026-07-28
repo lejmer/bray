@@ -89,7 +89,7 @@ where
                     )
                 }));
             }
-            SemanticSelection::Reference(_) => {}
+            SemanticSelection::Reference(_) | SemanticSelection::Propagation(_) => {}
         }
     }
 

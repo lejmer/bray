@@ -52,36 +52,40 @@ impl Lowerer<'_> {
             },
         )?;
 
-        let message = match expression.operands().get(1).copied() {
+        let failure_cause = match expression.operands().get(1).copied() {
             Some(message) => {
                 let lowered = self.lower_expression(message, failure)?;
 
                 let Some(failure) = lowered.block else {
-                    return Ok(lowered);
+                    return Ok(LoweredExpression::continuing(
+                        success,
+                        Some(self.unit_operand(self.expression_type(id)?)),
+                        source,
+                    ));
                 };
 
                 let Some(message) = lowered.value else {
                     return Err(LoweringError::MissingOperationResult(message));
                 };
 
-                Some((failure, message))
+                Some((failure, Some(message)))
             }
-            None => None,
+            None => Some((failure, None)),
         };
 
-        let failure = message.as_ref().map_or(failure, |(block, _)| *block);
-        let message = message.map(|(_, message)| message);
-        let report_type = self.panic_report_type()?;
+        if let Some((failure, message)) = failure_cause {
+            let report_type = self.panic_report_type()?;
 
-        let report = self.push_panic_report(
-            id,
-            failure,
-            &source,
-            MirPanicCause::Assertion(message),
-            report_type,
-        )?;
+            let report = self.push_panic_report(
+                id,
+                failure,
+                &source,
+                MirPanicCause::Assertion(message),
+                report_type,
+            )?;
 
-        self.finish_panic_to_active_catch(failure, &source, report, report_type)?;
+            self.finish_panic_to_active_catch(failure, &source, report, report_type)?;
+        }
 
         let result_type = self.expression_type(id)?;
 
@@ -167,11 +171,9 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let result = self.builder.push_block_parameter(
-            join,
-            Self::retained_source(&source),
-            result_type,
-        )?;
+        let result =
+            self.builder
+                .push_block_parameter(join, Self::retained_source(&source), result_type)?;
 
         self.catch_targets.push(CatchTarget {
             block: handler,
@@ -179,13 +181,7 @@ impl Lowerer<'_> {
             scope_depth: self.active_scopes.len(),
         });
 
-        let completion = self.lower_catch_operand(
-            id,
-            expression,
-            current,
-            success,
-            *success_type,
-        );
+        let completion = self.lower_catch_operand(id, expression, current, success, *success_type);
 
         self.catch_targets.pop();
 
@@ -288,8 +284,8 @@ impl Lowerer<'_> {
             .last()
             .map(|target| (target.block, target.report_type, target.scope_depth));
 
-        let (catch, expected_report_type, scope_depth) =
-            target.map_or((None, report_type, 0), |(block, ty, depth)| {
+        let (catch, expected_report_type, scope_depth) = target
+            .map_or((None, report_type, 0), |(block, ty, depth)| {
                 (Some(block), ty, depth)
             });
 
@@ -297,14 +293,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::SemanticValueUnavailable);
         }
 
-        self.finish_panic(
-            current,
-            source,
-            report,
-            report_type,
-            catch,
-            scope_depth,
-        )
+        self.finish_panic(current, source, report, report_type, catch, scope_depth)
     }
 
     pub(super) fn construct_result(
@@ -319,10 +308,7 @@ impl Lowerer<'_> {
         let representation = self.result_representation()?;
 
         let (variant, field) = if success {
-            (
-                representation.success_variant,
-                representation.success_field,
-            )
+            (representation.success_variant, representation.success_field)
         } else {
             (representation.error_variant, representation.error_field)
         };

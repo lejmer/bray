@@ -3,7 +3,7 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundReferenceTarget, CheckedSemanticSelections, ConstructionTarget,
     ConversionTarget, IndexTarget, OperatorTarget, SelectedConversion, SelectedIterationSource,
-    SelectedOperation, SemanticSelection,
+    SelectedOperation, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
 };
 use bray_symbols::{
     AnyLocalSymbolId, CallableInstanceData, ImplementationInstanceId, ImplementationRequirementKey,
@@ -11,9 +11,7 @@ use bray_symbols::{
 };
 use serde::Serialize;
 
-use crate::inspection::{
-    InspectionSymbolIdentity, InspectionType, TypeInspectionError,
-};
+use crate::inspection::{InspectionSymbolIdentity, InspectionType, TypeInspectionError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SelectionInspectionError {
@@ -94,6 +92,11 @@ enum InspectionSelectionTarget {
         #[serde(flatten)]
         iteration: Box<InspectionIteration>,
     },
+    Propagation {
+        boundary: &'static str,
+        result_type: Option<InspectionType>,
+        error_conversion: Option<Box<InspectionConversion>>,
+    },
 }
 
 impl InspectionSelectionTarget {
@@ -133,6 +136,14 @@ impl InspectionSelectionTarget {
                 iteration.mode,
                 iteration.iterate.fulfillment.text(),
                 iteration.next.fulfillment.text()
+            ),
+            Self::Propagation {
+                boundary,
+                result_type,
+                ..
+            } => result_type.as_ref().map_or_else(
+                || format!("propagate within {boundary}"),
+                |result_type| format!("propagate to {boundary} as {}", result_type.text()),
             ),
         }
     }
@@ -243,6 +254,7 @@ pub(super) const fn selection_kind(selection: &SemanticSelection) -> &'static st
         SemanticSelection::Call(_) => "call",
         SemanticSelection::Operation(operation) => operation.kind().as_str(),
         SemanticSelection::Iteration(_) => "iteration",
+        SemanticSelection::Propagation(_) => "propagation",
     }
 }
 
@@ -265,7 +277,39 @@ fn selection_target(
         SemanticSelection::Iteration(iteration) => {
             iteration_target(iteration, symbols, semantic_values).map(Some)
         }
+        SemanticSelection::Propagation(propagation) => {
+            propagation_target(propagation, symbols, semantic_values).map(Some)
+        }
     }
+}
+
+fn propagation_target(
+    propagation: &SelectedPropagation,
+    symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
+) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+    let boundary = match propagation.boundary() {
+        Some(SelectedPropagationBoundary::Callable) => "callable",
+        Some(SelectedPropagationBoundary::YieldRegion(_)) => "yield_region",
+        None => "current_run",
+    };
+
+    let result_type = propagation
+        .result_type()
+        .map(|ty| InspectionType::from_type(semantic_values, symbols, ty))
+        .transpose()?;
+
+    let error_conversion = propagation
+        .error_conversion()
+        .map(|conversion| inspection_conversion(conversion, symbols, semantic_values))
+        .transpose()?
+        .map(Box::new);
+
+    Ok(InspectionSelectionTarget::Propagation {
+        boundary,
+        result_type,
+        error_conversion,
+    })
 }
 
 fn reference_target(

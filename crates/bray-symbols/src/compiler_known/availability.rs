@@ -9,7 +9,9 @@ use bray_compiler_known::{
 
 use super::role::RepresentationTarget;
 use super::{
-    CompilerKnownIterationProtocol, CompilerKnownOperationContract, CompilerKnownSymbolProvider,
+    CompilerKnownIterationProtocol, CompilerKnownOperationContract,
+    CompilerKnownResultRepresentation, CompilerKnownRunResultRepresentation,
+    CompilerKnownSymbolProvider,
 };
 use crate::availability::resolve_owned_availability;
 use crate::{AnySymbolId, ExactSymbolId};
@@ -209,6 +211,27 @@ impl AvailableCompilerKnownSymbols {
             .then_some(protocol)
     }
 
+    /// Returns the available declarations defining the `Result` representation.
+    pub fn result_representation(&self) -> Option<CompilerKnownResultRepresentation> {
+        Some(CompilerKnownResultRepresentation::new(
+            self.declaration_by_key("ResultVariant0Ok")?,
+            self.declaration_by_key("ResultVariant0OkValue")?,
+            self.declaration_by_key("ResultVariant1Error")?,
+            self.declaration_by_key("ResultVariant1ErrorError")?,
+        ))
+    }
+
+    /// Returns the available declarations defining the `RunResult` representation.
+    pub fn run_result_representation(&self) -> Option<CompilerKnownRunResultRepresentation> {
+        Some(CompilerKnownRunResultRepresentation::new(
+            self.declaration_by_key("RunResultVariant0Completed")?,
+            self.declaration_by_key("RunResultVariant0CompletedValue")?,
+            self.declaration_by_key("RunResultVariant1Panicked")?,
+            self.declaration_by_key("RunResultVariant1PanickedReport")?,
+            self.declaration_by_key("RunResultVariant2Cancelled")?,
+        ))
+    }
+
     pub(super) fn representation_target(
         &self,
         role: RepresentationRole,
@@ -234,6 +257,12 @@ impl AvailableCompilerKnownSymbols {
             .iter()
             .copied()
             .filter(|symbol| self.contains(*symbol))
+    }
+
+    fn declaration_by_key<I: ExactSymbolId>(&self, value: &'static str) -> Option<I> {
+        let key = CompilerKnownDeclarationKey::try_new(value)?;
+
+        self.declaration_symbol(&key)
     }
 }
 
