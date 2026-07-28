@@ -1,9 +1,11 @@
 use std::cell::RefCell;
 
-use crate::{CancellationContext, ExecutionLane, TaskId};
+use crate::{CancellationContext, ExecutionLane, TaskId, TaskWakeHandle};
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
+        const { RefCell::new(None) };
+    static CURRENT_RUN_CANCELLATION: RefCell<Option<CancellationContext>> =
         const { RefCell::new(None) };
 }
 
@@ -13,15 +15,22 @@ pub struct TaskExecutionContext {
     task: TaskId,
     cancellation: CancellationContext,
     lane: ExecutionLane,
+    wake: TaskWakeHandle,
 }
 
 impl TaskExecutionContext {
     /// Creates the context for one task resume.
-    pub const fn new(task: TaskId, cancellation: CancellationContext, lane: ExecutionLane) -> Self {
+    pub(crate) const fn new(
+        task: TaskId,
+        cancellation: CancellationContext,
+        lane: ExecutionLane,
+        wake: TaskWakeHandle,
+    ) -> Self {
         Self {
             task,
             cancellation,
             lane,
+            wake,
         }
     }
 
@@ -39,6 +48,11 @@ impl TaskExecutionContext {
     pub const fn lane(&self) -> ExecutionLane {
         self.lane
     }
+
+    /// Returns authority to wake the current suspended continuation.
+    pub const fn wake_handle(&self) -> &TaskWakeHandle {
+        &self.wake
+    }
 }
 
 /// Returns the current task-local execution context.
@@ -46,24 +60,74 @@ pub fn current_task_execution_context() -> Option<TaskExecutionContext> {
     CURRENT_CONTEXT.with(|context| context.borrow().clone())
 }
 
+/// Returns whether cancellation is observable in the current run.
+pub fn current_run_cancellation_requested() -> bool {
+    CURRENT_RUN_CANCELLATION.with(|context| {
+        context
+            .borrow()
+            .as_ref()
+            .is_some_and(CancellationContext::is_requested)
+    })
+}
+
 /// Installs one task-local context for the duration of a resume operation.
-pub fn with_task_execution_context<T>(
+pub(crate) fn with_task_execution_context<T>(
     context: TaskExecutionContext,
     callback: impl FnOnce() -> T,
 ) -> T {
+    let cancellation = context.cancellation.clone();
     let previous = CURRENT_CONTEXT.with(|current| current.replace(Some(context)));
-    let _guard = ContextGuard(previous);
+
+    let previous_cancellation =
+        CURRENT_RUN_CANCELLATION.with(|current| current.replace(Some(cancellation)));
+
+    let _guard = ContextGuard {
+        task: previous,
+        cancellation: previous_cancellation,
+    };
 
     callback()
 }
 
-struct ContextGuard(Option<TaskExecutionContext>);
+pub(crate) fn with_run_cancellation_context<T>(
+    cancellation: CancellationContext,
+    callback: impl FnOnce() -> T,
+) -> T {
+    let previous =
+        CURRENT_RUN_CANCELLATION.with(|current| current.replace(Some(cancellation)));
+
+    let _guard = RunCancellationGuard(previous);
+
+    callback()
+}
+
+struct ContextGuard {
+    task: Option<TaskExecutionContext>,
+    cancellation: Option<CancellationContext>,
+}
 
 impl Drop for ContextGuard {
     fn drop(&mut self) {
-        let previous = self.0.take();
+        let previous_task = self.task.take();
+        let previous_cancellation = self.cancellation.take();
 
         CURRENT_CONTEXT.with(|context| {
+            context.replace(previous_task);
+        });
+
+        CURRENT_RUN_CANCELLATION.with(|context| {
+            context.replace(previous_cancellation);
+        });
+    }
+}
+
+struct RunCancellationGuard(Option<CancellationContext>);
+
+impl Drop for RunCancellationGuard {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+
+        CURRENT_RUN_CANCELLATION.with(|context| {
             context.replace(previous);
         });
     }
@@ -71,15 +135,19 @@ impl Drop for ContextGuard {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use bray_platform::RuntimeThreadScope;
+    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
-        TaskExecutionContext, current_task_execution_context, with_task_execution_context,
+        TaskExecutionContext, current_run_cancellation_requested,
+        current_task_execution_context, with_task_execution_context,
     };
     use crate::test_support::TestFrame;
     use crate::{
         CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-        TaskControlBlock,
+        Scheduler, SchedulerLimits, TaskControlBlock,
     };
 
     #[test]
@@ -95,11 +163,35 @@ mod tests {
             ExecutionWorkload::Cooperative,
         );
 
-        let context = TaskExecutionContext::new(task.id(), CancellationContext::root(), lane);
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ],
+            runtime.runtime().id(),
+            SchedulerLimits::new(nonzero(1), nonzero(1)),
+        );
+
+        let cancellation = CancellationContext::root();
+
+        let registration = scheduler
+            .register_task(
+                task.id(),
+                task.descriptor().clone(),
+                runtime.runtime().id(),
+                ProtectedFrameStateId::new(0),
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+
+        let context =
+            TaskExecutionContext::new(task.id(), cancellation, lane, registration.wake_handle());
 
         assert!(current_task_execution_context().is_none());
 
         with_task_execution_context(context, || {
+            assert!(!current_run_cancellation_requested());
+
             assert_eq!(
                 current_task_execution_context()
                     .as_ref()
@@ -109,5 +201,10 @@ mod tests {
         });
 
         assert!(current_task_execution_context().is_none());
+    }
+
+    fn nonzero(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value)
+            .unwrap_or_else(|| panic!("test scheduler capacity must be nonzero"))
     }
 }

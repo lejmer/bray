@@ -10,7 +10,7 @@ use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId, Ru
 use crate::cancellation::{CancellationWakeRegistration, CancellationWakeRegistrationError};
 use crate::lane::select_execution_lane;
 use crate::{
-    CancellationContext, ExecutionLane, ExecutionLaneSelectionError, TaskId,
+    CancellationContext, ExecutionLane, ExecutionLaneSelectionError, FrameSuspension, TaskId,
 };
 
 /// Hard scheduler capacities selected by the product host.
@@ -112,6 +112,7 @@ struct SchedulerState {
 struct RegisteredTask {
     descriptor: ProtectedFrameDescriptor,
     origin: RuntimeThreadId,
+    cancellation: CancellationContext,
     dispatch: DispatchState,
 }
 
@@ -203,6 +204,8 @@ impl Scheduler {
                 RegisteredTask {
                     descriptor,
                     origin,
+                    // Dispatch release must observe cancellation after registration returns.
+                    cancellation: cancellation.clone(),
                     dispatch: DispatchState::Idle(initial_state),
                 },
             );
@@ -245,17 +248,7 @@ impl Scheduler {
             return Err(SchedulerError::UnknownTask(wake.task));
         };
 
-        let Some(frame_state) = task.descriptor.state(state_id) else {
-            return Err(SchedulerError::UnknownFrameState(state_id));
-        };
-
-        select_execution_lane(
-            frame_state.lane_requirements(),
-            frame_state.affinity(),
-            &self.data.capabilities,
-            task.origin,
-            self.data.main_thread,
-        )?;
+        select_task_lane(&self.data, task, state_id)?;
 
         if state.timer_count >= self.data.limits.timers.get() {
             return Err(SchedulerError::TimerCapacityReached);
@@ -390,6 +383,27 @@ impl TaskRegistration {
             scheduler: self.scheduler.clone(),
         }
     }
+
+    /// Returns the compatible execution lane for one registered frame state.
+    pub fn lane(
+        &self,
+        state_id: ProtectedFrameStateId,
+    ) -> Result<ExecutionLane, SchedulerError> {
+        let Some(scheduler) = self.scheduler.upgrade() else {
+            return Err(SchedulerError::UnknownTask(self.task));
+        };
+
+        let state = scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+        let Some(task) = state.tasks.get(&self.task) else {
+            return Err(SchedulerError::UnknownTask(self.task));
+        };
+
+        select_task_lane(&scheduler, task, state_id)
+    }
 }
 
 impl Drop for TaskRegistration {
@@ -489,6 +503,7 @@ pub struct ReadyTask {
     state: ProtectedFrameStateId,
     lane: ExecutionLane,
     scheduler: Weak<SchedulerData>,
+    released: bool,
 }
 
 impl ReadyTask {
@@ -506,10 +521,45 @@ impl ReadyTask {
     pub const fn lane(&self) -> ExecutionLane {
         self.lane
     }
+
+    /// Releases this dispatch at the frame's newly suspended state.
+    pub fn suspend(mut self, suspension: FrameSuspension) -> Result<(), SchedulerError> {
+        let Some(scheduler) = self.scheduler.upgrade() else {
+            return Err(SchedulerError::UnknownTask(self.task));
+        };
+
+        let mut state = scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+        let changed = release_dispatch(
+            &scheduler,
+            &mut state,
+            self.task,
+            self.state,
+            suspension.state(),
+            true,
+        )?;
+
+        self.released = true;
+
+        drop(state);
+
+        if changed {
+            scheduler.event.wake_handle().wake()?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for ReadyTask {
     fn drop(&mut self) {
+        if self.released {
+            return;
+        }
+
         let Some(scheduler) = self.scheduler.upgrade() else {
             return;
         };
@@ -518,45 +568,92 @@ impl Drop for ReadyTask {
             return;
         };
 
-        let Some(task) = state.tasks.get_mut(&self.task) else {
+        let Ok(changed) = release_dispatch(
+            &scheduler,
+            &mut state,
+            self.task,
+            self.state,
+            self.state,
+            false,
+        ) else {
             return;
         };
 
-        let DispatchState::Running {
-            state: running_state,
-            pending,
-        } = task.dispatch
-        else {
-            return;
-        };
+        drop(state);
 
-        if running_state != self.state {
-            return;
-        }
-
-        if let Some(pending) = pending {
-            state
-                .queues
-                .entry(pending.lane)
-                .or_default()
-                .push_back(QueuedTask {
-                    task: self.task,
-                    state: pending.state,
-                });
-
-            let Some(task) = state.tasks.get_mut(&self.task) else {
-                return;
-            };
-
-            task.dispatch = DispatchState::Queued(pending.state);
-
-            drop(state);
-
+        if changed {
             let _ = scheduler.event.wake_handle().wake();
-        } else {
-            task.dispatch = DispatchState::Idle(self.state);
         }
     }
+}
+
+fn release_dispatch(
+    scheduler: &SchedulerData,
+    state: &mut SchedulerState,
+    task_id: TaskId,
+    running_state: ProtectedFrameStateId,
+    suspended_state: ProtectedFrameStateId,
+    require_matching_pending: bool,
+) -> Result<bool, SchedulerError> {
+    let Some(task) = state.tasks.get(&task_id) else {
+        return Err(SchedulerError::UnknownTask(task_id));
+    };
+
+    let DispatchState::Running {
+        state: retained,
+        pending,
+    } = task.dispatch
+    else {
+        return Ok(false);
+    };
+
+    if retained != running_state {
+        return Ok(false);
+    }
+
+    let lane = select_task_lane(scheduler, task, suspended_state)?;
+
+    let next = match pending {
+        Some(pending) if !require_matching_pending || pending.state == suspended_state => {
+            Some(pending)
+        }
+        Some(pending) => {
+            return Err(SchedulerError::ConflictingWakeState {
+                retained: pending.state,
+                requested: suspended_state,
+            });
+        }
+        None if task.cancellation.is_requested() => Some(PendingWake {
+            state: suspended_state,
+            lane,
+        }),
+        None => None,
+    };
+
+    if let Some(next) = next {
+        state
+            .queues
+            .entry(next.lane)
+            .or_default()
+            .push_back(QueuedTask {
+                task: task_id,
+                state: next.state,
+            });
+
+        let Some(task) = state.tasks.get_mut(&task_id) else {
+            return Err(SchedulerError::UnknownTask(task_id));
+        };
+
+        task.dispatch = DispatchState::Queued(next.state);
+    } else {
+        let Some(task) = state.tasks.get_mut(&task_id) else {
+            return Err(SchedulerError::UnknownTask(task_id));
+        };
+
+        task.dispatch = DispatchState::Idle(suspended_state);
+    }
+
+    Ok(next.is_some())
 }
 
 fn enqueue_task(
@@ -569,17 +666,7 @@ fn enqueue_task(
         return Err(SchedulerError::UnknownTask(task_id));
     };
 
-    let Some(frame_state) = task.descriptor.state(state_id) else {
-        return Err(SchedulerError::UnknownFrameState(state_id));
-    };
-
-    let lane = select_execution_lane(
-        frame_state.lane_requirements(),
-        frame_state.affinity(),
-        &scheduler.capabilities,
-        task.origin,
-        scheduler.main_thread,
-    )?;
+    let lane = select_task_lane(scheduler, task, state_id)?;
 
     match task.dispatch {
         DispatchState::Queued(retained) => {
@@ -644,6 +731,25 @@ fn enqueue_task(
     Ok(true)
 }
 
+fn select_task_lane(
+    scheduler: &SchedulerData,
+    task: &RegisteredTask,
+    state_id: ProtectedFrameStateId,
+) -> Result<ExecutionLane, SchedulerError> {
+    let Some(frame_state) = task.descriptor.state(state_id) else {
+        return Err(SchedulerError::UnknownFrameState(state_id));
+    };
+
+    select_execution_lane(
+        frame_state.lane_requirements(),
+        frame_state.affinity(),
+        &scheduler.capabilities,
+        task.origin,
+        scheduler.main_thread,
+    )
+    .map_err(Into::into)
+}
+
 fn pop_ready(
     scheduler: &Arc<SchedulerData>,
     state: &mut SchedulerState,
@@ -670,6 +776,7 @@ fn pop_ready(
             state: queued.state,
             lane,
             scheduler: Arc::downgrade(scheduler),
+            released: false,
         });
     }
 }
