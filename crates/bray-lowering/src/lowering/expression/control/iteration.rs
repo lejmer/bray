@@ -319,11 +319,12 @@ impl Lowerer<'_> {
         let cursor_value = self.builder.push_operation(
             current,
             Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::new(
+            MirOperationKind::Call(MirCall::positional(
                 MirCallTarget::Direct(MirCallableReference::new(
                     selection.iterate(),
                     CallableAbi::Bray,
                 )),
+                bray_bound_tree::BoundCallResult::Immediate(selection.cursor_type()),
                 [source_operand],
             )),
             Some(selection.cursor_type()),

@@ -630,8 +630,13 @@ fn map_arguments(
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
+        let Ok(ordinal) = u32::try_from(index) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
         on_argument(SelectedArgument::Default {
             parameter: signature.parameter(),
+            ordinal,
             provider,
         });
     }
@@ -847,6 +852,7 @@ mod tests {
                 },
                 SelectedArgument::Default {
                     parameter: parameter(1),
+                    ordinal: 0,
                     provider: default_provider(1),
                 },
             ]

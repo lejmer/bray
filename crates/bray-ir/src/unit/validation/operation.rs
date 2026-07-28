@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::TypeId;
+use bray_symbols::{AnySymbolId, TypeId};
 
 use crate::{
-    MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallTarget, MirConstructionInput,
-    MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace,
-    MirProjectionKind, MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit,
-    MirUnitBuildError, MirValueId,
+    MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget,
+    MirConstructionInput, MirGeneratorOperation, MirOperand, MirOperation, MirOperationId,
+    MirOperationKind, MirPlace, MirProjectionKind, MirStorage, MirStorageId, MirStorageKind,
+    MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -79,16 +79,7 @@ pub(super) fn validate_operation(
             validate_construction(unit, block, id, construction)?;
         }
         MirOperationKind::Call(call) => {
-            match call.target() {
-                MirCallTarget::Direct(_) => {}
-                MirCallTarget::Indirect(value) => {
-                    validate_operand(unit, value, block, Some(id))?;
-                }
-            }
-
-            for argument in call.arguments() {
-                validate_operand(unit, argument, block, Some(id))?;
-            }
+            validate_call(unit, block, id, call)?;
         }
         MirOperationKind::Async(operation) => {
             validate_async_operation(unit, block, id, operation)?;
@@ -165,6 +156,7 @@ fn validate_operation_result(
             | MirOperationKind::Aggregate(_)
             | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
+            | MirOperationKind::Call(_)
             | MirOperationKind::PanicReport(_)
             | MirOperationKind::Async(
                 MirAsyncOperation::ObserveCurrentRunCancellation { .. }
@@ -221,6 +213,115 @@ fn validate_operation_result(
             || result.ty() != conversion.target_type()
         {
             return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+        }
+    }
+
+    if let (MirOperationKind::Call(call), Some(result)) =
+        (operation.kind(), operation.result())
+    {
+        let Some(result) = unit.value(result) else {
+            return Err(MirUnitBuildError::MissingValue(result));
+        };
+
+        if result.ty() != call.result().ty() {
+            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_call(
+    unit: &MirUnit,
+    block: crate::MirBlockId,
+    operation: MirOperationId,
+    call: &crate::MirCall,
+) -> Result<(), MirUnitBuildError> {
+    match call.target() {
+        MirCallTarget::Direct(reference) => {
+            if let Some(contract) = call
+                .contract()
+                .and_then(bray_symbols::CallableContractTemplate::source_template)
+                && contract.owner() != reference.instance().definition().callable_symbol()
+            {
+                return Err(MirUnitBuildError::InvalidCall(operation));
+            }
+        }
+        MirCallTarget::Indirect { callee, .. } => {
+            validate_operand(unit, callee, block, Some(operation))?;
+        }
+    }
+
+    match (call.result(), call.phase_behaviors()) {
+        (bray_bound_tree::BoundCallResult::Immediate(_), Some(behaviors))
+            if behaviors.deferred_execution().is_some() =>
+        {
+            return Err(MirUnitBuildError::InvalidCall(operation));
+        }
+        (bray_bound_tree::BoundCallResult::LazyFuture(_), Some(behaviors))
+            if behaviors.deferred_execution().is_none() =>
+        {
+            return Err(MirUnitBuildError::InvalidCall(operation));
+        }
+        (
+            bray_bound_tree::BoundCallResult::Immediate(_)
+            | bray_bound_tree::BoundCallResult::LazyFuture(_),
+            _,
+        ) => {}
+    }
+
+    let mut parameters = BTreeSet::new();
+    let mut ordinals = BTreeSet::new();
+    let mut saw_receiver = false;
+    let mut saw_default = false;
+    let mut last_default_ordinal = None;
+
+    for argument in call.arguments() {
+        match argument {
+            MirCallArgument::Receiver { parameter, value } => {
+                if saw_receiver || !parameters.is_empty() || saw_default {
+                    return Err(MirUnitBuildError::InvalidCall(operation));
+                }
+
+                saw_receiver = true;
+                validate_operand(unit, value, block, Some(operation))?;
+
+                if !parameters.insert(AnySymbolId::from(*parameter)) {
+                    return Err(MirUnitBuildError::InvalidCall(operation));
+                }
+            }
+            MirCallArgument::Explicit {
+                parameter,
+                ordinal,
+                value,
+            } => {
+                if saw_default || !ordinals.insert(*ordinal) {
+                    return Err(MirUnitBuildError::InvalidCall(operation));
+                }
+
+                validate_operand(unit, value, block, Some(operation))?;
+
+                if let Some(parameter) = parameter
+                    && !parameters.insert(AnySymbolId::from(*parameter))
+                {
+                    return Err(MirUnitBuildError::InvalidCall(operation));
+                }
+            }
+            MirCallArgument::Default {
+                parameter,
+                ordinal,
+                ..
+            } => {
+                if !parameters.insert(AnySymbolId::from(*parameter))
+                    || !ordinals.insert(*ordinal)
+                    || last_default_ordinal.is_some_and(|last| last >= *ordinal)
+                {
+                    return Err(MirUnitBuildError::InvalidCall(operation));
+                }
+
+                saw_default = true;
+                last_default_ordinal = Some(*ordinal);
+            }
         }
     }
 

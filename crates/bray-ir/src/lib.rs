@@ -31,7 +31,8 @@ pub use operation::{
     MirUnaryOperator,
 };
 pub use reference::{
-    MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirRuntimeReference,
+    MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirFieldReference,
+    MirRuntimeReference,
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};

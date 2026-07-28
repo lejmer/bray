@@ -95,6 +95,8 @@ pub enum SelectedArgument {
     Default {
         /// The exact omitted parameter.
         parameter: CallableParameterSymbolId,
+        /// The selected parameter's declaration-order ordinal.
+        ordinal: u32,
         /// The declaration-owned default provider evaluated by the call.
         provider: CallableParameterDefaultProviderSymbolId,
     },

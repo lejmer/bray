@@ -160,8 +160,9 @@ impl Lowerer<'_> {
             id,
             block,
             Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::new(
+            MirOperationKind::Call(MirCall::positional(
                 MirCallTarget::Direct(MirCallableReference::new(fulfillment, CallableAbi::Bray)),
+                bray_bound_tree::BoundCallResult::Immediate(self.expression_type(id)?),
                 arguments,
             )),
         )?;
