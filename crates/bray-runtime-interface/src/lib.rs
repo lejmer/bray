@@ -4,6 +4,7 @@
 
 mod compatibility;
 mod contract;
+mod frame;
 mod identity;
 mod role;
 mod runtime;
@@ -15,6 +16,13 @@ pub use compatibility::{
 pub use contract::{
     ExecutableHostContract, ExecutableHostContractBuildError, ExecutableHostContractBuilder,
     ExecutionCapacityLimits, ExecutionLaneRequirement, RootExecution, RuntimeCapability,
+};
+pub use frame::{
+    ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
+    ProtectedFrameDescriptorBuildError, ProtectedFrameLayout,
+    ProtectedFrameLayoutBuildError, ProtectedFrameOperation,
+    ProtectedFrameOperations, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
+    ProtectedFrameStorageId,
 };
 pub use identity::{
     BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, RuntimeAbiVersion,

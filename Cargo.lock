@@ -353,6 +353,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-runtime"
+version = "0.0.0"
+dependencies = [
+ "bray-runtime-interface",
+]
+
+[[package]]
 name = "bray-runtime-interface"
 version = "0.0.0"
 dependencies = [

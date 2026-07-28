@@ -24,9 +24,7 @@ Do not construct user-facing English text inside compiler logic. Emit structured
 
 If the task involves writing code, read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).
 
-Review blank lines only for semantic paragraph structure: separate statements when their purpose changes, and keep statements
-together when they form one conceptual group. Mechanically decidable blank-line enforcement belongs to the automated style command
-rather than manual agent review.
+Review blank lines only for semantic paragraph structure: separate statements when their purpose changes, and keep statements together when they form one conceptual group. Mechanically decidable blank-line enforcement belongs to the automated style command rather than manual agent review.
 
 ## Refactoring modules
 
@@ -48,8 +46,6 @@ Do not add a second build system, task runner, or command DSL unless explicitly 
 
 `cargo test` must continue to work. Additional test runners such as `cargo-nextest` may be used for faster local and CI runs, but they must not be the only way to run the test suite.
 
-After changing Rust source, running `cargo xtask style` is mandatory. It applies deterministic fixes and runs all structural
-checks described in [coding-conventions.md](docs/contributing/coding-conventions.md); do not substitute the non-mutating
-`cargo xtask style check` in the agent workflow.
+After changing Rust source, running `cargo xtask style` is mandatory. It applies deterministic fixes and runs all structural checks described in [coding-conventions.md](docs/contributing/coding-conventions.md). Do not substitute the non-mutating `cargo xtask style check` in the agent workflow.
 
 > **Note:** If you do not change any code, you do not need to run tests, linting, or code checks.

@@ -1,0 +1,12 @@
+[package]
+name = "bray-runtime"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-runtime-interface = { path = "../bray-runtime-interface" }
+
+[lints]
+workspace = true
