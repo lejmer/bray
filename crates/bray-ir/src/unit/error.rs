@@ -42,6 +42,8 @@ pub enum MirUnitBuildError {
     InvalidCall(MirOperationId),
     /// An executable-host operation is inconsistent with its host contract or unit.
     InvalidHostOperation(MirOperationId),
+    /// Executable-host operations do not form the required shutdown sequence.
+    InvalidHostSequence,
     /// A storage ID does not name a committed storage allocation.
     MissingStorage(MirStorageId),
     /// A value ID does not name a committed value.

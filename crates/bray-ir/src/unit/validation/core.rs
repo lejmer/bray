@@ -18,6 +18,40 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildE
     validate_frame_descriptor(unit)?;
     validate_value_definitions(unit)?;
     validate_blocks(unit)?;
+    validate_host_sequence(unit)?;
+
+    Ok(())
+}
+
+fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+    if !matches!(unit.kind(), crate::MirUnitKind::ExecutableHost(_)) {
+        return Ok(());
+    }
+
+    let operations = unit
+        .operations()
+        .iter()
+        .map(crate::MirOperation::kind)
+        .collect::<Vec<_>>();
+
+    if !matches!(
+        operations.as_slice(),
+        [
+            crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot { .. }),
+            crate::MirOperationKind::Host(
+                crate::MirHostOperation::RequestRootCancellation { .. }
+            ),
+            crate::MirOperationKind::Host(
+                crate::MirHostOperation::ObserveRootTerminal { .. }
+            ),
+            crate::MirOperationKind::Host(
+                crate::MirHostOperation::ReportCleanupIncidents { .. }
+            ),
+            crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. }),
+        ]
+    ) {
+        return Err(MirUnitBuildError::InvalidHostSequence);
+    }
 
     Ok(())
 }

@@ -538,6 +538,9 @@ fn validate_host_operation(
 
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootExecution)
         }
+        MirHostOperation::RequestRootCancellation { runtime } => {
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootCancellationRequest)
+        }
         MirHostOperation::ObserveRootTerminal { runtime } => {
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootTerminalObservation)
         }

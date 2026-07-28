@@ -382,6 +382,11 @@ pub enum MirHostOperation {
         /// Selected private root-execution ABI role.
         runtime: MirRuntimeReference,
     },
+    /// Request cooperative cancellation when product shutdown begins.
+    RequestRootCancellation {
+        /// Selected private root-cancellation ABI role.
+        runtime: MirRuntimeReference,
+    },
     /// Observe the root terminal record.
     ObserveRootTerminal {
         /// Selected private terminal-observation ABI role.

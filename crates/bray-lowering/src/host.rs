@@ -59,6 +59,9 @@ pub fn lower_executable_host(
             execution,
             runtime: runtime_reference(RuntimeAbiRole::RootExecution, runtime_abi),
         },
+        MirHostOperation::RequestRootCancellation {
+            runtime: runtime_reference(RuntimeAbiRole::RootCancellationRequest, runtime_abi),
+        },
         MirHostOperation::ObserveRootTerminal {
             runtime: runtime_reference(RuntimeAbiRole::RootTerminalObservation, runtime_abi),
         },
@@ -94,7 +97,10 @@ const fn runtime_reference(
 
 #[cfg(test)]
 mod tests {
-    use bray_ir::{MirUnitId, MirUnitKey, MirUnitKind};
+    use bray_ir::{
+        MirBlockKind, MirHostOperation, MirOperationKind, MirSourceAnchor, MirTerminatorKind,
+        MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
+    };
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
         RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeRequirements, RuntimeRoleBinding,
@@ -135,6 +141,88 @@ mod tests {
                 }
             )) if actual == &root
         ));
+
+        let host_operations = unit
+            .operations()
+            .iter()
+            .map(bray_ir::MirOperation::kind)
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            host_operations.as_slice(),
+            [
+                MirOperationKind::Host(MirHostOperation::ExecuteRoot { .. }),
+                MirOperationKind::Host(MirHostOperation::RequestRootCancellation { .. }),
+                MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
+                MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
+            ]
+        ));
+    }
+
+    #[test]
+    fn executable_host_validation_rejects_reordered_shutdown_operations() {
+        let host = host_contract();
+        let source = MirSourceAnchor::executable_host(host.product().clone());
+        let target = test_mir_target();
+        let runtime_abi = target.runtime_abi();
+
+        let mut builder =
+            MirUnitBuilder::for_executable_host(MirUnitId::new(91), host, target);
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap_or_else(|error| panic!("host entry must be valid: {error:?}"));
+
+        for operation in [
+            MirHostOperation::ExecuteRoot {
+                root: bray_testing::test_bound_unit(91).key().clone(),
+                execution: RootExecution::Synchronous,
+                runtime: super::runtime_reference(RuntimeAbiRole::RootExecution, runtime_abi),
+            },
+            MirHostOperation::ObserveRootTerminal {
+                runtime: super::runtime_reference(
+                    RuntimeAbiRole::RootTerminalObservation,
+                    runtime_abi,
+                ),
+            },
+            MirHostOperation::RequestRootCancellation {
+                runtime: super::runtime_reference(
+                    RuntimeAbiRole::RootCancellationRequest,
+                    runtime_abi,
+                ),
+            },
+            MirHostOperation::ReportCleanupIncidents {
+                runtime: super::runtime_reference(
+                    RuntimeAbiRole::CleanupIncidentReporting,
+                    runtime_abi,
+                ),
+            },
+            MirHostOperation::StructuredShutdown {
+                runtime: super::runtime_reference(
+                    RuntimeAbiRole::StructuredShutdown,
+                    runtime_abi,
+                ),
+            },
+        ] {
+            builder
+                .push_operation(
+                    entry,
+                    source.clone(),
+                    MirOperationKind::Host(operation),
+                    None,
+                )
+                .unwrap_or_else(|error| panic!("host operation must be valid: {error:?}"));
+        }
+
+        builder
+            .set_terminator(entry, source, MirTerminatorKind::Return(None))
+            .unwrap_or_else(|error| panic!("host return must be valid: {error:?}"));
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::InvalidHostSequence)
+        );
     }
 
     fn host_contract() -> ExecutableHostContract {

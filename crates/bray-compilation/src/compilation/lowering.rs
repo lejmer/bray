@@ -141,7 +141,7 @@ impl Compilation {
             selected_target.runtime_abi(),
         );
 
-        let unit_kind = executable_unit_kind(unit.result().value());
+        let unit_kind = executable_unit_kind(unit.result().value(), &target);
 
         let input = LoweringInput::try_new(
             unit.result().value(),
@@ -682,7 +682,10 @@ mod tests {
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
             bray_ir::MirOperationKind::Async(
-                bray_ir::MirAsyncOperation::PublishTerminalState { .. }
+                bray_ir::MirAsyncOperation::PublishTerminalState {
+                    state: bray_ir::MirTaskTerminalState::Cancelled,
+                    ..
+                }
             )
         )));
     }

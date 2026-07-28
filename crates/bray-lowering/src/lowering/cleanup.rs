@@ -67,10 +67,12 @@ impl Lowerer<'_> {
             &plans,
         )?;
 
+        let terminal = self.terminal_state_block(source, TerminalState::Cancelled)?;
+
         self.builder.set_terminator(
             lifecycle,
             Self::retained_source(source),
-            MirTerminatorKind::Unreachable,
+            MirTerminatorKind::Goto(MirEdge::new(terminal, [])),
         )?;
 
         Ok(MirCleanupEdge::new(
