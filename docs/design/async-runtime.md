@@ -119,6 +119,10 @@ Every concrete async callable instantiation receives a stable hidden frame ident
 - target and ABI facts that affect representation,
 - async lowering revision.
 
+Before reachable concrete instances are selected, generic MIR may carry a target-specific frame-template identity. Concrete-instance
+partitioning combines that template with the structural type and const arguments and selected implementation witnesses to produce
+the hidden frame identity consumed by code generation and runtime metadata.
+
 The source type remains `Future<T>`. The bound and lowered representations additionally carry a typed `AsyncFrameId` or equivalent
 compiler-private identity. It must not be encoded as an ordinary source generic argument.
 
