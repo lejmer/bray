@@ -1,5 +1,11 @@
+use std::sync::Arc;
+
+use bray_base::shared_slice;
+use bray_bound_tree::{
+    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, SelectedConversion,
+};
 use bray_runtime_interface::ProtectedAsyncFrameId;
-use bray_symbols::{BorrowKind, TypeId};
+use bray_symbols::BorrowKind;
 
 use crate::{
     MirCall, MirFrameStateId, MirOperand, MirOperationId, MirPlace, MirRuntimeReference,
@@ -52,6 +58,116 @@ pub enum MirBinaryOperator {
     ShiftLeft,
     /// Right shift.
     ShiftRight,
+}
+
+/// The normalized representation built by one aggregate operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirAggregateKind {
+    /// A tuple value.
+    Tuple,
+    /// A fixed array with one operand per element.
+    Array,
+    /// A fixed array produced by repeating one value a checked number of times.
+    RepeatedArray,
+}
+
+/// One aggregate construction with operands in evaluation order.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirAggregate {
+    kind: MirAggregateKind,
+    operands: Arc<[MirOperand]>,
+}
+
+impl MirAggregate {
+    /// Creates one normalized aggregate construction.
+    pub fn new(
+        kind: MirAggregateKind,
+        operands: impl IntoIterator<Item = MirOperand>,
+    ) -> Self {
+        Self {
+            kind,
+            operands: shared_slice(operands),
+        }
+    }
+
+    /// Returns the aggregate representation.
+    pub const fn kind(&self) -> MirAggregateKind {
+        self.kind
+    }
+
+    /// Returns aggregate operands in evaluation order.
+    pub fn operands(&self) -> &[MirOperand] {
+        &self.operands
+    }
+}
+
+/// One supplied or defaulted input of a normalized construction operation.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MirConstructionInput {
+    /// A source value mapped to its exact declaration input.
+    Explicit {
+        /// The initialized field or parameter.
+        input: ConstructionInputId,
+        /// The input's declaration-order ordinal.
+        ordinal: u32,
+        /// The evaluated source value.
+        value: MirOperand,
+    },
+    /// An omitted input supplied by its declaration-owned runtime default.
+    Default {
+        /// The initialized field or parameter.
+        input: ConstructionInputId,
+        /// The input's declaration-order ordinal.
+        ordinal: u32,
+        /// The exact default provider.
+        provider: ConstructionDefaultProvider,
+    },
+}
+
+impl MirConstructionInput {
+    /// Returns the initialized field or parameter.
+    pub const fn input(&self) -> ConstructionInputId {
+        match self {
+            Self::Explicit { input, .. } | Self::Default { input, .. } => *input,
+        }
+    }
+
+    /// Returns the input's declaration-order ordinal.
+    pub const fn ordinal(&self) -> u32 {
+        match self {
+            Self::Explicit { ordinal, .. } | Self::Default { ordinal, .. } => *ordinal,
+        }
+    }
+}
+
+/// One normalized struct, union-variant, or type-form construction.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirConstruction {
+    target: ConstructionTarget,
+    inputs: Arc<[MirConstructionInput]>,
+}
+
+impl MirConstruction {
+    /// Creates one construction from its checked target and ordered inputs.
+    pub fn new(
+        target: ConstructionTarget,
+        inputs: impl IntoIterator<Item = MirConstructionInput>,
+    ) -> Self {
+        Self {
+            target,
+            inputs: shared_slice(inputs),
+        }
+    }
+
+    /// Returns the exact construction target.
+    pub const fn target(&self) -> ConstructionTarget {
+        self.target
+    }
+
+    /// Returns explicit inputs in source order followed by defaults in declaration order.
+    pub fn inputs(&self) -> &[MirConstructionInput] {
+        &self.inputs
+    }
 }
 
 /// Terminal state published for one task run.
@@ -215,12 +331,16 @@ pub enum MirOperationKind {
         /// Right input.
         right: MirOperand,
     },
+    /// Construct a tuple or fixed-array value.
+    Aggregate(MirAggregate),
+    /// Construct a declared or compiler-known value.
+    Construct(MirConstruction),
     /// Apply a checked semantic conversion.
     Convert {
         /// Input value.
         operand: MirOperand,
-        /// Converted type.
-        target: TypeId,
+        /// Exact checked conversion plan.
+        conversion: SelectedConversion,
     },
     /// Invoke an exact callable target.
     Call(MirCall),

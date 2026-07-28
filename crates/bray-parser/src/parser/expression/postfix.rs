@@ -156,9 +156,9 @@ impl Parser {
         builder.push_dot_token(self.expect(SyntaxKind::DotToken));
 
         match self.peek().kind() {
-            SyntaxKind::TupleElementIndexToken => {
+            SyntaxKind::DecimalIntegerLiteralToken => {
                 builder.push_tuple_element_index_token(
-                    self.expect(SyntaxKind::TupleElementIndexToken),
+                    self.consume_tuple_element_index_after_dot(),
                 );
             }
             _ => builder.push_identifier_token(self.parse_identifier()),
@@ -316,6 +316,21 @@ mod tests {
 
         assert_eq!(expression.full_text(), "target(Display).format");
         assert_eq!(count_trait_qualified_member_operations(&expression), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_contextually_scans_tuple_element_indices_after_dots() {
+        let sources = source_store(["pair.0;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(expression.full_text(), "pair.0");
         assert!(diagnostics.is_empty());
     }
 

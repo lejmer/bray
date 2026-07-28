@@ -319,10 +319,10 @@ mod tests {
 
     use super::MirUnitBuilder;
     use crate::{
-        MirAsyncOperation, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge,
-        MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirOperationKind, MirPlace,
-        MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnitBuildError,
-        MirUnitKind,
+        MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCleanupEdge,
+        MirCleanupPhase, MirEdge, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId,
+        MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference,
+        MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnitBuildError, MirUnitKind,
     };
 
     #[test]
@@ -573,6 +573,41 @@ mod tests {
         assert_eq!(
             builder.finish(entry),
             Err(MirUnitBuildError::MissingOperationResult(operation))
+        );
+    }
+
+    #[test]
+    fn builders_reject_repeated_arrays_without_value_and_count_operands() {
+        let bound = test_bound_unit(12);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        let operand = MirOperand::Immediate {
+            value: MirImmediateValue::Unit,
+            ty,
+        };
+
+        let operation = match builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Aggregate(MirAggregate::new(
+                MirAggregateKind::RepeatedArray,
+                [operand],
+            )),
+            Some(ty),
+        ) {
+            Ok(operation) => operation.operation(),
+            Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
+        };
+
+        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::InvalidAggregateOperation(operation))
         );
     }
 

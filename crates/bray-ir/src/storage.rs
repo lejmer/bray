@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_symbols::{TypeId, UnionVariantSymbolId};
 
-use crate::{MirFieldReference, MirSourceAnchor, MirStorageId, MirValueId};
+use crate::{MirFieldReference, MirOperand, MirSourceAnchor, MirStorageId};
 
 /// Semantic role of one MIR storage allocation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -57,48 +57,30 @@ impl MirStorage {
 
 /// One typed projection from a storage place.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MirProjectionKind {
+pub enum MirProjection {
     /// Dereference a pointer or reference.
     Dereference,
     /// Select a declared field or payload field.
     Field(MirFieldReference),
     /// Select a tuple element by ordinal.
     TupleField(u32),
+    /// Select a fixed element counted from the start.
+    ElementFromStart(u32),
+    /// Select a fixed element counted from the end.
+    ElementFromEnd(u32),
     /// Select an element using a checked index value.
-    Index(MirValueId),
+    Index(MirOperand),
     /// Select a range using optional checked bounds.
     Slice {
         /// Inclusive lower bound.
-        start: Option<MirValueId>,
+        start: Option<MirOperand>,
         /// Exclusive upper bound.
-        end: Option<MirValueId>,
+        end: Option<MirOperand>,
     },
     /// Select the payload of a checked union variant.
     Variant(UnionVariantSymbolId),
-}
-
-/// One projection step and its checked resulting type.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MirProjection {
-    kind: MirProjectionKind,
-    result_type: TypeId,
-}
-
-impl MirProjection {
-    /// Creates a projection from its operation and checked result type.
-    pub const fn new(kind: MirProjectionKind, result_type: TypeId) -> Self {
-        Self { kind, result_type }
-    }
-
-    /// Returns the projection operation.
-    pub const fn kind(&self) -> &MirProjectionKind {
-        &self.kind
-    }
-
-    /// Returns the checked type after this projection.
-    pub const fn result_type(&self) -> TypeId {
-        self.result_type
-    }
+    /// Select the present contents of nullable storage.
+    NullableValue,
 }
 
 /// A typed addressable storage location and its projections.

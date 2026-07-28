@@ -92,6 +92,10 @@ impl ParserCursor {
         self.token_source.consume()
     }
 
+    pub(crate) fn consume_tuple_element_index_after_dot(&mut self) -> SyntaxToken {
+        self.token_source.consume_tuple_element_index_after_dot()
+    }
+
     pub(crate) fn consume_if(&mut self, kind: SyntaxKind) -> Option<SyntaxToken> {
         if !self.at(kind) {
             return None;

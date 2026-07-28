@@ -1,8 +1,7 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator, ConversionTarget,
     OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation, SemanticSelection,
-    StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
-    StorageOperationStatus,
+    StorageAccessPurpose, StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference,
@@ -52,10 +51,7 @@ impl Lowerer<'_> {
                 ))
             }
             BoundExpression::Name(_) | BoundExpression::PatternReference(_) => {
-                let source = self.source(expression.origin());
-                let value = self.storage_operand(id)?;
-
-                Ok(LoweredExpression::continuing(current, Some(value), source))
+                self.lower_storage_operand(id, current)
             }
             BoundExpression::Unary(expression) => {
                 self.lower_unary(id, expression.operator(), expression.operands(), current)
@@ -66,7 +62,18 @@ impl Lowerer<'_> {
             BoundExpression::Assignment(expression) => {
                 self.lower_assignment(id, expression.operands(), current)
             }
-            BoundExpression::Call(_) => self.lower_call(id, current),
+            BoundExpression::Call(_) => {
+                if matches!(
+                    self.input.semantic_selections().expression(id),
+                    Some(SemanticSelection::Operation(
+                        SelectedOperation::Construction(_)
+                    ))
+                ) {
+                    self.lower_construction(id, current)
+                } else {
+                    self.lower_call(id, current)
+                }
+            }
             BoundExpression::Conversion(expression) => {
                 let lowered = self.lower_expression(expression.operand(), current)?;
 
@@ -107,15 +114,17 @@ impl Lowerer<'_> {
             BoundExpression::ControlTransfer(expression) => {
                 self.lower_control_transfer(id, expression, current)
             }
+            BoundExpression::StructConstruction(_) | BoundExpression::LeadingDotVariant(_) => {
+                self.lower_construction(id, current)
+            }
+            BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
+                self.lower_member_access(id, current)
+            }
             BoundExpression::UnresolvedReference(_)
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
             | BoundExpression::AnonymousCallable(_)
             | BoundExpression::Await(_)
-            | BoundExpression::StructConstruction(_)
-            | BoundExpression::MemberAccess(_)
-            | BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::TraitQualifiedMember(_)
             | BoundExpression::For(_)
             | BoundExpression::Match(_)
             | BoundExpression::Generator(_)
@@ -281,7 +290,15 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
-        let destination = self.expression_place(*destination, StorageAccessPurpose::Assignment)?;
+        let (current, destination) = match self.lower_expression_place(
+            *destination,
+            StorageAccessPurpose::Assignment,
+            current,
+        )? {
+            super::access::LoweredPlace::Continuing { block, place } => (block, place),
+            super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
+        };
+
         let value = self.lower_expression(*value_id, current)?;
 
         let Some(current) = value.block else {
@@ -450,7 +467,7 @@ impl Lowerer<'_> {
                 source,
                 MirOperationKind::Convert {
                     operand,
-                    target: conversion.target_type(),
+                    conversion: conversion.clone(),
                 },
             ),
             ConversionTarget::Trait { fulfillment, .. } => self.push_value_operation(
@@ -465,13 +482,19 @@ impl Lowerer<'_> {
                     [operand],
                 )),
             ),
-            ConversionTarget::Composite(_) => {
-                Err(LoweringError::UnsupportedExpression(expression))
-            }
+            ConversionTarget::Composite(_) => self.push_value_operation(
+                expression,
+                current,
+                source,
+                MirOperationKind::Convert {
+                    operand,
+                    conversion: conversion.clone(),
+                },
+            ),
         }
     }
 
-    fn selected_operation(
+    pub(super) fn selected_operation(
         &self,
         expression: BoundExpressionId,
     ) -> Result<&SelectedOperation, LoweringError> {
@@ -497,7 +520,7 @@ impl Lowerer<'_> {
         Ok(*target)
     }
 
-    fn push_value_operation(
+    pub(super) fn push_value_operation(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -545,109 +568,6 @@ impl Lowerer<'_> {
 
     pub(super) const fn immediate_operand(ty: TypeId, value: MirImmediateValue) -> MirOperand {
         MirOperand::Immediate { value, ty }
-    }
-
-    fn storage_operand(&mut self, expression: BoundExpressionId) -> Result<MirOperand, LoweringError> {
-        let plan = self
-            .input
-            .storage_plan()
-            .expression_plans(expression)
-            .find(|plan| {
-                matches!(
-                    plan.purpose(),
-                    StorageAccessPurpose::Read
-                        | StorageAccessPurpose::Copy
-                        | StorageAccessPurpose::Move
-                        | StorageAccessPurpose::ValueTransfer
-                )
-            })
-            .ok_or(LoweringError::MissingStorageAccess(expression))?;
-
-        let decision = self
-            .input
-            .storage_flow()
-            .operations()
-            .iter()
-            .copied()
-            .find(|decision| {
-                decision.expression() == expression && decision.access() == plan.access()
-            })
-            .ok_or(LoweringError::MissingStorageAccess(expression))?;
-
-        if decision.status() != StorageOperationStatus::Valid {
-            return Err(LoweringError::RecoveredBoundNode(expression.into()));
-        }
-
-        let place = self.place_for_access(decision.access())?;
-
-        match decision.purpose() {
-            StorageAccessPurpose::Read | StorageAccessPurpose::Copy => Ok(MirOperand::Copy(place)),
-            StorageAccessPurpose::Move => Ok(MirOperand::Move(place)),
-            _ => Err(LoweringError::UnsupportedStorageAccess(decision.access())),
-        }
-    }
-
-    fn expression_place(
-        &mut self,
-        expression: BoundExpressionId,
-        purpose: StorageAccessPurpose,
-    ) -> Result<MirPlace, LoweringError> {
-        let plan = self
-            .input
-            .storage_plan()
-            .expression_plans(expression)
-            .find(|plan| plan.purpose() == purpose)
-            .ok_or(LoweringError::MissingStorageAccess(expression))?;
-
-        let decision = self
-            .input
-            .storage_flow()
-            .operations()
-            .iter()
-            .find(|decision| {
-                decision.expression() == expression && decision.access() == plan.access()
-            })
-            .ok_or(LoweringError::MissingStorageAccess(expression))?;
-
-        if decision.status() != StorageOperationStatus::Valid {
-            return Err(LoweringError::RecoveredBoundNode(expression.into()));
-        }
-
-        self.place_for_access(plan.access())
-    }
-
-    pub(in crate::lowering) fn place_for_access(
-        &mut self,
-        id: StorageAccessId,
-    ) -> Result<MirPlace, LoweringError> {
-        let access = self
-            .input
-            .storage_plan()
-            .access(id)
-            .ok_or(LoweringError::MissingStorageAccessRecord(id))?;
-
-        if access.is_recovered() || !access.projections().is_empty() {
-            return Err(LoweringError::UnsupportedStorageAccess(id));
-        }
-
-        if !matches!(
-            access.root(),
-            StorageAccessRoot::Storage(_) | StorageAccessRoot::Recovery(_)
-        ) {
-            return Err(LoweringError::UnsupportedStorageAccess(id));
-        }
-
-        let identity = self
-            .input
-            .storage_plan()
-            .root_identity(id)
-            .ok_or(LoweringError::MissingStorageIdentity(id))?;
-
-        self.place_for_identity(
-            identity,
-            access.reached_type(),
-            bray_bound_tree::BoundNodeOrigin::source(access.source()),
-        )
     }
 
     pub(in crate::lowering) fn place_for_identity(

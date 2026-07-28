@@ -43,6 +43,16 @@ impl Lowerer<'_> {
             BoundStructuredExpressionKind::Conditional => {
                 self.lower_conditional(id, expression, current)
             }
+            BoundStructuredExpressionKind::Tuple
+            | BoundStructuredExpressionKind::Array
+            | BoundStructuredExpressionKind::RepeatedArray => {
+                self.lower_aggregate(id, expression, current)
+            }
+            BoundStructuredExpressionKind::TypeFormConstruction => {
+                self.lower_construction(id, current)
+            }
+            BoundStructuredExpressionKind::ElementIndex
+            | BoundStructuredExpressionKind::SliceIndex => self.lower_index(id, current),
             _ => Err(LoweringError::UnsupportedExpression(id)),
         }
     }

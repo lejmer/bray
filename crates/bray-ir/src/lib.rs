@@ -25,14 +25,15 @@ pub use control::{
 pub use frame::{MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameStateFacts};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use operation::{
-    MirAsyncOperation, MirBinaryOperator, MirOperation, MirOperationCommit, MirOperationKind,
-    MirTaskTerminalState, MirUnaryOperator,
+    MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,
+    MirConstructionInput, MirOperation, MirOperationCommit, MirOperationKind, MirTaskTerminalState,
+    MirUnaryOperator,
 };
 pub use reference::{
     MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirRuntimeReference,
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
-pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};
+pub use storage::{MirPlace, MirProjection, MirStorage, MirStorageKind};
 pub use target::MirTargetFacts;
 pub use unit::{MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey, MirUnitKind};
 pub use value::{MirImmediateValue, MirOperand, MirValue, MirValueOrigin};

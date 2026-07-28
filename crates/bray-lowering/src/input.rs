@@ -679,10 +679,13 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
         | BoundExpression::StructConstruction(_)
         | BoundExpression::For(_)
         | BoundExpression::Generator(_)
-        | BoundExpression::MemberAccess(_)
         | BoundExpression::LeadingDotVariant(_)
         | BoundExpression::TraitQualifiedMember(_)
         | BoundExpression::PatternReference(_) => true,
+        BoundExpression::MemberAccess(expression) => !matches!(
+            expression.selector(),
+            Some(bray_bound_tree::BoundMemberSelector::TupleElement(_))
+        ),
         BoundExpression::Structured(expression) => matches!(
             expression.kind(),
             BoundStructuredExpressionKind::ElementIndex
