@@ -648,26 +648,30 @@ fn storage_borrow_matches(
         return decision.borrow().is_none();
     };
 
-    let Some(borrow) = decision.borrow() else {
-        return false;
-    };
-
-    let Some(capability) = storage.borrow_capability(borrow) else {
-        return false;
-    };
-
-    if capability.kind() != kind {
-        return false;
-    }
-
-    let created_by_expression =
-        capability.expression() == Some(plan.expression()) && capability.access() == plan.access();
-
-    let inherited_from_access = storage
+    let inherited = storage
         .access(plan.access())
-        .is_some_and(|access| access.root() == StorageAccessRoot::Borrow(borrow));
+        .and_then(|access| match access.root() {
+            StorageAccessRoot::Borrow(borrow) => Some(borrow),
+            StorageAccessRoot::Storage(_)
+            | StorageAccessRoot::OwnedIndirection { .. }
+            | StorageAccessRoot::Recovery(_) => None,
+        })
+        .filter(|borrow| {
+            storage
+                .borrow_capability(*borrow)
+                .is_some_and(|capability| capability.kind() == kind)
+        });
 
-    created_by_expression || inherited_from_access
+    let created = storage
+        .borrow_capability_entries()
+        .find(|(_, capability)| {
+            capability.expression() == Some(plan.expression())
+                && capability.kind() == kind
+                && capability.access() == plan.access()
+        })
+        .map(|(borrow, _)| borrow);
+
+    decision.borrow() == created.or(inherited)
 }
 
 const fn requires_semantic_selection(expression: &BoundExpression) -> bool {

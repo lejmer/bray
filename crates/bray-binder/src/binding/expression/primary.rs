@@ -9,7 +9,7 @@ use bray_syntax::{
     BooleanFoldExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
     LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax,
     MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
-    SyntaxWalkControl, TypeExpressionSyntax, walk_direct_child_nodes,
+    SyntaxWalkControl, TypeExpressionSyntax, WithExpressionSyntax, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -149,6 +149,14 @@ impl ExpressionBinder {
             };
 
             return self.bind_for_expression(binder, scope, &expression);
+        }
+
+        if root.kind() == SyntaxKind::WithExpression {
+            let Some(expression) = root.cast::<WithExpressionSyntax>() else {
+                return self.push_error(binder, Some(recovery_origin));
+            };
+
+            return self.bind_with_expression(binder, scope, &expression);
         }
 
         if root.kind() == SyntaxKind::AwaitExpression {

@@ -84,16 +84,14 @@ impl Compilation {
 
         let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
 
-        let selections =
-            self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+        let selections = self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
         let literals = self.literal_values_with_cancellation(key.clone(), cancellation)?;
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
         let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
         let refinements = self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
 
-        let storage_flow =
-            self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+        let storage_flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
 
         let dependencies =
             self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
@@ -157,10 +155,7 @@ impl Compilation {
 
         cancellation.check()?;
 
-        Ok((
-            DiagnosticResult::new(Some(mir), diagnostics),
-            Box::new([]),
-        ))
+        Ok((DiagnosticResult::new(Some(mir), diagnostics), Box::new([])))
     }
 }
 
@@ -172,7 +167,9 @@ mod tests {
     use bray_symbols::ProductKind;
 
     use super::Compilation;
-    use crate::test_support::{compilation, package_identity, source_callable_body_key, source_input};
+    use crate::test_support::{
+        compilation, package_identity, source_callable_body_key, source_input,
+    };
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
         SelectedTarget, WorkerBudget,
@@ -223,6 +220,158 @@ mod tests {
         "    let owned_tuple: (box i32,) = (owned,);\n",
         "    let moved: box i32 = owned_tuple.0;\n",
         "    return pair.first as i64;\n",
+        "}\n",
+    );
+
+    const CONTROL_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "struct Point\n",
+        "{\n",
+        "    x: i32;\n",
+        "    y: i32;\n",
+        "}\n",
+        "\n",
+        "struct Items\n",
+        "{\n",
+        "}\n",
+        "\n",
+        "struct ItemsCursor\n",
+        "{\n",
+        "}\n",
+        "\n",
+        "impl &Items(Iterable)\n",
+        "{\n",
+        "    type Element = bool;\n",
+        "    type Cursor = ItemsCursor;\n",
+        "\n",
+        "    consume func iterate() -> ItemsCursor\n",
+        "    {\n",
+        "        return ItemsCursor {};\n",
+        "    }\n",
+        "}\n",
+        "\n",
+        "impl ItemsCursor(Iterator)\n",
+        "{\n",
+        "    type Element = bool;\n",
+        "\n",
+        "    mut func next() -> bool?\n",
+        "    {\n",
+        "        panic();\n",
+        "    }\n",
+        "}\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let point: Point = Point { x = 1, y = 2 };\n",
+        "    let { x, y }: Point = point;\n",
+        "    x;\n",
+        "    y;\n",
+        "\n",
+        "    let logical: bool = true && false;\n",
+        "    logical;\n",
+        "\n",
+        "    while false\n",
+        "    {\n",
+        "        continue;\n",
+        "    };\n",
+        "\n",
+        "    loop\n",
+        "    {\n",
+        "        break;\n",
+        "    };\n",
+        "\n",
+        "    match make_boolean()\n",
+        "    {\n",
+        "        case true\n",
+        "        {\n",
+        "        }\n",
+        "        case false\n",
+        "        {\n",
+        "        }\n",
+        "    };\n",
+        "\n",
+        "    let items: Items = Items {};\n",
+        "    let every: bool = all(items);\n",
+        "    let some: bool = any(items);\n",
+        "\n",
+        "    for item in items\n",
+        "    {\n",
+        "        item;\n",
+        "    };\n",
+        "\n",
+        "    let branch: bool = if true\n",
+        "    {\n",
+        "        yield true;\n",
+        "    }\n",
+        "    else\n",
+        "    {\n",
+        "        yield false;\n",
+        "    };\n",
+        "}\n",
+        "\n",
+        "func make_boolean() -> bool\n",
+        "{\n",
+        "    return true;\n",
+        "}\n",
+    );
+
+    const GENERATOR_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "struct Items\n",
+        "{\n",
+        "}\n",
+        "\n",
+        "struct ItemsCursor\n",
+        "{\n",
+        "}\n",
+        "\n",
+        "impl &Items(Iterable)\n",
+        "{\n",
+        "    type Element = bool;\n",
+        "    type Cursor = ItemsCursor;\n",
+        "\n",
+        "    consume func iterate() -> ItemsCursor\n",
+        "    {\n",
+        "        return ItemsCursor {};\n",
+        "    }\n",
+        "}\n",
+        "\n",
+        "impl ItemsCursor(Iterator)\n",
+        "{\n",
+        "    type Element = bool;\n",
+        "\n",
+        "    mut func next() -> bool?\n",
+        "    {\n",
+        "        panic();\n",
+        "    }\n",
+        "}\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let items: Items = Items {};\n",
+        "    let lazy =\n",
+        "    {\n",
+        "        each item in items\n",
+        "        {\n",
+        "            if item\n",
+        "            {\n",
+        "                break;\n",
+        "            };\n",
+        "\n",
+        "            yield item;\n",
+        "            yield false;\n",
+        "\n",
+        "            let nested_items: Items = Items {};\n",
+        "\n",
+        "            each nested in nested_items\n",
+        "            {\n",
+        "                false;\n",
+        "            }\n",
+        "        }\n",
+        "    };\n",
+        "\n",
         "}\n",
     );
 
@@ -280,11 +429,7 @@ mod tests {
             .updated(lowering_request(
                 LOWERING_SOURCE,
                 0,
-                CompilationOptions::new(
-                    parallel,
-                    ProductKind::Library,
-                    SelectedTarget::baseline(),
-                ),
+                CompilationOptions::new(parallel, ProductKind::Library, SelectedTarget::baseline()),
             ))
             .unwrap_or_else(|error| panic!("worker-budget update must load: {error:?}"));
 
@@ -343,10 +488,12 @@ mod tests {
             .mir_unit(key)
             .unwrap_or_else(|error| panic!("structured MIR must be available: {error:?}"));
 
-        let mir = result
-            .value()
-            .as_ref()
-            .unwrap_or_else(|| panic!("structured source must produce MIR: {:?}", result.diagnostics()));
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "structured source must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
 
         let aggregate_kinds = mir.operations().iter().filter_map(|operation| {
             let bray_ir::MirOperationKind::Aggregate(aggregate) = operation.kind() else {
@@ -366,10 +513,12 @@ mod tests {
             ]
         );
 
-        assert!(mir
-            .operations()
-            .iter()
-            .any(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Construct(_))));
+        assert!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                bray_ir::MirOperationKind::Construct(_)
+            ))
+        );
 
         let construction_targets = mir.operations().iter().filter_map(|operation| {
             let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
@@ -381,7 +530,10 @@ mod tests {
 
         assert_eq!(
             construction_targets
-                .filter(|target| matches!(target, bray_bound_tree::ConstructionTarget::UnionVariant(_)))
+                .filter(|target| matches!(
+                    target,
+                    bray_bound_tree::ConstructionTarget::UnionVariant(_)
+                ))
                 .count(),
             2
         );
@@ -451,6 +603,99 @@ mod tests {
                 bray_ir::MirOperand::Value(_)
             )))
         ));
+    }
+
+    #[test]
+    fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
+        let compilation = compilation(CONTROL_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("control MIR must be available: {error:?}"));
+
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "checked control source must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::PatternBranch { .. }
+        )));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::Iterate { .. }
+        )));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::Branch { .. }
+        )));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::PatternProjection {
+                operation: bray_bound_tree::PatternOperation::Consume,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn checked_general_generators_lower_to_accumulation_operations() {
+        let compilation = compilation(GENERATOR_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("generator MIR must be available: {error:?}"));
+
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "checked generator source must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
+
+        let operations = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                bray_ir::MirOperationKind::Generator(operation) => Some(operation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let [
+            bray_ir::MirGeneratorOperation::Begin {
+                kind,
+                destination: begin,
+                exact_count: None,
+            },
+            bray_ir::MirGeneratorOperation::Push {
+                destination: push,
+                ..
+            },
+            bray_ir::MirGeneratorOperation::Push {
+                destination: second_push,
+                ..
+            },
+            bray_ir::MirGeneratorOperation::Finish {
+                destination: finish,
+            },
+        ] = operations.as_slice()
+        else {
+            panic!("general generators must initialize, push, and finish in order");
+        };
+
+        assert_eq!(*kind, bray_ir::MirGeneratorKind::General);
+        assert_eq!(begin, push);
+        assert_eq!(push, second_push);
+        assert_eq!(second_push, finish);
     }
 
     fn lowering_compilation() -> Compilation {

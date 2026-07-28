@@ -9,11 +9,11 @@ use bray_ir::{
 };
 use bray_symbols::{AnySymbolId, CallableAbi, TypeId};
 
+use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
-use super::super::LoweringError;
 
-pub(super) enum LoweredPlace {
+pub(in crate::lowering) enum LoweredPlace {
     Continuing { block: MirBlockId, place: MirPlace },
     Terminated(LoweredExpression),
 }
@@ -105,10 +105,7 @@ impl Lowerer<'_> {
             block,
             Self::retained_source(&source),
             MirOperationKind::Call(MirCall::new(
-                MirCallTarget::Direct(MirCallableReference::new(
-                    fulfillment,
-                    CallableAbi::Bray,
-                )),
+                MirCallTarget::Direct(MirCallableReference::new(fulfillment, CallableAbi::Bray)),
                 arguments,
             )),
         )?;
@@ -166,11 +163,7 @@ impl Lowerer<'_> {
             _ => return Err(LoweringError::UnsupportedStorageAccess(decision.access())),
         };
 
-        Ok(LoweredExpression::continuing(
-            block,
-            Some(operand),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(block, Some(operand), source))
     }
 
     pub(super) fn lower_expression_place(
@@ -184,7 +177,7 @@ impl Lowerer<'_> {
         self.lower_access_place(expression, decision.access(), current)
     }
 
-    fn storage_decision(
+    pub(in crate::lowering) fn storage_decision(
         &self,
         expression: BoundExpressionId,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
@@ -216,7 +209,7 @@ impl Lowerer<'_> {
         Ok(decision)
     }
 
-    fn lower_access_place(
+    pub(in crate::lowering) fn lower_access_place(
         &mut self,
         expression: BoundExpressionId,
         id: StorageAccessId,
@@ -259,8 +252,7 @@ impl Lowerer<'_> {
         let mut source_type = self.storage_identity_type(identity)?;
 
         for (index, projection) in projections.iter().copied().enumerate() {
-            let result_type =
-                self.projection_result_type(identity, &projections[..=index])?;
+            let result_type = self.projection_result_type(identity, &projections[..=index])?;
 
             let (continuation, kind) = self.lower_projection(projection, current)?;
 

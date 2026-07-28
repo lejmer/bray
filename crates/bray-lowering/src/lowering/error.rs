@@ -35,6 +35,8 @@ pub enum LoweringError {
     MissingStorageIdentity(StorageAccessId),
     /// A persistent storage identity is absent from the canonical plan.
     MissingStorageIdentityRecord(StorageIdentityId),
+    /// An iteration expression has no checked cursor or element storage.
+    MissingIterationStorage(BoundExpressionId),
     /// The synchronous core does not yet cover this storage path.
     UnsupportedStorageAccess(StorageAccessId),
     /// A value-producing MIR operation did not publish its required result.

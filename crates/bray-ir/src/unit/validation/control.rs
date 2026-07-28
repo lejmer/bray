@@ -24,6 +24,27 @@ pub(super) fn validate_terminator(
             validate_ordinary_edge(unit, block_id, then_edge)?;
             validate_ordinary_edge(unit, block_id, else_edge)?;
         }
+        MirTerminatorKind::PatternBranch {
+            subject,
+            matched,
+            unmatched,
+            ..
+        } => {
+            validate_operand(unit, subject, block_id, None)?;
+            validate_ordinary_edge(unit, block_id, matched)?;
+            validate_ordinary_edge(unit, block_id, unmatched)?;
+        }
+        MirTerminatorKind::Iterate {
+            cursor,
+            element_type,
+            item,
+            exhausted,
+            ..
+        } => {
+            super::operation::validate_place(unit, cursor, block_id, None)?;
+            validate_iteration_item(unit, *item, *element_type)?;
+            validate_ordinary_edge(unit, block_id, exhausted)?;
+        }
         MirTerminatorKind::Switch {
             discriminant,
             cases,
@@ -119,6 +140,30 @@ pub(super) fn validate_terminator(
         )
     {
         return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block_id));
+    }
+
+    Ok(())
+}
+
+fn validate_iteration_item(
+    unit: &MirUnit,
+    item: MirBlockId,
+    element_type: bray_symbols::TypeId,
+) -> Result<(), MirUnitBuildError> {
+    let Some(block) = unit.block(item) else {
+        return Err(missing_or_foreign_block(unit, item));
+    };
+
+    let [parameter] = block.parameters() else {
+        return Err(MirUnitBuildError::EdgeArgumentCountMismatch(item));
+    };
+
+    let Some(parameter) = unit.value(*parameter) else {
+        return Err(MirUnitBuildError::MissingValue(*parameter));
+    };
+
+    if block.kind() != MirBlockKind::Ordinary || parameter.ty() != element_type {
+        return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(item));
     }
 
     Ok(())

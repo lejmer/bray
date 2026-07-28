@@ -1,10 +1,9 @@
-use bray_bound_tree::{
-    BoundBlockId, BoundBlockItem, BoundLocalBinding, StorageBinding, StorageBindingTarget,
-};
-use bray_ir::{MirBlockId, MirOperand, MirOperationKind, MirSourceAnchor};
+use bray_bound_tree::{BoundBlockId, BoundBlockItem, BoundLocalBinding};
+use bray_ir::{MirBlockId, MirOperand, MirSourceAnchor};
+use bray_symbols::TypeId;
 
-use super::lowerer::Lowerer;
 use super::LoweringError;
+use super::lowerer::{Lowerer, YieldTarget};
 
 pub(super) struct LoweredExpression {
     pub(super) block: Option<MirBlockId>,
@@ -52,7 +51,6 @@ impl Lowerer<'_> {
         }
 
         let source = self.source(block.origin());
-        let mut value = None;
 
         for item in block.items() {
             let lowered = match item {
@@ -72,10 +70,37 @@ impl Lowerer<'_> {
             };
 
             current = continuation;
-            value = lowered.value;
         }
 
-        Ok(LoweredExpression::continuing(current, value, source))
+        Ok(LoweredExpression::continuing(current, None, source))
+    }
+
+    pub(super) fn lower_yielding_block(
+        &mut self,
+        id: BoundBlockId,
+        current: MirBlockId,
+        target: MirBlockId,
+        result_type: TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let syntax = self
+            .input
+            .unit()
+            .view()
+            .block(id)
+            .map(|block| block.origin().source_anchor().syntax())
+            .ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?;
+
+        self.yield_targets.push(YieldTarget::Result {
+            syntax,
+            block: target,
+            result_type,
+        });
+
+        let completion = self.lower_block(id, current);
+
+        self.yield_targets.pop();
+
+        completion
     }
 
     fn lower_local_binding(
@@ -94,57 +119,11 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = initializer.value else {
-            return Err(LoweringError::MissingOperationResult(
-                binding.initializer(),
-            ));
-        };
-
-        let ([] | [_]) = binding.bindings() else {
-            return Err(LoweringError::UnsupportedPattern(binding.pattern()));
-        };
-
-        let Some(binding_id) = binding.bindings().first().copied() else {
-            return Ok(LoweredExpression::continuing(
-                current,
-                None,
-                self.source(binding.origin()),
-            ));
-        };
-
-        let binding_type = self
-            .input
-            .pattern_facts()
-            .binding_type(binding_id)
-            .ok_or_else(|| LoweringError::UnsupportedPattern(binding.pattern()))?;
-
-        if binding_type.is_recovered() || binding_type.projection().is_some() {
-            return Err(LoweringError::UnsupportedPattern(binding.pattern()));
-        }
-
-        let storage = self
-            .input
-            .storage_plan()
-            .binding(StorageBindingTarget::Local(binding_id))
-            .ok_or(LoweringError::UnsupportedPattern(binding.pattern()))?;
-
-        let place = match storage {
-            StorageBinding::Identity(identity) => {
-                self.place_for_identity(identity, binding_type.ty(), binding.origin())?
-            }
-            StorageBinding::Access(access) => self.place_for_access(access)?,
+            return Err(LoweringError::MissingOperationResult(binding.initializer()));
         };
 
         let source = self.source(binding.origin());
-
-        self.builder.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Store {
-                destination: place,
-                value,
-            },
-            None,
-        )?;
+        let current = self.lower_pattern_bindings(binding.pattern(), value, current)?;
 
         Ok(LoweredExpression::continuing(current, None, source))
     }

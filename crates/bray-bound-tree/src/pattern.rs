@@ -52,7 +52,7 @@ pub enum PatternPredicate {
 }
 
 /// One checked structural step from a pattern subject to a nested subject.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PatternProjection {
     /// A named product field.
     ProductField(StructFieldSymbolId),

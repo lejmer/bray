@@ -526,6 +526,10 @@ mod tests {
             "    await size;\n",
             "    &size;\n",
             "    & mut size;\n",
+            "    with resource: i32 = size\n",
+            "    {\n",
+            "        resource;\n",
+            "    };\n",
             "    return size;\n",
             "}",
         ));
@@ -578,6 +582,7 @@ mod tests {
         let mut saw_await = false;
         let mut saw_shared_borrow = false;
         let mut saw_mutable_borrow = false;
+        let mut saw_with_pattern = false;
 
         walk_bound_tree(result.unit().tree(), block, |event| {
             let BoundWalkEvent::Enter(node) = event else {
@@ -703,6 +708,12 @@ mod tests {
                         None => panic!("bound borrow expressions must retain their borrow kind"),
                     }
                 }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::With
+                        && expression.patterns().len() == 1 =>
+                {
+                    saw_with_pattern = true;
+                }
                 _ => {}
             }
 
@@ -729,6 +740,7 @@ mod tests {
         assert!(saw_await);
         assert!(saw_shared_borrow);
         assert!(saw_mutable_borrow);
+        assert!(saw_with_pattern);
 
         assert_eq!(result.dependencies().len(), 1);
     }

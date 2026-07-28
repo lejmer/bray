@@ -68,6 +68,10 @@ where
             | BoundStructuredExpressionKind::BooleanAnyFold => {
                 self.build_boolean_fold(id, expression.operands(), current)
             }
+            BoundStructuredExpressionKind::ArrayGenerator
+            | BoundStructuredExpressionKind::GeneralGenerator => {
+                self.build_generator_region(id, expression, current)
+            }
             BoundStructuredExpressionKind::Catch => {
                 self.build_catch(id, expression.operands(), expression.blocks(), current)
             }
@@ -109,6 +113,32 @@ where
                 Some(Some(current))
             }
         }
+    }
+
+    fn build_generator_region(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+        current: AnalysisBlockId,
+    ) -> Option<Option<AnalysisBlockId>> {
+        self.yield_regions
+            .push(expression.origin().source_anchor().syntax());
+
+        let completion = self.build_operands(expression.operands(), current);
+
+        self.yield_regions.pop();
+
+        let mut current = completion?;
+
+        self.push_bound(current, id.into());
+
+        for block in expression.blocks() {
+            current = self
+                .build_block(*block, current)?
+                .unwrap_or_else(|| self.push_block());
+        }
+
+        Some(Some(current))
     }
 
     pub(super) fn build_short_circuit(

@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, SelectedConversion,
+    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, PatternProjection,
+    SelectedConversion,
 };
 use bray_runtime_interface::ProtectedAsyncFrameId;
-use bray_symbols::BorrowKind;
+use bray_symbols::{BorrowKind, ConstantTermId};
 
 use crate::{
     MirCall, MirFrameStateId, MirOperand, MirOperationId, MirPlace, MirRuntimeReference,
@@ -71,6 +72,41 @@ pub enum MirAggregateKind {
     RepeatedArray,
 }
 
+/// The normalized result accumulated by one generator expression.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirGeneratorKind {
+    /// A fixed array whose checked count determines its final extent.
+    Array,
+    /// A lazy generator value.
+    General,
+}
+
+/// One explicit generator accumulation step.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MirGeneratorOperation {
+    /// Initialize generator result storage.
+    Begin {
+        /// Result representation being accumulated.
+        kind: MirGeneratorKind,
+        /// Destination retaining the in-progress result.
+        destination: MirPlace,
+        /// Exact element count when checking proved one.
+        exact_count: Option<ConstantTermId>,
+    },
+    /// Append one yielded element.
+    Push {
+        /// In-progress result storage.
+        destination: MirPlace,
+        /// Element yielded by the generator body.
+        value: MirOperand,
+    },
+    /// Finish accumulation and produce the generator expression value.
+    Finish {
+        /// Completed result storage.
+        destination: MirPlace,
+    },
+}
+
 /// One aggregate construction with operands in evaluation order.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirAggregate {
@@ -80,10 +116,7 @@ pub struct MirAggregate {
 
 impl MirAggregate {
     /// Creates one normalized aggregate construction.
-    pub fn new(
-        kind: MirAggregateKind,
-        operands: impl IntoIterator<Item = MirOperand>,
-    ) -> Self {
+    pub fn new(kind: MirAggregateKind, operands: impl IntoIterator<Item = MirOperand>) -> Self {
         Self {
             kind,
             operands: shared_slice(operands),
@@ -342,6 +375,17 @@ pub enum MirOperationKind {
         /// Exact checked conversion plan.
         conversion: SelectedConversion,
     },
+    /// Project one nested subject using an exact checked pattern step.
+    PatternProjection {
+        /// Parent pattern subject.
+        subject: MirOperand,
+        /// Exact checked structural projection.
+        projection: PatternProjection,
+        /// Checked ownership operation used to obtain the projected value.
+        operation: bray_bound_tree::PatternOperation,
+    },
+    /// Perform one generator accumulation step.
+    Generator(MirGeneratorOperation),
     /// Invoke an exact callable target.
     Call(MirCall),
     /// Run checked finalization for a storage place.
