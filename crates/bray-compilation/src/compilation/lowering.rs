@@ -168,9 +168,31 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
+    use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_symbols::ProductKind;
+
     use super::Compilation;
-    use crate::test_support::{compilation, source_callable_body_key};
-    use crate::{CancellationToken, FactQueryError, QueryPriority};
+    use crate::test_support::{compilation, package_identity, source_callable_body_key, source_input};
+    use crate::{
+        CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
+        SelectedTarget, WorkerBudget,
+    };
+
+    const LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "func main() -> i32\n",
+        "{\n",
+        "    return 1;\n",
+        "}\n",
+    );
+
+    const UPDATED_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "func main() -> i32\n",
+        "{\n",
+        "    return 2;\n",
+        "}\n",
+    );
 
     #[test]
     fn mir_units_are_lowered_lazily_and_published_once() {
@@ -210,13 +232,89 @@ mod tests {
         assert!(compilation.mir_unit(key).is_ok());
     }
 
+    #[test]
+    fn updated_snapshots_reuse_only_target_and_source_compatible_mir() {
+        let previous = lowering_compilation();
+        let key = source_callable_body_key(&previous);
+
+        let previous_mir = previous
+            .mir_unit(key.clone())
+            .unwrap_or_else(|error| panic!("initial MIR must be available: {error:?}"));
+
+        let parallel = WorkerBudget::new(2)
+            .unwrap_or_else(|error| panic!("parallel worker budget must build: {error:?}"));
+
+        let worker_update = previous
+            .updated(lowering_request(
+                LOWERING_SOURCE,
+                0,
+                CompilationOptions::new(
+                    parallel,
+                    ProductKind::Library,
+                    SelectedTarget::baseline(),
+                ),
+            ))
+            .unwrap_or_else(|error| panic!("worker-budget update must load: {error:?}"));
+
+        let worker_mir = worker_update
+            .mir_unit(key.clone())
+            .unwrap_or_else(|error| panic!("reused MIR must be available: {error:?}"));
+
+        assert!(Arc::ptr_eq(&previous_mir, &worker_mir));
+
+        let baseline = SelectedTarget::baseline();
+
+        let revised_target =
+            SelectedTarget::new(baseline.profile().clone(), RuntimeAbiVersion::new(1, 1));
+
+        let target_update = previous
+            .updated(lowering_request(
+                LOWERING_SOURCE,
+                0,
+                CompilationOptions::new(
+                    WorkerBudget::serial(),
+                    ProductKind::Library,
+                    revised_target,
+                ),
+            ))
+            .unwrap_or_else(|error| panic!("target update must load: {error:?}"));
+
+        let target_mir = target_update
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("target-specific MIR must be available: {error:?}"));
+
+        assert!(!Arc::ptr_eq(&previous_mir, &target_mir));
+
+        let source_update = previous
+            .updated(lowering_request(
+                UPDATED_LOWERING_SOURCE,
+                1,
+                CompilationOptions::default(),
+            ))
+            .unwrap_or_else(|error| panic!("source update must load: {error:?}"));
+
+        let source_key = source_callable_body_key(&source_update);
+
+        let source_mir = source_update
+            .mir_unit(source_key)
+            .unwrap_or_else(|error| panic!("revised source MIR must be available: {error:?}"));
+
+        assert!(!Arc::ptr_eq(&previous_mir, &source_mir));
+    }
+
     fn lowering_compilation() -> Compilation {
-        compilation(concat!(
-            "module app;\n",
-            "func main() -> i32\n",
-            "{\n",
-            "    return 1;\n",
-            "}\n",
-        ))
+        compilation(LOWERING_SOURCE)
+    }
+
+    fn lowering_request(
+        source: &str,
+        version: u32,
+        options: CompilationOptions,
+    ) -> CompilationRequest {
+        CompilationRequest::with_options(
+            package_identity(),
+            vec![source_input(source, version)],
+            options,
+        )
     }
 }
