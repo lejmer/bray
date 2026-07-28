@@ -3,10 +3,10 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::{
-    CallableAbi, CallableInstanceId, StructFieldSymbolId, UnionPayloadFieldSymbolId,
+    CallableAbi, CallableInstanceData, StructFieldSymbolId, UnionPayloadFieldSymbolId,
 };
 
-use crate::{MirOperand, MirValueId};
+use crate::MirOperand;
 
 /// Exact declared field selected by a MIR projection.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -20,18 +20,18 @@ pub enum MirFieldReference {
 /// One exact substituted callable selected before MIR construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MirCallableReference {
-    instance: CallableInstanceId,
+    instance: CallableInstanceData,
     abi: CallableAbi,
 }
 
 impl MirCallableReference {
     /// Creates an exact callable reference and its checked calling convention.
-    pub const fn new(instance: CallableInstanceId, abi: CallableAbi) -> Self {
+    pub const fn new(instance: CallableInstanceData, abi: CallableAbi) -> Self {
         Self { instance, abi }
     }
 
     /// Returns the selected callable instance.
-    pub const fn instance(self) -> CallableInstanceId {
+    pub const fn instance(self) -> CallableInstanceData {
         self.instance
     }
 
@@ -71,7 +71,7 @@ pub enum MirCallTarget {
     /// A concrete Bray callable instance.
     Direct(MirCallableReference),
     /// A checked callable value.
-    Indirect(MirValueId),
+    Indirect(MirOperand),
 }
 
 /// One explicit call with arguments in evaluation order.

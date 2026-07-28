@@ -2,6 +2,15 @@ use bray_symbols::{ConstantValueId, TypeId};
 
 use crate::{MirBlockId, MirOperationId, MirPlace, MirSourceAnchor};
 
+/// A scalar value represented directly in MIR without semantic interning.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirImmediateValue {
+    /// The single value of the unit type.
+    Unit,
+    /// The absent value of a nullable type.
+    NullableAbsent,
+}
+
 /// How one MIR value is defined.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirValueOrigin {
@@ -52,6 +61,13 @@ pub enum MirOperand {
         /// The constant's checked type.
         ty: TypeId,
     },
+    /// A deterministic compiler-defined immediate value.
+    Immediate {
+        /// The immediate value category.
+        value: MirImmediateValue,
+        /// The value's checked type.
+        ty: TypeId,
+    },
     /// A non-consuming read from storage.
     Copy(MirPlace),
     /// A consuming read from storage.
@@ -62,9 +78,27 @@ impl MirOperand {
     /// Returns the operand's known type when it is carried directly by the operand.
     pub const fn explicit_type(&self) -> Option<TypeId> {
         match self {
-            Self::Constant { ty, .. } => Some(*ty),
+            Self::Constant { ty, .. } | Self::Immediate { ty, .. } => Some(*ty),
             Self::Copy(place) | Self::Move(place) => Some(place.ty()),
             Self::Value(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MirImmediateValue, MirOperand};
+    use crate::test_support::test_type;
+
+    #[test]
+    fn immediate_values_carry_types_without_semantic_value_ids() {
+        let ty = test_type();
+
+        let operand = MirOperand::Immediate {
+            value: MirImmediateValue::Unit,
+            ty,
+        };
+
+        assert_eq!(operand.explicit_type(), Some(ty));
     }
 }

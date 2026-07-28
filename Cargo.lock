@@ -295,6 +295,7 @@ name = "bray-lowering"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
+ "bray-declarations",
  "bray-ir",
  "bray-runtime-interface",
  "bray-symbols",
