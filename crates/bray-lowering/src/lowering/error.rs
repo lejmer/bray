@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
+    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
     StorageAccessId, StorageIdentityId,
 };
 use bray_ir::MirUnitBuildError;
@@ -26,12 +26,12 @@ pub enum LoweringError {
     UnsupportedPattern(BoundPatternId),
     /// An operator selected for the synchronous core has no MIR operation.
     UnsupportedOperator(BoundOperator),
-    /// A call depends on a declaration-owned default that must be lowered separately.
-    UnsupportedDefaultArgument(BoundExpressionId),
     /// An expression has no checked storage access.
     MissingStorageAccess(BoundExpressionId),
     /// A checked storage access is absent from the canonical plan.
     MissingStorageAccessRecord(StorageAccessId),
+    /// Checked storage flow names a lexical exit without a corresponding cleanup plan.
+    MissingCleanupPlan(BoundBlockId),
     /// A checked access reaches no persistent storage identity.
     MissingStorageIdentity(StorageAccessId),
     /// A persistent storage identity is absent from the canonical plan.

@@ -216,11 +216,13 @@ impl Lowerer<'_> {
                 .iter()
                 .find(|plan| plan.scope() == *scope)
             else {
+                if self.scope_requires_cleanup_plan(*scope) {
+                    return Err(LoweringError::MissingCleanupPlan(*scope));
+                }
+
                 continue;
             };
 
-            // TODO(BRA-278): Require complete plans once lifecycle selection publishes every
-            // cleanup operation needed by lowering.
             plans.push(plan.clone());
         }
 
@@ -235,13 +237,23 @@ impl Lowerer<'_> {
             .iter()
             .find(|plan| plan.scope() == scope)
         else {
+            if self.scope_requires_cleanup_plan(scope) {
+                return Err(LoweringError::MissingCleanupPlan(scope));
+            }
+
             return Ok(false);
         };
 
-        // TODO(BRA-278): Require complete plans once lifecycle selection publishes every cleanup
-        // operation needed by lowering.
         Ok(!plan.cancellation_broadcast().is_empty()
             || !plan.lifecycle_resolution().is_empty())
+    }
+
+    fn scope_requires_cleanup_plan(&self, scope: BoundBlockId) -> bool {
+        self.input
+            .storage_flow()
+            .exits()
+            .iter()
+            .any(|exit| exit.scope() == scope)
     }
 
     fn push_cleanup_operations(

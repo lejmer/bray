@@ -17,7 +17,8 @@ use bray_source::{
     TextSizeOverflow,
 };
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, FunctionSymbolId,
+    AnySymbolId, CallableDefinitionId, CallableDependencyContracts, CallableInstanceData,
+    CallablePhaseBehaviors, DependencyContractTemplateData, ExactSymbolId, FunctionSymbolId,
     GenericOwnerId, GenericSubstitutionData, LocalScopeBoundary, LocalSymbolRegionId,
     LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
     PackageIdentity, SemanticValueStore, SymbolGraph, SymbolId, SymbolKey, SymbolKind, SymbolName,
@@ -217,6 +218,14 @@ pub(crate) fn semantic_values() -> &'static SemanticValueStore {
         Ok(values) => values,
         Err(error) => panic!("test semantic value store must be available: {error:?}"),
     })
+}
+
+pub(crate) fn empty_callable_phase_behaviors() -> CallablePhaseBehaviors {
+    let dependencies = semantic_values()
+        .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        .unwrap_or_else(|error| panic!("empty dependency contract must intern: {error:?}"));
+
+    CallablePhaseBehaviors::empty(CallableDependencyContracts::synchronous(dependencies))
 }
 
 pub(crate) fn symbol_graph() -> &'static SymbolGraph {

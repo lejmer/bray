@@ -36,6 +36,8 @@ pub enum MirUnitBuildError {
     InvalidAggregateOperation(MirOperationId),
     /// A construction input does not belong to its target or repeats another input.
     InvalidConstructionInput(MirOperationId),
+    /// A call input, result, or retained semantic contract is inconsistent.
+    InvalidCall(MirOperationId),
     /// A storage ID does not name a committed storage allocation.
     MissingStorage(MirStorageId),
     /// A value ID does not name a committed value.

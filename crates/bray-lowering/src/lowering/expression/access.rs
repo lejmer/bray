@@ -113,9 +113,12 @@ impl Lowerer<'_> {
             | IndexTarget::SliceElement
             | IndexTarget::ArraySlice
             | IndexTarget::Slice => self.lower_storage_operand(id, current),
-            IndexTarget::Custom { fulfillment, .. } => {
-                self.lower_custom_index(id, current, fulfillment)
-            }
+            IndexTarget::Custom {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.lower_custom_index(id, current, fulfillment, requirement, witness),
         }
     }
 
@@ -124,6 +127,8 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
         fulfillment: bray_symbols::CallableInstanceData,
+        requirement: bray_symbols::ImplementationRequirementKey,
+        witness: bray_symbols::ImplementationInstanceId,
     ) -> Result<LoweredExpression, LoweringError> {
         let operands = self
             .input
@@ -160,9 +165,14 @@ impl Lowerer<'_> {
             id,
             block,
             Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::new(
+            MirOperationKind::Call(MirCall::protocol(
                 MirCallTarget::Direct(MirCallableReference::new(fulfillment, CallableAbi::Bray)),
+                bray_bound_tree::BoundCallResult::Immediate(self.expression_type(id)?),
                 arguments,
+                [bray_bound_tree::SelectedImplementationWitness::new(
+                    requirement,
+                    witness,
+                )],
             )),
         )?;
 

@@ -705,6 +705,14 @@ mod tests {
                 ..
             }
         )));
+
+        assert!(mir.operations().iter().any(|operation| {
+            let bray_ir::MirOperationKind::Call(call) = operation.kind() else {
+                return false;
+            };
+
+            !call.witnesses().is_empty()
+        }));
     }
 
     #[test]

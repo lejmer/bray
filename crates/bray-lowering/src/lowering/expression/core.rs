@@ -1,12 +1,12 @@
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator, ConversionTarget,
-    OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation, SemanticSelection,
-    StorageAccessPurpose, StorageIdentity, StorageIdentityId,
+    BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator,
+    ConversionTarget, OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation,
+    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
-    MirUnaryOperator,
+    MirBinaryOperator, MirBlockId, MirCall, MirCallArgument, MirCallTarget, MirCallableReference,
+    MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind,
+    MirStoreKind, MirUnaryOperator,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -183,16 +183,26 @@ impl Lowerer<'_> {
                     MirOperationKind::Unary { operator, operand },
                 )?
             }
-            OperatorTarget::Trait { fulfillment, .. } => self.push_value_operation(
+            OperatorTarget::Trait {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.push_value_operation(
                 id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::new(
+                MirOperationKind::Call(MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         fulfillment,
                         CallableAbi::Bray,
                     )),
+                    BoundCallResult::Immediate(self.expression_type(id)?),
                     [operand],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        requirement,
+                        witness,
+                    )],
                 )),
             )?,
         };
@@ -257,16 +267,26 @@ impl Lowerer<'_> {
                     },
                 )?
             }
-            OperatorTarget::Trait { fulfillment, .. } => self.push_value_operation(
+            OperatorTarget::Trait {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.push_value_operation(
                 id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::new(
+                MirOperationKind::Call(MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         fulfillment,
                         CallableAbi::Bray,
                     )),
+                    BoundCallResult::Immediate(self.expression_type(id)?),
                     [left, right],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        requirement,
+                        witness,
+                    )],
                 )),
             )?,
         };
@@ -369,7 +389,10 @@ impl Lowerer<'_> {
                     return Err(LoweringError::MissingOperationResult(expression.callee()));
                 };
 
-                MirCallTarget::Indirect(callee)
+                MirCallTarget::Indirect {
+                    callee,
+                    abi: selection.abi(),
+                }
             }
             BoundCallableTarget::Anonymous(_) => {
                 return Err(LoweringError::UnsupportedExpression(id));
@@ -389,51 +412,86 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingOperationResult(receiver.expression()));
             };
 
-            arguments.push(self.convert_operand(
+            let value = self.convert_operand(
                 id,
                 current,
                 Self::retained_source(&source),
                 operand,
                 receiver.conversion(),
-            )?);
+            )?;
+
+            arguments.push(MirCallArgument::Receiver {
+                parameter: receiver.parameter(),
+                value,
+            });
         }
 
         for argument in selection.arguments() {
-            let SelectedArgument::Explicit {
-                expression,
-                conversion,
-                ..
-            } = argument
-            else {
-                return Err(LoweringError::UnsupportedDefaultArgument(id));
-            };
+            match argument {
+                SelectedArgument::Default {
+                    parameter,
+                    ordinal,
+                    provider,
+                } => {
+                    arguments.push(MirCallArgument::Default {
+                        parameter: *parameter,
+                        ordinal: *ordinal,
+                        provider: *provider,
+                    });
+                }
+                SelectedArgument::Explicit {
+                    expression,
+                    parameter,
+                    ordinal,
+                    conversion,
+                } => {
+                    let lowered = self.lower_expression(*expression, current)?;
 
-            let lowered = self.lower_expression(*expression, current)?;
+                    let Some(continuation) = lowered.block else {
+                        return Ok(lowered);
+                    };
 
-            let Some(continuation) = lowered.block else {
-                return Ok(lowered);
-            };
+                    current = continuation;
 
-            current = continuation;
+                    let Some(operand) = lowered.value else {
+                        return Err(LoweringError::MissingOperationResult(*expression));
+                    };
 
-            let Some(operand) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(*expression));
-            };
+                    let value = self.convert_operand(
+                        id,
+                        current,
+                        Self::retained_source(&source),
+                        operand,
+                        conversion,
+                    )?;
 
-            arguments.push(self.convert_operand(
-                id,
-                current,
-                Self::retained_source(&source),
-                operand,
-                conversion,
-            )?);
+                    arguments.push(MirCallArgument::Explicit {
+                        parameter: *parameter,
+                        ordinal: *ordinal,
+                        value,
+                    });
+                }
+            }
         }
 
+        // MIR owns the immutable checked call contract independently of the selection table.
         let value = self.push_value_operation(
             id,
             current,
             Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::new(target, arguments)),
+            MirOperationKind::Call(MirCall::selected(
+                target,
+                selection.resolution().result(),
+                arguments,
+                selection.phase_behaviors().clone(),
+                selection.contract().cloned(),
+                selection
+                    .resolution()
+                    .implementation_witnesses()
+                    .iter()
+                    .copied(),
+                selection.witnesses().iter().copied(),
+            )),
         )?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
@@ -459,16 +517,26 @@ impl Lowerer<'_> {
                 },
                 conversion.target_type(),
             ),
-            ConversionTarget::Trait { fulfillment, .. } => self.push_converted_value(
+            ConversionTarget::Trait {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.push_converted_value(
                 expression,
                 current,
                 source,
-                MirOperationKind::Call(MirCall::new(
+                MirOperationKind::Call(MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         *fulfillment,
                         CallableAbi::Bray,
                     )),
+                    BoundCallResult::Immediate(conversion.target_type()),
                     [operand],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        *requirement,
+                        *witness,
+                    )],
                 )),
                 conversion.target_type(),
             ),

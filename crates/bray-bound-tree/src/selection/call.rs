@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImplementationInstanceId, ImplementationRequirementKey,
-    ReceiverParameterSymbolId,
+    CallableParameterSymbolId, CallablePhaseBehaviors, ImplementationInstanceId,
+    ImplementationRequirementKey, ReceiverParameterSymbolId,
 };
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
@@ -95,6 +95,8 @@ pub enum SelectedArgument {
     Default {
         /// The exact omitted parameter.
         parameter: CallableParameterSymbolId,
+        /// The selected parameter's declaration-order ordinal.
+        ordinal: u32,
         /// The declaration-owned default provider evaluated by the call.
         provider: CallableParameterDefaultProviderSymbolId,
     },
@@ -105,6 +107,7 @@ pub enum SelectedArgument {
 pub struct SelectedCall {
     resolution: BoundResolvedCall,
     abi: CallableAbi,
+    phase_behaviors: Arc<CallablePhaseBehaviors>,
     contract: Option<Arc<CallableContractTemplate>>,
     receiver: Option<SelectedReceiver>,
     arguments: Arc<[SelectedArgument]>,
@@ -116,6 +119,7 @@ impl SelectedCall {
     pub fn new(
         resolution: BoundResolvedCall,
         abi: CallableAbi,
+        phase_behaviors: CallablePhaseBehaviors,
         receiver: Option<SelectedReceiver>,
         arguments: impl IntoIterator<Item = SelectedArgument>,
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
@@ -123,6 +127,7 @@ impl SelectedCall {
         Self {
             resolution,
             abi,
+            phase_behaviors: Arc::new(phase_behaviors),
             contract: None,
             receiver,
             arguments: shared_slice(arguments),
@@ -138,6 +143,11 @@ impl SelectedCall {
     /// Returns the callable ABI participating in the selected call contract.
     pub const fn abi(&self) -> CallableAbi {
         self.abi
+    }
+
+    /// Returns the complete checked invocation and deferred-execution behavior.
+    pub fn phase_behaviors(&self) -> &CallablePhaseBehaviors {
+        &self.phase_behaviors
     }
 
     /// Returns the checked receiver mapping for an instance call.
