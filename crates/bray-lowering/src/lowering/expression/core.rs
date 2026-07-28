@@ -183,17 +183,26 @@ impl Lowerer<'_> {
                     MirOperationKind::Unary { operator, operand },
                 )?
             }
-            OperatorTarget::Trait { fulfillment, .. } => self.push_value_operation(
+            OperatorTarget::Trait {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.push_value_operation(
                 id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::positional(
+                MirOperationKind::Call(MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         fulfillment,
                         CallableAbi::Bray,
                     )),
                     BoundCallResult::Immediate(self.expression_type(id)?),
                     [operand],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        requirement,
+                        witness,
+                    )],
                 )),
             )?,
         };
@@ -258,17 +267,26 @@ impl Lowerer<'_> {
                     },
                 )?
             }
-            OperatorTarget::Trait { fulfillment, .. } => self.push_value_operation(
+            OperatorTarget::Trait {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.push_value_operation(
                 id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::positional(
+                MirOperationKind::Call(MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         fulfillment,
                         CallableAbi::Bray,
                     )),
                     BoundCallResult::Immediate(self.expression_type(id)?),
                     [left, right],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        requirement,
+                        witness,
+                    )],
                 )),
             )?,
         };
@@ -499,17 +517,26 @@ impl Lowerer<'_> {
                 },
                 conversion.target_type(),
             ),
-            ConversionTarget::Trait { fulfillment, .. } => self.push_converted_value(
+            ConversionTarget::Trait {
+                fulfillment,
+                requirement,
+                witness,
+                ..
+            } => self.push_converted_value(
                 expression,
                 current,
                 source,
-                MirOperationKind::Call(MirCall::positional(
+                MirOperationKind::Call(MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         *fulfillment,
                         CallableAbi::Bray,
                     )),
                     BoundCallResult::Immediate(conversion.target_type()),
                     [operand],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        *requirement,
+                        *witness,
+                    )],
                 )),
                 conversion.target_type(),
             ),

@@ -156,11 +156,12 @@ pub struct MirCall {
 }
 
 impl MirCall {
-    /// Creates a compiler-selected call with positional arguments.
-    pub fn positional(
+    /// Creates a compiler-selected protocol call with positional arguments.
+    pub fn protocol(
         target: MirCallTarget,
         result: BoundCallResult,
         arguments: impl IntoIterator<Item = MirOperand>,
+        witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
             target,
@@ -179,7 +180,7 @@ impl MirCall {
             phase_behaviors: None,
             contract: None,
             dispatch_witnesses: Arc::from([]),
-            witnesses: Arc::from([]),
+            witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
 
