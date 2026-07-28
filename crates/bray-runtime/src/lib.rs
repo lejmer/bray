@@ -3,9 +3,12 @@
 #![forbid(unsafe_code)]
 
 mod cancellation;
+#[cfg(test)]
+mod conformance;
 mod context;
 mod frame;
 mod lane;
+mod observation;
 mod outcome;
 mod root;
 mod scheduler;
@@ -17,7 +20,7 @@ mod test_support;
 
 pub use cancellation::{CancellationContext, CancellationShield};
 pub use context::{
-    TaskExecutionContext, current_run_cancellation_requested,
+    TaskExecutionContext, current_run_cancellation_observable,
     current_task_execution_context,
 };
 pub use frame::{
@@ -27,6 +30,10 @@ pub use frame::{
 };
 pub use lane::{
     ExecutionLane, ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
+};
+pub use observation::{
+    CancellationObservation, ScheduledTaskSnapshot, ScheduledTaskState, SchedulerSnapshot,
+    TaskSnapshot, TaskStartSite, TaskWakeCause,
 };
 pub use outcome::{RunOutcome, RunOutcomeKind};
 pub use root::{

@@ -6,8 +6,9 @@ use std::sync::{Arc, Barrier};
 use bray_runtime_interface::{
     BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
     ProtectedFrameAbiVersions, ProtectedFrameAffinity, ProtectedFrameDescriptor,
-    ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,
-    ProtectedFrameStateId, RuntimeAbiVersion,
+    ProtectedFrameDependencyId, ProtectedFrameLayout, ProtectedFrameOperations,
+    ProtectedFrameStateDescriptor, ProtectedFrameStateId, ProtectedFrameStorageId,
+    RuntimeAbiVersion,
 };
 
 use crate::{
@@ -50,6 +51,30 @@ impl TestFrame {
         )
     }
 
+    pub(crate) fn retaining_state(value: i32) -> Self {
+        Self {
+            descriptor: descriptor_from_states([
+                state_descriptor(0, [], ProtectedFrameAffinity::Movable),
+                state_descriptor_with_storage(
+                    1,
+                    [ProtectedFrameStorageId::new(4)],
+                    [ProtectedFrameDependencyId::new(6)],
+                ),
+            ]),
+            behavior: TestFrameBehavior::Sequence(
+                [
+                    FrameProgress::Suspended(FrameSuspension::new(
+                        ProtectedFrameStateId::new(1),
+                    )),
+                    FrameProgress::Completed(value),
+                ]
+                .into(),
+            ),
+            cleanup_panics: false,
+            wake_on_suspension: false,
+        }
+    }
+
     pub(crate) fn cancellation_aware() -> Self {
         Self {
             descriptor: descriptor(1),
@@ -60,12 +85,7 @@ impl TestFrame {
     }
 
     pub(crate) fn panicking_with_cleanup_panic() -> Self {
-        Self {
-            descriptor: descriptor(1),
-            behavior: TestFrameBehavior::Panics,
-            cleanup_panics: true,
-            wake_on_suspension: false,
-        }
+        Self::panicking_with_cleanup(true)
     }
 
     pub(crate) fn blocking(
@@ -112,6 +132,37 @@ impl TestFrame {
             ),
             cleanup_panics: false,
             wake_on_suspension: true,
+        }
+    }
+
+    pub(crate) fn panicking() -> Self {
+        Self::panicking_with_cleanup(false)
+    }
+
+    fn panicking_with_cleanup(cleanup_panics: bool) -> Self {
+        Self {
+            descriptor: descriptor(1),
+            behavior: TestFrameBehavior::Panics,
+            cleanup_panics,
+            wake_on_suspension: false,
+        }
+    }
+
+    pub(crate) fn requiring(
+        requirements: impl IntoIterator<Item = ExecutionLaneRequirement> + Clone,
+        value: i32,
+    ) -> Self {
+        Self {
+            descriptor: descriptor_with(
+                1,
+                requirements,
+                ProtectedFrameAffinity::Movable,
+            ),
+            behavior: TestFrameBehavior::Sequence(
+                [FrameProgress::Completed(value)].into(),
+            ),
+            cleanup_panics: false,
+            wake_on_suspension: false,
         }
     }
 
@@ -251,6 +302,20 @@ fn state_descriptor(
         [],
         [],
         affinity,
+    )
+}
+
+fn state_descriptor_with_storage(
+    state: u32,
+    storage: impl IntoIterator<Item = ProtectedFrameStorageId>,
+    dependencies: impl IntoIterator<Item = ProtectedFrameDependencyId>,
+) -> ProtectedFrameStateDescriptor {
+    ProtectedFrameStateDescriptor::new(
+        ProtectedFrameStateId::new(state),
+        [],
+        storage,
+        dependencies,
+        ProtectedFrameAffinity::Movable,
     )
 }
 

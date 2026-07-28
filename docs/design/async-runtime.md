@@ -600,6 +600,17 @@ Compiled-interface inspection renders public open run-transfer terms with their 
 product-and-standard-library inspection additionally renders each private binding's ABI role, contract-record digest, validated
 signature, target, and ABI version without exposing that role through ordinary package lookup.
 
+Runtime observation is demand-driven. A task snapshot combines its task identity, parent start site, current execution and frame
+state, pending and currently observable cancellation state, join-waiter count, unobserved outcome category, and immutable frame
+descriptor. Consumers derive retained storage and cleanup blockers from the descriptor state rather than copying those tables into
+another representation. A scheduler snapshot reports registered tasks in task-identity order together with dispatch ownership,
+selected lane, checked lane requirements, affinity, accepted wake count, current wake cause, pending and observable cancellation
+state, and pending timer count.
+
+Ready-queue timing is an explicit observation cost. Ordinary schedulers do not read the clock or retain enqueue timestamps.
+Schedulers created for observation expose queue age in snapshots and queue latency on dispatched work. This difference must not
+change dispatch order, wake coalescing, cancellation, or any other language-visible behavior.
+
 ---
 
 ## Conformance tests
@@ -635,3 +646,9 @@ The implementation requires focused tests for:
 - sync and async entrypoint root lowering and structured product shutdown,
 - absence of runtime linkage for synchronous-only products,
 - deterministic structured diagnostics and inspection facts.
+
+The runtime conformance suite is expressed against observable runtime outcomes rather than one queue, allocator, or worker
+implementation. Each conforming runtime adapter runs the same direct-await, erased-frame, task-storage, panic, unobserved-result,
+cancellation-shield, scheduling, lane-capability, queue-observation, and cleanup-order scenarios. Cost assertions identify semantic
+boundaries: direct await creates no task or scheduler boundary, task start is the principal stable-storage boundary, and optional
+runtime infrastructure remains absent until requested.

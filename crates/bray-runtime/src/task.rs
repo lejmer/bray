@@ -10,8 +10,10 @@ use crate::frame::suspension_state;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
     FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
-    RuntimePanic, SendableProtectedFrame, erase_protected_frame, erase_sendable_protected_frame,
+    RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite,
+    erase_protected_frame, erase_sendable_protected_frame,
 };
+use crate::context::current_task_start_site;
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -128,6 +130,7 @@ where
 {
     frame: Option<Pin<Box<F>>>,
     state: TaskState,
+    frame_state: ProtectedFrameStateId,
     outcome: Option<RunOutcome<T>>,
     join_waiters: Vec<Arc<dyn JoinWake>>,
 }
@@ -138,6 +141,7 @@ pub struct TaskControlBlock<
     F: ?Sized + ProtectedFrame<Output = T> = dyn SendableProtectedFrame<Output = T>,
 > {
     id: TaskId,
+    start_site: Option<TaskStartSite>,
     descriptor: ProtectedFrameDescriptor,
     data: Mutex<TaskData<T, F>>,
     cancellation: CancellationContext,
@@ -226,14 +230,19 @@ where
         cancellation: CancellationContext,
     ) -> Result<Arc<Self>, TaskStartError> {
         let id = next_task_id()?;
+
+        let start_site = current_task_start_site();
+
         let descriptor = frame.descriptor().clone();
 
         Ok(Arc::new(Self {
             id,
+            start_site,
             descriptor,
             data: Mutex::new(TaskData {
                 frame: Some(frame),
                 state: TaskState::Ready,
+                frame_state: ProtectedFrameStateId::new(0),
                 outcome: None,
                 join_waiters: Vec::new(),
             }),
@@ -260,6 +269,28 @@ where
             .map_err(|_| TaskResumeError::SynchronizationPoisoned)
     }
 
+    /// Captures immutable task, frame, cancellation, and observation facts.
+    pub fn snapshot(&self) -> Result<TaskSnapshot, TaskObservationError> {
+        let data = self
+            .data
+            .lock()
+            .map_err(|_| TaskObservationError::SynchronizationPoisoned)?;
+
+        let unobserved_outcome = data.outcome.as_ref().map(RunOutcome::kind);
+
+        // Frame descriptors are immutable and clone only their shared tables.
+        Ok(TaskSnapshot::new(
+            self.id,
+            self.start_site,
+            self.descriptor.clone(),
+            data.state,
+            data.frame_state,
+            self.cancellation.observation(),
+            data.join_waiters.len(),
+            unobserved_outcome,
+        ))
+    }
+
     /// Atomically records a cancellation request.
     ///
     /// Returns whether this call changed the request state.
@@ -267,9 +298,9 @@ where
         self.cancellation.request()
     }
 
-    /// Returns whether cancellation has been requested.
-    pub fn cancellation_requested(&self) -> bool {
-        self.cancellation.is_requested()
+    /// Returns whether cancellation is currently observable by this task.
+    pub fn cancellation_observable(&self) -> bool {
+        self.cancellation.observation().observable()
     }
 
     /// Returns the structured cancellation context owned by this task.
@@ -291,7 +322,7 @@ where
 
         data.state = TaskState::Running;
 
-        let context = FrameContext::new(self.cancellation_requested());
+        let context = FrameContext::new(self.cancellation_observable());
 
         let progress = {
             let Some(frame) = data.frame.as_mut() else {
@@ -325,6 +356,7 @@ where
                 }
 
                 data.state = TaskState::Suspended(suspension.state());
+                data.frame_state = suspension.state();
 
                 (TaskResumeStatus::Suspended(suspension), Vec::new())
             }
@@ -603,11 +635,15 @@ fn wake_all(waiters: Vec<Arc<dyn JoinWake>>) {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::pin::Pin;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
     use std::thread;
+
+    use bray_platform::RuntimeThreadScope;
+    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
         TaskControlBlock, TaskFailureKind, TaskObservationError, TaskResumeError, TaskResumeStatus,
@@ -615,9 +651,81 @@ mod tests {
     };
     use crate::test_support::TestFrame;
     use crate::{
-        FrameContext, FrameExit, FrameProgress, ProtectedFrame, RunOutcome,
-        erase_sendable_protected_frame,
+        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameContext, FrameExit,
+        FrameProgress, ProtectedFrame, RunOutcome, Scheduler, SchedulerLimits,
+        TaskExecutionContext, erase_sendable_protected_frame,
     };
+    use crate::context::with_task_execution_context;
+
+    #[test]
+    fn task_snapshots_retain_creation_and_cleanup_context() {
+        let runtime = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
+
+        let scheduler = Scheduler::new(
+            [RuntimeCapability::CooperativeExecution],
+            runtime.runtime().id(),
+            SchedulerLimits::new(nonzero(4), nonzero(4)),
+        );
+
+        let parent = TaskControlBlock::start(TestFrame::completing(1))
+            .unwrap_or_else(|error| panic!("parent task must start: {error:?}"));
+
+        let registration = scheduler
+            .register_task(
+                parent.id(),
+                parent.descriptor().clone(),
+                runtime.runtime().id(),
+                ProtectedFrameStateId::new(0),
+                parent.cancellation_context(),
+            )
+            .unwrap_or_else(|error| panic!("parent task must register: {error:?}"));
+
+        let context = TaskExecutionContext::new(
+            parent.id(),
+            ProtectedFrameStateId::new(0),
+            parent.cancellation_context().clone(),
+            ExecutionLane::new(
+                ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
+                ExecutionWorkload::Cooperative,
+            ),
+            registration.wake_handle(),
+        );
+
+        let child = with_task_execution_context(context, || {
+            TaskControlBlock::start(TestFrame::retaining_state(2))
+        })
+        .unwrap_or_else(|error| panic!("child task must start: {error:?}"));
+
+        child
+            .resume()
+            .unwrap_or_else(|error| panic!("child task must suspend: {error:?}"));
+
+        let snapshot = child
+            .snapshot()
+            .unwrap_or_else(|error| panic!("task snapshot must succeed: {error:?}"));
+
+        let Some(start_site) = snapshot.start_site() else {
+            panic!("child task must retain its creation site");
+        };
+
+        assert_eq!(start_site.parent(), parent.id());
+        assert_eq!(start_site.state(), ProtectedFrameStateId::new(0));
+        assert_eq!(snapshot.frame_state(), ProtectedFrameStateId::new(1));
+        assert_eq!(snapshot.state(), TaskState::Suspended(ProtectedFrameStateId::new(1)));
+        assert_eq!(snapshot.join_waiters(), 0);
+        assert_eq!(snapshot.unobserved_outcome(), None);
+
+        assert_eq!(
+            snapshot.retained_storage(),
+            &[bray_runtime_interface::ProtectedFrameStorageId::new(4)]
+        );
+
+        assert_eq!(
+            snapshot.cleanup_blockers(),
+            &[bray_runtime_interface::ProtectedFrameDependencyId::new(6)]
+        );
+    }
 
     #[test]
     fn starting_moves_the_frame_into_stable_task_owned_storage() {
@@ -750,7 +858,7 @@ mod tests {
 
         parent.request();
 
-        assert!(task.cancellation_requested());
+        assert!(task.cancellation_observable());
 
         assert_eq!(
             task.resume(),
@@ -884,6 +992,11 @@ mod tests {
             task.take_outcome(),
             Err(TaskObservationError::AlreadyObserved)
         ));
+    }
+
+    fn nonzero(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value)
+            .unwrap_or_else(|| panic!("test scheduler capacity must be nonzero"))
     }
 
     struct LocalFrame {

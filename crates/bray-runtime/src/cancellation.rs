@@ -3,6 +3,8 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
+use crate::CancellationObservation;
+
 struct CancellationState {
     requested: AtomicBool,
     shields: AtomicUsize,
@@ -96,6 +98,16 @@ impl CancellationContext {
     pub fn is_requested(&self) -> bool {
         self.state.requested.load(Ordering::Acquire)
             && self.state.shields.load(Ordering::Acquire) == 0
+    }
+
+    /// Captures pending and currently observable cancellation state.
+    pub fn observation(&self) -> CancellationObservation {
+        let requested = self.state.requested.load(Ordering::Acquire);
+
+        let observable =
+            requested && self.state.shields.load(Ordering::Acquire) == 0;
+
+        CancellationObservation::new(requested, observable)
     }
 
     /// Temporarily shields cleanup from observing a pending cancellation request.

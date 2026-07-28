@@ -1,6 +1,10 @@
 use std::cell::RefCell;
 
-use crate::{CancellationContext, ExecutionLane, TaskId, TaskWakeHandle};
+use bray_runtime_interface::ProtectedFrameStateId;
+
+use crate::{
+    CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle,
+};
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
@@ -13,6 +17,7 @@ thread_local! {
 #[derive(Clone, Debug)]
 pub struct TaskExecutionContext {
     task: TaskId,
+    state: ProtectedFrameStateId,
     cancellation: CancellationContext,
     lane: ExecutionLane,
     wake: TaskWakeHandle,
@@ -22,12 +27,14 @@ impl TaskExecutionContext {
     /// Creates the context for one task resume.
     pub(crate) const fn new(
         task: TaskId,
+        state: ProtectedFrameStateId,
         cancellation: CancellationContext,
         lane: ExecutionLane,
         wake: TaskWakeHandle,
     ) -> Self {
         Self {
             task,
+            state,
             cancellation,
             lane,
             wake,
@@ -37,6 +44,11 @@ impl TaskExecutionContext {
     /// Returns the currently executing task identity.
     pub const fn task(&self) -> TaskId {
         self.task
+    }
+
+    /// Returns the protected-frame state active for this resume.
+    pub const fn state(&self) -> ProtectedFrameStateId {
+        self.state
     }
 
     /// Returns this task's structured cancellation context.
@@ -60,8 +72,17 @@ pub fn current_task_execution_context() -> Option<TaskExecutionContext> {
     CURRENT_CONTEXT.with(|context| context.borrow().clone())
 }
 
-/// Returns whether cancellation is observable in the current run.
-pub fn current_run_cancellation_requested() -> bool {
+pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
+    CURRENT_CONTEXT.with(|context| {
+        context
+            .borrow()
+            .as_ref()
+            .map(|context| TaskStartSite::new(context.task, context.state))
+    })
+}
+
+/// Returns whether cancellation is currently observable in the current run.
+pub fn current_run_cancellation_observable() -> bool {
     CURRENT_RUN_CANCELLATION.with(|context| {
         context
             .borrow()
@@ -141,7 +162,7 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
-        TaskExecutionContext, current_run_cancellation_requested,
+        TaskExecutionContext, current_run_cancellation_observable,
         current_task_execution_context, with_task_execution_context,
     };
     use crate::test_support::TestFrame;
@@ -185,18 +206,31 @@ mod tests {
             .unwrap_or_else(|error| panic!("task must register: {error:?}"));
 
         let context =
-            TaskExecutionContext::new(task.id(), cancellation, lane, registration.wake_handle());
+            TaskExecutionContext::new(
+                task.id(),
+                ProtectedFrameStateId::new(0),
+                cancellation,
+                lane,
+                registration.wake_handle(),
+            );
 
         assert!(current_task_execution_context().is_none());
 
         with_task_execution_context(context, || {
-            assert!(!current_run_cancellation_requested());
+            assert!(!current_run_cancellation_observable());
 
             assert_eq!(
                 current_task_execution_context()
                     .as_ref()
                     .map(TaskExecutionContext::task),
                 Some(task.id())
+            );
+
+            assert_eq!(
+                current_task_execution_context()
+                    .as_ref()
+                    .map(TaskExecutionContext::state),
+                Some(ProtectedFrameStateId::new(0))
             );
         });
 

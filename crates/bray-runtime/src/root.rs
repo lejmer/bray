@@ -148,6 +148,7 @@ where
             // The execution context owns an independent view for the duration of resume.
             let context = TaskExecutionContext::new(
                 root.id(),
+                ready.state(),
                 root.cancellation_context().clone(),
                 ready.lane(),
                 wake.clone(),
@@ -197,7 +198,7 @@ mod tests {
     use crate::{
         CleanupReportSink, RunOutcome, Scheduler, SchedulerLimits,
         TaskControlBlock, TaskExecutionContext, TaskResumeStatus,
-        current_run_cancellation_requested,
+        current_run_cancellation_observable,
     };
     use crate::context::with_task_execution_context;
 
@@ -216,7 +217,7 @@ mod tests {
 
     #[test]
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
-        let outcome = execute_synchronous_root(current_run_cancellation_requested, |root| {
+        let outcome = execute_synchronous_root(current_run_cancellation_observable, |root| {
             assert!(root.request());
         });
 
@@ -400,6 +401,7 @@ mod tests {
 
                 let context = TaskExecutionContext::new(
                     child.id(),
+                    ready.state(),
                     child.cancellation_context().clone(),
                     ready.lane(),
                     child_wake.clone(),
