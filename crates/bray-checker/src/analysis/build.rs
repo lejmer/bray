@@ -51,6 +51,7 @@ where
     storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
     pub(super) catches: Vec<CatchContext>,
+    pub(super) yield_regions: Vec<SyntaxAnchor>,
     scopes: Vec<BoundBlockId>,
 }
 
@@ -79,6 +80,7 @@ where
             storage: ControlFlowGraphAssembler::new(request.view().unit()),
             loops: Vec::new(),
             catches: Vec::new(),
+            yield_regions: Vec::new(),
             scopes: Vec::new(),
         }
     }
@@ -218,9 +220,7 @@ where
 
                 self.push_bound(current, id.into());
 
-                self.push_control_transfer(current, expression.kind(), expression.target());
-
-                Some(None)
+                Some(self.push_control_transfer(current, expression.kind(), expression.target()))
             }
             _ => self.build_sequential_expression(id, expression, current),
         }
@@ -315,7 +315,7 @@ where
         block: AnalysisBlockId,
         kind: BoundControlTransferKind,
         target: Option<SyntaxAnchor>,
-    ) {
+    ) -> Option<AnalysisBlockId> {
         let target_loop = match target {
             Some(target) => self
                 .loops
@@ -327,15 +327,38 @@ where
         .copied();
 
         match kind {
-            BoundControlTransferKind::Yield => self.push_exit(block, AnalysisExitKind::Yield),
-            BoundControlTransferKind::Return => self.push_exit(block, AnalysisExitKind::Return),
+            BoundControlTransferKind::Yield
+                if target.is_some_and(|target| self.yield_regions.contains(&target)) =>
+            {
+                let continuation = self.push_block();
+
+                self.push_edge(block, continuation, AnalysisEdgeKind::Yield, None);
+
+                Some(continuation)
+            }
+            BoundControlTransferKind::Yield => {
+                self.push_exit(block, AnalysisExitKind::Yield);
+
+                None
+            }
+            BoundControlTransferKind::Return => {
+                self.push_exit(block, AnalysisExitKind::Return);
+
+                None
+            }
             BoundControlTransferKind::Break => match target_loop {
                 Some(context) => {
                     let block = self.resolve_scopes(block, context.scope_depth);
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
+
+                    None
                 }
-                None => self.push_exit(block, AnalysisExitKind::Recovery),
+                None => {
+                    self.push_exit(block, AnalysisExitKind::Recovery);
+
+                    None
+                }
             },
             BoundControlTransferKind::Continue => match target_loop {
                 Some(context) => match context.continue_target {
@@ -343,10 +366,20 @@ where
                         let block = self.resolve_scopes(block, context.scope_depth);
 
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
+
+                        None
                     }
-                    None => self.push_exit(block, AnalysisExitKind::Recovery),
+                    None => {
+                        self.push_exit(block, AnalysisExitKind::Recovery);
+
+                        None
+                    }
                 },
-                None => self.push_exit(block, AnalysisExitKind::Recovery),
+                None => {
+                    self.push_exit(block, AnalysisExitKind::Recovery);
+
+                    None
+                }
             },
         }
     }

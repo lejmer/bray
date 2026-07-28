@@ -10,10 +10,26 @@ use bray_ir::{
 use super::LoweringError;
 use crate::LoweringInput;
 
-pub(super) struct YieldTarget {
-    pub(super) syntax: SyntaxAnchor,
-    pub(super) block: MirBlockId,
-    pub(super) result_type: bray_symbols::TypeId,
+#[derive(Clone)]
+pub(super) enum YieldTarget {
+    Result {
+        syntax: SyntaxAnchor,
+        block: MirBlockId,
+        result_type: bray_symbols::TypeId,
+    },
+    Generator {
+        syntax: SyntaxAnchor,
+        destination: MirPlace,
+        element_type: bray_symbols::TypeId,
+    },
+}
+
+impl YieldTarget {
+    pub(super) const fn syntax(&self) -> SyntaxAnchor {
+        match self {
+            Self::Result { syntax, .. } | Self::Generator { syntax, .. } => *syntax,
+        }
+    }
 }
 
 pub(super) struct LoopTarget {

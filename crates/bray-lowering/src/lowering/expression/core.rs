@@ -121,12 +121,14 @@ impl Lowerer<'_> {
             }
             BoundExpression::For(expression) => self.lower_for(id, expression, current),
             BoundExpression::Match(expression) => self.lower_match(id, expression, current),
+            BoundExpression::Generator(expression) => {
+                self.lower_generator_iteration(id, expression, current)
+            }
             BoundExpression::UnresolvedReference(_)
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
             | BoundExpression::AnonymousCallable(_)
             | BoundExpression::Await(_)
-            | BoundExpression::Generator(_)
             | BoundExpression::Error(_) => Err(LoweringError::UnsupportedExpression(id)),
         }
     }

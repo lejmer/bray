@@ -268,13 +268,6 @@ mod tests {
         "    x;\n",
         "    y;\n",
         "\n",
-        "    if true\n",
-        "    {\n",
-        "    }\n",
-        "    else\n",
-        "    {\n",
-        "    };\n",
-        "\n",
         "    let logical: bool = true && false;\n",
         "    logical;\n",
         "\n",
@@ -286,16 +279,6 @@ mod tests {
         "    loop\n",
         "    {\n",
         "        break;\n",
-        "    };\n",
-        "\n",
-        "    match true\n",
-        "    {\n",
-        "        case true\n",
-        "        {\n",
-        "        }\n",
-        "        case false\n",
-        "        {\n",
-        "        }\n",
         "    };\n",
         "\n",
         "    match make_boolean()\n",
@@ -315,6 +298,15 @@ mod tests {
         "    for item in items\n",
         "    {\n",
         "        item;\n",
+        "    };\n",
+        "\n",
+        "    let branch: bool = if true\n",
+        "    {\n",
+        "        yield true;\n",
+        "    }\n",
+        "    else\n",
+        "    {\n",
+        "        yield false;\n",
         "    };\n",
         "}\n",
         "\n",
@@ -369,6 +361,14 @@ mod tests {
         "            };\n",
         "\n",
         "            yield item;\n",
+        "            yield false;\n",
+        "\n",
+        "            let nested_items: Items = Items {};\n",
+        "\n",
+        "            each nested in nested_items\n",
+        "            {\n",
+        "                false;\n",
+        "            }\n",
         "        }\n",
         "    };\n",
         "\n",
@@ -638,7 +638,10 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::PatternProjection { .. }
+            bray_ir::MirOperationKind::PatternProjection {
+                operation: bray_bound_tree::PatternOperation::Consume,
+                ..
+            }
         )));
     }
 
@@ -677,6 +680,10 @@ mod tests {
                 destination: push,
                 ..
             },
+            bray_ir::MirGeneratorOperation::Push {
+                destination: second_push,
+                ..
+            },
             bray_ir::MirGeneratorOperation::Finish {
                 destination: finish,
             },
@@ -687,7 +694,8 @@ mod tests {
 
         assert_eq!(*kind, bray_ir::MirGeneratorKind::General);
         assert_eq!(begin, push);
-        assert_eq!(push, finish);
+        assert_eq!(push, second_push);
+        assert_eq!(second_push, finish);
     }
 
     fn lowering_compilation() -> Compilation {

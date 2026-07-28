@@ -1,9 +1,11 @@
 use bray_bound_tree::{
-    BoundPatternEntryKind, BoundPatternId, BoundPatternKind, PatternProjection, StorageBinding,
+    BoundPatternEntryKind, BoundPatternId, BoundPatternKind, PatternOperation, StorageBinding,
     StorageBindingTarget,
 };
-use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirTerminatorKind};
-use bray_symbols::LocalBindingSymbolId;
+use bray_ir::{
+    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirTerminatorKind,
+};
+use bray_symbols::{BorrowKind, LocalBindingSymbolId};
 
 use super::super::super::LoweringError;
 use super::super::super::lowerer::Lowerer;
@@ -55,7 +57,8 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<MirBlockId, LoweringError> {
         let pattern_node = self.pattern(pattern)?;
-        let subject = self.project_pattern_subject(pattern, subject, current)?;
+        let operation = self.pattern_operation(pattern)?;
+        let subject = self.project_pattern_subject(pattern, subject, current, operation)?;
 
         for binding in pattern_node.bindings() {
             self.store_pattern_binding(
@@ -98,7 +101,10 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         let pattern_node = self.pattern(pattern)?;
         let source = self.source(pattern_node.origin());
-        let subject = self.project_pattern_subject(pattern, subject, current)?;
+
+        let subject =
+            self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?;
+
         let mut candidate = current;
 
         for (index, child) in pattern_node.children().iter().copied().enumerate() {
@@ -161,7 +167,9 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         let pattern_node = self.pattern(pattern)?;
         let source = self.source(pattern_node.origin());
-        let subject = self.project_pattern_subject(pattern, subject, current)?;
+
+        let subject =
+            self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?;
 
         if pattern_node.kind() == BoundPatternKind::Alternative {
             let mut candidate = current;
@@ -260,6 +268,7 @@ impl Lowerer<'_> {
         pattern: BoundPatternId,
         subject: MirOperand,
         current: MirBlockId,
+        operation: PatternOperation,
     ) -> Result<MirOperand, LoweringError> {
         let fact = self
             .input
@@ -279,6 +288,7 @@ impl Lowerer<'_> {
             MirOperationKind::PatternProjection {
                 subject,
                 projection,
+                operation,
             },
             Some(fact.input_type()),
         )?;
@@ -340,7 +350,21 @@ impl Lowerer<'_> {
 
         let value = match fact.projection().filter(|_| apply_projection) {
             Some(projection) => {
-                self.project_binding(pattern, subject, projection, fact.ty(), origin, current)?
+                let commit = self.builder.push_operation(
+                    current,
+                    self.source(origin),
+                    MirOperationKind::PatternProjection {
+                        subject,
+                        projection,
+                        operation: fact.operation(),
+                    },
+                    Some(fact.ty()),
+                )?;
+
+                commit
+                    .result()
+                    .map(MirOperand::Value)
+                    .ok_or(LoweringError::UnsupportedPattern(pattern))?
             }
             None => subject,
         };
@@ -368,28 +392,60 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    fn project_binding(
+    pub(super) fn pattern_place_operand(
         &mut self,
         pattern: BoundPatternId,
-        subject: MirOperand,
-        projection: PatternProjection,
-        ty: bray_symbols::TypeId,
-        origin: bray_bound_tree::BoundNodeOrigin,
+        place: MirPlace,
         current: MirBlockId,
     ) -> Result<MirOperand, LoweringError> {
-        let commit = self.builder.push_operation(
-            current,
-            self.source(origin),
-            MirOperationKind::PatternProjection {
-                subject,
-                projection,
-            },
-            Some(ty),
-        )?;
+        let fact = self
+            .input
+            .pattern_facts()
+            .pattern(pattern)
+            .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
-        commit
-            .result()
-            .map(MirOperand::Value)
+        match fact.operation() {
+            PatternOperation::Consume => Ok(MirOperand::Move(place)),
+            PatternOperation::Observe | PatternOperation::Copy => Ok(MirOperand::Copy(place)),
+            PatternOperation::SharedBorrow | PatternOperation::MutableBorrow => {
+                let kind = match fact.operation() {
+                    PatternOperation::SharedBorrow => BorrowKind::Shared,
+                    PatternOperation::MutableBorrow => BorrowKind::Mutable,
+                    PatternOperation::Observe
+                    | PatternOperation::Consume
+                    | PatternOperation::Copy
+                    | PatternOperation::Recovered => {
+                        return Err(LoweringError::UnsupportedPattern(pattern));
+                    }
+                };
+
+                let source = self.source(self.pattern(pattern)?.origin());
+
+                let result = self.builder.push_operation(
+                    current,
+                    source,
+                    MirOperationKind::Borrow { kind, place },
+                    Some(fact.input_type()),
+                )?;
+
+                result
+                    .result()
+                    .map(MirOperand::Value)
+                    .ok_or(LoweringError::UnsupportedPattern(pattern))
+            }
+            PatternOperation::Recovered => Err(LoweringError::UnsupportedPattern(pattern)),
+        }
+    }
+
+    fn pattern_operation(
+        &self,
+        pattern: BoundPatternId,
+    ) -> Result<PatternOperation, LoweringError> {
+        self.input
+            .pattern_facts()
+            .pattern(pattern)
+            .map(bray_bound_tree::PatternCheckEntry::operation)
+            .filter(|operation| *operation != PatternOperation::Recovered)
             .ok_or(LoweringError::UnsupportedPattern(pattern))
     }
 

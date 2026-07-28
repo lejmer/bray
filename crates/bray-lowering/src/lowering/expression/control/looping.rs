@@ -26,16 +26,6 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let body_entry = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        let exhausted = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
-
         self.builder.set_terminator(
             current,
             Self::retained_source(&source),
@@ -51,6 +41,16 @@ impl Lowerer<'_> {
         let Some(condition) = condition.value else {
             return Err(LoweringError::MissingOperationResult(*condition_id));
         };
+
+        let body_entry = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let exhausted = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
         self.builder.set_terminator(
             condition_block,
@@ -72,8 +72,6 @@ impl Lowerer<'_> {
         let body = self.lower_block(*body, body_entry)?;
         self.finish_edge(body, header)?;
 
-        self.loop_targets.pop();
-
         let exhausted = match expression.blocks().get(1).copied() {
             Some(else_body) => self.lower_block(else_body, exhausted)?,
             None => LoweredExpression::continuing(
@@ -84,6 +82,8 @@ impl Lowerer<'_> {
         };
 
         self.finish_result_edge(exhausted, join, result_type)?;
+
+        self.loop_targets.pop();
 
         Ok(LoweredExpression::continuing(
             join,
@@ -165,6 +165,16 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
-        self.lower_block(*body, current)
+        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
+
+        let body = self.lower_yielding_block(*body, current, join, result_type)?;
+
+        self.finish_result_edge(body, join, result_type)?;
+
+        Ok(LoweredExpression::continuing(
+            join,
+            Some(MirOperand::Value(result)),
+            self.source(expression.origin()),
+        ))
     }
 }

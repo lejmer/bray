@@ -12,7 +12,7 @@ use bray_symbols::{BorrowKind, CallableAbi};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
-use super::super::super::lowerer::{LoopTarget, Lowerer};
+use super::super::super::lowerer::{LoopTarget, Lowerer, YieldTarget};
 
 struct Iteration {
     header: MirBlockId,
@@ -40,11 +40,14 @@ impl Lowerer<'_> {
             result_type,
         );
 
-        let item = self.lower_pattern_bindings(
+        let pattern_subject = self.pattern_place_operand(
             expression.pattern(),
-            MirOperand::Copy(Self::retained_place(&iteration.element)),
+            Self::retained_place(&iteration.element),
             iteration.item,
         )?;
+
+        let item =
+            self.lower_pattern_bindings(expression.pattern(), pattern_subject, iteration.item)?;
 
         let body = self.lower_block(expression.body(), item)?;
         self.finish_edge(body, iteration.header)?;
@@ -165,34 +168,6 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let iteration = self.begin_iteration(iteration_id, expression.source(), current)?;
-
-        let yield_block = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        let yielded = self.builder.push_block_parameter(
-            yield_block,
-            Self::retained_source(&source),
-            selection.element_type(),
-        )?;
-
-        self.builder.push_operation(
-            yield_block,
-            Self::retained_source(&source),
-            MirOperationKind::Generator(MirGeneratorOperation::Push {
-                destination: Self::retained_place(&destination),
-                value: MirOperand::Value(yielded),
-            }),
-            None,
-        )?;
-
-        self.builder.set_terminator(
-            yield_block,
-            Self::retained_source(&source),
-            MirTerminatorKind::Goto(MirEdge::new(iteration.header, [])),
-        )?;
-
         let result_syntax = self
             .input
             .unit()
@@ -203,55 +178,14 @@ impl Lowerer<'_> {
             .source_anchor()
             .syntax();
 
-        self.yield_targets
-            .push(super::super::super::lowerer::YieldTarget {
-                syntax: result_syntax,
-                block: yield_block,
-                result_type: selection.element_type(),
-            });
-
-        let iteration_type = self.expression_type(iteration_id)?;
-
-        let break_block = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        self.builder.push_block_parameter(
-            break_block,
-            Self::retained_source(&source),
-            iteration_type,
-        )?;
-
-        self.builder.set_terminator(
-            break_block,
-            Self::retained_source(&source),
-            MirTerminatorKind::Goto(MirEdge::new(iteration.exhausted, [])),
-        )?;
-
-        self.loop_targets.push(LoopTarget {
-            syntax: expression.region(),
-            continue_block: iteration.header,
-            break_block,
-            result_type: iteration_type,
+        self.yield_targets.push(YieldTarget::Generator {
+            syntax: result_syntax,
+            destination: Self::retained_place(&destination),
+            element_type: selection.element_type(),
         });
 
-        let item = self.lower_pattern_bindings(
-            expression.pattern(),
-            MirOperand::Copy(iteration.element),
-            iteration.item,
-        )?;
+        let iteration = self.lower_generator_iteration_loop(iteration_id, expression, current)?;
 
-        let body = self.lower_block(expression.body(), item)?;
-
-        if let Some(block) = body.block {
-            self.builder.set_terminator(
-                block,
-                Self::retained_source(&source),
-                MirTerminatorKind::Goto(MirEdge::new(iteration.header, [])),
-            )?;
-        }
-
-        self.loop_targets.pop();
         self.yield_targets.pop();
 
         let value = self.push_value_operation(
@@ -264,6 +198,23 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(
             iteration.exhausted,
             Some(value),
+            source,
+        ))
+    }
+
+    pub(in crate::lowering::expression) fn lower_generator_iteration(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &BoundGeneratorExpression,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let source = self.source(expression.origin());
+        let iteration = self.lower_generator_iteration_loop(id, expression, current)?;
+        let result_type = self.expression_type(id)?;
+
+        Ok(LoweredExpression::continuing(
+            iteration.exhausted,
+            Some(self.unit_operand(result_type)),
             source,
         ))
     }
@@ -288,6 +239,55 @@ impl Lowerer<'_> {
         let iteration = *iteration;
 
         self.lower_generator(id, *iteration_id, &iteration, current, kind)
+    }
+
+    fn lower_generator_iteration_loop(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &BoundGeneratorExpression,
+        current: MirBlockId,
+    ) -> Result<Iteration, LoweringError> {
+        let iteration = self.begin_iteration(id, expression.source(), current)?;
+        let iteration_type = self.expression_type(id)?;
+
+        let break_block = self
+            .builder
+            .push_block(Self::retained_source(&iteration.source), MirBlockKind::Ordinary)?;
+
+        self.builder.push_block_parameter(
+            break_block,
+            Self::retained_source(&iteration.source),
+            iteration_type,
+        )?;
+
+        self.builder.set_terminator(
+            break_block,
+            Self::retained_source(&iteration.source),
+            MirTerminatorKind::Goto(MirEdge::new(iteration.exhausted, [])),
+        )?;
+
+        self.loop_targets.push(LoopTarget {
+            syntax: expression.region(),
+            continue_block: iteration.header,
+            break_block,
+            result_type: iteration_type,
+        });
+
+        let pattern_subject = self.pattern_place_operand(
+            expression.pattern(),
+            Self::retained_place(&iteration.element),
+            iteration.item,
+        )?;
+
+        let item =
+            self.lower_pattern_bindings(expression.pattern(), pattern_subject, iteration.item)?;
+
+        let body = self.lower_block(expression.body(), item)?;
+        self.finish_edge(body, iteration.header)?;
+
+        self.loop_targets.pop();
+
+        Ok(iteration)
     }
 
     fn begin_iteration(

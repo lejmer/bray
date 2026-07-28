@@ -381,6 +381,8 @@ pub enum MirOperationKind {
         subject: MirOperand,
         /// Exact checked structural projection.
         projection: PatternProjection,
+        /// Checked ownership operation used to obtain the projected value.
+        operation: bray_bound_tree::PatternOperation,
     },
     /// Perform one generator accumulation step.
     Generator(MirGeneratorOperation),

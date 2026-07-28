@@ -7,7 +7,7 @@ use bray_ir::{
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
-use super::super::super::lowerer::{Lowerer, YieldTarget};
+use super::super::super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
     pub(in crate::lowering::expression) fn lower_structured(
@@ -121,17 +121,11 @@ impl Lowerer<'_> {
             },
         )?;
 
-        self.yield_targets.push(YieldTarget {
-            syntax: expression.origin().source_anchor().syntax(),
-            block: join,
-            result_type: ty,
-        });
-
-        let then_completion = self.lower_block(*then_block, then_entry)?;
+        let then_completion = self.lower_yielding_block(*then_block, then_entry, join, ty)?;
         self.finish_result_edge(then_completion, join, ty)?;
 
         let else_completion = match expression.blocks().get(1).copied() {
-            Some(block) => self.lower_block(block, else_entry)?,
+            Some(block) => self.lower_yielding_block(block, else_entry, join, ty)?,
             None => LoweredExpression::continuing(
                 else_entry,
                 Some(self.unit_operand(ty)),
@@ -140,8 +134,6 @@ impl Lowerer<'_> {
         };
 
         self.finish_result_edge(else_completion, join, ty)?;
-
-        self.yield_targets.pop();
 
         Ok(LoweredExpression::continuing(
             join,

@@ -1,8 +1,9 @@
 use bray_bound_tree::{BoundBlockId, BoundBlockItem, BoundLocalBinding};
 use bray_ir::{MirBlockId, MirOperand, MirSourceAnchor};
+use bray_symbols::TypeId;
 
 use super::LoweringError;
-use super::lowerer::Lowerer;
+use super::lowerer::{Lowerer, YieldTarget};
 
 pub(super) struct LoweredExpression {
     pub(super) block: Option<MirBlockId>,
@@ -50,7 +51,6 @@ impl Lowerer<'_> {
         }
 
         let source = self.source(block.origin());
-        let mut value = None;
 
         for item in block.items() {
             let lowered = match item {
@@ -70,10 +70,37 @@ impl Lowerer<'_> {
             };
 
             current = continuation;
-            value = lowered.value;
         }
 
-        Ok(LoweredExpression::continuing(current, value, source))
+        Ok(LoweredExpression::continuing(current, None, source))
+    }
+
+    pub(super) fn lower_yielding_block(
+        &mut self,
+        id: BoundBlockId,
+        current: MirBlockId,
+        target: MirBlockId,
+        result_type: TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let syntax = self
+            .input
+            .unit()
+            .view()
+            .block(id)
+            .map(|block| block.origin().source_anchor().syntax())
+            .ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?;
+
+        self.yield_targets.push(YieldTarget::Result {
+            syntax,
+            block: target,
+            result_type,
+        });
+
+        let completion = self.lower_block(id, current);
+
+        self.yield_targets.pop();
+
+        completion
     }
 
     fn lower_local_binding(

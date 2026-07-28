@@ -6,7 +6,7 @@ use bray_ir::{
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
-use super::super::super::lowerer::{Lowerer, YieldTarget};
+use super::super::super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
     pub(in crate::lowering::expression) fn lower_match(
@@ -30,12 +30,6 @@ impl Lowerer<'_> {
         let subject = self.materialize_match_subject(subject, subject_type, current, &source)?;
 
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
-
-        self.yield_targets.push(YieldTarget {
-            syntax: expression.origin().source_anchor().syntax(),
-            block: join,
-            result_type,
-        });
 
         let coverage = self
             .input
@@ -74,13 +68,13 @@ impl Lowerer<'_> {
                 None => matched,
             };
 
-            let body = self.lower_block(arm.body(), body_entry)?;
+            let body =
+                self.lower_yielding_block(arm.body(), body_entry, join, result_type)?;
+
             self.finish_result_edge(body, join, result_type)?;
 
             candidate = next;
         }
-
-        self.yield_targets.pop();
 
         let terminator = if coverage.is_exhaustive() {
             MirTerminatorKind::Unreachable
