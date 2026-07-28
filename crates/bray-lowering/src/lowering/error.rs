@@ -3,6 +3,7 @@ use bray_bound_tree::{
     StorageAccessId, StorageIdentityId,
 };
 use bray_ir::MirUnitBuildError;
+use bray_compiler_known::RepresentationRole;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +42,10 @@ pub enum LoweringError {
     UnsupportedStorageAccess(StorageAccessId),
     /// A value-producing MIR operation did not publish its required result.
     MissingOperationResult(BoundExpressionId),
+    /// A required compiler-known representation is unavailable for the selected target.
+    MissingRepresentation(RepresentationRole),
+    /// A checked semantic value could not be read or interned.
+    SemanticValueUnavailable,
     /// The MIR builder or validator rejected the lowered unit.
     Mir(MirUnitBuildError),
 }

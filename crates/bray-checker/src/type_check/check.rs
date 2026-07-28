@@ -166,6 +166,11 @@ where
     let checked_types =
         CheckedExpressionTypes::new(request.view().unit(), request.view().kind(), entries);
 
+    let checked_types = match finished.callable_result_type {
+        Some(ty) => checked_types.with_callable_result_type(ty),
+        None => checked_types,
+    };
+
     let unproven_generators =
         match unproven_array_generators(request, &checked_types, iteration_sources) {
             Ok(expressions) => expressions,

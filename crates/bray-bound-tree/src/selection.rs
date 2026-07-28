@@ -1,6 +1,7 @@
 mod call;
 mod iteration;
 mod operation;
+mod propagation;
 mod table;
 
 pub use call::{SelectedArgument, SelectedCall, SelectedImplementationWitness, SelectedReceiver};
@@ -12,6 +13,7 @@ pub use operation::{
     IndexTarget, MemberTarget, OperatorTarget, SelectedConstruction, SelectedConstructionInput,
     SelectedConversion, SelectedOperation, SelectionKind,
 };
+pub use propagation::{SelectedPropagation, SelectedPropagationBoundary};
 pub use table::{
     CheckedSemanticSelections, SemanticSelection, SemanticSelectionEntry,
     SemanticSelectionTableBuildError,

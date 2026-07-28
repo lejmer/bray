@@ -164,7 +164,8 @@ where
                     }
                     SemanticSelection::Reference(_)
                     | SemanticSelection::Call(_)
-                    | SemanticSelection::Operation(_) => None,
+                    | SemanticSelection::Operation(_)
+                    | SemanticSelection::Propagation(_) => None,
                 })
                 .collect(),
             builder: Some(builder),

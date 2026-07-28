@@ -1,7 +1,9 @@
 mod branch;
+mod failure;
 mod iteration;
 mod join;
 mod looping;
 mod matching;
 mod pattern;
+mod propagation;
 mod transfer;

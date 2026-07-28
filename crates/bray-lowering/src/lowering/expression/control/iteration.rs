@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirEdge,
     MirGeneratorKind, MirGeneratorOperation, MirOperand, MirOperationKind, MirPlace,
-    MirStorageKind, MirTerminatorKind,
+    MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, CallableAbi};
 
@@ -271,6 +271,7 @@ impl Lowerer<'_> {
             continue_block: iteration.header,
             break_block,
             result_type: iteration_type,
+            scope_depth: self.active_scopes.len(),
         });
 
         let pattern_subject = self.pattern_place_operand(
@@ -348,6 +349,7 @@ impl Lowerer<'_> {
             current,
             Self::retained_source(&source),
             MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
                 destination: Self::retained_place(&cursor),
                 value: cursor_value,
             },
@@ -394,6 +396,7 @@ impl Lowerer<'_> {
             item,
             Self::retained_source(&source),
             MirOperationKind::Store {
+                kind: MirStoreKind::Assign,
                 destination: Self::retained_place(&element),
                 value: MirOperand::Value(item_value),
             },
@@ -505,6 +508,7 @@ impl Lowerer<'_> {
             continue_block,
             break_block,
             result_type,
+            scope_depth: self.active_scopes.len(),
         });
     }
 

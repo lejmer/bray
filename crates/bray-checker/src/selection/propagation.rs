@@ -1,0 +1,318 @@
+use bray_bound_tree::{
+    AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind,
+    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedExpressionTypes,
+    SelectedPropagation, SelectedPropagationBoundary, SemanticSelection, SemanticSelectionEntry,
+    walk_bound_unit_view,
+};
+use bray_compiler_known::RepresentationRole;
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
+use bray_symbols::{GenericArgument, TypeData, TypeId};
+
+use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::representation::type_representation;
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
+
+use super::built_in_conversion_plan;
+
+#[derive(Clone, Copy)]
+struct ResultBoundary {
+    target: SelectedPropagationBoundary,
+    ty: TypeId,
+}
+
+pub(crate) fn select_propagations<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let block_owners = crate::unit::expression_block_owners(
+        request,
+        types.entries().iter().map(|entry| entry.expression()),
+    )?;
+
+    let mut events = Vec::new();
+
+    let outcome = walk_bound_unit_view(request.view(), walk_root(request), |event| {
+        if request.is_cancelled() {
+            return BoundWalkControl::Stop;
+        }
+
+        events.push(event);
+
+        BoundWalkControl::Continue
+    });
+
+    match outcome {
+        BoundWalkOutcome::Completed => {}
+        BoundWalkOutcome::Stopped => return Ok(None),
+        BoundWalkOutcome::MissingNode(node) => {
+            return Err(CheckerInfrastructureError::InvalidBoundNode { node });
+        }
+    }
+
+    let mut boundaries = Vec::new();
+    let mut entered_blocks = Vec::new();
+    let mut entries = Vec::new();
+    let mut diagnostics = DiagnosticBag::new();
+
+    for event in events {
+        match event {
+            BoundWalkEvent::Enter(AnyBoundNodeId::Block(block)) => {
+                let boundary = block_owners
+                    .get(&block)
+                    .and_then(|owner| types.expression(*owner))
+                    .filter(|result| !result.is_recovered())
+                    .and_then(|result| {
+                        request.view().block(block).map(|block| ResultBoundary {
+                            target: SelectedPropagationBoundary::YieldRegion(
+                                block.origin().source_anchor().syntax(),
+                            ),
+                            ty: result.ty(),
+                        })
+                    });
+
+                entered_blocks.push(boundary.is_some());
+
+                if let Some(boundary) = boundary {
+                    boundaries.push(boundary);
+                }
+            }
+            BoundWalkEvent::Exit(AnyBoundNodeId::Block(_)) => {
+                if entered_blocks.pop().unwrap_or(false) {
+                    boundaries.pop();
+                }
+            }
+            BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) => {
+                let Some(selection) = select_propagation(request, types, expression, &boundaries)?
+                else {
+                    continue;
+                };
+
+                match selection {
+                    Ok(selection) => entries.push(SemanticSelectionEntry::new(
+                        expression,
+                        SemanticSelection::Propagation(selection),
+                    )),
+                    Err(()) => diagnostics.add(missing_boundary_diagnostic(
+                        request,
+                        expression,
+                        diagnostics.len(),
+                    )?),
+                }
+            }
+            BoundWalkEvent::Enter(AnyBoundNodeId::Pattern(_) | AnyBoundNodeId::CallableBody(_))
+            | BoundWalkEvent::Exit(
+                AnyBoundNodeId::Expression(_)
+                | AnyBoundNodeId::Pattern(_)
+                | AnyBoundNodeId::CallableBody(_),
+            ) => {}
+        }
+    }
+
+    Ok(Some((entries, diagnostics)))
+}
+
+fn select_propagation<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    expression: BoundExpressionId,
+    boundaries: &[ResultBoundary],
+) -> Result<Option<Result<SelectedPropagation, ()>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(BoundExpression::Structured(structured)) = request.view().expression(expression)
+    else {
+        return Ok(None);
+    };
+
+    if !matches!(
+        structured.kind(),
+        BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation
+    ) {
+        return Ok(None);
+    }
+
+    let Some(operand) = structured.operands().first().copied() else {
+        return Ok(None);
+    };
+
+    let Some(operand_type) = types
+        .expression(operand)
+        .filter(|result| !result.is_recovered())
+    else {
+        return Ok(None);
+    };
+
+    if structured.kind() == BoundStructuredExpressionKind::NullablePropagation {
+        let TypeData::Nullable(_) = request
+            .semantic_values()
+            .type_data(operand_type.ty())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+            .as_ref()
+        else {
+            return Ok(None);
+        };
+
+        return Ok(Some(
+            select_nullable_boundary(request, types, boundaries)
+                .map(|boundary| SelectedPropagation::Nullable {
+                    boundary: boundary.target,
+                    result_type: boundary.ty,
+                })
+                .ok_or(()),
+        ));
+    }
+
+    match type_representation(request, operand_type.ty())? {
+        Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun))),
+        Some(RepresentationRole::Result) => {
+            let Some(error_type) = named_type_arguments(request, operand_type.ty())?
+                .get(1)
+                .copied()
+            else {
+                return Ok(None);
+            };
+
+            Ok(Some(
+                select_result_boundary(request, types, boundaries, error_type)?
+                    .map(|(boundary, conversion)| SelectedPropagation::Result {
+                        boundary: boundary.target,
+                        result_type: boundary.ty,
+                        error_conversion: conversion,
+                    })
+                    .ok_or(()),
+            ))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn select_nullable_boundary<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    boundaries: &[ResultBoundary],
+) -> Option<ResultBoundary>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    boundaries
+        .iter()
+        .rev()
+        .copied()
+        .find(|boundary| is_nullable(request, boundary.ty))
+        .or_else(|| {
+            types
+                .callable_result_type()
+                .filter(|ty| is_nullable(request, *ty))
+                .map(|ty| ResultBoundary {
+                    target: SelectedPropagationBoundary::Callable,
+                    ty,
+                })
+        })
+}
+
+fn select_result_boundary<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    boundaries: &[ResultBoundary],
+    error_type: TypeId,
+) -> Result<Option<(ResultBoundary, bray_bound_tree::SelectedConversion)>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    for boundary in boundaries
+        .iter()
+        .rev()
+        .copied()
+        .chain(types.callable_result_type().map(|ty| ResultBoundary {
+            target: SelectedPropagationBoundary::Callable,
+            ty,
+        }))
+    {
+        if type_representation(request, boundary.ty)? != Some(RepresentationRole::Result) {
+            continue;
+        }
+
+        let Some(target_error) = named_type_arguments(request, boundary.ty)?.get(1).copied() else {
+            continue;
+        };
+
+        if let Some(conversion) = built_in_conversion_plan(request, error_type, target_error)? {
+            return Ok(Some((boundary, conversion)));
+        }
+    }
+
+    Ok(None)
+}
+
+fn named_type_arguments<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<Vec<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let data = request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Named { substitution, .. } = data.as_ref() else {
+        return Ok(Vec::new());
+    };
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(*substitution)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    Ok(substitution
+        .bindings()
+        .iter()
+        .filter_map(|binding| match binding.argument() {
+            GenericArgument::Type(ty) => Some(ty),
+            GenericArgument::Constant(_) => None,
+        })
+        .collect())
+}
+
+fn is_nullable<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request
+        .semantic_values()
+        .type_data(ty)
+        .is_ok_and(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
+}
+
+const fn walk_root<C>(request: CheckerUnitView<'_, C>) -> AnyBoundNodeId
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match request.root() {
+        CheckerUnitRoot::CallableBody(body) => AnyBoundNodeId::CallableBody(body),
+        CheckerUnitRoot::Expression(expression) => AnyBoundNodeId::Expression(expression),
+        CheckerUnitRoot::ExpressionSequence(block) => AnyBoundNodeId::Block(block),
+    }
+}
+
+fn missing_boundary_diagnostic<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    index: usize,
+) -> Result<Diagnostic, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    Ok(Diagnostic::new(
+        diagnostic_id(index),
+        DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+        SeverityKind::Error,
+    )
+    .with_primary_span(expression_span(request, expression)?))
+}

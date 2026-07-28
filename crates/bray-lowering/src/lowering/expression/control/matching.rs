@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundExpressionId, BoundMatchExpression};
 use bray_ir::{
     MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirStorageKind,
-    MirTerminatorKind,
+    MirStoreKind, MirTerminatorKind,
 };
 
 use super::super::super::LoweringError;
@@ -152,6 +152,7 @@ impl Lowerer<'_> {
             current,
             Self::retained_source(source),
             MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
                 destination: Self::retained_place(&place),
                 value: subject,
             },

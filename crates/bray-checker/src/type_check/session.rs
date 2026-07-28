@@ -42,6 +42,7 @@ pub(super) struct FinishedExpressionTypes {
     pub(super) results: Vec<(BoundExpressionId, ExpressionTypeResult)>,
     pub(super) conflicts: Vec<TypeConflict>,
     pub(super) unresolved: Vec<BoundExpressionId>,
+    pub(super) callable_result_type: Option<TypeId>,
 }
 
 /// Mutable checker-local state shared with operation selection before publication.
@@ -56,6 +57,7 @@ where
     regions: ExpressionTypeRegions,
     types: ExpressionTypeDependencies,
     inference: TypeInferenceContext,
+    callable_result_type: Option<TypeId>,
 }
 
 impl<'view, C> ExpressionTypeSession<'view, C>
@@ -99,7 +101,8 @@ where
 
         initialize_block_variables(request, &nodes.blocks, &mut block_variables, &mut inference)?;
 
-        let block_owners = collect_block_owners(request, &nodes.expressions)?;
+        let block_owners =
+            crate::unit::expression_block_owners(request, nodes.expressions.iter().copied())?;
 
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
@@ -145,6 +148,7 @@ where
             regions,
             types,
             inference,
+            callable_result_type: None,
         }))
     }
 
@@ -164,6 +168,7 @@ where
 
         if let Some(result_type) = input.callable_result_type() {
             self.add_return_expectations(result_type)?;
+            self.callable_result_type = Some(result_type);
         }
 
         Ok(())
@@ -240,11 +245,16 @@ where
             ExpressionTypeEntry::new(*expression, result)
         });
 
-        CheckedExpressionTypes::new(
+        let types = CheckedExpressionTypes::new(
             self.request.view().unit(),
             self.request.view().kind(),
             entries,
-        )
+        );
+
+        match self.callable_result_type {
+            Some(ty) => types.with_callable_result_type(ty),
+            None => types,
+        }
     }
 
     pub(crate) const fn revision(&self) -> u64 {
@@ -323,6 +333,7 @@ where
             results,
             conflicts,
             unresolved,
+            callable_result_type: self.callable_result_type,
         }
     }
 
@@ -535,32 +546,6 @@ where
     }
 
     Ok(())
-}
-
-fn collect_block_owners<C>(
-    request: CheckerUnitView<'_, C>,
-    expressions: &[BoundExpressionId],
-) -> Result<BTreeMap<BoundBlockId, BoundExpressionId>, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut owners = BTreeMap::new();
-
-    for &expression in expressions {
-        if request.is_cancelled() {
-            return Ok(owners);
-        }
-
-        let Some(bound) = request.view().expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
-        };
-
-        for block in bound.child_blocks() {
-            owners.insert(block, expression);
-        }
-    }
-
-    Ok(owners)
 }
 
 fn validate_input<C>(

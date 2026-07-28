@@ -3,6 +3,8 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+use crate::{GenericParameterSymbolId, NamedTypeSymbolId};
+
 use super::{
     super::{
         CallableInstanceData, CallableInstanceId, ConcreteGenericSubstitutionId, ConstantTermData,
@@ -33,6 +35,32 @@ pub struct SemanticValueStore {
 }
 
 impl SemanticValueStore {
+    /// Interns a named type whose declaration has no generic parameters.
+    pub fn intern_non_generic_named_type(
+        &self,
+        definition: NamedTypeSymbolId,
+    ) -> Result<TypeId, SemanticValueStoreError> {
+        let Some(owner) = super::super::GenericOwnerId::try_new(definition.into_any()) else {
+            unreachable!("named type symbols are generic owners");
+        };
+
+        let substitution = match GenericSubstitutionData::try_new(
+            owner,
+            std::iter::empty::<GenericParameterSymbolId>(),
+            std::iter::empty::<super::super::GenericArgument>(),
+        ) {
+            Ok(substitution) => substitution,
+            Err(_) => unreachable!("empty substitutions are valid for non-generic named types"),
+        };
+
+        let substitution = self.intern_generic_substitution(substitution)?;
+
+        self.intern_type(TypeData::Named {
+            definition,
+            substitution,
+        })
+    }
+
     /// Creates an empty semantic value store with a process-unique checking identity.
     pub fn try_new() -> Result<Self, SemanticValueStoreCreateError> {
         Ok(Self {

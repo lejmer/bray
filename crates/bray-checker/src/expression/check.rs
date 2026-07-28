@@ -279,6 +279,14 @@ where
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
+    let (mut propagation_entries, propagation_diagnostics) =
+        match crate::selection::select_propagations(request, &types) {
+            Ok(Some(result)) => result,
+            Ok(None) => return CheckerOutcome::Cancelled,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+    entries.append(&mut propagation_entries);
     entries.append(&mut supplemental_selections);
     entries.extend(operation_selections.iter().cloned());
 
@@ -313,6 +321,7 @@ where
         (types, selections, literal_values),
         type_diagnostics
             .merged(&selection_diagnostics)
+            .merged(&propagation_diagnostics)
             .merged(prepared.diagnostics())
             .merged(&supplemental_diagnostics)
             .merged(&literal_diagnostics),

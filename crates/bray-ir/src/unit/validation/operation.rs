@@ -23,7 +23,9 @@ pub(super) fn validate_operation(
     validate_operation_block(block_kind, id, operation.kind())?;
 
     match operation.kind() {
-        MirOperationKind::Store { destination, value } => {
+        MirOperationKind::Store {
+            destination, value, ..
+        } => {
             validate_place(unit, destination, block, Some(id))?;
             validate_operand(unit, value, block, Some(id))?;
 
@@ -35,7 +37,10 @@ pub(super) fn validate_operation(
         }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place) => validate_place(unit, place, block, Some(id))?,
+        | MirOperationKind::Destroy(place)
+        | MirOperationKind::Cleanup { place, .. } => {
+            validate_place(unit, place, block, Some(id))?;
+        }
         MirOperationKind::Unary { operand, .. } | MirOperationKind::Convert { operand, .. } => {
             validate_operand(unit, operand, block, Some(id))?;
         }
@@ -46,6 +51,16 @@ pub(super) fn validate_operation(
         MirOperationKind::PatternProjection { subject, .. } => {
             validate_operand(unit, subject, block, Some(id))?;
         }
+        MirOperationKind::PanicReport(cause) => match cause {
+            crate::MirPanicCause::Message(message) => {
+                validate_operand(unit, message, block, Some(id))?;
+            }
+            crate::MirPanicCause::Assertion(message) => {
+                if let Some(message) = message {
+                    validate_operand(unit, message, block, Some(id))?;
+                }
+            }
+        },
         MirOperationKind::Generator(operation) => {
             validate_generator_operation(unit, block, id, operation)?;
         }
@@ -107,6 +122,14 @@ fn validate_operation_block(
         MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_) => {
             block_kind != MirBlockKind::CleanupBroadcast
         }
+        MirOperationKind::Cleanup { phase, .. } => match phase {
+            crate::MirCleanupPhase::TaskCancellation => {
+                block_kind == MirBlockKind::CleanupBroadcast
+            }
+            crate::MirCleanupPhase::LifecycleResolution => {
+                block_kind == MirBlockKind::LifecycleResolution
+            }
+        },
         MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }
@@ -116,7 +139,8 @@ fn validate_operation_block(
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
-        | MirOperationKind::Call(_) => true,
+        | MirOperationKind::Call(_)
+        | MirOperationKind::PanicReport(_) => true,
     };
 
     if !valid {
@@ -141,6 +165,7 @@ fn validate_operation_result(
             | MirOperationKind::Aggregate(_)
             | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
+            | MirOperationKind::PanicReport(_)
             | MirOperationKind::Async(
                 MirAsyncOperation::ObserveCurrentRunCancellation { .. }
                     | MirAsyncOperation::ResolveTask { .. }
@@ -155,6 +180,7 @@ fn validate_operation_result(
             )
             | MirOperationKind::Finalize(_)
             | MirOperationKind::Destroy(_)
+            | MirOperationKind::Cleanup { .. }
             | MirOperationKind::Async(
                 MirAsyncOperation::CreateFrame { .. }
                     | MirAsyncOperation::MoveInactiveFrame { .. }

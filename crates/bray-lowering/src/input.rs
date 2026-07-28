@@ -697,6 +697,8 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
                 | BoundStructuredExpressionKind::TypeFormConstruction
                 | BoundStructuredExpressionKind::BooleanAllFold
                 | BoundStructuredExpressionKind::BooleanAnyFold
+                | BoundStructuredExpressionKind::NullablePropagation
+                | BoundStructuredExpressionKind::ResultPropagation
         ),
         BoundExpression::Block(_)
         | BoundExpression::Literal(_)

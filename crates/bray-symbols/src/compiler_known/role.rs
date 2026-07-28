@@ -9,7 +9,7 @@ use bray_compiler_known::{
 use super::CompilerKnownSymbolBuildError;
 use crate::{
     AnySymbolId, ExactSymbolId, NamedTypeSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
-    TraitTypeMemberSymbolId,
+    TraitTypeMemberSymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +38,104 @@ pub struct CompilerKnownIterationProtocol {
     iterator_trait: TraitSymbolId,
     iterator_element: TraitTypeMemberSymbolId,
     iterator_next: TraitCallableMemberSymbolId,
+}
+
+/// Exact compiler-known declarations defining the `Result` union representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CompilerKnownResultRepresentation {
+    success_variant: UnionVariantSymbolId,
+    success_field: UnionPayloadFieldSymbolId,
+    error_variant: UnionVariantSymbolId,
+    error_field: UnionPayloadFieldSymbolId,
+}
+
+impl CompilerKnownResultRepresentation {
+    pub(super) const fn new(
+        success_variant: UnionVariantSymbolId,
+        success_field: UnionPayloadFieldSymbolId,
+        error_variant: UnionVariantSymbolId,
+        error_field: UnionPayloadFieldSymbolId,
+    ) -> Self {
+        Self {
+            success_variant,
+            success_field,
+            error_variant,
+            error_field,
+        }
+    }
+
+    /// Returns the `Result.Ok` variant.
+    pub const fn success_variant(self) -> UnionVariantSymbolId {
+        self.success_variant
+    }
+
+    /// Returns the `Result.Ok.value` payload field.
+    pub const fn success_field(self) -> UnionPayloadFieldSymbolId {
+        self.success_field
+    }
+
+    /// Returns the `Result.Error` variant.
+    pub const fn error_variant(self) -> UnionVariantSymbolId {
+        self.error_variant
+    }
+
+    /// Returns the `Result.Error.error` payload field.
+    pub const fn error_field(self) -> UnionPayloadFieldSymbolId {
+        self.error_field
+    }
+}
+
+/// Exact compiler-known declarations defining the `RunResult` union representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CompilerKnownRunResultRepresentation {
+    completed_variant: UnionVariantSymbolId,
+    completed_field: UnionPayloadFieldSymbolId,
+    panicked_variant: UnionVariantSymbolId,
+    panicked_field: UnionPayloadFieldSymbolId,
+    cancelled_variant: UnionVariantSymbolId,
+}
+
+impl CompilerKnownRunResultRepresentation {
+    pub(super) const fn new(
+        completed_variant: UnionVariantSymbolId,
+        completed_field: UnionPayloadFieldSymbolId,
+        panicked_variant: UnionVariantSymbolId,
+        panicked_field: UnionPayloadFieldSymbolId,
+        cancelled_variant: UnionVariantSymbolId,
+    ) -> Self {
+        Self {
+            completed_variant,
+            completed_field,
+            panicked_variant,
+            panicked_field,
+            cancelled_variant,
+        }
+    }
+
+    /// Returns the `RunResult.Completed` variant.
+    pub const fn completed_variant(self) -> UnionVariantSymbolId {
+        self.completed_variant
+    }
+
+    /// Returns the `RunResult.Completed.value` payload field.
+    pub const fn completed_field(self) -> UnionPayloadFieldSymbolId {
+        self.completed_field
+    }
+
+    /// Returns the `RunResult.Panicked` variant.
+    pub const fn panicked_variant(self) -> UnionVariantSymbolId {
+        self.panicked_variant
+    }
+
+    /// Returns the `RunResult.Panicked.report` payload field.
+    pub const fn panicked_field(self) -> UnionPayloadFieldSymbolId {
+        self.panicked_field
+    }
+
+    /// Returns the `RunResult.Cancelled` variant.
+    pub const fn cancelled_variant(self) -> UnionVariantSymbolId {
+        self.cancelled_variant
+    }
 }
 
 impl CompilerKnownIterationProtocol {

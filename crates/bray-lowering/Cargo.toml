@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 bray-bound-tree = { path = "../bray-bound-tree" }
+bray-compiler-known = { path = "../bray-compiler-known" }
 bray-declarations = { path = "../bray-declarations" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-ir = { path = "../bray-ir" }

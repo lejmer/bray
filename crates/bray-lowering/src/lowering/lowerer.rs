@@ -16,6 +16,7 @@ pub(super) enum YieldTarget {
         syntax: SyntaxAnchor,
         block: MirBlockId,
         result_type: bray_symbols::TypeId,
+        scope_depth: usize,
     },
     Generator {
         syntax: SyntaxAnchor,
@@ -37,14 +38,23 @@ pub(super) struct LoopTarget {
     pub(super) continue_block: MirBlockId,
     pub(super) break_block: MirBlockId,
     pub(super) result_type: bray_symbols::TypeId,
+    pub(super) scope_depth: usize,
+}
+
+pub(super) struct CatchTarget {
+    pub(super) block: MirBlockId,
+    pub(super) report_type: bray_symbols::TypeId,
+    pub(super) scope_depth: usize,
 }
 
 pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
+    pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
+    pub(super) catch_targets: Vec<CatchTarget>,
 }
 
 /// Lowers one complete checked semantic unit into validated backend-independent MIR.
@@ -60,8 +70,10 @@ impl<'unit> Lowerer<'unit> {
             input,
             builder,
             storages: BTreeMap::new(),
+            active_scopes: Vec::new(),
             yield_targets: Vec::new(),
             loop_targets: Vec::new(),
+            catch_targets: Vec::new(),
         }
     }
 
@@ -135,13 +147,15 @@ mod tests {
         BoundBinaryExpression, BoundBlock, BoundBlockItem, BoundCallableBody,
         BoundControlTransferExpression, BoundControlTransferKind, BoundDependencyContract,
         BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
-        BoundOperator, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsyncFacts,
-        CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
-        CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
-        CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
+        BoundOperator, BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder,
+        BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsyncFacts, CheckedBodyBehavior,
+        CheckedControlFlowFacts, CheckedDependencyContracts, CheckedExpressionTypes,
+        CheckedLiteralValueEntry, CheckedLiteralValues, CheckedPatternFacts,
+        CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
         ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        LivenessFacts, OperatorTarget, SelectedOperation, SemanticSelection,
-        SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
+        LivenessFacts, OperatorTarget, SelectedOperation, SelectedPropagation,
+        SelectedPropagationBoundary, SemanticSelection, SemanticSelectionEntry, StorageFlowFacts,
+        StoragePlanBuilder,
     };
     use bray_ir::{MirBinaryOperator, MirOperationKind, MirTerminatorKind, MirUnitKind};
     use bray_symbols::testing::available_compiler_known_symbols;
@@ -204,6 +218,31 @@ mod tests {
             mir.blocks()[2].terminator().kind(),
             MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
         ));
+    }
+
+    #[test]
+    fn lowering_makes_nullable_propagation_and_early_cleanup_explicit() {
+        let fixture = nullable_propagation_fixture(82);
+        let input = fixture.input();
+
+        let mir = lower_unit(input)
+            .unwrap_or_else(|error| panic!("checked nullable propagation must lower: {error:?}"));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::PatternBranch {
+                predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                ..
+            }
+        )));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Immediate {
+                value: bray_ir::MirImmediateValue::NullableAbsent,
+                ..
+            }))
+        )));
     }
 
     struct LoweringFixture {
@@ -364,10 +403,179 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test literal values must validate: {error:?}"));
 
+        lowering_fixture_from_parts(
+            unit,
+            types,
+            selections,
+            literals,
+            values,
+            &expressions,
+            [ControlCompletionKind::Return],
+        )
+    }
+
+    fn nullable_propagation_fixture(unit_id: u32) -> LoweringFixture {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
+
+        let value_type = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test value type must intern: {error:?}"));
+
+        let nullable_type = values
+            .intern_type(TypeData::Nullable(value_type))
+            .unwrap_or_else(|error| panic!("test nullable type must intern: {error:?}"));
+
+        let template = test_bound_unit(unit_id);
+        let origin = bray_bound_tree::BoundNodeOrigin::source(template.key().source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit_id));
+
+        let operand = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Absence,
+                [],
+                [],
+                [],
+                Some(nullable_type),
+                false,
+            )),
+        );
+
+        let propagation = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::NullablePropagation,
+                [operand],
+                [],
+                [],
+                Some(value_type),
+                false,
+            )),
+        );
+
+        let return_value = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Absence,
+                [],
+                [],
+                [],
+                Some(nullable_type),
+                false,
+            )),
+        );
+
+        let return_expression = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Return,
+                Some(return_value),
+                None,
+                Some(value_type),
+                false,
+            )),
+        );
+
+        let block = tree
+            .push_block(BoundBlock::new(
+                origin,
+                [
+                    BoundBlockItem::Expression(propagation),
+                    BoundBlockItem::Expression(return_expression),
+                ],
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
+
+        let body = tree
+            .push_callable_body(BoundCallableBody::block(origin, block))
+            .unwrap_or_else(|error| panic!("test callable body must fit: {error:?}"));
+
+        let unit = BoundUnit::try_new(
+            template.key().clone(),
+            tree.finish(),
+            template.local_symbols().clone(),
+            [],
+            BoundUnitRoot::CallableBody(body),
+        )
+        .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
+
+        let entries = [
+            ExpressionTypeEntry::new(
+                operand,
+                ExpressionTypeResult::new(nullable_type, ExpressionTypeStatus::Valid),
+            ),
+            ExpressionTypeEntry::new(
+                propagation,
+                ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid),
+            ),
+            ExpressionTypeEntry::new(
+                return_value,
+                ExpressionTypeResult::new(nullable_type, ExpressionTypeStatus::Valid),
+            ),
+            ExpressionTypeEntry::new(
+                return_expression,
+                ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid),
+            ),
+        ];
+
+        let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), entries)
+            .with_callable_result_type(nullable_type);
+
+        let selection = SemanticSelectionEntry::new(
+            propagation,
+            SemanticSelection::Propagation(SelectedPropagation::Nullable {
+                boundary: SelectedPropagationBoundary::Callable,
+                result_type: nullable_type,
+            }),
+        );
+
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [selection])
+            .unwrap_or_else(|error| panic!("propagation selection must validate: {error:?}"));
+
+        let literals = CheckedLiteralValues::try_new(
+            &unit,
+            &types,
+            &values,
+            test_mir_target().machine().pointer_width_bits(),
+            [],
+        )
+        .unwrap_or_else(|error| panic!("empty literal values must validate: {error:?}"));
+
+        let expressions = [operand, propagation, return_value, return_expression];
+
+        lowering_fixture_from_parts(
+            unit,
+            types,
+            selections,
+            literals,
+            values,
+            &expressions,
+            [
+                ControlCompletionKind::Propagation,
+                ControlCompletionKind::Return,
+            ],
+        )
+    }
+
+    fn lowering_fixture_from_parts(
+        unit: BoundUnit,
+        types: CheckedExpressionTypes,
+        selections: CheckedSemanticSelections,
+        literals: CheckedLiteralValues,
+        values: SemanticValueStore,
+        expressions: &[BoundExpressionId],
+        completion: impl IntoIterator<Item = ControlCompletionKind>,
+    ) -> LoweringFixture {
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
             unit.key().kind(),
-            ControlCompletion::from_kinds([ControlCompletionKind::Return]),
+            ControlCompletion::from_kinds(completion),
         );
 
         let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);

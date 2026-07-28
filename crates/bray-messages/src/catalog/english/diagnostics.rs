@@ -640,6 +640,11 @@ const CHECKING_UNREACHABLE_PATTERN_ALTERNATIVE: &[MessageTemplatePart] =
 const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("cannot infer expression type")];
 
+const CHECKING_NO_COMPATIBLE_PROPAGATION_BOUNDARY: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "no compatible propagation boundary is available",
+    )];
+
 const CHECKING_INVALID_CONSTANT_EXPRESSION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "expression is not valid in compile-time constant context",
 )];
@@ -984,6 +989,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingCannotInferExpressionType => {
             MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)
+        }
+        DiagnosticKind::CheckingNoCompatiblePropagationBoundary => {
+            MessageTemplate::new(CHECKING_NO_COMPATIBLE_PROPAGATION_BOUNDARY)
         }
         DiagnosticKind::CheckingInvalidConstantExpression => {
             MessageTemplate::new(CHECKING_INVALID_CONSTANT_EXPRESSION)

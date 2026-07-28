@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
     BoundUnit, CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
-    SelectedConstructionInput, SelectedIterationSource, SelectedOperation,
+    SelectedConstructionInput, SelectedIterationSource, SelectedOperation, SelectedPropagation,
 };
 
 /// The exact checked semantic choice attached to one expression occurrence.
@@ -18,6 +18,8 @@ pub enum SemanticSelection {
     Operation(SelectedOperation),
     /// Exact iteration protocols and operations.
     Iteration(SelectedIterationSource),
+    /// An exact lexical or current-run propagation decision.
+    Propagation(SelectedPropagation),
 }
 
 /// One source-correlated expression and its exact semantic selection.
@@ -203,6 +205,18 @@ fn selection_matches_expression(
                     && selection.source() == source
                     && selection.mode() == mode
             })
+        }
+        (SemanticSelection::Propagation(selection), BoundExpression::Structured(expression)) => {
+            matches!(
+                (selection, expression.kind()),
+                (
+                    SelectedPropagation::Nullable { .. },
+                    BoundStructuredExpressionKind::NullablePropagation
+                ) | (
+                    SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun,
+                    BoundStructuredExpressionKind::ResultPropagation
+                )
+            )
         }
         _ => false,
     }
@@ -462,6 +476,7 @@ fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::
         SemanticSelection::Call(call) => Some(call.resolution().result().ty()),
         SemanticSelection::Operation(operation) => operation.result_type(),
         SemanticSelection::Iteration(_) => None,
+        SemanticSelection::Propagation(_) => None,
     }
 }
 

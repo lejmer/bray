@@ -80,7 +80,9 @@ where
             SemanticSelection::Iteration(iteration) => {
                 selected_iteration_contract(request, storage, iteration)
             }
-            SemanticSelection::Reference(_) | SemanticSelection::Operation(_) => continue,
+            SemanticSelection::Reference(_)
+            | SemanticSelection::Operation(_)
+            | SemanticSelection::Propagation(_) => continue,
         };
 
         match contract {

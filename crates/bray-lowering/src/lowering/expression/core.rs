@@ -5,7 +5,8 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirUnaryOperator,
+    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
+    MirUnaryOperator,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -307,7 +308,11 @@ impl Lowerer<'_> {
         self.builder.push_operation(
             current,
             Self::retained_source(&source),
-            MirOperationKind::Store { destination, value },
+            MirOperationKind::Store {
+                kind: MirStoreKind::Assign,
+                destination,
+                value,
+            },
             None,
         )?;
 
@@ -434,7 +439,7 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
-    fn convert_operand(
+    pub(in crate::lowering) fn convert_operand(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -444,7 +449,7 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         match conversion.target() {
             ConversionTarget::Identity => Ok(operand),
-            ConversionTarget::BuiltInScalar => self.push_value_operation(
+            ConversionTarget::BuiltInScalar => self.push_converted_value(
                 expression,
                 current,
                 source,
@@ -452,8 +457,9 @@ impl Lowerer<'_> {
                     operand,
                     conversion: conversion.clone(),
                 },
+                conversion.target_type(),
             ),
-            ConversionTarget::Trait { fulfillment, .. } => self.push_value_operation(
+            ConversionTarget::Trait { fulfillment, .. } => self.push_converted_value(
                 expression,
                 current,
                 source,
@@ -464,8 +470,9 @@ impl Lowerer<'_> {
                     )),
                     [operand],
                 )),
+                conversion.target_type(),
             ),
-            ConversionTarget::Composite(_) => self.push_value_operation(
+            ConversionTarget::Composite(_) => self.push_converted_value(
                 expression,
                 current,
                 source,
@@ -473,8 +480,27 @@ impl Lowerer<'_> {
                     operand,
                     conversion: conversion.clone(),
                 },
+                conversion.target_type(),
             ),
         }
+    }
+
+    fn push_converted_value(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operation: MirOperationKind,
+        result_type: TypeId,
+    ) -> Result<MirOperand, LoweringError> {
+        let commit = self
+            .builder
+            .push_operation(current, source, operation, Some(result_type))?;
+
+        commit
+            .result()
+            .map(MirOperand::Value)
+            .ok_or(LoweringError::MissingOperationResult(expression))
     }
 
     pub(super) fn selected_operation(

@@ -3,7 +3,8 @@ use bray_bound_tree::{
     StorageBindingTarget,
 };
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirStoreKind,
+    MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, LocalBindingSymbolId};
 
@@ -385,7 +386,11 @@ impl Lowerer<'_> {
         self.builder.push_operation(
             current,
             self.source(origin),
-            MirOperationKind::Store { destination, value },
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination,
+                value,
+            },
             None,
         )?;
 

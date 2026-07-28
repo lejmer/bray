@@ -176,6 +176,17 @@ fn selection_exposes_internal(
                 &mut dependencies,
             )?;
         }
+        SemanticSelection::Propagation(propagation) => {
+            if let Some(conversion) = propagation.error_conversion() {
+                semantic_values_expose_internal |= push_conversion_dependencies(
+                    semantic_values,
+                    symbols,
+                    declarations,
+                    conversion,
+                    &mut dependencies,
+                )?;
+            }
+        }
     }
 
     Ok(semantic_values_expose_internal

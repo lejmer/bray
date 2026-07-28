@@ -67,6 +67,7 @@ impl Lowerer<'_> {
             continue_block: header,
             break_block: join,
             result_type,
+            scope_depth: self.active_scopes.len(),
         });
 
         let body = self.lower_block(*body, body_entry)?;
@@ -121,6 +122,7 @@ impl Lowerer<'_> {
             continue_block: header,
             break_block: join,
             result_type,
+            scope_depth: self.active_scopes.len(),
         });
 
         let body = self.lower_block(*body, header)?;

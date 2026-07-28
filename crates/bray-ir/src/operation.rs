@@ -9,9 +9,27 @@ use bray_runtime_interface::ProtectedAsyncFrameId;
 use bray_symbols::{BorrowKind, ConstantTermId};
 
 use crate::{
-    MirCall, MirFrameStateId, MirOperand, MirOperationId, MirPlace, MirRuntimeReference,
-    MirSourceAnchor, MirStorageId, MirValueId,
+    MirCall, MirCleanupPhase, MirFrameStateId, MirOperand, MirOperationId, MirPlace,
+    MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
 };
+
+/// The checked semantic role of one store operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirStoreKind {
+    /// Initialize storage that does not currently contain a live value.
+    Initialize,
+    /// Assign to storage using the checked replacement semantics.
+    Assign,
+}
+
+/// The checked source of one panic report.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MirPanicCause {
+    /// An explicit `panic` message.
+    Message(MirOperand),
+    /// A failed assertion with an optional evaluated message.
+    Assertion(Option<MirOperand>),
+}
 
 /// Typed unary operation selected during lowering.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -336,6 +354,8 @@ pub enum MirAsyncOperation {
 pub enum MirOperationKind {
     /// Assign an operand into storage.
     Store {
+        /// Checked initialization or assignment behavior.
+        kind: MirStoreKind,
         /// Destination storage place.
         destination: MirPlace,
         /// Value being stored.
@@ -388,10 +408,19 @@ pub enum MirOperationKind {
     Generator(MirGeneratorOperation),
     /// Invoke an exact callable target.
     Call(MirCall),
+    /// Create an owned panic report from one checked failure cause.
+    PanicReport(MirPanicCause),
     /// Run checked finalization for a storage place.
     Finalize(MirPlace),
     /// Destroy a storage place after its value is no longer live.
     Destroy(MirPlace),
+    /// Perform one checked cleanup phase for a storage place.
+    Cleanup {
+        /// Exact cleanup phase selected by checking.
+        phase: MirCleanupPhase,
+        /// Storage whose checked cleanup obligation is executed.
+        place: MirPlace,
+    },
     /// Perform a protected-frame or task operation.
     Async(MirAsyncOperation),
 }
