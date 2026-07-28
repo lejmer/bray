@@ -185,6 +185,8 @@ dependencies = [
  "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",
+ "bray-ir",
+ "bray-lowering",
  "bray-package-interface",
  "bray-parser",
  "bray-runtime-interface",

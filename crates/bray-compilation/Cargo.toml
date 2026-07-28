@@ -13,6 +13,8 @@ bray-checker = { path = "../bray-checker" }
 bray-compiler-known = { path = "../bray-compiler-known" }
 bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-ir = { path = "../bray-ir" }
+bray-lowering = { path = "../bray-lowering" }
 bray-parser = { path = "../bray-parser" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-source = { path = "../bray-source" }

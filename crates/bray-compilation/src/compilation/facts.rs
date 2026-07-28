@@ -162,6 +162,7 @@ pub(super) struct CompilationState {
     pub(super) async_facts: UnitFactCache<CheckedAsyncFacts>,
     pub(super) body_behavior_contributions: UnitFactCache<BodyBehaviorContributions>,
     pub(super) checked_body_behaviors: UnitFactCache<CheckedBodyBehavior>,
+    pub(super) mir_units: UnitFactCache<Option<bray_ir::MirUnit>>,
     pub(super) constant_template_keys:
         FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
     pub(super) callable_body_keys:
@@ -314,6 +315,7 @@ impl Compilation {
                 async_facts: UnitFactCache::new(),
                 body_behavior_contributions: UnitFactCache::new(),
                 checked_body_behaviors: UnitFactCache::new(),
+                mir_units: UnitFactCache::new(),
                 constant_template_keys: FactCell::new(),
                 callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),

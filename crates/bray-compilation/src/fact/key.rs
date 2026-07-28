@@ -270,6 +270,8 @@ pub(crate) enum CompilationFactKey {
     BodyBehaviorContributions(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
     CheckedBodyBehavior(BoundUnitKey),
+    /// Validated MIR for one exact checked semantic unit.
+    MirUnit(BoundUnitKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -362,6 +364,7 @@ impl CompilationFactKey {
             | Self::AsyncFacts(key)
             | Self::BodyBehaviorContributions(key)
             | Self::CheckedBodyBehavior(key)
+            | Self::MirUnit(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)
