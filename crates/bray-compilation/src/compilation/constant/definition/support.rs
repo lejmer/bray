@@ -97,7 +97,7 @@ pub(super) struct ConcreteReferenceContext<'parameters> {
 pub(in crate::compilation::constant) fn constant_callable_root(
     bound: &BoundUnit,
 ) -> Option<bray_bound_tree::BoundBlockId> {
-    let BoundUnitRoot::CallableBody(body) = bound.root() else {
+    let BoundUnitRoot::CallableBody { body, .. } = bound.root() else {
         return None;
     };
 
@@ -256,7 +256,7 @@ pub(in crate::compilation::constant) fn substitute_expression_types(
 pub(super) fn expression_root(bound: &BoundUnit) -> Result<BoundExpressionId, FactQueryError> {
     match bound.root() {
         BoundUnitRoot::Expression(root) => Ok(root),
-        BoundUnitRoot::CallableBody(_)
+        BoundUnitRoot::CallableBody { .. }
         | BoundUnitRoot::AnonymousCallable { .. }
         | BoundUnitRoot::ExpressionSequence(_) => Err(FactQueryError::InfrastructureFailure),
     }

@@ -180,7 +180,9 @@ where
         false
     };
 
-    bind_expression_sequence_unit(facts, unit, key, true, has_result, push_callable_inputs)
+    bind_expression_sequence_unit(facts, unit, key, true, has_result, |binder, scope| {
+        push_callable_inputs(binder, scope).map(|_| ())
+    })
 }
 
 fn bind_expression_unit<C>(

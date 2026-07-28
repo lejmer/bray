@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundUnitKey, ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget,
-    PatternProjection, SelectedConversion,
+    BoundCallResult, BoundUnitKey, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, PatternProjection, SelectedConversion,
 };
-use bray_runtime_interface::ProtectedAsyncFrameId;
-use bray_symbols::{BorrowKind, ConstantTermId};
+use bray_runtime_interface::{ProtectedAsyncFrameId, RootExecution};
+use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
 
 use crate::{
-    MirCall, MirCleanupPhase, MirFrameStateId, MirOperand, MirOperationId, MirPlace,
-    MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
+    MirCall, MirCleanupPhase, MirFrameReference, MirFrameStateId, MirOperand, MirOperationId,
+    MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
 };
 
 /// The checked semantic role of one store operation.
@@ -232,20 +232,49 @@ pub enum MirTaskTerminalState {
     Panicked(MirOperand),
 }
 
+/// Checked work captured by one newly constructed inactive future.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MirFrameInitializer {
+    /// Invoke an async callable when the frame is first driven.
+    Callable(MirCall),
+    /// Observe a task terminal result, optionally requesting cancellation first.
+    TaskObservation {
+        /// Owned task whose terminal result is observed.
+        task: MirOperand,
+        /// Checked lazy future produced by the task operation.
+        result: bray_bound_tree::BoundFutureConstruction,
+        /// Whether driving the frame first requests task cancellation.
+        request_cancellation: bool,
+    },
+}
+
+impl MirFrameInitializer {
+    /// Returns the source-visible future type produced by this initializer.
+    pub const fn future_type(&self) -> Option<TypeId> {
+        match self {
+            Self::Callable(call) => match call.result() {
+                BoundCallResult::LazyFuture(result) => Some(result.future_type()),
+                BoundCallResult::Immediate(_) => None,
+            },
+            Self::TaskObservation { result, .. } => Some(result.future_type()),
+        }
+    }
+}
+
 /// Explicit protected-frame and task operation selected by checked lowering.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirAsyncOperation {
-    /// Create an inactive protected frame in destination storage.
+    /// Create an inactive protected frame value.
     CreateFrame {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
-        /// Destination for the inactive frame.
-        destination: MirPlace,
+        /// Static or existential frame representation.
+        frame: MirFrameReference,
+        /// Deferred work captured by the frame.
+        initializer: MirFrameInitializer,
     },
     /// Move an inactive frame before its first resume.
     MoveInactiveFrame {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
+        /// Static or existential frame representation.
+        frame: MirFrameReference,
         /// Source frame storage.
         source: MirPlace,
         /// Destination frame storage.
@@ -266,28 +295,22 @@ pub enum MirAsyncOperation {
     ComposeAwaitedFrame {
         /// Parent protected frame.
         parent: ProtectedAsyncFrameId,
-        /// Child protected frame.
-        child: ProtectedAsyncFrameId,
+        /// Static or existential child frame representation.
+        child: MirFrameReference,
         /// Inactive child frame value.
         frame: MirOperand,
     },
-    /// Move a directly awaited child's completion into destination storage.
+    /// Move a directly awaited child's completion into the operation result.
     CommitAwaitedCompletion {
-        /// Child protected frame.
-        child: ProtectedAsyncFrameId,
-        /// Completed child value.
-        value: MirOperand,
-        /// Destination in the parent frame.
-        destination: MirPlace,
+        /// Static or existential child frame representation.
+        child: MirFrameReference,
     },
     /// Transfer an inactive frame into a newly started task.
     StartTask {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
+        /// Static or existential frame representation.
+        frame: MirFrameReference,
         /// Inactive frame value.
         value: MirOperand,
-        /// Stable task storage.
-        task: MirStorageId,
         /// Selected private task-allocation ABI role.
         allocation: MirRuntimeReference,
         /// Selected private task-start ABI role.
@@ -295,8 +318,8 @@ pub enum MirAsyncOperation {
     },
     /// Request cancellation of an owned task.
     RequestTaskCancellation {
-        /// Task control state.
-        task: MirStorageId,
+        /// Owned task control state.
+        task: MirOperand,
         /// Selected private cancellation ABI role.
         runtime: MirRuntimeReference,
     },
@@ -307,15 +330,13 @@ pub enum MirAsyncOperation {
     },
     /// Register and resolve terminal task observation.
     ResolveTask {
-        /// Task control state.
-        task: MirStorageId,
+        /// Owned task control state.
+        task: MirOperand,
         /// Selected private join ABI role.
         runtime: MirRuntimeReference,
     },
     /// Publish exactly one task terminal state.
     PublishTerminalState {
-        /// Task control state.
-        task: MirStorageId,
         /// Terminal state being published.
         state: MirTaskTerminalState,
         /// Selected private publication ABI role.
@@ -345,7 +366,36 @@ pub enum MirAsyncOperation {
     /// Destroy terminal task control state exactly once.
     DestroyTerminalTask {
         /// Terminal task control state.
-        task: MirStorageId,
+        task: MirOperand,
+    },
+}
+
+/// Explicit compiler-generated product-host operation.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MirHostOperation {
+    /// Establish and execute the selected source root.
+    ExecuteRoot {
+        /// Exact source unit selected as the product root.
+        root: BoundUnitKey,
+        /// Synchronous or protected-frame root execution.
+        execution: RootExecution,
+        /// Selected private root-execution ABI role.
+        runtime: MirRuntimeReference,
+    },
+    /// Observe the root terminal record.
+    ObserveRootTerminal {
+        /// Selected private terminal-observation ABI role.
+        runtime: MirRuntimeReference,
+    },
+    /// Report and destroy cleanup incidents transferred to the host.
+    ReportCleanupIncidents {
+        /// Selected private cleanup-reporting ABI role.
+        runtime: MirRuntimeReference,
+    },
+    /// Shut product execution infrastructure down in checked order.
+    StructuredShutdown {
+        /// Selected private shutdown ABI role.
+        runtime: MirRuntimeReference,
     },
 }
 
@@ -425,6 +475,8 @@ pub enum MirOperationKind {
     },
     /// Perform a protected-frame or task operation.
     Async(MirAsyncOperation),
+    /// Perform a compiler-generated executable-host operation.
+    Host(MirHostOperation),
 }
 
 /// One committed operation and its optional result value.

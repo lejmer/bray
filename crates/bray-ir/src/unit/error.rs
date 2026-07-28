@@ -40,6 +40,8 @@ pub enum MirUnitBuildError {
     InvalidConstructionInput(MirOperationId),
     /// A call input, result, or retained semantic contract is inconsistent.
     InvalidCall(MirOperationId),
+    /// An executable-host operation is inconsistent with its host contract or unit.
+    InvalidHostOperation(MirOperationId),
     /// A storage ID does not name a committed storage allocation.
     MissingStorage(MirStorageId),
     /// A value ID does not name a committed value.
@@ -80,8 +82,6 @@ pub enum MirUnitBuildError {
     StorageTypeMismatch(MirStorageId),
     /// A value is used outside the control-flow region where it is defined.
     ValueDoesNotDominateUse(MirValueId),
-    /// A child task does not have one start and one terminal destruction.
-    InvalidTaskLifecycle(MirStorageId),
     /// A frame operation references a frame other than the unit's protected frame.
     ProtectedFrameMismatch,
     /// A protected-frame unit has no matching hidden frame descriptor.

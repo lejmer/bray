@@ -1,8 +1,8 @@
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
-    AnySymbolId, CallableSignatureFact, CallableSignatureTemplate, CallableSymbolId, LocalScopeId,
-    LocalSymbolRegionId, SymbolFactRequest, SymbolName, TypeData,
+    AnySymbolId, CallableExecution, CallableSignatureFact, CallableSignatureTemplate,
+    CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SymbolFactRequest, SymbolName, TypeData,
 };
 
 use super::BoundUnitBindingError;
@@ -60,7 +60,7 @@ where
 pub(super) fn push_callable_inputs<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
-) -> Result<(), BoundUnitBindingError>
+) -> Result<CallableExecution, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
@@ -83,7 +83,12 @@ where
         scope,
         signature.value(),
         signature.value().parameters().len(),
-    )
+    )?;
+
+    signature
+        .value()
+        .execution(binder.facts().semantic_values())
+        .map_err(|_| BoundUnitBindingError::Construction)
 }
 
 pub(super) fn insert_callable_inputs<C>(

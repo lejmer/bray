@@ -1,3 +1,4 @@
+mod asynchronous;
 mod block;
 mod cleanup;
 mod error;

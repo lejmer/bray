@@ -370,6 +370,9 @@ behavior, result propagation, affinity requirements, dependency contracts, and t
 It emits explicit MIR frame, state, suspend, resume, task, cancellation, completion, and destruction operations. These operations
 use typed runtime roles rather than source-level runtime or standard-library names.
 
+Each resumable frame state retains its checked initialized storage, execution-lane requirements, dependency contract, and deferred
+callable set. Suspension names both the private registration and wake roles needed to resume that exact state.
+
 Lowering derives portable runtime requirements and protected-frame contracts from checked facts. MIR refers to closed runtime roles
 without selecting a runtime artifact or target-specific binary symbol. Product formation resolves those choices after reachable
 requirements merge.
@@ -377,8 +380,8 @@ requirements merge.
 Async lowering must not rediscover live-across-suspension storage, choose task semantics, infer affinity, or derive cleanup by
 walking types. Those are semantic decisions supplied by its input.
 
-Compiler-generated host units establish the product-specific root frame and startup or shutdown sequence without pretending that
-the host is a source declaration.
+Compiler-generated host units explicitly execute and observe the selected product root, report cleanup incidents, and perform
+structured shutdown without pretending that the host is a source declaration.
 
 ---
 

@@ -98,7 +98,12 @@ impl BoundUnit {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundUnitRoot {
     /// A declared callable or lifecycle body.
-    CallableBody(BoundCallableBodyId),
+    CallableBody {
+        /// The callable's synchronous or asynchronous execution mode.
+        execution: CallableExecution,
+        /// The callable's bound body.
+        body: BoundCallableBodyId,
+    },
     /// An anonymous callable and its body.
     AnonymousCallable {
         /// The callable identity in the unit's local-symbol snapshot.
@@ -117,9 +122,8 @@ pub enum BoundUnitRoot {
 impl From<BoundUnitRoot> for AnyBoundNodeId {
     fn from(root: BoundUnitRoot) -> Self {
         match root {
-            BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
-                Self::CallableBody(body)
-            }
+            BoundUnitRoot::CallableBody { body, .. }
+            | BoundUnitRoot::AnonymousCallable { body, .. } => Self::CallableBody(body),
             BoundUnitRoot::Expression(expression) => Self::Expression(expression),
             BoundUnitRoot::ExpressionSequence(block) => Self::Block(block),
         }
@@ -171,7 +175,7 @@ fn validate_root(
     root: BoundUnitRoot,
 ) -> Result<(), BoundUnitBuildError> {
     match (kind, root) {
-        (BoundUnitKind::CallableBody, BoundUnitRoot::CallableBody(body)) => {
+        (BoundUnitKind::CallableBody, BoundUnitRoot::CallableBody { body, .. }) => {
             validate_callable_root(tree, body)
         }
         (
@@ -395,7 +399,10 @@ mod tests {
             tree,
             locals,
             [nested.clone()],
-            BoundUnitRoot::CallableBody(root),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body: root,
+            },
         ) {
             Ok(unit) => unit,
             Err(error) => panic!("valid bound unit must publish: {error:?}"),
@@ -405,7 +412,15 @@ mod tests {
         assert_eq!(unit.unit(), BoundUnitId::new(20));
         assert_eq!(unit.identity().key(), &key);
         assert_eq!(unit.identity().unit(), BoundUnitId::new(20));
-        assert_eq!(unit.root(), BoundUnitRoot::CallableBody(root));
+
+        assert_eq!(
+            unit.root(),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body: root,
+            }
+        );
+
         assert!(unit.tree().callable_body(root).is_some());
         assert_eq!(unit.local_symbols().region(), LocalSymbolRegionId::new(20));
         assert_eq!(unit.nested_units(), &[nested]);
@@ -437,7 +452,10 @@ mod tests {
             tree.clone(),
             local_snapshot(22, key.declared_owner().clone()),
             [],
-            BoundUnitRoot::CallableBody(foreign_root),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body: foreign_root,
+            },
         );
 
         assert_eq!(
@@ -453,7 +471,10 @@ mod tests {
             tree,
             locals,
             [],
-            BoundUnitRoot::CallableBody(BoundCallableBodyId::from_slot(BoundUnitId::new(22), 0)),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body: BoundCallableBodyId::from_slot(BoundUnitId::new(22), 0),
+            },
         );
 
         assert_eq!(

@@ -26,7 +26,7 @@ pub fn semantic_unit_context(
     unit: &BoundUnit,
 ) -> Result<SemanticUnitContext, SemanticUnitContextError> {
     match (unit.key().data(), unit.root()) {
-        (BoundUnitKeyData::CallableBody(_), BoundUnitRoot::CallableBody(_)) => Ok(
+        (BoundUnitKeyData::CallableBody(_), BoundUnitRoot::CallableBody { .. }) => Ok(
             SemanticUnitContext::CallableBody(declared_entry(symbols, unit)?),
         ),
         (

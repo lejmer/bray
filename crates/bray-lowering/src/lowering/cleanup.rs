@@ -1,8 +1,9 @@
 use bray_bound_tree::BoundBlockId;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
-    MirOperationKind, MirSourceAnchor, MirTerminatorKind,
+    MirAsyncOperation, MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge,
+    MirOperand, MirOperationKind, MirSourceAnchor, MirTaskTerminalState, MirTerminatorKind,
 };
+use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use super::LoweringError;
@@ -20,7 +21,64 @@ enum CleanupEntry {
     Cancellation,
 }
 
+enum TerminalState {
+    Completed(TypeId),
+    Panicked(TypeId),
+    Cancelled,
+}
+
 impl Lowerer<'_> {
+    pub(super) fn suspension_cleanup_edge(
+        &mut self,
+        source: &MirSourceAnchor,
+    ) -> Result<MirCleanupEdge, LoweringError> {
+        let plans = self.cleanup_plans(0)?;
+
+        let cancellation = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::CleanupBroadcast,
+        )?;
+
+        let lifecycle = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::LifecycleResolution,
+        )?;
+
+        self.push_cleanup_operations(
+            cancellation,
+            source,
+            MirCleanupPhase::TaskCancellation,
+            &plans,
+        )?;
+
+        self.builder.set_terminator(
+            cancellation,
+            Self::retained_source(source),
+            MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                MirCleanupPhase::LifecycleResolution,
+                MirEdge::new(lifecycle, []),
+            )),
+        )?;
+
+        self.push_cleanup_operations(
+            lifecycle,
+            source,
+            MirCleanupPhase::LifecycleResolution,
+            &plans,
+        )?;
+
+        self.builder.set_terminator(
+            lifecycle,
+            Self::retained_source(source),
+            MirTerminatorKind::Unreachable,
+        )?;
+
+        Ok(MirCleanupEdge::new(
+            MirCleanupPhase::TaskCancellation,
+            MirEdge::new(cancellation, []),
+        ))
+    }
+
     pub(super) fn finish_scope(
         &mut self,
         scope: BoundBlockId,
@@ -69,14 +127,32 @@ impl Lowerer<'_> {
         &mut self,
         current: MirBlockId,
         source: &MirSourceAnchor,
-        value: Option<(MirOperand, TypeId)>,
+        mut value: Option<(MirOperand, TypeId)>,
     ) -> Result<(), LoweringError> {
+        let destination = if self.input.unit_kind().protected_frame().is_some() {
+            let result_type = self
+                .input
+                .expression_types()
+                .callable_result_type()
+                .ok_or(LoweringError::MissingCallableResultType)?;
+
+            if value.is_none() {
+                value = Some((self.unit_operand(result_type), result_type));
+            }
+
+            CleanupDestination::Goto(
+                self.terminal_state_block(source, TerminalState::Completed(result_type))?,
+            )
+        } else {
+            CleanupDestination::Return
+        };
+
         self.finish_cleanup(
             current,
             source,
             0,
             CleanupEntry::Ordinary,
-            CleanupDestination::Return,
+            destination,
             value,
         )
     }
@@ -90,12 +166,20 @@ impl Lowerer<'_> {
         catch: Option<MirBlockId>,
         scope_depth: usize,
     ) -> Result<(), LoweringError> {
+        let destination = match (catch, self.input.unit_kind().protected_frame()) {
+            (Some(catch), _) => CleanupDestination::Goto(catch),
+            (None, Some(_)) => CleanupDestination::Goto(
+                self.terminal_state_block(source, TerminalState::Panicked(report_type))?,
+            ),
+            (None, None) => CleanupDestination::Unreachable,
+        };
+
         self.finish_cleanup(
             current,
             source,
             scope_depth,
             CleanupEntry::Panic(Self::retained_operand(&report)),
-            catch.map_or(CleanupDestination::Unreachable, CleanupDestination::Goto),
+            destination,
             Some((report, report_type)),
         )
     }
@@ -105,14 +189,70 @@ impl Lowerer<'_> {
         current: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<(), LoweringError> {
+        let destination = if self.input.unit_kind().protected_frame().is_some() {
+            CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Cancelled)?)
+        } else {
+            CleanupDestination::Unreachable
+        };
+
         self.finish_cleanup(
             current,
             source,
             0,
             CleanupEntry::Cancellation,
-            CleanupDestination::Unreachable,
+            destination,
             None,
         )
+    }
+
+    fn terminal_state_block(
+        &mut self,
+        source: &MirSourceAnchor,
+        terminal: TerminalState,
+    ) -> Result<MirBlockId, LoweringError> {
+        let block = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        let state = match terminal {
+            TerminalState::Completed(result_type) => {
+                let result = self.builder.push_block_parameter(
+                    block,
+                    Self::retained_source(source),
+                    result_type,
+                )?;
+
+                MirTaskTerminalState::Completed(MirOperand::Value(result))
+            }
+            TerminalState::Panicked(report_type) => {
+                let report = self.builder.push_block_parameter(
+                    block,
+                    Self::retained_source(source),
+                    report_type,
+                )?;
+
+                MirTaskTerminalState::Panicked(MirOperand::Value(report))
+            }
+            TerminalState::Cancelled => MirTaskTerminalState::Cancelled,
+        };
+
+        self.builder.push_operation(
+            block,
+            Self::retained_source(source),
+            MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
+                state,
+                runtime: self.runtime_reference(RuntimeAbiRole::TerminalPublication),
+            }),
+            None,
+        )?;
+
+        self.builder.set_terminator(
+            block,
+            Self::retained_source(source),
+            MirTerminatorKind::Return(None),
+        )?;
+
+        Ok(block)
     }
 
     fn finish_cleanup(
@@ -127,15 +267,15 @@ impl Lowerer<'_> {
         let plans = self.cleanup_plans(scope_depth)?;
 
         if plans.iter().all(|plan| {
-            plan.cancellation_broadcast().is_empty()
-                && plan.lifecycle_resolution().is_empty()
+            plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
         }) {
             return self.set_direct_exit(current, source, entry, destination, value);
         }
 
-        let cancellation = self
-            .builder
-            .push_block(Self::retained_source(source), MirBlockKind::CleanupBroadcast)?;
+        let cancellation = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::CleanupBroadcast,
+        )?;
 
         let lifecycle = self.builder.push_block(
             Self::retained_source(source),
@@ -161,10 +301,7 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                 MirCleanupPhase::LifecycleResolution,
-                MirEdge::new(
-                    lifecycle,
-                    cancellation_value.map(MirOperand::Value),
-                ),
+                MirEdge::new(lifecycle, cancellation_value.map(MirOperand::Value)),
             )),
         )?;
 
@@ -208,7 +345,13 @@ impl Lowerer<'_> {
     ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
         let mut plans = Vec::new();
 
-        for scope in self.active_scopes.get(scope_depth..).unwrap_or_default().iter().rev() {
+        for scope in self
+            .active_scopes
+            .get(scope_depth..)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+        {
             let Some(plan) = self
                 .input
                 .async_facts()
@@ -244,8 +387,7 @@ impl Lowerer<'_> {
             return Ok(false);
         };
 
-        Ok(!plan.cancellation_broadcast().is_empty()
-            || !plan.lifecycle_resolution().is_empty())
+        Ok(!plan.cancellation_broadcast().is_empty() || !plan.lifecycle_resolution().is_empty())
     }
 
     fn scope_requires_cleanup_plan(&self, scope: BoundBlockId) -> bool {
@@ -308,9 +450,10 @@ impl Lowerer<'_> {
                 self.set_destination(current, source, destination, value.map(|(value, _)| value))
             }
             entry @ (CleanupEntry::Panic(_) | CleanupEntry::Cancellation) => {
-                let cancellation = self
-                    .builder
-                    .push_block(Self::retained_source(source), MirBlockKind::CleanupBroadcast)?;
+                let cancellation = self.builder.push_block(
+                    Self::retained_source(source),
+                    MirBlockKind::CleanupBroadcast,
+                )?;
 
                 let lifecycle = self.builder.push_block(
                     Self::retained_source(source),
@@ -320,18 +463,14 @@ impl Lowerer<'_> {
                 let cancellation_value =
                     self.cleanup_parameter(cancellation, source, value.as_ref())?;
 
-                let lifecycle_value =
-                    self.cleanup_parameter(lifecycle, source, value.as_ref())?;
+                let lifecycle_value = self.cleanup_parameter(lifecycle, source, value.as_ref())?;
 
                 self.builder.set_terminator(
                     cancellation,
                     Self::retained_source(source),
                     MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                         MirCleanupPhase::LifecycleResolution,
-                        MirEdge::new(
-                            lifecycle,
-                            cancellation_value.map(MirOperand::Value),
-                        ),
+                        MirEdge::new(lifecycle, cancellation_value.map(MirOperand::Value)),
                     )),
                 )?;
 
@@ -344,10 +483,7 @@ impl Lowerer<'_> {
 
                 let edge = MirCleanupEdge::new(
                     MirCleanupPhase::TaskCancellation,
-                    MirEdge::new(
-                        cancellation,
-                        value.map(|(value, _)| value),
-                    ),
+                    MirEdge::new(cancellation, value.map(|(value, _)| value)),
                 );
 
                 let terminator = match entry {

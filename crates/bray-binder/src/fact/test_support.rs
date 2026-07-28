@@ -11,9 +11,11 @@ use bray_diagnostics::DiagnosticResult;
 use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
-    AnySymbolId, CallableSignatureFact, CallableSignatureTemplate, ConstantDeclaredTypeFact,
-    ConstantSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageIdentity,
-    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, CallableAbi, CallableConstness, CallableDependencyContracts,
+    CallableSignatureFact, CallableSignatureTemplate, CallableTrust, CallableTypeData,
+    ConstantDeclaredTypeFact, ConstantSymbolId, DependencyContractTemplateData,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageIdentity, SemanticValueStore,
+    SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -225,9 +227,30 @@ impl TestFixture {
             TypeExpressionTemplate::Resolved(declared_type),
         ));
 
+        let dependency = match semantic_values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        {
+            Ok(dependency) => dependency,
+            Err(error) => panic!("test dependency contract should intern: {error:?}"),
+        };
+
+        let callable_type = CallableTypeData::new(
+            [],
+            declared_type,
+            CallableConstness::Runtime,
+            CallableTrust::Safe,
+            CallableAbi::Bray,
+            CallableDependencyContracts::synchronous(dependency),
+        );
+
+        let callable_type = match semantic_values.intern_type(TypeData::Callable(callable_type)) {
+            Ok(callable_type) => callable_type,
+            Err(error) => panic!("test callable type should intern: {error:?}"),
+        };
+
         let callable_signature = Arc::new(DiagnosticResult::without_diagnostics(
             CallableSignatureTemplate::new(
-                TypeExpressionTemplate::Resolved(declared_type),
+                TypeExpressionTemplate::Resolved(callable_type),
                 None,
                 [],
                 TypeExpressionTemplate::Resolved(declared_type),

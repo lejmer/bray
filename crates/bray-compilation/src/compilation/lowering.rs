@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use bray_bound_tree::BoundUnitKey;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_ir::{MirTargetFacts, MirUnitKind};
-use bray_lowering::{CompileTimeUnit, LoweredUnit, LoweringInput, lower_unit};
+use bray_ir::MirTargetFacts;
+use bray_lowering::{
+    CompileTimeUnit, LoweredUnit, LoweringInput, executable_unit_kind, lower_unit,
+};
 
 use super::Compilation;
 use crate::fact::{
@@ -16,8 +18,6 @@ type LoweredUnitComputation = (
 );
 
 impl Compilation {
-    // TODO(BRA-157): Publish generated executable-host MIR through this fact surface.
-
     /// Returns the lowering result and dependency diagnostics for one checked semantic unit.
     pub fn lowered_unit(
         &self,
@@ -141,7 +141,8 @@ impl Compilation {
             selected_target.runtime_abi(),
         );
 
-        // TODO(BRA-157): Select protected async-frame MIR kinds from checked async facts.
+        let unit_kind = executable_unit_kind(unit.result().value());
+
         let input = LoweringInput::try_new(
             unit.result().value(),
             control_flow.result().value(),
@@ -158,7 +159,7 @@ impl Compilation {
             behavior.result().value(),
             self.semantic_value_store()?,
             self.available_compiler_known_symbols(),
-            MirUnitKind::Synchronous,
+            unit_kind,
             target,
         )
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -474,6 +475,24 @@ mod tests {
         "}\n",
     );
 
+    const ASYNC_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "async func main() -> i32\n",
+        "{\n",
+        "    let retained: i32 = 1;\n",
+        "    let pending = child();\n",
+        "    let ignored: i32 = await pending;\n",
+        "\n",
+        "    return retained;\n",
+        "}\n",
+        "\n",
+        "async func child() -> i32\n",
+        "{\n",
+        "    return 1;\n",
+        "}\n",
+    );
+
     #[test]
     fn lowering_results_are_computed_lazily_and_published_once() {
         let compilation = lowering_compilation();
@@ -496,10 +515,7 @@ mod tests {
         assert!(first.value().is_some());
         assert!(Arc::ptr_eq(&first, &second));
 
-        assert_eq!(
-            compilation.state.lowered_units.is_published(&key),
-            Ok(true)
-        );
+        assert_eq!(compilation.state.lowered_units.is_published(&key), Ok(true));
     }
 
     #[test]
@@ -510,12 +526,11 @@ mod tests {
 
         cancellation.cancel();
 
-        let result =
-            compilation.lowered_unit_with_priority(
-                key.clone(),
-                &cancellation,
-                QueryPriority::Normal,
-            );
+        let result = compilation.lowered_unit_with_priority(
+            key.clone(),
+            &cancellation,
+            QueryPriority::Normal,
+        );
 
         assert_eq!(result, Err(FactQueryError::Cancelled));
 
@@ -533,10 +548,7 @@ mod tests {
         let key = declared_unit_key(&compilation, BoundUnitKind::ConstantTemplate);
 
         assert_eq!(
-            compilation
-                .state
-                .checked_control_flow
-                .is_published(&key),
+            compilation.state.checked_control_flow.is_published(&key),
             Ok(false)
         );
 
@@ -559,10 +571,7 @@ mod tests {
         assert_eq!(unit.key(), &key);
 
         assert_eq!(
-            compilation
-                .state
-                .checked_control_flow
-                .is_published(&key),
+            compilation.state.checked_control_flow.is_published(&key),
             Ok(false)
         );
 
@@ -616,13 +625,15 @@ mod tests {
             .lowered_unit(outer)
             .unwrap_or_else(|error| panic!("outer callable MIR must publish: {error:?}"));
 
-        assert!(lowered_mir(&outer_result)
-            .operations()
-            .iter()
-            .any(|operation| matches!(
-                operation.kind(),
-                bray_ir::MirOperationKind::AnonymousCallable(key) if key == &nested
-            )));
+        assert!(
+            lowered_mir(&outer_result)
+                .operations()
+                .iter()
+                .any(|operation| matches!(
+                    operation.kind(),
+                    bray_ir::MirOperationKind::AnonymousCallable(key) if key == &nested
+                ))
+        );
 
         let nested_result = compilation
             .lowered_unit(nested.clone())
@@ -632,6 +643,48 @@ mod tests {
             lowered_mir(&nested_result).key(),
             bray_ir::MirUnitKey::Bound(key) if key == &nested
         ));
+    }
+
+    #[test]
+    fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
+        let compilation = compilation(ASYNC_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("async MIR must publish: {error:?}"));
+
+        let mir = lowered_mir(&result);
+
+        assert!(matches!(
+            mir.kind(),
+            bray_ir::MirUnitKind::ProtectedAsyncFrame(_)
+        ));
+
+        let Some(frame) = mir.frame_descriptor() else {
+            panic!("async callable MIR must carry a protected-frame descriptor");
+        };
+
+        assert_eq!(frame.states().len(), 2);
+        assert!(!frame.states()[1].deferred_calls().is_empty());
+        assert!(!frame.states()[1].initialized_storages().is_empty());
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+        )));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::Suspend { .. }
+        )));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Async(
+                bray_ir::MirAsyncOperation::PublishTerminalState { .. }
+            )
+        )));
     }
 
     #[test]

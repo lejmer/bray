@@ -74,7 +74,8 @@ pub(super) fn validate_terminator(
             resume_state,
             resume,
             cancellation,
-            runtime,
+            registration,
+            wake,
         } => {
             validate_frame_state(unit, *resume_state)?;
             validate_ordinary_edge(unit, block_id, resume)?;
@@ -97,9 +98,11 @@ pub(super) fn validate_terminator(
 
             validate_runtime_role(
                 unit,
-                *runtime,
+                *registration,
                 bray_runtime_interface::RuntimeAbiRole::SuspensionRegistration,
             )?;
+
+            validate_runtime_role(unit, *wake, bray_runtime_interface::RuntimeAbiRole::Wake)?;
         }
         MirTerminatorKind::ForwardRunResult { result, edges } => {
             validate_operand(unit, result, block_id, None)?;

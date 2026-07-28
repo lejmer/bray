@@ -3,9 +3,11 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentityId};
 use bray_declarations::SyntaxAnchor;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirOperand, MirPlace, MirSourceAnchor, MirStorageId, MirUnit,
-    MirUnitBuilder,
+    MirAsyncOperation, MirBlockId, MirBlockKind, MirFrameDescriptor, MirFrameStateFacts,
+    MirFrameStateId, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageId,
+    MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
 };
+use bray_runtime_interface::{ProtectedFrameAbiVersions, RuntimeAbiRole};
 
 use super::LoweringError;
 use crate::LoweringInput;
@@ -55,6 +57,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
+    pub(super) frame_states: Vec<MirFrameStateFacts>,
 }
 
 /// Lowers one complete checked semantic unit into validated backend-independent MIR.
@@ -74,16 +77,32 @@ impl<'unit> Lowerer<'unit> {
             yield_targets: Vec::new(),
             loop_targets: Vec::new(),
             catch_targets: Vec::new(),
+            frame_states: Vec::new(),
         }
     }
 
     fn lower(mut self) -> Result<MirUnit, LoweringError> {
         let root = self.input.unit().root();
         let source = self.source(BoundNodeOrigin::source(self.input.unit().key().source()));
-        let entry = self.builder.push_block(source, MirBlockKind::Ordinary)?;
+
+        let entry = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        if self.input.unit_kind().protected_frame().is_some() {
+            self.frame_states.push(MirFrameStateFacts::new(
+                MirFrameStateId::new(0),
+                entry,
+                self.execution_lane_requirements(),
+                None,
+                [],
+                [],
+            ));
+        }
 
         let completion = match root {
-            BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
+            BoundUnitRoot::CallableBody { body, .. }
+            | BoundUnitRoot::AnonymousCallable { body, .. } => {
                 let body_id = body;
 
                 let body = self
@@ -107,11 +126,60 @@ impl<'unit> Lowerer<'unit> {
         };
 
         if let Some(block) = completion.block {
-            self.builder.set_terminator(
-                block,
-                completion.source,
-                bray_ir::MirTerminatorKind::Return(completion.value),
-            )?;
+            if self.input.unit_kind().protected_frame().is_some() {
+                let result_type = self
+                    .input
+                    .expression_types()
+                    .callable_result_type()
+                    .ok_or(LoweringError::MissingCallableResultType)?;
+
+                let value = completion
+                    .value
+                    .unwrap_or_else(|| self.unit_operand(result_type));
+
+                self.builder.push_operation(
+                    block,
+                    Self::retained_source(&completion.source),
+                    MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
+                        state: MirTaskTerminalState::Completed(value),
+                        runtime: self.runtime_reference(RuntimeAbiRole::TerminalPublication),
+                    }),
+                    None,
+                )?;
+
+                self.builder.set_terminator(
+                    block,
+                    completion.source,
+                    MirTerminatorKind::Return(None),
+                )?;
+            } else {
+                self.builder.set_terminator(
+                    block,
+                    completion.source,
+                    MirTerminatorKind::Return(completion.value),
+                )?;
+            }
+        }
+
+        if let Some(frame) = self.input.unit_kind().protected_frame() {
+            let result_type = self
+                .input
+                .expression_types()
+                .callable_result_type()
+                .ok_or(LoweringError::MissingCallableResultType)?;
+
+            let runtime_abi = self.input.target().runtime_abi();
+
+            let descriptor = MirFrameDescriptor::try_new(
+                frame,
+                runtime_abi,
+                ProtectedFrameAbiVersions::uniform(runtime_abi),
+                result_type,
+                self.frame_states,
+            )
+            .map_err(|_| LoweringError::InvalidFrameDescriptor)?;
+
+            self.builder.set_frame_descriptor(descriptor)?;
         }
 
         self.builder.finish(entry).map_err(Into::into)
@@ -259,10 +327,14 @@ mod tests {
         let mir = lower_unit(input)
             .unwrap_or_else(|error| panic!("checked selected call must lower: {error:?}"));
 
-        let Some(call) = mir.operations().iter().find_map(|operation| match operation.kind() {
-            MirOperationKind::Call(call) => Some(call),
-            _ => None,
-        }) else {
+        let Some(call) = mir
+            .operations()
+            .iter()
+            .find_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call) => Some(call),
+                _ => None,
+            })
+        else {
             panic!("lowered unit must contain its selected call");
         };
 
@@ -273,14 +345,8 @@ mod tests {
         assert!(matches!(
             call.arguments(),
             [
-                MirCallArgument::Explicit {
-                    ordinal: 0,
-                    ..
-                },
-                MirCallArgument::Default {
-                    ordinal: 1,
-                    ..
-                }
+                MirCallArgument::Explicit { ordinal: 0, .. },
+                MirCallArgument::Default { ordinal: 1, .. }
             ]
         ));
     }
@@ -353,8 +419,7 @@ mod tests {
         let target =
             BoundCallableTarget::Declaration(CallableInstanceData::new(definition, substitution));
 
-        let resolution =
-            BoundResolvedCall::new(target, [], BoundCallResult::Immediate(ty));
+        let resolution = BoundResolvedCall::new(target, [], BoundCallResult::Immediate(ty));
 
         let template = test_bound_unit(unit_id);
         let origin = bray_bound_tree::BoundNodeOrigin::source(template.key().source());
@@ -416,7 +481,10 @@ mod tests {
             tree.finish(),
             template.local_symbols().clone(),
             [],
-            BoundUnitRoot::CallableBody(body),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body,
+            },
         )
         .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
 
@@ -572,7 +640,10 @@ mod tests {
             tree.finish(),
             template.local_symbols().clone(),
             [],
-            BoundUnitRoot::CallableBody(body),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body,
+            },
         )
         .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
 
@@ -712,7 +783,10 @@ mod tests {
             tree.finish(),
             template.local_symbols().clone(),
             [],
-            BoundUnitRoot::CallableBody(body),
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body,
+            },
         )
         .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
 

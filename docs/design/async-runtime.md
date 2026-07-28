@@ -254,6 +254,10 @@ The parent task's resume operation delegates to the active child until it comple
 the child's phase-one broadcast traversal before any phase-two cleanup, then enters the child's cancellation cleanup during
 phase-two resolution.
 
+Every suspend terminator identifies its resume state, normal resume edge, cancellation-cleanup edge, suspension-registration role,
+and wake role. The corresponding frame-state descriptor retains the checked initialized storage, dependency contract, deferred
+callable set, and execution-lane requirements needed after resumption.
+
 Before the child begins, lowering emits the checked lane-requirement assertion established by semantic analysis. This is a typed MIR
 fact or validation operation, not a call to the source predicate.
 

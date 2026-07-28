@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::{
     MirBlock, MirBlockId, MirBlockKind, MirOperationId, MirUnit, MirUnitBuildError, MirValueId,
     MirValueOrigin,
@@ -20,35 +18,6 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildE
     validate_frame_descriptor(unit)?;
     validate_value_definitions(unit)?;
     validate_blocks(unit)?;
-    validate_task_lifecycles(unit)?;
-
-    Ok(())
-}
-
-fn validate_task_lifecycles(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
-    let mut lifecycles = BTreeMap::new();
-
-    for operation in unit.operations() {
-        let crate::MirOperationKind::Async(operation) = operation.kind() else {
-            continue;
-        };
-
-        match operation {
-            crate::MirAsyncOperation::StartTask { task, .. } => {
-                lifecycles.entry(*task).or_insert((0_u32, 0_u32)).0 += 1;
-            }
-            crate::MirAsyncOperation::DestroyTerminalTask { task } => {
-                lifecycles.entry(*task).or_insert((0_u32, 0_u32)).1 += 1;
-            }
-            _ => {}
-        }
-    }
-
-    for (task, (starts, destructions)) in lifecycles {
-        if starts != 1 || destructions != 1 {
-            return Err(MirUnitBuildError::InvalidTaskLifecycle(task));
-        }
-    }
 
     Ok(())
 }

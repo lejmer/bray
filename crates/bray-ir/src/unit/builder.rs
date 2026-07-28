@@ -702,13 +702,12 @@ mod tests {
             Err(error) => panic!("test task storage must be valid: {error:?}"),
         };
 
+        let task = crate::MirOperand::Move(crate::MirPlace::new(storage, [], ty));
+
         let runtime =
             MirRuntimeReference::new(RuntimeAbiRole::TaskStart, RuntimeAbiVersion::new(1, 0));
 
-        let operation = MirAsyncOperation::RequestTaskCancellation {
-            task: storage,
-            runtime,
-        };
+        let operation = MirAsyncOperation::RequestTaskCancellation { task, runtime };
 
         match builder.push_operation(
             entry,
@@ -809,7 +808,7 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
 
         let abi = RuntimeAbiVersion::new(1, 0);
 

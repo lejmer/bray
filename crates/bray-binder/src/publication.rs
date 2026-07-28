@@ -22,9 +22,17 @@ impl From<BoundUnitBuildError> for BoundUnitAssemblyError {
 pub(crate) fn assemble_callable_body(
     output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
+    execution: CallableExecution,
     root: BoundCallableBodyId,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
-    assemble_bound_unit(output, nested_units, BoundUnitRoot::CallableBody(root))
+    assemble_bound_unit(
+        output,
+        nested_units,
+        BoundUnitRoot::CallableBody {
+            execution,
+            body: root,
+        },
+    )
 }
 
 pub(crate) fn assemble_anonymous_callable(

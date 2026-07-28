@@ -190,7 +190,9 @@ pub enum MirTerminatorKind {
         /// Cleanup entered when current-run cancellation is observed.
         cancellation: MirCleanupEdge,
         /// Selected private suspension-registration ABI role.
-        runtime: crate::MirRuntimeReference,
+        registration: crate::MirRuntimeReference,
+        /// Selected private wake ABI role.
+        wake: crate::MirRuntimeReference,
     },
     /// Forward completed, panicked, or cancelled run state without collapsing outcomes.
     ForwardRunResult {
