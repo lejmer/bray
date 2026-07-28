@@ -68,15 +68,18 @@ impl PlatformContract {
     /// Returns whether the current host provides a mechanism.
     pub const fn supports(self, capability: PlatformCapability) -> bool {
         match capability {
-            PlatformCapability::MonotonicClock
-            | PlatformCapability::EventPolling
-            | PlatformCapability::AnonymousVirtualMemory => true,
+            PlatformCapability::MonotonicClock => true,
             PlatformCapability::NativeThreads
+            | PlatformCapability::EventPolling
+            | PlatformCapability::AnonymousVirtualMemory
             | PlatformCapability::ChildProcesses
             | PlatformCapability::Sockets => {
-                !matches!(
+                matches!(
                     self.host,
-                    HostPlatform::WebAssembly | HostPlatform::Other
+                    HostPlatform::Windows
+                        | HostPlatform::Linux
+                        | HostPlatform::Darwin
+                        | HostPlatform::Unix
                 )
             }
         }
@@ -101,7 +104,7 @@ const fn current_host() -> HostPlatform {
 
 #[cfg(test)]
 mod tests {
-    use super::{PlatformCapability, PlatformContract};
+    use super::{HostPlatform, PlatformCapability, PlatformContract};
 
     #[test]
     fn current_contract_exposes_required_portable_mechanisms() {
@@ -110,5 +113,19 @@ mod tests {
         assert!(contract.supports(PlatformCapability::MonotonicClock));
         assert!(contract.supports(PlatformCapability::EventPolling));
         assert!(contract.supports(PlatformCapability::AnonymousVirtualMemory));
+    }
+
+    #[test]
+    fn unimplemented_host_families_do_not_advertise_native_mechanisms() {
+        for host in [HostPlatform::WebAssembly, HostPlatform::Other] {
+            let contract = PlatformContract { host };
+
+            assert!(contract.supports(PlatformCapability::MonotonicClock));
+            assert!(!contract.supports(PlatformCapability::NativeThreads));
+            assert!(!contract.supports(PlatformCapability::EventPolling));
+            assert!(!contract.supports(PlatformCapability::AnonymousVirtualMemory));
+            assert!(!contract.supports(PlatformCapability::ChildProcesses));
+            assert!(!contract.supports(PlatformCapability::Sockets));
+        }
     }
 }

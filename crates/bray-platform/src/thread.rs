@@ -28,28 +28,27 @@ impl RuntimeThreadId {
 }
 
 /// Runtime state installed for the duration of one native thread callback.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeThread {
     id: RuntimeThreadId,
+    thread_bound: PhantomData<Rc<()>>,
 }
 
 impl RuntimeThread {
     /// Returns this initialized thread's process-local identity.
-    pub const fn id(self) -> RuntimeThreadId {
+    pub const fn id(&self) -> RuntimeThreadId {
         self.id
     }
 
     /// Parks the current native thread until woken or spuriously resumed.
-    pub fn park(self) {
+    pub fn park(&self) {
         thread::park();
     }
 }
 
 /// Returns the current runtime thread when called inside initialized native execution.
 pub fn current_runtime_thread() -> Option<RuntimeThread> {
-    CURRENT_RUNTIME_THREAD
-        .get()
-        .map(|id| RuntimeThread { id })
+    CURRENT_RUNTIME_THREAD.get().map(RuntimeThread::new)
 }
 
 /// Scoped initialization of Bray runtime state on an existing native thread.
@@ -66,8 +65,8 @@ impl RuntimeThreadScope {
     }
 
     /// Returns the runtime identity installed by this scope.
-    pub const fn runtime(&self) -> RuntimeThread {
-        self.runtime
+    pub const fn runtime(&self) -> &RuntimeThread {
+        &self.runtime
     }
 
     fn enter_with_id(id: RuntimeThreadId) -> Result<Self, PlatformError> {
@@ -83,9 +82,18 @@ impl RuntimeThreadScope {
         }
 
         Ok(Self {
-            runtime: RuntimeThread { id },
+            runtime: RuntimeThread::new(id),
             thread_bound: PhantomData,
         })
+    }
+}
+
+impl RuntimeThread {
+    const fn new(id: RuntimeThreadId) -> Self {
+        Self {
+            id,
+            thread_bound: PhantomData,
+        }
     }
 }
 
@@ -176,11 +184,11 @@ fn run_initialized_thread<T>(
     id: RuntimeThreadId,
     callback: impl FnOnce(RuntimeThread) -> T,
 ) -> NativeThreadOutcome<T> {
-    let Ok(scope) = RuntimeThreadScope::enter_with_id(id) else {
+    let Ok(_scope) = RuntimeThreadScope::enter_with_id(id) else {
         return NativeThreadOutcome::Panicked;
     };
 
-    catch_unwind(AssertUnwindSafe(|| callback(scope.runtime())))
+    catch_unwind(AssertUnwindSafe(|| callback(RuntimeThread::new(id))))
         .map_or(NativeThreadOutcome::Panicked, NativeThreadOutcome::Completed)
 }
 
@@ -189,7 +197,7 @@ mod tests {
     use bray_base::NonEmptySharedStr;
 
     use super::{
-        NativeThread, NativeThreadOutcome, RuntimeThreadScope,
+        NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadScope,
         current_runtime_thread,
     };
 
@@ -198,7 +206,10 @@ mod tests {
         let name = NonEmptySharedStr::try_new("bray-test-worker");
 
         let worker = NativeThread::spawn(name, |runtime| {
-            assert_eq!(current_runtime_thread(), Some(runtime));
+            assert_eq!(
+                current_runtime_thread().as_ref().map(RuntimeThread::id),
+                Some(runtime.id())
+            );
 
             runtime.id()
         })
@@ -233,7 +244,11 @@ mod tests {
         let scope = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("current thread must initialize: {error:?}"));
 
-        assert_eq!(current_runtime_thread(), Some(scope.runtime()));
+        assert_eq!(
+            current_runtime_thread().as_ref().map(RuntimeThread::id),
+            Some(scope.runtime().id())
+        );
+
         assert!(RuntimeThreadScope::enter().is_err());
 
         drop(scope);

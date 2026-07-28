@@ -1,11 +1,14 @@
-use std::sync::{
-    Arc, Condvar, Mutex,
-    mpsc::{self, Receiver, RecvTimeoutError, Sender},
-};
+use std::collections::VecDeque;
+use std::sync::{Arc, Condvar, Mutex};
+
+use mio::event::Source;
+use mio::{Events, Interest, Poll, Token, Waker};
 
 use crate::{
     MonotonicDeadline, PlatformError, PlatformErrorKind, PlatformOperation,
 };
+
+const HOST_WAKE_TOKEN: Token = Token(usize::MAX);
 
 #[derive(Debug)]
 struct EventState {
@@ -56,7 +59,7 @@ impl NativeEvent {
             .state
             .generation
             .lock()
-            .map_err(|_| poisoned_event())?;
+            .map_err(|_| poisoned_event(PlatformOperation::Event))?;
 
         Ok(WakeObservation(*generation))
     }
@@ -71,7 +74,7 @@ impl NativeEvent {
             .state
             .generation
             .lock()
-            .map_err(|_| poisoned_event())?;
+            .map_err(|_| poisoned_event(PlatformOperation::Event))?;
 
         loop {
             if *generation != observed.0 {
@@ -83,7 +86,7 @@ impl NativeEvent {
                     .state
                     .changed
                     .wait(generation)
-                    .map_err(|_| poisoned_event())?;
+                    .map_err(|_| poisoned_event(PlatformOperation::Event))?;
 
                 continue;
             };
@@ -96,7 +99,7 @@ impl NativeEvent {
                 .state
                 .changed
                 .wait_timeout(generation, deadline.remaining())
-                .map_err(|_| poisoned_event())?;
+                .map_err(|_| poisoned_event(PlatformOperation::Event))?;
 
             generation = next_generation;
 
@@ -126,7 +129,7 @@ impl NativeEventWakeHandle {
             .state
             .generation
             .lock()
-            .map_err(|_| poisoned_event())?;
+            .map_err(|_| poisoned_event(PlatformOperation::Event))?;
 
         *generation = generation.checked_add(1).ok_or_else(|| {
             PlatformError::new(
@@ -143,102 +146,260 @@ impl NativeEventWakeHandle {
     }
 }
 
-/// Event delivered by a native event poller.
+/// Caller-owned identity of one event source registered with a native poller.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct NativePollEvent(u64);
+pub struct NativePollEvent(usize);
 
 impl NativePollEvent {
     /// Creates a caller-owned stable event identity.
-    pub const fn new(value: u64) -> Self {
+    pub const fn new(value: usize) -> Self {
         Self(value)
     }
 
     /// Returns the caller-owned event identity.
-    pub const fn raw(self) -> u64 {
+    pub const fn raw(self) -> usize {
         self.0
     }
+}
+
+/// Native readiness requested for one registered I/O source.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum NativePollInterest {
+    /// Notify when input can be read.
+    Readable,
+    /// Notify when output can be written.
+    Writable,
+    /// Notify for either readable or writable readiness.
+    ReadableOrWritable,
+}
+
+impl NativePollInterest {
+    const fn into_mio(self) -> Interest {
+        match self {
+            Self::Readable => Interest::READABLE,
+            Self::Writable => Interest::WRITABLE,
+            Self::ReadableOrWritable => {
+                Interest::READABLE.add(Interest::WRITABLE)
+            }
+        }
+    }
+}
+
+/// One readiness notification returned by a native event poller.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum NativePollReady {
+    /// An explicit cross-thread wake was published.
+    Woken(NativePollEvent),
+    /// A registered operating-system I/O source became ready.
+    Io {
+        /// Caller-owned source identity.
+        event: NativePollEvent,
+        /// Whether the source may be read without blocking.
+        readable: bool,
+        /// Whether the source may be written without blocking.
+        writable: bool,
+        /// Whether the source reported an error condition.
+        error: bool,
+        /// Whether the readable side closed.
+        read_closed: bool,
+        /// Whether the writable side closed.
+        write_closed: bool,
+    },
+}
+
+impl NativePollReady {
+    /// Returns the caller-owned source identity.
+    pub const fn event(self) -> NativePollEvent {
+        match self {
+            Self::Woken(event) | Self::Io { event, .. } => event,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PollWakeState {
+    pending: Mutex<VecDeque<NativePollEvent>>,
+    waker: Waker,
 }
 
 /// Transferable registration that wakes one poller with a stable event identity.
 #[derive(Clone, Debug)]
 pub struct NativeEventRegistration {
     event: NativePollEvent,
-    sender: Sender<NativePollEvent>,
+    state: Arc<PollWakeState>,
 }
 
 impl NativeEventRegistration {
     /// Publishes this registration's event to the poller.
     pub fn wake(&self) -> Result<(), PlatformError> {
-        self.sender.send(self.event).map_err(|_| {
-            PlatformError::new(
-                PlatformOperation::EventPoll,
-                PlatformErrorKind::Io(std::io::ErrorKind::BrokenPipe),
-            )
+        {
+            let mut pending = self
+                .state
+                .pending
+                .lock()
+                .map_err(|_| poisoned_event(PlatformOperation::EventPoll))?;
+
+            pending.push_back(self.event);
+        }
+
+        self.state.waker.wake().map_err(|error| {
+            PlatformError::from_io(PlatformOperation::EventPoll, &error)
         })
     }
 }
 
-/// Process-local event poller used to integrate host wakeups and timers.
+/// Operating-system event poller integrating I/O readiness, deadlines, and host wakes.
 #[derive(Debug)]
 pub struct NativeEventPoller {
-    sender: Sender<NativePollEvent>,
-    receiver: Receiver<NativePollEvent>,
+    poll: Poll,
+    events: Events,
+    wake_state: Arc<PollWakeState>,
+    ready: VecDeque<NativePollReady>,
 }
 
 impl NativeEventPoller {
-    /// Creates an empty poller.
-    pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel();
+    /// Creates an empty native poller.
+    pub fn new() -> Result<Self, PlatformError> {
+        let poll = Poll::new().map_err(|error| {
+            PlatformError::from_io(PlatformOperation::EventPoll, &error)
+        })?;
 
-        Self { sender, receiver }
+        let waker = Waker::new(poll.registry(), HOST_WAKE_TOKEN).map_err(|error| {
+            PlatformError::from_io(PlatformOperation::EventPoll, &error)
+        })?;
+
+        Ok(Self {
+            poll,
+            events: Events::with_capacity(128),
+            wake_state: Arc::new(PollWakeState {
+                pending: Mutex::new(VecDeque::new()),
+                waker,
+            }),
+            ready: VecDeque::new(),
+        })
     }
 
-    /// Creates a transferable registration for one caller-owned identity.
+    /// Creates a transferable explicit-wake registration.
     pub fn register(&self, event: NativePollEvent) -> NativeEventRegistration {
-        // Each registration needs independent authority to publish into this poller.
-        let sender = self.sender.clone();
-
         NativeEventRegistration {
             event,
-            sender,
+            state: Arc::clone(&self.wake_state),
         }
     }
 
-    /// Waits for the next event or optional deadline.
+    /// Waits for I/O readiness, an explicit wake, or an optional deadline.
     pub fn wait(
-        &self,
+        &mut self,
         deadline: Option<MonotonicDeadline>,
-    ) -> Result<Option<NativePollEvent>, PlatformError> {
-        match deadline {
-            Some(deadline) if deadline.has_elapsed() => Ok(None),
-            Some(deadline) => match self.receiver.recv_timeout(deadline.remaining()) {
-                Ok(event) => Ok(Some(event)),
-                Err(RecvTimeoutError::Timeout) => Ok(None),
-                Err(RecvTimeoutError::Disconnected) => Err(disconnected_poller()),
-            },
-            None => self.receiver.recv().map(Some).map_err(|_| disconnected_poller()),
+    ) -> Result<Option<NativePollReady>, PlatformError> {
+        if let Some(ready) = self.ready.pop_front() {
+            return Ok(Some(ready));
         }
+
+        self.events.clear();
+
+        self.poll
+            .poll(
+                &mut self.events,
+                deadline.map(MonotonicDeadline::remaining),
+            )
+            .map_err(|error| {
+                PlatformError::from_io(PlatformOperation::EventPoll, &error)
+            })?;
+
+        self.collect_ready()?;
+
+        Ok(self.ready.pop_front())
+    }
+
+    pub(crate) fn register_source(
+        &self,
+        source: &mut impl Source,
+        event: NativePollEvent,
+        interest: NativePollInterest,
+    ) -> Result<(), PlatformError> {
+        let token = source_token(event)?;
+
+        self.poll
+            .registry()
+            .register(source, token, interest.into_mio())
+            .map_err(|error| {
+                PlatformError::from_io(PlatformOperation::EventRegistration, &error)
+            })
+    }
+
+    pub(crate) fn reregister_source(
+        &self,
+        source: &mut impl Source,
+        event: NativePollEvent,
+        interest: NativePollInterest,
+    ) -> Result<(), PlatformError> {
+        let token = source_token(event)?;
+
+        self.poll
+            .registry()
+            .reregister(source, token, interest.into_mio())
+            .map_err(|error| {
+                PlatformError::from_io(PlatformOperation::EventRegistration, &error)
+            })
+    }
+
+    pub(crate) fn deregister_source(
+        &self,
+        source: &mut impl Source,
+    ) -> Result<(), PlatformError> {
+        self.poll.registry().deregister(source).map_err(|error| {
+            PlatformError::from_io(PlatformOperation::EventRegistration, &error)
+        })
+    }
+
+    fn collect_ready(&mut self) -> Result<(), PlatformError> {
+        for event in &self.events {
+            if event.token() == HOST_WAKE_TOKEN {
+                continue;
+            }
+
+            self.ready.push_back(NativePollReady::Io {
+                event: NativePollEvent::new(event.token().0),
+                readable: event.is_readable(),
+                writable: event.is_writable(),
+                error: event.is_error(),
+                read_closed: event.is_read_closed(),
+                write_closed: event.is_write_closed(),
+            });
+        }
+
+        while let Some(event) = self.pop_pending_wake()? {
+            self.ready.push_back(NativePollReady::Woken(event));
+        }
+
+        Ok(())
+    }
+
+    fn pop_pending_wake(&self) -> Result<Option<NativePollEvent>, PlatformError> {
+        self.wake_state
+            .pending
+            .lock()
+            .map_err(|_| poisoned_event(PlatformOperation::EventPoll))
+            .map(|mut pending| pending.pop_front())
     }
 }
 
-impl Default for NativeEventPoller {
-    fn default() -> Self {
-        Self::new()
+fn source_token(event: NativePollEvent) -> Result<Token, PlatformError> {
+    let token = Token(event.raw());
+
+    if token == HOST_WAKE_TOKEN {
+        return Err(PlatformError::new(
+            PlatformOperation::EventRegistration,
+            PlatformErrorKind::InvalidEventIdentity,
+        ));
     }
+
+    Ok(token)
 }
 
-fn disconnected_poller() -> PlatformError {
-    PlatformError::new(
-        PlatformOperation::EventPoll,
-        PlatformErrorKind::Io(std::io::ErrorKind::BrokenPipe),
-    )
-}
-
-fn poisoned_event() -> PlatformError {
-    PlatformError::new(
-        PlatformOperation::Event,
-        PlatformErrorKind::SynchronizationPoisoned,
-    )
+fn poisoned_event(operation: PlatformOperation) -> PlatformError {
+    PlatformError::new(operation, PlatformErrorKind::SynchronizationPoisoned)
 }
 
 #[cfg(test)]
@@ -249,7 +410,8 @@ mod tests {
     use crate::MonotonicClock;
 
     use super::{
-        NativeEvent, NativeEventPoller, NativePollEvent, NativeWaitOutcome,
+        NativeEvent, NativeEventPoller, NativePollEvent, NativePollReady,
+        NativeWaitOutcome,
     };
 
     #[test]
@@ -274,7 +436,9 @@ mod tests {
 
     #[test]
     fn poller_delivers_transferable_registrations_and_deadlines() {
-        let poller = NativeEventPoller::new();
+        let mut poller = NativeEventPoller::new()
+            .unwrap_or_else(|error| panic!("poller must initialize: {error:?}"));
+
         let registration = poller.register(NativePollEvent::new(7));
 
         let worker = thread::spawn(move || registration.wake());
@@ -289,6 +453,30 @@ mod tests {
 
         wake.unwrap_or_else(|error| panic!("poll wake must succeed: {error:?}"));
 
-        assert_eq!(event, Some(NativePollEvent::new(7)));
+        assert_eq!(
+            event,
+            Some(NativePollReady::Woken(NativePollEvent::new(7)))
+        );
+    }
+
+    #[test]
+    fn elapsed_deadlines_do_not_hide_queued_wakes() {
+        let mut poller = NativeEventPoller::new()
+            .unwrap_or_else(|error| panic!("poller must initialize: {error:?}"));
+
+        let registration = poller.register(NativePollEvent::new(11));
+
+        registration
+            .wake()
+            .unwrap_or_else(|error| panic!("poll wake must succeed: {error:?}"));
+
+        let ready = poller
+            .wait(MonotonicClock.deadline_after(Duration::ZERO))
+            .unwrap_or_else(|error| panic!("poll wait must succeed: {error:?}"));
+
+        assert_eq!(
+            ready,
+            Some(NativePollReady::Woken(NativePollEvent::new(11)))
+        );
     }
 }

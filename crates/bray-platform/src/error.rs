@@ -14,6 +14,8 @@ pub enum PlatformOperation {
     Event,
     /// Poll registered native events.
     EventPoll,
+    /// Register an operating-system event source.
+    EventRegistration,
     /// Acquire anonymous virtual memory.
     VirtualMemory,
     /// Create a child process.
@@ -24,10 +26,20 @@ pub enum PlatformOperation {
     ProcessWait,
     /// Resolve a socket address.
     SocketAddressResolution,
+    /// Query a bound or connected socket address.
+    SocketAddress,
     /// Bind a native socket.
     SocketBind,
+    /// Configure a native socket.
+    SocketConfiguration,
     /// Connect a native socket.
     SocketConnect,
+    /// Accept a native socket connection.
+    SocketAccept,
+    /// Receive bytes from a native socket.
+    SocketReceive,
+    /// Send bytes through a native socket.
+    SocketSend,
 }
 
 impl PlatformOperation {
@@ -39,13 +51,19 @@ impl PlatformOperation {
             Self::ThreadRuntimeInitialization => "thread_runtime_initialization",
             Self::Event => "event",
             Self::EventPoll => "event_poll",
+            Self::EventRegistration => "event_registration",
             Self::VirtualMemory => "virtual_memory",
             Self::ProcessSpawn => "process_spawn",
             Self::ProcessSignal => "process_signal",
             Self::ProcessWait => "process_wait",
             Self::SocketAddressResolution => "socket_address_resolution",
+            Self::SocketAddress => "socket_address",
             Self::SocketBind => "socket_bind",
+            Self::SocketConfiguration => "socket_configuration",
             Self::SocketConnect => "socket_connect",
+            Self::SocketAccept => "socket_accept",
+            Self::SocketReceive => "socket_receive",
+            Self::SocketSend => "socket_send",
         }
     }
 }
@@ -61,6 +79,8 @@ pub enum PlatformErrorKind {
     ThreadIdentityExhausted,
     /// A native event's monotonic wake generation was exhausted.
     EventGenerationExhausted,
+    /// A caller-owned event identity conflicts with a reserved host identity.
+    InvalidEventIdentity,
     /// Runtime state was already installed on the current thread.
     RuntimeThreadAlreadyInitialized,
     /// Shared synchronization state was poisoned by a panic.
