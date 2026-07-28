@@ -8,10 +8,9 @@ use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::frame::suspension_state;
 use crate::{
-    ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExit,
-    FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
-    RuntimePanic, SendableProtectedFrame, erase_protected_frame,
-    erase_sendable_protected_frame,
+    CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
+    FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
+    RuntimePanic, SendableProtectedFrame, erase_protected_frame, erase_sendable_protected_frame,
 };
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
@@ -139,7 +138,7 @@ pub struct TaskControlBlock<
     id: TaskId,
     descriptor: ProtectedFrameDescriptor,
     data: Mutex<TaskData<T, F>>,
-    cancellation_requested: AtomicBool,
+    cancellation: CancellationContext,
     resuming: AtomicBool,
 }
 
@@ -152,11 +151,22 @@ impl<T: 'static> TaskControlBlock<T> {
         Self::start_erased(erase_sendable_protected_frame(frame))
     }
 
+    /// Moves a concrete inactive frame into a child cancellation context.
+    pub fn start_child<F>(
+        frame: F,
+        parent: &CancellationContext,
+    ) -> Result<Arc<Self>, TaskStartError>
+    where
+        F: SendableProtectedFrame<Output = T>,
+    {
+        Self::start_frame(erase_sendable_protected_frame(frame), parent.child())
+    }
+
     /// Moves an erased inactive frame into stable task-owned storage.
     pub fn start_erased(
         frame: ErasedSendableProtectedFrame<T>,
     ) -> Result<Arc<Self>, TaskStartError> {
-        Self::start_frame(frame)
+        Self::start_frame(frame, CancellationContext::root())
     }
 }
 
@@ -169,11 +179,20 @@ impl<T: 'static> TaskControlBlock<T, dyn ProtectedFrame<Output = T>> {
         Self::start_local_erased(erase_protected_frame(frame))
     }
 
+    /// Moves a thread-affine frame into a child cancellation context.
+    pub fn start_local_child<F>(
+        frame: F,
+        parent: &CancellationContext,
+    ) -> Result<Arc<Self>, TaskStartError>
+    where
+        F: ProtectedFrame<Output = T>,
+    {
+        Self::start_frame(erase_protected_frame(frame), parent.child())
+    }
+
     /// Moves an erased thread-affine frame into local task-owned storage.
-    pub fn start_local_erased(
-        frame: ErasedProtectedFrame<T>,
-    ) -> Result<Arc<Self>, TaskStartError> {
-        Self::start_frame(frame)
+    pub fn start_local_erased(frame: ErasedProtectedFrame<T>) -> Result<Arc<Self>, TaskStartError> {
+        Self::start_frame(frame, CancellationContext::root())
     }
 }
 
@@ -181,7 +200,10 @@ impl<T: 'static, F> TaskControlBlock<T, F>
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
-    fn start_frame(frame: Pin<Box<F>>) -> Result<Arc<Self>, TaskStartError> {
+    fn start_frame(
+        frame: Pin<Box<F>>,
+        cancellation: CancellationContext,
+    ) -> Result<Arc<Self>, TaskStartError> {
         let id = next_task_id()?;
         let descriptor = frame.descriptor().clone();
 
@@ -194,7 +216,7 @@ where
                 outcome: None,
                 join_waiters: Vec::new(),
             }),
-            cancellation_requested: AtomicBool::new(false),
+            cancellation,
             resuming: AtomicBool::new(false),
         }))
     }
@@ -221,12 +243,17 @@ where
     ///
     /// Returns whether this call changed the request state.
     pub fn request_cancellation(&self) -> bool {
-        !self.cancellation_requested.swap(true, Ordering::AcqRel)
+        self.cancellation.request()
     }
 
     /// Returns whether cancellation has been requested.
     pub fn cancellation_requested(&self) -> bool {
-        self.cancellation_requested.load(Ordering::Acquire)
+        self.cancellation.is_requested()
+    }
+
+    /// Returns the structured cancellation context owned by this task.
+    pub const fn cancellation_context(&self) -> &CancellationContext {
+        &self.cancellation
     }
 
     /// Enters or resumes the task without allowing concurrent execution.
@@ -251,22 +278,18 @@ where
 
                 data.state = TaskState::Failed(failure);
 
-                return Err(TaskResumeError::NotResumable(TaskState::Failed(
-                    failure,
-                )));
+                return Err(TaskResumeError::NotResumable(TaskState::Failed(failure)));
             };
 
-            catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context)))
-                .unwrap_or_else(|payload| {
-                    FrameProgress::Panicked(RuntimePanic::from_payload(payload))
-                })
+            catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))).unwrap_or_else(
+                |payload| FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+            )
         };
 
         let (status, waiters) = match progress {
             FrameProgress::Suspended(suspension) => {
                 if suspension_state(&self.descriptor, suspension).is_none() {
-                    let failure =
-                        TaskFailureKind::UnknownSuspensionState(suspension.state());
+                    let failure = TaskFailureKind::UnknownSuspensionState(suspension.state());
 
                     if let Some(frame) = data.frame.as_mut() {
                         fail_frame(frame.as_mut());
@@ -281,9 +304,7 @@ where
 
                     wake_all(waiters);
 
-                    return Err(TaskResumeError::UnknownSuspensionState(
-                        suspension.state(),
-                    ));
+                    return Err(TaskResumeError::UnknownSuspensionState(suspension.state()));
                 }
 
                 data.state = TaskState::Suspended(suspension.state());
@@ -296,9 +317,7 @@ where
 
                     data.state = TaskState::Failed(failure);
 
-                    return Err(TaskResumeError::NotResumable(TaskState::Failed(
-                        failure,
-                    )));
+                    return Err(TaskResumeError::NotResumable(TaskState::Failed(failure)));
                 };
 
                 let outcome = finish_frame(frame.as_mut(), terminal);
@@ -356,12 +375,10 @@ where
             .map_err(|_| TaskObservationError::SynchronizationPoisoned)?;
 
         match data.state {
-            TaskState::Ready
-            | TaskState::Running
-            | TaskState::Suspended(_) => Err(TaskObservationError::Pending),
-            TaskState::Failed(failure) => {
-                Err(TaskObservationError::RuntimeFailed(failure))
+            TaskState::Ready | TaskState::Running | TaskState::Suspended(_) => {
+                Err(TaskObservationError::Pending)
             }
+            TaskState::Failed(failure) => Err(TaskObservationError::RuntimeFailed(failure)),
             TaskState::Completed | TaskState::Cancelled | TaskState::Panicked => data
                 .outcome
                 .take()
@@ -389,9 +406,7 @@ where
             .map_err(|_| TaskObservationError::SynchronizationPoisoned)
     }
 
-    fn lock_data(
-        &self,
-    ) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {
+    fn lock_data(&self) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {
         self.data
             .lock()
             .map_err(|_| TaskResumeError::SynchronizationPoisoned)
@@ -427,10 +442,7 @@ fn next_task_id() -> Result<TaskId, TaskStartError> {
         .ok_or(TaskStartError::IdentityExhausted)
 }
 
-fn finish_frame<T: 'static, F>(
-    mut frame: Pin<&mut F>,
-    progress: FrameProgress<T>,
-) -> RunOutcome<T>
+fn finish_frame<T: 'static, F>(mut frame: Pin<&mut F>, progress: FrameProgress<T>) -> RunOutcome<T>
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
@@ -438,13 +450,9 @@ where
         FrameProgress::Suspended(_) => {
             unreachable!("suspended frames are not terminalized")
         }
-        FrameProgress::Completed(value) => {
-            (RunOutcome::Completed(value), FrameExit::Completed)
-        }
+        FrameProgress::Completed(value) => (RunOutcome::Completed(value), FrameExit::Completed),
         FrameProgress::Cancelled => (RunOutcome::Cancelled, FrameExit::Cancelled),
-        FrameProgress::Panicked(panic) => {
-            (RunOutcome::Panicked(panic), FrameExit::Panicked)
-        }
+        FrameProgress::Panicked(panic) => (RunOutcome::Panicked(panic), FrameExit::Panicked),
     };
 
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
@@ -497,10 +505,7 @@ where
     let _ = catch_unwind(AssertUnwindSafe(|| drop(frame)));
 }
 
-fn merge_panic<T>(
-    outcome: &mut RunOutcome<T>,
-    payload: Box<dyn std::any::Any + Send>,
-) {
+fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + Send>) {
     match outcome {
         RunOutcome::Panicked(panic) => panic.push_suppressed(payload),
         RunOutcome::Completed(_) | RunOutcome::Cancelled => {
@@ -527,13 +532,13 @@ fn wake_all(waiters: Vec<Arc<dyn JoinWake>>) {
 mod tests {
     use std::pin::Pin;
     use std::rc::Rc;
-    use std::sync::{Arc, Barrier};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
     use std::thread;
 
     use super::{
-        TaskControlBlock, TaskFailureKind, TaskObservationError,
-        TaskResumeError, TaskResumeStatus, TaskState,
+        TaskControlBlock, TaskFailureKind, TaskObservationError, TaskResumeError, TaskResumeStatus,
+        TaskState,
     };
     use crate::test_support::TestFrame;
     use crate::{
@@ -550,11 +555,9 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Ok(TaskResumeStatus::Suspended(
-                crate::FrameSuspension::new(
-                    bray_runtime_interface::ProtectedFrameStateId::new(1)
-                )
-            ))
+            Ok(TaskResumeStatus::Suspended(crate::FrameSuspension::new(
+                bray_runtime_interface::ProtectedFrameStateId::new(1)
+            )))
         );
 
         assert_eq!(
@@ -566,9 +569,7 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(
-                crate::RunOutcomeKind::Completed
-            ))
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
         );
 
         assert!(task.has_unobserved_outcome().unwrap_or(false));
@@ -594,9 +595,7 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(
-                crate::RunOutcomeKind::Completed
-            ))
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
         );
 
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(41))));
@@ -614,9 +613,7 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(
-                crate::RunOutcomeKind::Completed
-            ))
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
         );
 
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(43))));
@@ -641,13 +638,28 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(
-                crate::RunOutcomeKind::Cancelled
-            ))
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Cancelled))
         );
 
         assert_eq!(wake_count.load(Ordering::Relaxed), 1);
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Cancelled)));
+    }
+
+    #[test]
+    fn parent_cancellation_reaches_child_task_frames() {
+        let parent = crate::CancellationContext::root();
+
+        let task = TaskControlBlock::start_child(TestFrame::cancellation_aware(), &parent)
+            .unwrap_or_else(|error| panic!("child test task must start: {error:?}"));
+
+        parent.request();
+
+        assert!(task.cancellation_requested());
+
+        assert_eq!(
+            task.resume(),
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Cancelled))
+        );
     }
 
     #[test]
@@ -676,9 +688,7 @@ mod tests {
             worker
                 .join()
                 .unwrap_or_else(|_| panic!("resume worker must not panic")),
-            Ok(TaskResumeStatus::Terminal(
-                crate::RunOutcomeKind::Completed
-            ))
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
         );
     }
 
@@ -689,9 +699,7 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(
-                crate::RunOutcomeKind::Panicked
-            ))
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Panicked))
         );
 
         let outcome = task
@@ -735,9 +743,7 @@ mod tests {
 
         assert_eq!(
             task.resume(),
-            Err(TaskResumeError::NotResumable(TaskState::Failed(
-                failure
-            )))
+            Err(TaskResumeError::NotResumable(TaskState::Failed(failure)))
         );
 
         assert!(matches!(
@@ -774,7 +780,7 @@ mod tests {
 
             resolved.set(Some(value));
         })
-            .unwrap_or_else(|error| panic!("test outcome must resolve: {error:?}"));
+        .unwrap_or_else(|error| panic!("test outcome must resolve: {error:?}"));
 
         assert_eq!(resolved.get(), Some(47));
 
@@ -792,16 +798,11 @@ mod tests {
     impl ProtectedFrame for LocalFrame {
         type Output = i32;
 
-        fn descriptor(
-            &self,
-        ) -> &bray_runtime_interface::ProtectedFrameDescriptor {
+        fn descriptor(&self) -> &bray_runtime_interface::ProtectedFrameDescriptor {
             self.inner.descriptor()
         }
 
-        fn resume(
-            self: Pin<&mut Self>,
-            context: FrameContext,
-        ) -> FrameProgress<Self::Output> {
+        fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
             let frame = self.get_mut();
 
             Pin::new(&mut frame.inner).resume(context)
@@ -813,10 +814,7 @@ mod tests {
             Pin::new(&mut frame.inner).broadcast_tasks();
         }
 
-        fn resolve_lifecycle(
-            self: Pin<&mut Self>,
-            exit: FrameExit,
-        ) {
+        fn resolve_lifecycle(self: Pin<&mut Self>, exit: FrameExit) {
             let frame = self.get_mut();
 
             Pin::new(&mut frame.inner).resolve_lifecycle(exit);
