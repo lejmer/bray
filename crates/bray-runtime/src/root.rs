@@ -148,6 +148,7 @@ where
             // The execution context owns an independent view for the duration of resume.
             let context = TaskExecutionContext::new(
                 root.id(),
+                ready.state(),
                 root.cancellation_context().clone(),
                 ready.lane(),
                 wake.clone(),
@@ -400,6 +401,7 @@ mod tests {
 
                 let context = TaskExecutionContext::new(
                     child.id(),
+                    ready.state(),
                     child.cancellation_context().clone(),
                     ready.lane(),
                     child_wake.clone(),

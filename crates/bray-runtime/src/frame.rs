@@ -175,7 +175,7 @@ pub fn resume_direct<F>(
     context: FrameContext,
 ) -> FrameProgress<F::Output>
 where
-    F: ProtectedFrame,
+    F: ?Sized + ProtectedFrame,
 {
     frame.resume(context)
 }

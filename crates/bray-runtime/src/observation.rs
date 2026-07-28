@@ -1,0 +1,279 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use bray_runtime_interface::{
+    ExecutionLaneRequirement, ProtectedFrameAffinity, ProtectedFrameDependencyId,
+    ProtectedFrameDescriptor, ProtectedFrameStateId, ProtectedFrameStorageId,
+};
+
+use crate::{ExecutionLane, RunOutcomeKind, TaskId, TaskState};
+
+/// Runtime location that created one independently executing task.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TaskStartSite {
+    parent: TaskId,
+    state: ProtectedFrameStateId,
+}
+
+impl TaskStartSite {
+    pub(crate) const fn new(parent: TaskId, state: ProtectedFrameStateId) -> Self {
+        Self { parent, state }
+    }
+
+    /// Returns the parent task that created the child.
+    pub const fn parent(self) -> TaskId {
+        self.parent
+    }
+
+    /// Returns the parent frame state active at task creation.
+    pub const fn state(self) -> ProtectedFrameStateId {
+        self.state
+    }
+}
+
+/// Immutable inspection facts for one task-control block.
+#[derive(Clone, Debug)]
+pub struct TaskSnapshot {
+    task: TaskId,
+    start_site: Option<TaskStartSite>,
+    descriptor: ProtectedFrameDescriptor,
+    state: TaskState,
+    frame_state: ProtectedFrameStateId,
+    cancellation_requested: bool,
+    join_waiters: usize,
+    unobserved_outcome: Option<RunOutcomeKind>,
+}
+
+impl TaskSnapshot {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the snapshot preserves the complete task observation contract"
+    )]
+    pub(crate) const fn new(
+        task: TaskId,
+        start_site: Option<TaskStartSite>,
+        descriptor: ProtectedFrameDescriptor,
+        state: TaskState,
+        frame_state: ProtectedFrameStateId,
+        cancellation_requested: bool,
+        join_waiters: usize,
+        unobserved_outcome: Option<RunOutcomeKind>,
+    ) -> Self {
+        Self {
+            task,
+            start_site,
+            descriptor,
+            state,
+            frame_state,
+            cancellation_requested,
+            join_waiters,
+            unobserved_outcome,
+        }
+    }
+
+    /// Returns the inspected task identity.
+    pub const fn task(&self) -> TaskId {
+        self.task
+    }
+
+    /// Returns the parent task and state that created this task, when applicable.
+    pub const fn start_site(&self) -> Option<TaskStartSite> {
+        self.start_site
+    }
+
+    /// Returns the compiler-generated descriptor for this task's frame.
+    pub const fn descriptor(&self) -> &ProtectedFrameDescriptor {
+        &self.descriptor
+    }
+
+    /// Returns the current task execution state.
+    pub const fn state(&self) -> TaskState {
+        self.state
+    }
+
+    /// Returns the most recently active protected-frame state.
+    pub const fn frame_state(&self) -> ProtectedFrameStateId {
+        self.frame_state
+    }
+
+    /// Returns whether cancellation has been requested.
+    pub const fn cancellation_requested(&self) -> bool {
+        self.cancellation_requested
+    }
+
+    /// Returns the number of observers waiting for terminal publication.
+    pub const fn join_waiters(&self) -> usize {
+        self.join_waiters
+    }
+
+    /// Returns an unobserved terminal outcome category, when one remains owned.
+    pub const fn unobserved_outcome(&self) -> Option<RunOutcomeKind> {
+        self.unobserved_outcome
+    }
+
+    /// Returns storage retained by the current protected-frame state.
+    pub fn retained_storage(&self) -> &[ProtectedFrameStorageId] {
+        self.frame_descriptor()
+            .map_or(&[], |state| state.initialized_storage())
+    }
+
+    /// Returns task dependencies that can block cleanup in the current state.
+    pub fn cleanup_blockers(&self) -> &[ProtectedFrameDependencyId] {
+        self.frame_descriptor()
+            .map_or(&[], |state| state.dependencies())
+    }
+
+    fn frame_descriptor(
+        &self,
+    ) -> Option<&bray_runtime_interface::ProtectedFrameStateDescriptor> {
+        self.descriptor.state(self.frame_state)
+    }
+}
+
+/// Scheduler ownership of one registered task at observation time.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ScheduledTaskState {
+    /// The task is registered but not queued.
+    Idle,
+    /// The task is waiting in its selected lane.
+    Queued,
+    /// One worker currently owns the task dispatch.
+    Running,
+}
+
+/// Cause that made one protected-frame state ready.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TaskWakeCause {
+    /// Runtime or generated code explicitly requested a wake.
+    Explicit,
+    /// A registered timer elapsed.
+    Timer,
+    /// Cancellation became observable.
+    Cancellation,
+}
+
+/// Immutable scheduling facts for one registered task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScheduledTaskSnapshot {
+    task: TaskId,
+    state: ProtectedFrameStateId,
+    dispatch: ScheduledTaskState,
+    lane: ExecutionLane,
+    affinity: ProtectedFrameAffinity,
+    lane_requirements: Arc<[ExecutionLaneRequirement]>,
+    wake_count: u64,
+    wake_cause: Option<TaskWakeCause>,
+    queue_age: Option<Duration>,
+    cancellation_requested: bool,
+}
+
+impl ScheduledTaskSnapshot {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the snapshot preserves the complete scheduler observation contract"
+    )]
+    pub(crate) fn new(
+        task: TaskId,
+        state: ProtectedFrameStateId,
+        dispatch: ScheduledTaskState,
+        lane: ExecutionLane,
+        affinity: ProtectedFrameAffinity,
+        lane_requirements: Arc<[ExecutionLaneRequirement]>,
+        wake_count: u64,
+        wake_cause: Option<TaskWakeCause>,
+        queue_age: Option<Duration>,
+        cancellation_requested: bool,
+    ) -> Self {
+        Self {
+            task,
+            state,
+            dispatch,
+            lane,
+            affinity,
+            lane_requirements,
+            wake_count,
+            wake_cause,
+            queue_age,
+            cancellation_requested,
+        }
+    }
+
+    /// Returns the registered task identity.
+    pub const fn task(&self) -> TaskId {
+        self.task
+    }
+
+    /// Returns the protected-frame state owned by the scheduler.
+    pub const fn state(&self) -> ProtectedFrameStateId {
+        self.state
+    }
+
+    /// Returns how the scheduler currently owns the task.
+    pub const fn dispatch(&self) -> ScheduledTaskState {
+        self.dispatch
+    }
+
+    /// Returns the compatible lane selected for this state.
+    pub const fn lane(&self) -> ExecutionLane {
+        self.lane
+    }
+
+    /// Returns the frame affinity that caused lane placement.
+    pub const fn affinity(&self) -> ProtectedFrameAffinity {
+        self.affinity
+    }
+
+    /// Returns the checked workload and placement requirements.
+    pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
+        &self.lane_requirements
+    }
+
+    /// Returns the number of accepted wake requests for this registration.
+    pub const fn wake_count(&self) -> u64 {
+        self.wake_count
+    }
+
+    /// Returns the cause retained by the current queued or pending wake.
+    pub const fn wake_cause(&self) -> Option<TaskWakeCause> {
+        self.wake_cause
+    }
+
+    /// Returns time spent in the current ready queue when timing is enabled.
+    pub const fn queue_age(&self) -> Option<Duration> {
+        self.queue_age
+    }
+
+    /// Returns whether cancellation has been requested.
+    pub const fn cancellation_requested(&self) -> bool {
+        self.cancellation_requested
+    }
+}
+
+/// Immutable observation of one scheduler's registered work.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchedulerSnapshot {
+    tasks: Arc<[ScheduledTaskSnapshot]>,
+    timer_count: usize,
+}
+
+impl SchedulerSnapshot {
+    pub(crate) fn new(
+        tasks: impl IntoIterator<Item = ScheduledTaskSnapshot>,
+        timer_count: usize,
+    ) -> Self {
+        Self {
+            tasks: tasks.into_iter().collect(),
+            timer_count,
+        }
+    }
+
+    /// Returns tasks in deterministic process-local identity order.
+    pub fn tasks(&self) -> &[ScheduledTaskSnapshot] {
+        &self.tasks
+    }
+
+    /// Returns the number of pending timer wakes.
+    pub const fn timer_count(&self) -> usize {
+        self.timer_count
+    }
+}
