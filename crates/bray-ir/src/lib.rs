@@ -27,7 +27,8 @@ pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitI
 pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,
     MirConstructionInput, MirGeneratorKind, MirGeneratorOperation, MirOperation,
-    MirOperationCommit, MirOperationKind, MirTaskTerminalState, MirUnaryOperator,
+    MirOperationCommit, MirOperationKind, MirPanicCause, MirStoreKind, MirTaskTerminalState,
+    MirUnaryOperator,
 };
 pub use reference::{
     MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirRuntimeReference,

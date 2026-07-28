@@ -42,6 +42,7 @@ pub(super) struct FinishedExpressionTypes {
     pub(super) results: Vec<(BoundExpressionId, ExpressionTypeResult)>,
     pub(super) conflicts: Vec<TypeConflict>,
     pub(super) unresolved: Vec<BoundExpressionId>,
+    pub(super) callable_result_type: Option<TypeId>,
 }
 
 /// Mutable checker-local state shared with operation selection before publication.
@@ -56,6 +57,7 @@ where
     regions: ExpressionTypeRegions,
     types: ExpressionTypeDependencies,
     inference: TypeInferenceContext,
+    callable_result_type: Option<TypeId>,
 }
 
 impl<'view, C> ExpressionTypeSession<'view, C>
@@ -145,6 +147,7 @@ where
             regions,
             types,
             inference,
+            callable_result_type: None,
         }))
     }
 
@@ -164,6 +167,7 @@ where
 
         if let Some(result_type) = input.callable_result_type() {
             self.add_return_expectations(result_type)?;
+            self.callable_result_type = Some(result_type);
         }
 
         Ok(())
@@ -240,11 +244,16 @@ where
             ExpressionTypeEntry::new(*expression, result)
         });
 
-        CheckedExpressionTypes::new(
+        let types = CheckedExpressionTypes::new(
             self.request.view().unit(),
             self.request.view().kind(),
             entries,
-        )
+        );
+
+        match self.callable_result_type {
+            Some(ty) => types.with_callable_result_type(ty),
+            None => types,
+        }
     }
 
     pub(crate) const fn revision(&self) -> u64 {
@@ -323,6 +332,7 @@ where
             results,
             conflicts,
             unresolved,
+            callable_result_type: self.callable_result_type,
         }
     }
 

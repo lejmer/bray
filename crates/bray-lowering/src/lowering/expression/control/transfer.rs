@@ -1,10 +1,7 @@
 use bray_bound_tree::{
     BoundControlTransferExpression, BoundControlTransferKind, BoundExpressionId,
 };
-use bray_ir::{
-    MirBlockId, MirEdge, MirGeneratorOperation, MirOperand, MirOperationKind, MirSourceAnchor,
-    MirTerminatorKind,
-};
+use bray_ir::{MirBlockId, MirGeneratorOperation, MirOperand, MirOperationKind, MirSourceAnchor};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -51,21 +48,50 @@ impl Lowerer<'_> {
             return self.finish_yield(id, expression, current, source, value);
         }
 
-        let terminator = match expression.kind() {
-            BoundControlTransferKind::Return => MirTerminatorKind::Return(value),
-            BoundControlTransferKind::Break => self.break_terminator(id, expression, value)?,
-            BoundControlTransferKind::Continue => {
-                let target = self.loop_target(id, expression)?;
+        match expression.kind() {
+            BoundControlTransferKind::Return => {
+                let value = match (value, expression.operand()) {
+                    (Some(value), Some(operand)) => Some((value, self.expression_type(operand)?)),
+                    (None, None) => None,
+                    _ => return Err(LoweringError::UnsupportedExpression(id)),
+                };
 
-                MirTerminatorKind::Goto(MirEdge::new(target.continue_block, []))
+                self.finish_return(current, &source, value)?;
+            }
+            BoundControlTransferKind::Break => {
+                let (target, result_type, scope_depth) = {
+                    let target = self.loop_target(id, expression)?;
+
+                    (
+                        target.break_block,
+                        target.result_type,
+                        target.scope_depth,
+                    )
+                };
+
+                let value = value.unwrap_or_else(|| self.unit_operand(result_type));
+
+                self.finish_exit_to_block(
+                    current,
+                    &source,
+                    scope_depth,
+                    target,
+                    Some((value, result_type)),
+                )?;
+            }
+            BoundControlTransferKind::Continue => {
+                let (target, scope_depth) = {
+                    let target = self.loop_target(id, expression)?;
+
+                    (target.continue_block, target.scope_depth)
+                };
+
+                self.finish_exit_to_block(current, &source, scope_depth, target, None)?;
             }
             BoundControlTransferKind::Yield => {
                 return Err(LoweringError::UnsupportedExpression(id));
             }
-        };
-
-        self.builder
-            .set_terminator(current, Self::retained_source(&source), terminator)?;
+        }
 
         Ok(LoweredExpression::terminated(source))
     }
@@ -92,14 +118,19 @@ impl Lowerer<'_> {
 
         match target {
             YieldTarget::Result {
-                block, result_type, ..
+                block,
+                result_type,
+                scope_depth,
+                ..
             } => {
                 let value = value.unwrap_or_else(|| self.unit_operand(result_type));
 
-                self.builder.set_terminator(
+                self.finish_exit_to_block(
                     current,
-                    Self::retained_source(&source),
-                    MirTerminatorKind::Goto(MirEdge::new(block, [value])),
+                    &source,
+                    scope_depth,
+                    block,
+                    Some((value, result_type)),
                 )?;
 
                 Ok(LoweredExpression::terminated(source))
@@ -130,21 +161,6 @@ impl Lowerer<'_> {
                 ))
             }
         }
-    }
-
-    fn break_terminator(
-        &self,
-        id: BoundExpressionId,
-        expression: &BoundControlTransferExpression,
-        value: Option<MirOperand>,
-    ) -> Result<MirTerminatorKind, LoweringError> {
-        let target = self.loop_target(id, expression)?;
-        let value = value.unwrap_or_else(|| self.unit_operand(target.result_type));
-
-        Ok(MirTerminatorKind::Goto(MirEdge::new(
-            target.break_block,
-            [value],
-        )))
     }
 
     fn loop_target(

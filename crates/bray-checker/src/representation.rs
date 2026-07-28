@@ -128,25 +128,7 @@ pub(crate) fn intern_named_type(
     values: &bray_symbols::SemanticValueStore,
     definition: NamedTypeSymbolId,
 ) -> Result<TypeId, CheckerInfrastructureError> {
-    let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let substitution = GenericSubstitutionData::try_new(
-        owner,
-        std::iter::empty::<GenericParameterSymbolId>(),
-        std::iter::empty::<GenericArgument>(),
-    )
-    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    let substitution = values
-        .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
     values
-        .intern_type(TypeData::Named {
-            definition,
-            substitution,
-        })
+        .intern_non_generic_named_type(definition)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
 }

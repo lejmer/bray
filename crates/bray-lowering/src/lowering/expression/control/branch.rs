@@ -68,8 +68,22 @@ impl Lowerer<'_> {
             }
             BoundStructuredExpressionKind::ElementIndex
             | BoundStructuredExpressionKind::SliceIndex => self.lower_index(id, current),
+            BoundStructuredExpressionKind::Borrow => self.lower_borrow(id, expression, current),
+            BoundStructuredExpressionKind::NullablePropagation => {
+                self.lower_nullable_propagation(id, expression, current)
+            }
+            BoundStructuredExpressionKind::ResultPropagation => {
+                self.lower_result_propagation(id, expression, current)
+            }
+            BoundStructuredExpressionKind::TrustBoundary => {
+                self.lower_trust_boundary(id, expression, current)
+            }
+            BoundStructuredExpressionKind::Assertion => {
+                self.lower_assertion(id, expression, current)
+            }
+            BoundStructuredExpressionKind::Catch => self.lower_catch(id, expression, current),
+            BoundStructuredExpressionKind::Panic => self.lower_panic(id, expression, current),
             BoundStructuredExpressionKind::With => self.lower_with(id, expression, current),
-            _ => Err(LoweringError::UnsupportedExpression(id)),
         }
     }
 

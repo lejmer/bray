@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirOperand,
-    MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStoreKind,
 };
 use bray_symbols::{AnySymbolId, CallableAbi, TypeId};
 
@@ -19,6 +19,63 @@ pub(in crate::lowering) enum LoweredPlace {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn lower_borrow(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let kind = expression
+            .borrow_kind()
+            .ok_or(LoweringError::UnsupportedExpression(id))?;
+
+        let decision = self.storage_decision(id, |purpose| {
+            purpose == StorageAccessPurpose::Borrow(kind)
+        })?;
+
+        let source = self.source(expression.origin());
+
+        let (current, place) = match self.lower_access_place(id, decision.access(), current)? {
+            LoweredPlace::Continuing { block, place } => (block, place),
+            LoweredPlace::Terminated(completion) => return Ok(completion),
+        };
+
+        let result_type = self.expression_type(id)?;
+
+        let result_data = self
+            .input
+            .semantic_values()
+            .type_data(result_type)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let bray_symbols::TypeData::Borrow {
+            kind: result_kind,
+            target,
+        } = result_data.as_ref()
+        else {
+            return Err(LoweringError::UnsupportedExpression(id));
+        };
+
+        if *result_kind != kind {
+            return Err(LoweringError::UnsupportedExpression(id));
+        }
+
+        let place = MirPlace::new(place.storage(), place.projections().iter().cloned(), *target);
+
+        let value = self.push_value_operation(
+            id,
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Borrow { kind, place },
+        )?;
+
+        Ok(LoweredExpression::continuing(
+            current,
+            Some(value),
+            source,
+        ))
+    }
+
     pub(super) fn lower_member_access(
         &mut self,
         id: BoundExpressionId,
@@ -336,6 +393,7 @@ impl Lowerer<'_> {
                 current,
                 self.expression_source(owner)?,
                 MirOperationKind::Store {
+                    kind: MirStoreKind::Initialize,
                     destination: place.clone(),
                     value,
                 },

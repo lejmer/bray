@@ -82,6 +82,7 @@ pub struct CheckedExpressionTypes {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     entries: Arc<[ExpressionTypeEntry]>,
+    callable_result_type: Option<TypeId>,
 }
 
 impl CheckedExpressionTypes {
@@ -99,7 +100,15 @@ impl CheckedExpressionTypes {
             unit,
             kind,
             entries: entries.into(),
+            callable_result_type: None,
         }
+    }
+
+    /// Returns these expression types with the checked callable result boundary.
+    pub const fn with_callable_result_type(mut self, ty: TypeId) -> Self {
+        self.callable_result_type = Some(ty);
+
+        self
     }
 
     /// Returns the exact bound unit described by these types.
@@ -123,6 +132,11 @@ impl CheckedExpressionTypes {
             .binary_search_by_key(&expression, |entry| entry.expression())
             .ok()
             .map(|index| self.entries[index].result())
+    }
+
+    /// Returns the callable result boundary active for this unit, when any.
+    pub const fn callable_result_type(&self) -> Option<TypeId> {
+        self.callable_result_type
     }
 
     /// Returns whether any expression required type recovery.
@@ -173,5 +187,16 @@ mod tests {
                 ExpressionTypeEntry::new(second, result),
             ]
         );
+    }
+
+    #[test]
+    fn expression_types_retain_the_checked_callable_result_boundary() {
+        let result_type = error_type();
+
+        let types =
+            CheckedExpressionTypes::new(BoundUnitId::new(1), BoundUnitKind::CallableBody, [])
+                .with_callable_result_type(result_type);
+
+        assert_eq!(types.callable_result_type(), Some(result_type));
     }
 }

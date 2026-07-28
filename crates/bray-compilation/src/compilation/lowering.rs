@@ -375,6 +375,36 @@ mod tests {
         "}\n",
     );
 
+    const FAILURE_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    assert(true);\n",
+        "}\n",
+    );
+
+    const RESULT_PROPAGATION_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main(pos value: Result<i32, i32>) -> Result<i32, i32>\n",
+        "{\n",
+        "    let unwrapped: i32 = try value;\n",
+        "\n",
+        "    return value;\n",
+        "}\n",
+    );
+
+    const BORROW_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let number: i32 = 1;\n",
+        "    let reference: &i32 = &number;\n",
+        "}\n",
+    );
+
     #[test]
     fn mir_units_are_lowered_lazily_and_published_once() {
         let compilation = lowering_compilation();
@@ -696,6 +726,93 @@ mod tests {
         assert_eq!(begin, push);
         assert_eq!(push, second_push);
         assert_eq!(second_push, finish);
+    }
+
+    #[test]
+    fn checked_assertion_lowers_to_explicit_failure_control() {
+        let compilation = compilation(FAILURE_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("failure MIR must be available: {error:?}"));
+
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "checked failure source must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::PanicReport(_)
+        )));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::BeginCleanup(_)
+                | bray_ir::MirTerminatorKind::Panic { .. }
+        )));
+    }
+
+    #[test]
+    fn checked_result_propagation_lowers_success_and_error_paths() {
+        let compilation = compilation(RESULT_PROPAGATION_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("result propagation MIR must be available: {error:?}"));
+
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "checked result propagation source must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::PatternBranch {
+                predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(_),
+                ..
+            }
+        )));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::PatternProjection {
+                projection:
+                    bray_bound_tree::PatternProjection::ActiveUnionPayloadField { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn checked_borrows_lower_to_explicit_borrow_operations() {
+        let compilation = compilation(BORROW_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("borrow MIR must be available: {error:?}"));
+
+        let mir = result.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "checked borrow source must produce MIR: {:?}",
+                result.diagnostics()
+            )
+        });
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                ..
+            }
+        )));
     }
 
     fn lowering_compilation() -> Compilation {

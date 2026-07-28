@@ -51,28 +51,39 @@ impl Lowerer<'_> {
         }
 
         let source = self.source(block.origin());
+        self.active_scopes.push(id);
 
-        for item in block.items() {
-            let lowered = match item {
-                BoundBlockItem::LocalBinding(binding) => {
-                    self.lower_local_binding(binding, current)?
-                }
-                BoundBlockItem::LocalConstant(_) => {
-                    LoweredExpression::continuing(current, None, Self::retained_source(&source))
-                }
-                BoundBlockItem::Expression(expression) => {
-                    self.lower_expression(*expression, current)?
-                }
-            };
+        let result = (|| {
+            for item in block.items() {
+                let lowered = match item {
+                    BoundBlockItem::LocalBinding(binding) => {
+                        self.lower_local_binding(binding, current)?
+                    }
+                    BoundBlockItem::LocalConstant(_) => LoweredExpression::continuing(
+                        current,
+                        None,
+                        Self::retained_source(&source),
+                    ),
+                    BoundBlockItem::Expression(expression) => {
+                        self.lower_expression(*expression, current)?
+                    }
+                };
 
-            let Some(continuation) = lowered.block else {
-                return Ok(lowered);
-            };
+                let Some(continuation) = lowered.block else {
+                    return Ok(lowered);
+                };
 
-            current = continuation;
-        }
+                current = continuation;
+            }
 
-        Ok(LoweredExpression::continuing(current, None, source))
+            current = self.finish_scope(id, current, &source)?;
+
+            Ok(LoweredExpression::continuing(current, None, source))
+        })();
+
+        self.active_scopes.pop();
+
+        result
     }
 
     pub(super) fn lower_yielding_block(
@@ -94,6 +105,7 @@ impl Lowerer<'_> {
             syntax,
             block: target,
             result_type,
+            scope_depth: self.active_scopes.len(),
         });
 
         let completion = self.lower_block(id, current);

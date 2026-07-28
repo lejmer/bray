@@ -5,7 +5,8 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirUnaryOperator,
+    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
+    MirUnaryOperator,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -307,7 +308,11 @@ impl Lowerer<'_> {
         self.builder.push_operation(
             current,
             Self::retained_source(&source),
-            MirOperationKind::Store { destination, value },
+            MirOperationKind::Store {
+                kind: MirStoreKind::Assign,
+                destination,
+                value,
+            },
             None,
         )?;
 
