@@ -1,5 +1,3 @@
-Here is a Bray-specific draft adapted from your existing general/code convention docs, with Janiform/Python-specific parts removed and Bray compiler concerns added. I based the structure on the general principles, DRY/module-size guidance, crate/module layout, ownership, error-handling, dependency, naming, comment, and review-checklist rules in the uploaded docs.
-
 # Coding conventions
 
 These rules apply across the Bray codebase unless a narrower rule is stated.
