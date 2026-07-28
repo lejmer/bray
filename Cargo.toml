@@ -18,6 +18,7 @@ members = [
     "crates/bray-messages",
     "crates/bray-package-interface",
     "crates/bray-parser",
+    "crates/bray-platform",
     "crates/bray-source",
     "crates/bray-symbols",
     "crates/bray-syntax",

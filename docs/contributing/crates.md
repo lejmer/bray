@@ -61,6 +61,10 @@ documents.
     - Backend-neutral compiler/runtime interface for protected-frame identities, private execution ABI roles, runtime requirements,
       and executable-host contracts.
 
+- `bray-platform`
+    - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other host mechanisms used by trusted
+      runtime and standard-library layers.
+
 - `bray-linker`
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.
 
