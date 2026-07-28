@@ -501,7 +501,9 @@ fn reuse_mapped_cells(
         CompilationFactKey::CheckedBodyBehavior(key.clone())
     });
 
-    reuse!(mir_units, |key| CompilationFactKey::MirUnit(key.clone()));
+    reuse!(lowered_units, |key| {
+        CompilationFactKey::LoweredUnit(key.clone())
+    });
 
     reuse!(symbolic_constant_terms, |key| {
         CompilationFactKey::SymbolicConstantTerm(key.clone())

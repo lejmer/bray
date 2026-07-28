@@ -34,6 +34,8 @@ pub enum MirUnitBuildError {
     OperationResultTypeMismatch(MirOperationId),
     /// An aggregate operation has an invalid operand shape.
     InvalidAggregateOperation(MirOperationId),
+    /// An anonymous-callable operation references a unit of another category.
+    InvalidAnonymousCallable(MirOperationId),
     /// A construction input does not belong to its target or repeats another input.
     InvalidConstructionInput(MirOperationId),
     /// A call input, result, or retained semantic contract is inconsistent.

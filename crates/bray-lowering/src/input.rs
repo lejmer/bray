@@ -10,6 +10,8 @@ use bray_bound_tree::{
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
+use crate::result::requires_mir;
+
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
 /// The view keeps the canonical bound unit and its associated semantic facts
@@ -61,6 +63,10 @@ impl<'unit> LoweringInput<'unit> {
         unit_kind: MirUnitKind,
         target: MirTargetFacts,
     ) -> Result<Self, LoweringInputError> {
+        if !requires_mir(unit.key().kind()) {
+            return Err(LoweringInputError::CompileTimeUnitRequiresClassification);
+        }
+
         validate_fact_owner(
             unit,
             control_flow.unit(),
@@ -361,6 +367,8 @@ pub enum LoweringInputError {
     },
     /// A compiler-generated executable host was supplied through a source-unit lowering input.
     ExecutableHostRequiresSyntheticInput,
+    /// A compile-time-only unit was supplied through executable MIR lowering.
+    CompileTimeUnitRequiresClassification,
 }
 
 fn validate_literal_target(
@@ -758,7 +766,9 @@ mod tests {
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{BorrowKind, CurrentRunCancellation, SemanticValueStore, TypeData, TypeId};
-    use bray_testing::{test_bound_unit, test_expression_unit, test_mir_target};
+    use bray_testing::{
+        test_bound_unit, test_constant_template_unit, test_mir_target, test_runtime_default_unit,
+    };
 
     use super::{LoweringFactKind, LoweringInput, LoweringInputError};
 
@@ -821,6 +831,53 @@ mod tests {
             input.available_compiler_known_symbols(),
             available_compiler_known_symbols()
         ));
+    }
+
+    #[test]
+    fn input_rejects_compile_time_only_units_before_runtime_fact_validation() {
+        let unit = test_constant_template_unit(5, |tree, origin| {
+            tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Unit,
+                [],
+                [],
+                [],
+                None,
+                false,
+            )))
+            .unwrap_or_else(|error| panic!("test expression must fit: {error:?}"))
+        });
+
+        let control_flow = CheckedControlFlowFacts::new(
+            unit.unit(),
+            unit.key().kind(),
+            ControlCompletion::default(),
+        );
+
+        let facts = empty_expression_facts(&unit);
+
+        assert_input_error(
+            LoweringInput::try_new(
+                &unit,
+                &control_flow,
+                &facts.types,
+                &facts.patterns,
+                &facts.selections,
+                &facts.literals,
+                &facts.storage,
+                &facts.liveness,
+                &facts.refinements,
+                &facts.storage_flow,
+                &facts.dependencies,
+                &facts.async_facts,
+                &facts.behavior,
+                &facts.values,
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitKind::Synchronous,
+                test_mir_target(),
+            ),
+            LoweringInputError::CompileTimeUnitRequiresClassification,
+        );
     }
 
     #[test]
@@ -1181,7 +1238,7 @@ mod tests {
 
     #[test]
     fn input_rejects_bound_expressions_without_final_types() {
-        let unit = test_expression_unit(6, |tree, origin| {
+        let unit = test_runtime_default_unit(6, |tree, origin| {
             match tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
                 origin,
                 BoundStructuredExpressionKind::Unit,
@@ -1234,7 +1291,7 @@ mod tests {
 
     #[test]
     fn input_rejects_valid_expressions_without_required_semantic_selections() {
-        let unit = test_expression_unit(6, |tree, origin| {
+        let unit = test_runtime_default_unit(6, |tree, origin| {
             let unit_expression = match tree.push_expression(BoundExpression::Structured(
                 BoundStructuredExpression::new(
                     origin,
@@ -1467,7 +1524,7 @@ mod tests {
     }
 
     fn storage_expression_unit(id: u32) -> (BoundUnit, BoundExpressionId, TypeId) {
-        let unit = test_expression_unit(id, |tree, origin| {
+        let unit = test_runtime_default_unit(id, |tree, origin| {
             tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
                 origin,
                 BoundStructuredExpressionKind::Unit,

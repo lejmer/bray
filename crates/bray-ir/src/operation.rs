@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, PatternProjection,
-    SelectedConversion,
+    BoundUnitKey, ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget,
+    PatternProjection, SelectedConversion,
 };
 use bray_runtime_interface::ProtectedAsyncFrameId;
 use bray_symbols::{BorrowKind, ConstantTermId};
@@ -352,6 +352,8 @@ pub enum MirAsyncOperation {
 /// One explicit MIR operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirOperationKind {
+    /// Create a capture-free anonymous callable value for an independently lowered unit.
+    AnonymousCallable(BoundUnitKey),
     /// Assign an operand into storage.
     Store {
         /// Checked initialization or assignment behavior.

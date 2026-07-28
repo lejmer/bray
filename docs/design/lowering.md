@@ -30,7 +30,8 @@ The lowering architecture should:
 - reuse canonical semantic identities and values when their meaning is unchanged,
 - introduce MIR-owned types only for genuinely execution-level concepts and invariants,
 - provide a backend-independent input that code generation can consume without interpreting source constructs,
-- publish one immutable validated MIR unit for each demanded concrete bound unit or compiler-generated host,
+- publish one immutable lowering result for each demanded concrete bound unit or compiler-generated host, containing validated MIR
+  for executable units and an explicit classification for compile-time-only units,
 - support lazy demand, independent parallel lowering, deterministic construction, cancellation, and incremental reuse,
 - retain enough source correlation for diagnostics and inspection without retaining source structure as execution policy,
 - reject invalid compiler-produced MIR before it reaches a backend.
@@ -76,16 +77,18 @@ respective code generation implementations.
 
 ### Lowering Input
 
-`LoweringInput` is a validated borrowing view over one canonical bound unit and the exact durable semantic facts required to lower
-that unit.
+`LoweringInput` is a validated borrowing view over one executable bound unit and the exact durable semantic facts required to lower
+that unit into MIR.
 
 It is not a copied checked tree, a generic fact map, a completion marker, or a progressively enriched wrapper around the HIR.
 
 ### Lowering Task
 
-A lowering task constructs one MIR unit from one validated lowering input or one compiler-generated host input.
+A lowering task applies the exhaustive policy selected for one bound-unit category. It classifies a compile-time-only unit without
+requesting execution facts, or constructs one MIR unit from one validated executable lowering input or compiler-generated host
+input.
 
-Its mutable builder state is private to one worker. Only the completed immutable MIR unit may be shared or cached.
+Mutable MIR builder state is private to one worker. Only the completed immutable lowering result may be shared or cached.
 
 ---
 
@@ -413,16 +416,18 @@ Source correlation must not affect MIR identity assignment, control-flow meaning
 
 ## Lazy Demand, Parallelism, And Caching
 
-Compilation exposes MIR as a lazy fact keyed by the canonical concrete unit identity, selected target facts, and every other input
-whose change can alter the MIR result.
+Compilation exposes a typed lowering result as a lazy fact keyed by the canonical concrete unit identity and every input whose
+change can alter that result. Executable units produce validated MIR. Units whose meaning is consumed entirely before runtime
+produce an explicit compile-time-only classification instead of an absent MIR value.
 
-A request for one MIR unit:
+A request for one lowering result:
 
 1. requests that unit's canonical bound HIR,
-2. requests only the durable semantic facts named by `LoweringInput`,
-3. validates the lowering input,
-4. lowers and validates the MIR in task-local state,
-5. publishes the complete immutable result once.
+2. classifies compile-time-only units without requesting execution facts,
+3. requests only the durable semantic facts named by `LoweringInput` for executable units,
+4. validates the lowering input,
+5. lowers and validates the MIR in task-local state,
+6. publishes the complete immutable result once.
 
 It does not force unrelated units or unrelated semantic facts.
 
