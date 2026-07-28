@@ -1,0 +1,13 @@
+[package]
+name = "bray-platform"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-base = { path = "../bray-base" }
+memmap2 = "0.9.11"
+
+[lints]
+workspace = true
