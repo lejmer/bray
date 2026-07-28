@@ -5,9 +5,9 @@ use bray_symbols::TypeId;
 
 use crate::{
     MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallTarget, MirConstructionInput,
-    MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace, MirProjectionKind,
-    MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError,
-    MirValueId,
+    MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace,
+    MirProjectionKind, MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit,
+    MirUnitBuildError, MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -42,6 +42,12 @@ pub(super) fn validate_operation(
         MirOperationKind::Binary { left, right, .. } => {
             validate_operand(unit, left, block, Some(id))?;
             validate_operand(unit, right, block, Some(id))?;
+        }
+        MirOperationKind::PatternProjection { subject, .. } => {
+            validate_operand(unit, subject, block, Some(id))?;
+        }
+        MirOperationKind::Generator(operation) => {
+            validate_generator_operation(unit, block, id, operation)?;
         }
         MirOperationKind::Aggregate(aggregate) => {
             if aggregate.kind() == MirAggregateKind::RepeatedArray
@@ -105,6 +111,8 @@ fn validate_operation_block(
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
+        | MirOperationKind::PatternProjection { .. }
+        | MirOperationKind::Generator(_)
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
@@ -128,6 +136,8 @@ fn validate_operation_result(
         MirOperationKind::Borrow { .. }
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
+            | MirOperationKind::PatternProjection { .. }
+            | MirOperationKind::Generator(MirGeneratorOperation::Finish { .. })
             | MirOperationKind::Aggregate(_)
             | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
@@ -140,6 +150,9 @@ fn validate_operation_result(
     let rejects_result = matches!(
         operation.kind(),
         MirOperationKind::Store { .. }
+            | MirOperationKind::Generator(
+                MirGeneratorOperation::Begin { .. } | MirGeneratorOperation::Push { .. }
+            )
             | MirOperationKind::Finalize(_)
             | MirOperationKind::Destroy(_)
             | MirOperationKind::Async(
@@ -172,8 +185,7 @@ fn validate_operation_result(
             conversion,
         },
         Some(result),
-    ) =
-        (operation.kind(), operation.result())
+    ) = (operation.kind(), operation.result())
     {
         let Some(result) = unit.value(result) else {
             return Err(MirUnitBuildError::MissingValue(result));
@@ -187,6 +199,25 @@ fn validate_operation_result(
     }
 
     Ok(())
+}
+
+fn validate_generator_operation(
+    unit: &MirUnit,
+    block: crate::MirBlockId,
+    operation: MirOperationId,
+    generator: &MirGeneratorOperation,
+) -> Result<(), MirUnitBuildError> {
+    let destination = match generator {
+        MirGeneratorOperation::Begin { destination, .. }
+        | MirGeneratorOperation::Finish { destination } => destination,
+        MirGeneratorOperation::Push { destination, value } => {
+            validate_operand(unit, value, block, Some(operation))?;
+
+            destination
+        }
+    };
+
+    validate_place(unit, destination, block, Some(operation))
 }
 
 fn validate_construction(
@@ -381,7 +412,7 @@ pub(super) fn operand_type(
     }
 }
 
-fn validate_place(
+pub(super) fn validate_place(
     unit: &MirUnit,
     place: &MirPlace,
     block: crate::MirBlockId,

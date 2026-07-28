@@ -4,15 +4,14 @@ use bray_bound_tree::{
     StorageAccessPurpose, StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference,
-    MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind,
-    MirUnaryOperator,
+    MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirImmediateValue,
+    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirUnaryOperator,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
+use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
-use super::super::LoweringError;
 
 impl Lowerer<'_> {
     pub(in crate::lowering) fn lower_expression(
@@ -120,13 +119,13 @@ impl Lowerer<'_> {
             BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
                 self.lower_member_access(id, current)
             }
+            BoundExpression::For(expression) => self.lower_for(id, expression, current),
+            BoundExpression::Match(expression) => self.lower_match(id, expression, current),
             BoundExpression::UnresolvedReference(_)
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
             | BoundExpression::AnonymousCallable(_)
             | BoundExpression::Await(_)
-            | BoundExpression::For(_)
-            | BoundExpression::Match(_)
             | BoundExpression::Generator(_)
             | BoundExpression::Error(_) => Err(LoweringError::UnsupportedExpression(id)),
         }
@@ -195,11 +194,7 @@ impl Lowerer<'_> {
             )?,
         };
 
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(value),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
     fn lower_binary(
@@ -273,11 +268,7 @@ impl Lowerer<'_> {
             )?,
         };
 
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(value),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
     fn lower_assignment(
@@ -320,11 +311,7 @@ impl Lowerer<'_> {
 
         let value = self.unit_operand(self.expression_type(id)?);
 
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(value),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
     fn lower_call(
@@ -392,9 +379,7 @@ impl Lowerer<'_> {
             current = continuation;
 
             let Some(operand) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(
-                    receiver.expression(),
-                ));
+                return Err(LoweringError::MissingOperationResult(receiver.expression()));
             };
 
             arguments.push(self.convert_operand(
@@ -444,11 +429,7 @@ impl Lowerer<'_> {
             MirOperationKind::Call(MirCall::new(target, arguments)),
         )?;
 
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(value),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
     fn convert_operand(
@@ -529,9 +510,9 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let result_type = self.expression_type(expression)?;
 
-        let commit =
-            self.builder
-                .push_operation(current, source, operation, Some(result_type))?;
+        let commit = self
+            .builder
+            .push_operation(current, source, operation, Some(result_type))?;
 
         commit
             .result()
@@ -587,9 +568,7 @@ impl Lowerer<'_> {
 
                 let kind = storage_kind(identity);
 
-                let storage = self
-                    .builder
-                    .push_storage(self.source(origin), kind, ty)?;
+                let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
 
                 self.storages.insert(id, storage);
 

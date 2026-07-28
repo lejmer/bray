@@ -1,10 +1,10 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundForExpression, BoundIterationSource, BoundMatchArm,
-    BoundMatchExpression,
+    BoundMatchExpression, BoundStructuredExpression, BoundStructuredExpressionKind,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId};
-use bray_syntax::{ForExpressionSyntax, MatchExpressionSyntax};
+use bray_syntax::{ForExpressionSyntax, MatchExpressionSyntax, WithExpressionSyntax};
 
 use super::ExpressionBinder;
 use super::support::iteration_source_mode;
@@ -13,6 +13,56 @@ use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode
 use crate::binding::BindingResult;
 
 impl ExpressionBinder {
+    pub(super) fn bind_with_expression<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        scope: LocalScopeId,
+        syntax: &WithExpressionSyntax,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let initializer = self.bind_expression(binder, scope, syntax.expression().as_ref())?;
+        let pattern_syntax = syntax.irrefutable_pattern();
+
+        let pattern_scope = binder.unit_mut().push_scope(
+            scope,
+            LocalScopeBoundary::PatternArm,
+            SyntaxAnchor::from_node(&pattern_syntax),
+            pattern_syntax.full_range().start(),
+        )?;
+
+        let pattern = binder.bind_irrefutable_pattern(
+            self.path_context_for(pattern_scope, self.path_context.access()),
+            &pattern_syntax,
+            self.error_type,
+            self.error_type,
+            PatternBindingMode::Declaration,
+        )?;
+
+        binder.activate_pattern_bindings(pattern_scope, &pattern)?;
+
+        let body = binder.bind_block(pattern_scope, &syntax.block_expression(), self)?;
+        let pattern = pattern.pattern();
+
+        let recovered = syntax.is_recovered()
+            || binder.expression_is_recovered(initializer)
+            || binder.pattern_is_recovered(pattern)
+            || binder.block_is_recovered(body);
+
+        let expression = BoundStructuredExpression::new(
+            binder.source_origin(syntax),
+            BoundStructuredExpressionKind::With,
+            [initializer],
+            [body],
+            [pattern],
+            None,
+            recovered,
+        );
+
+        self.push(binder, BoundExpression::Structured(expression))
+    }
+
     pub(super) fn bind_for_expression<C>(
         &mut self,
         binder: &mut Binder<'_, C>,

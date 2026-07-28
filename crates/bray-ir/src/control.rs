@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::ConstantValueId;
+use bray_bound_tree::PatternPredicate;
+use bray_symbols::{ConstantValueId, TypeId};
 
-use crate::{MirBlockId, MirFrameStateId, MirOperand, MirSourceAnchor};
+use crate::{
+    MirBlockId, MirCallableReference, MirFrameStateId, MirOperand, MirPlace, MirSourceAnchor,
+};
 
 /// One control-flow transfer and its block arguments.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -140,6 +143,30 @@ pub enum MirTerminatorKind {
         then_edge: MirEdge,
         /// Destination when the condition is false.
         else_edge: MirEdge,
+    },
+    /// Select a successor by applying one checked structural pattern predicate.
+    PatternBranch {
+        /// Subject value inspected by the predicate.
+        subject: MirOperand,
+        /// Exact predicate selected by pattern checking.
+        predicate: PatternPredicate,
+        /// Destination when the predicate matches.
+        matched: MirEdge,
+        /// Destination when the predicate does not match.
+        unmatched: MirEdge,
+    },
+    /// Advance one selected iteration cursor.
+    Iterate {
+        /// Mutable cursor storage retained across iteration steps.
+        cursor: MirPlace,
+        /// Exact selected cursor-advance callable.
+        next: MirCallableReference,
+        /// Checked element type produced on the item edge.
+        element_type: TypeId,
+        /// Item block receiving the produced element as its sole parameter.
+        item: MirBlockId,
+        /// Destination reached on natural exhaustion.
+        exhausted: MirEdge,
     },
     /// Dispatch on a checked value using canonical constant cases.
     Switch {

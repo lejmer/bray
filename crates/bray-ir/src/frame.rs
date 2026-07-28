@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_runtime_interface::{
-    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
-    RuntimeAbiVersion,
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
 };
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
@@ -186,13 +185,7 @@ mod tests {
         let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
 
         assert_eq!(
-            MirFrameDescriptor::try_new(
-                frame,
-                abi,
-                frame_abi,
-                result_type,
-                [state.clone(), state]
-            ),
+            MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),
             Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
         );
     }

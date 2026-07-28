@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{
-    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentityId,
-};
+use bray_bound_tree::{BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentityId};
 use bray_declarations::SyntaxAnchor;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirSourceAnchor, MirStorageId, MirUnit, MirUnitBuilder,
+    MirBlockId, MirBlockKind, MirOperand, MirPlace, MirSourceAnchor, MirStorageId, MirUnit,
+    MirUnitBuilder,
 };
 
 use super::LoweringError;
@@ -17,11 +16,19 @@ pub(super) struct YieldTarget {
     pub(super) result_type: bray_symbols::TypeId,
 }
 
+pub(super) struct LoopTarget {
+    pub(super) syntax: SyntaxAnchor,
+    pub(super) continue_block: MirBlockId,
+    pub(super) break_block: MirBlockId,
+    pub(super) result_type: bray_symbols::TypeId,
+}
+
 pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
     pub(super) yield_targets: Vec<YieldTarget>,
+    pub(super) loop_targets: Vec<LoopTarget>,
 }
 
 /// Lowers one complete checked semantic unit into validated backend-independent MIR.
@@ -38,6 +45,7 @@ impl<'unit> Lowerer<'unit> {
             builder,
             storages: BTreeMap::new(),
             yield_targets: Vec::new(),
+            loop_targets: Vec::new(),
         }
     }
 
@@ -47,8 +55,7 @@ impl<'unit> Lowerer<'unit> {
         let entry = self.builder.push_block(source, MirBlockKind::Ordinary)?;
 
         let completion = match root {
-            BoundUnitRoot::CallableBody(body)
-            | BoundUnitRoot::AnonymousCallable { body, .. } => {
+            BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
                 let body_id = body;
 
                 let body = self
@@ -67,8 +74,7 @@ impl<'unit> Lowerer<'unit> {
 
                 self.lower_block(block, entry)?
             }
-            BoundUnitRoot::Expression(_)
-            | BoundUnitRoot::ExpressionSequence(_) => {
+            BoundUnitRoot::Expression(_) | BoundUnitRoot::ExpressionSequence(_) => {
                 return Err(LoweringError::UnsupportedRoot(root));
             }
         };
@@ -95,6 +101,16 @@ impl<'unit> Lowerer<'unit> {
         // Every MIR record owns provenance while sharing its immutable source-backed data.
         source.clone()
     }
+
+    pub(super) fn retained_operand(operand: &MirOperand) -> MirOperand {
+        // Independent MIR records must own the same immutable operand descriptor.
+        operand.clone()
+    }
+
+    pub(super) fn retained_place(place: &MirPlace) -> MirPlace {
+        // Independent MIR records must own the same immutable place descriptor.
+        place.clone()
+    }
 }
 
 #[cfg(test)]
@@ -103,14 +119,13 @@ mod tests {
         BoundBinaryExpression, BoundBlock, BoundBlockItem, BoundCallableBody,
         BoundControlTransferExpression, BoundControlTransferKind, BoundDependencyContract,
         BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
-        BoundOperator, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot,
-        CheckedAsyncFacts, CheckedBodyBehavior, CheckedControlFlowFacts,
-        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValueEntry,
-        CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
-        CheckedSemanticSelections, ControlCompletion, ControlCompletionKind, ExpressionTypeEntry,
-        ExpressionTypeResult, ExpressionTypeStatus, LivenessFacts, OperatorTarget,
-        SemanticSelection, SemanticSelectionEntry, SelectedOperation, StorageFlowFacts,
-        StoragePlanBuilder,
+        BoundOperator, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsyncFacts,
+        CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
+        CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
+        CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
+        ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
+        LivenessFacts, OperatorTarget, SelectedOperation, SemanticSelection,
+        SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
     };
     use bray_ir::{MirBinaryOperator, MirOperationKind, MirTerminatorKind, MirUnitKind};
     use bray_symbols::testing::available_compiler_known_symbols;

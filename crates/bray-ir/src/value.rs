@@ -5,6 +5,8 @@ use crate::{MirBlockId, MirOperationId, MirPlace, MirSourceAnchor};
 /// A scalar value represented directly in MIR without semantic interning.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirImmediateValue {
+    /// A scalar boolean value.
+    Boolean(bool),
     /// The single value of the unit type.
     Unit,
     /// The absent value of a nullable type.

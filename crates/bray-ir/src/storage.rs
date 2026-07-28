@@ -100,11 +100,7 @@ pub struct MirProjection {
 
 impl MirProjection {
     /// Creates a typed projection step.
-    pub const fn new(
-        kind: MirProjectionKind,
-        source_type: TypeId,
-        result_type: TypeId,
-    ) -> Self {
+    pub const fn new(kind: MirProjectionKind, source_type: TypeId, result_type: TypeId) -> Self {
         Self {
             kind,
             source_type,
