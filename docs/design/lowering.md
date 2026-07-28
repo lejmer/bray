@@ -205,6 +205,7 @@ For a source-backed unit, the input must borrow:
 - pattern and match facts,
 - semantic selections,
 - final literal values,
+- the canonical semantic-value store owning referenced types, constants, and callable instances,
 - storage identities and access plans,
 - liveness and refinement facts,
 - ownership, movement, and borrowing decisions,

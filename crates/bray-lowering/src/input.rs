@@ -8,7 +8,7 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
-use bray_symbols::AvailableCompilerKnownSymbols;
+use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
@@ -30,6 +30,7 @@ pub struct LoweringInput<'unit> {
     dependency_contracts: &'unit CheckedDependencyContracts,
     async_facts: &'unit CheckedAsyncFacts,
     body_behavior: &'unit CheckedBodyBehavior,
+    semantic_values: &'unit SemanticValueStore,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     unit_kind: MirUnitKind,
     target: MirTargetFacts,
@@ -55,6 +56,7 @@ impl<'unit> LoweringInput<'unit> {
         dependency_contracts: &'unit CheckedDependencyContracts,
         async_facts: &'unit CheckedAsyncFacts,
         body_behavior: &'unit CheckedBodyBehavior,
+        semantic_values: &'unit SemanticValueStore,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         unit_kind: MirUnitKind,
         target: MirTargetFacts,
@@ -144,6 +146,7 @@ impl<'unit> LoweringInput<'unit> {
         )?;
 
         validate_literal_target(literal_values, &target)?;
+        validate_literal_values(literal_values, semantic_values)?;
         validate_semantic_completeness(unit, expression_types, semantic_selections)?;
         validate_pattern_completeness(unit, pattern_facts)?;
 
@@ -177,6 +180,7 @@ impl<'unit> LoweringInput<'unit> {
             dependency_contracts,
             async_facts,
             body_behavior,
+            semantic_values,
             available_compiler_known_symbols,
             unit_kind,
             target,
@@ -248,6 +252,11 @@ impl<'unit> LoweringInput<'unit> {
         self.body_behavior
     }
 
+    /// Returns the canonical semantic values referenced by checked facts.
+    pub const fn semantic_values(&self) -> &'unit SemanticValueStore {
+        self.semantic_values
+    }
+
     /// Returns target-available compiler-known identities and behavior roles.
     pub const fn available_compiler_known_symbols(&self) -> &'unit AvailableCompilerKnownSymbols {
         self.available_compiler_known_symbols
@@ -263,9 +272,14 @@ impl<'unit> LoweringInput<'unit> {
         &self.target
     }
 
-    /// Transfers this validated input into the canonical source-unit MIR builder.
-    pub fn into_mir_builder(self) -> MirUnitBuilder {
-        MirUnitBuilder::for_bound(self.unit.identity(), self.unit_kind, self.target)
+    /// Creates the canonical source-unit MIR builder for this input.
+    pub fn mir_builder(&self) -> MirUnitBuilder {
+        // The lowerer retains its validated input while the builder owns the immutable target facts.
+        MirUnitBuilder::for_bound(
+            self.unit.identity(),
+            self.unit_kind.clone(),
+            self.target.clone(),
+        )
     }
 }
 
@@ -358,6 +372,23 @@ fn validate_literal_target(
 
     if actual != expected {
         return Err(LoweringInputError::LiteralTargetWidthMismatch { expected, actual });
+    }
+
+    Ok(())
+}
+
+fn validate_literal_values(
+    literals: &CheckedLiteralValues,
+    values: &SemanticValueStore,
+) -> Result<(), LoweringInputError> {
+    if literals
+        .entries()
+        .iter()
+        .any(|entry| values.constant_value_data(entry.value()).is_err())
+    {
+        return Err(LoweringInputError::InvalidFactContents(
+            LoweringFactKind::LiteralValues,
+        ));
     }
 
     Ok(())
@@ -748,6 +779,7 @@ mod tests {
             &facts.dependencies,
             &facts.async_facts,
             &facts.behavior,
+            &facts.values,
             available_compiler_known_symbols(),
             bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
@@ -774,6 +806,7 @@ mod tests {
 
         assert!(std::ptr::eq(input.async_facts(), &facts.async_facts));
         assert!(std::ptr::eq(input.body_behavior(), &facts.behavior));
+        assert!(std::ptr::eq(input.semantic_values(), &facts.values));
 
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
@@ -807,6 +840,7 @@ mod tests {
                 &facts.dependencies,
                 &facts.async_facts,
                 &facts.behavior,
+                &facts.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -839,6 +873,7 @@ mod tests {
                 &facts.dependencies,
                 &facts.async_facts,
                 &facts.behavior,
+                &facts.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -879,6 +914,7 @@ mod tests {
                 &local.dependencies,
                 &local.async_facts,
                 &local.behavior,
+                &local.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -905,6 +941,7 @@ mod tests {
                 &local.dependencies,
                 &local.async_facts,
                 &local.behavior,
+                &local.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -952,6 +989,7 @@ mod tests {
                 &facts.dependencies,
                 &facts.async_facts,
                 &facts.behavior,
+                &facts.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -1041,6 +1079,7 @@ mod tests {
                 &facts.dependencies,
                 &facts.async_facts,
                 &facts.behavior,
+                &facts.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -1175,6 +1214,7 @@ mod tests {
                 &facts.dependencies,
                 &facts.async_facts,
                 &facts.behavior,
+                &facts.values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -1277,6 +1317,7 @@ mod tests {
                 &ancillary.dependencies,
                 &ancillary.async_facts,
                 &ancillary.behavior,
+                &values,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -1472,6 +1513,7 @@ mod tests {
         dependencies: CheckedDependencyContracts,
         async_facts: CheckedAsyncFacts,
         behavior: CheckedBodyBehavior,
+        values: SemanticValueStore,
     }
 
     fn empty_expression_facts(unit: &BoundUnit) -> ExpressionFacts {
@@ -1549,6 +1591,7 @@ mod tests {
             dependencies,
             async_facts,
             behavior,
+            values,
         }
     }
 

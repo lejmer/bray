@@ -43,7 +43,9 @@ pub(super) fn validate_operation(
         MirOperationKind::Call(call) => {
             match call.target() {
                 MirCallTarget::Direct(_) => {}
-                MirCallTarget::Indirect(value) => validate_value_at(unit, *value, block, Some(id))?,
+                MirCallTarget::Indirect(value) => {
+                    validate_operand(unit, value, block, Some(id))?;
+                }
             }
 
             for argument in call.arguments() {
