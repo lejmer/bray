@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use bray_bound_tree::BoundUnitKind;
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{AnySymbolId, TypeId};
 
@@ -23,6 +24,11 @@ pub(super) fn validate_operation(
     validate_operation_block(block_kind, id, operation.kind())?;
 
     match operation.kind() {
+        MirOperationKind::AnonymousCallable(key) => {
+            if key.kind() != BoundUnitKind::AnonymousCallable {
+                return Err(MirUnitBuildError::InvalidAnonymousCallable(id));
+            }
+        }
         MirOperationKind::Store {
             destination, value, ..
         } => {
@@ -121,7 +127,8 @@ fn validate_operation_block(
                 block_kind == MirBlockKind::LifecycleResolution
             }
         },
-        MirOperationKind::Store { .. }
+        MirOperationKind::AnonymousCallable(_)
+        | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
@@ -148,7 +155,8 @@ fn validate_operation_result(
 ) -> Result<(), MirUnitBuildError> {
     let requires_result = matches!(
         operation.kind(),
-        MirOperationKind::Borrow { .. }
+        MirOperationKind::AnonymousCallable(_)
+            | MirOperationKind::Borrow { .. }
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
             | MirOperationKind::PatternProjection { .. }

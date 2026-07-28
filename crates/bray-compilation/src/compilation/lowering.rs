@@ -2,81 +2,93 @@ use std::sync::Arc;
 
 use bray_bound_tree::BoundUnitKey;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_ir::{MirTargetFacts, MirUnit, MirUnitKind};
-use bray_lowering::{LoweringInput, lower_unit};
+use bray_ir::{MirTargetFacts, MirUnitKind};
+use bray_lowering::{CompileTimeUnit, LoweredUnit, LoweringInput, lower_unit};
 
 use super::Compilation;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact, QueryPriority,
 };
 
-type MirUnitComputation = (
-    DiagnosticResult<Option<MirUnit>>,
+type LoweredUnitComputation = (
+    DiagnosticResult<Option<LoweredUnit>>,
     Box<[bray_binder::BinderDependency]>,
 );
 
 impl Compilation {
     // TODO(BRA-157): Publish generated executable-host MIR through this fact surface.
 
-    /// Returns validated MIR and dependency diagnostics for one checked semantic unit.
-    pub fn mir_unit(
+    /// Returns the lowering result and dependency diagnostics for one checked semantic unit.
+    pub fn lowered_unit(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<Option<MirUnit>>>, FactQueryError> {
-        let published = self.mir_unit_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<Arc<DiagnosticResult<Option<LoweredUnit>>>, FactQueryError> {
+        let published = self.lowered_unit_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
 
-    /// Returns validated MIR for a cancellable prioritized request.
-    pub fn mir_unit_with_priority(
+    /// Returns one lowering result for a cancellable prioritized request.
+    pub fn lowered_unit_with_priority(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<Arc<DiagnosticResult<Option<MirUnit>>>, FactQueryError> {
+    ) -> Result<Arc<DiagnosticResult<Option<LoweredUnit>>>, FactQueryError> {
         let published =
-            self.mir_unit_with_cancellation_and_priority(key, cancellation, priority)?;
+            self.lowered_unit_with_cancellation_and_priority(key, cancellation, priority)?;
 
         Ok(Arc::clone(published.result()))
     }
 
-    fn mir_unit_with_cancellation(
+    fn lowered_unit_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<Option<MirUnit>>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<Option<LoweredUnit>>>, FactQueryError> {
         let priority = self
             .state
             .fact_runtime
             .current_priority()?
             .unwrap_or(QueryPriority::Normal);
 
-        self.mir_unit_with_cancellation_and_priority(key, cancellation, priority)
+        self.lowered_unit_with_cancellation_and_priority(key, cancellation, priority)
     }
 
-    fn mir_unit_with_cancellation_and_priority(
+    fn lowered_unit_with_cancellation_and_priority(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<Arc<PublishedUnitFact<Option<MirUnit>>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<Option<LoweredUnit>>>, FactQueryError> {
         self.unit_fact_with_priority(
-            &self.state.mir_units,
-            CompilationFactKey::MirUnit(key.clone()),
+            &self.state.lowered_units,
+            CompilationFactKey::LoweredUnit(key.clone()),
             key.clone(),
             cancellation,
             priority,
-            |cancellation| self.compute_mir_unit(&key, cancellation),
+            |cancellation| self.compute_lowered_unit(&key, cancellation),
         )
     }
 
-    fn compute_mir_unit(
+    fn compute_lowered_unit(
         &self,
         key: &BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<MirUnitComputation, FactQueryError> {
+    ) -> Result<LoweredUnitComputation, FactQueryError> {
         let unit = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+        let unit_diagnostics = unit.result().diagnostics().clone();
+
+        if let Some(unit) = CompileTimeUnit::try_new(
+            // The lowering result owns the same immutable unit identity independently of binding.
+            key.clone(),
+        ) {
+            return Ok((
+                DiagnosticResult::new(Some(LoweredUnit::CompileTime(unit)), unit_diagnostics),
+                Box::new([]),
+            ));
+        }
+
         let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
 
         let expression_types =
@@ -155,7 +167,10 @@ impl Compilation {
 
         cancellation.check()?;
 
-        Ok((DiagnosticResult::new(Some(mir), diagnostics), Box::new([])))
+        Ok((
+            DiagnosticResult::new(Some(LoweredUnit::Mir(Box::new(mir))), diagnostics),
+            Box::new([]),
+        ))
     }
 }
 
@@ -163,6 +178,10 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
+    use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
+    use bray_diagnostics::DiagnosticResult;
+    use bray_ir::MirUnit;
+    use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::ProductKind;
 
@@ -437,25 +456,50 @@ mod tests {
         "}\n",
     );
 
+    const UNIT_ROOT_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "const value: i32 = 1;\n",
+        "\n",
+        "func defaults(value: i32 = 1)\n",
+        "{\n",
+        "}\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    lambda() -> i32\n",
+        "    {\n",
+        "        return 1;\n",
+        "    };\n",
+        "}\n",
+    );
+
     #[test]
-    fn mir_units_are_lowered_lazily_and_published_once() {
+    fn lowering_results_are_computed_lazily_and_published_once() {
         let compilation = lowering_compilation();
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.mir_units.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.lowered_units.is_published(&key),
+            Ok(false)
+        );
 
         let first = compilation
-            .mir_unit(key.clone())
+            .lowered_unit(key.clone())
             .unwrap_or_else(|error| panic!("MIR must be available: {error:?}"));
 
         let second = compilation
-            .mir_unit(key.clone())
+            .lowered_unit(key.clone())
             .unwrap_or_else(|error| panic!("MIR must remain available: {error:?}"));
 
         assert!(first.diagnostics().is_empty());
         assert!(first.value().is_some());
         assert!(Arc::ptr_eq(&first, &second));
-        assert_eq!(compilation.state.mir_units.is_published(&key), Ok(true));
+
+        assert_eq!(
+            compilation.state.lowered_units.is_published(&key),
+            Ok(true)
+        );
     }
 
     #[test]
@@ -467,12 +511,127 @@ mod tests {
         cancellation.cancel();
 
         let result =
-            compilation.mir_unit_with_priority(key.clone(), &cancellation, QueryPriority::Normal);
+            compilation.lowered_unit_with_priority(
+                key.clone(),
+                &cancellation,
+                QueryPriority::Normal,
+            );
 
         assert_eq!(result, Err(FactQueryError::Cancelled));
-        assert_eq!(compilation.state.mir_units.is_published(&key), Ok(false));
 
-        assert!(compilation.mir_unit(key).is_ok());
+        assert_eq!(
+            compilation.state.lowered_units.is_published(&key),
+            Ok(false)
+        );
+
+        assert!(compilation.lowered_unit(key).is_ok());
+    }
+
+    #[test]
+    fn compile_time_units_are_classified_without_demanding_runtime_facts() {
+        let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
+        let key = declared_unit_key(&compilation, BoundUnitKind::ConstantTemplate);
+
+        assert_eq!(
+            compilation
+                .state
+                .checked_control_flow
+                .is_published(&key),
+            Ok(false)
+        );
+
+        assert_eq!(
+            compilation
+                .state
+                .checked_expression_types
+                .is_published(&key),
+            Ok(false)
+        );
+
+        let result = compilation
+            .lowered_unit(key.clone())
+            .unwrap_or_else(|error| panic!("compile-time classification must publish: {error:?}"));
+
+        let Some(LoweredUnit::CompileTime(unit)) = result.value() else {
+            panic!("constant templates must be classified as compile-time-only");
+        };
+
+        assert_eq!(unit.key(), &key);
+
+        assert_eq!(
+            compilation
+                .state
+                .checked_control_flow
+                .is_published(&key),
+            Ok(false)
+        );
+
+        assert_eq!(
+            compilation
+                .state
+                .checked_expression_types
+                .is_published(&key),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn runtime_default_expression_roots_lower_to_mir() {
+        let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
+        let key = declared_unit_key(&compilation, BoundUnitKind::RuntimeDefault);
+
+        let result = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("runtime default MIR must publish: {error:?}"));
+
+        assert!(matches!(
+            lowered_mir(&result)
+                .blocks()
+                .last()
+                .map(|block| block.terminator().kind()),
+            Some(bray_ir::MirTerminatorKind::Return(Some(
+                bray_ir::MirOperand::Constant { .. }
+            )))
+        ));
+    }
+
+    #[test]
+    fn anonymous_callable_values_and_nested_bodies_lower_independently() {
+        let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
+
+        let (outer, nested) = compilation
+            .declared_unit_keys()
+            .unwrap_or_else(|error| panic!("declared units must be available: {error:?}"))
+            .into_iter()
+            .filter(|key| key.kind() == BoundUnitKind::CallableBody)
+            .find_map(|key| {
+                let unit = compilation.bound_unit(key.clone()).ok()?;
+                let nested = unit.value().nested_units().first()?.clone();
+
+                Some((key, nested))
+            })
+            .unwrap_or_else(|| panic!("test source must contain one nested anonymous callable"));
+
+        let outer_result = compilation
+            .lowered_unit(outer)
+            .unwrap_or_else(|error| panic!("outer callable MIR must publish: {error:?}"));
+
+        assert!(lowered_mir(&outer_result)
+            .operations()
+            .iter()
+            .any(|operation| matches!(
+                operation.kind(),
+                bray_ir::MirOperationKind::AnonymousCallable(key) if key == &nested
+            )));
+
+        let nested_result = compilation
+            .lowered_unit(nested.clone())
+            .unwrap_or_else(|error| panic!("nested callable MIR must publish: {error:?}"));
+
+        assert!(matches!(
+            lowered_mir(&nested_result).key(),
+            bray_ir::MirUnitKey::Bound(key) if key == &nested
+        ));
     }
 
     #[test]
@@ -481,7 +640,7 @@ mod tests {
         let key = source_callable_body_key(&previous);
 
         let previous_mir = previous
-            .mir_unit(key.clone())
+            .lowered_unit(key.clone())
             .unwrap_or_else(|error| panic!("initial MIR must be available: {error:?}"));
 
         let parallel = WorkerBudget::new(2)
@@ -496,7 +655,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("worker-budget update must load: {error:?}"));
 
         let worker_mir = worker_update
-            .mir_unit(key.clone())
+            .lowered_unit(key.clone())
             .unwrap_or_else(|error| panic!("reused MIR must be available: {error:?}"));
 
         assert!(Arc::ptr_eq(&previous_mir, &worker_mir));
@@ -519,7 +678,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("target update must load: {error:?}"));
 
         let target_mir = target_update
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("target-specific MIR must be available: {error:?}"));
 
         assert!(!Arc::ptr_eq(&previous_mir, &target_mir));
@@ -535,7 +694,7 @@ mod tests {
         let source_key = source_callable_body_key(&source_update);
 
         let source_mir = source_update
-            .mir_unit(source_key)
+            .lowered_unit(source_key)
             .unwrap_or_else(|error| panic!("revised source MIR must be available: {error:?}"));
 
         assert!(!Arc::ptr_eq(&previous_mir, &source_mir));
@@ -547,15 +706,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("structured MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "structured source must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         let aggregate_kinds = mir.operations().iter().filter_map(|operation| {
             let bray_ir::MirOperationKind::Aggregate(aggregate) = operation.kind() else {
@@ -673,15 +827,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("control MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "checked control source must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
@@ -721,15 +870,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("generator MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "checked generator source must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         let operations = mir
             .operations()
@@ -773,15 +917,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("failure MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "checked failure source must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
@@ -800,7 +939,7 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("assertion MIR must be available: {error:?}"));
 
         assert!(
@@ -816,15 +955,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("result propagation MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "checked result propagation source must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
@@ -849,15 +983,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("result propagation MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "compatible propagated errors must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
@@ -889,15 +1018,10 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let result = compilation
-            .mir_unit(key)
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("borrow MIR must be available: {error:?}"));
 
-        let mir = result.value().as_ref().unwrap_or_else(|| {
-            panic!(
-                "checked borrow source must produce MIR: {:?}",
-                result.diagnostics()
-            )
-        });
+        let mir = lowered_mir(&result);
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
@@ -910,6 +1034,23 @@ mod tests {
 
     fn lowering_compilation() -> Compilation {
         compilation(LOWERING_SOURCE)
+    }
+
+    fn lowered_mir(result: &DiagnosticResult<Option<LoweredUnit>>) -> &MirUnit {
+        result
+            .value()
+            .as_ref()
+            .and_then(LoweredUnit::mir)
+            .unwrap_or_else(|| panic!("checked executable unit must produce MIR"))
+    }
+
+    fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {
+        compilation
+            .declared_unit_keys()
+            .unwrap_or_else(|error| panic!("declared units must be available: {error:?}"))
+            .into_iter()
+            .find(|key| key.kind() == kind)
+            .unwrap_or_else(|| panic!("test source must contain a {kind:?} unit"))
     }
 
     fn lowering_request(

@@ -102,9 +102,8 @@ impl<'unit> Lowerer<'unit> {
 
                 self.lower_block(block, entry)?
             }
-            BoundUnitRoot::Expression(_) | BoundUnitRoot::ExpressionSequence(_) => {
-                return Err(LoweringError::UnsupportedRoot(root));
-            }
+            BoundUnitRoot::Expression(expression) => self.lower_expression(expression, entry)?,
+            BoundUnitRoot::ExpressionSequence(block) => self.lower_block(block, entry)?,
         };
 
         if let Some(block) = completion.block {

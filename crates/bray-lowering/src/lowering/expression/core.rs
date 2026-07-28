@@ -125,10 +125,28 @@ impl Lowerer<'_> {
             BoundExpression::Generator(expression) => {
                 self.lower_generator_iteration(id, expression, current)
             }
+            BoundExpression::AnonymousCallable(expression) => {
+                let source = self.source(expression.origin());
+
+                let value = self.push_value_operation(
+                    id,
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::AnonymousCallable(
+                        // MIR owns the same immutable nested-unit identity independently of HIR.
+                        expression.unit().clone(),
+                    ),
+                )?;
+
+                Ok(LoweredExpression::continuing(
+                    current,
+                    Some(value),
+                    source,
+                ))
+            }
             BoundExpression::UnresolvedReference(_)
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
-            | BoundExpression::AnonymousCallable(_)
             | BoundExpression::Await(_)
             | BoundExpression::Error(_) => Err(LoweringError::UnsupportedExpression(id)),
         }

@@ -413,16 +413,18 @@ Source correlation must not affect MIR identity assignment, control-flow meaning
 
 ## Lazy Demand, Parallelism, And Caching
 
-Compilation exposes MIR as a lazy fact keyed by the canonical concrete unit identity, selected target facts, and every other input
-whose change can alter the MIR result.
+Compilation exposes a typed lowering result as a lazy fact keyed by the canonical concrete unit identity and every input whose
+change can alter that result. Executable units produce validated MIR. Units whose meaning is consumed entirely before runtime
+produce an explicit compile-time-only classification instead of an absent MIR value.
 
-A request for one MIR unit:
+A request for one lowering result:
 
 1. requests that unit's canonical bound HIR,
-2. requests only the durable semantic facts named by `LoweringInput`,
-3. validates the lowering input,
-4. lowers and validates the MIR in task-local state,
-5. publishes the complete immutable result once.
+2. classifies compile-time-only units without requesting execution facts,
+3. requests only the durable semantic facts named by `LoweringInput` for executable units,
+4. validates the lowering input,
+5. lowers and validates the MIR in task-local state,
+6. publishes the complete immutable result once.
 
 It does not force unrelated units or unrelated semantic facts.
 
