@@ -194,6 +194,38 @@ mod tests {
         "}\n",
     );
 
+    const STRUCTURED_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "struct Pair\n",
+        "{\n",
+        "    first: i32;\n",
+        "    second: i32 = 9;\n",
+        "}\n",
+        "\n",
+        "union Choice\n",
+        "{\n",
+        "    Value(value: i32);\n",
+        "    Empty;\n",
+        "}\n",
+        "\n",
+        "func main() -> i64\n",
+        "{\n",
+        "    let tuple: (i32, i32) = (1, 2);\n",
+        "    let array: [i32; 2] = [3, 4];\n",
+        "    let repeated: [i32; 2] = [5; 2];\n",
+        "    let pair: Pair = Pair { first = tuple.0, second = array[0] };\n",
+        "    let defaulted: Pair = Pair { first = 9 };\n",
+        "    let widened: (i64, i64) = tuple as (i64, i64);\n",
+        "    let choice: Choice = .Value(value = pair.first);\n",
+        "    let empty: Choice = .Empty;\n",
+        "    let owned: box i32 = box(8);\n",
+        "    let owned_tuple: (box i32,) = (owned,);\n",
+        "    let moved: box i32 = owned_tuple.0;\n",
+        "    return pair.first as i64;\n",
+        "}\n",
+    );
+
     #[test]
     fn mir_units_are_lowered_lazily_and_published_once() {
         let compilation = lowering_compilation();
@@ -300,6 +332,125 @@ mod tests {
             .unwrap_or_else(|error| panic!("revised source MIR must be available: {error:?}"));
 
         assert!(!Arc::ptr_eq(&previous_mir, &source_mir));
+    }
+
+    #[test]
+    fn structured_values_lower_to_aggregates_construction_and_projections() {
+        let compilation = compilation(STRUCTURED_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .mir_unit(key)
+            .unwrap_or_else(|error| panic!("structured MIR must be available: {error:?}"));
+
+        let mir = result
+            .value()
+            .as_ref()
+            .unwrap_or_else(|| panic!("structured source must produce MIR: {:?}", result.diagnostics()));
+
+        let aggregate_kinds = mir.operations().iter().filter_map(|operation| {
+            let bray_ir::MirOperationKind::Aggregate(aggregate) = operation.kind() else {
+                return None;
+            };
+
+            Some(aggregate.kind())
+        });
+
+        assert_eq!(
+            aggregate_kinds.collect::<Vec<_>>(),
+            [
+                bray_ir::MirAggregateKind::Tuple,
+                bray_ir::MirAggregateKind::Array,
+                bray_ir::MirAggregateKind::RepeatedArray,
+                bray_ir::MirAggregateKind::Tuple,
+            ]
+        );
+
+        assert!(mir
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Construct(_))));
+
+        let construction_targets = mir.operations().iter().filter_map(|operation| {
+            let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
+                return None;
+            };
+
+            Some(construction.target())
+        });
+
+        assert_eq!(
+            construction_targets
+                .filter(|target| matches!(target, bray_bound_tree::ConstructionTarget::UnionVariant(_)))
+                .count(),
+            2
+        );
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Construct(construction)
+                if matches!(
+                    construction.target(),
+                    bray_bound_tree::ConstructionTarget::TypeForm { .. }
+                )
+        )));
+
+        assert!(mir.operations().iter().any(|operation| {
+            let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
+                return false;
+            };
+
+            construction
+                .inputs()
+                .iter()
+                .any(|input| matches!(input, bray_ir::MirConstructionInput::Default { .. }))
+        }));
+
+        assert!(mir.operations().iter().any(|operation| {
+            let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
+                return false;
+            };
+
+            construction.inputs().iter().all(|input| {
+                matches!(
+                    input,
+                    bray_ir::MirConstructionInput::Explicit {
+                        value: bray_ir::MirOperand::Copy(place),
+                        ..
+                    } if !place.projections().is_empty()
+                )
+            })
+        }));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Store {
+                value: bray_ir::MirOperand::Move(place),
+                ..
+            } if !place.projections().is_empty()
+        )));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Convert { conversion, .. }
+                if conversion.source_type() != conversion.target_type()
+        )));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            bray_ir::MirOperationKind::Convert { conversion, .. }
+                if matches!(
+                    conversion.target(),
+                    bray_bound_tree::ConversionTarget::Composite(_)
+                )
+        )));
+
+        assert!(matches!(
+            mir.blocks().last().map(|block| block.terminator().kind()),
+            Some(bray_ir::MirTerminatorKind::Return(Some(
+                bray_ir::MirOperand::Value(_)
+            )))
+        ));
     }
 
     fn lowering_compilation() -> Compilation {

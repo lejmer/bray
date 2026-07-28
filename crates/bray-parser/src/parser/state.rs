@@ -129,6 +129,10 @@ impl Parser {
         }
     }
 
+    pub(super) fn consume_tuple_element_index_after_dot(&mut self) -> SyntaxToken {
+        self.cursor.consume_tuple_element_index_after_dot()
+    }
+
     pub(super) fn expect(&mut self, kind: SyntaxKind) -> SyntaxToken {
         self.cursor.expect(kind)
     }

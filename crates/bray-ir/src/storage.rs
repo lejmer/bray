@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{TypeId, UnionVariantSymbolId};
+use bray_symbols::{TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 
-use crate::{MirFieldReference, MirSourceAnchor, MirStorageId, MirValueId};
+use crate::{MirFieldReference, MirOperand, MirSourceAnchor, MirStorageId};
 
 /// Semantic role of one MIR storage allocation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -64,35 +64,62 @@ pub enum MirProjectionKind {
     Field(MirFieldReference),
     /// Select a tuple element by ordinal.
     TupleField(u32),
+    /// Select a fixed element counted from the start.
+    ElementFromStart(u32),
+    /// Select a fixed element counted from the end.
+    ElementFromEnd(u32),
     /// Select an element using a checked index value.
-    Index(MirValueId),
+    Index(MirOperand),
     /// Select a range using optional checked bounds.
     Slice {
         /// Inclusive lower bound.
-        start: Option<MirValueId>,
+        start: Option<MirOperand>,
         /// Exclusive upper bound.
-        end: Option<MirValueId>,
+        end: Option<MirOperand>,
     },
     /// Select the payload of a checked union variant.
     Variant(UnionVariantSymbolId),
+    /// Select a field from the checked active union payload.
+    ActiveUnionPayloadField {
+        /// The variant proven active for this projection.
+        variant: UnionVariantSymbolId,
+        /// The selected payload field.
+        field: UnionPayloadFieldSymbolId,
+    },
+    /// Select the present contents of nullable storage.
+    NullableValue,
 }
 
-/// One projection step and its checked resulting type.
+/// One projection step with its checked input and result types.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirProjection {
     kind: MirProjectionKind,
+    source_type: TypeId,
     result_type: TypeId,
 }
 
 impl MirProjection {
-    /// Creates a projection from its operation and checked result type.
-    pub const fn new(kind: MirProjectionKind, result_type: TypeId) -> Self {
-        Self { kind, result_type }
+    /// Creates a typed projection step.
+    pub const fn new(
+        kind: MirProjectionKind,
+        source_type: TypeId,
+        result_type: TypeId,
+    ) -> Self {
+        Self {
+            kind,
+            source_type,
+            result_type,
+        }
     }
 
     /// Returns the projection operation.
     pub const fn kind(&self) -> &MirProjectionKind {
         &self.kind
+    }
+
+    /// Returns the checked type before this projection.
+    pub const fn source_type(&self) -> TypeId {
+        self.source_type
     }
 
     /// Returns the checked type after this projection.

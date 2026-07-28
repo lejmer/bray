@@ -32,6 +32,10 @@ pub enum MirUnitBuildError {
     UnexpectedOperationResult(MirOperationId),
     /// An operation result has a type inconsistent with its operation payload.
     OperationResultTypeMismatch(MirOperationId),
+    /// An aggregate operation has an invalid operand shape.
+    InvalidAggregateOperation(MirOperationId),
+    /// A construction input does not belong to its target or repeats another input.
+    InvalidConstructionInput(MirOperationId),
     /// A storage ID does not name a committed storage allocation.
     MissingStorage(MirStorageId),
     /// A value ID does not name a committed value.

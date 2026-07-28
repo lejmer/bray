@@ -1,10 +1,13 @@
+use std::collections::BTreeSet;
+
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use crate::{
-    MirAsyncOperation, MirBlockKind, MirCallTarget, MirOperand, MirOperation, MirOperationId,
-    MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageId,
-    MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
+    MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallTarget, MirConstructionInput,
+    MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace, MirProjectionKind,
+    MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError,
+    MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -39,6 +42,20 @@ pub(super) fn validate_operation(
         MirOperationKind::Binary { left, right, .. } => {
             validate_operand(unit, left, block, Some(id))?;
             validate_operand(unit, right, block, Some(id))?;
+        }
+        MirOperationKind::Aggregate(aggregate) => {
+            if aggregate.kind() == MirAggregateKind::RepeatedArray
+                && aggregate.operands().len() != 2
+            {
+                return Err(MirUnitBuildError::InvalidAggregateOperation(id));
+            }
+
+            for operand in aggregate.operands() {
+                validate_operand(unit, operand, block, Some(id))?;
+            }
+        }
+        MirOperationKind::Construct(construction) => {
+            validate_construction(unit, block, id, construction)?;
         }
         MirOperationKind::Call(call) => {
             match call.target() {
@@ -88,6 +105,8 @@ fn validate_operation_block(
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
+        | MirOperationKind::Aggregate(_)
+        | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::Call(_) => true,
     };
@@ -109,6 +128,8 @@ fn validate_operation_result(
         MirOperationKind::Borrow { .. }
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
+            | MirOperationKind::Aggregate(_)
+            | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
             | MirOperationKind::Async(
                 MirAsyncOperation::ObserveCurrentRunCancellation { .. }
@@ -145,15 +166,70 @@ fn validate_operation_result(
         return Err(MirUnitBuildError::UnexpectedOperationResult(id));
     }
 
-    if let (MirOperationKind::Convert { target, .. }, Some(result)) =
+    if let (
+        MirOperationKind::Convert {
+            operand,
+            conversion,
+        },
+        Some(result),
+    ) =
         (operation.kind(), operation.result())
     {
         let Some(result) = unit.value(result) else {
             return Err(MirUnitBuildError::MissingValue(result));
         };
 
-        if result.ty() != *target {
+        if operand_type(unit, operand)? != conversion.source_type()
+            || result.ty() != conversion.target_type()
+        {
             return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_construction(
+    unit: &MirUnit,
+    block: crate::MirBlockId,
+    operation: MirOperationId,
+    construction: &crate::MirConstruction,
+) -> Result<(), MirUnitBuildError> {
+    let mut inputs = BTreeSet::new();
+    let mut ordinals = BTreeSet::new();
+    let mut last_default_ordinal = None;
+
+    for supplied in construction.inputs() {
+        let input = supplied.input();
+
+        if !construction.target().accepts_input(input)
+            || !inputs.insert(input)
+            || !ordinals.insert(supplied.ordinal())
+        {
+            return Err(MirUnitBuildError::InvalidConstructionInput(operation));
+        }
+
+        match supplied {
+            MirConstructionInput::Explicit { value, .. } => {
+                if last_default_ordinal.is_some() {
+                    return Err(MirUnitBuildError::InvalidConstructionInput(operation));
+                }
+
+                validate_operand(unit, value, block, Some(operation))?;
+            }
+            MirConstructionInput::Default {
+                input,
+                ordinal,
+                provider,
+            } => {
+                if !input.accepts_default(*provider)
+                    || last_default_ordinal.is_some_and(|last| last >= *ordinal)
+                {
+                    return Err(MirUnitBuildError::InvalidConstructionInput(operation));
+                }
+
+                last_default_ordinal = Some(*ordinal);
+            }
         }
     }
 
@@ -313,35 +389,42 @@ fn validate_place(
 ) -> Result<(), MirUnitBuildError> {
     validate_storage(unit, place.storage())?;
 
+    let Some(storage) = unit.storage(place.storage()) else {
+        return Err(MirUnitBuildError::MissingStorage(place.storage()));
+    };
+
+    let mut expected_type = storage.ty();
+
     for projection in place.projections() {
+        if projection.source_type() != expected_type {
+            return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
+        }
+
         match projection.kind() {
-            MirProjectionKind::Index(value) => validate_value_at(unit, *value, block, before)?,
+            MirProjectionKind::Index(value) => validate_operand(unit, value, block, before)?,
             MirProjectionKind::Slice { start, end } => {
                 if let Some(value) = start {
-                    validate_value_at(unit, *value, block, before)?;
+                    validate_operand(unit, value, block, before)?;
                 }
 
                 if let Some(value) = end {
-                    validate_value_at(unit, *value, block, before)?;
+                    validate_operand(unit, value, block, before)?;
                 }
             }
             MirProjectionKind::Dereference
             | MirProjectionKind::Field(_)
             | MirProjectionKind::TupleField(_)
-            | MirProjectionKind::Variant(_) => {}
+            | MirProjectionKind::ElementFromStart(_)
+            | MirProjectionKind::ElementFromEnd(_)
+            | MirProjectionKind::Variant(_)
+            | MirProjectionKind::ActiveUnionPayloadField { .. }
+            | MirProjectionKind::NullableValue => {}
         }
+
+        expected_type = projection.result_type();
     }
 
-    let Some(storage) = unit.storage(place.storage()) else {
-        return Err(MirUnitBuildError::MissingStorage(place.storage()));
-    };
-
-    let expected = place
-        .projections()
-        .last()
-        .map_or(storage.ty(), MirProjection::result_type);
-
-    if expected != place.ty() {
+    if expected_type != place.ty() {
         return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
     }
 
