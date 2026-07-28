@@ -14,21 +14,6 @@ struct Configuration {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Eq, PartialEq)]
-struct RunState(u32);
-
-impl RunState {
-    const COMPLETED: Self = Self(0);
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RunOutcome {
-    state: RunState,
-    payload: usize,
-}
-
-#[repr(transparent)]
 #[derive(Clone, Copy)]
 struct TaskHandle(u64);
 
@@ -89,26 +74,13 @@ struct ProtectedFrame {
 
 unsafe extern "C" {
     safe fn bray_runtime_main_thread_lane_startup_v1(configuration: Configuration) -> Status;
-    safe fn bray_runtime_root_execution_v1(
-        callback: extern "C" fn(usize) -> RunOutcome,
-        context: usize,
-    ) -> RunOutcome;
-    safe fn bray_runtime_task_allocation_v1(frame: ProtectedFrame) -> TaskAllocation;
-    safe fn bray_runtime_task_start_v1(task: TaskHandle) -> Status;
-    safe fn bray_runtime_main_thread_lane_drive_v1() -> Status;
-    safe fn bray_runtime_join_registration_v1(
+    safe fn bray_runtime_task_allocation_v1() -> TaskAllocation;
+    safe fn bray_runtime_task_start_v1(
         task: TaskHandle,
-        callback: extern "C" fn(usize),
-        context: usize,
-    ) -> RunOutcome;
+        frame: ProtectedFrame,
+    ) -> Status;
+    safe fn bray_runtime_main_thread_lane_drive_v1() -> Status;
     safe fn bray_runtime_structured_shutdown_v1() -> Status;
-}
-
-extern "C" fn root(context: usize) -> RunOutcome {
-    RunOutcome {
-        state: RunState::COMPLETED,
-        payload: context + 1,
-    }
 }
 
 extern "C" fn frame_state(_: usize, _: u32) -> FrameState {
@@ -130,8 +102,6 @@ extern "C" fn ignore_action(_: usize) {}
 
 extern "C" fn ignore_resolution(_: usize, _: FrameExit) {}
 
-extern "C" fn ignore_wake(_: usize) {}
-
 fn main() {
     assert!(
         bray_runtime_main_thread_lane_startup_v1(Configuration {
@@ -140,12 +110,13 @@ fn main() {
         }) == Status::SUCCESS
     );
 
-    let outcome = bray_runtime_root_execution_v1(root, 41);
+    let allocation = bray_runtime_task_allocation_v1();
 
-    assert!(outcome.state == RunState::COMPLETED);
-    assert!(outcome.payload == 42);
+    assert!(allocation.status == Status::SUCCESS);
 
-    let allocation = bray_runtime_task_allocation_v1(ProtectedFrame {
+    let task = TaskHandle(allocation.task);
+
+    let frame = ProtectedFrame {
         context: 0,
         identity: [7; 32],
         state_count: 1,
@@ -158,18 +129,9 @@ fn main() {
         broadcast_tasks: ignore_action,
         resolve_lifecycle: ignore_resolution,
         destroy: ignore_action,
-    });
+    };
 
-    assert!(allocation.status == Status::SUCCESS);
-
-    let task = TaskHandle(allocation.task);
-
-    assert!(bray_runtime_task_start_v1(task) == Status::SUCCESS);
+    assert!(bray_runtime_task_start_v1(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive_v1() == Status::SUCCESS);
-
-    let task_outcome = bray_runtime_join_registration_v1(task, ignore_wake, 0);
-
-    assert!(task_outcome.state == RunState::COMPLETED);
-    assert!(task_outcome.payload == 17);
     assert!(bray_runtime_structured_shutdown_v1() == Status::SUCCESS);
 }

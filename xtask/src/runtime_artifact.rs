@@ -8,8 +8,8 @@ use bray_runtime_interface::{
     BinarySymbolName, COMPATIBLE_LANE_SELECTION_SYMBOL,
     CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL, JOIN_REGISTRATION_SYMBOL,
     MAIN_THREAD_LANE_DRIVE_SYMBOL, MAIN_THREAD_LANE_STARTUP_SYMBOL,
-    PanicAbiIdentity, ProtectedFrameAbiVersions, ROOT_EXECUTION_SYMBOL,
-    RUNTIME_EVENT_SYMBOL, RuntimeAbiRole, RuntimeAbiVersion,
+    PanicAbiIdentity, ProtectedFrameAbiVersions, RUNTIME_EVENT_SYMBOL,
+    RuntimeAbiRole, RuntimeAbiVersion,
     RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
     RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
     RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL,
@@ -182,7 +182,6 @@ fn metadata(
 
 fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
     [
-        (RuntimeAbiRole::RootExecution, ROOT_EXECUTION_SYMBOL),
         (RuntimeAbiRole::TaskAllocation, TASK_ALLOCATION_SYMBOL),
         (RuntimeAbiRole::TaskStart, TASK_START_SYMBOL),
         (
@@ -329,7 +328,7 @@ fn host_target() -> Result<String, CommandError> {
 }
 
 fn archive_file_name(target: &str) -> &'static str {
-    if target.contains("windows") {
+    if target.contains("msvc") {
         "bray_runtime.lib"
     } else {
         "libbray_runtime.a"
@@ -538,6 +537,11 @@ mod tests {
         );
 
         assert_eq!(
+            archive_file_name("x86_64-pc-windows-gnu"),
+            "libbray_runtime.a"
+        );
+
+        assert_eq!(
             archive_file_name("x86_64-unknown-linux-gnu"),
             "libbray_runtime.a"
         );
@@ -553,7 +557,6 @@ mod tests {
         assert_eq!(
             roles,
             [
-                RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,
                 RuntimeAbiRole::SuspensionRegistration,

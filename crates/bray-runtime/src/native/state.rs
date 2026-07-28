@@ -37,7 +37,7 @@ pub(super) struct NativeRuntime {
 }
 
 enum NativeTaskSlot {
-    Allocated(NativeFrame),
+    Allocated,
     Started(StartedTask),
 }
 
@@ -113,21 +113,12 @@ pub(super) fn shutdown() -> NativeRuntimeStatus {
 }
 
 impl NativeRuntime {
-    pub(super) fn allocate(
-        &self,
-        frame: NativeProtectedFrame,
-    ) -> NativeTaskAllocation {
+    pub(super) fn allocate(&self) -> NativeTaskAllocation {
         if self.tasks.borrow().len() >= self.task_capacity.get() {
             return NativeTaskAllocation::failure(
                 NativeRuntimeStatus::RUNTIME_FAILURE,
             );
         }
-
-        let Some(frame) = NativeFrame::try_new(frame) else {
-            return NativeTaskAllocation::failure(
-                NativeRuntimeStatus::INVALID_ARGUMENT,
-            );
-        };
 
         let next = self.next_task.get();
 
@@ -147,15 +138,23 @@ impl NativeRuntime {
 
         self.tasks
             .borrow_mut()
-            .insert(handle, NativeTaskSlot::Allocated(frame));
+            .insert(handle, NativeTaskSlot::Allocated);
 
         NativeTaskAllocation::success(handle)
     }
 
-    pub(super) fn start(&self, handle: NativeTaskHandle) -> NativeRuntimeStatus {
+    pub(super) fn start(
+        &self,
+        handle: NativeTaskHandle,
+        frame: NativeProtectedFrame,
+    ) -> NativeRuntimeStatus {
+        let Some(frame) = NativeFrame::try_new(frame) else {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        };
+
         let slot = self.tasks.borrow_mut().remove(&handle);
 
-        let Some(NativeTaskSlot::Allocated(frame)) = slot else {
+        let Some(NativeTaskSlot::Allocated) = slot else {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
 

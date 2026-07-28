@@ -24,6 +24,9 @@ pub(super) struct NativeFrame {
 
 impl NativeFrame {
     pub(super) fn try_new(abi: NativeProtectedFrame) -> Option<Self> {
+        let mut transfer = NativeFrameTransfer::new(abi);
+        let abi = transfer.frame();
+
         let alignment = NonZeroUsize::new(abi.alignment())?;
 
         let completion_alignment =
@@ -54,7 +57,7 @@ impl NativeFrame {
 
         Some(Self {
             descriptor,
-            abi,
+            abi: transfer.take(),
             terminal_payload: Arc::new(Mutex::new(None)),
         })
     }
@@ -111,7 +114,7 @@ impl ProtectedFrame for NativeFrame {
             return FrameProgress::Panicked(RuntimePanic::new(progress.payload()));
         }
 
-        FrameProgress::Panicked(RuntimePanic::new(kind.code()))
+        FrameProgress::RuntimeFailure
     }
 
     fn broadcast_tasks(self: Pin<&mut Self>) {
@@ -137,7 +140,7 @@ impl Drop for NativeFrame {
 }
 
 fn states(
-    abi: NativeProtectedFrame,
+    abi: &NativeProtectedFrame,
 ) -> Option<Vec<ProtectedFrameStateDescriptor>> {
     (0..abi.state_count())
         .map(|state| {
@@ -154,6 +157,42 @@ fn states(
             ))
         })
         .collect()
+}
+
+struct NativeFrameTransfer {
+    frame: Option<NativeProtectedFrame>,
+}
+
+impl NativeFrameTransfer {
+    const fn new(frame: NativeProtectedFrame) -> Self {
+        Self { frame: Some(frame) }
+    }
+
+    fn frame(&self) -> &NativeProtectedFrame {
+        let Some(frame) = &self.frame else {
+            unreachable!("frame transfer must remain owned");
+        };
+
+        frame
+    }
+
+    fn take(&mut self) -> NativeProtectedFrame {
+        let Some(frame) = self.frame.take() else {
+            unreachable!("frame transfer must remain owned");
+        };
+
+        frame
+    }
+}
+
+impl Drop for NativeFrameTransfer {
+    fn drop(&mut self) {
+        let Some(frame) = self.frame.take() else {
+            return;
+        };
+
+        (frame.destroy())(frame.context());
+    }
 }
 
 fn affinity(native: NativeFrameAffinity) -> Option<ProtectedFrameAffinity> {

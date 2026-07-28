@@ -118,9 +118,13 @@ impl RuntimeArtifactMetadata {
         &self,
     ) -> Result<Vec<u8>, RuntimeArtifactMetadataEncodeError> {
         let mut bytes = serde_json::to_vec_pretty(&ArtifactWire::from_metadata(self))
-            .map_err(|_| RuntimeArtifactMetadataEncodeError)?;
+            .map_err(|_| RuntimeArtifactMetadataEncodeError::Serialization)?;
 
         bytes.push(b'\n');
+
+        if bytes.len() > MAXIMUM_METADATA_BYTES {
+            return Err(RuntimeArtifactMetadataEncodeError::SizeLimitExceeded);
+        }
 
         Ok(bytes)
     }
@@ -249,7 +253,12 @@ pub enum RuntimeArtifactMetadataBuildError {
 
 /// Failure to encode validated runtime artifact metadata.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RuntimeArtifactMetadataEncodeError;
+pub enum RuntimeArtifactMetadataEncodeError {
+    /// Serialization of validated metadata failed.
+    Serialization,
+    /// The encoded document exceeds the fixed metadata resource limit.
+    SizeLimitExceeded,
+}
 
 /// A malformed or incompatible runtime artifact metadata document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -465,8 +474,10 @@ mod tests {
     use bray_target::TargetIdentity;
 
     use super::{
-        RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactDigest,
-        RuntimeArtifactMetadata, RuntimeArtifactMetadataDecodeError,
+        MAXIMUM_METADATA_BYTES, RuntimeArtifact, RuntimeArtifactBuildError,
+        RuntimeArtifactDigest, RuntimeArtifactMetadata,
+        RuntimeArtifactMetadataDecodeError,
+        RuntimeArtifactMetadataEncodeError,
     };
     use crate::{
         BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions,
@@ -549,20 +560,44 @@ mod tests {
             RuntimeArtifactMetadata::decode_json(&document),
             Err(RuntimeArtifactMetadataDecodeError::Malformed)
         );
+
+        let encoded = metadata()
+            .encode_json()
+            .unwrap_or_else(|_| panic!("test metadata must encode"));
+
+        let fixed_length = encoded.len() - "bray.runtime.reference".len();
+        let fitting_identity = "x".repeat(MAXIMUM_METADATA_BYTES - fixed_length);
+
+        let fitting = metadata_with_identity(&fitting_identity)
+            .encode_json()
+            .unwrap_or_else(|_| panic!("limit-sized metadata must encode"));
+
+        assert_eq!(fitting.len(), MAXIMUM_METADATA_BYTES);
+
+        let oversized_identity = format!("{fitting_identity}x");
+
+        assert_eq!(
+            metadata_with_identity(&oversized_identity).encode_json(),
+            Err(RuntimeArtifactMetadataEncodeError::SizeLimitExceeded)
+        );
     }
 
     fn metadata() -> RuntimeArtifactMetadata {
+        metadata_with_identity("bray.runtime.reference")
+    }
+
+    fn metadata_with_identity(identity: &str) -> RuntimeArtifactMetadata {
         RuntimeArtifactMetadata::try_new(
-            contract(),
+            contract(identity),
             "bray_runtime.lib",
             RuntimeArtifactDigest::new([7; 32]),
         )
         .unwrap_or_else(|error| panic!("test metadata must be valid: {error:?}"))
     }
 
-    fn contract() -> RuntimeContract {
+    fn contract(identity: &str) -> RuntimeContract {
         RuntimeContract::try_new(
-            RuntimeIdentity::try_new("bray.runtime.reference")
+            RuntimeIdentity::try_new(identity)
                 .unwrap_or_else(|| panic!("runtime identity must be valid")),
             RuntimeArtifactId::try_new("bray.runtime.reference.windows.x86_64")
                 .unwrap_or_else(|| panic!("artifact identity must be valid")),

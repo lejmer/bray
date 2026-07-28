@@ -1,6 +1,3 @@
-/// Stable symbol implementing root execution in the native runtime artifact.
-pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
-
 /// Stable symbol initializing the distinguished main-thread runtime lane.
 pub const MAIN_THREAD_LANE_STARTUP_SYMBOL: &str =
     "bray_runtime_main_thread_lane_startup_v1";
@@ -159,9 +156,6 @@ impl NativeRunOutcome {
     }
 }
 
-/// Compiler-generated root callback accepted by the native runtime artifact.
-pub type NativeRootCallback = extern "C" fn(context: usize) -> NativeRunOutcome;
-
 /// Stable process-local handle for runtime-owned task storage.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -309,6 +303,11 @@ impl NativeFrameProgressKind {
     /// The generated frame violated its runtime contract.
     pub const RUNTIME_FAILURE: Self = Self(4);
 
+    /// Creates a progress category from its stable ABI code.
+    pub const fn from_code(code: u32) -> Self {
+        Self(code)
+    }
+
     /// Returns the stable progress code.
     pub const fn code(self) -> u32 {
         self.0
@@ -389,7 +388,7 @@ pub type NativeFrameResolveCallback =
 
 /// Complete ABI-safe adapter for one compiler-generated protected frame.
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct NativeProtectedFrame {
     context: usize,
     identity: [u8; 32],
@@ -442,62 +441,62 @@ impl NativeProtectedFrame {
     }
 
     /// Returns the opaque generated-frame context.
-    pub const fn context(self) -> usize {
+    pub const fn context(&self) -> usize {
         self.context
     }
 
     /// Returns the stable frame representation identity.
-    pub const fn identity(self) -> [u8; 32] {
+    pub const fn identity(&self) -> [u8; 32] {
         self.identity
     }
 
     /// Returns the number of resumable frame states.
-    pub const fn state_count(self) -> u32 {
+    pub const fn state_count(&self) -> u32 {
         self.state_count
     }
 
     /// Returns the frame storage size.
-    pub const fn size(self) -> usize {
+    pub const fn size(&self) -> usize {
         self.size
     }
 
     /// Returns the frame storage alignment.
-    pub const fn alignment(self) -> usize {
+    pub const fn alignment(&self) -> usize {
         self.alignment
     }
 
     /// Returns the completion storage size.
-    pub const fn completion_size(self) -> usize {
+    pub const fn completion_size(&self) -> usize {
         self.completion_size
     }
 
     /// Returns the completion storage alignment.
-    pub const fn completion_alignment(self) -> usize {
+    pub const fn completion_alignment(&self) -> usize {
         self.completion_alignment
     }
 
     /// Returns the state-description callback.
-    pub const fn state(self) -> NativeFrameStateCallback {
+    pub const fn state(&self) -> NativeFrameStateCallback {
         self.state
     }
 
     /// Returns the frame-resume callback.
-    pub const fn resume(self) -> NativeFrameResumeCallback {
+    pub const fn resume(&self) -> NativeFrameResumeCallback {
         self.resume
     }
 
     /// Returns the task-broadcast callback.
-    pub const fn broadcast_tasks(self) -> NativeFrameActionCallback {
+    pub const fn broadcast_tasks(&self) -> NativeFrameActionCallback {
         self.broadcast_tasks
     }
 
     /// Returns the lifecycle-resolution callback.
-    pub const fn resolve_lifecycle(self) -> NativeFrameResolveCallback {
+    pub const fn resolve_lifecycle(&self) -> NativeFrameResolveCallback {
         self.resolve_lifecycle
     }
 
     /// Returns the frame-destruction callback.
-    pub const fn destroy(self) -> NativeFrameActionCallback {
+    pub const fn destroy(&self) -> NativeFrameActionCallback {
         self.destroy
     }
 }

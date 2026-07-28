@@ -2,15 +2,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_interface::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind,
-    NativeProtectedFrame, NativeRootCallback, NativeRunOutcome,
-    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
-    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
+    NativeProtectedFrame, NativeRunOutcome, NativeRunState,
+    NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
+    NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
 };
 
-use crate::{
-    RunOutcome, current_run_cancellation_observable, execute_synchronous_root,
-};
+use crate::current_run_cancellation_observable;
 
 use super::state::{
     initialize, runtime_failure, shutdown, with_runtime,
@@ -45,34 +42,9 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_root_execution_v1(
-        callback: NativeRootCallback,
-        context: usize,
-    ) -> NativeRunOutcome {
+    pub extern "C" fn bray_runtime_task_allocation_v1() -> NativeTaskAllocation {
         catch_unwind(AssertUnwindSafe(|| {
-            with_runtime(|_| {
-                match execute_synchronous_root(|| callback(context), |_| {}) {
-                    RunOutcome::Completed(outcome) => outcome,
-                    RunOutcome::Cancelled => {
-                        NativeRunOutcome::new(NativeRunState::CANCELLED, 0)
-                    }
-                    RunOutcome::Panicked(_) => runtime_failure(
-                        NativeRuntimeStatus::PANICKED,
-                    ),
-                }
-            })
-            .unwrap_or_else(runtime_failure)
-        }))
-        .unwrap_or_else(|_| runtime_failure(NativeRuntimeStatus::PANICKED))
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_allocation_v1(
-        frame: NativeProtectedFrame,
-    ) -> NativeTaskAllocation {
-        catch_unwind(AssertUnwindSafe(|| {
-            with_runtime(|runtime| runtime.allocate(frame)).unwrap_or_else(
+            with_runtime(|runtime| runtime.allocate()).unwrap_or_else(
                 NativeTaskAllocation::failure,
             )
         }))
@@ -85,9 +57,10 @@ native_export! {
 native_export! {
     pub extern "C" fn bray_runtime_task_start_v1(
         task: NativeTaskHandle,
+        frame: NativeProtectedFrame,
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            with_runtime(|runtime| runtime.start(task))
+            with_runtime(|runtime| runtime.start(task, frame))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -239,13 +212,14 @@ mod tests {
     use super::{
         bray_runtime_main_thread_lane_drive_v1,
         bray_runtime_main_thread_lane_startup_v1,
-        bray_runtime_root_execution_v1,
         bray_runtime_structured_shutdown_v1,
         bray_runtime_join_registration_v1,
         bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
+    static REJECTED_DESTROYED: AtomicUsize = AtomicUsize::new(0);
+    static STARTED_DESTROYED: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
     fn native_runtime_boundary_starts_executes_and_shuts_down() {
@@ -256,19 +230,14 @@ mod tests {
             NativeRuntimeStatus::SUCCESS
         );
 
-        assert_eq!(
-            bray_runtime_root_execution_v1(root_callback, 41),
-            NativeRunOutcome::new(NativeRunState::COMPLETED, 42)
-        );
-
-        let allocation = bray_runtime_task_allocation_v1(frame());
+        let allocation = bray_runtime_task_allocation_v1();
 
         let Some(task) = allocation.task() else {
             panic!("native frame must allocate");
         };
 
         assert_eq!(
-            bray_runtime_task_start_v1(task),
+            bray_runtime_task_start_v1(task, frame()),
             NativeRuntimeStatus::SUCCESS
         );
 
@@ -312,12 +281,12 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_task_allocation_v1(capacity_frame()).status(),
+            bray_runtime_task_allocation_v1().status(),
             NativeRuntimeStatus::SUCCESS
         );
 
         assert_eq!(
-            bray_runtime_task_allocation_v1(capacity_frame()).status(),
+            bray_runtime_task_allocation_v1().status(),
             NativeRuntimeStatus::RUNTIME_FAILURE
         );
 
@@ -327,19 +296,116 @@ mod tests {
         );
     }
 
-    extern "C" fn root_callback(context: usize) -> NativeRunOutcome {
-        NativeRunOutcome::new(NativeRunState::COMPLETED, context + 1)
+    #[test]
+    fn task_start_transfers_each_frame_exactly_once() {
+        assert_eq!(
+            bray_runtime_main_thread_lane_startup_v1(
+                NativeRuntimeConfiguration::new(1, 1)
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let allocation = bray_runtime_task_allocation_v1();
+
+        let Some(task) = allocation.task() else {
+            panic!("native task storage must allocate");
+        };
+
+        assert_eq!(
+            bray_runtime_task_start_v1(
+                task,
+                protected_frame(
+                    0,
+                    resume_frame,
+                    rejected_destroy,
+                )
+            ),
+            NativeRuntimeStatus::INVALID_ARGUMENT
+        );
+
+        assert_eq!(REJECTED_DESTROYED.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            bray_runtime_task_start_v1(
+                task,
+                protected_frame(
+                    8,
+                    resume_frame,
+                    started_destroy,
+                )
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive_v1(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_join_registration_v1(task, ignore_wake, 0).state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            bray_runtime_structured_shutdown_v1(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn frame_contract_failures_are_not_published_as_panics() {
+        assert_eq!(
+            bray_runtime_main_thread_lane_startup_v1(
+                NativeRuntimeConfiguration::new(2, 1)
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        for resume in [
+            resume_runtime_failure as extern "C" fn(usize, u8) -> NativeFrameProgress,
+            resume_unknown_progress,
+        ] {
+            let allocation = bray_runtime_task_allocation_v1();
+
+            let Some(task) = allocation.task() else {
+                panic!("native task storage must allocate");
+            };
+
+            assert_eq!(
+                bray_runtime_task_start_v1(
+                    task,
+                    protected_frame(8, resume, ignore_action)
+                ),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_runtime_main_thread_lane_drive_v1(),
+                NativeRuntimeStatus::RUNTIME_FAILURE
+            );
+
+            assert_eq!(
+                bray_runtime_join_registration_v1(task, ignore_wake, 0).state(),
+                NativeRunState::RUNTIME_FAILURE
+            );
+        }
+
+        assert_eq!(
+            bray_runtime_structured_shutdown_v1(),
+            NativeRuntimeStatus::SUCCESS
+        );
     }
 
     fn frame() -> NativeProtectedFrame {
-        protected_frame(destroy_frame)
-    }
-
-    fn capacity_frame() -> NativeProtectedFrame {
-        protected_frame(ignore_action)
+        protected_frame(8, resume_frame, destroy_frame)
     }
 
     fn protected_frame(
+        alignment: usize,
+        resume: extern "C" fn(usize, u8) -> NativeFrameProgress,
         destroy: extern "C" fn(usize),
     ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
@@ -347,11 +413,11 @@ mod tests {
             [7; 32],
             1,
             8,
-            8,
+            alignment,
             8,
             8,
             frame_state,
-            resume_frame,
+            resume,
             ignore_action,
             ignore_resolution,
             destroy,
@@ -373,6 +439,22 @@ mod tests {
         )
     }
 
+    extern "C" fn resume_runtime_failure(_: usize, _: u8) -> NativeFrameProgress {
+        NativeFrameProgress::new(
+            NativeFrameProgressKind::RUNTIME_FAILURE,
+            0,
+            0,
+        )
+    }
+
+    extern "C" fn resume_unknown_progress(_: usize, _: u8) -> NativeFrameProgress {
+        NativeFrameProgress::new(
+            NativeFrameProgressKind::from_code(u32::MAX),
+            0,
+            0,
+        )
+    }
+
     extern "C" fn ignore_action(_: usize) {}
 
     extern "C" fn ignore_wake(_: usize) {}
@@ -381,5 +463,13 @@ mod tests {
 
     extern "C" fn destroy_frame(_: usize) {
         DESTROYED.fetch_add(1, Ordering::Relaxed);
+    }
+
+    extern "C" fn rejected_destroy(_: usize) {
+        REJECTED_DESTROYED.fetch_add(1, Ordering::Relaxed);
+    }
+
+    extern "C" fn started_destroy(_: usize) {
+        STARTED_DESTROYED.fetch_add(1, Ordering::Relaxed);
     }
 }
