@@ -13,8 +13,8 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
-    Compilation, CompilationLoadError, PackageInterfaceExportError, ProductSourceGraph,
-    SemanticAvailability,
+    CodegenFactError, Compilation, CompilationLoadError, PackageInterfaceExportError,
+    ProductSourceGraph, SemanticAvailability,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

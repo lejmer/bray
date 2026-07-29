@@ -21,7 +21,7 @@ use super::validation::{
 };
 
 /// Canonical code generation facts demanded by one concrete code generation unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenMappings {
     unit: CodegenUnitKey,
     target: CodegenTarget,

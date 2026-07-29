@@ -26,8 +26,8 @@ pub(crate) use cache::{FactCellTestEvent, FactCellTestObserver};
 pub(crate) use cancellation::SharedCancellation;
 pub(crate) use cell_map::FactCellMap;
 pub(crate) use key::{
-    CompilationFactKey, ConstantCallFactKey, ConstantInstanceFactKey, IterationSourceFactKey,
-    OperationSelectionFactKey, SymbolFactKey,
+    CodegenArtifactFactKey, CompilationFactKey, ConstantCallFactKey, ConstantInstanceFactKey,
+    IterationSourceFactKey, OperationSelectionFactKey, SymbolFactKey,
 };
 pub(crate) use priority::QueryPriorityDemand;
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};

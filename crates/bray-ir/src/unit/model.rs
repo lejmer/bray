@@ -18,7 +18,7 @@ pub enum MirUnitKey {
 }
 
 /// One immutable backend-independent MIR unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirUnit {
     pub(super) key: MirUnitKey,
     pub(super) unit: MirUnitId,

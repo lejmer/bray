@@ -8,6 +8,7 @@ mod mapping;
 mod options;
 mod outcome;
 mod request;
+mod registry;
 mod runtime;
 mod target;
 mod unit;
@@ -37,6 +38,10 @@ pub use mapping::{
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};
+pub use registry::{
+    BackendSelectionError, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
+    CodegenConfiguration,
+};
 pub use runtime::{
     CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
 };

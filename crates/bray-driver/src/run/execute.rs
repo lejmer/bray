@@ -2,7 +2,12 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
+use bray_codegen::{
+    CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
+};
+use bray_codegen_llvm::LlvmCodeGenerator;
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::PackageIdentity;
@@ -274,9 +279,9 @@ fn run_check_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match Compilation::load(request) {
-        Ok(compilation) => compilation,
-        Err(_) => return compilation_load_failure_result(output_format),
+    let compilation = match load_compilation(request) {
+        Some(compilation) => compilation,
+        None => return compilation_load_failure_result(output_format),
     };
 
     let diagnostics = compilation.check_diagnostics().clone();
@@ -288,9 +293,9 @@ fn run_inspect_source_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match Compilation::load(request) {
-        Ok(compilation) => compilation,
-        Err(_) => return compilation_load_failure_result(output_format),
+    let compilation = match load_compilation(request) {
+        Some(compilation) => compilation,
+        None => return compilation_load_failure_result(output_format),
     };
 
     if !compilation.source_diagnostics().is_empty() {
@@ -318,9 +323,9 @@ fn run_fact_inspection_command<E>(
     output_format: DriverOutputFormat,
     render: impl FnOnce(&Compilation, DriverOutputFormat) -> Result<InspectionOutput, E>,
 ) -> DriverRunResult {
-    let compilation = match Compilation::load(request) {
-        Ok(compilation) => compilation,
-        Err(_) => return compilation_load_failure_result(output_format),
+    let compilation = match load_compilation(request) {
+        Some(compilation) => compilation,
+        None => return compilation_load_failure_result(output_format),
     };
 
     if !compilation.source_diagnostics().is_empty() {
@@ -353,6 +358,18 @@ fn diagnostic_result_from_compilation(
 
 fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverRunResult {
     DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
+}
+
+fn load_compilation(request: CompilationRequest) -> Option<Compilation> {
+    let generator = LlvmCodeGenerator::try_new().ok()?;
+    let identity = generator.identity().clone();
+
+    let registry =
+        CodeGeneratorRegistry::try_new([Arc::new(generator) as Arc<dyn CodeGenerator>]).ok()?;
+
+    let codegen = CodegenConfiguration::try_new(registry, identity).ok()?;
+
+    Compilation::load_with_codegen(request, codegen).ok()
 }
 
 fn run_with_writers(
