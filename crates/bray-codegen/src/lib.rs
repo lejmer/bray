@@ -39,8 +39,9 @@ pub use target::{
     TargetSymbolConvention, TargetSymbolConventionBuildError,
 };
 pub use unit::{
-    CodegenInstance, CodegenInstanceBuildError, CodegenInstanceDependency,
-    CodegenInstanceDependencyKind, CodegenInstanceKey, CodegenReachability,
-    CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenSpecialization,
-    CodegenUnit, CodegenUnitBuildError, CodegenUnitKey, partition_codegen_units,
+    CodegenGenericArgument, CodegenImplementationWitness, CodegenInstance,
+    CodegenInstanceBuildError, CodegenInstanceDependency, CodegenInstanceDependencyKind,
+    CodegenInstanceKey, CodegenReachability, CodegenReachabilityBuildError,
+    CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit, CodegenUnitBuildError,
+    CodegenUnitKey, CodegenValueKey, partition_codegen_units,
 };

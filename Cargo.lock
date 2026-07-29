@@ -112,6 +112,9 @@ dependencies = [
 [[package]]
 name = "bray-base"
 version = "0.0.0"
+dependencies = [
+ "blake3",
+]
 
 [[package]]
 name = "bray-binder"
@@ -299,7 +302,7 @@ dependencies = [
 name = "bray-lowering"
 version = "0.0.0"
 dependencies = [
- "blake3",
+ "bray-base",
  "bray-bound-tree",
  "bray-compiler-known",
  "bray-declarations",

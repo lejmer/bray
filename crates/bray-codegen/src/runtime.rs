@@ -202,11 +202,9 @@ pub enum CodegenRuntimeMetadataBuildError {
 
 fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
     let mut frames: Vec<_> = unit
-        .mir_units()
-        .filter_map(|unit| match unit.kind() {
-            MirUnitKind::ProtectedAsyncFrame(frame) => Some(*frame),
-            MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => None,
-        })
+        .instances()
+        .iter()
+        .filter_map(crate::CodegenInstance::protected_frame_identity)
         .collect();
 
     frames.sort_unstable();
@@ -215,10 +213,12 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
 }
 
 fn frame_metadata_matches(unit: &CodegenUnit, metadata: &ProtectedAsyncFrameMetadata) -> bool {
-    unit.mir_units().any(|unit| {
-        unit.frame_descriptor().is_some_and(|descriptor| {
-            descriptor.frame() == metadata.frame() && descriptor.frame_abi() == metadata.frame_abi()
-        })
+    unit.instances().iter().any(|instance| {
+        instance
+            .protected_frame_identity()
+            .filter(|frame| *frame == metadata.frame())
+            .and_then(|_| instance.mir().frame_descriptor())
+            .is_some_and(|descriptor| descriptor.frame_abi() == metadata.frame_abi())
     })
 }
 
@@ -273,11 +273,15 @@ mod tests {
 
     #[test]
     fn protected_frames_require_exact_descriptor_metadata() {
-        let frame = ProtectedAsyncFrameId::new([9; 32]);
-        let mir = protected_frame_mir(frame);
+        let template = ProtectedAsyncFrameId::new([9; 32]);
+        let mir = protected_frame_mir(template);
 
         let Ok(unit) = CodegenUnit::try_new(1, [mir]) else {
             panic!("test codegen unit must be valid");
+        };
+
+        let Some(frame) = unit.instances()[0].protected_frame_identity() else {
+            panic!("protected-frame instances must have concrete identities");
         };
 
         assert_eq!(

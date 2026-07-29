@@ -1,16 +1,94 @@
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use bray_base::sorted_unique_shared_slice;
-use bray_ir::{MirTargetFacts, MirUnit, MirUnitKey};
-use bray_symbols::{ConcreteGenericSubstitutionId, ImplementationInstanceId};
+use bray_base::{StableDigestHasher, shared_slice, sorted_unique_shared_slice};
+use bray_ir::{MirTargetFacts, MirUnit, MirUnitKey, MirUnitKind};
+use bray_runtime_interface::ProtectedAsyncFrameId;
+use bray_symbols::SymbolKey;
+
+const CONCRETE_FRAME_IDENTITY_REVISION: u32 = 1;
+
+/// Stable structural digest of one concrete generic type or constant argument.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenValueKey([u8; 32]);
+
+impl CodegenValueKey {
+    /// Creates an identity from a compiler-derived structural digest.
+    pub const fn new(digest: [u8; 32]) -> Self {
+        Self(digest)
+    }
+
+    /// Returns the structural digest bytes.
+    pub const fn digest(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+/// One concrete generic argument participating in generated-definition identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CodegenGenericArgument {
+    /// A fully resolved semantic type.
+    Type(CodegenValueKey),
+    /// A fully evaluated constant value.
+    Constant(CodegenValueKey),
+}
 
 /// Whether one generated definition is generic and, if so, its exact concrete arguments.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CodegenSpecialization {
     /// A definition with no generic parameters.
     NonGeneric,
-    /// A definition instantiated with one canonical concrete substitution.
-    Generic(ConcreteGenericSubstitutionId),
+    /// A definition instantiated with ordered structural arguments.
+    Generic(Arc<[CodegenGenericArgument]>),
+}
+
+impl CodegenSpecialization {
+    /// Creates an ordered concrete generic specialization.
+    pub fn generic(arguments: impl IntoIterator<Item = CodegenGenericArgument>) -> Self {
+        Self::Generic(shared_slice(arguments))
+    }
+
+    /// Returns ordered concrete arguments, or an empty slice for a non-generic definition.
+    pub fn arguments(&self) -> &[CodegenGenericArgument] {
+        match self {
+            Self::NonGeneric => &[],
+            Self::Generic(arguments) => arguments,
+        }
+    }
+}
+
+/// Stable structural identity of one selected implementation witness.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenImplementationWitness {
+    definition: SymbolKey,
+    specialization: CodegenSpecialization,
+}
+
+impl CodegenImplementationWitness {
+    /// Creates a witness for an implementation definition.
+    pub fn try_new(
+        definition: SymbolKey,
+        specialization: CodegenSpecialization,
+    ) -> Option<Self> {
+        if !definition.kind().is_implementation() {
+            return None;
+        }
+
+        Some(Self {
+            definition,
+            specialization,
+        })
+    }
+
+    /// Returns the selected implementation definition.
+    pub const fn definition(&self) -> &SymbolKey {
+        &self.definition
+    }
+
+    /// Returns the implementation's concrete generic specialization.
+    pub const fn specialization(&self) -> &CodegenSpecialization {
+        &self.specialization
+    }
 }
 
 /// Stable identity of one concrete MIR definition generated for one target.
@@ -18,7 +96,7 @@ pub enum CodegenSpecialization {
 pub struct CodegenInstanceKey {
     template: MirUnitKey,
     specialization: CodegenSpecialization,
-    witnesses: Arc<[ImplementationInstanceId]>,
+    witnesses: Arc<[CodegenImplementationWitness]>,
     target: MirTargetFacts,
 }
 
@@ -27,7 +105,7 @@ impl CodegenInstanceKey {
     pub fn new(
         template: MirUnitKey,
         specialization: CodegenSpecialization,
-        witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+        witnesses: impl IntoIterator<Item = CodegenImplementationWitness>,
         target: MirTargetFacts,
     ) -> Self {
         Self {
@@ -54,12 +132,12 @@ impl CodegenInstanceKey {
     }
 
     /// Returns the exact generic specialization.
-    pub const fn specialization(&self) -> CodegenSpecialization {
-        self.specialization
+    pub const fn specialization(&self) -> &CodegenSpecialization {
+        &self.specialization
     }
 
     /// Returns selected implementation witnesses in canonical order.
-    pub fn witnesses(&self) -> &[ImplementationInstanceId] {
+    pub fn witnesses(&self) -> &[CodegenImplementationWitness] {
         &self.witnesses
     }
 
@@ -178,6 +256,22 @@ impl CodegenInstance {
     pub fn dependencies(&self) -> &[CodegenInstanceDependency] {
         &self.dependencies
     }
+
+    /// Returns the concrete hidden frame identity when this instance owns a protected frame.
+    pub fn protected_frame_identity(&self) -> Option<ProtectedAsyncFrameId> {
+        let MirUnitKind::ProtectedAsyncFrame(template) = self.mir.kind() else {
+            return None;
+        };
+
+        let mut hasher = StableDigestHasher::new();
+
+        hasher.write(b"bray.concrete-protected-async-frame");
+        hasher.write_u32(CONCRETE_FRAME_IDENTITY_REVISION);
+        template.hash(&mut hasher);
+        self.key.hash(&mut hasher);
+
+        Some(ProtectedAsyncFrameId::new(hasher.finalize()))
+    }
 }
 
 /// A contract violation that prevents creation of one concrete code generation instance.
@@ -193,13 +287,21 @@ pub enum CodegenInstanceBuildError {
 
 #[cfg(test)]
 mod tests {
-    use bray_ir::MirTargetFacts;
+    use bray_ir::{
+        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
+        MirTargetFacts, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+    };
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
+    };
+    use bray_symbols::{SemanticValueStore, TypeData};
     use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
     use bray_target::{TargetIdentity, TargetProfile};
 
     use super::{
-        CodegenInstance, CodegenInstanceBuildError, CodegenInstanceDependency,
-        CodegenInstanceDependencyKind, CodegenInstanceKey, CodegenSpecialization,
+        CodegenGenericArgument, CodegenInstance, CodegenInstanceBuildError,
+        CodegenInstanceDependency, CodegenInstanceDependencyKind, CodegenInstanceKey,
+        CodegenSpecialization, CodegenValueKey,
     };
 
     #[test]
@@ -306,5 +408,124 @@ mod tests {
             CodegenInstance::try_new(alternate, mir, []),
             Err(CodegenInstanceBuildError::TargetMismatch)
         );
+    }
+
+    #[test]
+    fn structural_specializations_ignore_semantic_store_and_interning_order() {
+        let Ok(first_store) = SemanticValueStore::try_new() else {
+            panic!("first semantic value store must be available");
+        };
+
+        let Ok(second_store) = SemanticValueStore::try_new() else {
+            panic!("second semantic value store must be available");
+        };
+
+        let Ok(first_type) = first_store.intern_type(TypeData::Error) else {
+            panic!("first test type must intern");
+        };
+
+        let _ = second_store.intern_type(TypeData::tuple([]));
+
+        let Ok(second_type) = second_store.intern_type(TypeData::Error) else {
+            panic!("second test type must intern");
+        };
+
+        assert_ne!(first_type, second_type);
+
+        let mir = test_mir_unit(4);
+        let argument = CodegenGenericArgument::Type(CodegenValueKey::new([7; 32]));
+
+        let first = CodegenInstanceKey::new(
+            mir.key().clone(),
+            CodegenSpecialization::generic([argument]),
+            [],
+            mir.target().clone(),
+        );
+
+        let second = CodegenInstanceKey::new(
+            mir.key().clone(),
+            CodegenSpecialization::generic([argument]),
+            [],
+            mir.target().clone(),
+        );
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn async_specializations_receive_distinct_concrete_frame_identities() {
+        let template = ProtectedAsyncFrameId::new([9; 32]);
+        let mir = protected_frame_mir(template);
+        let first_argument = CodegenGenericArgument::Type(CodegenValueKey::new([1; 32]));
+        let second_argument = CodegenGenericArgument::Type(CodegenValueKey::new([2; 32]));
+
+        let first_key = CodegenInstanceKey::new(
+            mir.key().clone(),
+            CodegenSpecialization::generic([first_argument]),
+            [],
+            mir.target().clone(),
+        );
+
+        let second_key = CodegenInstanceKey::new(
+            mir.key().clone(),
+            CodegenSpecialization::generic([second_argument]),
+            [],
+            mir.target().clone(),
+        );
+
+        let Ok(first) = CodegenInstance::try_new(first_key, mir.clone(), []) else {
+            panic!("first async specialization must validate");
+        };
+
+        let Ok(second) = CodegenInstance::try_new(second_key, mir, []) else {
+            panic!("second async specialization must validate");
+        };
+
+        assert_ne!(
+            first.protected_frame_identity(),
+            second.protected_frame_identity()
+        );
+    }
+
+    fn protected_frame_mir(frame: ProtectedAsyncFrameId) -> bray_ir::MirUnit {
+        let bound = bray_testing::test_bound_unit(8);
+        let source = bound.key().source();
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::ProtectedAsyncFrame(frame),
+            bray_testing::test_mir_target(),
+        );
+
+        let source = MirSourceAnchor::from(source);
+
+        let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
+            panic!("test protected-frame block must validate");
+        };
+
+        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
+            panic!("test protected-frame terminator must validate");
+        };
+
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+
+        let Ok(descriptor) = MirFrameDescriptor::try_new(
+            frame,
+            RuntimeAbiVersion::new(1, 0),
+            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+            bray_testing::test_mir_type(),
+            [state],
+        ) else {
+            panic!("test frame descriptor must validate");
+        };
+
+        if let Err(error) = builder.set_frame_descriptor(descriptor) {
+            panic!("test frame descriptor must commit: {error:?}");
+        }
+
+        match builder.finish(entry) {
+            Ok(unit) => unit,
+            Err(error) => panic!("test protected-frame MIR must validate: {error:?}"),
+        }
     }
 }
