@@ -1,5 +1,4 @@
 use std::ffi::OsString;
-use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,10 +7,10 @@ use bray_diagnostics::DiagnosticBag;
 
 use super::argument::{arguments_for, external_arguments};
 use super::{EmbeddedLldHost, LldFlavor};
+use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
-    ExternalToolInvocationBuildError, ExternalToolOutput, LinkFailure, LinkInputSource,
-    LinkOutcome, LinkOutcomeBuildError, LinkPlan, LinkedArtifact, LinkedArtifactSetBuildError,
+    ExternalToolInvocationBuildError, ExternalToolOutput, LinkFailure, LinkOutcome, LinkPlan,
     LinkedProductKind, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
 };
 
@@ -107,7 +106,7 @@ impl LinkerDriver for LldDriver {
             return failed(LinkFailure::DriverIncompatible);
         };
 
-        if let Err(failure) = validate_inputs(plan) {
+        if let Err(failure) = validate_file_inputs(plan) {
             return failed(failure);
         }
 
@@ -124,7 +123,7 @@ impl LinkerDriver for LldDriver {
             return failed(LinkFailure::Invocation);
         }
 
-        complete_outputs(plan)
+        complete_linked_outputs(plan)
     }
 }
 
@@ -158,59 +157,6 @@ fn external_invocation(
     ExternalToolInvocation::try_new(program, arguments, [], None, [])
 }
 
-fn validate_inputs(plan: &LinkPlan) -> Result<(), LinkFailure> {
-    for input in plan.inputs() {
-        let LinkInputSource::File(path) = input.source() else {
-            continue;
-        };
-
-        let Ok(metadata) = std::fs::metadata(path) else {
-            return Err(LinkFailure::MissingInput(input.id()));
-        };
-
-        if !metadata.is_file() {
-            return Err(LinkFailure::MissingInput(input.id()));
-        }
-    }
-
-    Ok(())
-}
-
-fn complete_outputs(plan: &LinkPlan) -> LinkOutcome {
-    let mut artifacts = Vec::new();
-
-    for output in plan.outputs() {
-        let destination = output.destination();
-
-        let metadata = match std::fs::metadata(destination.path()) {
-            Ok(metadata) => metadata,
-            Err(_) if output.requirement() == crate::LinkedArtifactRequirement::Optional => {
-                continue;
-            }
-            Err(_) => return failed(LinkFailure::MissingOutput(destination.id())),
-        };
-
-        let Some(byte_len) = NonZeroU64::new(metadata.len()) else {
-            return failed(LinkFailure::InvalidOutput(destination.id()));
-        };
-
-        if !metadata.is_file() {
-            return failed(LinkFailure::InvalidOutput(destination.id()));
-        }
-
-        artifacts.push(LinkedArtifact::new(
-            output.kind(),
-            destination.id(),
-            byte_len,
-        ));
-    }
-
-    match LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new()) {
-        Ok(outcome) => outcome,
-        Err(error) => failed(link_outcome_failure(error)),
-    }
-}
-
 fn outcome_from_run_error(error: LldRunError) -> LinkOutcome {
     match error {
         LldRunError::ExternalTool(ExternalToolFailure::Cancelled) => {
@@ -230,20 +176,6 @@ fn outcome_from_run_error(error: LldRunError) -> LinkOutcome {
         )
         | LldRunError::Invocation => failed(LinkFailure::Invocation),
         LldRunError::Plan => failed(LinkFailure::DriverIncompatible),
-    }
-}
-
-fn link_outcome_failure(error: LinkOutcomeBuildError) -> LinkFailure {
-    match error {
-        LinkOutcomeBuildError::ErrorDiagnostics(_) => LinkFailure::Invocation,
-        LinkOutcomeBuildError::InvalidArtifacts(LinkedArtifactSetBuildError::MissingRequired(
-            destination,
-        )) => LinkFailure::MissingOutput(destination),
-        LinkOutcomeBuildError::InvalidArtifacts(
-            LinkedArtifactSetBuildError::DuplicateArtifact(destination)
-            | LinkedArtifactSetBuildError::UnplannedArtifact(destination)
-            | LinkedArtifactSetBuildError::KindMismatch(destination),
-        ) => LinkFailure::InvalidOutput(destination),
     }
 }
 

@@ -11,6 +11,7 @@ mod outcome;
 mod output;
 mod plan;
 mod policy;
+mod staging;
 mod target;
 
 #[cfg(test)]
