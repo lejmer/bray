@@ -15,7 +15,12 @@ use crate::test_source_snapshot;
 
 /// Builds one canonical recovered callable-body unit for semantic boundary tests.
 pub fn test_bound_unit(unit: u32) -> BoundUnit {
-    let (key, local_symbols) = callable_unit_identity(unit);
+    test_bound_unit_with_declaration(unit, 0)
+}
+
+/// Builds one recovered callable-body unit with a caller-selected declaration identity.
+pub fn test_bound_unit_with_declaration(unit: u32, declaration: u32) -> BoundUnit {
+    let (key, local_symbols) = callable_unit_identity(unit, declaration);
 
     let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
     let body = BoundCallableBody::error(BoundNodeOrigin::source(key.source()), None);
@@ -82,10 +87,10 @@ fn test_expression_unit(
     }
 }
 
-fn callable_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
+fn callable_unit_identity(unit: u32, declaration: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     let (source, syntax) = source_anchor();
 
-    let owner = source_declaration(SymbolKind::Function);
+    let owner = source_declaration(SymbolKind::Function, declaration);
 
     let Some(key) = BoundUnitKey::callable_body(owner.clone(), source) else {
         panic!("function must support a callable body");
@@ -99,7 +104,7 @@ fn callable_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
 fn runtime_default_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     let (source, syntax) = source_anchor();
 
-    let callable = source_declaration(SymbolKind::Function);
+    let callable = source_declaration(SymbolKind::Function, 0);
 
     let parameter = SymbolKey::synthesized(SynthesizedSymbolKey::callable_parameter(
         callable,
@@ -127,7 +132,7 @@ fn runtime_default_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapsho
 fn constant_template_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     let (source, syntax) = source_anchor();
 
-    let owner = source_declaration(SymbolKind::Constant);
+    let owner = source_declaration(SymbolKind::Constant, 0);
 
     let Some(key) = BoundUnitKey::constant_template(owner.clone(), source) else {
         panic!("constant must support a constant-template unit");
@@ -163,7 +168,7 @@ fn source_anchor() -> (BoundSourceAnchor, SyntaxAnchor) {
     (source, syntax)
 }
 
-fn source_declaration(kind: SymbolKind) -> SymbolKey {
+fn source_declaration(kind: SymbolKind, declaration: u32) -> SymbolKey {
     let Some(package) = PackageIdentity::try_new("example.package") else {
         panic!("test package identity must be valid");
     };
@@ -174,7 +179,8 @@ fn source_declaration(kind: SymbolKind) -> SymbolKey {
 
     let module = SymbolKey::module(SymbolRootKey::Package(package), path);
 
-    let Some(owner) = SymbolKey::source_declaration(module, kind, DeclarationId::new(0)) else {
+    let Some(owner) = SymbolKey::source_declaration(module, kind, DeclarationId::new(declaration))
+    else {
         panic!("test symbol kind must support source declarations");
     };
 

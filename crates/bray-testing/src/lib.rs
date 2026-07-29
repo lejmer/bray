@@ -11,10 +11,14 @@ mod syntax;
 mod temporary_file;
 
 #[cfg(feature = "bound-unit")]
-pub use bound_unit::{test_bound_unit, test_constant_template_unit, test_runtime_default_unit};
+pub use bound_unit::{
+    test_bound_unit, test_bound_unit_with_declaration, test_constant_template_unit,
+    test_runtime_default_unit,
+};
 #[cfg(feature = "mir-unit")]
 pub use mir_unit::{
     test_executable_host_contract, test_mir_target, test_mir_type, test_mir_unit,
+    test_mir_unit_with_declaration,
 };
 pub use source::{test_source_at, test_source_snapshot, test_source_store, try_test_source_store};
 pub use syntax::{

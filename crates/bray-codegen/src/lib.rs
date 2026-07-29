@@ -38,4 +38,10 @@ pub use target::{
     TargetMachineSelection, TargetScalarKind, TargetScalarLayout, TargetScalarLayoutBuildError,
     TargetSymbolConvention, TargetSymbolConventionBuildError,
 };
-pub use unit::{CodegenUnit, CodegenUnitBuildError, CodegenUnitKey};
+pub use unit::{
+    CodegenGenericArgument, CodegenImplementationWitness, CodegenInstance,
+    CodegenInstanceBuildError, CodegenInstanceDependency, CodegenInstanceDependencyKind,
+    CodegenInstanceKey, CodegenReachability, CodegenReachabilityBuildError,
+    CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit, CodegenUnitBuildError,
+    CodegenUnitKey, CodegenValueKey, partition_codegen_units,
+};
