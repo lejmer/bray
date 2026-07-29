@@ -34,6 +34,23 @@ pub enum ArtifactKind {
 }
 
 impl ArtifactKind {
+    pub(crate) const fn machine_key(self) -> &'static str {
+        match self {
+            Self::Assembly => "assembly",
+            Self::BackendIr => "backend_ir",
+            Self::BackendBitcode => "backend_bitcode",
+            Self::RelocatableObject => "relocatable_object",
+            Self::ExecutableModule => "executable_module",
+            Self::DebugCompanion => "debug_companion",
+            Self::PackageInterface => "package_interface",
+            Self::DependencyMetadata => "dependency_metadata",
+            Self::Executable => "executable",
+            Self::StaticLibrary => "static_library",
+            Self::SharedLibrary => "shared_library",
+            Self::LinkedCompanion => "linked_companion",
+        }
+    }
+
     /// Returns the backend artifact category when code generation owns its bytes.
     pub const fn backend_kind(self) -> Option<BackendArtifactKind> {
         match self {

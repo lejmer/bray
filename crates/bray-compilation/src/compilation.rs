@@ -24,6 +24,7 @@ mod overlap;
 mod overload;
 mod pattern;
 mod product;
+mod product_emission;
 mod snapshot;
 mod source_graph;
 mod source_module;
@@ -39,5 +40,8 @@ pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub use facts::Compilation;
 pub use load::CompilationLoadError;
+pub use product_emission::{
+    ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs,
+};
 pub use source_graph::ProductSourceGraph;
 pub use tooling::SemanticAvailability;

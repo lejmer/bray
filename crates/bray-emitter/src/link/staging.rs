@@ -1,8 +1,296 @@
+use std::collections::BTreeMap;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use bray_base::Cancellation;
 use bray_linker::{LinkedArtifactKind, StagingPathKey};
+use tempfile::{Builder, TempPath};
 
-use crate::ArtifactId;
+use crate::artifact::content::{open_content, validate_staged_content};
+use crate::{
+    ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, EmissionPlan, OutputSink,
+    PlannedArtifact, PlannedArtifactDestination,
+};
+
+const COPY_BUFFER_LEN: usize = 64 * 1024;
+const LINK_INPUT_PREFIX: &str = ".bray-link-input-";
+const LINK_OUTPUT_PREFIX: &str = ".bray-link-output-";
+
+/// Transactional emitter-owned storage for one native link operation.
+pub struct LinkStaging {
+    _paths: Vec<TempPath>,
+    inputs: Arc<[StagedArtifact]>,
+    outputs: Arc<[LinkOutputStaging]>,
+}
+
+impl LinkStaging {
+    /// Stages planned native inputs and reserves linked outputs without publishing either.
+    pub fn prepare(
+        plan: &EmissionPlan,
+        contributions: impl IntoIterator<Item = ArtifactContribution>,
+        cancellation: &dyn Cancellation,
+    ) -> Result<Self, LinkStagingError> {
+        let contributions = contributions_by_id(contributions)?;
+        let mut paths = Vec::new();
+        let mut inputs = Vec::new();
+
+        for planned in plan.staged_artifacts() {
+            if cancellation.is_cancelled() {
+                return Err(LinkStagingError::Cancelled);
+            }
+
+            let Some(contribution) = contributions.get(planned.id()) else {
+                return Err(LinkStagingError::MissingContribution(
+                    planned.id().clone(),
+                ));
+            };
+
+            validate_contribution(planned, contribution)?;
+
+            let path = stage_input(contribution, cancellation)?;
+
+            // The typed staging record outlives this borrow from the immutable plan.
+            let staged = StagedArtifact::try_new(planned.id().clone(), path.to_path_buf())
+                .map_err(|_| LinkStagingError::InvalidStagingPath(planned.id().clone()))?;
+
+            paths.push(path);
+            inputs.push(staged);
+        }
+
+        if let Some((artifact, _)) = contributions
+            .into_iter()
+            .find(|(artifact, _)| plan.artifact(artifact).is_none_or(|planned| {
+                planned.destination() != &PlannedArtifactDestination::Stage
+            }))
+        {
+            return Err(LinkStagingError::UnexpectedContribution(artifact));
+        }
+
+        let mut outputs = Vec::new();
+
+        for planned in plan
+            .artifacts()
+            .iter()
+            .filter(|artifact| matches!(artifact.producer(), ArtifactProducer::Linker(_)))
+        {
+            if cancellation.is_cancelled() {
+                return Err(LinkStagingError::Cancelled);
+            }
+
+            let path = reserve_output(planned)?;
+
+            let kind = linked_kind(planned.id().kind())
+                .ok_or_else(|| LinkStagingError::UnsupportedOutput(planned.id().clone()))?;
+
+            let Some(path_key) = StagingPathKey::try_new(staging_key(planned.id())) else {
+                return Err(LinkStagingError::InvalidStagingPath(
+                    planned.id().clone(),
+                ));
+            };
+
+            // The typed output record outlives this borrow from the immutable plan.
+            let output = LinkOutputStaging::try_new(
+                planned.id().clone(),
+                kind,
+                path.to_path_buf(),
+                path_key,
+            )
+            .map_err(|_| LinkStagingError::InvalidStagingPath(planned.id().clone()))?;
+
+            paths.push(path);
+            outputs.push(output);
+        }
+
+        Ok(Self {
+            _paths: paths,
+            inputs: inputs.into(),
+            outputs: outputs.into(),
+        })
+    }
+
+    /// Returns completed staged inputs in deterministic plan order.
+    pub fn inputs(&self) -> &[StagedArtifact] {
+        &self.inputs
+    }
+
+    /// Returns reserved linked outputs in deterministic plan order.
+    pub fn outputs(&self) -> &[LinkOutputStaging] {
+        &self.outputs
+    }
+}
+
+impl std::fmt::Debug for LinkStaging {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LinkStaging")
+            .field("inputs", &self.inputs)
+            .field("outputs", &self.outputs)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Failure to prepare private native-link staging.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkStagingError {
+    /// Cancellation was observed before staging completed.
+    Cancelled,
+    /// More than one contribution names the same planned artifact.
+    DuplicateContribution(ArtifactId),
+    /// A required staged artifact has no complete contribution.
+    MissingContribution(ArtifactId),
+    /// A contribution does not match its planned producer.
+    InvalidContribution(ArtifactId),
+    /// A contribution does not belong to a planned staged artifact.
+    UnexpectedContribution(ArtifactId),
+    /// The planned linker output has no native linked-artifact category.
+    UnsupportedOutput(ArtifactId),
+    /// A private staging path could not be represented by the typed link contract.
+    InvalidStagingPath(ArtifactId),
+    /// Private staging storage could not be created.
+    Create(io::ErrorKind),
+    /// Immutable contribution content could not be read.
+    Read(io::ErrorKind),
+    /// Private staging content could not be written.
+    Write(io::ErrorKind),
+    /// Private staging content could not be flushed.
+    Flush(io::ErrorKind),
+    /// Completed staged bytes did not satisfy the immutable contribution contract.
+    InvalidContent(ArtifactId),
+}
+
+fn contributions_by_id(
+    contributions: impl IntoIterator<Item = ArtifactContribution>,
+) -> Result<BTreeMap<ArtifactId, ArtifactContribution>, LinkStagingError> {
+    let mut entries = BTreeMap::new();
+
+    for contribution in contributions {
+        // The map owns its Arc-backed identity independently of the contribution value.
+        let id = contribution.id().clone();
+
+        if entries.insert(id.clone(), contribution).is_some() {
+            return Err(LinkStagingError::DuplicateContribution(id));
+        }
+    }
+
+    Ok(entries)
+}
+
+fn validate_contribution(
+    planned: &PlannedArtifact,
+    contribution: &ArtifactContribution,
+) -> Result<(), LinkStagingError> {
+    if contribution.producer() != planned.producer() {
+        return Err(LinkStagingError::InvalidContribution(
+            planned.id().clone(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn stage_input(
+    contribution: &ArtifactContribution,
+    cancellation: &dyn Cancellation,
+) -> Result<TempPath, LinkStagingError> {
+    let mut staging = Builder::new()
+        .prefix(LINK_INPUT_PREFIX)
+        .tempfile()
+        .map_err(|error| LinkStagingError::Create(error.kind()))?;
+
+    let mut reader = open_content(contribution.content()).map_err(LinkStagingError::Read)?;
+    let mut buffer = [0_u8; COPY_BUFFER_LEN];
+
+    loop {
+        if cancellation.is_cancelled() {
+            return Err(LinkStagingError::Cancelled);
+        }
+
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| LinkStagingError::Read(error.kind()))?;
+
+        if read == 0 {
+            break;
+        }
+
+        staging
+            .write_all(&buffer[..read])
+            .map_err(|error| LinkStagingError::Write(error.kind()))?;
+    }
+
+    staging
+        .flush()
+        .map_err(|error| LinkStagingError::Flush(error.kind()))?;
+
+    let path = staging.into_temp_path();
+
+    validate_staged_content(
+        &path,
+        contribution.content().byte_len(),
+        contribution.digest(),
+        cancellation,
+    )
+    .map_err(|_| LinkStagingError::InvalidContent(contribution.id().clone()))?;
+
+    Ok(path)
+}
+
+fn reserve_output(planned: &PlannedArtifact) -> Result<TempPath, LinkStagingError> {
+    let mut builder = Builder::new();
+
+    builder.prefix(LINK_OUTPUT_PREFIX);
+
+    let staging = match planned.destination() {
+        PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => {
+            let directory = destination
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+
+            builder.tempfile_in(directory)
+        }
+        PlannedArtifactDestination::Publish(
+            OutputSink::Memory { .. } | OutputSink::Stream(_),
+        ) => builder.tempfile(),
+        PlannedArtifactDestination::Stage => {
+            return Err(LinkStagingError::UnsupportedOutput(
+                planned.id().clone(),
+            ));
+        }
+    }
+    .map_err(|error| LinkStagingError::Create(error.kind()))?;
+
+    Ok(staging.into_temp_path())
+}
+
+const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
+    match kind {
+        ArtifactKind::Executable => Some(LinkedArtifactKind::Executable),
+        ArtifactKind::StaticLibrary => Some(LinkedArtifactKind::StaticLibrary),
+        ArtifactKind::SharedLibrary => Some(LinkedArtifactKind::SharedLibrary),
+        ArtifactKind::Assembly
+        | ArtifactKind::BackendIr
+        | ArtifactKind::BackendBitcode
+        | ArtifactKind::RelocatableObject
+        | ArtifactKind::ExecutableModule
+        | ArtifactKind::DebugCompanion
+        | ArtifactKind::PackageInterface
+        | ArtifactKind::DependencyMetadata
+        | ArtifactKind::LinkedCompanion => None,
+    }
+}
+
+fn staging_key(artifact: &ArtifactId) -> Arc<str> {
+    format!(
+        "{}:{}:{}:{}",
+        artifact.product().package().as_str(),
+        artifact.product().name(),
+        artifact.kind().machine_key(),
+        artifact.ordinal(),
+    )
+    .into()
+}
 
 /// Exact filesystem artifact retained for one native link operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -101,4 +389,138 @@ impl LinkOutputStaging {
 pub enum LinkOutputStagingBuildError {
     /// The linked-output staging path is empty.
     EmptyPath,
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::{
+        ArtifactContent, AssemblySyntaxKind, BackendSerializationOptions,
+        DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
+    };
+
+    use super::LinkStaging;
+    use crate::test_support::{
+        backend_capabilities, backend_identity, codegen_unit_key,
+        executable_host_contract, product_identity, target_identity,
+        target_output_description,
+    };
+    use crate::{
+        ArtifactContribution, ArtifactKind, ArtifactRequirement, BackendEmissionPolicy,
+        EmissionBackend, EmissionPlanner, EmissionRequest, ReplacementPolicy,
+        RequestedArtifact, RequestedArtifactDestination,
+    };
+
+    #[test]
+    fn link_staging_owns_validated_inputs_and_deterministic_output_keys() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+
+        let destination = directory.path().join("application");
+        let plan = linked_plan(destination);
+        let contribution = staged_contribution(&plan, b"object bytes");
+
+        let first = LinkStaging::prepare(&plan, [contribution.clone()], &never_cancelled)
+            .unwrap_or_else(|error| panic!("first link staging must complete: {error:?}"));
+
+        let input_path = first.inputs()[0].path().to_owned();
+        let output_path = first.outputs()[0].path().to_owned();
+        let output_key = first.outputs()[0].path_key().clone();
+
+        assert_eq!(
+            std::fs::read(&input_path)
+                .unwrap_or_else(|error| panic!("staged input must be readable: {error:?}")),
+            b"object bytes",
+        );
+
+        assert_eq!(first.outputs()[0].path().parent(), Some(directory.path()));
+
+        let second = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
+            .unwrap_or_else(|error| panic!("second link staging must complete: {error:?}"));
+
+        assert_ne!(first.outputs()[0].path(), second.outputs()[0].path());
+        assert_eq!(first.outputs()[0].path_key(), second.outputs()[0].path_key());
+        assert_eq!(first.outputs()[0].path_key(), &output_key);
+
+        drop(first);
+
+        assert!(!input_path.exists());
+        assert!(!output_path.exists());
+        assert!(second.inputs()[0].path().exists());
+        assert!(second.outputs()[0].path().exists());
+    }
+
+    #[test]
+    fn cancelled_link_staging_creates_no_transaction() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+
+        let plan = linked_plan(directory.path().join("application"));
+        let contribution = staged_contribution(&plan, b"object bytes");
+
+        assert!(matches!(
+            LinkStaging::prepare(&plan, [contribution], &always_cancelled),
+            Err(super::LinkStagingError::Cancelled)
+        ));
+    }
+
+    fn linked_plan(destination: std::path::PathBuf) -> crate::EmissionPlan {
+        let backend = EmissionBackend::try_new(
+            backend_identity(),
+            backend_capabilities(),
+            [codegen_unit_key(1)],
+            BackendEmissionPolicy::new(
+                DebugInformationMode::None,
+                DebugInformationOutputMode::Omit,
+                Some(LinkableArtifactKind::RelocatableObject),
+                BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
+            ),
+        )
+        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+
+        let request = EmissionRequest::try_new(
+            product_identity(),
+            crate::ProductKind::Executable,
+            Some(executable_host_contract()),
+            target_identity(),
+            RequestedArtifactDestination::FilesystemFile(destination),
+            [RequestedArtifact::new(
+                ArtifactKind::Executable,
+                ArtifactRequirement::Required,
+            )],
+            ReplacementPolicy::RequireAbsent,
+        )
+        .unwrap_or_else(|error| panic!("test emission request must be valid: {error:?}"));
+
+        EmissionPlanner::new(target_output_description(), Some(backend), None)
+            .plan(request)
+            .unwrap_or_else(|error| panic!("test emission plan must be valid: {error:?}"))
+    }
+
+    fn staged_contribution(
+        plan: &crate::EmissionPlan,
+        bytes: &[u8],
+    ) -> ArtifactContribution {
+        let planned = plan
+            .staged_artifacts()
+            .next()
+            .unwrap_or_else(|| panic!("linked test plan must stage one input"));
+
+        let content = ArtifactContent::try_memory(bytes)
+            .unwrap_or_else(|error| panic!("test contribution must be valid: {error:?}"));
+
+        ArtifactContribution::new(
+            planned.id().clone(),
+            planned.producer().clone(),
+            content,
+            None,
+        )
+    }
+
+    fn never_cancelled() -> bool {
+        false
+    }
+
+    fn always_cancelled() -> bool {
+        true
+    }
 }
