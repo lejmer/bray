@@ -56,7 +56,7 @@ pub(crate) fn run_build_command(
 
     let request = configure_package_interface_export(request, &configuration);
 
-    let compilation = match load_compilation(request, configuration.backend()) {
+    let compilation = match load_compilation(request, None) {
         Some(compilation) => compilation,
         None => return DriverRunResult::new(
             ExitCode::FAILURE,
@@ -205,7 +205,7 @@ fn unsupported_product_result(
     compilation: bray_compilation::Compilation,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    // TODO(BRA-326): Enable native product requests after complete production codegen mappings exist.
+    // TODO(BRA-326): Supply complete native product facts before enabling native requests.
     let unsupported = Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::RequestUnsupportedProductEmission,

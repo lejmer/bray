@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::RuntimeCapability;
 use bray_symbols::ProductKind;
 use clap::{Args, ValueEnum};
@@ -40,19 +42,17 @@ pub enum DriverRuntimeSelection {
 
 /// Non-empty configured runtime profile name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DriverRuntimeProfile(String);
+pub struct DriverRuntimeProfile(NonEmptySharedStr);
 
 impl DriverRuntimeProfile {
     /// Creates a configured profile name unless the supplied name is empty.
-    pub fn try_new(name: impl Into<String>) -> Option<Self> {
-        let name = name.into();
-
-        (!name.is_empty()).then_some(Self(name))
+    pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
+        NonEmptySharedStr::try_new(name).map(Self)
     }
 
     /// Returns the configured profile name.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 

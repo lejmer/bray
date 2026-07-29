@@ -288,7 +288,7 @@ fn run_check_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request, DriverBackend::Llvm) {
+    let compilation = match load_compilation(request, None) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -302,7 +302,7 @@ fn run_inspect_source_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request, DriverBackend::Llvm) {
+    let compilation = match load_compilation(request, None) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -332,7 +332,7 @@ fn run_fact_inspection_command<E>(
     output_format: DriverOutputFormat,
     render: impl FnOnce(&Compilation, DriverOutputFormat) -> Result<InspectionOutput, E>,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request, DriverBackend::Llvm) {
+    let compilation = match load_compilation(request, None) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -380,8 +380,12 @@ fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverR
 
 pub(super) fn load_compilation(
     request: CompilationRequest,
-    backend: DriverBackend,
+    backend: Option<DriverBackend>,
 ) -> Option<Compilation> {
+    let Some(backend) = backend else {
+        return Compilation::load(request).ok();
+    };
+
     let generator = match backend {
         DriverBackend::Llvm => LlvmCodeGenerator::try_new().ok()?,
     };
