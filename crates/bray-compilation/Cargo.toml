@@ -16,6 +16,7 @@ bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-emitter = { path = "../bray-emitter" }
 bray-ir = { path = "../bray-ir" }
+bray-linker = { path = "../bray-linker" }
 bray-lowering = { path = "../bray-lowering" }
 bray-parser = { path = "../bray-parser" }
 bray-package-interface = { path = "../bray-package-interface" }
@@ -30,6 +31,7 @@ rayon = "1.11.0"
 bray-bound-tree = { path = "../bray-bound-tree", features = ["test-support"] }
 bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
+bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]
 workspace = true
