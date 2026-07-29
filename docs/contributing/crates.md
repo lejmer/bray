@@ -65,8 +65,8 @@ documents.
       and executable-host contracts.
 
 - `bray-platform`
-    - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other host mechanisms used by trusted
-      runtime and standard-library layers.
+    - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
+      tooling and trusted runtime or standard-library layers.
 
 - `bray-runtime`
     - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root

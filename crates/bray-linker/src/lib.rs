@@ -4,6 +4,7 @@
 
 mod driver;
 mod execution;
+mod external_tool;
 mod input;
 mod outcome;
 mod output;
@@ -15,7 +16,18 @@ mod target;
 mod test_support;
 
 pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
-pub use driver::{LinkerDriverIdentity, LinkerDriverKind};
+pub use driver::{
+    Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+    LinkerBuildError,
+};
+pub use external_tool::{
+    ExternalToolFailure, ExternalToolHost,
+    ExternalToolInvocation, ExternalToolInvocationBuildError,
+    ExternalToolOutput, ExternalToolProcessBudget,
+    ExternalToolResponseFile, ExternalToolResponseFileBuildError,
+    ExternalToolResponseFileOperation, ExternalToolStream,
+    NativeExternalToolHost,
+};
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
     LinkInputSource,

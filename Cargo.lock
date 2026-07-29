@@ -314,6 +314,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-diagnostics",
+ "bray-platform",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",

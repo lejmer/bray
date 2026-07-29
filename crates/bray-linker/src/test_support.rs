@@ -13,11 +13,17 @@ use crate::{
 };
 
 pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
+    link_plan_builder_with_driver(driver())
+}
+
+pub(crate) fn link_plan_builder_with_driver(
+    driver: LinkerDriverIdentity,
+) -> LinkPlanBuilder {
     LinkPlanBuilder::new(
         product(),
         LinkedProductKind::Executable,
         link_target(),
-        driver(),
+        driver,
         LinkPolicy::new(
             DeadStripPolicy::Preserve,
             SectionGarbageCollectionPolicy::Preserve,
@@ -28,7 +34,13 @@ pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
 }
 
 pub(crate) fn link_plan() -> LinkPlan {
-    let mut builder = link_plan_builder();
+    link_plan_with_driver(driver())
+}
+
+pub(crate) fn link_plan_with_driver(
+    driver: LinkerDriverIdentity,
+) -> LinkPlan {
+    let mut builder = link_plan_builder_with_driver(driver);
 
     builder.push_input(link_input(0, "main.o"));
 
