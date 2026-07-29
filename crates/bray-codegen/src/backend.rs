@@ -63,13 +63,13 @@ impl BackendTargetPlatform {
     }
 
     /// Returns the supported processor architecture.
-    pub const fn architecture(&self) -> &TargetArchitecture {
-        &self.architecture
+    pub const fn architecture(&self) -> TargetArchitecture {
+        self.architecture
     }
 
     /// Returns the supported object format.
-    pub const fn object_format(&self) -> &ObjectFormat {
-        &self.object_format
+    pub const fn object_format(&self) -> ObjectFormat {
+        self.object_format
     }
 }
 
@@ -127,12 +127,10 @@ impl BackendCapabilities {
 
     /// Returns whether the backend declares support for these target machine properties.
     pub fn supports_target_machine(&self, machine: &TargetMachineProperties) -> bool {
-        self.target_platforms.binary_search_by(|platform| {
-            platform
-                .architecture()
-                .cmp(&machine.architecture())
-                .then_with(|| platform.object_format().cmp(&machine.object_format()))
-        }) == Ok(0)
+        let platform =
+            BackendTargetPlatform::new(machine.architecture(), machine.object_format());
+
+        self.target_platforms.binary_search(&platform).is_ok()
     }
 
     /// Returns whether the backend declares support for this artifact kind.

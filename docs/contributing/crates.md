@@ -54,6 +54,9 @@ documents.
 - `bray-codegen`
     - Backend-independent code generation contracts, requests, artifact contributions, and backend orchestration.
 
+- `bray-codegen-llvm`
+    - LLVM-specific target realization, MIR translation, optimization, verification, and artifact serialization.
+
 - `bray-emitter`
     - Artifact planning, serialization coordination, staging, publication, bookkeeping, and link-plan construction.
 

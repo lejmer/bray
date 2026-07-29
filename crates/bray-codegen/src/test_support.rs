@@ -4,7 +4,7 @@ use bray_base::Cancellation;
 use bray_runtime_interface::PanicAbiIdentity;
 use bray_symbols::CallableAbi;
 use bray_target::test_support::test_target_profile;
-use bray_target::{CodeModel, RelocationModel};
+use bray_target::{CodeModel, RelocationModel, TargetProfile};
 use bray_testing::test_mir_unit;
 
 use crate::{
@@ -19,7 +19,8 @@ use crate::{
     TargetSymbolConvention,
 };
 
-pub(crate) struct CodegenRequestFixture {
+/// Complete validated code generation request fixture.
+pub struct CodegenRequestFixture {
     unit: CodegenUnit,
     backend: BackendIdentity,
     target: CodegenTarget,
@@ -31,7 +32,8 @@ pub(crate) struct CodegenRequestFixture {
 }
 
 impl CodegenRequestFixture {
-    pub(crate) fn request(&self) -> CodegenRequest<'_> {
+    /// Returns a request borrowing this fixture's immutable inputs.
+    pub fn request(&self) -> CodegenRequest<'_> {
         let Ok(request) = CodegenRequest::try_new(
             &self.unit,
             &self.backend,
@@ -46,16 +48,24 @@ impl CodegenRequestFixture {
         request
     }
 
-    pub(crate) const fn required_artifact(&self) -> &BackendArtifactId {
+    /// Returns the fixture's required artifact identity.
+    pub const fn required_artifact(&self) -> &BackendArtifactId {
         &self.required_artifact
     }
 
-    pub(crate) const fn optional_artifact(&self) -> &BackendArtifactId {
+    /// Returns the fixture's optional artifact identity.
+    pub const fn optional_artifact(&self) -> &BackendArtifactId {
         &self.optional_artifact
     }
 }
 
-pub(crate) fn codegen_request() -> CodegenRequestFixture {
+/// Creates a complete validated code generation request fixture.
+pub fn codegen_request() -> CodegenRequestFixture {
+    codegen_request_for_backend(backend_identity())
+}
+
+/// Creates a complete request fixture for the supplied backend identity.
+pub fn codegen_request_for_backend(backend: BackendIdentity) -> CodegenRequestFixture {
     let unit = codegen_unit(1);
 
     let required_artifact = BackendArtifactId::new(
@@ -99,7 +109,7 @@ pub(crate) fn codegen_request() -> CodegenRequestFixture {
 
     CodegenRequestFixture {
         unit,
-        backend: backend_identity(),
+        backend,
         target: codegen_target(),
         options: CodegenOptions::new(
             OptimizationLevel::None,
@@ -121,11 +131,13 @@ impl Cancellation for NeverCancelled {
     }
 }
 
-pub(crate) fn codegen_unit_key(seed: u8) -> CodegenUnitKey {
+/// Creates a deterministic test code generation unit identity.
+pub fn codegen_unit_key(seed: u8) -> CodegenUnitKey {
     codegen_unit(seed).key().clone()
 }
 
-pub(crate) fn artifact_content() -> ArtifactContent {
+/// Creates non-empty in-memory test artifact content.
+pub fn artifact_content() -> ArtifactContent {
     let Ok(content) = ArtifactContent::try_memory([1_u8, 2, 3].as_slice()) else {
         panic!("test artifact content must be valid");
     };
@@ -133,7 +145,8 @@ pub(crate) fn artifact_content() -> ArtifactContent {
     content
 }
 
-pub(crate) fn contribution(
+/// Creates a contribution owned by the fixture's backend and target.
+pub fn contribution(
     fixture: &CodegenRequestFixture,
     id: BackendArtifactId,
 ) -> BackendArtifactContribution {
@@ -162,7 +175,19 @@ fn backend_identity() -> BackendIdentity {
     identity
 }
 
-pub(crate) fn codegen_target() -> CodegenTarget {
+/// Creates a validated x86-64 ELF code generation target.
+pub fn codegen_target() -> CodegenTarget {
+    codegen_target_with_profile(
+        test_target_profile(),
+        "x86_64-unknown-linux-gnu",
+    )
+}
+
+/// Creates a test code generation target from the supplied profile and triple.
+pub fn codegen_target_with_profile(
+    profile: TargetProfile,
+    triple: &str,
+) -> CodegenTarget {
     let contract = target_contract();
 
     let Ok(selection) = TargetMachineSelection::try_new(
@@ -175,8 +200,8 @@ pub(crate) fn codegen_target() -> CodegenTarget {
     };
 
     let Ok(target) = CodegenTarget::try_new(
-        test_target_profile(),
-        "x86_64-unknown-linux-gnu",
+        profile,
+        triple,
         contract,
         selection,
     ) else {
