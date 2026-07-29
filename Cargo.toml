@@ -38,7 +38,7 @@ version = "0.0.0"
 rust-version = "1.97"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

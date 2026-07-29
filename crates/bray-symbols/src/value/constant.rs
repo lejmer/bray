@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn integer_constants_construct_from_unsigned_values() {
-        assert_eq!(IntegerConstant::from_u64(0).magnitude(), []);
+        assert!(IntegerConstant::from_u64(0).magnitude().is_empty());
         assert_eq!(IntegerConstant::from_u64(256).magnitude(), [1, 0]);
     }
 }

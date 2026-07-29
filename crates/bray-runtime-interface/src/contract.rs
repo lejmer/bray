@@ -41,6 +41,39 @@ pub enum RuntimeCapability {
     Reactor,
 }
 
+impl RuntimeCapability {
+    /// Every runtime capability in stable order.
+    pub const ALL: [Self; 7] = [
+        Self::CooperativeExecution,
+        Self::LocalLanes,
+        Self::MigratableLanes,
+        Self::BlockingLanes,
+        Self::ComputeLanes,
+        Self::MainThreadLane,
+        Self::Reactor,
+    ];
+
+    /// Returns this capability's stable textual name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CooperativeExecution => "cooperative_execution",
+            Self::LocalLanes => "local_lanes",
+            Self::MigratableLanes => "migratable_lanes",
+            Self::BlockingLanes => "blocking_lanes",
+            Self::ComputeLanes => "compute_lanes",
+            Self::MainThreadLane => "main_thread_lane",
+            Self::Reactor => "reactor",
+        }
+    }
+
+    /// Resolves one stable textual capability name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|capability| capability.as_str() == name)
+    }
+}
+
 /// Product-wide hard execution capacity selected independently of library budgets.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionCapacityLimits {

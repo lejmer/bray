@@ -54,6 +54,33 @@ pub enum RuntimeAbiRole {
 }
 
 impl RuntimeAbiRole {
+    /// Every private execution ABI role in stable order.
+    pub const ALL: [Self; 23] = [
+        Self::RootExecution,
+        Self::RootCancellationRequest,
+        Self::TaskAllocation,
+        Self::TaskStart,
+        Self::FrameResume,
+        Self::SuspensionRegistration,
+        Self::Wake,
+        Self::TaskCancellationRequest,
+        Self::CurrentRunCancellationObservation,
+        Self::JoinRegistration,
+        Self::TerminalPublication,
+        Self::RuntimeEvent,
+        Self::CompatibleLaneSelection,
+        Self::CleanupIncidentTransfer,
+        Self::CleanupIncidentReporting,
+        Self::MainThreadLaneStartup,
+        Self::MainThreadLaneDrive,
+        Self::RootTerminalObservation,
+        Self::StructuredShutdown,
+        Self::FrameTaskBroadcast,
+        Self::FrameLifecycleResolution,
+        Self::FrameCompletionMove,
+        Self::FrameDestruction,
+    ];
+
     /// Returns this role's stable textual name.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -81,6 +108,13 @@ impl RuntimeAbiRole {
             Self::FrameCompletionMove => "frame_completion_move",
             Self::FrameDestruction => "frame_destruction",
         }
+    }
+
+    /// Resolves one stable textual role name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|role| role.as_str() == name)
     }
 
     /// Returns the compiler-owned semantic contract of this closed ABI role.
@@ -167,6 +201,29 @@ pub enum RuntimeRoleImplementation {
     PlatformBinding,
     /// Operation supplied by a narrow native ABI-normalization shim.
     NativeShim,
+}
+
+impl RuntimeRoleImplementation {
+    /// Returns this implementation boundary's stable textual name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompilerLowering => "compiler_lowering",
+            Self::BrayRuntime => "bray_runtime",
+            Self::PlatformBinding => "platform_binding",
+            Self::NativeShim => "native_shim",
+        }
+    }
+
+    /// Resolves one stable textual implementation-boundary name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "compiler_lowering" => Some(Self::CompilerLowering),
+            "bray_runtime" => Some(Self::BrayRuntime),
+            "platform_binding" => Some(Self::PlatformBinding),
+            "native_shim" => Some(Self::NativeShim),
+            _ => None,
+        }
+    }
 }
 
 /// Exact binary binding selected for one private execution ABI role.

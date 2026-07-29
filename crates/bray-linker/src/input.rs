@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_runtime_interface::RuntimeArtifactId;
+use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactId};
 use bray_symbols::PackageIdentity;
 
 /// Stable identity of one source-ordered link input.
@@ -149,6 +149,19 @@ impl LinkInput {
         })
     }
 
+    /// Creates the runtime component selected from validated artifact metadata.
+    pub fn runtime_component(id: LinkInputId, artifact: &RuntimeArtifact) -> Self {
+        Self {
+            id,
+            kind: LinkInputKind::RuntimeComponent,
+            source: LinkInputSource::file(artifact.archive()),
+            provenance: LinkInputProvenance::Runtime(
+                artifact.contract().artifact().clone(),
+            ),
+            mode: LinkInputMode::Ordinary,
+        }
+    }
+
     /// Returns the stable input identity.
     pub const fn id(&self) -> LinkInputId {
         self.id
@@ -188,6 +201,15 @@ pub enum LinkInputBuildError {
 
 #[cfg(test)]
 mod tests {
+    use bray_runtime_interface::{
+        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions,
+        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact,
+        RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
+        RuntimeCapability, RuntimeContract, RuntimeIdentity,
+        RuntimeRoleBinding, RuntimeRoleImplementation,
+    };
+    use bray_target::TargetIdentity;
+
     use super::{
         LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
         LinkInputProvenance, LinkInputSource,
@@ -232,5 +254,65 @@ mod tests {
             ),
             Err(LinkInputBuildError::EmptyFilePath)
         );
+    }
+
+    #[test]
+    fn runtime_components_preserve_artifact_identity_and_archive_path() {
+        let artifact = runtime_artifact();
+        let input = LinkInput::runtime_component(LinkInputId::new(3), &artifact);
+
+        assert_eq!(input.kind(), LinkInputKind::RuntimeComponent);
+
+        assert_eq!(
+            input.source(),
+            &LinkInputSource::file("runtime/bray_runtime.lib")
+        );
+
+        assert_eq!(
+            input.provenance(),
+            &LinkInputProvenance::Runtime(
+                RuntimeArtifactId::try_new("bray.runtime.reference.windows.x86_64")
+                    .unwrap_or_else(|| panic!("artifact identity must be valid"))
+            )
+        );
+    }
+
+    fn runtime_artifact() -> RuntimeArtifact {
+        let contract = RuntimeContract::try_new(
+            RuntimeIdentity::try_new("bray.runtime.reference")
+                .unwrap_or_else(|| panic!("runtime identity must be valid")),
+            RuntimeArtifactId::try_new("bray.runtime.reference.windows.x86_64")
+                .unwrap_or_else(|| panic!("artifact identity must be valid")),
+            RuntimeAbiVersion::new(1, 0),
+            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+            TargetIdentity::try_new("x86_64-pc-windows-msvc")
+                .unwrap_or_else(|| panic!("target identity must be valid")),
+            PanicAbiIdentity::try_new("bray.panic.unwind")
+                .unwrap_or_else(|| panic!("panic ABI must be valid")),
+            [RuntimeCapability::CooperativeExecution],
+            [RuntimeRoleBinding::new(
+                RuntimeAbiRole::MainThreadLaneStartup,
+                BinarySymbolName::try_new(
+                    bray_runtime_interface::MAIN_THREAD_LANE_STARTUP_SYMBOL,
+                )
+                .unwrap_or_else(|| panic!("runtime symbol must be valid")),
+                RuntimeRoleImplementation::BrayRuntime,
+            )],
+        )
+        .unwrap_or_else(|error| panic!("runtime contract must be valid: {error:?}"));
+
+        let metadata = RuntimeArtifactMetadata::try_new(
+            contract,
+            "bray_runtime.lib",
+            RuntimeArtifactDigest::new([1; 32]),
+        )
+        .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error:?}"));
+
+        RuntimeArtifact::try_new(
+            metadata,
+            "runtime/bray_runtime.lib",
+            RuntimeArtifactDigest::new([1; 32]),
+        )
+            .unwrap_or_else(|error| panic!("runtime artifact must be valid: {error:?}"))
     }
 }

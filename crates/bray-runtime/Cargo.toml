@@ -5,6 +5,9 @@ license.workspace = true
 version.workspace = true
 rust-version.workspace = true
 
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [dependencies]
 bray-platform = { path = "../bray-platform" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }

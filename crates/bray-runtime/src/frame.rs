@@ -55,6 +55,8 @@ pub enum FrameProgress<T> {
     Cancelled,
     /// A panic crossed the protected frame boundary.
     Panicked(RuntimePanic),
+    /// The frame violated its compiler/runtime execution contract.
+    RuntimeFailure,
 }
 
 /// Terminal path whose retained lifecycle state must be resolved.

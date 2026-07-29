@@ -1,0 +1,576 @@
+use std::fmt;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
+
+use bray_runtime_interface::{
+    BinarySymbolName, COMPATIBLE_LANE_SELECTION_SYMBOL,
+    CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL, JOIN_REGISTRATION_SYMBOL,
+    MAIN_THREAD_LANE_DRIVE_SYMBOL, MAIN_THREAD_LANE_STARTUP_SYMBOL,
+    PanicAbiIdentity, ProtectedFrameAbiVersions, RUNTIME_EVENT_SYMBOL,
+    RuntimeAbiRole, RuntimeAbiVersion,
+    RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
+    RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
+    RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL,
+    SUSPENSION_REGISTRATION_SYMBOL, TASK_ALLOCATION_SYMBOL,
+    TASK_CANCELLATION_REQUEST_SYMBOL, TASK_START_SYMBOL,
+    TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
+};
+use bray_target::TargetIdentity;
+use sha2::{Digest as _, Sha256};
+
+use crate::workspace;
+
+const USAGE: &str = "usage: cargo xtask runtime-artifact \
+    <build --target <triple> --output <directory> [--profile <profile>] | smoke-test>";
+const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
+const RUNTIME_IDENTITY: &str = "bray.runtime.reference";
+const PANIC_ABI: &str = "bray.panic.unwind";
+
+pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
+    let result = match arguments.next().as_deref() {
+        Some("build") => build_command(arguments).map(Some),
+        Some("smoke-test") => smoke_test_command(arguments).map(|()| None),
+        _ => Err(CommandError::Usage),
+    };
+
+    match result {
+        Ok(Some(package)) => {
+            println!("{}", package.metadata.display());
+            println!("{}", package.archive.display());
+
+            ExitCode::SUCCESS
+        }
+        Ok(None) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, CommandError> {
+    let options = BuildOptions::parse(arguments)?;
+
+    build(&options)
+}
+
+fn smoke_test_command(
+    mut arguments: impl Iterator<Item = String>,
+) -> Result<(), CommandError> {
+    if let Some(argument) = arguments.next() {
+        return Err(CommandError::UnexpectedArgument(argument));
+    }
+
+    let target = host_target()?;
+
+    let directory = tempfile::Builder::new()
+        .prefix("bray-runtime-artifact-smoke-")
+        .tempdir()
+        .map_err(CommandError::TemporaryDirectory)?;
+
+    let options = BuildOptions {
+        target,
+        output: directory.path().to_path_buf(),
+        profile: "release".to_owned(),
+    };
+
+    let package = build(&options)?;
+
+    smoke_test(&package, &options.target, directory.path())?;
+
+    Ok(())
+}
+
+fn build(options: &BuildOptions) -> Result<Package, CommandError> {
+    let root = workspace::root().map_err(CommandError::Workspace)?;
+    let target_directory = root.join("target");
+
+    let status = Command::new("cargo")
+        .current_dir(&root)
+        .args([
+            "build",
+            "--package",
+            "bray-runtime",
+            "--target",
+            &options.target,
+            "--profile",
+            &options.profile,
+            "--target-dir",
+        ])
+        .arg(&target_directory)
+        .status()
+        .map_err(CommandError::Cargo)?;
+
+    if !status.success() {
+        return Err(CommandError::BuildFailed);
+    }
+
+    let archive_file_name = archive_file_name(&options.target);
+
+    let source = target_directory
+        .join(&options.target)
+        .join(profile_directory(&options.profile))
+        .join(archive_file_name);
+
+    let archive = options.output.join(archive_file_name);
+    let metadata_path = options.output.join(METADATA_FILE_NAME);
+
+    fs::create_dir_all(&options.output)
+        .map_err(|error| CommandError::write(&options.output, error))?;
+
+    fs::copy(&source, &archive)
+        .map_err(|error| CommandError::copy(&source, &archive, error))?;
+
+    let digest = digest_file(&archive)?;
+    let metadata_value = metadata(options, archive_file_name, digest)?;
+
+    let bytes = metadata_value
+        .encode_json()
+        .map_err(|_| CommandError::MetadataEncoding)?;
+
+    fs::write(&metadata_path, bytes)
+        .map_err(|error| CommandError::write(&metadata_path, error))?;
+
+    Ok(Package {
+        archive,
+        metadata: metadata_path,
+    })
+}
+
+fn metadata(
+    options: &BuildOptions,
+    archive_file_name: &str,
+    digest: RuntimeArtifactDigest,
+) -> Result<RuntimeArtifactMetadata, CommandError> {
+    let identity = RuntimeIdentity::try_new(RUNTIME_IDENTITY)
+        .ok_or(CommandError::MetadataContract)?;
+
+    let artifact = RuntimeArtifactId::try_new(format!(
+        "{RUNTIME_IDENTITY}.{}",
+        options.target
+    ))
+    .ok_or(CommandError::MetadataContract)?;
+
+    let target = TargetIdentity::try_new(options.target.clone())
+        .ok_or(CommandError::MetadataContract)?;
+
+    let panic_abi = PanicAbiIdentity::try_new(PANIC_ABI)
+        .ok_or(CommandError::MetadataContract)?;
+
+    let contract = RuntimeContract::try_new(
+        identity,
+        artifact,
+        RuntimeAbiVersion::new(1, 0),
+        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+        target,
+        panic_abi,
+        [
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::LocalLanes,
+            RuntimeCapability::MainThreadLane,
+        ],
+        runtime_role_bindings()?,
+    )
+    .map_err(|_| CommandError::MetadataContract)?;
+
+    RuntimeArtifactMetadata::try_new(contract, archive_file_name, digest)
+        .map_err(|_| CommandError::MetadataContract)
+}
+
+fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
+    [
+        (RuntimeAbiRole::TaskAllocation, TASK_ALLOCATION_SYMBOL),
+        (RuntimeAbiRole::TaskStart, TASK_START_SYMBOL),
+        (
+            RuntimeAbiRole::SuspensionRegistration,
+            SUSPENSION_REGISTRATION_SYMBOL,
+        ),
+        (RuntimeAbiRole::Wake, WAKE_SYMBOL),
+        (
+            RuntimeAbiRole::TaskCancellationRequest,
+            TASK_CANCELLATION_REQUEST_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::CurrentRunCancellationObservation,
+            CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
+        ),
+        (RuntimeAbiRole::JoinRegistration, JOIN_REGISTRATION_SYMBOL),
+        (
+            RuntimeAbiRole::TerminalPublication,
+            TERMINAL_PUBLICATION_SYMBOL,
+        ),
+        (RuntimeAbiRole::RuntimeEvent, RUNTIME_EVENT_SYMBOL),
+        (
+            RuntimeAbiRole::CompatibleLaneSelection,
+            COMPATIBLE_LANE_SELECTION_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::MainThreadLaneStartup,
+            MAIN_THREAD_LANE_STARTUP_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::MainThreadLaneDrive,
+            MAIN_THREAD_LANE_DRIVE_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::StructuredShutdown,
+            STRUCTURED_SHUTDOWN_SYMBOL,
+        ),
+    ]
+    .into_iter()
+    .map(|(role, name)| {
+        let symbol =
+            BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
+
+        Ok(RuntimeRoleBinding::new(
+            role,
+            symbol,
+            RuntimeRoleImplementation::BrayRuntime,
+        ))
+    })
+    .collect()
+}
+
+fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
+    let mut file =
+        fs::File::open(path).map_err(|error| CommandError::read(path, error))?;
+
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+
+    loop {
+        let length = file
+            .read(&mut buffer)
+            .map_err(|error| CommandError::read(path, error))?;
+
+        if length == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..length]);
+    }
+
+    Ok(RuntimeArtifactDigest::new(hasher.finalize().into()))
+}
+
+fn smoke_test(
+    package: &Package,
+    target: &str,
+    directory: &Path,
+) -> Result<(), CommandError> {
+    let source = directory.join("runtime-smoke.rs");
+
+    let executable = directory.join(if cfg!(windows) {
+        "runtime-smoke.exe"
+    } else {
+        "runtime-smoke"
+    });
+
+    fs::write(&source, SMOKE_SOURCE)
+        .map_err(|error| CommandError::write(&source, error))?;
+
+    let archive = package
+        .archive
+        .to_str()
+        .ok_or(CommandError::NonUtf8Path)?;
+
+    let status = Command::new("rustc")
+        .args([
+            "--edition",
+            "2024",
+            "--target",
+            target,
+            "-C",
+            &format!("link-arg={archive}"),
+            "-o",
+        ])
+        .arg(&executable)
+        .arg(&source)
+        .status()
+        .map_err(CommandError::Rustc)?;
+
+    if !status.success() {
+        return Err(CommandError::SmokeLinkFailed);
+    }
+
+    let status = Command::new(&executable)
+        .status()
+        .map_err(CommandError::SmokeExecution)?;
+
+    if !status.success() {
+        return Err(CommandError::SmokeExecutionFailed);
+    }
+
+    Ok(())
+}
+
+fn host_target() -> Result<String, CommandError> {
+    let output = Command::new("rustc")
+        .arg("-vV")
+        .output()
+        .map_err(CommandError::Rustc)?;
+
+    if !output.status.success() {
+        return Err(CommandError::HostTarget);
+    }
+
+    let output =
+        String::from_utf8(output.stdout).map_err(|_| CommandError::HostTarget)?;
+
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_owned)
+        .ok_or(CommandError::HostTarget)
+}
+
+fn archive_file_name(target: &str) -> &'static str {
+    if target.contains("msvc") {
+        "bray_runtime.lib"
+    } else {
+        "libbray_runtime.a"
+    }
+}
+
+fn profile_directory(profile: &str) -> &str {
+    if profile == "dev" {
+        "debug"
+    } else {
+        profile
+    }
+}
+
+struct BuildOptions {
+    target: String,
+    output: PathBuf,
+    profile: String,
+}
+
+impl BuildOptions {
+    fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, CommandError> {
+        let mut target = None;
+        let mut output = None;
+        let mut profile = "release".to_owned();
+
+        while let Some(argument) = arguments.next() {
+            match argument.as_str() {
+                "--target" => target = Some(required_value(&mut arguments, "--target")?),
+                "--output" => {
+                    output = Some(PathBuf::from(required_value(
+                        &mut arguments,
+                        "--output",
+                    )?));
+                }
+                "--profile" => {
+                    profile = required_value(&mut arguments, "--profile")?;
+                }
+                _ => return Err(CommandError::UnexpectedArgument(argument)),
+            }
+        }
+
+        let target = target.ok_or(CommandError::Usage)?;
+        let output = output.ok_or(CommandError::Usage)?;
+
+        if target.is_empty() || output.as_os_str().is_empty() || profile.is_empty() {
+            return Err(CommandError::Usage);
+        }
+
+        Ok(Self {
+            target,
+            output,
+            profile,
+        })
+    }
+}
+
+struct Package {
+    archive: PathBuf,
+    metadata: PathBuf,
+}
+
+#[derive(Debug)]
+enum CommandError {
+    Usage,
+    UnexpectedArgument(String),
+    MissingValue(&'static str),
+    Workspace(String),
+    Cargo(std::io::Error),
+    BuildFailed,
+    Read {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Write {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Copy {
+        source: PathBuf,
+        destination: PathBuf,
+        error: std::io::Error,
+    },
+    MetadataContract,
+    MetadataEncoding,
+    TemporaryDirectory(std::io::Error),
+    NonUtf8Path,
+    Rustc(std::io::Error),
+    HostTarget,
+    SmokeLinkFailed,
+    SmokeExecution(std::io::Error),
+    SmokeExecutionFailed,
+}
+
+impl CommandError {
+    fn read(path: &Path, error: std::io::Error) -> Self {
+        Self::Read {
+            path: path.to_path_buf(),
+            error,
+        }
+    }
+
+    fn write(path: &Path, error: std::io::Error) -> Self {
+        Self::Write {
+            path: path.to_path_buf(),
+            error,
+        }
+    }
+
+    fn copy(source: &Path, destination: &Path, error: std::io::Error) -> Self {
+        Self::Copy {
+            source: source.to_path_buf(),
+            destination: destination.to_path_buf(),
+            error,
+        }
+    }
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Usage => formatter.write_str(USAGE),
+            Self::UnexpectedArgument(argument) => {
+                write!(formatter, "unexpected runtime-artifact argument: {argument}")
+            }
+            Self::MissingValue(option) => {
+                write!(formatter, "{option} requires a value")
+            }
+            Self::Workspace(error) => formatter.write_str(error),
+            Self::Cargo(error) => write!(formatter, "could not run Cargo: {error}"),
+            Self::BuildFailed => formatter.write_str("runtime artifact build failed"),
+            Self::Read { path, error } => {
+                write!(formatter, "could not read {}: {error}", path.display())
+            }
+            Self::Write { path, error } => {
+                write!(formatter, "could not write {}: {error}", path.display())
+            }
+            Self::Copy {
+                source,
+                destination,
+                error,
+            } => write!(
+                formatter,
+                "could not copy {} to {}: {error}",
+                source.display(),
+                destination.display()
+            ),
+            Self::MetadataContract => {
+                formatter.write_str("runtime artifact metadata contract is invalid")
+            }
+            Self::MetadataEncoding => {
+                formatter.write_str("runtime artifact metadata could not be encoded")
+            }
+            Self::TemporaryDirectory(error) => {
+                write!(formatter, "could not create smoke-test directory: {error}")
+            }
+            Self::NonUtf8Path => {
+                formatter.write_str("runtime archive path is not valid UTF-8")
+            }
+            Self::Rustc(error) => write!(formatter, "could not run rustc: {error}"),
+            Self::HostTarget => formatter.write_str("could not determine rustc host target"),
+            Self::SmokeLinkFailed => {
+                formatter.write_str("runtime artifact smoke link failed")
+            }
+            Self::SmokeExecution(error) => {
+                write!(formatter, "could not run runtime smoke executable: {error}")
+            }
+            Self::SmokeExecutionFailed => {
+                formatter.write_str("runtime artifact smoke execution failed")
+            }
+        }
+    }
+}
+
+fn required_value(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &'static str,
+) -> Result<String, CommandError> {
+    arguments.next().ok_or(CommandError::MissingValue(option))
+}
+
+const SMOKE_SOURCE: &str = include_str!("../fixtures/runtime-smoke.rs");
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_interface::RuntimeAbiRole;
+
+    use super::{
+        BuildOptions, CommandError, archive_file_name, runtime_role_bindings,
+    };
+
+    #[test]
+    fn build_options_require_target_and_output() {
+        let result = BuildOptions::parse(
+            ["--target".to_owned(), "x86_64-test".to_owned()].into_iter(),
+        );
+
+        assert!(matches!(result, Err(CommandError::Usage)));
+    }
+
+    #[test]
+    fn archive_names_follow_native_target_conventions() {
+        assert_eq!(
+            archive_file_name("x86_64-pc-windows-msvc"),
+            "bray_runtime.lib"
+        );
+
+        assert_eq!(
+            archive_file_name("x86_64-pc-windows-gnu"),
+            "libbray_runtime.a"
+        );
+
+        assert_eq!(
+            archive_file_name("x86_64-unknown-linux-gnu"),
+            "libbray_runtime.a"
+        );
+    }
+
+    #[test]
+    fn packaged_contract_names_every_exported_runtime_role() {
+        let bindings = runtime_role_bindings()
+            .unwrap_or_else(|error| panic!("runtime role bindings must be valid: {error}"));
+
+        let roles: Vec<_> = bindings.iter().map(|binding| binding.role()).collect();
+
+        assert_eq!(
+            roles,
+            [
+                RuntimeAbiRole::TaskAllocation,
+                RuntimeAbiRole::TaskStart,
+                RuntimeAbiRole::SuspensionRegistration,
+                RuntimeAbiRole::Wake,
+                RuntimeAbiRole::TaskCancellationRequest,
+                RuntimeAbiRole::CurrentRunCancellationObservation,
+                RuntimeAbiRole::JoinRegistration,
+                RuntimeAbiRole::TerminalPublication,
+                RuntimeAbiRole::RuntimeEvent,
+                RuntimeAbiRole::CompatibleLaneSelection,
+                RuntimeAbiRole::MainThreadLaneStartup,
+                RuntimeAbiRole::MainThreadLaneDrive,
+                RuntimeAbiRole::StructuredShutdown,
+            ]
+        );
+    }
+}

@@ -405,6 +405,12 @@ The role set and each role's semantic effect are closed compiler contracts. A ru
 roles but cannot publish replacement semantics for them. Compiler-lowering roles remain compiler-owned and cannot be claimed by a
 runtime artifact.
 
+Each native runtime is packaged as a target-specific static archive plus bounded compiler-readable metadata. The metadata records
+the runtime and artifact identities, target and panic ABI, runtime and protected-frame ABI versions, capabilities, exact
+role-to-symbol bindings, archive file name, and archive digest. Product selection validates this metadata and resolves it to the
+matching archive before link-plan construction. The linker receives that archive as an opaque typed runtime input and does not run
+the runtime's build system or depend on its implementation language.
+
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 
 The product runtime advertises:

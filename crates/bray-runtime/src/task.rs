@@ -65,6 +65,8 @@ pub enum TaskFailureKind {
     MissingFrame,
     /// Runtime infrastructure could not continue driving the frame.
     ExecutionInfrastructure,
+    /// The frame reported a compiler/runtime contract violation.
+    FrameContract,
 }
 
 /// Result of one successful task resume.
@@ -85,6 +87,8 @@ pub enum TaskResumeError {
     NotResumable(TaskState),
     /// The frame suspended with a state absent from its descriptor.
     UnknownSuspensionState(ProtectedFrameStateId),
+    /// The frame reported a compiler/runtime contract violation.
+    RuntimeFailed(TaskFailureKind),
     /// Internal task state was poisoned by an unexpected runtime panic.
     SynchronizationPoisoned,
 }
@@ -342,11 +346,7 @@ where
             FrameProgress::Suspended(suspension) => {
                 if suspension_state(&self.descriptor, suspension).is_none() {
                     let failure = TaskFailureKind::UnknownSuspensionState(suspension.state());
-
-                    let _ = resolve_failed_frame(&mut data.frame);
-                    data.state = TaskState::Failed(failure);
-
-                    let waiters = std::mem::take(&mut data.join_waiters);
+                    let waiters = fail_task(&mut data, failure);
 
                     drop(data);
 
@@ -359,6 +359,16 @@ where
                 data.frame_state = suspension.state();
 
                 (TaskResumeStatus::Suspended(suspension), Vec::new())
+            }
+            FrameProgress::RuntimeFailure => {
+                let failure = TaskFailureKind::FrameContract;
+                let waiters = fail_task(&mut data, failure);
+
+                drop(data);
+
+                wake_all(waiters);
+
+                return Err(TaskResumeError::RuntimeFailed(failure));
             }
             terminal => {
                 let Some(frame) = data.frame.as_mut() else {
@@ -540,6 +550,9 @@ where
         FrameProgress::Completed(value) => (RunOutcome::Completed(value), FrameExit::Completed),
         FrameProgress::Cancelled => (RunOutcome::Cancelled, FrameExit::Cancelled),
         FrameProgress::Panicked(panic) => (RunOutcome::Panicked(panic), FrameExit::Panicked),
+        FrameProgress::RuntimeFailure => {
+            unreachable!("failed frames are not terminalized")
+        }
     };
 
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
@@ -597,6 +610,20 @@ where
     }
 
     panic
+}
+
+fn fail_task<T, F>(
+    data: &mut TaskData<T, F>,
+    failure: TaskFailureKind,
+) -> Vec<Arc<dyn JoinWake>>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let _ = resolve_failed_frame(&mut data.frame);
+
+    data.state = TaskState::Failed(failure);
+
+    std::mem::take(&mut data.join_waiters)
 }
 
 fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + Send>) {
