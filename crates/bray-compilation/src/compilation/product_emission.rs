@@ -1,4 +1,4 @@
-use bray_codegen::{CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
+use bray_codegen::{CodegenOptions, CodegenTarget, CodegenUnit};
 use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactKind, ArtifactProducer, ArtifactPublisher, BackendContributionSet, EmissionBackend,
@@ -11,17 +11,17 @@ use bray_package_interface::{InterfaceValidationError, encode_package_interface}
 use bray_runtime_interface::{ProtectedAsyncFrameId, RootExecution};
 use bray_target::{TargetIdentity, TargetOutputDescription};
 
-use super::{Compilation, EmissionCodegenError, PackageInterfaceExportError};
+use super::{
+    Compilation, EmissionCodegenError, EmissionCodegenErrorKind,
+    PackageInterfaceExportError,
+};
 use crate::fact::{CancellationToken, FactQueryError};
-use crate::QueryPriority;
 
 /// Borrowed immutable producer and host inputs for one product emission operation.
 #[derive(Clone, Copy)]
 pub struct ProductEmissionInputs<'operation> {
     target_outputs: &'operation TargetOutputDescription,
     backend: Option<&'operation EmissionBackend>,
-    units: &'operation [CodegenUnit],
-    mappings: &'operation [CodegenMappings],
     codegen_target: &'operation CodegenTarget,
     codegen_options: &'operation CodegenOptions,
     linking: Option<ProductLinkingInputs<'operation>>,
@@ -29,20 +29,16 @@ pub struct ProductEmissionInputs<'operation> {
 }
 
 impl<'operation> ProductEmissionInputs<'operation> {
-    /// Creates product inputs from selected target, backend, MIR, and realization facts.
+    /// Creates product inputs from host-selected target and backend configuration.
     pub const fn new(
         target_outputs: &'operation TargetOutputDescription,
         backend: Option<&'operation EmissionBackend>,
-        units: &'operation [CodegenUnit],
-        mappings: &'operation [CodegenMappings],
         codegen_target: &'operation CodegenTarget,
         codegen_options: &'operation CodegenOptions,
     ) -> Self {
         Self {
             target_outputs,
             backend,
-            units,
-            mappings,
             codegen_target,
             codegen_options,
             linking: None,
@@ -113,22 +109,33 @@ impl Compilation {
             )
         })?;
 
-        validate_executable_units(&plan, inputs.units).map_err(|kind| {
+        let units = self
+            .codegen_units_for_plan(
+                plan.backend_requests(),
+                plan.request().executable_host(),
+                cancellation,
+            )
+            .map_err(|(unit, error)| {
+                ProductEmissionError::new(
+                    ProductEmissionErrorKind::Codegen(EmissionCodegenError::new(
+                        EmissionCodegenErrorKind::Request {
+                            unit,
+                            error: Box::new(error),
+                        },
+                        DiagnosticBag::new(),
+                    )),
+                    planning_diagnostics.clone(),
+                )
+            })?;
+
+        validate_executable_units(&plan, &units).map_err(|kind| {
             ProductEmissionError::new(kind, planning_diagnostics.clone())
         })?;
 
-        let mir_diagnostics = self
-            .planned_mir_diagnostics(&plan, inputs.units, cancellation)
-            .map_err(|kind| {
-                ProductEmissionError::new(kind, planning_diagnostics.clone())
-            })?;
-
-        let fact_diagnostics = planning_diagnostics.merged(&mir_diagnostics);
-
         let codegen = self
-            .product_emission_contributions(&plan, inputs, cancellation)
+            .product_emission_contributions(&plan, &units, inputs, cancellation)
             .map_err(|error| {
-                let diagnostics = fact_diagnostics.merged(error.diagnostics());
+                let diagnostics = planning_diagnostics.merged(error.diagnostics());
 
                 ProductEmissionError::new(
                     ProductEmissionErrorKind::Codegen(error),
@@ -136,7 +143,7 @@ impl Compilation {
                 )
             })?;
 
-        let diagnostics = fact_diagnostics.merged(&codegen.diagnostics);
+        let diagnostics = planning_diagnostics.merged(&codegen.diagnostics);
 
         if diagnostics.has_errors() {
             return Err(ProductEmissionError::new(
@@ -284,6 +291,7 @@ impl Compilation {
     fn product_emission_contributions(
         &self,
         plan: &EmissionPlan,
+        units: &[CodegenUnit],
         inputs: ProductEmissionInputs<'_>,
         cancellation: &CancellationToken,
     ) -> Result<ProductEmissionContributions, EmissionCodegenError> {
@@ -294,10 +302,9 @@ impl Compilation {
             });
         }
 
-        let result = self.emission_backend_contributions_with_cancellation(
+        let result = self.planned_emission_backend_contributions(
             plan,
-            inputs.units,
-            inputs.mappings,
+            units,
             inputs.codegen_target,
             inputs.codegen_options,
             cancellation,
@@ -309,62 +316,6 @@ impl Compilation {
             backend: Some(contributions),
             diagnostics,
         })
-    }
-
-    fn planned_mir_diagnostics(
-        &self,
-        plan: &EmissionPlan,
-        units: &[CodegenUnit],
-        cancellation: &CancellationToken,
-    ) -> Result<DiagnosticBag, ProductEmissionErrorKind> {
-        let mut planned = Vec::new();
-
-        for request in plan.backend_requests() {
-            let Some(unit) = units.iter().find(|unit| unit.key() == request.unit()) else {
-                continue;
-            };
-
-            for mir in unit.mir_units() {
-                let bray_ir::MirUnitKey::Bound(key) = mir.key() else {
-                    continue;
-                };
-
-                // The scheduled request owns its semantic key independently of the codegen unit.
-                planned.push((key.clone(), mir));
-            }
-        }
-
-        let facts = self
-            .state
-            .fact_runtime
-            .map_indexed(planned.len(), |index| {
-                let (key, expected) = &planned[index];
-
-                let result = self.lowered_unit_with_priority(
-                    key.clone(),
-                    cancellation,
-                    QueryPriority::Normal,
-                )
-                .map_err(ProductEmissionErrorKind::Query)?;
-
-                let actual = result
-                    .value()
-                    .as_ref()
-                    .and_then(bray_lowering::LoweredUnit::mir);
-
-                if actual != Some(*expected) {
-                    return Err(ProductEmissionErrorKind::MirMismatch(key.clone()));
-                }
-
-                Ok(result.diagnostics().clone())
-            })
-            .map_err(ProductEmissionErrorKind::Query)?;
-
-        let diagnostics = facts
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(DiagnosticBag::merged_all(&diagnostics))
     }
 
     fn publish_product(
@@ -502,8 +453,6 @@ pub enum ProductEmissionErrorKind {
     MissingExecutableHost,
     /// An async executable plan does not request its root protected-frame descriptor.
     MissingRootFrame(ProtectedAsyncFrameId),
-    /// A planned codegen unit does not preserve its named lazy MIR fact.
-    MirMismatch(bray_bound_tree::BoundUnitKey),
     /// Compilation diagnostics prevent complete product publication.
     InvalidCompilation,
     /// Planned lazy code generation could not produce complete contributions.
@@ -641,8 +590,6 @@ mod tests {
         let inputs = ProductEmissionInputs::new(
             &target_outputs,
             None,
-            &[],
-            &[],
             &codegen_target,
             &codegen_options,
         );
@@ -697,8 +644,6 @@ mod tests {
         let inputs = ProductEmissionInputs::new(
             &target_outputs,
             None,
-            &[],
-            &[],
             &codegen_target,
             &codegen_options,
         );

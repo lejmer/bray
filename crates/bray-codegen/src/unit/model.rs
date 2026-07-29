@@ -3,9 +3,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bray_base::{StableDigestHasher, shared_slice, sorted_unique_shared_slice};
-use bray_ir::{MirTargetFacts, MirUnit};
+use bray_ir::{MirTargetFacts, MirUnit, MirUnitId};
 
-use super::{CodegenInstance, CodegenInstanceKey};
+use super::{CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey};
 
 /// Stable structural identity of one partitioned code generation unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -13,7 +13,14 @@ pub struct CodegenUnitKey {
     partition_revision: u32,
     content_identity: [u8; 32],
     target: MirTargetFacts,
+    recipe: Arc<CodegenUnitRecipe>,
+}
+
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct CodegenUnitRecipe {
     instances: Arc<[CodegenInstanceKey]>,
+    mir_units: Arc<[MirUnitId]>,
+    dependencies: Arc<[Arc<[CodegenInstanceDependency]>]>,
 }
 
 impl CodegenUnitKey {
@@ -34,7 +41,28 @@ impl CodegenUnitKey {
 
     /// Returns canonical concrete definitions that structurally identify this unit.
     pub fn instances(&self) -> &[CodegenInstanceKey] {
-        &self.instances
+        &self.recipe.instances
+    }
+
+    /// Returns exact generated-definition dependencies for one named instance.
+    pub fn dependencies(
+        &self,
+        instance: &CodegenInstanceKey,
+    ) -> Option<&[CodegenInstanceDependency]> {
+        self.recipe
+            .instances
+            .binary_search(instance)
+            .ok()
+            .map(|index| self.recipe.dependencies[index].as_ref())
+    }
+
+    /// Returns the MIR unit identity used by one named concrete instance.
+    pub fn mir_unit(&self, instance: &CodegenInstanceKey) -> Option<MirUnitId> {
+        self.recipe
+            .instances
+            .binary_search(instance)
+            .ok()
+            .map(|index| self.recipe.mir_units[index])
     }
 }
 
@@ -100,6 +128,14 @@ impl CodegenUnit {
         );
 
         let instance_keys = shared_slice(instances.iter().map(|instance| instance.key().clone()));
+        let mir_units = shared_slice(instances.iter().map(|instance| instance.mir().unit()));
+
+        let dependencies = shared_slice(
+            instances
+                .iter()
+                .map(|instance| Arc::from(instance.dependencies())),
+        );
+
         let content_identity = content_identity(partition_revision, &instances);
 
         Ok(Self {
@@ -107,7 +143,11 @@ impl CodegenUnit {
                 partition_revision,
                 content_identity,
                 target: target.clone(),
-                instances: instance_keys,
+                recipe: Arc::new(CodegenUnitRecipe {
+                    instances: instance_keys,
+                    mir_units,
+                    dependencies,
+                }),
             },
             target,
             instances: instances.into(),
@@ -234,7 +274,7 @@ mod tests {
 
         let Ok(first) =
             CodegenInstance::try_new(
-                first_key,
+                first_key.clone(),
                 first_mir,
                 [
                     CodegenInstanceDependency::definition(second_key.clone()),
@@ -246,7 +286,7 @@ mod tests {
         };
 
         let Ok(second) = CodegenInstance::try_new(
-            second_key,
+            second_key.clone(),
             second_mir,
             [CodegenInstanceDependency::definition(external.clone())],
         ) else {
@@ -257,7 +297,21 @@ mod tests {
             panic!("test unit must validate");
         };
 
-        assert_eq!(unit.external_instances(), &[external]);
+        assert_eq!(
+            unit.external_instances(),
+            std::slice::from_ref(&external),
+        );
+
+        assert_eq!(
+            unit.key().dependencies(&first_key),
+            Some(
+                [
+                    CodegenInstanceDependency::definition(second_key),
+                    CodegenInstanceDependency::definition(external.clone()),
+                ]
+                .as_slice(),
+            ),
+        );
     }
 
     fn unit_with_optional_storage(has_storage: bool) -> MirUnit {

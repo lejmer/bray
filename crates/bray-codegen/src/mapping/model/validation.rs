@@ -30,7 +30,8 @@ pub(crate) fn demanded_debug_sources(unit: &CodegenUnit) -> BTreeSet<MirSourceAn
         .collect()
 }
 
-pub(super) fn demanded_runtime_references(
+/// Returns private runtime symbols directly demanded by one code generation unit.
+pub fn demanded_runtime_references(
     unit: &CodegenUnit,
 ) -> BTreeSet<MirRuntimeReference> {
     unit.mir_units()
