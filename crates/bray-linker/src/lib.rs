@@ -32,7 +32,7 @@ pub use external_tool::{
 };
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource,
+    LinkInputSource, LinkInputSpec,
 };
 pub use lld::{EmbeddedLldHost, LldDriver, LldDriverBuildError, LldFlavor};
 pub use outcome::{

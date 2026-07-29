@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod artifact;
+mod link;
 mod outcome;
 mod plan;
 mod publication;
@@ -20,6 +21,10 @@ pub use artifact::{
 };
 pub use bray_runtime_interface::ExecutableHostContract;
 pub use bray_symbols::{ProductIdentity, ProductKind};
+pub use link::{
+    LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError,
+    ProductLinkFacts, StagedArtifact, StagedArtifactBuildError, construct_link_plan,
+};
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
 pub use plan::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
