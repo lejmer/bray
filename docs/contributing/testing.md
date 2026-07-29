@@ -11,8 +11,9 @@ Repository-wide readiness audits are development checks rather than ordinary beh
 cargo xtask readiness
 ```
 
-Pass `semantic`, `diagnostics`, `lowering`, or `codegen` to run one audit. The command parses the Rust workspace once and shares that
-corpus across every selected audit. Normal `cargo test` does not run these comparatively expensive repository-wide checks.
+Pass `semantic`, `diagnostics`, `lowering`, `codegen`, or `linker` to run one audit. The command parses the Rust workspace once and
+shares that corpus across every selected audit. Normal `cargo test` does not run these comparatively expensive repository-wide
+checks.
 
 ## Semantic coverage fixture
 
@@ -55,3 +56,10 @@ mappings, cancellation, lazy publication, narrow artifact requests, and determin
 Update the fixture whenever one of those closed enums or its backend handling changes. The code generation readiness audit rejects
 missing, duplicate, placeholder, stale production, and non-executable test anchors. It also guards the backend-neutral dependency and
 public API boundaries of `bray-codegen` and `bray-compilation`.
+
+## Linker coverage fixture
+
+`xtask/fixtures/readiness/linker-coverage.json` is the machine-checked native-linking contract inventory. It maps plan validation,
+driver selection, deterministic invocation, product, output, failure, cancellation, and executable-host contracts to their
+production owners and executable tests. The linker readiness audit rejects missing, duplicate, placeholder, stale production, and
+non-executable test anchors. It also guards the typed linker boundary against source-semantic dependencies and interpretations.

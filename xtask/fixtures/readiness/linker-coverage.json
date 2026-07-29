@@ -1,0 +1,99 @@
+{
+  "contracts": [
+    {
+      "name": "typed plan validation",
+      "production": "fn validate_inputs(",
+      "test": "plans_reject_duplicate_inputs_and_output_collisions"
+    },
+    {
+      "name": "lld driver selection",
+      "production": "pub fn select(&self, plan: &LinkPlan)",
+      "test": "linker_selects_exact_embedded_and_configured_drivers"
+    },
+    {
+      "name": "configured system driver selection",
+      "production": "pub struct SystemLinkerDriver",
+      "test": "linker_selects_exact_embedded_and_configured_drivers"
+    },
+    {
+      "name": "exact link arguments",
+      "production": "fn arguments_for(",
+      "test": "elf_arguments_preserve_deterministic_plan_order"
+    },
+    {
+      "name": "deterministic response files",
+      "production": "fn encode_response_arguments(",
+      "test": "gnu_driver_submits_deterministic_response_file_and_explicit_environment"
+    },
+    {
+      "name": "static archives",
+      "production": "pub struct LlvmArchiveDriver",
+      "test": "driver_preserves_input_order_and_requests_deterministic_indexed_archives"
+    },
+    {
+      "name": "executable products",
+      "production": "LinkedProductKind::Executable",
+      "test": "executable_and_shared_library_links_complete_in_staging"
+    },
+    {
+      "name": "shared products",
+      "production": "LinkedProductKind::SharedLibrary",
+      "test": "executable_and_shared_library_links_complete_in_staging"
+    },
+    {
+      "name": "companion outputs",
+      "production": "fn complete_linked_outputs(",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    },
+    {
+      "name": "tool failures",
+      "production": "fn from_external_tool_failure(",
+      "test": "host_failures_and_cancellation_map_to_link_outcomes"
+    },
+    {
+      "name": "compiler operation cancellation",
+      "production": "pub fn link_product_with_cancellation(",
+      "test": "cancellation_during_link_discards_driver_success"
+    },
+    {
+      "name": "missing outputs",
+      "production": "LinkFailure::MissingOutput",
+      "test": "successful_tool_without_staged_output_reports_the_exact_destination"
+    },
+    {
+      "name": "repeat determinism",
+      "production": "fn response_file_path(",
+      "test": "gnu_driver_submits_deterministic_response_file_and_explicit_environment"
+    },
+    {
+      "name": "async host entry",
+      "production": "pub fn entry_point(&self)",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    },
+    {
+      "name": "runtime ABI and startup inputs",
+      "production": "pub const fn executable_host(&self)",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    },
+    {
+      "name": "root frame descriptor",
+      "production": "pub const fn executable_host(&self)",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    },
+    {
+      "name": "main thread lane",
+      "production": "pub const fn executable_host(&self)",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    },
+    {
+      "name": "structured shutdown inputs",
+      "production": "pub const fn executable_host(&self)",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    },
+    {
+      "name": "typed fact boundary",
+      "production": "fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation)",
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+    }
+  ]
+}

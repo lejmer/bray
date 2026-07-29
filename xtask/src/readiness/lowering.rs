@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 
 use serde::Deserialize;
 
-use super::workspace::{RustWorkspace, is_fixture_anchor, require_ordered_names};
+use super::workspace::{
+    RustWorkspace, require_executable_source_contracts, require_ordered_names,
+};
 
 const REQUIRED_CONTRACTS: &[&str] = &[
     "mir-validation",
@@ -85,31 +87,17 @@ fn require_executable_rows(
     rows: &[CoverageRow],
     workspace: &RustWorkspace,
 ) -> Result<(), String> {
-    let tests = workspace.executable_test_names("lowering")?;
-
-    let mut names = BTreeSet::new();
-
-    for row in rows {
-        if !names.insert(row.name.as_str()) {
-            return Err(format!("lowering coverage fixture repeats {}", row.name));
-        }
-
-        if !is_fixture_anchor(&row.production) || !workspace.contains_source(&row.production) {
-            return Err(format!(
-                "missing lowering production anchor for {}: {}",
-                row.name, row.production
-            ));
-        }
-
-        if !is_fixture_anchor(&row.test) || !tests.contains(row.test.as_str()) {
-            return Err(format!(
-                "missing executable lowering test for {}: {}",
-                row.name, row.test
-            ));
-        }
-    }
-
-    Ok(())
+    require_executable_source_contracts(
+        rows.iter().map(|row| {
+            (
+                row.name.as_str(),
+                row.production.as_str(),
+                row.test.as_str(),
+            )
+        }),
+        workspace,
+        "lowering",
+    )
 }
 
 fn require_codegen_boundary(workspace: &RustWorkspace) -> Result<(), String> {
