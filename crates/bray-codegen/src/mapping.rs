@@ -10,7 +10,8 @@ pub use constant::{CodegenConstantMapping, CodegenConstantTermMapping};
 pub use debug::{CodegenDebugLocation, CodegenSourceFile};
 pub use model::{CodegenMappings, CodegenMappingsBuildError};
 pub use reference::{
-    CodegenCallableMapping, CodegenOperationMapping, CodegenTerminatorMapping,
+    CodegenCallableMapping, CodegenHelperMapping, CodegenOperationMapping,
+    CodegenTerminatorMapping,
 };
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{

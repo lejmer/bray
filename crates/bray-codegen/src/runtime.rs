@@ -216,7 +216,7 @@ mod tests {
     use super::{
         CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
     };
-    use crate::test_support::codegen_target;
+    use crate::test_support::{codegen_request, codegen_target};
     use crate::{
         CodegenCallableSignature, CodegenLinkage, CodegenMappings, CodegenResultMapping,
         CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,
@@ -404,11 +404,23 @@ mod tests {
         });
 
         let symbols = [instance].into_iter().chain(frame_operations);
+        let fixture = codegen_request();
+        let type_mapping = &fixture.request().mappings().types()[0];
+
+        let Some(descriptor) = unit.instances()[0].mir().frame_descriptor() else {
+            panic!("test protected-frame MIR must retain its descriptor");
+        };
+
+        let types = [crate::CodegenTypeMapping::new(
+            descriptor.result_type(),
+            type_mapping.layout(),
+            type_mapping.kind().clone(),
+        )];
 
         match CodegenMappings::try_new(
             unit,
             &target,
-            [],
+            types,
             symbols,
             [],
             [],

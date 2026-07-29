@@ -27,7 +27,7 @@ pub use artifact::{
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
 pub use mapping::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout,
+    CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
     CodegenIndirectParameterKind, CodegenIntegerExtension, CodegenMappings,
     CodegenMappingsBuildError, CodegenOperationMapping, CodegenParameterMapping,
     CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,

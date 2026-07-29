@@ -349,7 +349,7 @@ mod tests {
             mappings.types().iter().cloned().chain(types),
             symbols,
             mappings.constants().iter().cloned(),
-            mappings.constant_terms().iter().copied(),
+            mappings.constant_terms().iter().cloned(),
             mappings.callables().iter().cloned(),
             mappings.operations().iter().cloned(),
             mappings.terminators().iter().cloned(),

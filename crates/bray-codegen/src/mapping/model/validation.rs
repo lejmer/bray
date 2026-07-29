@@ -9,13 +9,9 @@ use bray_symbols::TypeId;
 use crate::CodegenUnit;
 
 pub(crate) fn demanded_types(unit: &CodegenUnit) -> BTreeSet<TypeId> {
-    unit.mir_units()
-        .flat_map(|mir| {
-            mir.storages()
-                .iter()
-                .map(bray_ir::MirStorage::ty)
-                .chain(mir.values().iter().map(bray_ir::MirValue::ty))
-        })
+    unit.instances()
+        .iter()
+        .flat_map(|instance| instance.mir().referenced_types())
         .collect()
 }
 

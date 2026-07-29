@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_ir::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
     MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace,
-    MirProjectionKind, MirTaskTerminalState, MirTerminatorKind,
+    MirProjectionKind, MirTaskTerminalState, MirTerminatorKind, MirUnit,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
 
@@ -43,24 +43,22 @@ pub(super) fn demanded_constants(unit: &CodegenUnit) -> ConstantDemands {
     demands
 }
 
-pub(super) fn demanded_constant_terms(unit: &CodegenUnit) -> BTreeSet<ConstantTermId> {
+pub(super) fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
     let mut terms = BTreeSet::new();
 
-    for unit in unit.mir_units() {
-        for operation in unit.operations() {
-            if let MirOperationKind::Generator(MirGeneratorOperation::Begin {
-                exact_count: Some(term),
-                ..
-            }) = operation.kind()
-            {
-                terms.insert(*term);
-            }
+    for operation in unit.operations() {
+        if let MirOperationKind::Generator(MirGeneratorOperation::Begin {
+            exact_count: Some(term),
+            ..
+        }) = operation.kind()
+        {
+            terms.insert(*term);
         }
+    }
 
-        for block in unit.blocks() {
-            if let Some(term) = block.terminator().kind().pattern_constant_term() {
-                terms.insert(term);
-            }
+    for block in unit.blocks() {
+        if let Some(term) = block.terminator().kind().pattern_constant_term() {
+            terms.insert(term);
         }
     }
 

@@ -1,5 +1,7 @@
 use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId};
 
+use crate::CodegenInstanceKey;
+
 /// Materialized data for one constant value demanded by MIR.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenConstantMapping {
@@ -25,25 +27,35 @@ impl CodegenConstantMapping {
 }
 
 /// Resolves one closed constant term retained by a MIR predicate.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenConstantTermMapping {
+    owner: CodegenInstanceKey,
     term: ConstantTermId,
     value: ConstantValueId,
 }
 
 impl CodegenConstantTermMapping {
     /// Creates a mapping from one closed term to its materialized value.
-    pub const fn new(term: ConstantTermId, value: ConstantValueId) -> Self {
-        Self { term, value }
+    pub const fn new(
+        owner: CodegenInstanceKey,
+        term: ConstantTermId,
+        value: ConstantValueId,
+    ) -> Self {
+        Self { owner, term, value }
+    }
+
+    /// Returns the concrete definition containing the term occurrence.
+    pub const fn owner(&self) -> &CodegenInstanceKey {
+        &self.owner
     }
 
     /// Returns the demanded constant term.
-    pub const fn term(self) -> ConstantTermId {
+    pub const fn term(&self) -> ConstantTermId {
         self.term
     }
 
     /// Returns the materialized value selected for the term.
-    pub const fn value(self) -> ConstantValueId {
+    pub const fn value(&self) -> ConstantValueId {
         self.value
     }
 }
