@@ -14,8 +14,7 @@ impl Compilation {
     /// The current snapshot remains independently usable after the revised
     /// snapshot is created.
     pub fn updated(&self, request: CompilationRequest) -> Result<Self, CompilationLoadError> {
-        let mut updated =
-            Self::load_with_code_generators(request, self.state.code_generators.clone())?;
+        let mut updated = Self::load_inner(request, self.state.codegen.clone())?;
 
         if self.state.package_identity != updated.state.package_identity {
             return Ok(updated);

@@ -11,7 +11,7 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
-use bray_codegen::{CodeGeneratorRegistry, CodegenOutcome};
+use bray_codegen::{CodegenConfiguration, CodegenOutcome};
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult, ModulePartId,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -164,7 +164,7 @@ pub(super) struct CompilationState {
     pub(super) body_behavior_contributions: UnitFactCache<BodyBehaviorContributions>,
     pub(super) checked_body_behaviors: UnitFactCache<CheckedBodyBehavior>,
     pub(super) lowered_units: UnitFactCache<Option<bray_lowering::LoweredUnit>>,
-    pub(super) code_generators: CodeGeneratorRegistry,
+    pub(super) codegen: Option<CodegenConfiguration>,
     pub(super) codegen_artifacts:
         FactCellMap<crate::fact::CodegenArtifactFactKey, Arc<CodegenOutcome>>,
     pub(super) constant_template_keys:
@@ -194,13 +194,20 @@ pub(super) struct CompilationState {
 impl Compilation {
     /// Loads source inputs into durable compilation state without requesting derived facts.
     pub fn load(request: CompilationRequest) -> Result<Self, CompilationLoadError> {
-        Self::load_with_code_generators(request, CodeGeneratorRegistry::default())
+        Self::load_inner(request, None)
     }
 
-    /// Loads source inputs with the code generators available to this compiler composition.
-    pub fn load_with_code_generators(
+    /// Loads source inputs with the code generation backend selected for this composition.
+    pub fn load_with_codegen(
         request: CompilationRequest,
-        code_generators: CodeGeneratorRegistry,
+        codegen: CodegenConfiguration,
+    ) -> Result<Self, CompilationLoadError> {
+        Self::load_inner(request, Some(codegen))
+    }
+
+    pub(super) fn load_inner(
+        request: CompilationRequest,
+        codegen: Option<CodegenConfiguration>,
     ) -> Result<Self, CompilationLoadError> {
         let (
             package_identity,
@@ -328,7 +335,7 @@ impl Compilation {
                 body_behavior_contributions: UnitFactCache::new(),
                 checked_body_behaviors: UnitFactCache::new(),
                 lowered_units: UnitFactCache::new(),
-                code_generators,
+                codegen,
                 codegen_artifacts: FactCellMap::new(),
                 constant_template_keys: FactCell::new(),
                 callable_body_keys: FactCell::new(),

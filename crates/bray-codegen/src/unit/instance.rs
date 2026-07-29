@@ -191,7 +191,7 @@ impl CodegenInstanceDependency {
 }
 
 /// One immutable concrete definition and its exact generated-definition dependencies.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CodegenInstance {
     key: CodegenInstanceKey,
     mir: Arc<MirUnit>,

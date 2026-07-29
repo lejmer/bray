@@ -1,7 +1,7 @@
 use bray_runtime_interface::{ExecutableHostContract, ProtectedAsyncFrameId};
 
 /// Representation category of one MIR unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirUnitKind {
     /// Ordinary synchronous control flow with no protected async frame.
     Synchronous,

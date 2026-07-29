@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use bray_codegen::{CodeGenerator, CodeGeneratorRegistry};
+use bray_codegen::{
+    CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
+};
 use bray_codegen_llvm::LlvmCodeGenerator;
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
@@ -360,11 +362,14 @@ fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverR
 
 fn load_compilation(request: CompilationRequest) -> Option<Compilation> {
     let generator = LlvmCodeGenerator::try_new().ok()?;
+    let identity = generator.identity().clone();
 
     let registry =
         CodeGeneratorRegistry::try_new([Arc::new(generator) as Arc<dyn CodeGenerator>]).ok()?;
 
-    Compilation::load_with_code_generators(request, registry).ok()
+    let codegen = CodegenConfiguration::try_new(registry, identity).ok()?;
+
+    Compilation::load_with_codegen(request, codegen).ok()
 }
 
 fn run_with_writers(

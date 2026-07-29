@@ -15,6 +15,49 @@ pub struct CodeGeneratorRegistry {
     generators: Arc<BTreeMap<BackendIdentity, Arc<dyn CodeGenerator>>>,
 }
 
+/// One validated immutable backend selection for a compiler composition.
+#[derive(Clone, Debug)]
+pub struct CodegenConfiguration {
+    generators: CodeGeneratorRegistry,
+    selected: BackendIdentity,
+}
+
+impl CodegenConfiguration {
+    /// Selects one available backend for all code generation in a compilation.
+    pub fn try_new(
+        generators: CodeGeneratorRegistry,
+        selected: BackendIdentity,
+    ) -> Result<Self, BackendSelectionError> {
+        if !generators.contains(&selected) {
+            return Err(BackendSelectionError::Unavailable(selected));
+        }
+
+        Ok(Self {
+            generators,
+            selected,
+        })
+    }
+
+    /// Returns the selected backend identity.
+    pub const fn selected(&self) -> &BackendIdentity {
+        &self.selected
+    }
+
+    /// Validates and executes one request through the selected backend.
+    pub fn generate(
+        &self,
+        request: CodegenRequest<'_>,
+    ) -> Result<CodegenOutcome, BackendSelectionError> {
+        if request.backend() != &self.selected {
+            return Err(BackendSelectionError::NotSelected(
+                request.backend().clone(),
+            ));
+        }
+
+        self.generators.generate(request)
+    }
+}
+
 impl CodeGeneratorRegistry {
     /// Creates a registry when every backend identity is unique.
     pub fn try_new(
@@ -89,6 +132,8 @@ pub enum CodeGeneratorRegistryBuildError {
 pub enum BackendSelectionError {
     /// The requested backend identity is not available to this compiler composition.
     Unavailable(BackendIdentity),
+    /// The request names an available backend that was not selected for this composition.
+    NotSelected(BackendIdentity),
 }
 
 fn validate_capabilities(
@@ -136,7 +181,9 @@ mod tests {
 
     use bray_diagnostics::DiagnosticBag;
 
-    use super::{CodeGeneratorRegistry, CodeGeneratorRegistryBuildError};
+    use super::{
+        CodeGeneratorRegistry, CodeGeneratorRegistryBuildError, CodegenConfiguration,
+    };
     use crate::{
         BackendCapabilities, BackendIdentity, CodeGenerator, CodegenFailure, CodegenOutcome,
         CodegenRequest, CodegenStatus,
@@ -193,6 +240,31 @@ mod tests {
         assert!(matches!(
             outcome.status(),
             CodegenStatus::Failed(CodegenFailure::UnsupportedTarget)
+        ));
+    }
+
+    #[test]
+    fn configurations_reject_requests_for_unselected_backends() {
+        let selected = Arc::new(TestCodeGenerator::new("selected"));
+        let unselected = Arc::new(TestCodeGenerator::new("unselected"));
+
+        let fixture =
+            crate::test_support::codegen_request_for_backend(unselected.identity().clone());
+
+        let registry = CodeGeneratorRegistry::try_new([
+            Arc::clone(&selected) as Arc<dyn CodeGenerator>,
+            Arc::clone(&unselected) as Arc<dyn CodeGenerator>,
+        ])
+        .unwrap_or_else(|error| panic!("unique backends must register: {error:?}"));
+
+        let configuration =
+            CodegenConfiguration::try_new(registry, selected.identity().clone())
+                .unwrap_or_else(|error| panic!("available backend must select: {error:?}"));
+
+        assert!(matches!(
+            configuration.generate(fixture.request()),
+            Err(super::BackendSelectionError::NotSelected(identity))
+                if identity == *unselected.identity()
         ));
     }
 

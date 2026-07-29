@@ -40,6 +40,7 @@ pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};
 pub use registry::{
     BackendSelectionError, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
+    CodegenConfiguration,
 };
 pub use runtime::{
     CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
