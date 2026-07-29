@@ -42,7 +42,10 @@ fn fetch() -> Result<(), ToolchainError> {
     let root = toolchain_directory()?;
     let active = root.join(ACTIVE_DIRECTORY);
 
-    if validate_root(&active, &manifest.version).is_ok() {
+    if validate_root(&active, &manifest.version)
+        .and_then(|()| validate_marker(&active, &manifest.version, package))
+        .is_ok()
+    {
         println!("{}", active.display());
 
         return Ok(());
@@ -228,6 +231,50 @@ fn install_archive(
     fs::create_dir_all(&staging)
         .map_err(|error| ToolchainError::io("create", &staging, error))?;
 
+    if let Err(error) = prepare_staging(&staging, archive, version, package) {
+        return cleanup_after_failure(root, &staging, error);
+    }
+
+    if let Err(error) = remove_owned_directory(root, &backup) {
+        return cleanup_after_failure(root, &staging, error);
+    }
+
+    if active.exists()
+        && let Err(error) = fs::rename(active, &backup)
+    {
+        let error = ToolchainError::rename(active, &backup, error);
+
+        return cleanup_after_failure(root, &staging, error);
+    }
+
+    if let Err(error) = fs::rename(&staging, active) {
+        let publication = ToolchainError::rename(&staging, active, error);
+
+        if backup.exists()
+            && let Err(error) = fs::rename(&backup, active)
+        {
+            let rollback = ToolchainError::rename(&backup, active, error);
+
+            let error = ToolchainError::PublicationRollback {
+                publication: Box::new(publication),
+                rollback: Box::new(rollback),
+            };
+
+            return cleanup_after_failure(root, &staging, error);
+        }
+
+        return cleanup_after_failure(root, &staging, publication);
+    }
+
+    remove_owned_directory(root, &backup)
+}
+
+fn prepare_staging(
+    staging: &Path,
+    archive: &Path,
+    version: &str,
+    package: &ToolchainPackage,
+) -> Result<(), ToolchainError> {
     let output = Command::new("tar")
         .arg("-xJf")
         .arg(archive)
@@ -248,23 +295,23 @@ fn install_archive(
     }
 
     validate_root(&staging, version)?;
-    write_marker(&staging, version, package)?;
-    remove_owned_directory(root, &backup)?;
 
-    if active.exists() {
-        fs::rename(active, &backup)
-            .map_err(|error| ToolchainError::rename(active, &backup, error))?;
+    write_marker(staging, version, package)
+}
+
+fn cleanup_after_failure(
+    root: &Path,
+    staging: &Path,
+    installation: ToolchainError,
+) -> Result<(), ToolchainError> {
+    if let Err(cleanup) = remove_owned_directory(root, staging) {
+        return Err(ToolchainError::CleanupAfterFailure {
+            installation: Box::new(installation),
+            cleanup: Box::new(cleanup),
+        });
     }
 
-    if let Err(error) = fs::rename(&staging, active) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, active);
-        }
-
-        return Err(ToolchainError::rename(&staging, active, error));
-    }
-
-    remove_owned_directory(root, &backup)
+    Err(installation)
 }
 
 fn validate_root(root: &Path, expected_version: &str) -> Result<(), ToolchainError> {
@@ -340,16 +387,38 @@ fn write_marker(
     package: &ToolchainPackage,
 ) -> Result<(), ToolchainError> {
     let marker = ToolchainMarker {
-        version,
-        host: &package.host,
-        archive: &package.archive,
-        sha256: &package.sha256,
+        version: version.to_owned(),
+        host: package.host.clone(),
+        archive: package.archive.clone(),
+        sha256: package.sha256.clone(),
     };
 
     let bytes = serde_json::to_vec_pretty(&marker).map_err(ToolchainError::Marker)?;
     let path = root.join(MARKER_FILE);
 
     fs::write(&path, bytes).map_err(|error| ToolchainError::io("write", &path, error))
+}
+
+fn validate_marker(
+    root: &Path,
+    version: &str,
+    package: &ToolchainPackage,
+) -> Result<(), ToolchainError> {
+    let path = root.join(MARKER_FILE);
+    let bytes = fs::read(&path).map_err(|error| ToolchainError::io("read", &path, error))?;
+
+    let marker: ToolchainMarker =
+        serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)?;
+
+    if marker.version != version
+        || marker.host != package.host
+        || marker.archive != package.archive
+        || marker.sha256 != package.sha256
+    {
+        return Err(ToolchainError::MarkerMismatch);
+    }
+
+    Ok(())
 }
 
 fn remove_owned_directory(root: &Path, path: &Path) -> Result<(), ToolchainError> {
@@ -393,8 +462,14 @@ impl ToolchainManifest {
         let mut hosts = BTreeSet::new();
 
         for package in &self.hosts {
+            let unsafe_archive = package.archive == "."
+                || package.archive == ".."
+                || package.archive.contains('/')
+                || package.archive.contains('\\');
+
             if package.host.is_empty()
                 || package.archive.is_empty()
+                || unsafe_archive
                 || package.url.is_empty()
                 || package.size == 0
                 || package.sha256.len() != 64
@@ -427,12 +502,12 @@ struct ToolchainPackage {
     sha256: String,
 }
 
-#[derive(Serialize)]
-struct ToolchainMarker<'value> {
-    version: &'value str,
-    host: &'value str,
-    archive: &'value str,
-    sha256: &'value str,
+#[derive(Deserialize, Serialize)]
+struct ToolchainMarker {
+    version: String,
+    host: String,
+    archive: String,
+    sha256: String,
 }
 
 #[derive(Debug)]
@@ -442,6 +517,7 @@ enum ToolchainError {
     Workspace(String),
     Manifest(serde_json::Error),
     Marker(serde_json::Error),
+    MarkerMismatch,
     InvalidManifest,
     UnsupportedHost(String),
     MissingRustcHost,
@@ -478,6 +554,14 @@ enum ToolchainError {
         error: io::Error,
     },
     UnsafeCleanup(PathBuf),
+    CleanupAfterFailure {
+        installation: Box<ToolchainError>,
+        cleanup: Box<ToolchainError>,
+    },
+    PublicationRollback {
+        publication: Box<ToolchainError>,
+        rollback: Box<ToolchainError>,
+    },
 }
 
 impl ToolchainError {
@@ -507,7 +591,10 @@ impl fmt::Display for ToolchainError {
             }
             Self::Workspace(error) => write!(formatter, "failed to locate workspace: {error}"),
             Self::Manifest(error) => write!(formatter, "invalid LLVM manifest JSON: {error}"),
-            Self::Marker(error) => write!(formatter, "failed to encode LLVM marker: {error}"),
+            Self::Marker(error) => write!(formatter, "invalid LLVM marker JSON: {error}"),
+            Self::MarkerMismatch => {
+                formatter.write_str("active LLVM toolchain does not match its pinned package")
+            }
             Self::InvalidManifest => formatter.write_str("LLVM manifest is incomplete or invalid"),
             Self::UnsupportedHost(host) => {
                 write!(formatter, "LLVM {host} package is not provisioned by Bray")
@@ -552,13 +639,32 @@ impl fmt::Display for ToolchainError {
             Self::UnsafeCleanup(path) => {
                 write!(formatter, "refusing to remove unowned path {}", path.display())
             }
+            Self::CleanupAfterFailure {
+                installation,
+                cleanup,
+            } => write!(
+                formatter,
+                "LLVM installation failed ({installation}) and staging cleanup failed ({cleanup})"
+            ),
+            Self::PublicationRollback {
+                publication,
+                rollback,
+            } => write!(
+                formatter,
+                "LLVM publication failed ({publication}) and rollback failed ({rollback})"
+            ),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{manifest, parse_rustc_host};
+    use std::fs;
+
+    use super::{
+        ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, validate_marker,
+        write_marker,
+    };
 
     #[test]
     fn manifest_covers_supported_release_hosts() {
@@ -594,4 +700,63 @@ mod tests {
         assert_eq!(parse_rustc_host("rustc 1.97.0\n"), None);
     }
 
+    #[test]
+    fn manifest_rejects_archive_path_components() {
+        let Ok(mut manifest) = manifest() else {
+            panic!("checked-in LLVM manifest must validate");
+        };
+
+        manifest.hosts[0].archive = "../LLVM-22.1.8.tar.xz".to_owned();
+
+        assert!(matches!(
+            manifest.validate(),
+            Err(ToolchainError::InvalidManifest)
+        ));
+    }
+
+    #[test]
+    fn active_markers_must_match_the_selected_package() {
+        let Ok(manifest) = manifest() else {
+            panic!("checked-in LLVM manifest must validate");
+        };
+
+        let Some(package) = manifest.hosts.first() else {
+            panic!("manifest must contain a test package");
+        };
+
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("temporary directory must be available");
+        };
+
+        if let Err(error) = write_marker(directory.path(), "0.0.0", package) {
+            panic!("test marker must be written: {error}");
+        }
+
+        assert!(matches!(
+            validate_marker(directory.path(), &manifest.version, package),
+            Err(ToolchainError::MarkerMismatch)
+        ));
+    }
+
+    #[test]
+    fn failed_installations_remove_owned_staging_directories() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("temporary directory must be available");
+        };
+
+        let staging = directory.path().join("active-1.partial");
+
+        if let Err(error) = fs::create_dir(&staging) {
+            panic!("test staging directory must be created: {error}");
+        }
+
+        let result = cleanup_after_failure(
+            directory.path(),
+            &staging,
+            ToolchainError::InvalidManifest,
+        );
+
+        assert!(matches!(result, Err(ToolchainError::InvalidManifest)));
+        assert!(!staging.exists());
+    }
 }
