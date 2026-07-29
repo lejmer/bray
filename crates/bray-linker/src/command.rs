@@ -3,26 +3,12 @@ use std::path::Path;
 
 use bray_target::{RelocationModel, TargetArchitecture};
 
-use super::LldFlavor;
+use crate::LldFlavor;
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputMode, LinkInputSource, LinkModel,
     LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkedArtifactKind, LinkedProductKind,
     PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
 };
-
-pub(super) fn external_arguments(
-    plan: &LinkPlan,
-    flavor: LldFlavor,
-) -> Result<Vec<OsString>, LldPlanError> {
-    let mut arguments = vec![
-        OsString::from("-flavor"),
-        OsString::from(flavor.external_selector()),
-    ];
-
-    arguments.extend(arguments_for(plan, flavor)?);
-
-    Ok(arguments)
-}
 
 pub(super) fn arguments_for(
     plan: &LinkPlan,
@@ -135,11 +121,7 @@ fn push_output_arguments(
     plan: &LinkPlan,
     flavor: LldFlavor,
 ) -> Result<(), LldPlanError> {
-    let Some(primary) = plan
-        .outputs()
-        .iter()
-        .find(|output| output.kind() == plan.product_kind().primary_artifact_kind())
-    else {
+    let Some(primary) = plan.primary_output() else {
         return Err(LldPlanError::MissingPrimaryOutput);
     };
 
@@ -419,14 +401,14 @@ enum SymbolArgument {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::{OsStr, OsString};
+    use std::ffi::OsString;
 
     use bray_runtime_interface::BinarySymbolName;
     use bray_target::{
         CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
     };
 
-    use super::{LldFlavor, arguments_for, external_arguments};
+    use super::{LldFlavor, arguments_for};
     use crate::test_support::{link_input, link_plan_builder, planned_output, product};
     use crate::{
         LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
@@ -480,17 +462,6 @@ mod tests {
                 OsString::from("-lpthread"),
             ])
         );
-    }
-
-    #[test]
-    fn external_arguments_select_the_exact_lld_flavor() {
-        let plan = crate::test_support::link_plan();
-
-        let arguments = external_arguments(&plan, LldFlavor::Elf)
-            .unwrap_or_else(|error| panic!("test plan must translate: {error:?}"));
-
-        assert_eq!(arguments[0], OsStr::new("-flavor"));
-        assert_eq!(arguments[1], OsStr::new("gnu"));
     }
 
     #[test]

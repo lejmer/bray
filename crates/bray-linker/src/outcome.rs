@@ -5,8 +5,8 @@ use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
 use crate::{
-    LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement, LinkerDriverIdentity,
-    StagingDestinationId,
+    ExternalToolFailure, LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement,
+    LinkerDriverIdentity, StagingDestinationId,
 };
 
 /// Structured reason one native link operation could not produce complete staged outputs.
@@ -164,6 +164,24 @@ pub struct LinkOutcome {
 }
 
 impl LinkOutcome {
+    pub(crate) fn from_external_tool_failure(failure: ExternalToolFailure) -> Self {
+        match failure {
+            ExternalToolFailure::Cancelled => Self::cancelled(DiagnosticBag::new()),
+            ExternalToolFailure::ProcessBudgetUnavailable => {
+                Self::failed(LinkFailure::ResourceExhausted, DiagnosticBag::new())
+            }
+            ExternalToolFailure::ResponseFile { .. } => {
+                Self::failed(LinkFailure::ResponseFile, DiagnosticBag::new())
+            }
+            ExternalToolFailure::Process(_)
+            | ExternalToolFailure::MissingOutputPipe(_)
+            | ExternalToolFailure::OutputCapture { .. }
+            | ExternalToolFailure::OutputReaderTerminated(_) => {
+                Self::failed(LinkFailure::Invocation, DiagnosticBag::new())
+            }
+        }
+    }
+
     /// Validates staging records against the authoritative plan before publishing success.
     pub fn try_complete(
         plan: &LinkPlan,

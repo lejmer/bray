@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod command;
 mod driver;
 mod execution;
 mod external_tool;
@@ -12,23 +13,19 @@ mod output;
 mod plan;
 mod policy;
 mod staging;
+mod system;
 mod target;
 
 #[cfg(test)]
 mod test_support;
 
 pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
-pub use driver::{
-    Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
-    LinkerBuildError,
-};
+pub use driver::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
 pub use external_tool::{
-    ExternalToolFailure, ExternalToolHost,
-    ExternalToolInvocation, ExternalToolInvocationBuildError,
-    ExternalToolOutput, ExternalToolProcessBudget,
+    ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
+    ExternalToolInvocationBuildError, ExternalToolOutput, ExternalToolProcessBudget,
     ExternalToolResponseFile, ExternalToolResponseFileBuildError,
-    ExternalToolResponseFileOperation, ExternalToolStream,
-    NativeExternalToolHost,
+    ExternalToolResponseFileOperation, ExternalToolStream, NativeExternalToolHost,
 };
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
@@ -50,5 +47,9 @@ pub use plan::{
 };
 pub use policy::{
     DeadStripPolicy, DebugLinkPolicy, LinkPolicy, LinkSubsystem, SectionGarbageCollectionPolicy,
+};
+pub use system::{
+    SystemLinkerConfiguration, SystemLinkerConfigurationBuildError, SystemLinkerDriver,
+    SystemLinkerDriverBuildError, SystemLinkerFamily,
 };
 pub use target::{LinkModel, LinkTarget, LinkTargetBuildError};

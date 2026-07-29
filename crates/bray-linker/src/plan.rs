@@ -250,6 +250,12 @@ impl LinkPlan {
             .map(|index| &self.outputs[index])
     }
 
+    pub(crate) fn primary_output(&self) -> Option<&PlannedLinkedArtifact> {
+        self.outputs
+            .iter()
+            .find(|output| output.kind() == self.product_kind.primary_artifact_kind())
+    }
+
     /// Returns the selected native entry point when the product has one.
     pub fn entry_point(&self) -> Option<&BinarySymbolName> {
         match &self.executable_host {
