@@ -219,11 +219,7 @@ dependencies = [
  "bray-symbols",
  "bray-syntax",
  "bray-target",
- "quote",
  "rayon",
- "serde",
- "serde_json",
- "syn 2.0.118",
 ]
 
 [[package]]
@@ -1286,13 +1282,16 @@ version = "0.0.0"
 dependencies = [
  "bray-compilation",
  "bray-compiler-known",
+ "bray-diagnostics",
  "bray-package-interface",
  "bray-runtime-interface",
  "bray-target",
+ "quote",
  "rust-style",
  "serde",
  "serde_json",
  "sha2",
+ "syn 2.0.118",
  "tempfile",
 ]
 

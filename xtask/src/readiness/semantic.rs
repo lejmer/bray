@@ -1,13 +1,9 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use bray_diagnostics::DiagnosticKind;
 use serde::Deserialize;
 
-#[path = "support/readiness.rs"]
-mod support;
-
-use support::{RustTest, rust_tests, rust_workspace, workspace_root};
+use super::workspace::{RustTest, RustWorkspace, require_ordered_names};
 
 const REQUIRED_RULE_FAMILIES: &[&str] = &[
     "name-resolution",
@@ -73,46 +69,43 @@ struct CrossCuttingContract {
     tests: Vec<String>,
 }
 
-#[test]
-fn semantic_coverage_fixture_names_complete_executable_contracts() {
-    let root = workspace_root();
-    let fixture = coverage_fixture(&root);
-    let rust = rust_workspace(&root);
+pub(super) fn audit_coverage(workspace: &RustWorkspace) -> Result<(), String> {
+    let fixture: CoverageFixture = workspace.read_fixture("semantic-coverage.json")?;
 
-    assert_required_names(
+    require_ordered_names(
         fixture
             .rule_families
             .iter()
             .map(|family| family.name.as_str()),
         REQUIRED_RULE_FAMILIES,
-    );
+        "semantic rule families",
+    )?;
 
-    assert_required_names(
+    require_ordered_names(
         fixture
             .cross_cutting
             .iter()
             .map(|contract| contract.name.as_str()),
         REQUIRED_CROSS_CUTTING_CONTRACTS,
-    );
+        "semantic cross-cutting contracts",
+    )?;
 
-    assert_rule_families_are_complete(&fixture.rule_families);
-    assert_code_anchors_exist(&fixture, &rust);
-    assert_test_anchors_are_executable(&fixture, &rust);
-    assert_source_tests_use_source_integration_crates(&fixture.rule_families, &rust);
+    require_complete_rule_families(&fixture.rule_families)?;
+    require_code_anchors(&fixture, workspace)?;
+    require_executable_test_anchors(&fixture, workspace)?;
+
+    require_source_integration_tests(&fixture.rule_families, workspace)
 }
 
-#[test]
-fn every_diagnostic_kind_has_an_executable_producer_test() {
-    let root = workspace_root();
-    let rust = rust_workspace(&root);
-    let tests = rust_tests(&rust);
+pub(super) fn audit_diagnostics(workspace: &RustWorkspace) -> Result<(), String> {
     let mut coverage = BTreeMap::new();
 
     for &kind in DiagnosticKind::ALL {
         let variant = format!("{kind:?}");
         let reference = format!("DiagnosticKind :: {variant}");
 
-        let producers = tests
+        let producers = workspace
+            .tests()
             .iter()
             .filter(|test| test.body().contains(&reference))
             .map(test_location)
@@ -127,39 +120,20 @@ fn every_diagnostic_kind_has_an_executable_producer_test() {
         .map(|(kind, _)| format!("{kind:?}"))
         .collect::<Vec<_>>();
 
-    assert!(
-        missing.is_empty(),
-        "diagnostic kinds without executable producer tests: {missing:?}"
-    );
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "diagnostic kinds without executable producer tests: {missing:?}"
+        ))
+    }
 }
 
 fn test_location(test: &RustTest) -> String {
     format!("{}::{}", test.path(), test.name())
 }
 
-fn coverage_fixture(root: &Path) -> CoverageFixture {
-    let path = root.join("crates/bray-compilation/tests/fixtures/semantic-coverage.json");
-
-    let contents = match std::fs::read_to_string(&path) {
-        Ok(contents) => contents,
-        Err(error) => panic!("could not read {}: {error}", path.display()),
-    };
-
-    match serde_json::from_str(&contents) {
-        Ok(fixture) => fixture,
-        Err(error) => panic!("could not decode {}: {error}", path.display()),
-    }
-}
-
-fn assert_required_names<'name>(actual: impl IntoIterator<Item = &'name str>, required: &[&str]) {
-    assert_eq!(
-        actual.into_iter().collect::<Vec<_>>(),
-        required,
-        "semantic coverage fixture rows drifted"
-    );
-}
-
-fn assert_rule_families_are_complete(families: &[RuleFamily]) {
+fn require_complete_rule_families(families: &[RuleFamily]) -> Result<(), String> {
     let incomplete = families
         .iter()
         .filter(|family| {
@@ -176,10 +150,13 @@ fn assert_rule_families_are_complete(families: &[RuleFamily]) {
         .map(|family| family.name.as_str())
         .collect::<Vec<_>>();
 
-    assert!(
-        incomplete.is_empty(),
-        "semantic coverage rule families contain incomplete cells: {incomplete:?}"
-    );
+    if incomplete.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "semantic coverage rule families contain incomplete cells: {incomplete:?}"
+        ))
+    }
 }
 
 fn cell_is_incomplete(values: &[String]) -> bool {
@@ -191,18 +168,15 @@ fn cell_is_incomplete(values: &[String]) -> bool {
         })
 }
 
-fn assert_code_anchors_exist(fixture: &CoverageFixture, rust: &BTreeMap<String, String>) {
-    let corpus = rust
-        .values()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join("\n");
-
+fn require_code_anchors(
+    fixture: &CoverageFixture,
+    workspace: &RustWorkspace,
+) -> Result<(), String> {
     let mut missing = BTreeMap::<&str, Vec<&str>>::new();
 
     for family in &fixture.rule_families {
         for anchor in family.production.iter().chain(&family.published) {
-            if !corpus.contains(anchor) {
+            if !workspace.contains_source(anchor) {
                 missing
                     .entry(family.name.as_str())
                     .or_default()
@@ -213,7 +187,7 @@ fn assert_code_anchors_exist(fixture: &CoverageFixture, rust: &BTreeMap<String, 
 
     for contract in &fixture.cross_cutting {
         for anchor in &contract.production {
-            if !corpus.contains(anchor) {
+            if !workspace.contains_source(anchor) {
                 missing
                     .entry(contract.name.as_str())
                     .or_default()
@@ -222,14 +196,20 @@ fn assert_code_anchors_exist(fixture: &CoverageFixture, rust: &BTreeMap<String, 
         }
     }
 
-    assert!(
-        missing.is_empty(),
-        "semantic coverage code anchors do not exist: {missing:?}"
-    );
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "semantic coverage code anchors do not exist: {missing:?}"
+        ))
+    }
 }
 
-fn assert_test_anchors_are_executable(fixture: &CoverageFixture, rust: &BTreeMap<String, String>) {
-    let tests = rust_test_locations(rust);
+fn require_executable_test_anchors(
+    fixture: &CoverageFixture,
+    workspace: &RustWorkspace,
+) -> Result<(), String> {
+    let tests = rust_test_locations(workspace);
     let mut missing = BTreeMap::<&str, Vec<&str>>::new();
 
     for family in &fixture.rule_families {
@@ -239,7 +219,7 @@ fn assert_test_anchors_are_executable(fixture: &CoverageFixture, rust: &BTreeMap
             .chain(&family.valid_source_tests)
             .chain(&family.boundary_tests)
         {
-            if !tests.contains_key(test) {
+            if !tests.contains_key(test.as_str()) {
                 missing.entry(family.name.as_str()).or_default().push(test);
             }
         }
@@ -247,7 +227,7 @@ fn assert_test_anchors_are_executable(fixture: &CoverageFixture, rust: &BTreeMap
 
     for contract in &fixture.cross_cutting {
         for test in &contract.tests {
-            if !tests.contains_key(test) {
+            if !tests.contains_key(test.as_str()) {
                 missing
                     .entry(contract.name.as_str())
                     .or_default()
@@ -256,17 +236,20 @@ fn assert_test_anchors_are_executable(fixture: &CoverageFixture, rust: &BTreeMap
         }
     }
 
-    assert!(
-        missing.is_empty(),
-        "semantic coverage test anchors are not executable tests: {missing:?}"
-    );
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "semantic coverage test anchors are not executable tests: {missing:?}"
+        ))
+    }
 }
 
-fn assert_source_tests_use_source_integration_crates(
+fn require_source_integration_tests(
     families: &[RuleFamily],
-    rust: &BTreeMap<String, String>,
-) {
-    let tests = rust_test_locations(rust);
+    workspace: &RustWorkspace,
+) -> Result<(), String> {
+    let tests = rust_test_locations(workspace);
     let mut misplaced = BTreeMap::<&str, Vec<(&str, &str)>>::new();
 
     for family in families {
@@ -275,7 +258,7 @@ fn assert_source_tests_use_source_integration_crates(
             .iter()
             .chain(&family.valid_source_tests)
         {
-            let Some(path) = tests.get(test) else {
+            let Some(path) = tests.get(test.as_str()) else {
                 continue;
             };
 
@@ -290,15 +273,19 @@ fn assert_source_tests_use_source_integration_crates(
         }
     }
 
-    assert!(
-        misplaced.is_empty(),
-        "semantic source coverage anchors use lower-level fabricated fixtures: {misplaced:?}"
-    );
+    if misplaced.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "semantic source coverage anchors use lower-level fabricated fixtures: {misplaced:?}"
+        ))
+    }
 }
 
-fn rust_test_locations(rust: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    rust_tests(rust)
-        .into_iter()
-        .map(|test| (test.name().to_owned(), test.path().to_owned()))
+fn rust_test_locations(workspace: &RustWorkspace) -> BTreeMap<&str, &str> {
+    workspace
+        .tests()
+        .iter()
+        .map(|test| (test.name(), test.path()))
         .collect()
 }

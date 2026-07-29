@@ -1,0 +1,137 @@
+use std::collections::BTreeSet;
+
+use serde::Deserialize;
+
+use super::workspace::{RustWorkspace, is_fixture_anchor, require_ordered_names};
+
+const REQUIRED_CONTRACTS: &[&str] = &[
+    "mir-validation",
+    "lazy-publication",
+    "worker-determinism",
+    "recovery",
+];
+
+#[derive(Deserialize)]
+struct CoverageFixture {
+    bound_expressions: Vec<CoverageRow>,
+    structured_expressions: Vec<CoverageRow>,
+    patterns: Vec<CoverageRow>,
+    unit_roots: Vec<CoverageRow>,
+    semantic_facts: Vec<CoverageRow>,
+    contracts: Vec<CoverageRow>,
+}
+
+#[derive(Deserialize)]
+struct CoverageRow {
+    name: String,
+    production: String,
+    test: String,
+}
+
+pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
+    let fixture: CoverageFixture = workspace.read_fixture("lowering-coverage.json")?;
+
+    require_enum_coverage(&fixture.bound_expressions, workspace, "BoundExpression")?;
+
+    require_enum_coverage(
+        &fixture.structured_expressions,
+        workspace,
+        "BoundStructuredExpressionKind",
+    )?;
+
+    require_enum_coverage(&fixture.patterns, workspace, "BoundPatternKind")?;
+    require_enum_coverage(&fixture.unit_roots, workspace, "BoundUnitRoot")?;
+    require_enum_coverage(&fixture.semantic_facts, workspace, "LoweringFactKind")?;
+    require_contract_names(&fixture.contracts)?;
+    require_executable_rows(&fixture.contracts, workspace)?;
+
+    require_codegen_boundary(workspace)
+}
+
+fn require_contract_names(rows: &[CoverageRow]) -> Result<(), String> {
+    require_ordered_names(
+        rows.iter().map(|row| row.name.as_str()),
+        REQUIRED_CONTRACTS,
+        "lowering readiness contracts",
+    )
+}
+
+fn require_enum_coverage(
+    rows: &[CoverageRow],
+    workspace: &RustWorkspace,
+    enum_name: &str,
+) -> Result<(), String> {
+    let expected = workspace
+        .enum_variants(enum_name)?
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    let actual = rows
+        .iter()
+        .map(|row| row.name.clone())
+        .collect::<BTreeSet<_>>();
+
+    if actual != expected {
+        return Err(format!(
+            "lowering coverage fixture drifted from {enum_name}: expected {expected:?}, found {actual:?}"
+        ));
+    }
+
+    require_executable_rows(rows, workspace)
+}
+
+fn require_executable_rows(
+    rows: &[CoverageRow],
+    workspace: &RustWorkspace,
+) -> Result<(), String> {
+    let tests = workspace.executable_test_names("lowering")?;
+
+    let mut names = BTreeSet::new();
+
+    for row in rows {
+        if !names.insert(row.name.as_str()) {
+            return Err(format!("lowering coverage fixture repeats {}", row.name));
+        }
+
+        if !is_fixture_anchor(&row.production) || !workspace.contains_source(&row.production) {
+            return Err(format!(
+                "missing lowering production anchor for {}: {}",
+                row.name, row.production
+            ));
+        }
+
+        if !is_fixture_anchor(&row.test) || !tests.contains(row.test.as_str()) {
+            return Err(format!(
+                "missing executable lowering test for {}: {}",
+                row.name, row.test
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn require_codegen_boundary(workspace: &RustWorkspace) -> Result<(), String> {
+    let manifest = workspace.read_text("crates/bray-codegen/Cargo.toml")?;
+
+    for forbidden in [
+        "bray-binder",
+        "bray-bound-tree",
+        "bray-checker",
+        "bray-compilation",
+        "bray-lowering",
+    ] {
+        if manifest.contains(forbidden) {
+            return Err(format!(
+                "bray-codegen must consume MIR without depending on {forbidden}"
+            ));
+        }
+    }
+
+    if manifest.contains("bray-ir") {
+        Ok(())
+    } else {
+        Err("bray-codegen must depend on bray-ir".to_owned())
+    }
+}

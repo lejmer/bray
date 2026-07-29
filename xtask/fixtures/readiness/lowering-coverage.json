@@ -91,7 +91,6 @@
     { "name": "mir-validation", "production": "validate_unit", "test": "builders_publish_typed_storage_values_operations_and_edges" },
     { "name": "lazy-publication", "production": "lowered_unit_with_cancellation", "test": "lowering_results_are_computed_lazily_and_published_once" },
     { "name": "worker-determinism", "production": "WorkerBudget", "test": "lowering_is_deterministic_across_worker_widths" },
-    { "name": "recovery", "production": "RecoveredBoundNode", "test": "input_rejects_bound_expressions_without_final_types" },
-    { "name": "codegen-boundary", "production": "CodegenUnit", "test": "codegen_consumes_mir_without_semantic_phase_dependencies" }
+    { "name": "recovery", "production": "RecoveredBoundNode", "test": "input_rejects_bound_expressions_without_final_types" }
   ]
 }
