@@ -4,7 +4,7 @@ use bray_base::Cancellation;
 use bray_runtime_interface::PanicAbiIdentity;
 use bray_symbols::CallableAbi;
 use bray_target::test_support::test_target_profile;
-use bray_target::{CodeModel, RelocationModel};
+use bray_target::{CodeModel, RelocationModel, TargetProfile};
 use bray_testing::test_mir_unit;
 
 use crate::{
@@ -177,6 +177,17 @@ fn backend_identity() -> BackendIdentity {
 
 /// Creates a validated x86-64 ELF code generation target.
 pub fn codegen_target() -> CodegenTarget {
+    codegen_target_with_profile(
+        test_target_profile(),
+        "x86_64-unknown-linux-gnu",
+    )
+}
+
+/// Creates a test code generation target from the supplied profile and triple.
+pub fn codegen_target_with_profile(
+    profile: TargetProfile,
+    triple: &str,
+) -> CodegenTarget {
     let contract = target_contract();
 
     let Ok(selection) = TargetMachineSelection::try_new(
@@ -189,8 +200,8 @@ pub fn codegen_target() -> CodegenTarget {
     };
 
     let Ok(target) = CodegenTarget::try_new(
-        test_target_profile(),
-        "x86_64-unknown-linux-gnu",
+        profile,
+        triple,
         contract,
         selection,
     ) else {

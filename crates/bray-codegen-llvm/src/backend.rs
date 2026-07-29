@@ -11,7 +11,8 @@ use crate::machine::LlvmTargetMachine;
 
 const BACKEND_NAME: &str = "llvm";
 const BACKEND_REVISION: &str = "1";
-const LLVM_REVISION: &str = "22.1.8";
+const LLVM_REVISION: &str = env!("BRAY_LLVM_REVISION");
+const LLVM_TARGETS: &str = env!("BRAY_LLVM_TARGETS");
 
 /// LLVM implementation of Bray's coarse code generation contract.
 pub struct LlvmCodeGenerator {
@@ -39,6 +40,7 @@ impl LlvmCodeGenerator {
         let context = Context::create();
         let module = context.create_module("bray.codegen.unit");
 
+        machine.validate_contract(request.target(), &context)?;
         machine.configure_module(&module);
 
         Ok(())
@@ -59,7 +61,10 @@ impl CodeGenerator for LlvmCodeGenerator {
             return Err(CodegenFailure::UnsupportedTarget);
         }
 
-        LlvmTargetMachine::create(target).map(|_| ())
+        let machine = LlvmTargetMachine::create(target)?;
+        let context = Context::create();
+
+        machine.validate_contract(target, &context)
     }
 
     fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome {
@@ -130,6 +135,7 @@ fn target_platforms() -> impl Iterator<Item = BackendTargetPlatform> {
         platform(TargetArchitecture::Wasm64, ObjectFormat::WebAssembly),
     ]
     .into_iter()
+    .filter(|platform| llvm_target_is_built(platform.architecture()))
 }
 
 const fn platform(
@@ -139,14 +145,33 @@ const fn platform(
     BackendTargetPlatform::new(architecture, object_format)
 }
 
-#[cfg(test)]
-mod tests {
-    use bray_codegen::test_support::{codegen_request_for_backend, codegen_target};
-    use bray_codegen::{
-        BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus,
+fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
+    let family = match architecture {
+        TargetArchitecture::X86 | TargetArchitecture::X86_64 => "X86",
+        TargetArchitecture::Arm => "ARM",
+        TargetArchitecture::Aarch64 => "AArch64",
+        TargetArchitecture::Riscv32 | TargetArchitecture::Riscv64 => "RISCV",
+        TargetArchitecture::PowerPc64 => "PowerPC",
+        TargetArchitecture::Wasm32 | TargetArchitecture::Wasm64 => "WebAssembly",
     };
 
-    use super::{LLVM_REVISION, LlvmCodeGenerator};
+    LLVM_TARGETS.split(',').any(|target| target == family)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::test_support::{
+        codegen_request_for_backend, codegen_target, codegen_target_with_profile,
+    };
+    use bray_codegen::{BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus};
+    use bray_target::test_support::test_target_profile;
+    use inkwell::OptimizationLevel;
+    use inkwell::targets::{
+        CodeModel, RelocMode, Target, TargetTriple,
+    };
+
+    use super::{LLVM_REVISION, LlvmCodeGenerator, representative_triple};
+    use crate::initialization;
 
     #[test]
     fn backend_identity_and_capabilities_are_stable() {
@@ -166,6 +191,16 @@ mod tests {
         );
 
         assert_eq!(backend.validate_target(&codegen_target()), Ok(()));
+
+        let mismatched = codegen_target_with_profile(
+            test_target_profile(),
+            "x86_64-pc-windows-msvc",
+        );
+
+        assert_eq!(
+            backend.validate_target(&mismatched),
+            Err(CodegenFailure::UnsupportedTarget)
+        );
     }
 
     #[test]
@@ -183,5 +218,61 @@ mod tests {
         );
 
         assert!(outcome.artifacts().is_none());
+    }
+
+    #[test]
+    fn every_advertised_platform_has_a_compiled_llvm_target() {
+        initialization::initialize();
+
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        for platform in backend.capabilities().target_platforms() {
+            let triple = TargetTriple::create(representative_triple(platform));
+
+            let Ok(target) = Target::from_triple(&triple) else {
+                panic!("{platform:?} must have a compiled LLVM target");
+            };
+
+            assert!(
+                target
+                    .create_target_machine(
+                        &triple,
+                        "",
+                        "",
+                        OptimizationLevel::None,
+                        RelocMode::Default,
+                        CodeModel::Default,
+                    )
+                    .is_some(),
+                "{platform:?} must construct an LLVM target machine"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+fn representative_triple(platform: &BackendTargetPlatform) -> &'static str {
+    match (platform.architecture(), platform.object_format()) {
+        (TargetArchitecture::X86, ObjectFormat::Coff) => "i686-pc-windows-msvc",
+        (TargetArchitecture::X86, ObjectFormat::Elf) => "i686-unknown-linux-gnu",
+        (TargetArchitecture::X86, ObjectFormat::MachO) => "i686-apple-darwin",
+        (TargetArchitecture::X86_64, ObjectFormat::Coff) => "x86_64-pc-windows-msvc",
+        (TargetArchitecture::X86_64, ObjectFormat::Elf) => "x86_64-unknown-linux-gnu",
+        (TargetArchitecture::X86_64, ObjectFormat::MachO) => "x86_64-apple-darwin",
+        (TargetArchitecture::Arm, ObjectFormat::Coff) => "armv7-pc-windows-msvc",
+        (TargetArchitecture::Arm, ObjectFormat::Elf) => "armv7-unknown-linux-gnueabihf",
+        (TargetArchitecture::Arm, ObjectFormat::MachO) => "armv7-apple-darwin",
+        (TargetArchitecture::Aarch64, ObjectFormat::Coff) => "aarch64-pc-windows-msvc",
+        (TargetArchitecture::Aarch64, ObjectFormat::Elf) => "aarch64-unknown-linux-gnu",
+        (TargetArchitecture::Aarch64, ObjectFormat::MachO) => "aarch64-apple-darwin",
+        (TargetArchitecture::Riscv32, ObjectFormat::Elf) => "riscv32-unknown-linux-gnu",
+        (TargetArchitecture::Riscv64, ObjectFormat::Elf) => "riscv64-unknown-linux-gnu",
+        (TargetArchitecture::PowerPc64, ObjectFormat::Elf) => "powerpc64-unknown-linux-gnu",
+        (TargetArchitecture::PowerPc64, ObjectFormat::Xcoff) => "powerpc64-ibm-aix",
+        (TargetArchitecture::Wasm32, ObjectFormat::WebAssembly) => "wasm32-unknown-unknown",
+        (TargetArchitecture::Wasm64, ObjectFormat::WebAssembly) => "wasm64-unknown-unknown",
+        _ => "unknown-unknown-unknown",
     }
 }
