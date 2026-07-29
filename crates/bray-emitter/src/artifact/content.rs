@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 
 const COPY_BUFFER_LEN: usize = 64 * 1024;
 
-pub(super) enum ContentReader<'content> {
+pub(crate) enum ContentReader<'content> {
     Memory(Cursor<&'content [u8]>),
     CompilerSpool(File),
 }
@@ -24,7 +24,9 @@ impl Read for ContentReader<'_> {
     }
 }
 
-pub(super) fn open_content(content: &ArtifactContent) -> Result<ContentReader<'_>, io::ErrorKind> {
+pub(crate) fn open_content(
+    content: &ArtifactContent,
+) -> Result<ContentReader<'_>, io::ErrorKind> {
     match content.source() {
         ArtifactContentSource::Memory(bytes) => Ok(ContentReader::Memory(Cursor::new(bytes))),
         ArtifactContentSource::CompilerSpool(spool) => spool
@@ -34,7 +36,7 @@ pub(super) fn open_content(content: &ArtifactContent) -> Result<ContentReader<'_
     }
 }
 
-pub(super) fn validate_content(
+pub(crate) fn validate_content(
     content: &ArtifactContent,
     expected: Option<&ArtifactDigest>,
     cancellation: &dyn Cancellation,
@@ -44,7 +46,7 @@ pub(super) fn validate_content(
     validate_reader(reader, content.byte_len(), expected, cancellation)
 }
 
-pub(super) fn validate_staged_content(
+pub(crate) fn validate_staged_content(
     path: &Path,
     expected_byte_len: u64,
     expected_digest: Option<&ArtifactDigest>,
@@ -161,7 +163,7 @@ impl ExpectedDigestHasher {
 }
 
 #[derive(Debug)]
-pub(super) enum ContentValidationError {
+pub(crate) enum ContentValidationError {
     Cancelled,
     Read(io::ErrorKind),
     LengthMismatch {
