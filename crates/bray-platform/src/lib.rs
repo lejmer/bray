@@ -1,4 +1,4 @@
-//! Safe native mechanisms used by trusted runtime and standard-library layers.
+//! Safe native mechanisms used by compiler-host and trusted runtime layers.
 
 #![forbid(unsafe_code)]
 

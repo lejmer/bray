@@ -149,6 +149,17 @@ real linker.
 The linker must not invoke a shell to interpret constructed command text. External tools receive an executable path and an explicit
 argument vector. Response files use driver-owned deterministic encoding when command length or platform rules require them.
 
+Each external-tool invocation also provides its complete child environment, optional working directory, and exact response-file
+paths and bytes. The process boundary clears the inherited environment before applying the invocation environment, captures stdout
+and stderr as uninterpreted tool-authored bytes, and returns stable host failure categories rather than host-authored prose.
+
+Response files are created without replacing existing files and are removed after process completion, failure, or cancellation.
+Their paths and contents are fixed before invocation and do not depend on process identity, thread scheduling, or environment
+enumeration.
+
+This boundary serves compiler-host tools only. It is separate from Bray source-level process declarations, task cancellation, and
+process result contracts.
+
 ---
 
 ## Static Libraries
@@ -282,6 +293,9 @@ deterministic artifacts.
 Independent products can link concurrently subject to compiler process and I/O budgets.
 
 One link plan is executed once. Drivers must not create hidden compiler-owned worker pools that violate configured resource policy.
+
+External linker and archiver invocations acquire a permit from one explicit nonzero compiler-host process budget. Permit acquisition
+observes compiler-operation cancellation, and permit release follows child-process termination and reaping.
 
 Linking begins only after all required inputs are complete. It does not block unrelated MIR, codegen, interface, or emission tasks
 whose fact dependencies are ready.

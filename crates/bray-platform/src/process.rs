@@ -73,6 +73,13 @@ impl NativeProcessCommand {
         self
     }
 
+    /// Removes inherited environment variables from the child environment.
+    pub fn env_clear(&mut self) -> &mut Self {
+        self.command.env_clear();
+
+        self
+    }
+
     /// Sets the child working directory.
     pub fn current_dir(&mut self, directory: impl AsRef<Path>) -> &mut Self {
         self.command.current_dir(directory);

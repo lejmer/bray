@@ -209,6 +209,11 @@ impl LinkOutcome {
         &self.diagnostics
     }
 
+    /// Consumes the outcome and returns its diagnostics.
+    pub fn into_diagnostics(self) -> DiagnosticBag {
+        self.diagnostics
+    }
+
     /// Returns complete staged artifacts only after successful validation.
     pub const fn artifacts(&self) -> Option<&LinkedArtifactSet> {
         match &self.status {
