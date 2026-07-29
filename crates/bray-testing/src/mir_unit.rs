@@ -4,10 +4,12 @@ use bray_ir::{
 };
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
-    RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeRequirements, RuntimeRoleBinding,
-    RuntimeRoleImplementation,
+    ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution, RuntimeAbiRole,
+    RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity,
+    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, TypeData, TypeId};
+use bray_target::TargetIdentity;
 
 use crate::test_bound_unit_with_declaration;
 
@@ -52,14 +54,52 @@ pub fn test_mir_target() -> MirTargetFacts {
 
 /// Builds one valid deterministic compiler-generated executable-host contract.
 pub fn test_executable_host_contract() -> ExecutableHostContract {
-    let Some(package) = PackageIdentity::try_new("example.app") else {
-        panic!("test package identity must be valid");
+    test_executable_host_contract_for(test_product(), test_mir_target().identity().clone())
+}
+
+/// Builds one valid deterministic synchronous host contract for supplied identities.
+pub fn test_executable_host_contract_for(
+    product: ProductIdentity,
+    target: TargetIdentity,
+) -> ExecutableHostContract {
+    test_host_contract(product, target, RootExecution::Synchronous, None)
+}
+
+/// Builds one valid deterministic asynchronous executable-host contract.
+pub fn test_async_executable_host_contract() -> ExecutableHostContract {
+    let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
+        panic!("test runtime artifact identity must be valid");
     };
 
-    let Some(product) = ProductIdentity::try_new(package, "application") else {
-        panic!("test product identity must be valid");
-    };
+    test_async_executable_host_contract_for(
+        test_product(),
+        test_mir_target().identity().clone(),
+        runtime,
+    )
+}
 
+/// Builds one valid deterministic asynchronous host contract for supplied identities.
+pub fn test_async_executable_host_contract_for(
+    product: ProductIdentity,
+    target: TargetIdentity,
+    runtime: RuntimeArtifactId,
+) -> ExecutableHostContract {
+    test_host_contract(
+        product,
+        target,
+        RootExecution::Asynchronous {
+            frame: ProtectedAsyncFrameId::new([7; 32]),
+        },
+        Some(runtime),
+    )
+}
+
+fn test_host_contract(
+    product: ProductIdentity,
+    target: TargetIdentity,
+    root: RootExecution,
+    runtime: Option<RuntimeArtifactId>,
+) -> ExecutableHostContract {
     let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
         panic!("test host entry symbol name must be valid");
     };
@@ -75,26 +115,37 @@ pub fn test_executable_host_contract() -> ExecutableHostContract {
     let mut builder = ExecutableHostContractBuilder::new(
         product,
         entry,
-        RootExecution::Synchronous,
-        test_runtime_requirements(),
+        root,
+        test_runtime_requirements(target.clone(), runtime.is_some()),
     );
 
     for role in roles {
-        let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
-            panic!("test role symbol name must be valid");
-        };
-
-        builder.push_role_binding(RuntimeRoleBinding::new(
+        builder.push_role_binding(test_role_binding(
             role,
-            symbol_name,
             RuntimeRoleImplementation::CompilerLowering,
         ));
+    }
+
+    if let Some(runtime) = runtime {
+        builder.select_runtime(test_runtime_contract(target, runtime));
     }
 
     match builder.finish() {
         Ok(contract) => contract,
         Err(error) => panic!("test executable-host contract must be valid: {error:?}"),
     }
+}
+
+fn test_product() -> ProductIdentity {
+    let Some(package) = PackageIdentity::try_new("example.app") else {
+        panic!("test package identity must be valid");
+    };
+
+    let Some(product) = ProductIdentity::try_new(package, "application") else {
+        panic!("test product identity must be valid");
+    };
+
+    product
 }
 
 /// Returns a canonical error type for MIR tests.
@@ -109,22 +160,89 @@ pub fn test_mir_type() -> TypeId {
     }
 }
 
-fn test_runtime_requirements() -> RuntimeRequirements {
-    let target = test_mir_target();
-
+fn test_runtime_requirements(target: TargetIdentity, is_async: bool) -> RuntimeRequirements {
     let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
         panic!("test panic ABI identity must be valid");
     };
 
+    let runtime = is_async.then(test_runtime_identity);
+
+    let frame_abi = is_async
+        .then(|| ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)));
+
+    let roles = is_async
+        .then_some([
+            RuntimeAbiRole::MainThreadLaneStartup,
+            RuntimeAbiRole::MainThreadLaneDrive,
+        ])
+        .into_iter()
+        .flatten();
+
+    let capabilities = is_async
+        .then_some([
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::MainThreadLane,
+        ])
+        .into_iter()
+        .flatten();
+
     RuntimeRequirements::new(
-        None,
+        runtime,
         RuntimeAbiVersion::new(1, 0),
-        None,
-        // The test contract owns its immutable target identity independently of target facts.
-        target.identity().clone(),
+        frame_abi,
+        target,
         panic_abi,
-        [],
-        [],
+        roles,
+        capabilities,
         [],
     )
+}
+
+fn test_runtime_contract(
+    target: TargetIdentity,
+    artifact: RuntimeArtifactId,
+) -> RuntimeContract {
+    let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
+        panic!("test panic ABI identity must be valid");
+    };
+
+    RuntimeContract::try_new(
+        test_runtime_identity(),
+        artifact,
+        RuntimeAbiVersion::new(1, 0),
+        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+        target,
+        panic_abi,
+        [
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::MainThreadLane,
+        ],
+        [
+            test_role_binding(
+                RuntimeAbiRole::MainThreadLaneStartup,
+                RuntimeRoleImplementation::BrayRuntime,
+            ),
+            test_role_binding(
+                RuntimeAbiRole::MainThreadLaneDrive,
+                RuntimeRoleImplementation::BrayRuntime,
+            ),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("test runtime contract must be valid: {error:?}"))
+}
+
+fn test_runtime_identity() -> RuntimeIdentity {
+    RuntimeIdentity::try_new("bray.runtime.test")
+        .unwrap_or_else(|| panic!("test runtime identity must be valid"))
+}
+
+fn test_role_binding(
+    role: RuntimeAbiRole,
+    implementation: RuntimeRoleImplementation,
+) -> RuntimeRoleBinding {
+    let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+        panic!("test runtime role symbol name must be valid");
+    };
+
+    RuntimeRoleBinding::new(role, symbol_name, implementation)
 }

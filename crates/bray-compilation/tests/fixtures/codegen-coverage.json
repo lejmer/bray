@@ -425,189 +425,378 @@
       }
     }
   ],
+  "closed_categories": [
+    {
+      "name": "ConstructionDefaultProvider",
+      "variants": ["StructField", "UnionPayload", "CallableParameter"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "MirHelperReference::ConstructionDefault"
+      }
+    },
+    {
+      "name": "ConstructionInputId",
+      "variants": ["StructField", "UnionPayloadField", "CallableParameter"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "translate_construction"
+      }
+    },
+    {
+      "name": "ConstructionTarget",
+      "variants": ["Struct", "UnionVariant", "TypeForm"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "construction.target()"
+      }
+    },
+    {
+      "name": "ConversionTarget",
+      "variants": ["Identity", "BuiltInScalar", "Composite", "Trait"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "conversion.target()"
+      }
+    },
+    {
+      "name": "MirAggregateKind",
+      "variants": ["Tuple", "Array", "RepeatedArray"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "aggregate.kind()"
+      }
+    },
+    {
+      "name": "MirBinaryOperator",
+      "variants": ["Add", "Subtract", "Multiply", "Divide", "Remainder", "Equal", "NotEqual", "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "ShiftLeft", "ShiftRight"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/scalar.rs",
+        "symbol": "translate_binary"
+      }
+    },
+    {
+      "name": "MirCallArgument",
+      "variants": ["Receiver", "Explicit", "Default"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "evaluate_call_arguments"
+      }
+    },
+    {
+      "name": "MirCallTarget",
+      "variants": ["Direct", "Indirect"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "call.target()"
+      }
+    },
+    {
+      "name": "MirCleanupPhase",
+      "variants": ["TaskCancellation", "LifecycleResolution"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHelperReference::Cleanup"
+      }
+    },
+    {
+      "name": "MirConstructionInput",
+      "variants": ["Explicit", "Default"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "for input in construction.inputs()"
+      }
+    },
+    {
+      "name": "MirFrameInitializer",
+      "variants": ["Callable", "TaskObservation"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "translate_frame_creation"
+      }
+    },
+    {
+      "name": "MirGeneratorKind",
+      "variants": ["Array", "General"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "translate_generator"
+      }
+    },
+    {
+      "name": "MirGeneratorOperation",
+      "variants": ["Begin", "Push", "Finish"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "match generator"
+      }
+    },
+    {
+      "name": "MirImmediateValue",
+      "variants": ["Boolean", "Unit", "NullableAbsent"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/value.rs",
+        "symbol": "MirImmediateValue::"
+      }
+    },
+    {
+      "name": "MirOperand",
+      "variants": ["Value", "Constant", "Immediate", "Copy", "Move"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/value.rs",
+        "symbol": "pub(super) fn operand"
+      }
+    },
+    {
+      "name": "MirPanicCause",
+      "variants": ["Message", "Assertion"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "match cause"
+      }
+    },
+    {
+      "name": "MirProjectionKind",
+      "variants": ["Dereference", "Field", "TupleField", "ElementFromStart", "ElementFromEnd", "Index", "Slice", "Variant", "ActiveUnionPayloadField", "NullableValue"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/place.rs",
+        "symbol": "match projection.kind()"
+      }
+    },
+    {
+      "name": "MirStoreKind",
+      "variants": ["Initialize", "Assign"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Store"
+      }
+    },
+    {
+      "name": "MirTaskTerminalState",
+      "variants": ["Completed", "Cancelled", "Panicked"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "terminal_state_arguments"
+      }
+    },
+    {
+      "name": "MirUnaryOperator",
+      "variants": ["Negate", "Not", "BitwiseNot"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/scalar.rs",
+        "symbol": "translate_unary"
+      }
+    },
+    {
+      "name": "PatternOperation",
+      "variants": ["Observe", "SharedBorrow", "MutableBorrow", "Consume", "Copy", "Recovered"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "match operation"
+      }
+    },
+    {
+      "name": "PatternPredicate",
+      "variants": ["Literal", "Constant", "NullableAbsent", "NullablePresent", "ActiveUnionVariant", "ProductShape", "TupleShape", "ArrayShape", "OwnedTarget"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "translate_pattern_predicate"
+      }
+    },
+    {
+      "name": "PatternProjection",
+      "variants": ["ProductField", "TupleElement", "ActiveUnionPayloadField", "ElementFromStart", "ElementFromEnd", "NullableValue", "OwnedTarget"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "match projection"
+      }
+    }
+  ],
   "runtime_roles": [
     {
       "name": "RootExecution",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::RootExecution"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "RootCancellationRequest",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::RootCancellationRequest"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "TaskAllocation",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TaskAllocation"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "TaskStart",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TaskStart"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "FrameResume",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::FrameResume"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "SuspensionRegistration",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/control.rs",
+        "symbol": "RuntimeAbiRole::SuspensionRegistration"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "Wake",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/control.rs",
+        "symbol": "RuntimeAbiRole::Wake"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "TaskCancellationRequest",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TaskCancellationRequest"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "CurrentRunCancellationObservation",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::CurrentRunCancellationObservation"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "JoinRegistration",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::JoinRegistration"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "TerminalPublication",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
-      }
-    },
-    {
-      "name": "RuntimeEvent",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
-      }
-    },
-    {
-      "name": "CompatibleLaneSelection",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TerminalPublication"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "CleanupIncidentTransfer",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::CleanupIncidentTransfer"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "CleanupIncidentReporting",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
-      }
-    },
-    {
-      "name": "MainThreadLaneStartup",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
-      }
-    },
-    {
-      "name": "MainThreadLaneDrive",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::CleanupIncidentReporting"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "RootTerminalObservation",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::RootTerminalObservation"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "StructuredShutdown",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::StructuredShutdown"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "FrameTaskBroadcast",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::FrameTaskBroadcast"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     },
     {
       "name": "FrameLifecycleResolution",
-      "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
-      }
-    },
-    {
-      "name": "FrameCompletionMove",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
-      }
-    },
-    {
-      "name": "FrameDestruction",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen/src/mapping/model/validation.rs",
-        "symbol": "demanded_runtime_references"
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::FrameLifecycleResolution"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
       }
     }
   ],
@@ -788,7 +977,7 @@
         "path": "crates/bray-lowering/src/host.rs",
         "symbol": "lower_executable_host"
       },
-      "test": "generated_executable_host_mir_has_a_complete_structural_projection"
+      "test": "asynchronous_host_retains_the_distinguished_main_thread_lane_contract"
     },
     {
       "name": "complete MIR cache identity",

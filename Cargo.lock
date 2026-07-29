@@ -320,6 +320,7 @@ dependencies = [
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
+ "bray-testing",
 ]
 
 [[package]]

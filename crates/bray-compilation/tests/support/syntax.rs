@@ -1,36 +1,45 @@
 use std::collections::BTreeMap;
 
-pub(crate) fn enum_variants(
-    rust: &BTreeMap<String, String>,
-    enum_name: &str,
-) -> Vec<String> {
-    let mut variants = Vec::new();
+pub(crate) struct EnumInventory {
+    variants: BTreeMap<String, Vec<String>>,
+}
 
-    for (path, contents) in rust {
-        let file = syn::parse_file(contents)
-            .unwrap_or_else(|error| panic!("could not parse {path}: {error}"));
+impl EnumInventory {
+    pub(crate) fn new(rust: &BTreeMap<String, String>) -> Self {
+        let mut variants: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
-        for item in file.items {
-            let syn::Item::Enum(item) = item else {
-                continue;
-            };
+        for (path, contents) in rust {
+            let file = syn::parse_file(contents)
+                .unwrap_or_else(|error| panic!("could not parse {path}: {error}"));
 
-            if item.ident == enum_name {
-                variants.extend(
-                    item.variants
-                        .into_iter()
-                        .map(|variant| variant.ident.to_string()),
-                );
+            for item in file.items {
+                let syn::Item::Enum(item) = item else {
+                    continue;
+                };
+
+                variants
+                    .entry(item.ident.to_string())
+                    .or_default()
+                    .extend(
+                        item.variants
+                            .into_iter()
+                            .map(|variant| variant.ident.to_string()),
+                    );
             }
         }
+
+        for variants in variants.values_mut() {
+            variants.sort();
+        }
+
+        Self { variants }
     }
 
-    variants.sort();
+    pub(crate) fn variants(&self, enum_name: &str) -> &[String] {
+        let Some(variants) = self.variants.get(enum_name) else {
+            panic!("could not find enum {enum_name} in the Rust workspace");
+        };
 
-    assert!(
-        !variants.is_empty(),
-        "could not find enum {enum_name} in the Rust workspace"
-    );
-
-    variants
+        variants
+    }
 }
