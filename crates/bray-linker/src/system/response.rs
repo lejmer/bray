@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::SystemLinkerConfiguration;
 use super::family::ResponseFileEncoding;
@@ -15,8 +15,14 @@ pub(super) fn invocation(
 ) -> Result<ExternalToolInvocation, SystemLinkerInvocationBuildError> {
     let (arguments, response_files) = match configuration.family().response_file_encoding() {
         Some(encoding) => {
-            let response_file = response_file(plan, &arguments, encoding)?;
-            let reference = response_file_reference(response_file.path());
+            let (response_file, reference_path) = response_file(
+                plan,
+                &arguments,
+                encoding,
+                configuration.current_directory(),
+            )?;
+
+            let reference = response_file_reference(&reference_path);
 
             (vec![reference], vec![response_file])
         }
@@ -44,19 +50,23 @@ fn response_file(
     plan: &LinkPlan,
     arguments: &[OsString],
     encoding: ResponseFileEncoding,
-) -> Result<ExternalToolResponseFile, SystemLinkerInvocationBuildError> {
+    current_directory: Option<&Path>,
+) -> Result<(ExternalToolResponseFile, PathBuf), SystemLinkerInvocationBuildError> {
     let Some(primary_output) = plan.primary_output() else {
         return Err(SystemLinkerInvocationBuildError::MissingPrimaryOutput);
     };
 
-    let path = response_file_path(primary_output.destination().path());
+    let reference_path = response_file_path(primary_output.destination().path());
+    let materialization_path = materialization_path(&reference_path, current_directory);
     let contents = encode_arguments(arguments, encoding)?;
 
-    ExternalToolResponseFile::try_new(path, contents)
-        .map_err(SystemLinkerInvocationBuildError::ResponseFile)
+    let response_file = ExternalToolResponseFile::try_new(materialization_path, contents)
+        .map_err(SystemLinkerInvocationBuildError::ResponseFile)?;
+
+    Ok((response_file, reference_path))
 }
 
-fn response_file_path(output: &std::path::Path) -> PathBuf {
+fn response_file_path(output: &Path) -> PathBuf {
     let mut path = output.as_os_str().to_os_string();
 
     path.push(".bray-link.rsp");
@@ -64,7 +74,14 @@ fn response_file_path(output: &std::path::Path) -> PathBuf {
     path.into()
 }
 
-fn response_file_reference(path: &std::path::Path) -> OsString {
+fn materialization_path(reference: &Path, current_directory: Option<&Path>) -> PathBuf {
+    match current_directory {
+        Some(directory) if reference.is_relative() => directory.join(reference),
+        _ => reference.to_path_buf(),
+    }
+}
+
+fn response_file_reference(path: &Path) -> OsString {
     let mut argument = OsString::from("@");
 
     argument.push(path);
@@ -189,8 +206,47 @@ pub(super) enum SystemLinkerInvocationBuildError {
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
+    use std::path::{Path, PathBuf};
 
-    use super::{encode_utf8, encode_utf16_little_endian, quote_microsoft};
+    use super::{encode_utf8, encode_utf16_little_endian, invocation, quote_microsoft};
+    use crate::test_support::link_plan_with_driver;
+    use crate::{
+        LinkerDriverIdentity, LinkerDriverKind, SystemLinkerConfiguration, SystemLinkerFamily,
+    };
+
+    #[test]
+    fn relative_response_files_materialize_under_the_child_working_directory() {
+        let driver = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::System,
+            "configured-system-linker",
+            "1",
+            "toolchain-1",
+        )
+        .unwrap_or_else(|| panic!("test linker identity must be valid"));
+
+        let plan = link_plan_with_driver(driver);
+
+        let configuration = SystemLinkerConfiguration::try_new(
+            SystemLinkerFamily::Gnu,
+            "toolchain/system-linker",
+            [],
+            Some(PathBuf::from("toolchain")),
+        )
+        .unwrap_or_else(|error| panic!("test configuration must be valid: {error:?}"));
+
+        let invocation = invocation(&configuration, &plan, vec![OsString::from("main.o")])
+            .unwrap_or_else(|error| panic!("test invocation must be valid: {error:?}"));
+
+        assert_eq!(
+            invocation.arguments(),
+            [OsString::from("@application.stage.bray-link.rsp")]
+        );
+
+        assert_eq!(
+            invocation.response_files()[0].path(),
+            Path::new("toolchain/application.stage.bray-link.rsp")
+        );
+    }
 
     #[test]
     fn gnu_response_files_quote_whitespace_quotes_and_backslashes() {

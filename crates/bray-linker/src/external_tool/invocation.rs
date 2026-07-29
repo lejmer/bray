@@ -27,7 +27,7 @@ impl ExternalToolResponseFile {
         })
     }
 
-    /// Returns the exact response-file path referenced by the argument vector.
+    /// Returns the exact path where the compiler host materializes the response file.
     pub fn path(&self) -> &Path {
         &self.path
     }
