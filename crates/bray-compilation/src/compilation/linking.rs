@@ -110,7 +110,10 @@ mod tests {
         SectionGarbageCollectionPolicy, StagingDestination,
         StagingDestinationId, StagingPathKey,
     };
-    use bray_runtime_interface::RuntimeArtifactId;
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, RootExecution, RuntimeAbiRole, RuntimeAbiVersion,
+        RuntimeArtifactId, RuntimeCapability, RuntimeRoleImplementation,
+    };
     use bray_symbols::{ProductIdentity, ProductKind};
     use bray_target::{
         CodeModel, ObjectFormat, RelocationModel, TargetArchitecture,
@@ -239,7 +242,7 @@ mod tests {
             2,
             LinkInputKind::RuntimeComponent,
             "runtime.a",
-            LinkInputProvenance::Runtime(runtime),
+            LinkInputProvenance::Runtime(runtime.clone()),
         ));
 
         builder.push_input(native_library(3, "pthread"));
@@ -280,25 +283,142 @@ mod tests {
         };
 
         assert_eq!(artifacts.artifacts().len(), 2);
+
+        assert_eq!(
+            plan.inputs(),
+            [
+                file_input(
+                    0,
+                    LinkInputKind::StartupObject,
+                    "startup.o",
+                    LinkInputProvenance::TargetProfile,
+                ),
+                file_input(
+                    1,
+                    LinkInputKind::RelocatableObject,
+                    "main.o",
+                    LinkInputProvenance::Product,
+                ),
+                file_input(
+                    2,
+                    LinkInputKind::RuntimeComponent,
+                    "runtime.a",
+                    LinkInputProvenance::Runtime(runtime.clone()),
+                ),
+                native_library(3, "pthread"),
+                file_input(
+                    4,
+                    LinkInputKind::TerminationObject,
+                    "termination.o",
+                    LinkInputProvenance::TargetProfile,
+                ),
+            ]
+        );
+
+        assert_eq!(
+            plan.outputs()
+                .iter()
+                .map(PlannedLinkedArtifact::kind)
+                .collect::<Vec<_>>(),
+            [
+                LinkedArtifactKind::Executable,
+                LinkedArtifactKind::DebugCompanion,
+            ]
+        );
+
+        assert_eq!(plan.retained_symbols(), [symbol("bray_root_frame")]);
+        assert_eq!(plan.entry_point(), Some(executable_host.native_entry()));
         assert_eq!(plan.executable_host(), Some(&executable_host));
+        assert_eq!(executable_host.native_entry().as_str(), "_bray_host_start");
+
+        assert_eq!(
+            executable_host.root(),
+            RootExecution::Asynchronous {
+                frame: ProtectedAsyncFrameId::new([7; 32]),
+            }
+        );
+
+        assert_eq!(
+            executable_host.abi_version(),
+            RuntimeAbiVersion::new(1, 0)
+        );
+
+        assert_eq!(executable_host.runtime_artifact(), Some(&runtime));
+
+        assert_eq!(
+            executable_host
+                .runtime()
+                .map(|runtime| runtime.abi_version()),
+            Some(RuntimeAbiVersion::new(1, 0))
+        );
+
+        assert_eq!(
+            executable_host.runtime_capabilities(),
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ]
+        );
+
+        for role in [
+            RuntimeAbiRole::MainThreadLaneStartup,
+            RuntimeAbiRole::MainThreadLaneDrive,
+        ] {
+            assert_eq!(
+                executable_host
+                    .role_binding(role)
+                    .map(|binding| binding.implementation()),
+                Some(RuntimeRoleImplementation::BrayRuntime)
+            );
+        }
+
+        assert_eq!(
+            executable_host
+                .role_binding(RuntimeAbiRole::StructuredShutdown)
+                .map(|binding| binding.implementation()),
+            Some(RuntimeRoleImplementation::CompilerLowering)
+        );
+
         assert_eq!(driver.plans(), vec![plan]);
     }
 
     #[test]
-    fn cancellation_prevents_linker_invocation() {
-        let driver = Arc::new(RecordingDriver::completing());
-        let linker = linker(Arc::clone(&driver) as Arc<dyn LinkerDriver>);
+    fn cancellation_during_link_discards_driver_success() {
+        let rendezvous = Arc::new(Barrier::new(2));
+
+        let driver = Arc::new(BlockingDriver {
+            identity: driver_identity(),
+            rendezvous: Arc::clone(&rendezvous),
+        });
+
+        let linker = linker(driver as Arc<dyn LinkerDriver>);
         let plan = executable_plan("cancelled.stage");
         let cancellation = CancellationToken::new();
+        let compilation = compilation(WorkerBudget::serial());
 
-        cancellation.cancel();
+        std::thread::scope(|scope| {
+            let operation = scope.spawn(|| {
+                compilation.link_product_with_cancellation(
+                    &linker,
+                    &plan,
+                    &cancellation,
+                )
+            });
 
-        let outcome = compilation(WorkerBudget::serial())
-            .link_product_with_cancellation(&linker, &plan, &cancellation)
-            .unwrap_or_else(|error| panic!("cancelled test link must return: {error:?}"));
+            rendezvous.wait();
+            cancellation.cancel();
+            rendezvous.wait();
 
-        assert!(matches!(outcome.status(), LinkStatus::Cancelled));
-        assert!(driver.plans().is_empty());
+            let outcome = operation
+                .join()
+                .unwrap_or_else(|_| panic!("cancelled test link must not terminate"))
+                .unwrap_or_else(|error| {
+                    panic!("cancelled test link must return: {error:?}")
+                });
+
+            assert_eq!(outcome.status(), &LinkStatus::Cancelled);
+            assert_eq!(outcome.artifacts(), None);
+        });
     }
 
     #[test]
@@ -322,21 +442,20 @@ mod tests {
     #[test]
     fn repeated_links_have_deterministic_outcomes() {
         let driver = Arc::new(RecordingDriver::completing());
-        let linker = linker(driver as Arc<dyn LinkerDriver>);
+        let linker = linker(Arc::clone(&driver) as Arc<dyn LinkerDriver>);
         let compilation = compilation(WorkerBudget::serial());
-        let first_plan = executable_plan("first.stage");
-        let second_plan = executable_plan("second.stage");
+        let plan = executable_plan("repeated.stage");
 
         let first = compilation
-            .link_product(&linker, &first_plan)
+            .link_product(&linker, &plan)
             .unwrap_or_else(|error| panic!("first deterministic link must run: {error:?}"));
 
         let second = compilation
-            .link_product(&linker, &second_plan)
+            .link_product(&linker, &plan)
             .unwrap_or_else(|error| panic!("second deterministic link must run: {error:?}"));
 
-        assert_eq!(first.status(), second.status());
-        assert_eq!(first.diagnostics(), second.diagnostics());
+        assert_eq!(first, second);
+        assert_eq!(driver.plans(), vec![plan.clone(), plan]);
     }
 
     #[test]
@@ -765,6 +884,32 @@ mod tests {
 
                 return complete_with_byte_len(plan, bytes.len());
             }
+
+            complete(plan)
+        }
+    }
+
+    struct BlockingDriver {
+        identity: LinkerDriverIdentity,
+        rendezvous: Arc<Barrier>,
+    }
+
+    impl LinkerDriver for BlockingDriver {
+        fn identity(&self) -> &LinkerDriverIdentity {
+            &self.identity
+        }
+
+        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
+            true
+        }
+
+        fn link(
+            &self,
+            plan: &LinkPlan,
+            _cancellation: &dyn Cancellation,
+        ) -> LinkOutcome {
+            self.rendezvous.wait();
+            self.rendezvous.wait();
 
             complete(plan)
         }

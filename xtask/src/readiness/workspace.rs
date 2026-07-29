@@ -202,6 +202,35 @@ pub(super) fn require_unique_names<'name>(
     }
 }
 
+pub(super) fn require_executable_source_contracts<'row>(
+    rows: impl IntoIterator<Item = (&'row str, &'row str, &'row str)>,
+    workspace: &RustWorkspace,
+    category: &str,
+) -> Result<(), String> {
+    let tests = workspace.executable_test_names(category)?;
+    let mut names = BTreeSet::new();
+
+    for (name, production, test) in rows {
+        if !names.insert(name) {
+            return Err(format!("{category} coverage fixture repeats {name}"));
+        }
+
+        if !is_fixture_anchor(production) || !workspace.contains_source(production) {
+            return Err(format!(
+                "missing {category} production anchor for {name}: {production}"
+            ));
+        }
+
+        if !is_fixture_anchor(test) || !tests.contains(test) {
+            return Err(format!(
+                "missing executable {category} test for {name}: {test}"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("could not read {}: {error}", directory.display()))?;
