@@ -1,0 +1,1015 @@
+{
+  "unit_kinds": [
+    {
+      "name": "Synchronous",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/core.rs",
+        "symbol": "translate_instances"
+      }
+    },
+    {
+      "name": "ProtectedAsyncFrame",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/core.rs",
+        "symbol": "translate_instances"
+      }
+    },
+    {
+      "name": "ExecutableHost",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "MirUnitKind::ExecutableHost"
+      }
+    }
+  ],
+  "operations": [
+    {
+      "name": "AnonymousCallable",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::AnonymousCallable"
+      }
+    },
+    {
+      "name": "Store",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Store"
+      }
+    },
+    {
+      "name": "Borrow",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Borrow"
+      }
+    },
+    {
+      "name": "Unary",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Unary"
+      }
+    },
+    {
+      "name": "Binary",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Binary"
+      }
+    },
+    {
+      "name": "Aggregate",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Aggregate"
+      }
+    },
+    {
+      "name": "Construct",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Construct"
+      }
+    },
+    {
+      "name": "Convert",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Convert"
+      }
+    },
+    {
+      "name": "PatternProjection",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::PatternProjection"
+      }
+    },
+    {
+      "name": "Generator",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Generator"
+      }
+    },
+    {
+      "name": "Call",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Call"
+      }
+    },
+    {
+      "name": "PanicReport",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::PanicReport"
+      }
+    },
+    {
+      "name": "Finalize",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Finalize"
+      }
+    },
+    {
+      "name": "Destroy",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Destroy"
+      }
+    },
+    {
+      "name": "Cleanup",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Cleanup"
+      }
+    },
+    {
+      "name": "Async",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Async"
+      }
+    },
+    {
+      "name": "Host",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Host"
+      }
+    }
+  ],
+  "async_operations": [
+    {
+      "name": "CreateFrame",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::CreateFrame"
+      }
+    },
+    {
+      "name": "MoveInactiveFrame",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::MoveInactiveFrame"
+      }
+    },
+    {
+      "name": "ResumeFrame",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::ResumeFrame"
+      }
+    },
+    {
+      "name": "ComposeAwaitedFrame",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::ComposeAwaitedFrame"
+      }
+    },
+    {
+      "name": "CommitAwaitedCompletion",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::CommitAwaitedCompletion"
+      }
+    },
+    {
+      "name": "StartTask",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::StartTask"
+      }
+    },
+    {
+      "name": "RequestTaskCancellation",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::RequestTaskCancellation"
+      }
+    },
+    {
+      "name": "ObserveCurrentRunCancellation",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::ObserveCurrentRunCancellation"
+      }
+    },
+    {
+      "name": "ResolveTask",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::ResolveTask"
+      }
+    },
+    {
+      "name": "PublishTerminalState",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::PublishTerminalState"
+      }
+    },
+    {
+      "name": "ExecuteCleanupBroadcast",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::ExecuteCleanupBroadcast"
+      }
+    },
+    {
+      "name": "ExecuteLifecycleResolution",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::ExecuteLifecycleResolution"
+      }
+    },
+    {
+      "name": "TransferCleanupIncident",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::TransferCleanupIncident"
+      }
+    },
+    {
+      "name": "DestroyTerminalTask",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirAsyncOperation::DestroyTerminalTask"
+      }
+    }
+  ],
+  "host_operations": [
+    {
+      "name": "ExecuteRoot",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHostOperation::ExecuteRoot"
+      }
+    },
+    {
+      "name": "RequestRootCancellation",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHostOperation::RequestRootCancellation"
+      }
+    },
+    {
+      "name": "ObserveRootTerminal",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHostOperation::ObserveRootTerminal"
+      }
+    },
+    {
+      "name": "ReportCleanupIncidents",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHostOperation::ReportCleanupIncidents"
+      }
+    },
+    {
+      "name": "StructuredShutdown",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHostOperation::StructuredShutdown"
+      }
+    }
+  ],
+  "terminators": [
+    {
+      "name": "Goto",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Goto"
+      }
+    },
+    {
+      "name": "Branch",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Branch"
+      }
+    },
+    {
+      "name": "PatternBranch",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::PatternBranch"
+      }
+    },
+    {
+      "name": "Iterate",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Iterate"
+      }
+    },
+    {
+      "name": "Switch",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Switch"
+      }
+    },
+    {
+      "name": "Return",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Return"
+      }
+    },
+    {
+      "name": "Unreachable",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Unreachable"
+      }
+    },
+    {
+      "name": "Suspend",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Suspend"
+      }
+    },
+    {
+      "name": "ForwardRunResult",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::ForwardRunResult"
+      }
+    },
+    {
+      "name": "BeginCleanup",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::BeginCleanup"
+      }
+    },
+    {
+      "name": "ContinueCleanup",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::ContinueCleanup"
+      }
+    },
+    {
+      "name": "Panic",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Panic"
+      }
+    },
+    {
+      "name": "CancelCurrentRun",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::CancelCurrentRun"
+      }
+    }
+  ],
+  "closed_categories": [
+    {
+      "name": "ConstructionDefaultProvider",
+      "variants": ["StructField", "UnionPayload", "CallableParameter"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "MirHelperReference::ConstructionDefault"
+      }
+    },
+    {
+      "name": "ConstructionInputId",
+      "variants": ["StructField", "UnionPayloadField", "CallableParameter"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "translate_construction"
+      }
+    },
+    {
+      "name": "ConstructionTarget",
+      "variants": ["Struct", "UnionVariant", "TypeForm"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "construction.target()"
+      }
+    },
+    {
+      "name": "ConversionTarget",
+      "variants": ["Identity", "BuiltInScalar", "Composite", "Trait"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "conversion.target()"
+      }
+    },
+    {
+      "name": "MirAggregateKind",
+      "variants": ["Tuple", "Array", "RepeatedArray"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "aggregate.kind()"
+      }
+    },
+    {
+      "name": "MirBinaryOperator",
+      "variants": ["Add", "Subtract", "Multiply", "Divide", "Remainder", "Equal", "NotEqual", "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "ShiftLeft", "ShiftRight"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/scalar.rs",
+        "symbol": "translate_binary"
+      }
+    },
+    {
+      "name": "MirCallArgument",
+      "variants": ["Receiver", "Explicit", "Default"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "evaluate_call_arguments"
+      }
+    },
+    {
+      "name": "MirCallTarget",
+      "variants": ["Direct", "Indirect"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "call.target()"
+      }
+    },
+    {
+      "name": "MirCleanupPhase",
+      "variants": ["TaskCancellation", "LifecycleResolution"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirHelperReference::Cleanup"
+      }
+    },
+    {
+      "name": "MirConstructionInput",
+      "variants": ["Explicit", "Default"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "for input in construction.inputs()"
+      }
+    },
+    {
+      "name": "MirFrameInitializer",
+      "variants": ["Callable", "TaskObservation"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "translate_frame_creation"
+      }
+    },
+    {
+      "name": "MirGeneratorKind",
+      "variants": ["Array", "General"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "translate_generator"
+      }
+    },
+    {
+      "name": "MirGeneratorOperation",
+      "variants": ["Begin", "Push", "Finish"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "match generator"
+      }
+    },
+    {
+      "name": "MirImmediateValue",
+      "variants": ["Boolean", "Unit", "NullableAbsent"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/value.rs",
+        "symbol": "MirImmediateValue::"
+      }
+    },
+    {
+      "name": "MirOperand",
+      "variants": ["Value", "Constant", "Immediate", "Copy", "Move"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/value.rs",
+        "symbol": "pub(super) fn operand"
+      }
+    },
+    {
+      "name": "MirPanicCause",
+      "variants": ["Message", "Assertion"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "match cause"
+      }
+    },
+    {
+      "name": "MirProjectionKind",
+      "variants": ["Dereference", "Field", "TupleField", "ElementFromStart", "ElementFromEnd", "Index", "Slice", "Variant", "ActiveUnionPayloadField", "NullableValue"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/place.rs",
+        "symbol": "match projection.kind()"
+      }
+    },
+    {
+      "name": "MirStoreKind",
+      "variants": ["Initialize", "Assign"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "symbol": "MirOperationKind::Store"
+      }
+    },
+    {
+      "name": "MirTaskTerminalState",
+      "variants": ["Completed", "Cancelled", "Panicked"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "terminal_state_arguments"
+      }
+    },
+    {
+      "name": "MirUnaryOperator",
+      "variants": ["Negate", "Not", "BitwiseNot"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/scalar.rs",
+        "symbol": "translate_unary"
+      }
+    },
+    {
+      "name": "PatternOperation",
+      "variants": ["Observe", "SharedBorrow", "MutableBorrow", "Consume", "Copy", "Recovered"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "match operation"
+      }
+    },
+    {
+      "name": "PatternPredicate",
+      "variants": ["Literal", "Constant", "NullableAbsent", "NullablePresent", "ActiveUnionVariant", "ProductShape", "TupleShape", "ArrayShape", "OwnedTarget"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "translate_pattern_predicate"
+      }
+    },
+    {
+      "name": "PatternProjection",
+      "variants": ["ProductField", "TupleElement", "ActiveUnionPayloadField", "ElementFromStart", "ElementFromEnd", "NullableValue", "OwnedTarget"],
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
+        "symbol": "match projection"
+      }
+    }
+  ],
+  "runtime_roles": [
+    {
+      "name": "RootExecution",
+      "production": {
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::RootExecution"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "RootCancellationRequest",
+      "production": {
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::RootCancellationRequest"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "TaskAllocation",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TaskAllocation"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "TaskStart",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TaskStart"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "FrameResume",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::FrameResume"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "SuspensionRegistration",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/control.rs",
+        "symbol": "RuntimeAbiRole::SuspensionRegistration"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "Wake",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/control.rs",
+        "symbol": "RuntimeAbiRole::Wake"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "TaskCancellationRequest",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TaskCancellationRequest"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "CurrentRunCancellationObservation",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::CurrentRunCancellationObservation"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "JoinRegistration",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::JoinRegistration"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "TerminalPublication",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::TerminalPublication"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "CleanupIncidentTransfer",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::CleanupIncidentTransfer"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "CleanupIncidentReporting",
+      "production": {
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::CleanupIncidentReporting"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "RootTerminalObservation",
+      "production": {
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::RootTerminalObservation"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "StructuredShutdown",
+      "production": {
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "RuntimeAbiRole::StructuredShutdown"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "FrameTaskBroadcast",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::FrameTaskBroadcast"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    },
+    {
+      "name": "FrameLifecycleResolution",
+      "production": {
+        "path": "crates/bray-ir/src/unit/validation/operation.rs",
+        "symbol": "RuntimeAbiRole::FrameLifecycleResolution"
+      },
+      "consumption": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "symbol": "invoke_runtime"
+      }
+    }
+  ],
+  "artifact_kinds": [
+    {
+      "name": "RelocatableObject",
+      "disposition": "serialized",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "BackendArtifactKind::RelocatableObject"
+      }
+    },
+    {
+      "name": "Assembly",
+      "disposition": "serialized",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "BackendArtifactKind::Assembly"
+      }
+    },
+    {
+      "name": "BackendIr",
+      "disposition": "serialized",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "BackendArtifactKind::BackendIr"
+      }
+    },
+    {
+      "name": "BackendBitcode",
+      "disposition": "serialized",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "BackendArtifactKind::BackendBitcode"
+      }
+    },
+    {
+      "name": "ExecutableModule",
+      "disposition": "capability_failure",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "BackendArtifactKind::ExecutableModule"
+      }
+    },
+    {
+      "name": "DebugCompanion",
+      "disposition": "capability_failure",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "BackendArtifactKind::DebugCompanion"
+      }
+    }
+  ],
+  "contracts": [
+    {
+      "name": "requested-artifact-only generation",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "request.artifacts().entries()"
+      },
+      "test": "generation_publishes_only_immutable_requested_contributions"
+    },
+    {
+      "name": "verified artifact serialization",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "module.verify()"
+      },
+      "test": "requested_llvm_artifact_formats_serialize_from_the_verified_module"
+    },
+    {
+      "name": "repeat determinism",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "generate_artifacts"
+      },
+      "test": "repeated_generation_is_byte_for_byte_deterministic"
+    },
+    {
+      "name": "parallel reversed-demand determinism",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/core.rs",
+        "symbol": "translate_instances"
+      },
+      "test": "serial_and_parallel_reversed_demand_produce_identical_artifacts"
+    },
+    {
+      "name": "typed unsupported artifacts",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/serialization.rs",
+        "symbol": "CodegenFailure::UnsupportedArtifact"
+      },
+      "test": "unsupported_artifact_kinds_fail_with_typed_capability_errors"
+    },
+    {
+      "name": "translation cancellation",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "CodegenStatus::Cancelled"
+      },
+      "test": "cancellation_during_translation_is_not_reported_as_backend_failure"
+    },
+    {
+      "name": "serialization cancellation",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "request.cancellation().is_cancelled()"
+      },
+      "test": "cancellation_during_serialization_discards_completed_contributions"
+    },
+    {
+      "name": "target capability coverage",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/backend.rs",
+        "symbol": "target_platforms"
+      },
+      "test": "every_advertised_platform_has_a_compiled_llvm_target"
+    },
+    {
+      "name": "exact runtime role mappings",
+      "production": {
+        "path": "crates/bray-codegen/src/mapping/model/core.rs",
+        "symbol": "CodegenSymbolKey::Runtime"
+      },
+      "test": "runtime_roles_use_exact_typed_symbol_mappings"
+    },
+    {
+      "name": "protected frame descriptors",
+      "production": {
+        "path": "crates/bray-codegen/src/runtime.rs",
+        "symbol": "ProtectedAsyncFrameMetadata"
+      },
+      "test": "protected_frames_require_exact_descriptor_metadata"
+    },
+    {
+      "name": "inactive frame and task boundaries",
+      "production": {
+        "path": "crates/bray-codegen/src/unit/instance.rs",
+        "symbol": "CodegenInstanceDependencyKind::StartedTask"
+      },
+      "test": "frame_dependencies_preserve_direct_await_and_started_task_roles"
+    },
+    {
+      "name": "direct await frame dependency",
+      "production": {
+        "path": "crates/bray-codegen/src/unit/instance.rs",
+        "symbol": "CodegenInstanceDependencyKind::DirectAwaitedFrame"
+      },
+      "test": "frame_dependencies_preserve_direct_await_and_started_task_roles"
+    },
+    {
+      "name": "panic transfer outcome",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::Panic"
+      },
+      "test": "checked_assertion_lowers_to_explicit_failure_control"
+    },
+    {
+      "name": "current run cancellation outcome",
+      "production": {
+        "path": "crates/bray-lowering/src/lowering/cleanup.rs",
+        "symbol": "finish_cancellation"
+      },
+      "test": "async_callables_lower_to_protected_frames_and_explicit_suspension"
+    },
+    {
+      "name": "async frame lowering",
+      "production": {
+        "path": "crates/bray-compilation/src/compilation/lowering.rs",
+        "symbol": "lowered_unit"
+      },
+      "test": "async_callables_lower_to_protected_frames_and_explicit_suspension"
+    },
+    {
+      "name": "main-thread executable host",
+      "production": {
+        "path": "crates/bray-lowering/src/host.rs",
+        "symbol": "lower_executable_host"
+      },
+      "test": "asynchronous_host_retains_the_distinguished_main_thread_lane_contract"
+    },
+    {
+      "name": "complete MIR cache identity",
+      "production": {
+        "path": "crates/bray-codegen/src/unit/model.rs",
+        "symbol": "content_identity"
+      },
+      "test": "unit_keys_distinguish_changed_mir_with_the_same_semantic_identity"
+    },
+    {
+      "name": "cancelled compiler query",
+      "production": {
+        "path": "crates/bray-compilation/src/compilation/codegen.rs",
+        "symbol": "codegen_artifact_with_cancellation"
+      },
+      "test": "cancelled_codegen_requests_do_not_invoke_or_publish_the_backend"
+    },
+    {
+      "name": "single-flight compiler query",
+      "production": {
+        "path": "crates/bray-compilation/src/compilation/codegen.rs",
+        "symbol": "codegen_artifacts"
+      },
+      "test": "concurrent_same_key_requests_share_one_backend_invocation"
+    },
+    {
+      "name": "composition-root backend selection",
+      "production": {
+        "path": "crates/bray-codegen/src/registry.rs",
+        "symbol": "CodegenConfiguration"
+      },
+      "test": "configurations_reject_requests_for_unselected_backends"
+    }
+  ]
+}

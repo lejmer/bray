@@ -9,7 +9,7 @@ mod support;
 mod syntax_support;
 
 use support::{rust_tests, rust_workspace, workspace_root};
-use syntax_support::enum_variants;
+use syntax_support::EnumInventory;
 
 #[derive(Deserialize)]
 struct CoverageFixture {
@@ -33,18 +33,25 @@ fn lowering_coverage_fixture_matches_the_complete_executable_contract() {
     let root = workspace_root();
     let fixture = coverage_fixture(&root);
     let rust = rust_workspace(&root);
+    let enums = EnumInventory::new(&rust);
 
-    assert_enum_coverage(&fixture.bound_expressions, &rust, "BoundExpression");
+    assert_enum_coverage(
+        &fixture.bound_expressions,
+        &rust,
+        &enums,
+        "BoundExpression",
+    );
 
     assert_enum_coverage(
         &fixture.structured_expressions,
         &rust,
+        &enums,
         "BoundStructuredExpressionKind",
     );
 
-    assert_enum_coverage(&fixture.patterns, &rust, "BoundPatternKind");
-    assert_enum_coverage(&fixture.unit_roots, &rust, "BoundUnitRoot");
-    assert_enum_coverage(&fixture.semantic_facts, &rust, "LoweringFactKind");
+    assert_enum_coverage(&fixture.patterns, &rust, &enums, "BoundPatternKind");
+    assert_enum_coverage(&fixture.unit_roots, &rust, &enums, "BoundUnitRoot");
+    assert_enum_coverage(&fixture.semantic_facts, &rust, &enums, "LoweringFactKind");
     assert_rows_are_executable(&fixture.contracts, &rust);
 }
 
@@ -85,10 +92,13 @@ fn coverage_fixture(root: &Path) -> CoverageFixture {
 fn assert_enum_coverage(
     rows: &[CoverageRow],
     rust: &BTreeMap<String, String>,
+    enums: &EnumInventory,
     enum_name: &str,
 ) {
-    let expected = enum_variants(rust, enum_name)
-        .into_iter()
+    let expected = enums
+        .variants(enum_name)
+        .iter()
+        .cloned()
         .collect::<BTreeSet<_>>();
 
     let actual = rows

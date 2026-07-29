@@ -295,12 +295,15 @@ fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_base::Cancellation;
     use bray_codegen::ArtifactContentSource;
     use bray_codegen::test_support::{
-        codegen_request_for_backend, codegen_target, codegen_target_with_profile,
+        codegen_request_for_backend, codegen_request_for_seed_and_backend, codegen_target,
+        codegen_target_with_profile,
     };
     use bray_codegen::{BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus};
     use bray_target::test_support::test_target_profile;
@@ -410,6 +413,70 @@ mod tests {
         let second = backend.generate(fixture.request());
 
         assert_eq!(artifact_bytes(&first), artifact_bytes(&second));
+    }
+
+    #[test]
+    fn serial_and_parallel_reversed_demand_produce_identical_artifacts() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let backend = Arc::new(backend);
+        let identity = backend.identity().clone();
+        let mut serial = BTreeMap::new();
+
+        for seed in [1, 2] {
+            let fixture = codegen_request_for_seed_and_backend(seed, identity.clone());
+
+            serial.insert(seed, artifact_bytes(&backend.generate(fixture.request())));
+        }
+
+        let workers = [2, 1].map(|seed| {
+            let backend = Arc::clone(&backend);
+            let identity = identity.clone();
+
+            std::thread::spawn(move || {
+                let fixture = codegen_request_for_seed_and_backend(seed, identity);
+                let bytes = artifact_bytes(&backend.generate(fixture.request()));
+
+                (seed, bytes)
+            })
+        });
+
+        let parallel = workers
+            .into_iter()
+            .map(|worker| {
+                worker
+                    .join()
+                    .unwrap_or_else(|_| panic!("parallel code generation must finish"))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(parallel, serial);
+    }
+
+    #[test]
+    fn unsupported_artifact_kinds_fail_with_typed_capability_errors() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let context = inkwell::context::Context::create();
+
+        let Ok(Some((machine, module))) = backend.prepare_module(fixture.request(), &context) else {
+            panic!("test mappings must produce a valid LLVM module");
+        };
+
+        for kind in [
+            BackendArtifactKind::ExecutableModule,
+            BackendArtifactKind::DebugCompanion,
+        ] {
+            assert_eq!(
+                serialize_artifact(&machine, &module, kind),
+                Err(CodegenFailure::UnsupportedArtifact(kind))
+            );
+        }
     }
 
     #[test]

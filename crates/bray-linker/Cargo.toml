@@ -12,5 +12,8 @@ bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 
+[dev-dependencies]
+bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
+
 [lints]
 workspace = true

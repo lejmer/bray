@@ -101,8 +101,12 @@ mod tests {
         MirBlockKind, MirHostOperation, MirOperationKind, MirSourceAnchor, MirTerminatorKind,
         MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
     };
-    use bray_runtime_interface::{RootExecution, RuntimeAbiRole};
-    use bray_testing::{test_executable_host_contract, test_mir_target};
+    use bray_runtime_interface::{
+        RootExecution, RuntimeAbiRole, RuntimeRoleImplementation,
+    };
+    use bray_testing::{
+        test_async_executable_host_contract, test_executable_host_contract, test_mir_target,
+    };
 
     use super::ExecutableHostLoweringInput;
 
@@ -152,6 +156,45 @@ mod tests {
                 MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
                 MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
             ]
+        ));
+    }
+
+    #[test]
+    fn asynchronous_host_retains_the_distinguished_main_thread_lane_contract() {
+        let host = test_async_executable_host_contract();
+
+        assert!(matches!(host.root(), RootExecution::Asynchronous { .. }));
+
+        for role in [
+            RuntimeAbiRole::MainThreadLaneStartup,
+            RuntimeAbiRole::MainThreadLaneDrive,
+        ] {
+            assert_eq!(
+                host.role_binding(role)
+                    .map(bray_runtime_interface::RuntimeRoleBinding::implementation),
+                Some(RuntimeRoleImplementation::BrayRuntime)
+            );
+        }
+
+        let input = ExecutableHostLoweringInput::new(
+            MirUnitId::new(92),
+            bray_testing::test_bound_unit(92).key().clone(),
+            host.clone(),
+            test_mir_target(),
+        );
+
+        let Ok(unit) = super::lower_executable_host(input) else {
+            panic!("asynchronous generated host MIR must validate");
+        };
+
+        assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
+
+        assert!(matches!(
+            unit.operations().first().map(bray_ir::MirOperation::kind),
+            Some(MirOperationKind::Host(MirHostOperation::ExecuteRoot {
+                execution: RootExecution::Asynchronous { .. },
+                ..
+            }))
         ));
     }
 
