@@ -1,3 +1,7 @@
+use bray_emitter::{
+    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan,
+    OutputSinkResolver,
+};
 use bray_linker::{LinkOutcome, LinkPlan, Linker};
 
 use super::Compilation;
@@ -5,6 +9,49 @@ use crate::fact::{CancellationToken, FactQueryError};
 use crate::QueryPriority;
 
 impl Compilation {
+    /// Links and publishes one native product through its immutable emission plan.
+    pub fn emit_linked_product(
+        &self,
+        linker: &Linker,
+        emission: &EmissionPlan,
+        link: &LinkPlan,
+        contributions: impl IntoIterator<Item = ArtifactContribution>,
+    ) -> Result<EmissionOutcome, FactQueryError> {
+        self.emit_linked_product_with_cancellation(
+            linker,
+            emission,
+            link,
+            contributions,
+            None,
+            &self.state.cancellation,
+        )
+    }
+
+    /// Links and publishes while observing caller cancellation and indirect sinks.
+    pub fn emit_linked_product_with_cancellation(
+        &self,
+        linker: &Linker,
+        emission: &EmissionPlan,
+        link: &LinkPlan,
+        contributions: impl IntoIterator<Item = ArtifactContribution>,
+        resolver: Option<&dyn OutputSinkResolver>,
+        cancellation: &CancellationToken,
+    ) -> Result<EmissionOutcome, FactQueryError> {
+        let link_outcome = self.link_product_with_cancellation(linker, link, cancellation)?;
+
+        let publisher = match resolver {
+            Some(resolver) => ArtifactPublisher::with_sink_resolver(cancellation, resolver),
+            None => ArtifactPublisher::new(cancellation),
+        };
+
+        Ok(publisher.publish_linked(
+            emission,
+            contributions,
+            link,
+            &link_outcome,
+        ))
+    }
+
     /// Links one validated native product plan into staging without publishing final outputs.
     pub fn link_product(
         &self,
@@ -36,11 +83,23 @@ impl Compilation {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
+    use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex};
 
     use bray_base::Cancellation;
+    use bray_codegen::test_support::codegen_unit_key;
+    use bray_codegen::{
+        AssemblySyntaxKind, BackendArtifactKind, BackendCapabilities, BackendIdentity,
+        BackendSerializationOptions, BackendTargetPlatform, DebugInformationMode,
+        DebugInformationOutputMode, LinkableArtifactKind,
+    };
     use bray_diagnostics::DiagnosticBag;
+    use bray_emitter::{
+        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlan,
+        EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy, RequestedArtifact,
+        RequestedArtifactDestination,
+    };
     use bray_linker::{
         BinarySymbolName, DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId,
         LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
@@ -55,9 +114,12 @@ mod tests {
     use bray_symbols::{ProductIdentity, ProductKind};
     use bray_target::{
         CodeModel, ObjectFormat, RelocationModel, TargetArchitecture,
-        TargetIdentity,
+        TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
     };
-    use bray_testing::test_async_executable_host_contract_for;
+    use bray_target::test_support::test_target_profile;
+    use bray_testing::{
+        TemporaryFile, test_async_executable_host_contract_for,
+    };
 
     use super::Compilation;
     use crate::test_support::{package_identity, source_input};
@@ -99,6 +161,47 @@ mod tests {
         }
 
         assert_eq!(driver.plans(), vec![executable, shared_library]);
+    }
+
+    #[test]
+    fn linked_product_emission_invokes_the_linker_and_publishes_its_staging() {
+        let input = TemporaryFile::write("application.o", b"object");
+
+        let directory = input
+            .path()
+            .parent()
+            .unwrap_or_else(|| panic!("test input must have a containing directory"));
+
+        let final_path = directory.join("application");
+        let staging_path = directory.join("application.stage");
+        let emission = executable_emission_plan(&final_path);
+        let link = executable_plan_for(input.path(), &staging_path);
+        let driver = Arc::new(RecordingDriver::publishing(b"linked executable"));
+        let linker = linker(Arc::clone(&driver) as Arc<dyn LinkerDriver>);
+
+        let outcome = compilation(WorkerBudget::serial())
+            .emit_linked_product(&linker, &emission, &link, [])
+            .unwrap_or_else(|error| panic!("linked test emission must run: {error:?}"));
+
+        assert!(
+            matches!(outcome.status(), EmissionStatus::Complete),
+            "{:?}: {:?}",
+            outcome.status(),
+            outcome.diagnostics()
+        );
+
+        assert_eq!(
+            std::fs::read(&final_path)
+                .unwrap_or_else(|error| panic!("published test artifact must be read: {error}")),
+            b"linked executable"
+        );
+
+        assert!(!input.path().exists());
+        assert!(!staging_path.exists());
+        assert_eq!(driver.plans(), vec![link]);
+
+        std::fs::remove_file(&final_path)
+            .unwrap_or_else(|error| panic!("published test artifact must be removed: {error}"));
     }
 
     #[test]
@@ -312,6 +415,99 @@ mod tests {
         )
     }
 
+    fn executable_plan_for(input: &Path, output: &Path) -> LinkPlan {
+        let mut builder = plan_builder(
+            LinkedProductKind::Executable,
+            DebugLinkPolicy::None,
+        );
+
+        builder.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(0),
+                LinkInputKind::RelocatableObject,
+                LinkInputSource::file(input),
+                LinkInputProvenance::Product,
+                LinkInputMode::Ordinary,
+            )
+            .unwrap_or_else(|error| panic!("test product input must be valid: {error:?}")),
+        );
+
+        builder.push_output(planned_output_for(
+            0,
+            LinkedArtifactKind::Executable,
+            output,
+        ));
+
+        builder.set_executable_host(synchronous_host());
+
+        builder
+            .finish()
+            .unwrap_or_else(|error| panic!("test executable plan must be valid: {error:?}"))
+    }
+
+    fn executable_emission_plan(final_path: &Path) -> EmissionPlan {
+        let backend = BackendIdentity::try_new("llvm", "bray-1", "llvm-22")
+            .unwrap_or_else(|| panic!("test backend identity must be valid"));
+
+        let capabilities = BackendCapabilities::new(
+            [BackendTargetPlatform::new(
+                TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+            )],
+            [BackendArtifactKind::RelocatableObject],
+            [DebugInformationMode::None],
+            [AssemblySyntaxKind::TargetDefault],
+        );
+
+        let policy = BackendEmissionPolicy::new(
+            DebugInformationMode::None,
+            DebugInformationOutputMode::Omit,
+            Some(LinkableArtifactKind::RelocatableObject),
+            BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
+        );
+
+        let backend = EmissionBackend::try_new(
+            backend,
+            capabilities,
+            [codegen_unit_key(1)],
+            policy,
+        )
+        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+
+        let output_names = [
+            TargetOutputName::try_new(TargetOutputKind::RelocatableObject, "", ".o")
+                .unwrap_or_else(|error| panic!("test object output name must be valid: {error:?}")),
+            TargetOutputName::try_new(TargetOutputKind::Executable, "", "")
+                .unwrap_or_else(|error| {
+                    panic!("test executable output name must be valid: {error:?}")
+                }),
+        ];
+
+        let target = TargetOutputDescription::try_new(
+            test_target_profile(),
+            output_names,
+        )
+        .unwrap_or_else(|error| panic!("test target outputs must be valid: {error:?}"));
+
+        let request = EmissionRequest::try_new(
+            product(),
+            ProductKind::Executable,
+            Some(synchronous_host()),
+            target.identity().clone(),
+            RequestedArtifactDestination::FilesystemFile(final_path.to_owned()),
+            [RequestedArtifact::new(
+                ArtifactKind::Executable,
+                ArtifactRequirement::Required,
+            )],
+            ReplacementPolicy::RequireAbsent,
+        )
+        .unwrap_or_else(|error| panic!("test emission request must be valid: {error:?}"));
+
+        EmissionPlanner::new(target, Some(backend), None)
+            .plan(request)
+            .unwrap_or_else(|error| panic!("test emission plan must be valid: {error:?}"))
+    }
+
     fn shared_library_plan() -> LinkPlan {
         let mut builder = plan_builder(
             LinkedProductKind::SharedLibrary,
@@ -419,7 +615,15 @@ mod tests {
         kind: LinkedArtifactKind,
         path: &str,
     ) -> PlannedLinkedArtifact {
-        let path_key = StagingPathKey::try_new(path)
+        planned_output_for(ordinal, kind, Path::new(path))
+    }
+
+    fn planned_output_for(
+        ordinal: u32,
+        kind: LinkedArtifactKind,
+        path: &Path,
+    ) -> PlannedLinkedArtifact {
+        let path_key = StagingPathKey::try_new(path.to_string_lossy().into_owned())
             .unwrap_or_else(|| panic!("test staging path key must be valid"));
 
         let destination =
@@ -448,7 +652,7 @@ mod tests {
     }
 
     fn link_target() -> LinkTarget {
-        let identity = TargetIdentity::try_new("linux-x86_64")
+        let identity = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
             .unwrap_or_else(|| panic!("test target identity must be valid"));
 
         LinkTarget::try_new(
@@ -487,6 +691,7 @@ mod tests {
         identity: LinkerDriverIdentity,
         plans: Mutex<Vec<LinkPlan>>,
         completes: bool,
+        published_bytes: Option<&'static [u8]>,
     }
 
     impl RecordingDriver {
@@ -495,6 +700,7 @@ mod tests {
                 identity: driver_identity(),
                 plans: Mutex::new(Vec::new()),
                 completes: true,
+                published_bytes: None,
             }
         }
 
@@ -503,6 +709,16 @@ mod tests {
                 identity: driver_identity(),
                 plans: Mutex::new(Vec::new()),
                 completes: false,
+                published_bytes: None,
+            }
+        }
+
+        fn publishing(bytes: &'static [u8]) -> Self {
+            Self {
+                identity: driver_identity(),
+                plans: Mutex::new(Vec::new()),
+                completes: true,
+                published_bytes: Some(bytes),
             }
         }
 
@@ -538,6 +754,16 @@ mod tests {
                     LinkFailure::Invocation,
                     DiagnosticBag::new(),
                 );
+            }
+
+            if let Some(bytes) = self.published_bytes {
+                for output in plan.outputs() {
+                    std::fs::write(output.destination().path(), bytes).unwrap_or_else(|error| {
+                        panic!("test linked staging must be written: {error}")
+                    });
+                }
+
+                return complete_with_byte_len(plan, bytes.len());
             }
 
             complete(plan)
@@ -593,11 +819,20 @@ mod tests {
     }
 
     fn complete(plan: &LinkPlan) -> LinkOutcome {
+        complete_with_byte_len(plan, 1)
+    }
+
+    fn complete_with_byte_len(plan: &LinkPlan, byte_len: usize) -> LinkOutcome {
+        let byte_len = u64::try_from(byte_len)
+            .ok()
+            .and_then(NonZeroU64::new)
+            .unwrap_or_else(|| panic!("test linked artifact length must be nonzero"));
+
         let artifacts = plan.outputs().iter().map(|output| {
             LinkedArtifact::new(
                 output.kind(),
                 output.destination().id(),
-                NonZeroU64::MIN,
+                byte_len,
             )
         });
 

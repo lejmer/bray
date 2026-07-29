@@ -3,11 +3,18 @@ use std::io::{self, Read, Write};
 
 use bray_base::Cancellation;
 use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
+use bray_diagnostics::DiagnosticBag;
+use bray_linker::{LinkOutcome, LinkPlan, LinkStatus};
 
 use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
+use super::link::{
+    LinkStagingCleanup, LinkedPreparationError, PreparedLinkedArtifact,
+    prepare_linked_artifacts,
+};
 use super::staging::FilesystemStaging;
 use crate::artifact::content::{
-    ContentValidationError, open_content, validate_content, validate_staged_content,
+    ContentReader, ContentValidationError, open_content, open_linked_staging, validate_content,
+    validate_staged_content,
 };
 use crate::{
     ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
@@ -56,11 +63,125 @@ impl<'host> ArtifactPublisher<'host> {
             return diagnostics.cancelled(publication_set(plan, []));
         }
 
-        let prepared = match prepare_contributions(plan, contributions, &mut diagnostics) {
+        let prepared = match prepare_contributions(plan, contributions, [], &mut diagnostics) {
             Ok(prepared) => prepared,
             Err(error) => return diagnostics.failed(publication_set(plan, []), error),
         };
 
+        self.publish_prepared(plan, prepared, diagnostics)
+    }
+
+    /// Publishes a complete native link result and other planned contributions.
+    pub fn publish_linked(
+        &self,
+        plan: &EmissionPlan,
+        contributions: impl IntoIterator<Item = ArtifactContribution>,
+        link_plan: &LinkPlan,
+        link_outcome: &LinkOutcome,
+    ) -> EmissionOutcome {
+        let _staging_cleanup = LinkStagingCleanup::new(link_plan);
+        let link_diagnostics = link_outcome.diagnostics();
+
+        if self.cancellation.is_cancelled() {
+            let outcome =
+                EmissionOutcome::cancelled(publication_set(plan, []), DiagnosticBag::new());
+
+            return merge_link_diagnostics(outcome, link_diagnostics);
+        }
+
+        let linked = match link_outcome.status() {
+            LinkStatus::Failed(_) => {
+                let outcome = EmissionOutcome::failed(
+                    crate::EmissionFailure::Linking,
+                    publication_set(plan, []),
+                    DiagnosticBag::new(),
+                );
+
+                return merge_link_diagnostics(outcome, link_diagnostics);
+            }
+            LinkStatus::Cancelled => {
+                let outcome =
+                    EmissionOutcome::cancelled(publication_set(plan, []), DiagnosticBag::new());
+
+                return merge_link_diagnostics(outcome, link_diagnostics);
+            }
+            LinkStatus::Complete(linked) => {
+                match prepare_linked_artifacts(plan, link_plan, linked, self.cancellation) {
+                    Ok(linked) => linked,
+                    Err(LinkedPreparationError::Cancelled) => {
+                        let outcome = EmissionOutcome::cancelled(
+                            publication_set(plan, []),
+                            DiagnosticBag::new(),
+                        );
+
+                        return merge_link_diagnostics(outcome, link_diagnostics);
+                    }
+                    Err(LinkedPreparationError::MissingLinkedPlan) => {
+                        let outcome = EmissionOutcome::failed(
+                            crate::EmissionFailure::Linking,
+                            publication_set(plan, []),
+                            DiagnosticBag::new(),
+                        );
+
+                        return merge_link_diagnostics(outcome, link_diagnostics);
+                    }
+                    Err(LinkedPreparationError::InvalidRelationship(artifact)) => {
+                        let error = PublicationError::new(
+                            artifact,
+                            None,
+                            PublicationErrorKind::InvalidContribution,
+                        );
+
+                        let outcome =
+                            PublicationDiagnostics::new().failed(publication_set(plan, []), error);
+
+                        return merge_link_diagnostics(outcome, link_diagnostics);
+                    }
+                    Err(LinkedPreparationError::InvalidContent { artifact, error }) => {
+                        let Some(planned) = plan.artifact(&artifact) else {
+                            let outcome = EmissionOutcome::failed(
+                                crate::EmissionFailure::Linking,
+                                publication_set(plan, []),
+                                DiagnosticBag::new(),
+                            );
+
+                            return merge_link_diagnostics(outcome, link_diagnostics);
+                        };
+
+                        let error = publication_content_error(planned, error);
+
+                        let outcome =
+                            PublicationDiagnostics::new().failed(publication_set(plan, []), error);
+
+                        return merge_link_diagnostics(outcome, link_diagnostics);
+                    }
+                }
+            }
+        };
+
+        let mut diagnostics = PublicationDiagnostics::new();
+
+        let prepared =
+            match prepare_contributions(plan, contributions, linked, &mut diagnostics) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let outcome = diagnostics.failed(publication_set(plan, []), error);
+
+                    return merge_link_diagnostics(outcome, link_diagnostics);
+                }
+            };
+
+        let outcome = self.publish_prepared(plan, prepared, diagnostics);
+
+        merge_link_diagnostics(outcome, link_diagnostics)
+    }
+
+    fn publish_prepared(
+        &self,
+        plan: &EmissionPlan,
+        prepared: Vec<PreparedArtifact<'_, '_>>,
+        mut diagnostics: PublicationDiagnostics,
+    ) -> EmissionOutcome {
         let mut emitted = Vec::with_capacity(prepared.len());
 
         for artifact in prepared {
@@ -91,7 +212,7 @@ impl<'host> ArtifactPublisher<'host> {
     fn publish_artifact(
         &self,
         replacement: ReplacementPolicy,
-        artifact: PreparedArtifact<'_>,
+        artifact: PreparedArtifact<'_, '_>,
     ) -> Result<EmittedArtifact, ArtifactPublicationFailure> {
         let planned = artifact.planned;
 
@@ -105,8 +226,7 @@ impl<'host> ArtifactPublisher<'host> {
         let digest = match sink {
             OutputSink::Filesystem(path) => self.publish_filesystem(
                 planned,
-                artifact.contribution.content(),
-                artifact.contribution.digest(),
+                &artifact.content,
                 path,
                 replacement,
             )?,
@@ -115,8 +235,7 @@ impl<'host> ArtifactPublisher<'host> {
                 artifact: artifact_id,
             } => self.publish_indirect(
                 planned,
-                artifact.contribution.content(),
-                artifact.contribution.digest(),
+                &artifact.content,
                 IndirectOutputSink::Memory {
                     collector,
                     artifact: artifact_id,
@@ -125,8 +244,7 @@ impl<'host> ArtifactPublisher<'host> {
             )?,
             OutputSink::Stream(stream) => self.publish_indirect(
                 planned,
-                artifact.contribution.content(),
-                artifact.contribution.digest(),
+                &artifact.content,
                 IndirectOutputSink::Stream(stream),
                 replacement,
             )?,
@@ -138,7 +256,7 @@ impl<'host> ArtifactPublisher<'host> {
             sink.clone(),
             planned.producer().clone(),
             planned.role(),
-            artifact.contribution.content().byte_len(),
+            artifact.content.byte_len(),
             digest,
         ))
     }
@@ -146,8 +264,7 @@ impl<'host> ArtifactPublisher<'host> {
     fn publish_filesystem(
         &self,
         planned: &PlannedArtifact,
-        content: &ArtifactContent,
-        expected_digest: Option<&ArtifactDigest>,
+        content: &PreparedContent<'_, '_>,
         destination: &std::path::Path,
         replacement: ReplacementPolicy,
     ) -> Result<ArtifactDigest, ArtifactPublicationFailure> {
@@ -167,7 +284,7 @@ impl<'host> ArtifactPublisher<'host> {
         let digest = validate_staged_content(
             staging.path(),
             content.byte_len(),
-            expected_digest,
+            content.digest(),
             self.cancellation,
         )
         .map_err(|error| content_failure(planned, error))?;
@@ -186,12 +303,12 @@ impl<'host> ArtifactPublisher<'host> {
     fn publish_indirect(
         &self,
         planned: &PlannedArtifact,
-        content: &ArtifactContent,
-        expected_digest: Option<&ArtifactDigest>,
+        content: &PreparedContent<'_, '_>,
         sink: IndirectOutputSink<'_>,
         replacement: ReplacementPolicy,
     ) -> Result<ArtifactDigest, ArtifactPublicationFailure> {
-        let digest = validate_content(content, expected_digest, self.cancellation)
+        let digest = content
+            .validate(self.cancellation)
             .map_err(|error| content_failure(planned, error))?;
 
         if self.cancellation.is_cancelled() {
@@ -229,10 +346,11 @@ impl<'host> ArtifactPublisher<'host> {
     fn copy_content(
         &self,
         planned: &PlannedArtifact,
-        content: &ArtifactContent,
+        content: &PreparedContent<'_, '_>,
         writer: &mut dyn Write,
     ) -> Result<(), ArtifactPublicationFailure> {
-        let mut reader = open_content(content)
+        let mut reader = content
+            .open()
             .map_err(|kind| artifact_failure(planned, PublicationErrorKind::Read(kind)))?;
 
         let mut buffer = [0_u8; COPY_BUFFER_LEN];
@@ -266,9 +384,77 @@ fn publication_set(
     EmittedArtifactSet::from_publication(plan, artifacts)
 }
 
-struct PreparedArtifact<'plan> {
+fn merge_link_diagnostics(
+    outcome: EmissionOutcome,
+    diagnostics: &DiagnosticBag,
+) -> EmissionOutcome {
+    outcome.with_prior_diagnostics(diagnostics)
+}
+
+struct PreparedArtifact<'plan, 'link> {
     planned: &'plan PlannedArtifact,
-    contribution: ArtifactContribution,
+    content: PreparedContent<'plan, 'link>,
+}
+
+#[expect(
+    clippy::large_enum_variant,
+    reason = "publication keeps contributions inline to avoid one allocation per artifact"
+)]
+enum PreparedContent<'plan, 'link> {
+    Contribution(ArtifactContribution),
+    Linked(PreparedLinkedArtifact<'plan, 'link>),
+}
+
+impl PreparedContent<'_, '_> {
+    fn id(&self) -> &ArtifactId {
+        match self {
+            Self::Contribution(contribution) => contribution.id(),
+            Self::Linked(linked) => linked.planned().id(),
+        }
+    }
+
+    fn producer(&self) -> &ArtifactProducer {
+        match self {
+            Self::Contribution(contribution) => contribution.producer(),
+            Self::Linked(linked) => linked.planned().producer(),
+        }
+    }
+
+    fn byte_len(&self) -> u64 {
+        match self {
+            Self::Contribution(contribution) => contribution.content().byte_len(),
+            Self::Linked(linked) => linked.byte_len(),
+        }
+    }
+
+    fn digest(&self) -> Option<&ArtifactDigest> {
+        match self {
+            Self::Contribution(contribution) => contribution.digest(),
+            Self::Linked(linked) => Some(linked.digest()),
+        }
+    }
+
+    fn open(&self) -> Result<ContentReader<'_>, io::ErrorKind> {
+        match self {
+            Self::Contribution(contribution) => open_content(contribution.content()),
+            Self::Linked(linked) => open_linked_staging(linked.path()),
+        }
+    }
+
+    fn validate(
+        &self,
+        cancellation: &dyn Cancellation,
+    ) -> Result<ArtifactDigest, ContentValidationError> {
+        match self {
+            Self::Contribution(contribution) => {
+                validate_content(contribution.content(), contribution.digest(), cancellation)
+            }
+            Self::Linked(linked) => {
+                // Publication records retain the fixed-size digest after staging validation.
+                Ok(linked.digest().clone())
+            }
+        }
+    }
 }
 
 enum ArtifactPublicationFailure {
@@ -276,16 +462,22 @@ enum ArtifactPublicationFailure {
     Failed(ArtifactRequirement, PublicationError),
 }
 
-fn prepare_contributions<'plan>(
+fn prepare_contributions<'plan, 'link>(
     plan: &'plan EmissionPlan,
     contributions: impl IntoIterator<Item = ArtifactContribution>,
+    linked: impl IntoIterator<Item = PreparedLinkedArtifact<'plan, 'link>>,
     diagnostics: &mut PublicationDiagnostics,
-) -> Result<Vec<PreparedArtifact<'plan>>, PublicationError> {
-    let mut contributions: Vec<_> = contributions.into_iter().collect();
+) -> Result<Vec<PreparedArtifact<'plan, 'link>>, PublicationError> {
+    let mut contributions: Vec<_> = contributions
+        .into_iter()
+        .map(PreparedContent::Contribution)
+        .collect();
 
     if let Some(package_interface) = package_interface_contribution(plan)? {
-        contributions.push(package_interface);
+        contributions.push(PreparedContent::Contribution(package_interface));
     }
+
+    contributions.extend(linked.into_iter().map(PreparedContent::Linked));
 
     contributions.sort_unstable_by(|left, right| left.id().cmp(right.id()));
 
@@ -294,14 +486,14 @@ fn prepare_contributions<'plan>(
         .find(|pair| pair[0].id() == pair[1].id())
     {
         return Err(contribution_error(
-            &pair[0],
+            pair[0].id(),
             plan,
             PublicationErrorKind::InvalidContribution,
         ));
     }
 
     for contribution in &contributions {
-        validate_contribution_destination(plan, contribution)?;
+        validate_contribution_destination(plan, contribution.id())?;
     }
 
     let mut contributions = contributions.into_iter().peekable();
@@ -314,7 +506,7 @@ fn prepare_contributions<'plan>(
                 Ordering::Greater => None,
                 Ordering::Less => {
                     return Err(contribution_error(
-                        contribution,
+                        contribution.id(),
                         plan,
                         PublicationErrorKind::InvalidContribution,
                     ));
@@ -336,7 +528,7 @@ fn prepare_contributions<'plan>(
 
         if contribution.producer() != planned.producer() {
             let error = contribution_error(
-                &contribution,
+                contribution.id(),
                 plan,
                 PublicationErrorKind::InvalidContribution,
             );
@@ -352,13 +544,13 @@ fn prepare_contributions<'plan>(
 
         prepared.push(PreparedArtifact {
             planned,
-            contribution,
+            content: contribution,
         });
     }
 
     if let Some(contribution) = contributions.next() {
         return Err(contribution_error(
-            &contribution,
+            contribution.id(),
             plan,
             PublicationErrorKind::InvalidContribution,
         ));
@@ -424,11 +616,11 @@ fn package_interface_contribution(
 
 fn validate_contribution_destination(
     plan: &EmissionPlan,
-    contribution: &ArtifactContribution,
+    artifact: &ArtifactId,
 ) -> Result<(), PublicationError> {
-    let Some(planned) = plan.artifact(contribution.id()) else {
+    let Some(planned) = plan.artifact(artifact) else {
         return Err(contribution_error(
-            contribution,
+            artifact,
             plan,
             PublicationErrorKind::InvalidContribution,
         ));
@@ -439,7 +631,7 @@ fn validate_contribution_destination(
         PlannedArtifactDestination::Publish(_)
     ) {
         return Err(contribution_error(
-            contribution,
+            artifact,
             plan,
             PublicationErrorKind::InvalidContribution,
         ));
@@ -452,8 +644,22 @@ fn content_failure(
     planned: &PlannedArtifact,
     error: ContentValidationError,
 ) -> ArtifactPublicationFailure {
+    if matches!(error, ContentValidationError::Cancelled) {
+        return ArtifactPublicationFailure::Cancelled;
+    }
+
+    ArtifactPublicationFailure::Failed(
+        planned.requirement(),
+        publication_content_error(planned, error),
+    )
+}
+
+fn publication_content_error(
+    planned: &PlannedArtifact,
+    error: ContentValidationError,
+) -> PublicationError {
     let kind = match error {
-        ContentValidationError::Cancelled => return ArtifactPublicationFailure::Cancelled,
+        ContentValidationError::Cancelled => PublicationErrorKind::InvalidContribution,
         ContentValidationError::Read(kind) => PublicationErrorKind::Read(kind),
         ContentValidationError::LengthMismatch { expected, actual } => {
             PublicationErrorKind::LengthMismatch { expected, actual }
@@ -466,7 +672,7 @@ fn content_failure(
         }
     };
 
-    artifact_failure(planned, kind)
+    planned_error(planned, kind)
 }
 
 fn artifact_failure(
@@ -477,19 +683,19 @@ fn artifact_failure(
 }
 
 fn contribution_error(
-    contribution: &ArtifactContribution,
+    artifact: &ArtifactId,
     plan: &EmissionPlan,
     kind: PublicationErrorKind,
 ) -> PublicationError {
     let sink = plan
-        .artifact(contribution.id())
+        .artifact(artifact)
         .and_then(|planned| match planned.destination() {
             PlannedArtifactDestination::Publish(sink) => Some(sink.clone()),
             PlannedArtifactDestination::Stage => None,
         });
 
     // Publication errors own the contribution identity after validation returns.
-    PublicationError::new(contribution.id().clone(), sink, kind)
+    PublicationError::new(artifact.clone(), sink, kind)
 }
 
 fn planned_error(planned: &PlannedArtifact, kind: PublicationErrorKind) -> PublicationError {
@@ -507,12 +713,26 @@ fn planned_error(planned: &PlannedArtifact, kind: PublicationErrorKind) -> Publi
 mod tests {
     use std::collections::BTreeMap;
     use std::io::{self, Write};
+    use std::num::NonZeroU64;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
+    use bray_diagnostics::DiagnosticBag;
     use bray_diagnostics::{DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, SeverityKind};
+    use bray_linker::{
+        DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
+        LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome, LinkPlan,
+        LinkPlanBuilder, LinkPolicy, LinkTarget, LinkedArtifact,
+        LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
+        LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
+        SectionGarbageCollectionPolicy, StagingDestination,
+        StagingDestinationId, StagingPathKey,
+    };
+    use bray_target::{
+        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture,
+    };
     use bray_testing::TemporaryFile;
 
     use super::ArtifactPublisher;
@@ -938,6 +1158,508 @@ mod tests {
             outcome.diagnostics().diagnostics()[0].severity(),
             SeverityKind::Error
         );
+    }
+
+    #[test]
+    fn linked_products_and_companions_publish_from_validated_staging() {
+        let cases = [
+            linked_case(
+                LinkedProductKind::Executable,
+                ArtifactKind::Executable,
+                LinkedArtifactKind::Executable,
+                None,
+            ),
+            linked_case(
+                LinkedProductKind::SharedLibrary,
+                ArtifactKind::SharedLibrary,
+                LinkedArtifactKind::SharedLibrary,
+                Some(LinkedArtifactKind::ImportLibrary),
+            ),
+            linked_case(
+                LinkedProductKind::Executable,
+                ArtifactKind::Executable,
+                LinkedArtifactKind::Executable,
+                Some(LinkedArtifactKind::DebugCompanion),
+            ),
+            linked_case(
+                LinkedProductKind::StaticLibrary,
+                ArtifactKind::StaticLibrary,
+                LinkedArtifactKind::StaticLibrary,
+                Some(LinkedArtifactKind::PlatformCompanion),
+            ),
+        ];
+
+        for case in cases {
+            let Ok(directory) = tempfile::tempdir() else {
+                panic!("test output directory must be created");
+            };
+
+            let fixture = linked_publication_fixture(directory.path(), case);
+
+            let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+                &fixture.emission,
+                [],
+                &fixture.link,
+                &fixture.outcome,
+            );
+
+            assert!(matches!(outcome.status(), EmissionStatus::Complete));
+
+            assert_eq!(
+                outcome.artifacts().artifacts().len(),
+                fixture.final_artifacts.len()
+            );
+
+            for artifact in &fixture.final_artifacts {
+                assert_eq!(file_bytes(&artifact.final_path), artifact.bytes);
+                assert!(!artifact.staging_path.exists());
+            }
+
+            assert!(!fixture.input_path.exists());
+        }
+    }
+
+    #[test]
+    fn linked_output_validation_preserves_every_existing_destination() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let case = linked_case(
+            LinkedProductKind::SharedLibrary,
+            ArtifactKind::SharedLibrary,
+            LinkedArtifactKind::SharedLibrary,
+            Some(LinkedArtifactKind::ImportLibrary),
+        );
+
+        let fixture = linked_publication_fixture(directory.path(), case);
+        let missing = &fixture.final_artifacts[1];
+
+        std::fs::remove_file(&missing.staging_path)
+            .unwrap_or_else(|error| panic!("test companion staging must be removed: {error}"));
+
+        for artifact in &fixture.final_artifacts {
+            std::fs::write(&artifact.final_path, b"existing")
+                .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
+        }
+
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+            &fixture.emission,
+            [],
+            &fixture.link,
+            &fixture.outcome,
+        );
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::InvalidContribution(_))
+        ));
+
+        assert_eq!(
+            outcome.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::EmissionArtifactReadFailed
+        );
+
+        for artifact in &fixture.final_artifacts {
+            assert_eq!(file_bytes(&artifact.final_path), b"existing");
+            assert!(!artifact.staging_path.exists());
+        }
+
+        assert!(!fixture.input_path.exists());
+    }
+
+    #[test]
+    fn invalid_linked_output_length_preserves_the_existing_destination() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let case = linked_case(
+            LinkedProductKind::Executable,
+            ArtifactKind::Executable,
+            LinkedArtifactKind::Executable,
+            None,
+        );
+
+        let mut fixture = linked_publication_fixture(directory.path(), case);
+        let artifact = &fixture.final_artifacts[0];
+
+        std::fs::write(&artifact.final_path, b"existing")
+            .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
+
+        let linked = fixture.link.outputs().iter().map(|output| {
+            LinkedArtifact::new(
+                output.kind(),
+                output.destination().id(),
+                NonZeroU64::MIN,
+            )
+        });
+
+        fixture.outcome =
+            LinkOutcome::try_complete(&fixture.link, linked, DiagnosticBag::new())
+                .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
+
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+            &fixture.emission,
+            [],
+            &fixture.link,
+            &fixture.outcome,
+        );
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::InvalidContribution(_))
+        ));
+
+        assert_eq!(
+            outcome.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::EmissionArtifactLengthMismatch
+        );
+
+        assert_eq!(file_bytes(&artifact.final_path), b"existing");
+        assert!(!artifact.staging_path.exists());
+        assert!(!fixture.input_path.exists());
+    }
+
+    #[test]
+    fn link_failure_and_cancellation_preserve_existing_destinations() {
+        let outcomes = [
+            LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new()),
+            LinkOutcome::cancelled(DiagnosticBag::new()),
+        ];
+
+        for link_outcome in outcomes {
+            let Ok(directory) = tempfile::tempdir() else {
+                panic!("test output directory must be created");
+            };
+
+            let case = linked_case(
+                LinkedProductKind::Executable,
+                ArtifactKind::Executable,
+                LinkedArtifactKind::Executable,
+                None,
+            );
+
+            let mut fixture = linked_publication_fixture(directory.path(), case);
+            let artifact = &fixture.final_artifacts[0];
+
+            std::fs::write(&artifact.final_path, b"existing")
+                .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
+
+            fixture.outcome = link_outcome;
+
+            let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+                &fixture.emission,
+                [],
+                &fixture.link,
+                &fixture.outcome,
+            );
+
+            assert!(!matches!(outcome.status(), EmissionStatus::Complete));
+            assert_eq!(file_bytes(&artifact.final_path), b"existing");
+            assert!(!artifact.staging_path.exists());
+            assert!(!fixture.input_path.exists());
+        }
+    }
+
+    #[test]
+    fn cancellation_before_linked_validation_cleans_private_staging() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let case = linked_case(
+            LinkedProductKind::Executable,
+            ArtifactKind::Executable,
+            LinkedArtifactKind::Executable,
+            None,
+        );
+
+        let fixture = linked_publication_fixture(directory.path(), case);
+        let artifact = &fixture.final_artifacts[0];
+
+        std::fs::write(&artifact.final_path, b"existing")
+            .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
+
+        let outcome = ArtifactPublisher::new(&always_cancelled).publish_linked(
+            &fixture.emission,
+            [],
+            &fixture.link,
+            &fixture.outcome,
+        );
+
+        assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
+        assert_eq!(file_bytes(&artifact.final_path), b"existing");
+        assert!(!artifact.staging_path.exists());
+        assert!(!fixture.input_path.exists());
+    }
+
+    #[derive(Clone, Copy)]
+    struct LinkedPublicationCase {
+        product: LinkedProductKind,
+        artifact: ArtifactKind,
+        linked: LinkedArtifactKind,
+        companion: Option<LinkedArtifactKind>,
+    }
+
+    struct LinkedPublicationFixture {
+        emission: EmissionPlan,
+        link: LinkPlan,
+        outcome: LinkOutcome,
+        input_path: PathBuf,
+        final_artifacts: Vec<LinkedFinalArtifact>,
+    }
+
+    struct LinkedFinalArtifact {
+        final_path: PathBuf,
+        staging_path: PathBuf,
+        bytes: &'static [u8],
+    }
+
+    const fn linked_case(
+        product: LinkedProductKind,
+        artifact: ArtifactKind,
+        linked: LinkedArtifactKind,
+        companion: Option<LinkedArtifactKind>,
+    ) -> LinkedPublicationCase {
+        LinkedPublicationCase {
+            product,
+            artifact,
+            linked,
+            companion,
+        }
+    }
+
+    fn linked_publication_fixture(
+        directory: &Path,
+        case: LinkedPublicationCase,
+    ) -> LinkedPublicationFixture {
+        let product_kind = match case.product {
+            LinkedProductKind::Executable => ProductKind::Executable,
+            LinkedProductKind::SharedLibrary | LinkedProductKind::StaticLibrary => {
+                ProductKind::Library
+            }
+        };
+
+        let executable_host =
+            (product_kind == ProductKind::Executable).then(crate::test_support::executable_host_contract);
+
+        let mut requested = vec![RequestedArtifact::new(
+            case.artifact,
+            ArtifactRequirement::Required,
+        )];
+
+        if case.companion.is_some() {
+            requested.push(RequestedArtifact::new(
+                ArtifactKind::LinkedCompanion,
+                ArtifactRequirement::Required,
+            ));
+        }
+
+        let Ok(request) = EmissionRequest::try_new(
+            product_identity(),
+            product_kind,
+            executable_host,
+            target_identity(),
+            RequestedArtifactDestination::FilesystemDirectory(directory.to_owned()),
+            requested,
+            ReplacementPolicy::ReplaceExisting,
+        ) else {
+            panic!("test linked emission request must be valid");
+        };
+
+        let primary_final = directory.join("primary.final");
+        let primary_staging = directory.join("primary.stage");
+
+        let mut planned = vec![linked_planned_artifact(
+            &request,
+            case.artifact,
+            ArtifactRole::Product,
+            primary_final.clone(),
+        )];
+
+        let mut final_artifacts = vec![LinkedFinalArtifact {
+            final_path: primary_final,
+            staging_path: primary_staging.clone(),
+            bytes: b"primary linked bytes",
+        }];
+
+        if case.companion.is_some() {
+            let companion_final = directory.join("companion.final");
+            let companion_staging = directory.join("companion.stage");
+
+            planned.push(linked_planned_artifact(
+                &request,
+                ArtifactKind::LinkedCompanion,
+                ArtifactRole::Companion,
+                companion_final.clone(),
+            ));
+
+            final_artifacts.push(LinkedFinalArtifact {
+                final_path: companion_final,
+                staging_path: companion_staging,
+                bytes: b"companion linked bytes",
+            });
+        }
+
+        let Ok(emission) = EmissionPlan::try_new(request, None, planned, [], None) else {
+            panic!("test linked emission plan must be valid");
+        };
+
+        let input_path = directory.join("input.o");
+
+        std::fs::write(&input_path, b"object")
+            .unwrap_or_else(|error| panic!("test link input must be written: {error}"));
+
+        let mut builder = LinkPlanBuilder::new(
+            product_identity(),
+            case.product,
+            linked_target(case.product),
+            linked_driver_identity(),
+            LinkPolicy::new(
+                bray_linker::DeadStripPolicy::Preserve,
+                SectionGarbageCollectionPolicy::Preserve,
+                if case.companion == Some(LinkedArtifactKind::DebugCompanion) {
+                    DebugLinkPolicy::Companion
+                } else {
+                    DebugLinkPolicy::None
+                },
+                None,
+            ),
+        );
+
+        builder.push_input(linked_input(&input_path));
+
+        builder.push_output(linked_output(
+            0,
+            case.linked,
+            &primary_staging,
+        ));
+
+        if let Some(companion) = case.companion {
+            builder.push_output(linked_output(
+                1,
+                companion,
+                &final_artifacts[1].staging_path,
+            ));
+        }
+
+        if case.product == LinkedProductKind::Executable {
+            builder.set_executable_host(crate::test_support::executable_host_contract());
+        }
+
+        let link = builder
+            .finish()
+            .unwrap_or_else(|error| panic!("test link plan must be valid: {error:?}"));
+
+        for artifact in &final_artifacts {
+            std::fs::write(&artifact.staging_path, artifact.bytes)
+                .unwrap_or_else(|error| panic!("test linked staging must be written: {error}"));
+        }
+
+        let artifacts = link.outputs().iter().zip(&final_artifacts).map(
+            |(output, artifact)| {
+                let Some(byte_len) = NonZeroU64::new(
+                    u64::try_from(artifact.bytes.len())
+                        .unwrap_or_else(|_| panic!("test linked length must be representable")),
+                ) else {
+                    panic!("test linked staging must be nonempty");
+                };
+
+                LinkedArtifact::new(
+                    output.kind(),
+                    output.destination().id(),
+                    byte_len,
+                )
+            },
+        );
+
+        let outcome = LinkOutcome::try_complete(&link, artifacts, DiagnosticBag::new())
+            .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
+
+        LinkedPublicationFixture {
+            emission,
+            link,
+            outcome,
+            input_path,
+            final_artifacts,
+        }
+    }
+
+    fn linked_planned_artifact(
+        request: &EmissionRequest,
+        kind: ArtifactKind,
+        role: ArtifactRole,
+        path: PathBuf,
+    ) -> PlannedArtifact {
+        PlannedArtifact::new(
+            ArtifactId::new(request.product().clone(), kind, 0),
+            ArtifactRequirement::Required,
+            role,
+            ArtifactProducer::Linker(LinkerProducerId::new(0)),
+            PlannedArtifactDestination::Publish(OutputSink::Filesystem(path)),
+        )
+    }
+
+    fn linked_input(path: &Path) -> LinkInput {
+        LinkInput::try_new(
+            LinkInputId::new(0),
+            LinkInputKind::RelocatableObject,
+            LinkInputSource::file(path),
+            LinkInputProvenance::Product,
+            LinkInputMode::Ordinary,
+        )
+        .unwrap_or_else(|error| panic!("test link input must be valid: {error:?}"))
+    }
+
+    fn linked_output(
+        ordinal: u32,
+        kind: LinkedArtifactKind,
+        path: &Path,
+    ) -> PlannedLinkedArtifact {
+        let Some(path_key) = StagingPathKey::try_new(path.to_string_lossy().into_owned()) else {
+            panic!("test staging path identity must be valid");
+        };
+
+        let destination = StagingDestination::try_new(
+            StagingDestinationId::new(ordinal),
+            path,
+            path_key,
+        )
+        .unwrap_or_else(|error| panic!("test staging destination must be valid: {error:?}"));
+
+        PlannedLinkedArtifact::new(
+            kind,
+            LinkedArtifactRequirement::Required,
+            destination,
+        )
+    }
+
+    fn linked_target(product: LinkedProductKind) -> LinkTarget {
+        LinkTarget::try_new(
+            target_identity(),
+            "x86_64-unknown-linux-gnu",
+            TargetArchitecture::X86_64,
+            ObjectFormat::Elf,
+            RelocationModel::PositionIndependent,
+            CodeModel::Small,
+            if product == LinkedProductKind::StaticLibrary {
+                LinkModel::Static
+            } else {
+                LinkModel::Dynamic
+            },
+        )
+        .unwrap_or_else(|error| panic!("test link target must be valid: {error:?}"))
+    }
+
+    fn linked_driver_identity() -> LinkerDriverIdentity {
+        LinkerDriverIdentity::try_new(
+            LinkerDriverKind::EmbeddedLld,
+            "lld",
+            "1",
+            "20",
+        )
+        .unwrap_or_else(|| panic!("test linker identity must be valid"))
     }
 
     fn memory_plan(collector: OutputSinkId) -> EmissionPlan {
@@ -1383,5 +2105,9 @@ mod tests {
 
     fn never_cancelled() -> bool {
         false
+    }
+
+    fn always_cancelled() -> bool {
+        true
     }
 }
