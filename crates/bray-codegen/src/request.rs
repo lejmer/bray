@@ -36,7 +36,7 @@ impl<'request> CodegenRequest<'request> {
             return Err(CodegenRequestBuildError::TargetMismatch);
         }
 
-        if unit.mir_units().iter().any(|mir| {
+        if unit.mir_units().any(|mir| {
             let bray_ir::MirUnitKind::ExecutableHost(host) = mir.kind() else {
                 return false;
             };

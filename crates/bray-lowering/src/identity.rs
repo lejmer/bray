@@ -27,8 +27,8 @@ fn protected_frame_identity(
     key: &BoundUnitKey,
     target: &MirTargetFacts,
 ) -> ProtectedAsyncFrameId {
-    // TODO(BRA-159): Extend this target-specific template identity with the concrete
-    // specialization arguments and witnesses selected during codegen-unit partitioning.
+    // This is the target-specific template identity. The concrete codegen instance
+    // adds its specialization arguments and selected implementation witnesses.
     let mut hasher = StableFrameHasher::new();
 
     hasher.write(b"bray.protected-async-frame");

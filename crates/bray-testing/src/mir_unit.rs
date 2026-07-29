@@ -9,11 +9,16 @@ use bray_runtime_interface::{
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, TypeData, TypeId};
 
-use crate::test_bound_unit;
+use crate::test_bound_unit_with_declaration;
 
 /// Builds one valid single-block MIR unit with a deterministic semantic identity.
 pub fn test_mir_unit(unit: u32) -> MirUnit {
-    let bound = test_bound_unit(unit);
+    test_mir_unit_with_declaration(unit, 0)
+}
+
+/// Builds one valid single-block MIR unit with a caller-selected declaration identity.
+pub fn test_mir_unit_with_declaration(unit: u32, declaration: u32) -> MirUnit {
+    let bound = test_bound_unit_with_declaration(unit, declaration);
     let source = MirSourceAnchor::from(bound.key().source());
 
     let mut builder = MirUnitBuilder::for_bound(

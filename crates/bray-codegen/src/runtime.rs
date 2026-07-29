@@ -203,7 +203,6 @@ pub enum CodegenRuntimeMetadataBuildError {
 fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
     let mut frames: Vec<_> = unit
         .mir_units()
-        .iter()
         .filter_map(|unit| match unit.kind() {
             MirUnitKind::ProtectedAsyncFrame(frame) => Some(*frame),
             MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => None,
@@ -216,7 +215,7 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
 }
 
 fn frame_metadata_matches(unit: &CodegenUnit, metadata: &ProtectedAsyncFrameMetadata) -> bool {
-    unit.mir_units().iter().any(|unit| {
+    unit.mir_units().any(|unit| {
         unit.frame_descriptor().is_some_and(|descriptor| {
             descriptor.frame() == metadata.frame() && descriptor.frame_abi() == metadata.frame_abi()
         })
@@ -226,7 +225,7 @@ fn frame_metadata_matches(unit: &CodegenUnit, metadata: &ProtectedAsyncFrameMeta
 fn expected_host(
     unit: &CodegenUnit,
 ) -> Result<Option<&ExecutableHostContract>, CodegenRuntimeMetadataBuildError> {
-    let mut hosts = unit.mir_units().iter().filter_map(|unit| {
+    let mut hosts = unit.mir_units().filter_map(|unit| {
         let MirUnitKind::ExecutableHost(host) = unit.kind() else {
             return None;
         };
