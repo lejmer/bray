@@ -6,6 +6,7 @@ use bray_diagnostics::DiagnosticBag;
 use super::response::{SystemLinkerInvocationBuildError, invocation};
 use super::{SystemLinkerConfiguration, SystemLinkerFamily};
 use crate::command::arguments_for;
+use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkedProductKind, LinkerDriver,
@@ -58,16 +59,18 @@ impl LinkerDriver for SystemLinkerDriver {
         }
 
         if plan.driver() != &self.identity || !self.supports(plan.target(), plan.product_kind()) {
-            return failed(LinkFailure::DriverIncompatible);
+            return failed_outcome(LinkFailure::DriverIncompatible);
         }
 
         if let Err(failure) = validate_file_inputs(plan) {
-            return failed(failure);
+            return failed_outcome(failure);
         }
 
         let arguments = match arguments_for(plan, self.family().flavor()) {
             Ok(arguments) => arguments,
-            Err(_) => return failed(LinkFailure::DriverIncompatible),
+            Err(_) => {
+                return failed_outcome(LinkFailure::DriverIncompatible);
+            }
         };
 
         let invocation = match invocation(&self.configuration, plan, arguments) {
@@ -85,7 +88,7 @@ impl LinkerDriver for SystemLinkerDriver {
         }
 
         if !output.success() {
-            return failed(LinkFailure::Invocation);
+            return failed_outcome(LinkFailure::Invocation);
         }
 
         complete_linked_outputs(plan)
@@ -103,18 +106,16 @@ fn outcome_from_invocation_error(error: SystemLinkerInvocationBuildError) -> Lin
     match error {
         SystemLinkerInvocationBuildError::ResponseFile(_)
         | SystemLinkerInvocationBuildError::MissingPrimaryOutput => {
-            failed(LinkFailure::ResponseFile)
+            failed_outcome(LinkFailure::ResponseFile)
         }
-        SystemLinkerInvocationBuildError::Invocation(_) => failed(LinkFailure::Invocation),
+        SystemLinkerInvocationBuildError::Invocation(_) => {
+            failed_outcome(LinkFailure::Invocation)
+        }
         SystemLinkerInvocationBuildError::NonUnicodeArgument
         | SystemLinkerInvocationBuildError::UnsupportedArgument => {
-            failed(LinkFailure::DriverIncompatible)
+            failed_outcome(LinkFailure::DriverIncompatible)
         }
     }
-}
-
-fn failed(failure: LinkFailure) -> LinkOutcome {
-    LinkOutcome::failed(failure, DiagnosticBag::new())
 }
 
 #[cfg(test)]

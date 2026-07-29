@@ -7,6 +7,7 @@ use bray_diagnostics::DiagnosticBag;
 
 use super::{EmbeddedLldHost, LldFlavor};
 use crate::command::{LldPlanError, arguments_for};
+use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
@@ -99,15 +100,15 @@ impl LinkerDriver for LldDriver {
         }
 
         if plan.driver() != &self.identity {
-            return failed(LinkFailure::DriverIncompatible);
+            return failed_outcome(LinkFailure::DriverIncompatible);
         }
 
         let Some(flavor) = LldFlavor::for_target(plan.target(), plan.product_kind()) else {
-            return failed(LinkFailure::DriverIncompatible);
+            return failed_outcome(LinkFailure::DriverIncompatible);
         };
 
         if let Err(failure) = validate_file_inputs(plan) {
-            return failed(failure);
+            return failed_outcome(failure);
         }
 
         let output = match self.run(plan, flavor, cancellation) {
@@ -120,7 +121,7 @@ impl LinkerDriver for LldDriver {
         }
 
         if !output.success() {
-            return failed(LinkFailure::Invocation);
+            return failed_outcome(LinkFailure::Invocation);
         }
 
         complete_linked_outputs(plan)
@@ -174,13 +175,11 @@ fn external_arguments(
 fn outcome_from_run_error(error: LldRunError) -> LinkOutcome {
     match error {
         LldRunError::ExternalTool(error) => LinkOutcome::from_external_tool_failure(error),
-        LldRunError::Invocation => failed(LinkFailure::Invocation),
-        LldRunError::Plan => failed(LinkFailure::DriverIncompatible),
+        LldRunError::Invocation => failed_outcome(LinkFailure::Invocation),
+        LldRunError::Plan => {
+            failed_outcome(LinkFailure::DriverIncompatible)
+        }
     }
-}
-
-fn failed(failure: LinkFailure) -> LinkOutcome {
-    LinkOutcome::failed(failure, DiagnosticBag::new())
 }
 
 #[cfg(test)]
