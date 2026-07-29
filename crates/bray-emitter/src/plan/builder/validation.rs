@@ -290,12 +290,6 @@ fn validate_serialization_policy(
         ));
     }
 
-    if serialization.annotate_backend_ir() && request.artifact(ArtifactKind::BackendIr).is_none() {
-        return Err(EmissionPlanningError::MissingSerializationArtifact(
-            BackendArtifactKind::BackendIr,
-        ));
-    }
-
     Ok(())
 }
 

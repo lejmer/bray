@@ -1087,7 +1087,7 @@ mod tests {
 
     #[test]
     fn planning_validates_debug_and_serialization_policy_before_backend_requests() {
-        let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::Intel, false);
+        let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::Intel);
 
         let invalid_policy = BackendEmissionPolicy::new(
             DebugInformationMode::None,
@@ -1150,7 +1150,7 @@ mod tests {
             DebugInformationMode::None,
             DebugInformationOutputMode::Omit,
             linkable,
-            BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false),
+            BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         )
     }
 }

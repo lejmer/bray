@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 use bray_codegen::{
-    AssemblySyntaxKind, BackendArtifactKind, BackendCapabilities, BackendIdentity,
-    BackendTargetPlatform, CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
+    ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
+    BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendTargetPlatform,
+    CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
     CodegenTarget, DebugInformationMode,
 };
 use bray_diagnostics::DiagnosticBag;
@@ -10,7 +13,9 @@ use inkwell::module::Module;
 
 use crate::machine::LlvmTargetMachine;
 use crate::mapping::{LlvmTypeMappings, add_debug_metadata, declare_symbols};
-use crate::translation::translate_instances;
+use crate::optimization::optimize_module;
+use crate::serialization::serialize_artifact;
+use crate::translation::{TranslationError, translate_instances};
 
 const BACKEND_NAME: &str = "llvm";
 const BACKEND_REVISION: &str = "1";
@@ -42,8 +47,12 @@ impl LlvmCodeGenerator {
         &self,
         request: CodegenRequest<'_>,
         context: &'context Context,
-    ) -> Result<Module<'context>, CodegenFailure> {
-        let machine = LlvmTargetMachine::create(request.target())?;
+    ) -> Result<Option<(LlvmTargetMachine, Module<'context>)>, CodegenFailure> {
+        let machine = LlvmTargetMachine::create_for_codegen(
+            request.target(),
+            request.options().optimization(),
+        )?;
+
         let module = context.create_module("bray.codegen.unit");
 
         machine.validate_contract(request.target(), context)?;
@@ -63,9 +72,100 @@ impl LlvmCodeGenerator {
             request.options().debug_information(),
         );
 
-        translate_instances(context, &module, request, &mut types)?;
+        match translate_instances(context, &module, request, &mut types) {
+            Ok(()) => {}
+            Err(TranslationError::Cancelled) => return Ok(None),
+            Err(TranslationError::Failed(failure)) => return Err(failure),
+        }
 
-        Ok(module)
+        Ok(Some((machine, module)))
+    }
+
+    fn generate_artifacts(
+        &self,
+        request: CodegenRequest<'_>,
+    ) -> Result<CodegenOutcome, CodegenFailure> {
+        let context = Context::create();
+
+        let Some((machine, module)) = self.prepare_module(request, &context)? else {
+            return Ok(CodegenOutcome::cancelled());
+        };
+
+        if request.cancellation().is_cancelled() {
+            return Ok(CodegenOutcome::cancelled());
+        }
+
+        module
+            .verify()
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        if request.cancellation().is_cancelled() {
+            return Ok(CodegenOutcome::cancelled());
+        }
+
+        optimize_module(&module, &machine, *request.options())?;
+
+        if request.cancellation().is_cancelled() {
+            return Ok(CodegenOutcome::cancelled());
+        }
+
+        module
+            .verify()
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        let mut serialized: BTreeMap<BackendArtifactKind, ArtifactContent> = BTreeMap::new();
+
+        let mut contributions = Vec::new();
+
+        for entry in request.artifacts().entries() {
+            if request.cancellation().is_cancelled() {
+                return Ok(CodegenOutcome::cancelled());
+            }
+
+            let kind = entry.id().kind();
+
+            let content = if let Some(content) = serialized.get(&kind) {
+                // Artifact content is an Arc-backed immutable handle reused for repeated requests.
+                content.clone()
+            } else {
+                match serialize_artifact(&machine, &module, kind) {
+                    Ok(content) => {
+                        // The cache retains the immutable bytes for later same-kind entries.
+                        serialized.insert(kind, content.clone());
+
+                        content
+                    }
+                    Err(_) if entry.requirement() == BackendArtifactRequirement::Optional => {
+                        continue;
+                    }
+                    Err(failure) => return Err(failure),
+                }
+            };
+
+            contributions.push(BackendArtifactContribution::new(
+                // Contributions retain Arc-backed request identities after generation returns.
+                entry.id().clone(),
+                content,
+                // Contributions retain Arc-backed backend and target identities.
+                self.identity.clone(),
+                request.target().identity().clone(),
+                None,
+            ));
+        }
+
+        if request.cancellation().is_cancelled() {
+            return Ok(CodegenOutcome::cancelled());
+        }
+
+        let runtime_metadata = runtime_metadata(request)?;
+
+        CodegenOutcome::try_complete(
+            request,
+            contributions,
+            runtime_metadata,
+            DiagnosticBag::new(),
+        )
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
     }
 }
 
@@ -101,17 +201,10 @@ impl CodeGenerator for LlvmCodeGenerator {
             );
         }
 
-        let context = Context::create();
-
-        if let Err(failure) = self.prepare_module(request, &context) {
-            return CodegenOutcome::failed(failure, DiagnosticBag::new());
+        match self.generate_artifacts(request) {
+            Ok(outcome) => outcome,
+            Err(failure) => CodegenOutcome::failed(failure, DiagnosticBag::new()),
         }
-
-        // TODO(BRA-163): Verify, optimize, and serialize the requested artifacts.
-        CodegenOutcome::failed(
-            CodegenFailure::GeneratedModuleInvariant,
-            DiagnosticBag::new(),
-        )
     }
 }
 
@@ -129,12 +222,30 @@ fn capabilities() -> BackendCapabilities {
             DebugInformationMode::LineTables,
             DebugInformationMode::Full,
         ],
-        [
-            AssemblySyntaxKind::TargetDefault,
-            AssemblySyntaxKind::Intel,
-            AssemblySyntaxKind::Att,
-        ],
+        [AssemblySyntaxKind::TargetDefault],
     )
+}
+
+fn runtime_metadata(
+    request: CodegenRequest<'_>,
+) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
+    let mut hosts = request.unit().mir_units().filter_map(|unit| {
+        let bray_ir::MirUnitKind::ExecutableHost(host) = unit.kind() else {
+            return None;
+        };
+
+        Some(host)
+    });
+
+    // Runtime metadata owns the small immutable host contract after the MIR borrow ends.
+    let host = hosts.next().cloned();
+
+    if hosts.next().is_some() {
+        return Err(CodegenFailure::GeneratedModuleInvariant);
+    }
+
+    CodegenRuntimeMetadata::try_new(request.unit(), [], host)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
 }
 
 fn target_platforms() -> impl Iterator<Item = BackendTargetPlatform> {
@@ -184,6 +295,10 @@ fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use bray_base::Cancellation;
+    use bray_codegen::ArtifactContentSource;
     use bray_codegen::test_support::{
         codegen_request_for_backend, codegen_target, codegen_target_with_profile,
     };
@@ -194,6 +309,7 @@ mod tests {
 
     use super::{LLVM_REVISION, LlvmCodeGenerator, representative_triple};
     use crate::initialization;
+    use crate::serialization::serialize_artifact;
 
     #[test]
     fn backend_identity_and_capabilities_are_stable() {
@@ -212,6 +328,11 @@ mod tests {
                 .supports_artifact(BackendArtifactKind::RelocatableObject)
         );
 
+        assert_eq!(
+            backend.capabilities().assembly_syntax_kinds(),
+            &[bray_codegen::AssemblySyntaxKind::TargetDefault]
+        );
+
         assert_eq!(backend.validate_target(&codegen_target()), Ok(()));
 
         let mismatched =
@@ -224,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn generation_uses_task_local_backend_state_without_publishing_it() {
+    fn generation_publishes_only_immutable_requested_contributions() {
         let Ok(backend) = LlvmCodeGenerator::try_new() else {
             panic!("LLVM backend constants must be valid");
         };
@@ -232,12 +353,90 @@ mod tests {
         let fixture = codegen_request_for_backend(backend.identity().clone());
         let outcome = backend.generate(fixture.request());
 
-        assert_eq!(
-            outcome.status(),
-            &CodegenStatus::Failed(CodegenFailure::GeneratedModuleInvariant)
-        );
+        assert!(matches!(outcome.status(), CodegenStatus::Complete(_)));
 
+        let Some(artifacts) = outcome.artifacts() else {
+            panic!("successful generation must publish requested artifacts");
+        };
+
+        assert_eq!(artifacts.contributions().len(), 2);
+
+        for contribution in artifacts.contributions() {
+            assert_eq!(
+                contribution.id().kind(),
+                BackendArtifactKind::RelocatableObject
+            );
+
+            assert_ne!(contribution.content().byte_len(), 0);
+        }
+    }
+
+    #[test]
+    fn requested_llvm_artifact_formats_serialize_from_the_verified_module() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let request = fixture.request();
+        let context = inkwell::context::Context::create();
+
+        let Ok(Some((machine, module))) = backend.prepare_module(request, &context) else {
+            panic!("test mappings must produce a valid LLVM module");
+        };
+
+        for kind in [
+            BackendArtifactKind::RelocatableObject,
+            BackendArtifactKind::Assembly,
+            BackendArtifactKind::BackendIr,
+            BackendArtifactKind::BackendBitcode,
+        ] {
+            let Ok(content) = serialize_artifact(&machine, &module, kind) else {
+                panic!("{kind:?} must serialize");
+            };
+
+            assert_ne!(content.byte_len(), 0, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn repeated_generation_is_byte_for_byte_deterministic() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let first = backend.generate(fixture.request());
+        let second = backend.generate(fixture.request());
+
+        assert_eq!(artifact_bytes(&first), artifact_bytes(&second));
+    }
+
+    #[test]
+    fn cancellation_during_serialization_discards_completed_contributions() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let cancellation = CancelAfter::new(6);
+        let outcome = backend.generate(fixture.request_with_cancellation(&cancellation));
+
+        assert!(matches!(outcome.status(), CodegenStatus::Cancelled));
         assert!(outcome.artifacts().is_none());
+    }
+
+    #[test]
+    fn cancellation_during_translation_is_not_reported_as_backend_failure() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let cancellation = CancelAfter::new(1);
+        let outcome = backend.generate(fixture.request_with_cancellation(&cancellation));
+
+        assert!(matches!(outcome.status(), CodegenStatus::Cancelled));
     }
 
     #[test]
@@ -250,7 +449,7 @@ mod tests {
         let request = fixture.request();
         let context = inkwell::context::Context::create();
 
-        let Ok(module) = backend.prepare_module(request, &context) else {
+        let Ok(Some((_, module))) = backend.prepare_module(request, &context) else {
             panic!("test mappings must produce a valid LLVM module");
         };
 
@@ -300,6 +499,45 @@ mod tests {
                     .is_some(),
                 "{platform:?} must construct an LLVM target machine"
             );
+        }
+    }
+
+    fn artifact_bytes(outcome: &bray_codegen::CodegenOutcome) -> Vec<Vec<u8>> {
+        let Some(artifacts) = outcome.artifacts() else {
+            panic!("test generation must complete");
+        };
+
+        artifacts
+            .contributions()
+            .iter()
+            .map(|contribution| match contribution.content().source() {
+                ArtifactContentSource::Memory(bytes) => bytes.to_vec(),
+                ArtifactContentSource::CompilerSpool(_) => {
+                    panic!("small test artifacts must remain memory-backed");
+                }
+            })
+            .collect()
+    }
+
+    struct CancelAfter {
+        remaining_checks: AtomicUsize,
+    }
+
+    impl CancelAfter {
+        const fn new(checks: usize) -> Self {
+            Self {
+                remaining_checks: AtomicUsize::new(checks),
+            }
+        }
+    }
+
+    impl Cancellation for CancelAfter {
+        fn is_cancelled(&self) -> bool {
+            self.remaining_checks
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_err()
         }
     }
 }

@@ -6,6 +6,8 @@ mod backend;
 mod initialization;
 mod machine;
 mod mapping;
+mod optimization;
+mod serialization;
 mod translation;
 
 pub use backend::LlvmCodeGenerator;

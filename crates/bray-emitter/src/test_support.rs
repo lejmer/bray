@@ -284,7 +284,7 @@ pub(crate) fn backend_artifact_plan_parts() -> (
         BackendArtifactRequirement::Required,
     );
 
-    let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false);
+    let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault);
 
     let Ok(backend_request) = BackendArtifactRequest::try_new(
         backend_artifact.unit().clone(),

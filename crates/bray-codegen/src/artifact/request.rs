@@ -160,15 +160,13 @@ pub enum AssemblySyntaxKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BackendSerializationOptions {
     assembly_syntax_kind: AssemblySyntaxKind,
-    annotate_backend_ir: bool,
 }
 
 impl BackendSerializationOptions {
     /// Creates typed backend serialization policy.
-    pub const fn new(assembly_syntax_kind: AssemblySyntaxKind, annotate_backend_ir: bool) -> Self {
+    pub const fn new(assembly_syntax_kind: AssemblySyntaxKind) -> Self {
         Self {
             assembly_syntax_kind,
-            annotate_backend_ir,
         }
     }
 
@@ -177,10 +175,6 @@ impl BackendSerializationOptions {
         self.assembly_syntax_kind
     }
 
-    /// Returns whether inspection IR should retain backend annotations.
-    pub const fn annotate_backend_ir(self) -> bool {
-        self.annotate_backend_ir
-    }
 }
 
 /// Exact immutable backend outputs derived from one emission plan.
@@ -307,8 +301,6 @@ pub enum BackendArtifactRequestBuildError {
     UnexpectedDebugCompanion,
     /// A non-default assembly syntax was selected without an assembly contribution.
     UnexpectedAssemblySyntax,
-    /// Backend IR annotations were selected without a backend IR contribution.
-    UnexpectedBackendIrAnnotations,
 }
 
 fn validate_linkable_requirement(
@@ -372,10 +364,6 @@ fn validate_serialization_options(
         && !has_kind(entries, BackendArtifactKind::Assembly)
     {
         return Err(BackendArtifactRequestBuildError::UnexpectedAssemblySyntax);
-    }
-
-    if options.annotate_backend_ir() && !has_kind(entries, BackendArtifactKind::BackendIr) {
-        return Err(BackendArtifactRequestBuildError::UnexpectedBackendIrAnnotations);
     }
 
     Ok(())
@@ -446,6 +434,6 @@ mod tests {
     }
 
     fn serialization() -> BackendSerializationOptions {
-        BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false)
+        BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault)
     }
 }
