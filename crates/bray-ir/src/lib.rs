@@ -5,12 +5,14 @@
 mod block;
 mod control;
 mod frame;
+mod helper;
 mod id;
 mod operation;
 mod reference;
 mod source;
 mod storage;
 mod target;
+mod types;
 #[cfg(test)]
 mod test_support;
 mod unit;
@@ -25,6 +27,7 @@ pub use control::{
 pub use frame::{
     MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameStateFacts,
 };
+pub use helper::MirHelperReference;
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,

@@ -195,7 +195,18 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
         .into_iter()
         .map(|anchor| CodegenDebugLocation::new(anchor, file.clone(), one, one));
 
-    match CodegenMappings::try_new(unit, target, types, symbols, debug_locations) {
+    match CodegenMappings::try_new(
+        unit,
+        target,
+        types,
+        symbols,
+        [],
+        [],
+        [],
+        [],
+        [],
+        debug_locations,
+    ) {
         Ok(mappings) => mappings,
         Err(error) => panic!("test code generation mappings must be valid: {error:?}"),
     }

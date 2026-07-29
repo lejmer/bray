@@ -337,6 +337,11 @@ mod tests {
             request.target(),
             all_types,
             mappings.symbols().iter().cloned(),
+            mappings.constants().iter().cloned(),
+            mappings.constant_terms().iter().cloned(),
+            mappings.callables().iter().cloned(),
+            mappings.operations().iter().cloned(),
+            mappings.terminators().iter().cloned(),
             mappings.debug_locations().iter().cloned(),
         ) else {
             panic!("representative type mappings must validate");
@@ -395,6 +400,11 @@ mod tests {
             request.target(),
             all_types,
             mappings.symbols().iter().cloned(),
+            mappings.constants().iter().cloned(),
+            mappings.constant_terms().iter().cloned(),
+            mappings.callables().iter().cloned(),
+            mappings.operations().iter().cloned(),
+            mappings.terminators().iter().cloned(),
             mappings.debug_locations().iter().cloned(),
         ) else {
             panic!("invalid physical field offsets remain backend validation input");

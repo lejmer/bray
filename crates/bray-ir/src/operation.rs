@@ -219,6 +219,7 @@ impl MirConstruction {
     pub fn inputs(&self) -> &[MirConstructionInput] {
         &self.inputs
     }
+
 }
 
 /// Terminal state published for one task run.

@@ -11,7 +11,7 @@ use bray_symbols::TypeId;
 use crate::{MirBlockId, MirFrameStateId, MirStorageId};
 
 /// How one inactive future identifies its protected frame representation.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirFrameReference {
     /// The exact protected frame representation is statically known.
     Known(ProtectedAsyncFrameId),
