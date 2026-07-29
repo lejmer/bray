@@ -113,58 +113,34 @@ pub enum LinkInputMode {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LinkInput {
     id: LinkInputId,
+    spec: LinkInputSpec,
+}
+
+/// Validated native linker input before one plan assigns its stable identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LinkInputSpec {
     kind: LinkInputKind,
     source: LinkInputSource,
     provenance: LinkInputProvenance,
     mode: LinkInputMode,
 }
 
-impl LinkInput {
-    /// Validates and creates one native linker input.
+impl LinkInputSpec {
+    /// Validates one native linker input specification.
     pub fn try_new(
-        id: LinkInputId,
         kind: LinkInputKind,
         source: LinkInputSource,
         provenance: LinkInputProvenance,
         mode: LinkInputMode,
     ) -> Result<Self, LinkInputBuildError> {
-        if matches!(&source, LinkInputSource::File(path) if path.as_os_str().is_empty()) {
-            return Err(LinkInputBuildError::EmptyFilePath);
-        }
-
-        if !kind.accepts(&source) {
-            return Err(LinkInputBuildError::SourceKindMismatch);
-        }
-
-        if mode == LinkInputMode::WholeArchive && kind != LinkInputKind::Archive {
-            return Err(LinkInputBuildError::WholeArchiveRequiresArchive);
-        }
+        validate_input(kind, &source, mode)?;
 
         Ok(Self {
-            id,
             kind,
             source,
             provenance,
             mode,
         })
-    }
-
-    /// Creates the runtime component selected from validated artifact metadata.
-    pub fn runtime_component(id: LinkInputId, artifact: &RuntimeArtifact) -> Self {
-        Self {
-            id,
-            kind: LinkInputKind::RuntimeComponent,
-            source: LinkInputSource::file(artifact.archive()),
-            provenance: LinkInputProvenance::Runtime(
-                artifact.contract().artifact().clone(),
-            ),
-            mode: LinkInputMode::Ordinary,
-        }
-    }
-
-    /// Returns the stable input identity.
-    pub const fn id(&self) -> LinkInputId {
-        self.id
     }
 
     /// Returns the native input category.
@@ -186,6 +162,83 @@ impl LinkInput {
     pub const fn mode(&self) -> LinkInputMode {
         self.mode
     }
+
+    /// Assigns this specification its stable identity in one link plan.
+    pub fn with_id(self, id: LinkInputId) -> LinkInput {
+        LinkInput { id, spec: self }
+    }
+}
+
+impl LinkInput {
+    /// Validates and creates one native linker input.
+    pub fn try_new(
+        id: LinkInputId,
+        kind: LinkInputKind,
+        source: LinkInputSource,
+        provenance: LinkInputProvenance,
+        mode: LinkInputMode,
+    ) -> Result<Self, LinkInputBuildError> {
+        LinkInputSpec::try_new(kind, source, provenance, mode).map(|spec| spec.with_id(id))
+    }
+
+    /// Creates the runtime component selected from validated artifact metadata.
+    pub fn runtime_component(id: LinkInputId, artifact: &RuntimeArtifact) -> Self {
+        LinkInputSpec {
+            kind: LinkInputKind::RuntimeComponent,
+            source: LinkInputSource::file(artifact.archive()),
+            provenance: LinkInputProvenance::Runtime(
+                // The plan input retains runtime identity after the artifact borrow ends.
+                artifact.contract().artifact().clone(),
+            ),
+            mode: LinkInputMode::Ordinary,
+        }
+        .with_id(id)
+    }
+
+    /// Returns the stable input identity.
+    pub const fn id(&self) -> LinkInputId {
+        self.id
+    }
+
+    /// Returns the native input category.
+    pub const fn kind(&self) -> LinkInputKind {
+        self.spec.kind()
+    }
+
+    /// Returns the exact driver-facing input source.
+    pub const fn source(&self) -> &LinkInputSource {
+        self.spec.source()
+    }
+
+    /// Returns the input origin retained for diagnostics and metadata.
+    pub const fn provenance(&self) -> &LinkInputProvenance {
+        self.spec.provenance()
+    }
+
+    /// Returns the selected archive treatment.
+    pub const fn mode(&self) -> LinkInputMode {
+        self.spec.mode()
+    }
+}
+
+fn validate_input(
+    kind: LinkInputKind,
+    source: &LinkInputSource,
+    mode: LinkInputMode,
+) -> Result<(), LinkInputBuildError> {
+    if matches!(source, LinkInputSource::File(path) if path.as_os_str().is_empty()) {
+        return Err(LinkInputBuildError::EmptyFilePath);
+    }
+
+    if !kind.accepts(source) {
+        return Err(LinkInputBuildError::SourceKindMismatch);
+    }
+
+    if mode == LinkInputMode::WholeArchive && kind != LinkInputKind::Archive {
+        return Err(LinkInputBuildError::WholeArchiveRequiresArchive);
+    }
+
+    Ok(())
 }
 
 /// A contract violation that prevents link-input construction.

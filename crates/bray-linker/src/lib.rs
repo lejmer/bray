@@ -30,7 +30,7 @@ pub use external_tool::{
 };
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource,
+    LinkInputSource, LinkInputSpec,
 };
 pub use outcome::{
     LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSet,

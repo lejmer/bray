@@ -285,6 +285,7 @@ dependencies = [
  "bray-base",
  "bray-codegen",
  "bray-diagnostics",
+ "bray-linker",
  "bray-package-interface",
  "bray-runtime-interface",
  "bray-symbols",
