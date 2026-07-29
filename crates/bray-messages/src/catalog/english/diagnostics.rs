@@ -52,6 +52,10 @@ const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[MessageTemplateP
     "worker budget must be greater than zero",
 )];
 
+const REQUEST_UNSUPPORTED_PRODUCT_EMISSION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "the selected product configuration cannot form a complete emission request",
+)];
+
 const SYNTAX_NESTING_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("syntax nesting exceeds the maximum depth of "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
@@ -880,6 +884,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::RequestInvalidWorkerBudget => {
             MessageTemplate::new(REQUEST_INVALID_WORKER_BUDGET)
+        }
+        DiagnosticKind::RequestUnsupportedProductEmission => {
+            MessageTemplate::new(REQUEST_UNSUPPORTED_PRODUCT_EMISSION)
         }
         DiagnosticKind::InspectionReportWriteFailed => {
             MessageTemplate::new(INSPECTION_REPORT_WRITE_FAILED)

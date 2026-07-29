@@ -12,14 +12,17 @@ bray-codegen = { path = "../bray-codegen" }
 bray-codegen-llvm = { path = "../bray-codegen-llvm" }
 bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-emitter = { path = "../bray-emitter" }
 bray-ir = { path = "../bray-ir" }
 bray-lowering = { path = "../bray-lowering" }
 bray-messages = { path = "../bray-messages" }
+bray-package-interface = { path = "../bray-package-interface" }
 bray-parser = { path = "../bray-parser" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
+bray-target = { path = "../bray-target" }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI shape
 # colocated with the clap boundary, `help`/`usage` let clap render the compiler

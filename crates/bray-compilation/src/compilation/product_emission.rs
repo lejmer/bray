@@ -21,29 +21,36 @@ use crate::fact::{CancellationToken, FactQueryError};
 #[derive(Clone, Copy)]
 pub struct ProductEmissionInputs<'operation> {
     target_outputs: &'operation TargetOutputDescription,
-    backend: Option<&'operation EmissionBackend>,
-    codegen_target: &'operation CodegenTarget,
-    codegen_options: &'operation CodegenOptions,
+    codegen: Option<ProductCodegenInputs<'operation>>,
     linking: Option<ProductLinkingInputs<'operation>>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
 }
 
 impl<'operation> ProductEmissionInputs<'operation> {
-    /// Creates product inputs from host-selected target and backend configuration.
-    pub const fn new(
-        target_outputs: &'operation TargetOutputDescription,
-        backend: Option<&'operation EmissionBackend>,
-        codegen_target: &'operation CodegenTarget,
-        codegen_options: &'operation CodegenOptions,
-    ) -> Self {
+    /// Creates product inputs from host-selected target output configuration.
+    pub const fn new(target_outputs: &'operation TargetOutputDescription) -> Self {
         Self {
             target_outputs,
-            backend,
-            codegen_target,
-            codegen_options,
+            codegen: None,
             linking: None,
             sink_resolver: None,
         }
+    }
+
+    /// Supplies selected backend, target, and generation policy for backend-owned artifacts.
+    pub const fn with_codegen(
+        mut self,
+        backend: &'operation EmissionBackend,
+        target: &'operation CodegenTarget,
+        options: &'operation CodegenOptions,
+    ) -> Self {
+        self.codegen = Some(ProductCodegenInputs {
+            backend,
+            target,
+            options,
+        });
+
+        self
     }
 
     /// Supplies selected native link facts and the linker invocation boundary.
@@ -62,6 +69,13 @@ impl<'operation> ProductEmissionInputs<'operation> {
 
         self
     }
+}
+
+#[derive(Clone, Copy)]
+struct ProductCodegenInputs<'operation> {
+    backend: &'operation EmissionBackend,
+    target: &'operation CodegenTarget,
+    options: &'operation CodegenOptions,
 }
 
 #[derive(Clone, Copy)]
@@ -98,7 +112,7 @@ impl Compilation {
         // The immutable plan owns the selected target and backend facts past this operation input.
         let planner = EmissionPlanner::new(
             inputs.target_outputs.clone(),
-            inputs.backend.cloned(),
+            inputs.codegen.map(|codegen| codegen.backend.clone()),
             package_interface,
         );
 
@@ -302,11 +316,16 @@ impl Compilation {
             });
         }
 
+        // The planner receives its backend only from this same codegen configuration.
+        let codegen = inputs
+            .codegen
+            .unwrap_or_else(|| panic!("backend emission plans must retain codegen configuration"));
+
         let result = self.planned_emission_backend_contributions(
             plan,
             units,
-            inputs.codegen_target,
-            inputs.codegen_options,
+            codegen.target,
+            codegen.options,
             cancellation,
         )?;
 
@@ -542,8 +561,6 @@ fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {
 
 #[cfg(test)]
 mod tests {
-    use bray_codegen::CodegenOptions;
-    use bray_codegen::test_support::codegen_target;
     use bray_emitter::{
         ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend,
         EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy,
@@ -583,16 +600,9 @@ mod tests {
     fn package_interface_emission_reuses_pure_facts_across_publications() {
         let compilation = compilation();
         let target_outputs = target_outputs();
-        let codegen_target = codegen_target();
-        let codegen_options = CodegenOptions::default();
         let destination = TemporaryFile::write("library.brayi", b"old");
 
-        let inputs = ProductEmissionInputs::new(
-            &target_outputs,
-            None,
-            &codegen_target,
-            &codegen_options,
-        );
+        let inputs = ProductEmissionInputs::new(&target_outputs);
 
         let first = compilation
             .emit_product(emission_request(destination.path()), inputs)
@@ -634,19 +644,12 @@ mod tests {
     fn cancellation_before_planning_preserves_existing_output() {
         let compilation = compilation();
         let target_outputs = target_outputs();
-        let codegen_target = codegen_target();
-        let codegen_options = CodegenOptions::default();
         let destination = TemporaryFile::write("library.brayi", b"unchanged");
         let cancellation = CancellationToken::new();
 
         cancellation.cancel();
 
-        let inputs = ProductEmissionInputs::new(
-            &target_outputs,
-            None,
-            &codegen_target,
-            &codegen_options,
-        );
+        let inputs = ProductEmissionInputs::new(&target_outputs);
 
         let result = compilation.emit_product_with_cancellation(
             emission_request(destination.path()),

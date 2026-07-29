@@ -13,7 +13,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::PackageIdentity;
 
 use crate::command::{
-    DriverCommandKind, DriverInvocation, DriverOutputFormat,
+    DriverBackend, DriverCommand, DriverCommandKind, DriverInvocation, DriverOutputFormat,
     compilation_request_from_file_arguments,
 };
 use crate::inspection::{
@@ -22,7 +22,7 @@ use crate::inspection::{
     render_symbol_inspection, render_syntax_inspection, render_token_inspection,
 };
 use crate::output::{write_driver_output, write_driver_output_error};
-use crate::run::exit_code_from_diagnostics;
+use crate::run::{exit_code_from_diagnostics, run_build_command};
 
 /// Structured result from running the Bray compiler driver.
 #[derive(Debug)]
@@ -37,7 +37,7 @@ pub struct DriverRunResult {
 }
 
 impl DriverRunResult {
-    fn new(
+    pub(super) fn new(
         exit_code: ExitCode,
         diagnostics: DiagnosticBag,
         output_format: DriverOutputFormat,
@@ -163,6 +163,22 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     let (options, command, report_file) = invocation.into_parts();
 
     let output_format = options.output_format();
+
+    let command = match command {
+        DriverCommand::Build {
+            configuration,
+            files,
+        } => {
+            return run_build_command(
+                options.worker_budget(),
+                configuration,
+                files,
+                output_format,
+            );
+        }
+        command => command,
+    };
+
     let command_kind = command.kind();
     let unit_inspection_target = command.unit_inspection_target();
 
@@ -253,7 +269,8 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     }
 
     match command_kind {
-        DriverCommandKind::Check
+        DriverCommandKind::Build
+        | DriverCommandKind::Check
         | DriverCommandKind::InspectSource
         | DriverCommandKind::InspectTokens
         | DriverCommandKind::InspectSyntax
@@ -267,19 +284,11 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     }
 }
 
-fn command_line_package_identity() -> PackageIdentity {
-    // Loose-file commands compile as one explicitly named command-line package.
-    match PackageIdentity::try_new("command.line") {
-        Some(identity) => identity,
-        None => panic!("the compiler's command-line package identity must be valid"),
-    }
-}
-
 fn run_check_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request) {
+    let compilation = match load_compilation(request, DriverBackend::Llvm) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -293,7 +302,7 @@ fn run_inspect_source_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request) {
+    let compilation = match load_compilation(request, DriverBackend::Llvm) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -323,7 +332,7 @@ fn run_fact_inspection_command<E>(
     output_format: DriverOutputFormat,
     render: impl FnOnce(&Compilation, DriverOutputFormat) -> Result<InspectionOutput, E>,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request) {
+    let compilation = match load_compilation(request, DriverBackend::Llvm) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -353,6 +362,15 @@ fn diagnostic_result_from_compilation(
 ) -> DriverRunResult {
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
+    driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
+}
+
+pub(super) fn driver_result_from_compilation(
+    compilation: Compilation,
+    diagnostics: DiagnosticBag,
+    output_format: DriverOutputFormat,
+    exit_code: ExitCode,
+) -> DriverRunResult {
     DriverRunResult::with_compilation(exit_code, diagnostics, output_format, compilation)
 }
 
@@ -360,8 +378,14 @@ fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverR
     DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
 }
 
-fn load_compilation(request: CompilationRequest) -> Option<Compilation> {
-    let generator = LlvmCodeGenerator::try_new().ok()?;
+pub(super) fn load_compilation(
+    request: CompilationRequest,
+    backend: DriverBackend,
+) -> Option<Compilation> {
+    let generator = match backend {
+        DriverBackend::Llvm => LlvmCodeGenerator::try_new().ok()?,
+    };
+
     let identity = generator.identity().clone();
 
     let registry =
@@ -370,6 +394,14 @@ fn load_compilation(request: CompilationRequest) -> Option<Compilation> {
     let codegen = CodegenConfiguration::try_new(registry, identity).ok()?;
 
     Compilation::load_with_codegen(request, codegen).ok()
+}
+
+pub(super) fn command_line_package_identity() -> PackageIdentity {
+    // Loose-file commands compile as one explicitly named command-line package.
+    match PackageIdentity::try_new("command.line") {
+        Some(identity) => identity,
+        None => panic!("the compiler's command-line package identity must be valid"),
+    }
 }
 
 fn run_with_writers(

@@ -39,6 +39,8 @@ define_diagnostic_kinds! {
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
     RequestInvalidWorkerBudget,
+    /// The selected product configuration cannot yet form a complete emission request.
+    RequestUnsupportedProductEmission,
     /// An inspection report could not be written to its requested file.
     InspectionReportWriteFailed,
     /// Source input contains a character that the lexer cannot accept.
@@ -360,6 +362,7 @@ impl DiagnosticKind {
             Self::RequestInvalidWorkerBudget => 1103,
             Self::RequestDuplicateSourceInput => 1104,
             Self::InspectionReportWriteFailed => 1105,
+            Self::RequestUnsupportedProductEmission => 1106,
             Self::LexicalInvalidCharacter => 2001,
             Self::LexicalMisplacedBom => 2002,
             Self::LexicalLoneCarriageReturn => 2003,
@@ -527,6 +530,9 @@ impl DiagnosticKind {
             Self::RequestMissingSourceInput => "request_missing_source_input",
             Self::RequestInvalidSourceInput => "request_invalid_source_input",
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
+            Self::RequestUnsupportedProductEmission => {
+                "request_unsupported_product_emission"
+            }
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
             Self::InspectionReportWriteFailed => "inspection_report_write_failed",
             Self::LexicalInvalidCharacter => "lexical_invalid_character",
