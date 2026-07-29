@@ -107,8 +107,7 @@ pub fn codegen_request_for_backend(backend: BackendIdentity) -> CodegenRequestFi
         ),
     ];
 
-    let serialization =
-        BackendSerializationOptions::new(crate::AssemblySyntaxKind::TargetDefault, false);
+    let serialization = BackendSerializationOptions::new(crate::AssemblySyntaxKind::TargetDefault);
 
     let Ok(artifacts) = BackendArtifactRequest::try_new(
         unit.key().clone(),

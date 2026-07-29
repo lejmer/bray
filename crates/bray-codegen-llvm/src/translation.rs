@@ -1,3 +1,3 @@
 mod unit;
 
-pub(crate) use unit::translate_instances;
+pub(crate) use unit::{TranslationError, translate_instances};

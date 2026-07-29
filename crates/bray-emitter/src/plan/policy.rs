@@ -57,7 +57,7 @@ impl Default for BackendEmissionPolicy {
             DebugInformationMode::None,
             DebugInformationOutputMode::Omit,
             None,
-            BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false),
+            BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         )
     }
 }
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn backend_emission_policy_preserves_typed_output_choices() {
-        let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::Intel, true);
+        let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::Intel);
 
         let policy = BackendEmissionPolicy::new(
             DebugInformationMode::Full,

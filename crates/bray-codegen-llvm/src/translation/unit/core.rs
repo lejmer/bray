@@ -11,22 +11,28 @@ use inkwell::module::Module;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
 use std::collections::BTreeMap;
 
+pub(crate) enum TranslationError {
+    Cancelled,
+    Failed(CodegenFailure),
+}
+
 pub(crate) fn translate_instances<'context, 'module, 'request>(
     context: &'context Context,
     module: &'module Module<'context>,
     request: CodegenRequest<'request>,
     types: &mut LlvmTypeMappings<'context, 'request>,
-) -> Result<(), CodegenFailure> {
+) -> Result<(), TranslationError> {
     for instance in request.unit().instances() {
         if request.cancellation().is_cancelled() {
-            return Err(CodegenFailure::BackendLibrary);
+            return Err(TranslationError::Cancelled);
         }
 
         if instance.protected_frame_identity().is_some() {
-            return Err(CodegenFailure::UnsupportedTarget);
+            return Err(TranslationError::Failed(CodegenFailure::UnsupportedTarget));
         }
 
-        translate_instance(context, module, request, instance, types)?;
+        translate_instance(context, module, request, instance, types)
+            .map_err(TranslationError::Failed)?;
     }
 
     Ok(())

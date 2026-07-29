@@ -15,7 +15,7 @@ use crate::machine::LlvmTargetMachine;
 use crate::mapping::{LlvmTypeMappings, add_debug_metadata, declare_symbols};
 use crate::optimization::optimize_module;
 use crate::serialization::serialize_artifact;
-use crate::translation::translate_instances;
+use crate::translation::{TranslationError, translate_instances};
 
 const BACKEND_NAME: &str = "llvm";
 const BACKEND_REVISION: &str = "1";
@@ -47,7 +47,7 @@ impl LlvmCodeGenerator {
         &self,
         request: CodegenRequest<'_>,
         context: &'context Context,
-    ) -> Result<(LlvmTargetMachine, Module<'context>), CodegenFailure> {
+    ) -> Result<Option<(LlvmTargetMachine, Module<'context>)>, CodegenFailure> {
         let machine = LlvmTargetMachine::create_for_codegen(
             request.target(),
             request.options().optimization(),
@@ -72,9 +72,13 @@ impl LlvmCodeGenerator {
             request.options().debug_information(),
         );
 
-        translate_instances(context, &module, request, &mut types)?;
+        match translate_instances(context, &module, request, &mut types) {
+            Ok(()) => {}
+            Err(TranslationError::Cancelled) => return Ok(None),
+            Err(TranslationError::Failed(failure)) => return Err(failure),
+        }
 
-        Ok((machine, module))
+        Ok(Some((machine, module)))
     }
 
     fn generate_artifacts(
@@ -83,7 +87,9 @@ impl LlvmCodeGenerator {
     ) -> Result<CodegenOutcome, CodegenFailure> {
         let context = Context::create();
 
-        let (machine, module) = self.prepare_module(request, &context)?;
+        let Some((machine, module)) = self.prepare_module(request, &context)? else {
+            return Ok(CodegenOutcome::cancelled());
+        };
 
         if request.cancellation().is_cancelled() {
             return Ok(CodegenOutcome::cancelled());
@@ -92,6 +98,10 @@ impl LlvmCodeGenerator {
         module
             .verify()
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        if request.cancellation().is_cancelled() {
+            return Ok(CodegenOutcome::cancelled());
+        }
 
         optimize_module(&module, &machine, *request.options())?;
 
@@ -371,7 +381,7 @@ mod tests {
         let request = fixture.request();
         let context = inkwell::context::Context::create();
 
-        let Ok((machine, module)) = backend.prepare_module(request, &context) else {
+        let Ok(Some((machine, module))) = backend.prepare_module(request, &context) else {
             panic!("test mappings must produce a valid LLVM module");
         };
 
@@ -409,11 +419,24 @@ mod tests {
         };
 
         let fixture = codegen_request_for_backend(backend.identity().clone());
-        let cancellation = CancelAfter::new(4);
+        let cancellation = CancelAfter::new(6);
         let outcome = backend.generate(fixture.request_with_cancellation(&cancellation));
 
         assert!(matches!(outcome.status(), CodegenStatus::Cancelled));
         assert!(outcome.artifacts().is_none());
+    }
+
+    #[test]
+    fn cancellation_during_translation_is_not_reported_as_backend_failure() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let cancellation = CancelAfter::new(1);
+        let outcome = backend.generate(fixture.request_with_cancellation(&cancellation));
+
+        assert!(matches!(outcome.status(), CodegenStatus::Cancelled));
     }
 
     #[test]
@@ -426,7 +449,7 @@ mod tests {
         let request = fixture.request();
         let context = inkwell::context::Context::create();
 
-        let Ok((_, module)) = backend.prepare_module(request, &context) else {
+        let Ok(Some((_, module))) = backend.prepare_module(request, &context) else {
             panic!("test mappings must produce a valid LLVM module");
         };
 
