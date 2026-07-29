@@ -4,11 +4,11 @@ use bray_codegen::{
     CodegenTarget, CodegenValueAttribute,
 };
 use inkwell::DLLStorageClass;
-use inkwell::attributes::{Attribute, AttributeLoc};
+use inkwell::attributes::AttributeLoc;
 use inkwell::module::{Linkage, Module};
-use inkwell::types::AnyType;
 use inkwell::values::FunctionValue;
 
+use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
 use super::LlvmTypeMappings;
 
 pub(crate) fn declare_symbols<'context>(
@@ -158,14 +158,13 @@ fn apply_value_attributes(
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
     for attribute in attributes {
-        let name = match attribute {
-            CodegenValueAttribute::InRegister => "inreg",
-            CodegenValueAttribute::NoAlias => "noalias",
-            CodegenValueAttribute::NonNull => "nonnull",
-            CodegenValueAttribute::NoUndef => "noundef",
-        };
-
-        apply_enum_attribute(function, location, name, 0, types)?;
+        apply_enum_attribute(
+            function,
+            location,
+            value_attribute_name(*attribute),
+            0,
+            types,
+        )?;
     }
 
     Ok(())
@@ -187,13 +186,7 @@ fn apply_enum_attribute(
     value: u64,
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
-    let kind = Attribute::get_named_enum_kind_id(name);
-
-    if kind == 0 {
-        return Err(CodegenFailure::UnsupportedTarget);
-    }
-
-    function.add_attribute(location, types.context().create_enum_attribute(kind, value));
+    function.add_attribute(location, enum_attribute(name, value, types)?);
 
     Ok(())
 }
@@ -205,16 +198,7 @@ fn apply_type_attribute(
     pointee: bray_symbols::TypeId,
     types: &mut LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
-    let kind = Attribute::get_named_enum_kind_id(name);
-
-    if kind == 0 {
-        return Err(CodegenFailure::UnsupportedTarget);
-    }
-
-    let pointee = types.map(pointee)?.as_any_type_enum();
-    let attribute = types.context().create_type_attribute(kind, pointee);
-
-    function.add_attribute(location, attribute);
+    function.add_attribute(location, type_attribute(name, pointee, types)?);
 
     Ok(())
 }

@@ -190,6 +190,7 @@ dependencies = [
  "bray-codegen",
  "bray-diagnostics",
  "bray-ir",
+ "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
  "inkwell",

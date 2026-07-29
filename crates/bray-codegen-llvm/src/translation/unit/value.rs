@@ -128,7 +128,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         &self.builder,
                         value,
                         tag_type.const_int(1, false).into(),
-                        aggregate_value_element(fields, 0)?,
+                        aggregate_value_element(self.request.mappings(), fields, 0)?,
                     )?;
                 }
 
@@ -136,7 +136,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     &self.builder,
                     value,
                     child,
-                    aggregate_value_element(fields, payload)?,
+                    aggregate_value_element(self.request.mappings(), fields, payload)?,
                 )
             }
             ConstantValueKind::Tuple(children) | ConstantValueKind::Array(children) => {
@@ -170,7 +170,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         &self.builder,
                         value,
                         field_value,
-                        aggregate_value_element(layout, index)?,
+                        aggregate_value_element(self.request.mappings(), layout, index)?,
                     )?;
                 }
 
@@ -260,12 +260,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ty: bray_symbols::TypeId,
         children: impl IntoIterator<Item = ConstantValueId>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let fields = self
+            .request
+            .mappings()
+            .ty(ty)
+            .and_then(|mapping| match mapping.kind() {
+                // Constant materialization mutates the value cache after this lookup.
+                CodegenTypeKind::Aggregate(fields) => Some(fields.clone()),
+                CodegenTypeKind::Array { .. } => None,
+                _ => None,
+            });
+
         let mut value = self.types.map(ty)?.const_zero();
 
         for (index, child) in children.into_iter().enumerate() {
             let child = self.constant(child)?;
 
-            value = insert_value(&self.builder, value, child, index)?;
+            let element = match &fields {
+                Some(fields) => {
+                    aggregate_value_element(self.request.mappings(), fields, index)?
+                }
+                None => index,
+            };
+
+            value = insert_value(&self.builder, value, child, element)?;
         }
 
         Ok(value)
@@ -327,7 +345,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     &self.builder,
                     value,
                     pointer,
-                    aggregate_value_element(fields, pointer_index)?,
+                    aggregate_value_element(
+                        self.request.mappings(),
+                        fields,
+                        pointer_index,
+                    )?,
                 )?;
 
                 insert_value(
@@ -340,7 +362,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             false,
                         )
                         .into(),
-                    aggregate_value_element(fields, length_index)?,
+                    aggregate_value_element(
+                        self.request.mappings(),
+                        fields,
+                        length_index,
+                    )?,
                 )
             }
             CodegenTypeKind::Unit

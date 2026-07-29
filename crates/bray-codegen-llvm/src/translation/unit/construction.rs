@@ -31,7 +31,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut value = self.types.map(result)?.const_zero();
 
         match aggregate.kind() {
-            MirAggregateKind::Tuple | MirAggregateKind::Array => {
+            MirAggregateKind::Tuple => {
+                let CodegenTypeKind::Aggregate(fields) = &kind else {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                };
+
+                for (index, operand) in aggregate.operands().iter().enumerate() {
+                    let operand = self.operand(operand)?;
+
+                    let element =
+                        super::support::aggregate_value_element(
+                            self.request.mappings(),
+                            fields,
+                            index,
+                        )?;
+
+                    value = insert_value(&self.builder, value, operand, element)?;
+                }
+            }
+            MirAggregateKind::Array => {
                 for (index, operand) in aggregate.operands().iter().enumerate() {
                     let operand = self.operand(operand)?;
 
@@ -160,7 +178,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 value,
                 *input_value,
-                usize::try_from(aggregate_element(&fields, index)?)
+                usize::try_from(aggregate_element(
+                    self.request.mappings(),
+                    &fields,
+                    index,
+                )?)
                     .map_err(|_| CodegenFailure::ResourceExhausted)?,
             )?;
         }
@@ -250,19 +272,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)
             }
             ConversionTarget::Composite(children) => {
+                let source_fields = self.aggregate_fields(conversion.source_type())?;
+                let target_fields = self.aggregate_fields(conversion.target_type())?;
                 let mut result = self.types.map(conversion.target_type())?.const_zero();
 
                 for (index, child) in children.iter().enumerate() {
                     let child_value = extract_value(
                         &self.builder,
                         value,
-                        u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                        aggregate_element(self.request.mappings(), &source_fields, index)?,
                     )?;
 
                     let child_value =
                         self.translate_conversion_plan(child_value, child, helpers)?;
 
-                    result = insert_value(&self.builder, result, child_value, index)?;
+                    let element = super::support::aggregate_value_element(
+                        self.request.mappings(),
+                        &target_fields,
+                        index,
+                    )?;
+
+                    result = insert_value(&self.builder, result, child_value, element)?;
                 }
 
                 Ok(result)
@@ -300,7 +330,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             PatternProjection::ActiveUnionPayloadField { variant, field } => {
                 self.project_union_payload(subject, subject_type, variant, field, result_type)?
             }
-            PatternProjection::NullableValue => self.project_value(subject, result_type)?,
+            PatternProjection::NullableValue => {
+                self.project_value(subject, subject_type, result_type)?
+            }
             PatternProjection::OwnedTarget => {
                 let pointer =
                     pointer_value(subject).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -359,8 +391,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         extract_value(
             &self.builder,
             subject.into(),
-            aggregate_element(fields, index)?,
+            aggregate_element(self.request.mappings(), fields, index)?,
         )
+    }
+
+    fn aggregate_fields(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Result<std::sync::Arc<[bray_codegen::CodegenFieldLayout]>, CodegenFailure> {
+        let mapping = self
+            .request
+            .mappings()
+            .ty(ty)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        // Composite conversion releases the mapping borrow while translating child values.
+        Ok(fields.clone())
     }
 
     pub(super) fn project_union_payload(

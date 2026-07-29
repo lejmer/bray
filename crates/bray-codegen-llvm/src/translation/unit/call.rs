@@ -1,12 +1,18 @@
+use crate::mapping::type_attribute;
 use super::core::UnitTranslator;
 use super::support::{llvm, next_helper, parameter_type, pointer_value};
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenHelperMapping, CodegenParameterMapping,
-    CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
+    CodegenCallableSignature, CodegenFailure, CodegenHelperMapping,
+    CodegenIndirectParameterKind, CodegenParameterMapping, CodegenResultMapping,
+    CodegenSymbolKey, CodegenTypeKind,
 };
 use bray_ir::{MirCall, MirCallArgument, MirCallTarget, MirHelperReference, MirTaskTerminalState};
+use inkwell::attributes::AttributeLoc;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, FunctionValue,
+    PointerValue,
+};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_call(
@@ -233,6 +239,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let call = llvm(self.builder.build_call(function, &arguments, name))?;
 
+        self.apply_call_attributes(call, signature)?;
+
         self.finish_call(call, signature, result_storage)
     }
 
@@ -259,6 +267,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .build_indirect_call(function_type, function, &arguments, name),
             )?;
 
+        self.apply_call_attributes(call, signature)?;
+
         self.finish_call(call, signature, result_storage)
     }
 
@@ -269,11 +279,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         arguments: &mut Vec<BasicMetadataValueEnum<'context>>,
     ) -> Result<Option<(PointerValue<'context>, bray_symbols::TypeId)>, CodegenFailure> {
         let result_storage = match signature.result() {
-            CodegenResultMapping::Indirect { pointee, .. } => {
-                let storage = llvm(
-                    self.builder
-                        .build_alloca(self.types.map(*pointee)?, "call.result"),
-                )?;
+            CodegenResultMapping::Indirect {
+                pointee,
+                alignment,
+                ..
+            } => {
+                let storage =
+                    self.aligned_alloca(*pointee, alignment.get(), "call.result")?;
 
                 arguments.push(storage.into());
 
@@ -286,11 +298,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             match parameter {
                 CodegenParameterMapping::Ignore => {}
                 CodegenParameterMapping::Direct { .. } => arguments.push((*argument).into()),
-                CodegenParameterMapping::Indirect { pointee, .. } => {
-                    let storage = llvm(
-                        self.builder
-                            .build_alloca(self.types.map(*pointee)?, "call.argument"),
-                    )?;
+                CodegenParameterMapping::Indirect {
+                    pointee,
+                    alignment,
+                    ..
+                } => {
+                    let storage =
+                        self.aligned_alloca(*pointee, alignment.get(), "call.argument")?;
 
                     llvm(self.builder.build_store(storage, *argument))?;
                     arguments.push(storage.into());
@@ -299,6 +313,109 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(result_storage)
+    }
+
+    fn aligned_alloca(
+        &mut self,
+        pointee: bray_symbols::TypeId,
+        alignment: u64,
+        name: &str,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        let storage = llvm(self.builder.build_alloca(self.types.map(pointee)?, name))?;
+
+        let alignment =
+            u32::try_from(alignment).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+        storage
+            .as_instruction_value()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .set_alignment(alignment)
+            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+        Ok(storage)
+    }
+
+    fn apply_call_attributes(
+        &mut self,
+        call: CallSiteValue<'context>,
+        signature: &CodegenCallableSignature,
+    ) -> Result<(), CodegenFailure> {
+        let mut parameter_index = 0_u32;
+
+        if let CodegenResultMapping::Indirect {
+            pointee,
+            alignment,
+            ..
+        } = signature.result()
+        {
+            self.apply_call_type_attribute(call, parameter_index, "sret", *pointee)?;
+            self.apply_call_alignment(call, parameter_index, alignment.get())?;
+            parameter_index = 1;
+        }
+
+        for parameter in signature.parameters() {
+            let CodegenParameterMapping::Indirect {
+                pointee,
+                kind,
+                alignment,
+                ..
+            } = parameter
+            else {
+                if !matches!(parameter, CodegenParameterMapping::Ignore) {
+                    parameter_index = parameter_index
+                        .checked_add(1)
+                        .ok_or(CodegenFailure::UnsupportedTarget)?;
+                }
+
+                continue;
+            };
+
+            if *kind == CodegenIndirectParameterKind::ByValue {
+                self.apply_call_type_attribute(
+                    call,
+                    parameter_index,
+                    "byval",
+                    *pointee,
+                )?;
+            }
+
+            self.apply_call_alignment(call, parameter_index, alignment.get())?;
+
+            parameter_index = parameter_index
+                .checked_add(1)
+                .ok_or(CodegenFailure::UnsupportedTarget)?;
+        }
+
+        Ok(())
+    }
+
+    fn apply_call_alignment(
+        &self,
+        call: CallSiteValue<'context>,
+        parameter: u32,
+        alignment: u64,
+    ) -> Result<(), CodegenFailure> {
+        let alignment =
+            u32::try_from(alignment).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+        call.set_alignment_attribute(AttributeLoc::Param(parameter), alignment);
+
+        Ok(())
+    }
+
+    fn apply_call_type_attribute(
+        &mut self,
+        call: CallSiteValue<'context>,
+        parameter: u32,
+        name: &str,
+        pointee: bray_symbols::TypeId,
+    ) -> Result<(), CodegenFailure> {
+        call.add_attribute(
+            AttributeLoc::Param(parameter),
+            type_attribute(name, pointee, self.types)?,
+        );
+
+        Ok(())
     }
 
     pub(super) fn finish_call(

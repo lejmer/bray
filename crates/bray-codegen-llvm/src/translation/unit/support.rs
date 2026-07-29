@@ -99,8 +99,21 @@ pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> Result<u32, C
 }
 
 pub(super) fn aggregate_element(
+    mappings: &bray_codegen::CodegenMappings,
     fields: &[bray_codegen::CodegenFieldLayout],
     semantic_index: usize,
+) -> Result<u32, CodegenFailure> {
+    physical_aggregate_element(fields, semantic_index, |field| {
+        mappings
+            .ty(field.ty())
+            .map(|mapping| mapping.layout().size())
+    })
+}
+
+fn physical_aggregate_element(
+    fields: &[bray_codegen::CodegenFieldLayout],
+    semantic_index: usize,
+    field_size: impl Fn(&bray_codegen::CodegenFieldLayout) -> Option<u64>,
 ) -> Result<u32, CodegenFailure> {
     if semantic_index >= fields.len() {
         return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -124,17 +137,24 @@ pub(super) fn aggregate_element(
             .checked_add(1)
             .ok_or(CodegenFailure::ResourceExhausted)?;
 
-        previous_end = field.offset_bytes();
+        let field_size = field_size(field)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        previous_end = field
+            .offset_bytes()
+            .checked_add(field_size)
+            .ok_or(CodegenFailure::ResourceExhausted)?;
     }
 
     Err(CodegenFailure::GeneratedModuleInvariant)
 }
 
 pub(super) fn aggregate_value_element(
+    mappings: &bray_codegen::CodegenMappings,
     fields: &[bray_codegen::CodegenFieldLayout],
     semantic_index: usize,
 ) -> Result<usize, CodegenFailure> {
-    usize::try_from(aggregate_element(fields, semantic_index)?)
+    usize::try_from(aggregate_element(mappings, fields, semantic_index)?)
         .map_err(|_| CodegenFailure::ResourceExhausted)
 }
 
@@ -258,5 +278,49 @@ pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredica
         | MirBinaryOperator::BitwiseXor
         | MirBinaryOperator::ShiftLeft
         | MirBinaryOperator::ShiftRight => FloatPredicate::PredicateFalse,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::{CodegenFailure, CodegenFieldLayout};
+    use bray_symbols::{SemanticValueStore, TypeData};
+
+    use super::physical_aggregate_element;
+
+    #[test]
+    fn aggregate_elements_account_for_field_size_before_padding() {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("test semantic value store must be available");
+        };
+
+        let Ok(ty) = store.intern_type(TypeData::Error) else {
+            panic!("test type must intern");
+        };
+
+        let adjacent = [
+            CodegenFieldLayout::new(None, ty, 0),
+            CodegenFieldLayout::new(None, ty, 4),
+        ];
+
+        let padded = [
+            CodegenFieldLayout::new(None, ty, 0),
+            CodegenFieldLayout::new(None, ty, 8),
+        ];
+
+        assert_eq!(
+            physical_aggregate_element(&adjacent, 1, |_| Some(4)),
+            Ok(1)
+        );
+
+        assert_eq!(
+            physical_aggregate_element(&padded, 1, |_| Some(4)),
+            Ok(2)
+        );
+
+        assert_eq!(
+            physical_aggregate_element(&adjacent, 2, |_| Some(4)),
+            Err(CodegenFailure::GeneratedModuleInvariant)
+        );
     }
 }

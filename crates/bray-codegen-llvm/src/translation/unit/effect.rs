@@ -5,6 +5,7 @@ use bray_ir::{
     BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirGeneratorOperation,
     MirHelperReference, MirHostOperation, MirOperation, MirOperationKind, MirPlace,
 };
+use bray_runtime_interface::{ProtectedFrameOperation, RootExecution};
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -75,13 +76,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *pattern_operation,
                 )?)
             }
-            MirOperationKind::PanicReport(cause) => match cause {
-                bray_ir::MirPanicCause::Message(message) => Some(self.operand(message)?),
-                bray_ir::MirPanicCause::Assertion(Some(message)) => Some(self.operand(message)?),
-                bray_ir::MirPanicCause::Assertion(None) => {
-                    Some(self.operation_result_zero(operation)?)
-                }
-            },
+            MirOperationKind::PanicReport(cause) => {
+                let arguments = match cause {
+                    bray_ir::MirPanicCause::Message(message)
+                    | bray_ir::MirPanicCause::Assertion(Some(message)) => {
+                        vec![self.operand(message)?]
+                    }
+                    bray_ir::MirPanicCause::Assertion(None) => Vec::new(),
+                };
+
+                self.invoke_single_operation_helper(
+                    _id,
+                    MirHelperReference::PanicReport,
+                    &arguments,
+                )?
+            }
             MirOperationKind::AnonymousCallable(unit) => {
                 Some(self.translate_anonymous_callable(_id, unit)?)
             }
@@ -409,13 +418,71 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         // Keep this exhaustive so every host operation requires an explicit translation.
         match operation {
-            MirHostOperation::ExecuteRoot { runtime, .. }
-            | MirHostOperation::RequestRootCancellation { runtime }
+            MirHostOperation::ExecuteRoot {
+                root,
+                execution,
+                runtime,
+            } => {
+                let root = self.root_entry_pointer(root, *execution)?;
+
+                self.invoke_runtime(*runtime, &[root.into()])
+            }
+            MirHostOperation::RequestRootCancellation { runtime }
             | MirHostOperation::ObserveRootTerminal { runtime }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime } => {
                 self.invoke_runtime(*runtime, &[])
             }
         }
+    }
+
+    fn root_entry_pointer(
+        &self,
+        root: &BoundUnitKey,
+        execution: RootExecution,
+    ) -> Result<inkwell::values::PointerValue<'context>, CodegenFailure> {
+        let instance = self
+            .request
+            .unit()
+            .instances()
+            .iter()
+            .find(|instance| {
+                matches!(
+                    instance.key().template(),
+                    bray_ir::MirUnitKey::Bound(candidate) if candidate == root
+                )
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let symbol = match execution {
+            RootExecution::Synchronous => self
+                .request
+                .mappings()
+                .instance_symbol(instance.key()),
+            RootExecution::Asynchronous { frame } => {
+                if instance.mir().kind().protected_frame() != Some(frame) {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                }
+
+                let frame = instance
+                    .protected_frame_identity()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.request
+                    .mappings()
+                    .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
+                        frame,
+                        operation: ProtectedFrameOperation::Resume,
+                    })
+            }
+        }
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let function = self
+            .module
+            .get_function(symbol.name().as_str())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        Ok(function.as_global_value().as_pointer_value())
     }
 }

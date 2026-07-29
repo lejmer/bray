@@ -30,6 +30,8 @@ pub enum MirHelperReference {
     PushGenerator,
     /// Finish generator accumulation.
     FinishGenerator,
+    /// Construct one owned panic report from a checked failure cause.
+    PanicReport,
     /// Run checked finalization for a value of the retained type.
     Finalize(TypeId),
     /// Destroy a value of the retained type.
@@ -90,6 +92,7 @@ impl MirOperationKind {
                     MirGeneratorOperation::Finish { .. } => MirHelperReference::FinishGenerator,
                 });
             }
+            Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
             Self::Call(call) => collect_call_defaults(call, &mut helpers),
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
@@ -122,7 +125,6 @@ impl MirOperationKind {
             | Self::Binary { .. }
             | Self::Aggregate(_)
             | Self::PatternProjection { .. }
-            | Self::PanicReport(_)
             | Self::Async(_)
             | Self::Host(_) => {}
         }

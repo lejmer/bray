@@ -125,49 +125,61 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_iteration(cursor, *next, *element_type, *item, exhausted)?;
             }
             MirTerminatorKind::Suspend {
-                resume,
-                cancellation,
+                resume_state,
                 registration,
                 wake,
                 ..
             } => {
-                let wake = self.runtime_function_pointer(*wake)?;
-                let outcome = self.invoke_runtime(*registration, &[wake.into()])?;
+                self.runtime_function_pointer(*wake)?;
 
-                self.add_edge_arguments(resume)?;
-                self.add_edge_arguments(cancellation.edge())?;
+                let state = self.runtime_integer_argument(
+                    *registration,
+                    0,
+                    u64::from(resume_state.raw()),
+                )?;
 
-                match outcome.and_then(int_value) {
-                    Some(cancelled) => llvm(self.builder.build_conditional_branch(
-                        cancelled,
-                        self.block(cancellation.edge().target())?,
-                        self.block(resume.target())?,
-                    ))?,
-                    None => llvm(
-                        self.builder
-                            .build_unconditional_branch(self.block(resume.target())?),
-                    )?,
-                };
+                let outcome = self
+                    .invoke_runtime(*registration, &[state])?
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.return_machine_value(outcome)?;
             }
             MirTerminatorKind::ForwardRunResult { result, edges } => {
+                let result_type = self.operand_type(result)?;
                 let result = self.operand(result)?;
-                let tag = self.run_result_tag(result)?;
+                let tag = self.union_tag(result, result_type)?;
 
                 self.add_edge_arguments(edges.completed())?;
                 self.add_edge_arguments(edges.panicked().edge())?;
                 self.add_edge_arguments(edges.cancelled().edge())?;
 
-                let panicked = tag.get_type().const_int(1, false);
-                let cancelled = tag.get_type().const_int(2, false);
+                let completed = self.union_variant_tag(
+                    result_type,
+                    edges.completed_variant(),
+                    tag.get_type(),
+                )?;
+
+                let panicked = self.union_variant_tag(
+                    result_type,
+                    edges.panicked_variant(),
+                    tag.get_type(),
+                )?;
+
+                let cancelled = self.union_variant_tag(
+                    result_type,
+                    edges.cancelled_variant(),
+                    tag.get_type(),
+                )?;
 
                 let cases = [
+                    (completed, self.block(edges.completed().target())?),
                     (panicked, self.block(edges.panicked().edge().target())?),
                     (cancelled, self.block(edges.cancelled().edge().target())?),
                 ];
 
                 llvm(self.builder.build_switch(
                     tag,
-                    self.block(edges.completed().target())?,
+                    self.block(edges.cancelled().edge().target())?,
                     &cases,
                 ))?;
             }
@@ -209,7 +221,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let result_type = result_type(symbol.signature())?;
         let present = self.nullable_present(result, result_type)?;
-        let element = self.project_value(result, element_type)?;
+        let element = self.project_value(result, result_type, element_type)?;
 
         let item_block = self
             .unit
@@ -261,14 +273,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         Ok(function.as_global_value().as_pointer_value())
-    }
-
-    pub(super) fn run_result_tag(
-        &self,
-        result: BasicValueEnum<'context>,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        int_value(extract_value(&self.builder, result, 0)?)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
     pub(super) fn translate_pattern_predicate(
@@ -396,7 +400,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
             }
             (CodegenTypeKind::Aggregate(fields), subject) if fields.len() > 1 => {
-                let tag = extract_value(&self.builder, subject, aggregate_element(fields, 0)?)?;
+                let tag = extract_value(
+                    &self.builder,
+                    subject,
+                    aggregate_element(self.request.mappings(), fields, 0)?,
+                )?;
+
                 let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 llvm(self.builder.build_int_compare(
@@ -416,23 +425,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         subject_type: bray_symbols::TypeId,
         variant: bray_symbols::UnionVariantSymbolId,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+        let tag = self.union_tag(subject, subject_type)?;
+        let expected = self.union_variant_tag(subject_type, variant, tag.get_type())?;
+
+        llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            tag,
+            expected,
+            "pattern.union.active",
+        ))
+    }
+
+    pub(super) fn union_tag(
+        &mut self,
+        subject: BasicValueEnum<'context>,
+        subject_type: bray_symbols::TypeId,
+    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         let mapping = self
             .request
             .mappings()
             .ty(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
+        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
         let tag_type = *tag;
-
-        let expected = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
-            .map(bray_codegen::CodegenUnionVariantLayout::tag)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let storage = llvm(
             self.builder
@@ -449,16 +468,32 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let expected = tag
-            .get_type()
-            .const_int_arbitrary_precision(&u128_words(expected));
+        Ok(tag)
+    }
 
-        llvm(self.builder.build_int_compare(
-            IntPredicate::EQ,
-            tag,
-            expected,
-            "pattern.union.active",
-        ))
+    pub(super) fn union_variant_tag(
+        &self,
+        subject_type: bray_symbols::TypeId,
+        variant: bray_symbols::UnionVariantSymbolId,
+        tag_type: inkwell::types::IntType<'context>,
+    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+        let mapping = self
+            .request
+            .mappings()
+            .ty(subject_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let tag = variants
+            .iter()
+            .find(|layout| layout.variant() == variant)
+            .map(bray_codegen::CodegenUnionVariantLayout::tag)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        Ok(tag_type.const_int_arbitrary_precision(&u128_words(tag)))
     }
 
     pub(super) fn translate_return(
@@ -494,6 +529,32 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(self.builder.build_store(destination, value))?;
                 llvm(self.builder.build_return(None))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn return_machine_value(
+        &mut self,
+        value: BasicValueEnum<'context>,
+    ) -> Result<(), CodegenFailure> {
+        match self.signature.result() {
+            CodegenResultMapping::Direct { .. } => {
+                llvm(self.builder.build_return(Some(&value)))?;
+            }
+            CodegenResultMapping::Indirect { .. } => {
+                let destination = self
+                    .function
+                    .get_first_param()
+                    .and_then(pointer_value)
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                llvm(self.builder.build_store(destination, value))?;
+                llvm(self.builder.build_return(None))?;
+            }
+            CodegenResultMapping::Void => {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
             }
         }
 

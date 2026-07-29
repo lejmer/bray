@@ -22,6 +22,10 @@ pub(crate) fn translate_instances<'context, 'module, 'request>(
             return Err(CodegenFailure::BackendLibrary);
         }
 
+        if instance.protected_frame_identity().is_some() {
+            return Err(CodegenFailure::UnsupportedTarget);
+        }
+
         translate_instance(context, module, request, instance, types)?;
     }
 

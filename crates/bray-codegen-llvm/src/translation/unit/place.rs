@@ -159,45 +159,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn index_pointer(
         &mut self,
         pointer: PointerValue<'context>,
-        source_type: bray_symbols::TypeId,
+        _source_type: bray_symbols::TypeId,
         kind: &CodegenTypeKind,
         index: BasicValueEnum<'context>,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let index = int_value(index).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match kind {
-            CodegenTypeKind::Array { element, .. } => {
-                let stride = self
-                    .request
-                    .mappings()
-                    .ty(*element)
-                    .map(|mapping| mapping.layout().size())
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                self.dynamic_offset_pointer(pointer, index, stride)
-            }
-            CodegenTypeKind::Aggregate(fields) => {
-                let (data, _) = self.slice_parts(pointer, source_type, fields)?;
-
-                let element = self
-                    .request
-                    .mappings()
-                    .ty(fields[0].ty())
-                    .and_then(|mapping| match mapping.kind() {
-                        CodegenTypeKind::Pointer { target, .. } => Some(*target),
-                        _ => None,
-                    })
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                let stride = self
-                    .request
-                    .mappings()
-                    .ty(element)
-                    .map(|mapping| mapping.layout().size())
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                self.dynamic_offset_pointer(data, index, stride)
-            }
+            CodegenTypeKind::Array { .. } => index
+                .get_zero_extended_constant()
+                .ok_or(CodegenFailure::UnsupportedTarget)
+                .and_then(|index| self.static_element_pointer(pointer, kind, index)),
+            CodegenTypeKind::Aggregate(_) => Err(CodegenFailure::UnsupportedTarget),
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
     }
@@ -222,7 +195,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(start) => {
                 let start = self.operand(start)?;
 
-                self.pointer_sized_integer(start)?
+                let start = int_value(start)
+                    .and_then(|value| value.get_zero_extended_constant())
+                    .ok_or(CodegenFailure::UnsupportedTarget)?;
+
+                integer_type.const_int(start, false)
             }
             None => zero,
         };
@@ -253,10 +230,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(end) => {
                 let end = self.operand(end)?;
 
-                self.pointer_sized_integer(end)?
+                let end = int_value(end)
+                    .and_then(|value| value.get_zero_extended_constant())
+                    .ok_or(CodegenFailure::UnsupportedTarget)?;
+
+                integer_type.const_int(end, false)
             }
             None => source_length,
         };
+
+        let Some(start_constant) = start.get_zero_extended_constant() else {
+            return Err(CodegenFailure::UnsupportedTarget);
+        };
+
+        let Some(end_constant) = end.get_zero_extended_constant() else {
+            return Err(CodegenFailure::UnsupportedTarget);
+        };
+
+        let Some(source_length_constant) = source_length.get_zero_extended_constant() else {
+            return Err(CodegenFailure::UnsupportedTarget);
+        };
+
+        if start_constant > end_constant || end_constant > source_length_constant {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
 
         let length = llvm(self.builder.build_int_sub(end, start, "slice.length"))?;
 
@@ -301,7 +298,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &self.builder,
             result,
             data.into(),
-            usize::try_from(aggregate_element(fields, pointer_index)?)
+            usize::try_from(aggregate_element(
+                self.request.mappings(),
+                fields,
+                pointer_index,
+            )?)
                 .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?;
 
@@ -309,7 +310,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &self.builder,
             result,
             length.into(),
-            usize::try_from(aggregate_element(fields, length_index)?)
+            usize::try_from(aggregate_element(
+                self.request.mappings(),
+                fields,
+                length_index,
+            )?)
                 .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?;
 
@@ -345,14 +350,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer_field = llvm(self.builder.build_struct_gep(
             self.types.map(source_type)?,
             pointer,
-            aggregate_element(fields, pointer_index)?,
+            aggregate_element(self.request.mappings(), fields, pointer_index)?,
             "slice.data.address",
         ))?;
 
         let length_field = llvm(self.builder.build_struct_gep(
             self.types.map(source_type)?,
             pointer,
-            aggregate_element(fields, length_index)?,
+            aggregate_element(self.request.mappings(), fields, length_index)?,
             "slice.length.address",
         ))?;
 
@@ -445,7 +450,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_struct_gep(
                     self.types.map(source_type)?,
                     pointer,
-                    aggregate_element(fields, payload)?,
+                    aggregate_element(self.request.mappings(), fields, payload)?,
                     "nullable.value",
                 ))
             }
@@ -523,11 +528,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .position(|field| field.reference() == Some(*reference))
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                aggregate_element(fields, index)
+                aggregate_element(self.request.mappings(), fields, index)
             }
             (CodegenTypeKind::Aggregate(fields), MirProjectionKind::TupleField(index))
             | (CodegenTypeKind::Aggregate(fields), MirProjectionKind::ElementFromStart(index)) => {
                 aggregate_element(
+                    self.request.mappings(),
                     fields,
                     usize::try_from(*index).map_err(|_| CodegenFailure::ResourceExhausted)?,
                 )
@@ -541,7 +547,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .checked_sub(index + 1)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                aggregate_element(fields, index)
+                aggregate_element(self.request.mappings(), fields, index)
             }
             (_, MirProjectionKind::NullableValue | MirProjectionKind::Variant(_)) => Ok(0),
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
@@ -605,13 +611,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn project_value(
         &mut self,
         subject: BasicValueEnum<'context>,
+        subject_type: bray_symbols::TypeId,
         result_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         if subject.get_type() == self.types.map(result_type)? {
             return Ok(subject);
         }
 
-        extract_value(&self.builder, subject, 0)
+        let mapping = self
+            .request
+            .mappings()
+            .ty(subject_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let payload = fields
+            .len()
+            .checked_sub(1)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        extract_value(
+            &self.builder,
+            subject,
+            aggregate_element(self.request.mappings(), fields, payload)?,
+        )
     }
 
     pub(super) fn operation_result_type(
@@ -623,15 +649,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .and_then(|result| self.unit.value(result))
             .map(bray_ir::MirValue::ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)
-    }
-
-    pub(super) fn operation_result_zero(
-        &mut self,
-        operation: &MirOperation,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let ty = self.operation_result_type(operation)?;
-
-        Ok(self.types.map(ty)?.const_zero())
     }
 
     pub(super) fn value_type(

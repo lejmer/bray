@@ -95,23 +95,40 @@ impl MirSwitchCase {
 /// Completed, panicked, and cancelled successors of a run-result forwarding operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirRunResultEdges {
+    completed_variant: bray_symbols::UnionVariantSymbolId,
     completed: MirEdge,
+    panicked_variant: bray_symbols::UnionVariantSymbolId,
     panicked: MirCleanupEdge,
+    cancelled_variant: bray_symbols::UnionVariantSymbolId,
     cancelled: MirCleanupEdge,
 }
 
 impl MirRunResultEdges {
     /// Creates the three distinct run-result successors.
-    pub const fn new(
-        completed: MirEdge,
-        panicked: MirCleanupEdge,
-        cancelled: MirCleanupEdge,
+    pub fn new(
+        completed: (bray_symbols::UnionVariantSymbolId, MirEdge),
+        panicked: (
+            bray_symbols::UnionVariantSymbolId,
+            MirCleanupEdge,
+        ),
+        cancelled: (
+            bray_symbols::UnionVariantSymbolId,
+            MirCleanupEdge,
+        ),
     ) -> Self {
         Self {
-            completed,
-            panicked,
-            cancelled,
+            completed_variant: completed.0,
+            completed: completed.1,
+            panicked_variant: panicked.0,
+            panicked: panicked.1,
+            cancelled_variant: cancelled.0,
+            cancelled: cancelled.1,
         }
+    }
+
+    /// Returns the completed variant selected by checked lowering.
+    pub const fn completed_variant(&self) -> bray_symbols::UnionVariantSymbolId {
+        self.completed_variant
     }
 
     /// Returns the normal completion successor.
@@ -119,9 +136,19 @@ impl MirRunResultEdges {
         &self.completed
     }
 
+    /// Returns the panicked variant selected by checked lowering.
+    pub const fn panicked_variant(&self) -> bray_symbols::UnionVariantSymbolId {
+        self.panicked_variant
+    }
+
     /// Returns the panic cleanup successor.
     pub const fn panicked(&self) -> &MirCleanupEdge {
         &self.panicked
+    }
+
+    /// Returns the cancelled variant selected by checked lowering.
+    pub const fn cancelled_variant(&self) -> bray_symbols::UnionVariantSymbolId {
+        self.cancelled_variant
     }
 
     /// Returns the cancellation cleanup successor.
