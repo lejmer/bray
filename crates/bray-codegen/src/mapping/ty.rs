@@ -57,7 +57,7 @@ pub enum CodegenParameterMapping {
     Indirect {
         /// Machine pointer representation.
         pointer: TypeId,
-        /// Pointee representation named by the LLVM ABI attribute.
+        /// Pointee representation named by the target ABI attribute.
         pointee: TypeId,
         /// Reference or by-value indirect semantics.
         kind: CodegenIndirectParameterKind,

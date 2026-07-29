@@ -33,3 +33,14 @@ evidence. Generic catalog tests do not satisfy the producer-coverage requirement
 `DiagnosticKind::ALL` is generated from the same declaration that defines the enum. Use it for whole-catalog invariants rather than
 maintaining a separate diagnostic list. The `bray-messages` renderer tests must render the complete inventory so every locale catalog
 branch is exercised.
+
+## Code generation coverage fixture
+
+`crates/bray-compilation/tests/fixtures/codegen-coverage.json` is the machine-checked code generation boundary inventory. It maps every
+MIR unit kind, operation kind, terminator kind, runtime ABI role, and backend artifact kind to the production code that translates,
+serializes, or deliberately rejects it. Cross-cutting rows identify executable tests for backend capability failures, exact target and
+runtime mappings, cancellation, lazy publication, narrow artifact requests, and deterministic serial and parallel demand.
+
+Update the fixture whenever one of those closed enums or its backend handling changes. The integration test rejects missing, duplicate,
+placeholder, stale production, and non-executable test anchors. It also guards the backend-neutral dependency and public API boundaries
+of `bray-codegen` and `bray-compilation`.

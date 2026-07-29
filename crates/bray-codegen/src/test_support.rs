@@ -80,7 +80,15 @@ pub fn codegen_request() -> CodegenRequestFixture {
 
 /// Creates a complete request fixture for the supplied backend identity.
 pub fn codegen_request_for_backend(backend: BackendIdentity) -> CodegenRequestFixture {
-    let unit = codegen_unit(1);
+    codegen_request_for_seed_and_backend(1, backend)
+}
+
+/// Creates a complete request fixture for one unit seed and backend identity.
+pub fn codegen_request_for_seed_and_backend(
+    seed: u8,
+    backend: BackendIdentity,
+) -> CodegenRequestFixture {
+    let unit = codegen_unit(seed);
     let target = codegen_target();
     let mappings = codegen_mappings(&unit, &target);
 
