@@ -206,6 +206,7 @@ dependencies = [
  "bray-binder",
  "bray-bound-tree",
  "bray-checker",
+ "bray-codegen",
  "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",
@@ -260,6 +261,8 @@ name = "bray-driver"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
+ "bray-codegen",
+ "bray-codegen-llvm",
  "bray-compilation",
  "bray-declarations",
  "bray-diagnostics",

@@ -1,6 +1,7 @@
 mod behavior;
 mod binder;
 mod checker;
+mod codegen;
 mod constant;
 mod contribution_gate;
 mod declaration_body;
@@ -32,6 +33,7 @@ mod type_surface;
 mod unit;
 
 pub use export::PackageInterfaceExportError;
+pub use codegen::CodegenFactError;
 pub use facts::Compilation;
 pub use load::CompilationLoadError;
 pub use source_graph::ProductSourceGraph;

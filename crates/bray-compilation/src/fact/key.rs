@@ -1,5 +1,9 @@
 use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
+use bray_codegen::{
+    BackendArtifactRequest, BackendIdentity, CodegenMappings, CodegenOptions, CodegenTarget,
+    CodegenUnitKey,
+};
 use bray_declarations::ModulePartId;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
@@ -119,6 +123,37 @@ impl IterationSourceFactKey {
 pub(crate) struct OperationSelectionFactKey {
     unit: BoundUnitKey,
     expression: BoundExpressionId,
+}
+
+/// Complete identity of one independently requested code generation contribution.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct CodegenArtifactFactKey {
+    unit: CodegenUnitKey,
+    mappings: CodegenMappings,
+    target: CodegenTarget,
+    backend: BackendIdentity,
+    options: CodegenOptions,
+    artifacts: BackendArtifactRequest,
+}
+
+impl CodegenArtifactFactKey {
+    pub(crate) fn new(
+        unit: CodegenUnitKey,
+        mappings: CodegenMappings,
+        target: CodegenTarget,
+        backend: BackendIdentity,
+        options: CodegenOptions,
+        artifacts: BackendArtifactRequest,
+    ) -> Self {
+        Self {
+            unit,
+            mappings,
+            target,
+            backend,
+            options,
+            artifacts,
+        }
+    }
 }
 
 impl OperationSelectionFactKey {
@@ -272,6 +307,8 @@ pub(crate) enum CompilationFactKey {
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
     LoweredUnit(BoundUnitKey),
+    /// One exact backend artifact contribution requested from a code generation unit.
+    CodegenArtifact(CodegenArtifactFactKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -384,6 +421,7 @@ impl CompilationFactKey {
             | Self::ConstantInstance(_)
             | Self::ConstantCall(_)
             | Self::ConstantCallCycle(_)
+            | Self::CodegenArtifact(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::ProductSourceGraph

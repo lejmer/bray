@@ -178,7 +178,7 @@ impl BackendSerializationOptions {
 }
 
 /// Exact immutable backend outputs derived from one emission plan.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BackendArtifactRequest {
     unit: CodegenUnitKey,
     entries: Arc<[BackendArtifactRequestEntry]>,

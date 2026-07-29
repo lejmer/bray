@@ -8,6 +8,8 @@ rust-version.workspace = true
 [dependencies]
 bray-bound-tree = { path = "../bray-bound-tree" }
 bray-compilation = { path = "../bray-compilation" }
+bray-codegen = { path = "../bray-codegen" }
+bray-codegen-llvm = { path = "../bray-codegen-llvm" }
 bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-ir = { path = "../bray-ir" }
