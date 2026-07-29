@@ -15,8 +15,8 @@ use crate::{
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
     BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCallableSignature,
     CodegenDebugLocation, CodegenLinkage, CodegenMappings, CodegenOptions, CodegenRequest,
-    CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind,
-    CodegenTypeMapping, CodegenUnit, CodegenUnitKey, DebugInformationMode,
+    CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenUnitKey, DebugInformationMode,
     DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
     OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace, TargetAddressSpaceKind,
     TargetCallingConvention, TargetCompatibility, TargetContract, TargetDataLayout,
@@ -141,6 +141,12 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
     let has_mir_types = !types.is_empty();
     let result = types.first().copied().unwrap_or_else(test_mir_type);
 
+    let signature_result = if has_mir_types {
+        CodegenResultMapping::direct(result, None, [])
+    } else {
+        CodegenResultMapping::Void
+    };
+
     types.insert(result);
 
     let types = types.into_iter().map(|ty| {
@@ -175,7 +181,9 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
             )
         }))
         .enumerate()
-        .map(|(ordinal, (key, linkage))| instance_symbol(key, linkage, ordinal, result));
+        .map(|(ordinal, (key, linkage))| {
+            instance_symbol(key, linkage, ordinal, signature_result.clone())
+        });
 
     let Some(file) = CodegenSourceFile::try_new("test.bray") else {
         panic!("test source file must be valid");
@@ -197,7 +205,7 @@ fn instance_symbol(
     key: CodegenSymbolKey,
     linkage: CodegenLinkage,
     ordinal: usize,
-    result: bray_symbols::TypeId,
+    result: CodegenResultMapping,
 ) -> CodegenSymbolMapping {
     let Some(name) = BinarySymbolName::try_new(format!("bray_test_{ordinal}")) else {
         panic!("test binary symbol name must be valid");
@@ -207,7 +215,7 @@ fn instance_symbol(
         key,
         name,
         linkage,
-        CodegenCallableSignature::new([], result, CallableAbi::Bray),
+        CodegenCallableSignature::new([], result, CallableAbi::Bray, false),
     )
 }
 

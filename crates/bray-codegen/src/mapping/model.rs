@@ -109,11 +109,9 @@ impl CodegenMappings {
         }
 
         let expected_frame_operations: BTreeSet<_> = unit
-            .mir_units()
-            .filter_map(|mir| match mir.kind() {
-                bray_ir::MirUnitKind::ProtectedAsyncFrame(frame) => Some(*frame),
-                bray_ir::MirUnitKind::Synchronous | bray_ir::MirUnitKind::ExecutableHost(_) => None,
-            })
+            .instances()
+            .iter()
+            .filter_map(crate::CodegenInstance::protected_frame_identity)
             .flat_map(|frame| {
                 ProtectedFrameOperation::ALL
                     .into_iter()
@@ -146,13 +144,17 @@ impl CodegenMappings {
         if symbols.iter().any(|symbol| {
             let signature = symbol.signature();
 
-            signature.parameters().iter().any(|ty| {
-                types
-                    .binary_search_by_key(ty, CodegenTypeMapping::ty)
-                    .is_err()
-            }) || types
-                .binary_search_by_key(&signature.result(), CodegenTypeMapping::ty)
-                .is_err()
+            signature
+                .parameters()
+                .iter()
+                .flat_map(super::CodegenParameterMapping::demanded_types)
+                .chain(signature.result().demanded_types())
+                .flatten()
+                .any(|ty| {
+                    types
+                        .binary_search_by_key(&ty, CodegenTypeMapping::ty)
+                        .is_err()
+                })
         }) {
             return Err(CodegenMappingsBuildError::TypeCoverageMismatch);
         }
@@ -375,8 +377,8 @@ mod tests {
     };
     use crate::test_support::codegen_request;
     use crate::{
-        CodegenCallableSignature, CodegenLinkage, CodegenSymbolKey, CodegenSymbolMapping,
-        CodegenTypeMapping, CodegenUnit,
+        CodegenCallableSignature, CodegenLinkage, CodegenResultMapping, CodegenSymbolKey,
+        CodegenSymbolMapping, CodegenTypeMapping, CodegenUnit,
     };
 
     #[test]
@@ -410,13 +412,28 @@ mod tests {
         let fixture = codegen_request();
         let request = fixture.request();
         let mappings = request.mappings();
+        let direct_type = mappings.types()[0].ty();
+
+        let direct_symbols = mappings.symbols().iter().map(|mapping| {
+            CodegenSymbolMapping::new(
+                mapping.key().clone(),
+                mapping.name().clone(),
+                mapping.linkage(),
+                CodegenCallableSignature::new(
+                    [],
+                    CodegenResultMapping::direct(direct_type, None, []),
+                    mapping.signature().abi(),
+                    false,
+                ),
+            )
+        });
 
         assert_eq!(
             CodegenMappings::try_new(
                 request.unit(),
                 request.target(),
                 [],
-                mappings.symbols().iter().cloned(),
+                direct_symbols,
                 mappings.debug_locations().iter().cloned(),
             ),
             Err(CodegenMappingsBuildError::TypeCoverageMismatch)
@@ -469,7 +486,12 @@ mod tests {
             CodegenSymbolKey::Runtime(reference),
             name,
             CodegenLinkage::Import,
-            CodegenCallableSignature::new([], result_type, bray_symbols::CallableAbi::Bray),
+            CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(result_type, None, []),
+                bray_symbols::CallableAbi::Bray,
+                false,
+            ),
         );
 
         let base_instance = &base_mappings.symbols()[0];
@@ -478,7 +500,12 @@ mod tests {
             CodegenSymbolKey::Instance(unit.instances()[0].key().clone()),
             base_instance.name().clone(),
             base_instance.linkage(),
-            CodegenCallableSignature::new([], result_type, bray_symbols::CallableAbi::Bray),
+            CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(result_type, None, []),
+                bray_symbols::CallableAbi::Bray,
+                false,
+            ),
         );
 
         let types = demanded_types(&unit).into_iter().map(|ty| {

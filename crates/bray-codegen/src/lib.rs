@@ -26,9 +26,11 @@ pub use artifact::{
 };
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
 pub use mapping::{
-    CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout, CodegenMappings,
-    CodegenMappingsBuildError, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+    CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout,
+    CodegenIndirectParameterKind, CodegenIntegerExtension, CodegenMappings,
+    CodegenMappingsBuildError, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping,
+    CodegenUnionVariantLayout, CodegenValueAttribute,
 };
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};

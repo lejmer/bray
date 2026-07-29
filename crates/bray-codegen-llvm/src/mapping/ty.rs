@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenMappings, CodegenTarget, CodegenTypeKind,
-    CodegenTypeMapping, TargetScalarKind,
+    CodegenCallableSignature, CodegenFailure, CodegenMappings, CodegenParameterMapping,
+    CodegenResultMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetScalarKind,
 };
 use bray_symbols::TypeId;
 use inkwell::AddressSpace;
@@ -36,6 +36,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             mapped: BTreeMap::new(),
             active: BTreeSet::new(),
         }
+    }
+
+    pub(crate) const fn context(&self) -> &'context Context {
+        self.context
     }
 
     #[cfg(test)]
@@ -79,24 +83,31 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         &mut self,
         signature: &CodegenCallableSignature,
     ) -> Result<FunctionType<'context>, CodegenFailure> {
-        let parameters: Result<Vec<BasicMetadataTypeEnum<'context>>, _> = signature
-            .parameters()
-            .iter()
-            .map(|ty| self.map(*ty).map(Into::into))
-            .collect();
+        let mut parameters = Vec::new();
 
-        let parameters = parameters?;
-
-        let result_mapping = self
-            .mappings
-            .ty(signature.result())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        if matches!(result_mapping.kind(), CodegenTypeKind::Unit) {
-            return Ok(self.context.void_type().fn_type(&parameters, false));
+        if let CodegenResultMapping::Indirect { pointer, .. } = signature.result() {
+            parameters.push(self.map(*pointer)?.into());
         }
 
-        Ok(self.map(signature.result())?.fn_type(&parameters, false))
+        for parameter in signature.parameters() {
+            let ty = match parameter {
+                CodegenParameterMapping::Ignore => continue,
+                CodegenParameterMapping::Direct { ty, .. } => *ty,
+                CodegenParameterMapping::Indirect { pointer, .. } => *pointer,
+            };
+
+            parameters.push(BasicMetadataTypeEnum::from(self.map(ty)?));
+        }
+
+        match signature.result() {
+            CodegenResultMapping::Void | CodegenResultMapping::Indirect { .. } => Ok(self
+                .context
+                .void_type()
+                .fn_type(&parameters, signature.is_variadic())),
+            CodegenResultMapping::Direct { ty, .. } => {
+                Ok(self.map(*ty)?.fn_type(&parameters, signature.is_variadic()))
+            }
+        }
     }
 
     fn map_kind(
@@ -172,6 +183,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
         let mut current_offset = 0_u64;
         let mut elements = Vec::new();
+        let mut field_elements = Vec::new();
 
         for field in fields {
             if field.offset_bytes() < current_offset {
@@ -186,7 +198,11 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
             let field_type = self.map(field.ty())?;
 
+            let element =
+                u32::try_from(elements.len()).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
             elements.push(field_type);
+            field_elements.push((element, field.offset_bytes()));
 
             let Some(field_mapping) = self.mappings.ty(field.ty()) else {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -210,6 +226,12 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
         push_alignment_carrier(self.context, &mut elements, mapping)?;
         structure.set_body(&elements, false);
+
+        if field_elements.iter().any(|(element, expected)| {
+            self.target_data.offset_of_element(&structure, *element) != Some(*expected)
+        }) {
+            return Err(CodegenFailure::UnsupportedTarget);
+        }
 
         Ok(structure.into())
     }
@@ -287,8 +309,8 @@ mod tests {
 
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
-        CodegenFieldLayout, CodegenMappings, CodegenTypeKind, CodegenTypeMapping,
-        TargetAddressSpaceKind, TargetScalarKind,
+        CodegenFieldLayout, CodegenMappings, CodegenResultMapping, CodegenTypeKind,
+        CodegenTypeMapping, TargetAddressSpaceKind, TargetScalarKind,
     };
     use bray_symbols::{SemanticValueStore, TypeData};
     use bray_target::{TargetLayoutContract, TargetValueLayout};
@@ -308,7 +330,7 @@ mod tests {
             .types()
             .iter()
             .cloned()
-            .chain(types.iter().cloned());
+            .chain(types.mappings.iter().cloned());
 
         let Ok(mappings) = CodegenMappings::try_new(
             request.unit(),
@@ -332,6 +354,7 @@ mod tests {
         assert_eq!(llvm.map_all(), Ok(()));
 
         let representations: Vec<_> = types
+            .mappings
             .iter()
             .map(|mapping| {
                 llvm.map(mapping.ty())
@@ -342,24 +365,88 @@ mod tests {
         assert!(representations.iter().all(Result::is_ok));
     }
 
-    fn mapped_type_fixture() -> Vec<CodegenTypeMapping> {
+    #[test]
+    fn aggregate_mapping_rejects_implicit_field_offset_changes() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let mappings = request.mappings();
+        let types = mapped_type_fixture();
+        let invalid_aggregate = types.invalid_aggregate;
+        let four = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
+
+        let invalid = CodegenTypeMapping::new(
+            invalid_aggregate,
+            layout(8, four),
+            CodegenTypeKind::aggregate([
+                CodegenFieldLayout::new(None, types.byte, 0),
+                CodegenFieldLayout::new(None, types.scalar, 1),
+            ]),
+        );
+
+        let all_types = mappings
+            .types()
+            .iter()
+            .cloned()
+            .chain(types.mappings)
+            .chain([invalid]);
+
+        let Ok(mappings) = CodegenMappings::try_new(
+            request.unit(),
+            request.target(),
+            all_types,
+            mappings.symbols().iter().cloned(),
+            mappings.debug_locations().iter().cloned(),
+        ) else {
+            panic!("invalid physical field offsets remain backend validation input");
+        };
+
+        let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
+            panic!("test target must construct an LLVM machine");
+        };
+
+        let target_data = machine.target_data();
+        let context = Context::create();
+        let mut llvm = LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
+
+        assert_eq!(
+            llvm.map(invalid_aggregate),
+            Err(bray_codegen::CodegenFailure::UnsupportedTarget)
+        );
+    }
+
+    struct MappedTypeFixture {
+        mappings: Vec<CodegenTypeMapping>,
+        byte: bray_symbols::TypeId,
+        scalar: bray_symbols::TypeId,
+        invalid_aggregate: bray_symbols::TypeId,
+    }
+
+    fn mapped_type_fixture() -> MappedTypeFixture {
         let Ok(store) = SemanticValueStore::try_new() else {
             panic!("test semantic value store must be available");
         };
 
-        let scalar = intern_type(&store, TypeData::Error);
+        let byte = intern_type(&store, TypeData::Error);
+        let scalar = intern_type(&store, TypeData::tuple([byte]));
         let pointer = intern_type(&store, TypeData::Slice(scalar));
         let array = intern_type(&store, TypeData::tuple([scalar]));
         let aggregate = intern_type(&store, TypeData::tuple([scalar, scalar]));
         let callable = intern_type(&store, TypeData::Generator(scalar));
         let union = intern_type(&store, TypeData::Nullable(scalar));
+        let invalid_aggregate = intern_type(&store, TypeData::tuple([byte, scalar]));
 
         let one = NonZeroU64::MIN;
         let four = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
         let eight = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
+        let byte_width = NonZeroU16::new(8).unwrap_or(NonZeroU16::MIN);
         let integer_width = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
 
-        vec![
+        let mappings = vec![
+            CodegenTypeMapping::new(
+                byte,
+                layout(1, one),
+                CodegenTypeKind::Scalar(TargetScalarKind::Integer(byte_width)),
+            ),
             CodegenTypeMapping::new(
                 scalar,
                 layout(4, four),
@@ -392,7 +479,12 @@ mod tests {
             CodegenTypeMapping::new(
                 callable,
                 layout(8, eight),
-                CodegenTypeKind::callable([], scalar, bray_symbols::CallableAbi::Bray),
+                CodegenTypeKind::callable(
+                    [],
+                    CodegenResultMapping::direct(scalar, None, []),
+                    bray_symbols::CallableAbi::Bray,
+                    false,
+                ),
             ),
             CodegenTypeMapping::new(union, layout(8, eight), CodegenTypeKind::union(scalar, [])),
             CodegenTypeMapping::new(
@@ -400,7 +492,14 @@ mod tests {
                 layout(0, one),
                 CodegenTypeKind::Unit,
             ),
-        ]
+        ];
+
+        MappedTypeFixture {
+            mappings,
+            byte,
+            scalar,
+            invalid_aggregate,
+        }
     }
 
     fn layout(size: u64, alignment: NonZeroU64) -> TargetValueLayout {

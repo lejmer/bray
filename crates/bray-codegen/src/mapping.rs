@@ -7,8 +7,9 @@ pub use debug::{CodegenDebugLocation, CodegenSourceFile};
 pub use model::{CodegenMappings, CodegenMappingsBuildError};
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{
-    CodegenCallableSignature, CodegenFieldLayout, CodegenTypeKind, CodegenTypeMapping,
-    CodegenUnionVariantLayout,
+    CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
+    CodegenIntegerExtension, CodegenParameterMapping, CodegenResultMapping, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute,
 };
 
 #[cfg(any(test, feature = "test-support"))]
