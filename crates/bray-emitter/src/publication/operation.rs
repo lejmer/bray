@@ -268,6 +268,10 @@ impl<'host> ArtifactPublisher<'host> {
         destination: &std::path::Path,
         replacement: ReplacementPolicy,
     ) -> Result<ArtifactDigest, ArtifactPublicationFailure> {
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
+        }
+
         let mut staging = FilesystemStaging::create(destination, planned.id().kind(), replacement)
             .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
@@ -328,6 +332,10 @@ impl<'host> ArtifactPublisher<'host> {
 
         self.copy_content(planned, content, transaction.as_mut())?;
 
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
+        }
+
         transaction.flush().map_err(|error| {
             artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
         })?;
@@ -349,6 +357,10 @@ impl<'host> ArtifactPublisher<'host> {
         content: &PreparedContent<'_, '_>,
         writer: &mut dyn Write,
     ) -> Result<(), ArtifactPublicationFailure> {
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
+        }
+
         let mut reader = content
             .open()
             .map_err(|kind| artifact_failure(planned, PublicationErrorKind::Read(kind)))?;
@@ -366,6 +378,10 @@ impl<'host> ArtifactPublisher<'host> {
 
             if read == 0 {
                 break;
+            }
+
+            if self.cancellation.is_cancelled() {
+                return Err(ArtifactPublicationFailure::Cancelled);
             }
 
             writer.write_all(&buffer[..read]).map_err(|error| {
@@ -802,29 +818,41 @@ mod tests {
     }
 
     #[test]
-    fn failed_indirect_writes_discard_buffered_bytes() {
+    fn failed_indirect_writes_flushes_and_commits_discard_buffered_bytes() {
         let Some(stream) = OutputSinkId::try_new("test.partial") else {
             panic!("test stream identity must be valid");
         };
 
         let plan = stream_plan(stream);
-        let resolver = PartiallyFailingResolver::new();
         let contribution = contribution(&plan, b"partial bytes must stay hidden", None);
 
-        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
-            .publish(&plan, [contribution]);
+        for (failure, diagnostic) in [
+            (
+                IndirectFailure::Write,
+                DiagnosticKind::EmissionArtifactWriteFailed,
+            ),
+            (
+                IndirectFailure::Flush,
+                DiagnosticKind::EmissionArtifactFlushFailed,
+            ),
+            (
+                IndirectFailure::Commit,
+                DiagnosticKind::EmissionArtifactCommitFailed,
+            ),
+        ] {
+            let resolver = FailingResolver::new(failure);
 
-        assert!(matches!(
-            outcome.status(),
-            EmissionStatus::Failed(EmissionFailure::Publication(_))
-        ));
+            let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
+                .publish(&plan, [contribution.clone()]);
 
-        assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
-            DiagnosticKind::EmissionArtifactWriteFailed
-        );
+            assert!(matches!(
+                outcome.status(),
+                EmissionStatus::Failed(EmissionFailure::Publication(_))
+            ));
 
-        assert_eq!(resolver.bytes(), b"");
+            assert_eq!(outcome.diagnostics().diagnostics()[0].kind(), diagnostic);
+            assert_eq!(resolver.bytes(), b"");
+        }
     }
 
     #[test]
@@ -2022,14 +2050,17 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct PartiallyFailingResolver {
+    struct FailingResolver {
         destination: Arc<Mutex<Vec<u8>>>,
+        failure: IndirectFailure,
     }
 
-    impl PartiallyFailingResolver {
-        fn new() -> Self {
-            Self::default()
+    impl FailingResolver {
+        fn new(failure: IndirectFailure) -> Self {
+            Self {
+                destination: Arc::new(Mutex::new(Vec::new())),
+                failure,
+            }
         }
 
         fn bytes(&self) -> Vec<u8> {
@@ -2041,33 +2072,39 @@ mod tests {
         }
     }
 
-    impl OutputSinkResolver for PartiallyFailingResolver {
+    impl OutputSinkResolver for FailingResolver {
         fn open(
             &self,
             _sink: IndirectOutputSink<'_>,
             _replacement: ReplacementPolicy,
         ) -> io::Result<Box<dyn OutputSinkTransaction>> {
-            Ok(Box::new(PartiallyFailingTransaction {
+            Ok(Box::new(FailingTransaction {
                 destination: Arc::clone(&self.destination),
                 buffer: Vec::new(),
                 accepted_write: false,
+                failure: self.failure,
             }))
         }
     }
 
-    struct PartiallyFailingTransaction {
+    struct FailingTransaction {
         destination: Arc<Mutex<Vec<u8>>>,
         buffer: Vec<u8>,
         accepted_write: bool,
+        failure: IndirectFailure,
     }
 
-    impl Write for PartiallyFailingTransaction {
+    impl Write for FailingTransaction {
         fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-            if self.accepted_write {
+            if self.failure == IndirectFailure::Write && self.accepted_write {
                 return Err(io::Error::from(io::ErrorKind::BrokenPipe));
             }
 
-            let accepted = buffer.len().min(3);
+            let accepted = if self.failure == IndirectFailure::Write {
+                buffer.len().min(3)
+            } else {
+                buffer.len()
+            };
 
             self.buffer.extend_from_slice(&buffer[..accepted]);
 
@@ -2077,20 +2114,36 @@ mod tests {
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            Ok(())
+            if self.failure == IndirectFailure::Flush {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            } else {
+                Ok(())
+            }
         }
     }
 
-    impl OutputSinkTransaction for PartiallyFailingTransaction {
+    impl OutputSinkTransaction for FailingTransaction {
         fn commit(self: Box<Self>) -> io::Result<()> {
             let Self {
                 destination,
                 buffer,
+                failure,
                 ..
             } = *self;
 
-            commit_buffer(destination, buffer)
+            if failure == IndirectFailure::Commit {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            } else {
+                commit_buffer(destination, buffer)
+            }
         }
+    }
+
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum IndirectFailure {
+        Write,
+        Flush,
+        Commit,
     }
 
     fn commit_buffer(destination: Arc<Mutex<Vec<u8>>>, buffer: Vec<u8>) -> io::Result<()> {

@@ -1,5 +1,6 @@
 mod codegen;
 mod command;
+mod emission;
 mod linker;
 mod lowering;
 mod semantic;

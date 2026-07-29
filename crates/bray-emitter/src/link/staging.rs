@@ -78,7 +78,7 @@ impl LinkStaging {
                 return Err(LinkStagingError::Cancelled);
             }
 
-            let path = reserve_output(planned)?;
+            let path = reserve_output(planned, cancellation)?;
 
             let kind = linked_kind(planned.id().kind())
                 .ok_or_else(|| LinkStagingError::UnsupportedOutput(planned.id().clone()))?;
@@ -193,10 +193,18 @@ fn stage_input(
     contribution: &ArtifactContribution,
     cancellation: &dyn Cancellation,
 ) -> Result<TempPath, LinkStagingError> {
+    if cancellation.is_cancelled() {
+        return Err(LinkStagingError::Cancelled);
+    }
+
     let mut staging = Builder::new()
         .prefix(LINK_INPUT_PREFIX)
         .tempfile()
         .map_err(|error| LinkStagingError::Create(error.kind()))?;
+
+    if cancellation.is_cancelled() {
+        return Err(LinkStagingError::Cancelled);
+    }
 
     let mut reader = open_content(contribution.content()).map_err(LinkStagingError::Read)?;
     let mut buffer = [0_u8; COPY_BUFFER_LEN];
@@ -214,9 +222,17 @@ fn stage_input(
             break;
         }
 
+        if cancellation.is_cancelled() {
+            return Err(LinkStagingError::Cancelled);
+        }
+
         staging
             .write_all(&buffer[..read])
             .map_err(|error| LinkStagingError::Write(error.kind()))?;
+    }
+
+    if cancellation.is_cancelled() {
+        return Err(LinkStagingError::Cancelled);
     }
 
     staging
@@ -236,7 +252,14 @@ fn stage_input(
     Ok(path)
 }
 
-fn reserve_output(planned: &PlannedArtifact) -> Result<TempPath, LinkStagingError> {
+fn reserve_output(
+    planned: &PlannedArtifact,
+    cancellation: &dyn Cancellation,
+) -> Result<TempPath, LinkStagingError> {
+    if cancellation.is_cancelled() {
+        return Err(LinkStagingError::Cancelled);
+    }
+
     let mut builder = Builder::new();
 
     builder.prefix(LINK_OUTPUT_PREFIX);
@@ -393,6 +416,8 @@ pub enum LinkOutputStagingBuildError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use bray_codegen::{
         ArtifactContent, AssemblySyntaxKind, BackendSerializationOptions,
         DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
@@ -461,6 +486,29 @@ mod tests {
             LinkStaging::prepare(&plan, [contribution], &always_cancelled),
             Err(super::LinkStagingError::Cancelled)
         ));
+    }
+
+    #[test]
+    fn cancellation_after_staging_creation_discards_private_state() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+
+        let plan = linked_plan(directory.path().join("application"));
+        let contribution = staged_contribution(&plan, b"object bytes");
+        let observations = AtomicUsize::new(0);
+        let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 2;
+
+        assert!(matches!(
+            LinkStaging::prepare(&plan, [contribution], &cancellation),
+            Err(super::LinkStagingError::Cancelled)
+        ));
+
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .unwrap_or_else(|error| panic!("test output directory must be readable: {error:?}"))
+                .count(),
+            0
+        );
     }
 
     fn linked_plan(destination: std::path::PathBuf) -> crate::EmissionPlan {

@@ -1,11 +1,11 @@
 use std::process::ExitCode;
 
 use super::workspace::RustWorkspace;
-use super::{codegen, linker, lowering, semantic};
+use super::{codegen, emission, linker, lowering, semantic};
 use crate::{command, workspace};
 
 const USAGE: &str =
-    "usage: cargo xtask readiness [semantic | diagnostics | lowering | codegen | linker]";
+    "usage: cargo xtask readiness [semantic | diagnostics | lowering | codegen | emission | linker]";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let audit = arguments.next();
@@ -31,14 +31,16 @@ fn run_audit(audit: Option<&str>, workspace: &RustWorkspace) -> Result<(), Strin
             semantic::audit_coverage(workspace)?;
             semantic::audit_diagnostics(workspace)?;
             lowering::audit(workspace)?;
-            linker::audit(workspace)?;
+            codegen::audit(workspace)?;
+            emission::audit(workspace)?;
 
-            codegen::audit(workspace)
+            linker::audit(workspace)
         }
         Some("semantic") => semantic::audit_coverage(workspace),
         Some("diagnostics") => semantic::audit_diagnostics(workspace),
         Some("lowering") => lowering::audit(workspace),
         Some("codegen") => codegen::audit(workspace),
+        Some("emission") => emission::audit(workspace),
         Some("linker") => linker::audit(workspace),
         Some(_) => Err(USAGE.to_owned()),
     }
