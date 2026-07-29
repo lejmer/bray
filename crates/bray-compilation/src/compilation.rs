@@ -7,6 +7,7 @@ mod contribution_gate;
 mod declaration_body;
 mod diagnostics;
 mod directive;
+mod emission;
 mod export;
 mod facts;
 mod foreign;
@@ -32,8 +33,9 @@ mod type_representation;
 mod type_surface;
 mod unit;
 
-pub use export::PackageInterfaceExportError;
 pub use codegen::CodegenFactError;
+pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
+pub use export::PackageInterfaceExportError;
 pub use facts::Compilation;
 pub use load::CompilationLoadError;
 pub use source_graph::ProductSourceGraph;

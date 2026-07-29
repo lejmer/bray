@@ -14,7 +14,8 @@ mod test_support;
 
 pub use artifact::{
     ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
-    ArtifactRole, DependencyMetadataProducerId, EmittedArtifact, EmittedArtifactSet,
+    ArtifactRole, BackendContributionMergeError, BackendContributionMergeErrorKind,
+    BackendContributionSet, DependencyMetadataProducerId, EmittedArtifact, EmittedArtifactSet,
     LinkerProducerId,
 };
 pub use bray_runtime_interface::ExecutableHostContract;

@@ -19,6 +19,7 @@ sha2 = "0.10"
 tempfile = "3"
 
 [dev-dependencies]
+bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
 bray-target = { path = "../bray-target", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

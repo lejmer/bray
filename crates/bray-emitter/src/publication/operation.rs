@@ -4,11 +4,11 @@ use std::io::{self, Read, Write};
 use bray_base::Cancellation;
 use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
 
-use super::content::{
-    ContentValidationError, open_content, validate_content, validate_staged_content,
-};
 use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
 use super::staging::FilesystemStaging;
+use crate::artifact::content::{
+    ContentValidationError, open_content, validate_content, validate_staged_content,
+};
 use crate::{
     ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
     EmissionOutcome, EmissionPlan, EmittedArtifact, EmittedArtifactSet, IndirectOutputSink,
