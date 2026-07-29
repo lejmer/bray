@@ -187,6 +187,7 @@ dependencies = [
 name = "bray-codegen-llvm"
 version = "0.0.0"
 dependencies = [
+ "bray-base",
  "bray-codegen",
  "bray-diagnostics",
  "bray-ir",

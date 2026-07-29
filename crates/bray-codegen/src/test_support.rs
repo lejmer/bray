@@ -39,6 +39,14 @@ pub struct CodegenRequestFixture {
 impl CodegenRequestFixture {
     /// Returns a request borrowing this fixture's immutable inputs.
     pub fn request(&self) -> CodegenRequest<'_> {
+        self.request_with_cancellation(&self.cancellation)
+    }
+
+    /// Returns a request using a caller-provided cancellation observer.
+    pub fn request_with_cancellation<'request>(
+        &'request self,
+        cancellation: &'request dyn Cancellation,
+    ) -> CodegenRequest<'request> {
         let Ok(request) = CodegenRequest::try_new(
             &self.unit,
             &self.backend,
@@ -46,7 +54,7 @@ impl CodegenRequestFixture {
             &self.mappings,
             &self.options,
             &self.artifacts,
-            &self.cancellation,
+            cancellation,
         ) else {
             panic!("test codegen request must be valid");
         };

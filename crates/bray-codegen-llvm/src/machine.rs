@@ -1,6 +1,9 @@
 use std::num::NonZeroU32;
 
-use bray_codegen::{CodegenFailure, CodegenTarget, TargetScalarKind, TargetScalarLayout};
+use bray_codegen::{
+    CodegenFailure, CodegenTarget, OptimizationLevel as BrayOptimizationLevel, TargetScalarKind,
+    TargetScalarLayout,
+};
 use bray_target::{
     CodeModel as BrayCodeModel, Endianness as BrayEndianness, ObjectFormat, RelocationModel,
     TargetArchitecture,
@@ -8,7 +11,9 @@ use bray_target::{
 use inkwell::OptimizationLevel;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::targets::{ByteOrdering, CodeModel, RelocMode, Target, TargetMachine, TargetTriple};
+use inkwell::targets::{
+    ByteOrdering, CodeModel, FileType, RelocMode, Target, TargetMachine, TargetTriple,
+};
 use inkwell::types::BasicTypeEnum;
 use target_lexicon::{Architecture, BinaryFormat, Endianness, Triple};
 
@@ -20,7 +25,16 @@ pub(crate) struct LlvmTargetMachine {
 }
 
 impl LlvmTargetMachine {
-    pub(crate) fn create(target: &CodegenTarget) -> Result<Self, CodegenFailure> {
+    pub(crate) fn create(
+        target: &CodegenTarget,
+    ) -> Result<Self, CodegenFailure> {
+        Self::create_for_codegen(target, BrayOptimizationLevel::None)
+    }
+
+    pub(crate) fn create_for_codegen(
+        target: &CodegenTarget,
+        optimization: BrayOptimizationLevel,
+    ) -> Result<Self, CodegenFailure> {
         initialization::initialize();
 
         validate_triple(target)?;
@@ -43,7 +57,7 @@ impl LlvmTargetMachine {
             &triple,
             target.cpu(),
             &features,
-            OptimizationLevel::None,
+            llvm_optimization_level(optimization),
             relocation,
             code_model,
         ) else {
@@ -86,6 +100,37 @@ impl LlvmTargetMachine {
 
     pub(crate) fn target_data(&self) -> inkwell::targets::TargetData {
         self.machine.get_target_data()
+    }
+
+    pub(crate) fn run_passes(
+        &self,
+        module: &Module<'_>,
+        pipeline: &str,
+    ) -> Result<(), CodegenFailure> {
+        let options = inkwell::passes::PassBuilderOptions::create();
+
+        module
+            .run_passes(pipeline, &self.machine, options)
+            .map_err(|_| CodegenFailure::BackendLibrary)
+    }
+
+    pub(crate) fn serialize(
+        &self,
+        module: &Module<'_>,
+        file_type: FileType,
+    ) -> Result<Vec<u8>, CodegenFailure> {
+        self.machine
+            .write_to_memory_buffer(module, file_type)
+            .map(|buffer| buffer.as_slice().to_vec())
+            .map_err(|_| CodegenFailure::BackendLibrary)
+    }
+}
+
+const fn llvm_optimization_level(level: BrayOptimizationLevel) -> OptimizationLevel {
+    match level {
+        BrayOptimizationLevel::None => OptimizationLevel::None,
+        BrayOptimizationLevel::Basic => OptimizationLevel::Less,
+        BrayOptimizationLevel::Full => OptimizationLevel::Default,
     }
 }
 
