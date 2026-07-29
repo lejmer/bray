@@ -1,0 +1,40 @@
+{
+  "version": "22.1.8",
+  "hosts": [
+    {
+      "host": "aarch64-apple-darwin",
+      "archive": "LLVM-22.1.8-macOS-ARM64.tar.xz",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-ARM64.tar.xz",
+      "size": 1479903744,
+      "sha256": "f260f4f7c0d430828a81ae8a3826a1d63fc0963ec2459489308cc23b1f7eab4f"
+    },
+    {
+      "host": "aarch64-pc-windows-msvc",
+      "archive": "clang+llvm-22.1.8-aarch64-pc-windows-msvc.tar.xz",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/clang%2Bllvm-22.1.8-aarch64-pc-windows-msvc.tar.xz",
+      "size": 737955068,
+      "sha256": "de718c58ebbc5f61d58c17b90457fcf42983bc2c4a4aba3e010d108713bfd7f1"
+    },
+    {
+      "host": "aarch64-unknown-linux-gnu",
+      "archive": "LLVM-22.1.8-Linux-ARM64.tar.xz",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-ARM64.tar.xz",
+      "size": 1771004928,
+      "sha256": "805efad2bb91cb4967fa569e0881d10c0f69c04461cf671cccbae19f547acc34"
+    },
+    {
+      "host": "x86_64-pc-windows-msvc",
+      "archive": "clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/clang%2Bllvm-22.1.8-x86_64-pc-windows-msvc.tar.xz",
+      "size": 862053924,
+      "sha256": "d96c2cc1736f4eb7fa43cb9bbdf56d93551a9ae0a9aadb9c99c3c3b2b712a234"
+    },
+    {
+      "host": "x86_64-unknown-linux-gnu",
+      "archive": "LLVM-22.1.8-Linux-X64.tar.xz",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz",
+      "size": 1938859476,
+      "sha256": "df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384"
+    }
+  ]
+}

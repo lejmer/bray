@@ -1,6 +1,5 @@
 use std::fmt;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -18,9 +17,7 @@ use bray_runtime_interface::{
     TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
 };
 use bray_target::TargetIdentity;
-use sha2::{Digest as _, Sha256};
-
-use crate::workspace;
+use crate::{digest, workspace};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
     <build --target <triple> --output <directory> [--profile <profile>] | smoke-test>";
@@ -235,25 +232,9 @@ fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
 }
 
 fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
-    let mut file =
-        fs::File::open(path).map_err(|error| CommandError::read(path, error))?;
+    let digest = digest::sha256(path).map_err(|error| CommandError::read(path, error))?;
 
-    let mut hasher = Sha256::new();
-    let mut buffer = [0; 64 * 1024];
-
-    loop {
-        let length = file
-            .read(&mut buffer)
-            .map_err(|error| CommandError::read(path, error))?;
-
-        if length == 0 {
-            break;
-        }
-
-        hasher.update(&buffer[..length]);
-    }
-
-    Ok(RuntimeArtifactDigest::new(hasher.finalize().into()))
+    Ok(RuntimeArtifactDigest::new(digest))
 }
 
 fn smoke_test(

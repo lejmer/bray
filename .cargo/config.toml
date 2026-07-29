@@ -1,2 +1,5 @@
 [alias]
 xtask = "run --package xtask --release --"
+
+[env]
+LLVM_SYS_221_PREFIX = { value = "../target/toolchains/llvm/active", relative = true }
