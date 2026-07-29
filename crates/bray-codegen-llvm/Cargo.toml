@@ -1,0 +1,23 @@
+[package]
+name = "bray-codegen-llvm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-codegen = { path = "../bray-codegen" }
+bray-diagnostics = { path = "../bray-diagnostics" }
+bray-target = { path = "../bray-target" }
+
+[target.'cfg(not(windows))'.dependencies]
+inkwell = { version = "0.9.0", default-features = false, features = ["llvm22-1-prefer-static"] }
+
+[target.'cfg(windows)'.dependencies]
+inkwell = { version = "0.9.0", default-features = false, features = ["llvm22-1-no-llvm-linking"] }
+
+[dev-dependencies]
+bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
+
+[lints]
+workspace = true

@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+test-support = [
+    "dep:bray-testing",
+    "bray-target/test-support",
+]
+
 [dependencies]
 bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
@@ -12,6 +18,7 @@ bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-ir = { path = "../bray-ir" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
+bray-testing = { path = "../bray-testing", features = ["mir-unit"], optional = true }
 
 [dev-dependencies]
 bray-target = { path = "../bray-target", features = ["test-support"] }

@@ -5,6 +5,7 @@ members = [
     "crates/bray-bound-tree",
     "crates/bray-checker",
     "crates/bray-codegen",
+    "crates/bray-codegen-llvm",
     "crates/bray-compilation",
     "crates/bray-compiler-known",
     "crates/bray-declarations",
