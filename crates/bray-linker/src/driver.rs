@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bray_base::{Cancellation, NonEmptySharedStr};
 use bray_diagnostics::DiagnosticBag;
 
+use crate::outcome::failed_outcome;
 use crate::{LinkFailure, LinkOutcome, LinkPlan, LinkTarget, LinkedProductKind};
 
 /// Supported category of one selected linker or archiver driver.
@@ -129,7 +130,7 @@ impl Linker {
         let driver = match self.select(plan) {
             Ok(driver) => driver,
             Err(failure) => {
-                return LinkOutcome::failed(failure, DiagnosticBag::new());
+                return failed_outcome(failure);
             }
         };
 

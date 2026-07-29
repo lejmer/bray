@@ -6,6 +6,7 @@ use crate::{
     LinkFailure, LinkInputSource, LinkOutcome, LinkOutcomeBuildError, LinkPlan, LinkedArtifact,
     LinkedArtifactRequirement, LinkedArtifactSetBuildError,
 };
+use crate::outcome::failed_outcome;
 
 pub(crate) fn validate_file_inputs(plan: &LinkPlan) -> Result<(), LinkFailure> {
     for input in plan.inputs() {
@@ -24,7 +25,6 @@ pub(crate) fn validate_file_inputs(plan: &LinkPlan) -> Result<(), LinkFailure> {
 
     Ok(())
 }
-
 pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
     let mut artifacts = Vec::new();
 
@@ -36,15 +36,23 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
             Err(_) if output.requirement() == LinkedArtifactRequirement::Optional => {
                 continue;
             }
-            Err(_) => return failed(LinkFailure::MissingOutput(destination.id())),
+            Err(_) => {
+                return failed_outcome(LinkFailure::MissingOutput(
+                    destination.id(),
+                ));
+            }
         };
 
         let Some(byte_len) = NonZeroU64::new(metadata.len()) else {
-            return failed(LinkFailure::InvalidOutput(destination.id()));
+            return failed_outcome(LinkFailure::InvalidOutput(
+                destination.id(),
+            ));
         };
 
         if !metadata.is_file() {
-            return failed(LinkFailure::InvalidOutput(destination.id()));
+            return failed_outcome(LinkFailure::InvalidOutput(
+                destination.id(),
+            ));
         }
 
         artifacts.push(LinkedArtifact::new(
@@ -56,7 +64,7 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
 
     match LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new()) {
         Ok(outcome) => outcome,
-        Err(error) => failed(link_outcome_failure(error)),
+        Err(error) => failed_outcome(link_outcome_failure(error)),
     }
 }
 
@@ -72,8 +80,4 @@ fn link_outcome_failure(error: LinkOutcomeBuildError) -> LinkFailure {
             | LinkedArtifactSetBuildError::KindMismatch(destination),
         ) => LinkFailure::InvalidOutput(destination),
     }
-}
-
-fn failed(failure: LinkFailure) -> LinkOutcome {
-    LinkOutcome::failed(failure, DiagnosticBag::new())
 }

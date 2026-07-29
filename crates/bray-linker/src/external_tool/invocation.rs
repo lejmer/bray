@@ -2,6 +2,10 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub(crate) fn is_explicit_program_path(path: &Path) -> bool {
+    path.components().count() >= 2
+}
+
 /// Driver-owned deterministic response file supplied to an external tool.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExternalToolResponseFile {

@@ -9,6 +9,10 @@ use crate::{
     LinkerDriverIdentity, StagingDestinationId,
 };
 
+pub(crate) fn failed_outcome(failure: LinkFailure) -> LinkOutcome {
+    LinkOutcome::failed(failure, DiagnosticBag::new())
+}
+
 /// Structured reason one native link operation could not produce complete staged outputs.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LinkFailure {

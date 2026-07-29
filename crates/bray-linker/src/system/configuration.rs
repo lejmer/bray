@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use crate::external_tool::is_explicit_program_path;
 use crate::{ExternalToolInvocation, ExternalToolInvocationBuildError};
 
 use super::SystemLinkerFamily;
@@ -22,7 +23,7 @@ impl SystemLinkerConfiguration {
     ) -> Result<Self, SystemLinkerConfigurationBuildError> {
         let program = program.into();
 
-        if program.components().count() < 2 {
+        if !is_explicit_program_path(&program) {
             return Err(SystemLinkerConfigurationBuildError::ProgramPathNotExplicit);
         }
 

@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod archive;
 mod command;
 mod driver;
 mod execution;
@@ -20,6 +21,9 @@ mod target;
 mod test_support;
 
 pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
+pub use archive::{
+    LlvmArchiveDriver, LlvmArchiveDriverBuildError,
+};
 pub use driver::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
 pub use external_tool::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,

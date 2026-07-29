@@ -1,3 +1,4 @@
+use crate::external_tool::ResponseFileEncoding;
 use crate::{LinkTarget, LinkedProductKind, LldFlavor};
 
 /// Supported command family of one explicitly configured platform linker.
@@ -31,12 +32,6 @@ impl SystemLinkerFamily {
             Self::Apple => None,
         }
     }
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum ResponseFileEncoding {
-    Utf8,
-    Utf16LittleEndian,
 }
 
 #[cfg(test)]
