@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_codegen::{
@@ -44,22 +45,23 @@ impl Compilation {
     ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
         let requests = plan.backend_requests();
 
+        let facts = CodegenFactLookup::try_new(units, mappings).map_err(|kind| {
+            EmissionCodegenError::new(kind, DiagnosticBag::new())
+        })?;
+
         let outcomes = self
             .state
             .fact_runtime
             .map_indexed(requests.len(), |index| {
                 let request = &requests[index];
 
-                let Some(unit) = units.iter().find(|unit| unit.key() == request.unit()) else {
+                let Some(unit) = facts.unit(request.unit()) else {
                     return Err(EmissionCodegenErrorKind::MissingUnit(
                         request.unit().clone(),
                     ));
                 };
 
-                let Some(mappings) = mappings
-                    .iter()
-                    .find(|mappings| mappings.unit() == request.unit())
-                else {
+                let Some(mappings) = facts.mappings(request.unit()) else {
                     return Err(EmissionCodegenErrorKind::MissingMappings(
                         request.unit().clone(),
                     ));
@@ -138,6 +140,10 @@ impl EmissionCodegenError {
 /// Structured reason planned backend contributions could not be obtained.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmissionCodegenErrorKind {
+    /// The supplied facts contain the same code generation unit more than once.
+    DuplicateUnit(CodegenUnitKey),
+    /// The supplied facts contain mappings for the same code generation unit more than once.
+    DuplicateMappings(CodegenUnitKey),
     /// The plan names a code generation unit absent from the supplied facts.
     MissingUnit(CodegenUnitKey),
     /// The plan names a code generation unit without realization mappings.
@@ -162,6 +168,63 @@ pub enum EmissionCodegenErrorKind {
     Query(FactQueryError),
     /// Completed backend sets violated the emission plan.
     InvalidContributions(BackendContributionMergeError),
+}
+
+struct CodegenFactLookup<'facts> {
+    entries: BTreeMap<&'facts CodegenUnitKey, CodegenFactEntry<'facts>>,
+}
+
+impl<'facts> CodegenFactLookup<'facts> {
+    fn try_new(
+        units: &'facts [CodegenUnit],
+        mappings: &'facts [CodegenMappings],
+    ) -> Result<Self, EmissionCodegenErrorKind> {
+        let mut entries = BTreeMap::new();
+
+        for unit in units {
+            let entry = entries.entry(unit.key()).or_insert_with(CodegenFactEntry::default);
+
+            if entry.unit.is_some() {
+                // The error must retain the structural unit identity after the lookup is discarded.
+                return Err(EmissionCodegenErrorKind::DuplicateUnit(
+                    unit.key().clone(),
+                ));
+            }
+
+            entry.unit = Some(unit);
+        }
+
+        for mappings in mappings {
+            let entry = entries
+                .entry(mappings.unit())
+                .or_insert_with(CodegenFactEntry::default);
+
+            if entry.mappings.is_some() {
+                // The error must retain the structural unit identity after the lookup is discarded.
+                return Err(EmissionCodegenErrorKind::DuplicateMappings(
+                    mappings.unit().clone(),
+                ));
+            }
+
+            entry.mappings = Some(mappings);
+        }
+
+        Ok(Self { entries })
+    }
+
+    fn unit(&self, key: &CodegenUnitKey) -> Option<&'facts CodegenUnit> {
+        self.entries.get(key).and_then(|entry| entry.unit)
+    }
+
+    fn mappings(&self, key: &CodegenUnitKey) -> Option<&'facts CodegenMappings> {
+        self.entries.get(key).and_then(|entry| entry.mappings)
+    }
+}
+
+#[derive(Default)]
+struct CodegenFactEntry<'facts> {
+    unit: Option<&'facts CodegenUnit>,
+    mappings: Option<&'facts CodegenMappings>,
 }
 
 fn complete_sets<'outcome>(
@@ -218,7 +281,7 @@ mod tests {
         TargetOutputDescription, TargetOutputKind, TargetOutputName,
     };
 
-    use super::Compilation;
+    use super::{CodegenFactLookup, Compilation, EmissionCodegenErrorKind};
     use crate::test_support::{package_identity, source_input};
     use crate::{
         CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
@@ -295,6 +358,37 @@ mod tests {
         assert!(observed.requested.iter().all(|kinds| {
             kinds.as_slice() == [BackendArtifactKind::RelocatableObject]
         }));
+    }
+
+    #[test]
+    fn codegen_fact_lookup_rejects_duplicate_units_and_mappings() {
+        let fixture = codegen_request_for_seed_and_backend(1, backend_identity());
+
+        let units = [
+            fixture.request().unit().clone(),
+            fixture.request().unit().clone(),
+        ];
+
+        let duplicate_units = CodegenFactLookup::try_new(&units, &[]);
+
+        assert!(matches!(
+            duplicate_units,
+            Err(EmissionCodegenErrorKind::DuplicateUnit(unit))
+                if unit == *fixture.request().unit().key()
+        ));
+
+        let mappings = [
+            fixture.request().mappings().clone(),
+            fixture.request().mappings().clone(),
+        ];
+
+        let duplicate_mappings = CodegenFactLookup::try_new(&[], &mappings);
+
+        assert!(matches!(
+            duplicate_mappings,
+            Err(EmissionCodegenErrorKind::DuplicateMappings(unit))
+                if unit == *fixture.request().unit().key()
+        ));
     }
 
     fn emission_plan(

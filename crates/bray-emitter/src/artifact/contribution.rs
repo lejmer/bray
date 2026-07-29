@@ -46,7 +46,7 @@ impl ArtifactContribution {
         &self.content
     }
 
-    /// Returns a producer-supplied digest when one is already available.
+    /// Returns the validated deterministic content digest when available.
     pub const fn digest(&self) -> Option<&ArtifactDigest> {
         self.digest.as_ref()
     }
