@@ -1,4 +1,7 @@
-use bray_bound_tree::{BoundUnitKey, ConstructionDefaultProvider, ConstructionTarget};
+use bray_bound_tree::{
+    BoundUnitKey, ConstructionDefaultProvider, ConstructionTarget, ConversionTarget,
+    SelectedConversion,
+};
 use bray_symbols::{
     CallableAbi, CallableInstanceData, CallableParameterDefaultProviderSymbolId, TypeId,
 };
@@ -19,12 +22,16 @@ pub enum MirHelperReference {
     ConstructionDefault(ConstructionDefaultProvider),
     /// Selected type-form construction callable.
     TypeForm(CallableInstanceData),
+    /// Selected implementation callable for a semantic conversion.
+    Conversion(CallableInstanceData),
     /// Initialize generator accumulation.
     BeginGenerator,
     /// Append one yielded generator element.
     PushGenerator,
     /// Finish generator accumulation.
     FinishGenerator,
+    /// Construct one owned panic report from a checked failure cause.
+    PanicReport,
     /// Run checked finalization for a value of the retained type.
     Finalize(TypeId),
     /// Destroy a value of the retained type.
@@ -75,6 +82,9 @@ impl MirOperationKind {
                     helpers.push(MirHelperReference::TypeForm(callable));
                 }
             }
+            Self::Convert { conversion, .. } => {
+                collect_conversion_helpers(conversion, &mut helpers);
+            }
             Self::Generator(operation) => {
                 helpers.push(match operation {
                     MirGeneratorOperation::Begin { .. } => MirHelperReference::BeginGenerator,
@@ -82,6 +92,7 @@ impl MirOperationKind {
                     MirGeneratorOperation::Finish { .. } => MirHelperReference::FinishGenerator,
                 });
             }
+            Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
             Self::Call(call) => collect_call_defaults(call, &mut helpers),
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
@@ -113,14 +124,29 @@ impl MirOperationKind {
             | Self::Unary { .. }
             | Self::Binary { .. }
             | Self::Aggregate(_)
-            | Self::Convert { .. }
             | Self::PatternProjection { .. }
-            | Self::PanicReport(_)
             | Self::Async(_)
             | Self::Host(_) => {}
         }
 
         helpers
+    }
+}
+
+fn collect_conversion_helpers(
+    conversion: &SelectedConversion,
+    helpers: &mut Vec<MirHelperReference>,
+) {
+    match conversion.target() {
+        ConversionTarget::Composite(conversions) => {
+            for conversion in conversions.iter() {
+                collect_conversion_helpers(conversion, helpers);
+            }
+        }
+        ConversionTarget::Trait { fulfillment, .. } => {
+            helpers.push(MirHelperReference::Conversion(*fulfillment));
+        }
+        ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
     }
 }
 

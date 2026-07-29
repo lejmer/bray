@@ -10,6 +10,7 @@ use inkwell::module::Module;
 
 use crate::machine::LlvmTargetMachine;
 use crate::mapping::{LlvmTypeMappings, add_debug_metadata, declare_symbols};
+use crate::translation::translate_instances;
 
 const BACKEND_NAME: &str = "llvm";
 const BACKEND_REVISION: &str = "1";
@@ -62,6 +63,8 @@ impl LlvmCodeGenerator {
             request.options().debug_information(),
         );
 
+        translate_instances(context, &module, request, &mut types)?;
+
         Ok(module)
     }
 }
@@ -104,7 +107,7 @@ impl CodeGenerator for LlvmCodeGenerator {
             return CodegenOutcome::failed(failure, DiagnosticBag::new());
         }
 
-        // TODO(BRA-161): Translate every MIR definition before completing artifact generation.
+        // TODO(BRA-163): Verify, optimize, and serialize the requested artifacts.
         CodegenOutcome::failed(
             CodegenFailure::GeneratedModuleInvariant,
             DiagnosticBag::new(),
@@ -257,6 +260,7 @@ mod tests {
 
         assert_eq!(function.get_linkage(), inkwell::module::Linkage::Internal);
         assert_eq!(function.get_call_conventions(), 0);
+        assert_ne!(function.count_basic_blocks(), 0);
 
         let source = request
             .unit()
@@ -265,6 +269,7 @@ mod tests {
             .map(|mir| mir.blocks()[0].source());
 
         assert!(source.is_some_and(|source| request.mappings().debug_location(source).is_some()));
+        assert!(module.verify().is_ok());
     }
 
     #[test]

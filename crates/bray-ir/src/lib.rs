@@ -12,14 +12,18 @@ mod reference;
 mod source;
 mod storage;
 mod target;
-mod types;
 #[cfg(test)]
 mod test_support;
+mod types;
 mod unit;
 mod value;
 mod walk;
 
 pub use block::{MirBlock, MirBlockKind};
+pub use bray_bound_tree::{
+    BoundUnitKey, ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation,
+    PatternPredicate, PatternProjection, SelectedConversion,
+};
 pub use control::{
     MirCleanupEdge, MirCleanupPhase, MirEdge, MirRunResultEdges, MirSwitchCase, MirTerminator,
     MirTerminatorKind,

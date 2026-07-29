@@ -308,6 +308,19 @@ impl CodegenMappings {
             .map(|index| &self.symbols[index])
     }
 
+    /// Returns the binary symbol for one concrete generated definition.
+    pub fn instance_symbol(&self, instance: &CodegenInstanceKey) -> Option<&CodegenSymbolMapping> {
+        self.symbols
+            .binary_search_by(|mapping| match mapping.key() {
+                CodegenSymbolKey::Instance(candidate) => candidate.cmp(instance),
+                CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => {
+                    std::cmp::Ordering::Greater
+                }
+            })
+            .ok()
+            .map(|index| &self.symbols[index])
+    }
+
     /// Returns the materialized mapping for one constant value.
     pub fn constant(&self, value: ConstantValueId) -> Option<&CodegenConstantMapping> {
         self.constants
