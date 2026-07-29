@@ -92,16 +92,28 @@ impl MirUnit {
     pub fn operations_with_ids(
         &self,
     ) -> impl ExactSizeIterator<Item = (MirOperationId, &MirOperation)> {
-        self.operations.iter().enumerate().map(|(index, operation)| {
-            let slot = u32::try_from(index).unwrap_or(u32::MAX);
+        self.operations
+            .iter()
+            .enumerate()
+            .map(|(index, operation)| {
+                let slot = u32::try_from(index).unwrap_or(u32::MAX);
 
-            (MirOperationId::from_slot(self.unit, slot), operation)
-        })
+                (MirOperationId::from_slot(self.unit, slot), operation)
+            })
     }
 
     /// Returns storage allocations in deterministic construction order.
     pub fn storages(&self) -> &[MirStorage] {
         &self.storages
+    }
+
+    /// Iterates storage allocations with their unit-local identities.
+    pub fn storages_with_ids(&self) -> impl ExactSizeIterator<Item = (MirStorageId, &MirStorage)> {
+        self.storages.iter().enumerate().map(|(index, storage)| {
+            let slot = u32::try_from(index).unwrap_or(u32::MAX);
+
+            (MirStorageId::from_slot(self.unit, slot), storage)
+        })
     }
 
     /// Returns values in deterministic construction order.

@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::num::{NonZeroU16, NonZeroU64};
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
@@ -6,7 +6,7 @@ use bray_ir::MirFieldReference;
 use bray_symbols::{CallableAbi, TypeId, UnionVariantSymbolId};
 use bray_target::TargetValueLayout;
 
-use crate::{TargetAddressSpaceKind, TargetScalarKind};
+use crate::TargetAddressSpaceKind;
 
 /// Integer extension selected for a directly passed ABI value.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -300,8 +300,14 @@ impl CodegenUnionVariantLayout {
 pub enum CodegenTypeKind {
     /// The zero-sized unit representation.
     Unit,
-    /// One target scalar representation.
-    Scalar(TargetScalarKind),
+    /// The target Boolean representation.
+    Boolean,
+    /// One signed integer representation.
+    SignedInteger(NonZeroU16),
+    /// One unsigned integer representation.
+    UnsignedInteger(NonZeroU16),
+    /// One floating-point representation.
+    Float(NonZeroU16),
     /// One pointer in a selected target address space.
     Pointer {
         /// The represented pointee type.

@@ -244,7 +244,7 @@ mod tests {
         CodegenCallableSignature, CodegenIndirectParameterKind, CodegenIntegerExtension,
         CodegenLinkage, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
         CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenValueAttribute,
-        TargetAddressSpaceKind, TargetScalarKind,
+        TargetAddressSpaceKind,
     };
     use bray_symbols::{CallableAbi, SemanticValueStore, TypeData};
     use bray_target::{TargetLayoutContract, TargetValueLayout};
@@ -301,7 +301,7 @@ mod tests {
             CodegenTypeMapping::new(
                 scalar,
                 layout(4, four),
-                CodegenTypeKind::Scalar(TargetScalarKind::Integer(width)),
+                CodegenTypeKind::SignedInteger(width),
             ),
             CodegenTypeMapping::new(
                 pointer,

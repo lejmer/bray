@@ -1,4 +1,7 @@
-use bray_bound_tree::{BoundUnitKey, ConstructionDefaultProvider, ConstructionTarget};
+use bray_bound_tree::{
+    BoundUnitKey, ConstructionDefaultProvider, ConstructionTarget, ConversionTarget,
+    SelectedConversion,
+};
 use bray_symbols::{
     CallableAbi, CallableInstanceData, CallableParameterDefaultProviderSymbolId, TypeId,
 };
@@ -19,6 +22,8 @@ pub enum MirHelperReference {
     ConstructionDefault(ConstructionDefaultProvider),
     /// Selected type-form construction callable.
     TypeForm(CallableInstanceData),
+    /// Selected implementation callable for a semantic conversion.
+    Conversion(CallableInstanceData),
     /// Initialize generator accumulation.
     BeginGenerator,
     /// Append one yielded generator element.
@@ -75,6 +80,9 @@ impl MirOperationKind {
                     helpers.push(MirHelperReference::TypeForm(callable));
                 }
             }
+            Self::Convert { conversion, .. } => {
+                collect_conversion_helpers(conversion, &mut helpers);
+            }
             Self::Generator(operation) => {
                 helpers.push(match operation {
                     MirGeneratorOperation::Begin { .. } => MirHelperReference::BeginGenerator,
@@ -113,7 +121,6 @@ impl MirOperationKind {
             | Self::Unary { .. }
             | Self::Binary { .. }
             | Self::Aggregate(_)
-            | Self::Convert { .. }
             | Self::PatternProjection { .. }
             | Self::PanicReport(_)
             | Self::Async(_)
@@ -121,6 +128,23 @@ impl MirOperationKind {
         }
 
         helpers
+    }
+}
+
+fn collect_conversion_helpers(
+    conversion: &SelectedConversion,
+    helpers: &mut Vec<MirHelperReference>,
+) {
+    match conversion.target() {
+        ConversionTarget::Composite(conversions) => {
+            for conversion in conversions.iter() {
+                collect_conversion_helpers(conversion, helpers);
+            }
+        }
+        ConversionTarget::Trait { fulfillment, .. } => {
+            helpers.push(MirHelperReference::Conversion(*fulfillment));
+        }
+        ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
     }
 }
 

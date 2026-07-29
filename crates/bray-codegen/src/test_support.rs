@@ -154,7 +154,7 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
             CodegenTypeMapping::new(
                 ty,
                 TargetValueLayout::new(4, alignment, TargetLayoutContract::Default),
-                CodegenTypeKind::Scalar(TargetScalarKind::Integer(width)),
+                CodegenTypeKind::SignedInteger(width),
             )
         } else {
             CodegenTypeMapping::new(

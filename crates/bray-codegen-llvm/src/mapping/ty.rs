@@ -42,6 +42,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         self.context
     }
 
+    pub(crate) const fn target_data(&self) -> &'mappings TargetData {
+        self.target_data
+    }
+
     #[cfg(test)]
     pub(crate) fn map_all(&mut self) -> Result<(), CodegenFailure> {
         for mapping in self.mappings.types() {
@@ -116,7 +120,11 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
         match mapping.kind() {
             CodegenTypeKind::Unit => Ok(self.context.struct_type(&[], false).into()),
-            CodegenTypeKind::Scalar(kind) => self.map_scalar(*kind),
+            CodegenTypeKind::Boolean => self.map_scalar(TargetScalarKind::Boolean),
+            CodegenTypeKind::SignedInteger(width) | CodegenTypeKind::UnsignedInteger(width) => {
+                self.map_scalar(TargetScalarKind::Integer(*width))
+            }
+            CodegenTypeKind::Float(width) => self.map_scalar(TargetScalarKind::Float(*width)),
             CodegenTypeKind::Pointer { address_space, .. } => self.map_pointer(*address_space),
             CodegenTypeKind::Callable(_) => {
                 self.map_pointer(bray_codegen::TargetAddressSpaceKind::Function)
@@ -310,7 +318,7 @@ mod tests {
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
         CodegenFieldLayout, CodegenMappings, CodegenResultMapping, CodegenTypeKind,
-        CodegenTypeMapping, TargetAddressSpaceKind, TargetScalarKind,
+        CodegenTypeMapping, TargetAddressSpaceKind,
     };
     use bray_symbols::{SemanticValueStore, TypeData};
     use bray_target::{TargetLayoutContract, TargetValueLayout};
@@ -455,12 +463,12 @@ mod tests {
             CodegenTypeMapping::new(
                 byte,
                 layout(1, one),
-                CodegenTypeKind::Scalar(TargetScalarKind::Integer(byte_width)),
+                CodegenTypeKind::UnsignedInteger(byte_width),
             ),
             CodegenTypeMapping::new(
                 scalar,
                 layout(4, four),
-                CodegenTypeKind::Scalar(TargetScalarKind::Integer(integer_width)),
+                CodegenTypeKind::SignedInteger(integer_width),
             ),
             CodegenTypeMapping::new(
                 pointer,
