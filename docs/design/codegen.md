@@ -152,6 +152,20 @@ syntax, bound HIR, MIR, codegen policy, emission, and linking.
 - backend conformance contracts,
 - codegen orchestration that does not depend on one backend implementation.
 
+Each backend request carries one canonical `CodegenMappings` value for its concrete unit. The value binds demanded semantic types,
+concrete definitions, runtime roles, protected-frame operations, and MIR source anchors to exact target layouts, callable
+signatures, binary symbols, linkage, and source locations. Mapping construction rejects target disagreement, incomplete concrete
+instance coverage, unsupported linkage, duplicate identities, and missing directly used type representations before backend work
+begins.
+
+Callable signatures carry target-classified parameter and result passing modes, including ignored values, direct values, indirect
+values, hidden result pointers, integer extension, proven value attributes, required alignment, and variadic shape. LLVM code
+generation realizes these facts mechanically and must not repeat target ABI classification.
+
+Backends realize these mappings on demand in task-local state. They must not query semantic stores, derive symbols from source
+spellings, or recompute target policy. A mapping may be shared immutably by independent artifact requests for the same concrete
+code generation unit and target.
+
 It depends on `bray-ir` and lower foundational contracts. It must not depend on LLVM.
 
 ### `bray-codegen-llvm`

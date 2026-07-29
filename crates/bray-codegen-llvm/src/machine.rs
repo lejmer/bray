@@ -1,22 +1,16 @@
 use std::num::NonZeroU32;
 
-use bray_codegen::{
-    CodegenFailure, CodegenTarget, TargetScalarKind, TargetScalarLayout,
-};
+use bray_codegen::{CodegenFailure, CodegenTarget, TargetScalarKind, TargetScalarLayout};
 use bray_target::{
-    CodeModel as BrayCodeModel, Endianness as BrayEndianness, ObjectFormat,
-    RelocationModel, TargetArchitecture,
+    CodeModel as BrayCodeModel, Endianness as BrayEndianness, ObjectFormat, RelocationModel,
+    TargetArchitecture,
 };
 use inkwell::OptimizationLevel;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::targets::{
-    ByteOrdering, CodeModel, RelocMode, Target, TargetMachine, TargetTriple,
-};
+use inkwell::targets::{ByteOrdering, CodeModel, RelocMode, Target, TargetMachine, TargetTriple};
 use inkwell::types::BasicTypeEnum;
-use target_lexicon::{
-    Architecture, BinaryFormat, Endianness, Triple,
-};
+use target_lexicon::{Architecture, BinaryFormat, Endianness, Triple};
 
 use crate::initialization;
 
@@ -89,6 +83,10 @@ impl LlvmTargetMachine {
         module.set_triple(&self.triple);
         module.set_data_layout(&self.machine.get_target_data().get_data_layout());
     }
+
+    pub(crate) fn target_data(&self) -> inkwell::targets::TargetData {
+        self.machine.get_target_data()
+    }
 }
 
 fn validate_triple(target: &CodegenTarget) -> Result<(), CodegenFailure> {
@@ -101,9 +99,7 @@ fn validate_triple(target: &CodegenTarget) -> Result<(), CodegenFailure> {
 
     if architecture(triple.architecture) != Some(machine.architecture())
         || object_format(triple.binary_format) != Some(machine.object_format())
-        || triple
-            .pointer_width()
-            .map(|width| u16::from(width.bits()))
+        || triple.pointer_width().map(|width| u16::from(width.bits()))
             != Ok(machine.pointer_width_bits().get())
         || triple.endianness().map(endianness) != Ok(machine.endianness())
     {
@@ -121,9 +117,7 @@ const fn architecture(architecture: Architecture) -> Option<TargetArchitecture> 
         Architecture::Aarch64(_) => Some(TargetArchitecture::Aarch64),
         Architecture::Riscv32(_) => Some(TargetArchitecture::Riscv32),
         Architecture::Riscv64(_) => Some(TargetArchitecture::Riscv64),
-        Architecture::Powerpc64 | Architecture::Powerpc64le => {
-            Some(TargetArchitecture::PowerPc64)
-        }
+        Architecture::Powerpc64 | Architecture::Powerpc64le => Some(TargetArchitecture::PowerPc64),
         Architecture::Wasm32 => Some(TargetArchitecture::Wasm32),
         Architecture::Wasm64 => Some(TargetArchitecture::Wasm64),
         _ => None,

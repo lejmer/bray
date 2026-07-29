@@ -6,8 +6,10 @@ use bray_codegen::{
 use bray_diagnostics::DiagnosticBag;
 use bray_target::{ObjectFormat, TargetArchitecture};
 use inkwell::context::Context;
+use inkwell::module::Module;
 
 use crate::machine::LlvmTargetMachine;
+use crate::mapping::{LlvmTypeMappings, add_debug_metadata, declare_symbols};
 
 const BACKEND_NAME: &str = "llvm";
 const BACKEND_REVISION: &str = "1";
@@ -35,15 +37,32 @@ impl LlvmCodeGenerator {
         })
     }
 
-    fn prepare_module(&self, request: CodegenRequest<'_>) -> Result<(), CodegenFailure> {
+    fn prepare_module<'context>(
+        &self,
+        request: CodegenRequest<'_>,
+        context: &'context Context,
+    ) -> Result<Module<'context>, CodegenFailure> {
         let machine = LlvmTargetMachine::create(request.target())?;
-        let context = Context::create();
         let module = context.create_module("bray.codegen.unit");
 
-        machine.validate_contract(request.target(), &context)?;
+        machine.validate_contract(request.target(), context)?;
         machine.configure_module(&module);
 
-        Ok(())
+        let target_data = machine.target_data();
+
+        let mut types =
+            LlvmTypeMappings::new(context, request.mappings(), request.target(), &target_data);
+
+        declare_symbols(&module, request.mappings(), request.target(), &mut types)?;
+
+        add_debug_metadata(
+            context,
+            &module,
+            request.mappings(),
+            request.options().debug_information(),
+        );
+
+        Ok(module)
     }
 }
 
@@ -79,7 +98,9 @@ impl CodeGenerator for LlvmCodeGenerator {
             );
         }
 
-        if let Err(failure) = self.prepare_module(request) {
+        let context = Context::create();
+
+        if let Err(failure) = self.prepare_module(request, &context) {
             return CodegenOutcome::failed(failure, DiagnosticBag::new());
         }
 
@@ -166,9 +187,7 @@ mod tests {
     use bray_codegen::{BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus};
     use bray_target::test_support::test_target_profile;
     use inkwell::OptimizationLevel;
-    use inkwell::targets::{
-        CodeModel, RelocMode, Target, TargetTriple,
-    };
+    use inkwell::targets::{CodeModel, RelocMode, Target, TargetTriple};
 
     use super::{LLVM_REVISION, LlvmCodeGenerator, representative_triple};
     use crate::initialization;
@@ -192,10 +211,8 @@ mod tests {
 
         assert_eq!(backend.validate_target(&codegen_target()), Ok(()));
 
-        let mismatched = codegen_target_with_profile(
-            test_target_profile(),
-            "x86_64-pc-windows-msvc",
-        );
+        let mismatched =
+            codegen_target_with_profile(test_target_profile(), "x86_64-pc-windows-msvc");
 
         assert_eq!(
             backend.validate_target(&mismatched),
@@ -218,6 +235,36 @@ mod tests {
         );
 
         assert!(outcome.artifacts().is_none());
+    }
+
+    #[test]
+    fn mapped_symbols_use_exact_names_linkage_abi_and_source_locations() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend.identity().clone());
+        let request = fixture.request();
+        let context = inkwell::context::Context::create();
+
+        let Ok(module) = backend.prepare_module(request, &context) else {
+            panic!("test mappings must produce a valid LLVM module");
+        };
+
+        let Some(function) = module.get_function("bray_test_0") else {
+            panic!("exact mapped symbol name must be declared");
+        };
+
+        assert_eq!(function.get_linkage(), inkwell::module::Linkage::Internal);
+        assert_eq!(function.get_call_conventions(), 0);
+
+        let source = request
+            .unit()
+            .mir_units()
+            .next()
+            .map(|mir| mir.blocks()[0].source());
+
+        assert!(source.is_some_and(|source| request.mappings().debug_location(source).is_some()));
     }
 
     #[test]

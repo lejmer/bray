@@ -77,7 +77,7 @@ impl BackendArtifactSet {
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
         runtime_metadata: CodegenRuntimeMetadata,
     ) -> Result<Self, BackendArtifactSetBuildError> {
-        if !runtime_metadata.matches_unit(request.unit()) {
+        if !runtime_metadata.matches_unit(request.unit(), request.mappings()) {
             return Err(BackendArtifactSetBuildError::RuntimeMetadataMismatch);
         }
 

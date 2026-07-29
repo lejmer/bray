@@ -2,71 +2,18 @@ use std::sync::Arc;
 
 use bray_ir::MirUnitKind;
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ExecutableHostContract, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ProtectedFrameOperation, ProtectedFrameOperations,
 };
 
-use crate::CodegenUnit;
-
-/// Binary symbol names of the operations emitted for one protected async-frame descriptor.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProtectedAsyncFrameOperationNames {
-    resume: BinarySymbolName,
-    task_broadcast: BinarySymbolName,
-    lifecycle_resolution: BinarySymbolName,
-    completion_move: BinarySymbolName,
-    destruction: BinarySymbolName,
-}
-
-impl ProtectedAsyncFrameOperationNames {
-    /// Creates the independently versioned frame-descriptor operation names.
-    pub const fn new(
-        resume: BinarySymbolName,
-        task_broadcast: BinarySymbolName,
-        lifecycle_resolution: BinarySymbolName,
-        completion_move: BinarySymbolName,
-        destruction: BinarySymbolName,
-    ) -> Self {
-        Self {
-            resume,
-            task_broadcast,
-            lifecycle_resolution,
-            completion_move,
-            destruction,
-        }
-    }
-
-    /// Returns the binary symbol name of the frame-resume operation.
-    pub const fn resume(&self) -> &BinarySymbolName {
-        &self.resume
-    }
-
-    /// Returns the binary symbol name of the phase-one owned-task broadcast operation.
-    pub const fn task_broadcast(&self) -> &BinarySymbolName {
-        &self.task_broadcast
-    }
-
-    /// Returns the binary symbol name of the phase-two lifecycle-resolution operation.
-    pub const fn lifecycle_resolution(&self) -> &BinarySymbolName {
-        &self.lifecycle_resolution
-    }
-
-    /// Returns the binary symbol name of the completed-result move operation.
-    pub const fn completion_move(&self) -> &BinarySymbolName {
-        &self.completion_move
-    }
-
-    /// Returns the binary symbol name of the infallible terminal-destruction operation.
-    pub const fn destruction(&self) -> &BinarySymbolName {
-        &self.destruction
-    }
-}
+use crate::{CodegenMappings, CodegenSymbolKey, CodegenUnit};
 
 /// Immutable target-specific metadata for one protected async frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedAsyncFrameMetadata {
     frame: ProtectedAsyncFrameId,
     frame_abi: ProtectedFrameAbiVersions,
-    operation_names: ProtectedAsyncFrameOperationNames,
+    operations: ProtectedFrameOperations,
 }
 
 impl ProtectedAsyncFrameMetadata {
@@ -74,12 +21,12 @@ impl ProtectedAsyncFrameMetadata {
     pub const fn new(
         frame: ProtectedAsyncFrameId,
         frame_abi: ProtectedFrameAbiVersions,
-        operation_names: ProtectedAsyncFrameOperationNames,
+        operations: ProtectedFrameOperations,
     ) -> Self {
         Self {
             frame,
             frame_abi,
-            operation_names,
+            operations,
         }
     }
 
@@ -94,8 +41,8 @@ impl ProtectedAsyncFrameMetadata {
     }
 
     /// Returns the binary symbol names of the generated descriptor operations.
-    pub const fn operation_names(&self) -> &ProtectedAsyncFrameOperationNames {
-        &self.operation_names
+    pub const fn operations(&self) -> &ProtectedFrameOperations {
+        &self.operations
     }
 }
 
@@ -165,7 +112,7 @@ impl CodegenRuntimeMetadata {
         self.executable_host.as_ref()
     }
 
-    pub(crate) fn matches_unit(&self, unit: &CodegenUnit) -> bool {
+    pub(crate) fn matches_unit(&self, unit: &CodegenUnit, mappings: &CodegenMappings) -> bool {
         let frames: Vec<_> = self
             .frames
             .iter()
@@ -177,10 +124,9 @@ impl CodegenRuntimeMetadata {
         };
 
         frames == expected_frames(unit)
-            && self
-                .frames
-                .iter()
-                .all(|metadata| frame_metadata_matches(unit, metadata))
+            && self.frames.iter().all(|metadata| {
+                frame_metadata_matches(unit, metadata) && frame_symbols_match(metadata, mappings)
+            })
             && self.executable_host.as_ref() == host
     }
 }
@@ -222,6 +168,19 @@ fn frame_metadata_matches(unit: &CodegenUnit, metadata: &ProtectedAsyncFrameMeta
     })
 }
 
+fn frame_symbols_match(metadata: &ProtectedAsyncFrameMetadata, mappings: &CodegenMappings) -> bool {
+    ProtectedFrameOperation::ALL.into_iter().all(|operation| {
+        let key = CodegenSymbolKey::ProtectedFrame {
+            frame: metadata.frame(),
+            operation,
+        };
+
+        mappings
+            .symbol(&key)
+            .is_some_and(|symbol| symbol.name() == metadata.operations().symbol(operation))
+    })
+}
+
 fn expected_host(
     unit: &CodegenUnit,
 ) -> Result<Option<&ExecutableHostContract>, CodegenRuntimeMetadataBuildError> {
@@ -250,14 +209,18 @@ mod tests {
     };
     use bray_runtime_interface::{
         BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+        ProtectedFrameOperation, ProtectedFrameOperations,
     };
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type, test_mir_unit};
 
     use super::{
         CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
-        ProtectedAsyncFrameOperationNames,
     };
-    use crate::CodegenUnit;
+    use crate::test_support::codegen_target;
+    use crate::{
+        CodegenCallableSignature, CodegenLinkage, CodegenMappings, CodegenResultMapping,
+        CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,
+    };
 
     #[test]
     fn synchronous_units_require_empty_runtime_metadata() {
@@ -302,12 +265,14 @@ mod tests {
             Err(CodegenRuntimeMetadataBuildError::FrameAbiMismatch(frame))
         );
 
+        let operations = frame_operation_names();
+
         let descriptor = ProtectedAsyncFrameMetadata::new(
             frame,
             ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
                 1, 0,
             )),
-            frame_operation_names(),
+            operations.clone(),
         );
 
         let Ok(metadata) = CodegenRuntimeMetadata::try_new(&unit, [descriptor], None) else {
@@ -315,6 +280,32 @@ mod tests {
         };
 
         assert_eq!(metadata.frames()[0].frame(), frame);
+
+        let mappings = frame_mappings(&unit, frame, &operations);
+
+        assert!(metadata.matches_unit(&unit, &mappings));
+
+        let conflicting = ProtectedAsyncFrameMetadata::new(
+            frame,
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
+                1, 0,
+            )),
+            ProtectedFrameOperations::new(
+                binary_symbol_name("different_move"),
+                binary_symbol_name("frame_resume"),
+                binary_symbol_name("frame_cancel"),
+                binary_symbol_name("frame_broadcast"),
+                binary_symbol_name("frame_resolve"),
+                binary_symbol_name("frame_move_completion"),
+                binary_symbol_name("frame_destroy"),
+            ),
+        );
+
+        let Ok(conflicting) = CodegenRuntimeMetadata::try_new(&unit, [conflicting], None) else {
+            panic!("runtime metadata validation does not own canonical symbol mappings");
+        };
+
+        assert!(!conflicting.matches_unit(&unit, &mappings));
     }
 
     fn protected_frame_mir(frame: ProtectedAsyncFrameId) -> bray_ir::MirUnit {
@@ -370,14 +361,54 @@ mod tests {
         }
     }
 
-    fn frame_operation_names() -> ProtectedAsyncFrameOperationNames {
-        ProtectedAsyncFrameOperationNames::new(
+    fn frame_operation_names() -> ProtectedFrameOperations {
+        ProtectedFrameOperations::new(
+            binary_symbol_name("frame_move_before_start"),
             binary_symbol_name("frame_resume"),
+            binary_symbol_name("frame_cancel"),
             binary_symbol_name("frame_broadcast"),
             binary_symbol_name("frame_resolve"),
             binary_symbol_name("frame_move_completion"),
             binary_symbol_name("frame_destroy"),
         )
+    }
+
+    fn frame_mappings(
+        unit: &CodegenUnit,
+        frame: ProtectedAsyncFrameId,
+        operations: &ProtectedFrameOperations,
+    ) -> CodegenMappings {
+        let target = codegen_target();
+
+        let signature = CodegenCallableSignature::new(
+            [],
+            CodegenResultMapping::Void,
+            bray_symbols::CallableAbi::Bray,
+            false,
+        );
+
+        let instance = CodegenSymbolMapping::new(
+            CodegenSymbolKey::Instance(unit.instances()[0].key().clone()),
+            binary_symbol_name("frame_entry"),
+            CodegenLinkage::Internal,
+            signature.clone(),
+        );
+
+        let frame_operations = ProtectedFrameOperation::ALL.into_iter().map(|operation| {
+            CodegenSymbolMapping::new(
+                CodegenSymbolKey::ProtectedFrame { frame, operation },
+                operations.symbol(operation).clone(),
+                CodegenLinkage::Internal,
+                signature.clone(),
+            )
+        });
+
+        let symbols = [instance].into_iter().chain(frame_operations);
+
+        match CodegenMappings::try_new(unit, &target, [], symbols, []) {
+            Ok(mappings) => mappings,
+            Err(error) => panic!("test frame mappings must validate: {error:?}"),
+        }
     }
 
     fn binary_symbol_name(name: &str) -> BinarySymbolName {
