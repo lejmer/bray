@@ -212,6 +212,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-emitter",
  "bray-ir",
+ "bray-linker",
  "bray-lowering",
  "bray-package-interface",
  "bray-parser",
@@ -220,6 +221,7 @@ dependencies = [
  "bray-symbols",
  "bray-syntax",
  "bray-target",
+ "bray-testing",
  "rayon",
 ]
 
