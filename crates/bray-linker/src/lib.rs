@@ -6,6 +6,7 @@ mod driver;
 mod execution;
 mod external_tool;
 mod input;
+mod lld;
 mod outcome;
 mod output;
 mod plan;
@@ -32,6 +33,7 @@ pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
     LinkInputSource,
 };
+pub use lld::{EmbeddedLldHost, LldDriver, LldDriverBuildError, LldFlavor};
 pub use outcome::{
     LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSet,
     LinkedArtifactSetBuildError,
