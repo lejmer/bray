@@ -5,5 +5,6 @@
 mod backend;
 mod initialization;
 mod machine;
+mod mapping;
 
 pub use backend::LlvmCodeGenerator;

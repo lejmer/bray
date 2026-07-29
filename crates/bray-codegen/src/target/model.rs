@@ -176,6 +176,10 @@ impl CodegenTarget {
             .iter()
             .map(NonEmptySharedStr::as_str)
     }
+
+    pub(crate) fn matches_mir_target(&self, target: &bray_ir::MirTargetFacts) -> bool {
+        target.identity() == self.identity() && target.machine() == self.machine()
+    }
 }
 
 /// A contract violation that prevents creation of a codegen target.

@@ -2,71 +2,18 @@ use std::sync::Arc;
 
 use bray_ir::MirUnitKind;
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ExecutableHostContract, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ProtectedFrameOperations,
 };
 
 use crate::CodegenUnit;
-
-/// Binary symbol names of the operations emitted for one protected async-frame descriptor.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProtectedAsyncFrameOperationNames {
-    resume: BinarySymbolName,
-    task_broadcast: BinarySymbolName,
-    lifecycle_resolution: BinarySymbolName,
-    completion_move: BinarySymbolName,
-    destruction: BinarySymbolName,
-}
-
-impl ProtectedAsyncFrameOperationNames {
-    /// Creates the independently versioned frame-descriptor operation names.
-    pub const fn new(
-        resume: BinarySymbolName,
-        task_broadcast: BinarySymbolName,
-        lifecycle_resolution: BinarySymbolName,
-        completion_move: BinarySymbolName,
-        destruction: BinarySymbolName,
-    ) -> Self {
-        Self {
-            resume,
-            task_broadcast,
-            lifecycle_resolution,
-            completion_move,
-            destruction,
-        }
-    }
-
-    /// Returns the binary symbol name of the frame-resume operation.
-    pub const fn resume(&self) -> &BinarySymbolName {
-        &self.resume
-    }
-
-    /// Returns the binary symbol name of the phase-one owned-task broadcast operation.
-    pub const fn task_broadcast(&self) -> &BinarySymbolName {
-        &self.task_broadcast
-    }
-
-    /// Returns the binary symbol name of the phase-two lifecycle-resolution operation.
-    pub const fn lifecycle_resolution(&self) -> &BinarySymbolName {
-        &self.lifecycle_resolution
-    }
-
-    /// Returns the binary symbol name of the completed-result move operation.
-    pub const fn completion_move(&self) -> &BinarySymbolName {
-        &self.completion_move
-    }
-
-    /// Returns the binary symbol name of the infallible terminal-destruction operation.
-    pub const fn destruction(&self) -> &BinarySymbolName {
-        &self.destruction
-    }
-}
 
 /// Immutable target-specific metadata for one protected async frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedAsyncFrameMetadata {
     frame: ProtectedAsyncFrameId,
     frame_abi: ProtectedFrameAbiVersions,
-    operation_names: ProtectedAsyncFrameOperationNames,
+    operations: ProtectedFrameOperations,
 }
 
 impl ProtectedAsyncFrameMetadata {
@@ -74,12 +21,12 @@ impl ProtectedAsyncFrameMetadata {
     pub const fn new(
         frame: ProtectedAsyncFrameId,
         frame_abi: ProtectedFrameAbiVersions,
-        operation_names: ProtectedAsyncFrameOperationNames,
+        operations: ProtectedFrameOperations,
     ) -> Self {
         Self {
             frame,
             frame_abi,
-            operation_names,
+            operations,
         }
     }
 
@@ -94,8 +41,8 @@ impl ProtectedAsyncFrameMetadata {
     }
 
     /// Returns the binary symbol names of the generated descriptor operations.
-    pub const fn operation_names(&self) -> &ProtectedAsyncFrameOperationNames {
-        &self.operation_names
+    pub const fn operations(&self) -> &ProtectedFrameOperations {
+        &self.operations
     }
 }
 
@@ -250,12 +197,12 @@ mod tests {
     };
     use bray_runtime_interface::{
         BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+        ProtectedFrameOperations,
     };
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type, test_mir_unit};
 
     use super::{
         CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
-        ProtectedAsyncFrameOperationNames,
     };
     use crate::CodegenUnit;
 
@@ -370,9 +317,11 @@ mod tests {
         }
     }
 
-    fn frame_operation_names() -> ProtectedAsyncFrameOperationNames {
-        ProtectedAsyncFrameOperationNames::new(
+    fn frame_operation_names() -> ProtectedFrameOperations {
+        ProtectedFrameOperations::new(
+            binary_symbol_name("frame_move_before_start"),
             binary_symbol_name("frame_resume"),
+            binary_symbol_name("frame_cancel"),
             binary_symbol_name("frame_broadcast"),
             binary_symbol_name("frame_resolve"),
             binary_symbol_name("frame_move_completion"),

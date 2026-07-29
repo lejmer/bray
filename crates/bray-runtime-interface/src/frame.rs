@@ -6,8 +6,8 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
-    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
-    ProtectedFrameAbiVersions, RuntimeAbiVersion,
+    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    RuntimeAbiVersion,
 };
 
 /// Descriptor-local identity of one resumable protected-frame state.
@@ -88,6 +88,19 @@ pub enum ProtectedFrameOperation {
     Destruction,
 }
 
+impl ProtectedFrameOperation {
+    /// Every compiler-emitted protected-frame operation in stable order.
+    pub const ALL: [Self; 7] = [
+        Self::MoveBeforeStart,
+        Self::Resume,
+        Self::CancellationEntry,
+        Self::TaskBroadcast,
+        Self::LifecycleResolution,
+        Self::CompletionMove,
+        Self::Destruction,
+    ];
+}
+
 /// Binary symbol table for compiler-emitted protected-frame operations.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameOperations {
@@ -123,20 +136,13 @@ impl ProtectedFrameOperations {
     }
 
     /// Returns the binary symbol implementing one protected-frame operation.
-    pub const fn symbol(
-        &self,
-        operation: ProtectedFrameOperation,
-    ) -> &BinarySymbolName {
+    pub const fn symbol(&self, operation: ProtectedFrameOperation) -> &BinarySymbolName {
         match operation {
             ProtectedFrameOperation::MoveBeforeStart => &self.move_before_start,
             ProtectedFrameOperation::Resume => &self.resume,
-            ProtectedFrameOperation::CancellationEntry => {
-                &self.cancellation_entry
-            }
+            ProtectedFrameOperation::CancellationEntry => &self.cancellation_entry,
             ProtectedFrameOperation::TaskBroadcast => &self.task_broadcast,
-            ProtectedFrameOperation::LifecycleResolution => {
-                &self.lifecycle_resolution
-            }
+            ProtectedFrameOperation::LifecycleResolution => &self.lifecycle_resolution,
             ProtectedFrameOperation::CompletionMove => &self.completion_move,
             ProtectedFrameOperation::Destruction => &self.destruction,
         }
@@ -278,9 +284,7 @@ impl ProtectedFrameDescriptor {
             }
 
             let Ok(ordinal) = u32::try_from(ordinal) else {
-                return Err(
-                    ProtectedFrameDescriptorBuildError::IdentityCapacityExceeded,
-                );
+                return Err(ProtectedFrameDescriptorBuildError::IdentityCapacityExceeded);
             };
 
             if state.state().raw() != ordinal {
@@ -335,13 +339,12 @@ impl ProtectedFrameDescriptor {
     }
 
     /// Returns one resumable state when its identity belongs to this frame.
-    pub fn state(
-        &self,
-        state: ProtectedFrameStateId,
-    ) -> Option<&ProtectedFrameStateDescriptor> {
+    pub fn state(&self, state: ProtectedFrameStateId) -> Option<&ProtectedFrameStateDescriptor> {
         let index = usize::try_from(state.raw()).ok()?;
 
-        self.states.get(index).filter(|entry| entry.state() == state)
+        self.states
+            .get(index)
+            .filter(|entry| entry.state() == state)
     }
 }
 
@@ -363,11 +366,9 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::{
-        ProtectedFrameDescriptor, ProtectedFrameDescriptorBuildError,
-        ProtectedFrameAffinity, ProtectedFrameLayout,
-        ProtectedFrameLayoutBuildError, ProtectedFrameOperation,
-        ProtectedFrameOperations, ProtectedFrameStateDescriptor,
-        ProtectedFrameStateId,
+        ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameDescriptorBuildError,
+        ProtectedFrameLayout, ProtectedFrameLayoutBuildError, ProtectedFrameOperation,
+        ProtectedFrameOperations, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
     };
     use crate::{
         BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
@@ -480,9 +481,7 @@ mod tests {
         let operations = test_operations();
 
         assert_eq!(
-            operations
-                .symbol(ProtectedFrameOperation::Resume)
-                .as_str(),
+            operations.symbol(ProtectedFrameOperation::Resume).as_str(),
             "__bray_test_resume"
         );
 

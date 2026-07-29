@@ -4,6 +4,7 @@
 
 mod artifact;
 mod backend;
+mod mapping;
 mod options;
 mod outcome;
 mod request;
@@ -24,12 +25,16 @@ pub use artifact::{
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
+pub use mapping::{
+    CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout, CodegenMappings,
+    CodegenMappingsBuildError, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+};
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};
 pub use runtime::{
     CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
-    ProtectedAsyncFrameOperationNames,
 };
 pub use target::{
     CallableAbiMapping, CodegenLinkage, CodegenTarget, CodegenTargetBuildError, TargetAbi,

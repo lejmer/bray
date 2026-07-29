@@ -189,6 +189,8 @@ version = "0.0.0"
 dependencies = [
  "bray-codegen",
  "bray-diagnostics",
+ "bray-ir",
+ "bray-symbols",
  "bray-target",
  "inkwell",
  "target-lexicon",

@@ -2,7 +2,7 @@ use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
 use bray_symbols::ProductIdentity;
 
 /// Source or compiler-generated product that owns one MIR unit.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirSourceOrigin {
     /// A checked source snapshot.
     Source(BoundSourceAnchor),
@@ -11,7 +11,7 @@ pub enum MirSourceOrigin {
 }
 
 /// Source-correlated provenance for a MIR element.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirSourceAnchor {
     /// Source or synthesized provenance inherited from checked HIR.
     Source(BoundNodeOrigin),

@@ -1,8 +1,8 @@
 use bray_base::Cancellation;
 
 use crate::{
-    BackendArtifactRequest, BackendIdentity, CodegenOptions, CodegenTarget, CodegenUnit,
-    DebugInformationMode, DebugInformationOutputMode,
+    BackendArtifactRequest, BackendIdentity, CodegenMappings, CodegenOptions, CodegenTarget,
+    CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
 };
 
 /// Borrowed immutable inputs for one complete backend operation.
@@ -11,6 +11,7 @@ pub struct CodegenRequest<'request> {
     unit: &'request CodegenUnit,
     backend: &'request BackendIdentity,
     target: &'request CodegenTarget,
+    mappings: &'request CodegenMappings,
     options: &'request CodegenOptions,
     artifacts: &'request BackendArtifactRequest,
     cancellation: &'request dyn Cancellation,
@@ -22,6 +23,7 @@ impl<'request> CodegenRequest<'request> {
         unit: &'request CodegenUnit,
         backend: &'request BackendIdentity,
         target: &'request CodegenTarget,
+        mappings: &'request CodegenMappings,
         options: &'request CodegenOptions,
         artifacts: &'request BackendArtifactRequest,
         cancellation: &'request dyn Cancellation,
@@ -30,9 +32,15 @@ impl<'request> CodegenRequest<'request> {
             return Err(CodegenRequestBuildError::ArtifactUnitMismatch);
         }
 
-        if unit.target().identity() != target.identity()
-            || unit.target().machine() != target.machine()
-        {
+        if mappings.unit() != unit.key() {
+            return Err(CodegenRequestBuildError::MappingUnitMismatch);
+        }
+
+        if mappings.target() != target {
+            return Err(CodegenRequestBuildError::MappingTargetMismatch);
+        }
+
+        if !target.matches_mir_target(unit.target()) {
             return Err(CodegenRequestBuildError::TargetMismatch);
         }
 
@@ -53,14 +61,24 @@ impl<'request> CodegenRequest<'request> {
             return Err(CodegenRequestBuildError::DebugInformationMismatch);
         }
 
+        if debug_information != DebugInformationMode::None && !mappings.covers_debug_sources(unit) {
+            return Err(CodegenRequestBuildError::DebugMappingCoverageMismatch);
+        }
+
         Ok(Self {
             unit,
             backend,
             target,
+            mappings,
             options,
             artifacts,
             cancellation,
         })
+    }
+
+    /// Returns exact backend-neutral realization facts for this unit.
+    pub const fn mappings(self) -> &'request CodegenMappings {
+        self.mappings
     }
 
     /// Returns the validated MIR work item.
@@ -99,8 +117,14 @@ impl<'request> CodegenRequest<'request> {
 pub enum CodegenRequestBuildError {
     /// The artifact request belongs to another codegen unit.
     ArtifactUnitMismatch,
+    /// Realization mappings belong to another code generation unit.
+    MappingUnitMismatch,
+    /// Realization mappings were computed for another code generation target.
+    MappingTargetMismatch,
     /// Generation and serialization disagree about whether debug information exists.
     DebugInformationMismatch,
+    /// Requested debug information lacks one or more MIR source mappings.
+    DebugMappingCoverageMismatch,
     /// MIR lowering facts do not match the selected codegen target.
     TargetMismatch,
     /// Executable-host runtime facts do not match target code generation.

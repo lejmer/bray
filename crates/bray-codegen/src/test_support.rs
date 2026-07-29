@@ -1,22 +1,26 @@
-use std::num::{NonZeroU16, NonZeroU32};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use bray_base::Cancellation;
-use bray_runtime_interface::PanicAbiIdentity;
+use bray_runtime_interface::{BinarySymbolName, PanicAbiIdentity};
 use bray_symbols::CallableAbi;
 use bray_target::test_support::test_target_profile;
-use bray_target::{CodeModel, RelocationModel, TargetProfile};
-use bray_testing::test_mir_unit;
+use bray_target::{
+    CodeModel, RelocationModel, TargetLayoutContract, TargetProfile, TargetValueLayout,
+};
+use bray_testing::{test_mir_type, test_mir_unit};
 
+use crate::mapping::{demanded_debug_sources, demanded_types};
 use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenLinkage,
-    CodegenOptions, CodegenRequest, CodegenTarget, CodegenUnit, CodegenUnitKey,
-    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
-    LinkableArtifactRequirement, OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace,
-    TargetAddressSpaceKind, TargetCallingConvention, TargetCompatibility, TargetContract,
-    TargetDataLayout, TargetMachineSelection, TargetScalarKind, TargetScalarLayout,
-    TargetSymbolConvention,
+    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCallableSignature,
+    CodegenDebugLocation, CodegenLinkage, CodegenMappings, CodegenOptions, CodegenRequest,
+    CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnit, CodegenUnitKey, DebugInformationMode,
+    DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
+    OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace, TargetAddressSpaceKind,
+    TargetCallingConvention, TargetCompatibility, TargetContract, TargetDataLayout,
+    TargetMachineSelection, TargetScalarKind, TargetScalarLayout, TargetSymbolConvention,
 };
 
 /// Complete validated code generation request fixture.
@@ -24,6 +28,7 @@ pub struct CodegenRequestFixture {
     unit: CodegenUnit,
     backend: BackendIdentity,
     target: CodegenTarget,
+    mappings: CodegenMappings,
     options: CodegenOptions,
     artifacts: BackendArtifactRequest,
     required_artifact: BackendArtifactId,
@@ -38,6 +43,7 @@ impl CodegenRequestFixture {
             &self.unit,
             &self.backend,
             &self.target,
+            &self.mappings,
             &self.options,
             &self.artifacts,
             &self.cancellation,
@@ -67,6 +73,8 @@ pub fn codegen_request() -> CodegenRequestFixture {
 /// Creates a complete request fixture for the supplied backend identity.
 pub fn codegen_request_for_backend(backend: BackendIdentity) -> CodegenRequestFixture {
     let unit = codegen_unit(1);
+    let target = codegen_target();
+    let mappings = codegen_mappings(&unit, &target);
 
     let required_artifact = BackendArtifactId::new(
         unit.key().clone(),
@@ -110,7 +118,8 @@ pub fn codegen_request_for_backend(backend: BackendIdentity) -> CodegenRequestFi
     CodegenRequestFixture {
         unit,
         backend,
-        target: codegen_target(),
+        target,
+        mappings,
         options: CodegenOptions::new(
             OptimizationLevel::None,
             SizePreference::None,
@@ -121,6 +130,85 @@ pub fn codegen_request_for_backend(backend: BackendIdentity) -> CodegenRequestFi
         optional_artifact,
         cancellation: NeverCancelled,
     }
+}
+
+fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappings {
+    let mut types = demanded_types(unit);
+
+    let alignment = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
+    let width = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
+
+    let has_mir_types = !types.is_empty();
+    let result = types.first().copied().unwrap_or_else(test_mir_type);
+
+    types.insert(result);
+
+    let types = types.into_iter().map(|ty| {
+        if has_mir_types {
+            CodegenTypeMapping::new(
+                ty,
+                TargetValueLayout::new(4, alignment, TargetLayoutContract::Default),
+                CodegenTypeKind::Scalar(TargetScalarKind::Integer(width)),
+            )
+        } else {
+            CodegenTypeMapping::new(
+                ty,
+                TargetValueLayout::new(0, NonZeroU64::MIN, TargetLayoutContract::Default),
+                CodegenTypeKind::Unit,
+            )
+        }
+    });
+
+    let symbols = unit
+        .instances()
+        .iter()
+        .map(|instance| {
+            (
+                CodegenSymbolKey::Instance(instance.key().clone()),
+                CodegenLinkage::Internal,
+            )
+        })
+        .chain(unit.external_instances().iter().map(|instance| {
+            (
+                CodegenSymbolKey::Instance(instance.clone()),
+                CodegenLinkage::Import,
+            )
+        }))
+        .enumerate()
+        .map(|(ordinal, (key, linkage))| instance_symbol(key, linkage, ordinal, result));
+
+    let Some(file) = CodegenSourceFile::try_new("test.bray") else {
+        panic!("test source file must be valid");
+    };
+
+    let one = NonZeroU32::MIN;
+
+    let debug_locations = demanded_debug_sources(unit)
+        .into_iter()
+        .map(|anchor| CodegenDebugLocation::new(anchor, file.clone(), one, one));
+
+    match CodegenMappings::try_new(unit, target, types, symbols, debug_locations) {
+        Ok(mappings) => mappings,
+        Err(error) => panic!("test code generation mappings must be valid: {error:?}"),
+    }
+}
+
+fn instance_symbol(
+    key: CodegenSymbolKey,
+    linkage: CodegenLinkage,
+    ordinal: usize,
+    result: bray_symbols::TypeId,
+) -> CodegenSymbolMapping {
+    let Some(name) = BinarySymbolName::try_new(format!("bray_test_{ordinal}")) else {
+        panic!("test binary symbol name must be valid");
+    };
+
+    CodegenSymbolMapping::new(
+        key,
+        name,
+        linkage,
+        CodegenCallableSignature::new([], result, CallableAbi::Bray),
+    )
 }
 
 struct NeverCancelled;
@@ -177,17 +265,11 @@ fn backend_identity() -> BackendIdentity {
 
 /// Creates a validated x86-64 ELF code generation target.
 pub fn codegen_target() -> CodegenTarget {
-    codegen_target_with_profile(
-        test_target_profile(),
-        "x86_64-unknown-linux-gnu",
-    )
+    codegen_target_with_profile(test_target_profile(), "x86_64-unknown-linux-gnu")
 }
 
 /// Creates a test code generation target from the supplied profile and triple.
-pub fn codegen_target_with_profile(
-    profile: TargetProfile,
-    triple: &str,
-) -> CodegenTarget {
+pub fn codegen_target_with_profile(profile: TargetProfile, triple: &str) -> CodegenTarget {
     let contract = target_contract();
 
     let Ok(selection) = TargetMachineSelection::try_new(
@@ -199,12 +281,7 @@ pub fn codegen_target_with_profile(
         panic!("test target machine selection must be valid");
     };
 
-    let Ok(target) = CodegenTarget::try_new(
-        profile,
-        triple,
-        contract,
-        selection,
-    ) else {
+    let Ok(target) = CodegenTarget::try_new(profile, triple, contract, selection) else {
         panic!("test target must be valid");
     };
 
@@ -291,6 +368,10 @@ fn target_symbols() -> TargetSymbolConvention {
             CodegenLinkage::Internal,
             CodegenLinkage::External,
             CodegenLinkage::Weak,
+            CodegenLinkage::LinkOnce,
+            CodegenLinkage::Common,
+            CodegenLinkage::Import,
+            CodegenLinkage::Export,
         ],
     ) else {
         panic!("test target symbol convention must be valid");

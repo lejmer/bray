@@ -8,6 +8,8 @@ rust-version.workspace = true
 [dependencies]
 bray-codegen = { path = "../bray-codegen" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-ir = { path = "../bray-ir" }
+bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 target-lexicon = "0.13.5"
 
