@@ -405,7 +405,18 @@ mod tests {
 
         let symbols = [instance].into_iter().chain(frame_operations);
 
-        match CodegenMappings::try_new(unit, &target, [], symbols, []) {
+        match CodegenMappings::try_new(
+            unit,
+            &target,
+            [],
+            symbols,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ) {
             Ok(mappings) => mappings,
             Err(error) => panic!("test frame mappings must validate: {error:?}"),
         }

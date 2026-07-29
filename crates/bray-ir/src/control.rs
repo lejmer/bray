@@ -242,3 +242,39 @@ impl MirTerminator {
         &self.kind
     }
 }
+
+impl MirTerminatorKind {
+    /// Returns whether a source literal pattern requires an externally materialized value.
+    pub const fn requires_pattern_literal_mapping(&self) -> bool {
+        matches!(
+            self,
+            Self::PatternBranch {
+                predicate: PatternPredicate::Literal(_),
+                ..
+            }
+        )
+    }
+
+    /// Returns the closed constant term tested by a pattern branch, when present.
+    pub const fn pattern_constant_term(&self) -> Option<bray_symbols::ConstantTermId> {
+        match self {
+            Self::PatternBranch {
+                predicate: PatternPredicate::Constant(term),
+                ..
+            } => Some(*term),
+            Self::Goto(_)
+            | Self::Branch { .. }
+            | Self::PatternBranch { .. }
+            | Self::Iterate { .. }
+            | Self::Switch { .. }
+            | Self::Return(_)
+            | Self::Unreachable
+            | Self::Suspend { .. }
+            | Self::ForwardRunResult { .. }
+            | Self::BeginCleanup(_)
+            | Self::ContinueCleanup(_)
+            | Self::Panic { .. }
+            | Self::CancelCurrentRun { .. } => None,
+        }
+    }
+}

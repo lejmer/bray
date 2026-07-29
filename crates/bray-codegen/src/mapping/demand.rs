@@ -1,0 +1,366 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use bray_ir::{
+    MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
+    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace,
+    MirProjectionKind, MirTaskTerminalState, MirTerminatorKind,
+};
+use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
+
+use crate::CodegenUnit;
+
+pub(super) struct ConstantDemands {
+    values: BTreeSet<ConstantValueId>,
+    types: BTreeMap<ConstantValueId, BTreeSet<TypeId>>,
+}
+
+impl ConstantDemands {
+    pub(super) fn values(&self) -> &BTreeSet<ConstantValueId> {
+        &self.values
+    }
+
+    pub(super) fn types(&self) -> &BTreeMap<ConstantValueId, BTreeSet<TypeId>> {
+        &self.types
+    }
+}
+
+pub(super) fn demanded_constants(unit: &CodegenUnit) -> ConstantDemands {
+    let mut demands = ConstantDemands {
+        values: BTreeSet::new(),
+        types: BTreeMap::new(),
+    };
+
+    for unit in unit.mir_units() {
+        for operation in unit.operations() {
+            collect_operation_values(operation.kind(), &mut demands);
+        }
+
+        for block in unit.blocks() {
+            collect_terminator_values(block.terminator().kind(), &mut demands);
+        }
+    }
+
+    demands
+}
+
+pub(super) fn demanded_constant_terms(unit: &CodegenUnit) -> BTreeSet<ConstantTermId> {
+    let mut terms = BTreeSet::new();
+
+    for unit in unit.mir_units() {
+        for operation in unit.operations() {
+            if let MirOperationKind::Generator(MirGeneratorOperation::Begin {
+                exact_count: Some(term),
+                ..
+            }) = operation.kind()
+            {
+                terms.insert(*term);
+            }
+        }
+
+        for block in unit.blocks() {
+            if let Some(term) = block.terminator().kind().pattern_constant_term() {
+                terms.insert(term);
+            }
+        }
+    }
+
+    terms
+}
+
+pub(super) fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = ConstantValueId> {
+    let values: Vec<_> = match kind {
+        ConstantValueKind::NullablePresent(value) => vec![*value],
+        ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => values.to_vec(),
+        ConstantValueKind::Product(fields) => {
+            fields.iter().map(|field| *field.value()).collect()
+        }
+        ConstantValueKind::Union { fields, .. } => {
+            fields.iter().map(|field| *field.value()).collect()
+        }
+        ConstantValueKind::Error
+        | ConstantValueKind::Boolean(_)
+        | ConstantValueKind::Character(_)
+        | ConstantValueKind::Integer(_)
+        | ConstantValueKind::Real(_)
+        | ConstantValueKind::Complex { .. }
+        | ConstantValueKind::String(_)
+        | ConstantValueKind::Unit
+        | ConstantValueKind::NullableAbsent => Vec::new(),
+    };
+
+    values.into_iter()
+}
+
+fn collect_operation_values(
+    operation: &MirOperationKind,
+    demands: &mut ConstantDemands,
+) {
+    match operation {
+        MirOperationKind::AnonymousCallable(_) => {}
+        MirOperationKind::Store {
+            destination,
+            value,
+            ..
+        } => {
+            collect_place_values(destination, demands);
+            collect_operand_value(value, demands);
+        }
+        MirOperationKind::Borrow { place, .. }
+        | MirOperationKind::Finalize(place)
+        | MirOperationKind::Destroy(place)
+        | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
+        MirOperationKind::Unary { operand, .. } | MirOperationKind::Convert { operand, .. } => {
+            collect_operand_value(operand, demands);
+        }
+        MirOperationKind::Binary { left, right, .. } => {
+            collect_operand_value(left, demands);
+            collect_operand_value(right, demands);
+        }
+        MirOperationKind::Aggregate(aggregate) => {
+            collect_operands(aggregate.operands(), demands);
+        }
+        MirOperationKind::Construct(construction) => {
+            for input in construction.inputs() {
+                if let bray_ir::MirConstructionInput::Explicit { value, .. } = input {
+                    collect_operand_value(value, demands);
+                }
+            }
+        }
+        MirOperationKind::PatternProjection { subject, .. } => {
+            collect_operand_value(subject, demands);
+        }
+        MirOperationKind::Generator(operation) => collect_generator_values(operation, demands),
+        MirOperationKind::Call(call) => collect_call_values(call, demands),
+        MirOperationKind::PanicReport(cause) => collect_panic_values(cause, demands),
+        MirOperationKind::Async(operation) => collect_async_values(operation, demands),
+        MirOperationKind::Host(operation) => collect_host_values(operation, demands),
+    }
+}
+
+fn collect_terminator_values(
+    terminator: &MirTerminatorKind,
+    demands: &mut ConstantDemands,
+) {
+    match terminator {
+        MirTerminatorKind::Goto(edge) => collect_edge_values(edge, demands),
+        MirTerminatorKind::Branch {
+            condition,
+            then_edge,
+            else_edge,
+        } => {
+            collect_operand_value(condition, demands);
+            collect_edge_values(then_edge, demands);
+            collect_edge_values(else_edge, demands);
+        }
+        MirTerminatorKind::PatternBranch {
+            subject,
+            matched,
+            unmatched,
+            ..
+        } => {
+            collect_operand_value(subject, demands);
+            collect_edge_values(matched, demands);
+            collect_edge_values(unmatched, demands);
+        }
+        MirTerminatorKind::Iterate {
+            cursor, exhausted, ..
+        } => {
+            collect_place_values(cursor, demands);
+            collect_edge_values(exhausted, demands);
+        }
+        MirTerminatorKind::Switch {
+            discriminant,
+            cases,
+            otherwise,
+        } => {
+            collect_operand_value(discriminant, demands);
+            collect_edge_values(otherwise, demands);
+
+            for case in cases.iter() {
+                demands.values.insert(case.value());
+                collect_edge_values(case.edge(), demands);
+            }
+        }
+        MirTerminatorKind::Return(value) => {
+            if let Some(value) = value {
+                collect_operand_value(value, demands);
+            }
+        }
+        MirTerminatorKind::Unreachable => {}
+        MirTerminatorKind::Suspend {
+            resume,
+            cancellation,
+            ..
+        } => {
+            collect_edge_values(resume, demands);
+            collect_cleanup_edge_values(cancellation, demands);
+        }
+        MirTerminatorKind::ForwardRunResult { result, edges } => {
+            collect_operand_value(result, demands);
+            collect_edge_values(edges.completed(), demands);
+            collect_cleanup_edge_values(edges.panicked(), demands);
+            collect_cleanup_edge_values(edges.cancelled(), demands);
+        }
+        MirTerminatorKind::BeginCleanup(edge)
+        | MirTerminatorKind::ContinueCleanup(edge) => {
+            collect_cleanup_edge_values(edge, demands);
+        }
+        MirTerminatorKind::Panic { report, cleanup } => {
+            collect_operand_value(report, demands);
+            collect_cleanup_edge_values(cleanup, demands);
+        }
+        MirTerminatorKind::CancelCurrentRun { cleanup } => {
+            collect_cleanup_edge_values(cleanup, demands);
+        }
+    }
+}
+
+fn collect_generator_values(
+    operation: &MirGeneratorOperation,
+    demands: &mut ConstantDemands,
+) {
+    match operation {
+        MirGeneratorOperation::Begin { destination, .. }
+        | MirGeneratorOperation::Finish { destination } => {
+            collect_place_values(destination, demands);
+        }
+        MirGeneratorOperation::Push { destination, value } => {
+            collect_place_values(destination, demands);
+            collect_operand_value(value, demands);
+        }
+    }
+}
+
+fn collect_async_values(
+    operation: &MirAsyncOperation,
+    demands: &mut ConstantDemands,
+) {
+    match operation {
+        MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
+            MirFrameInitializer::Callable(call) => collect_call_values(call, demands),
+            MirFrameInitializer::TaskObservation { task, .. } => {
+                collect_operand_value(task, demands);
+            }
+        },
+        MirAsyncOperation::MoveInactiveFrame {
+            source,
+            destination,
+            ..
+        } => {
+            collect_place_values(source, demands);
+            collect_place_values(destination, demands);
+        }
+        MirAsyncOperation::ResumeFrame { .. }
+        | MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
+        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
+        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
+        | MirAsyncOperation::StartTask { value: frame, .. } => {
+            collect_operand_value(frame, demands);
+        }
+        MirAsyncOperation::RequestTaskCancellation { task, .. }
+        | MirAsyncOperation::ResolveTask { task, .. }
+        | MirAsyncOperation::DestroyTerminalTask { task } => {
+            collect_operand_value(task, demands);
+        }
+        MirAsyncOperation::PublishTerminalState { state, .. } => match state {
+            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+                collect_operand_value(value, demands);
+            }
+            MirTaskTerminalState::Cancelled => {}
+        },
+        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
+            collect_operand_value(incident, demands);
+        }
+    }
+}
+
+fn collect_host_values(
+    operation: &MirHostOperation,
+    _demands: &mut ConstantDemands,
+) {
+    match operation {
+        MirHostOperation::ExecuteRoot { .. }
+        | MirHostOperation::RequestRootCancellation { .. }
+        | MirHostOperation::ObserveRootTerminal { .. }
+        | MirHostOperation::ReportCleanupIncidents { .. }
+        | MirHostOperation::StructuredShutdown { .. } => {}
+    }
+}
+
+fn collect_call_values(call: &MirCall, demands: &mut ConstantDemands) {
+    if let MirCallTarget::Indirect { callee, .. } = call.target() {
+        collect_operand_value(callee, demands);
+    }
+
+    for argument in call.arguments() {
+        if let Some(value) = argument.value() {
+            collect_operand_value(value, demands);
+        }
+    }
+}
+
+fn collect_panic_values(cause: &MirPanicCause, demands: &mut ConstantDemands) {
+    match cause {
+        MirPanicCause::Message(message) => collect_operand_value(message, demands),
+        MirPanicCause::Assertion(message) => {
+            if let Some(message) = message {
+                collect_operand_value(message, demands);
+            }
+        }
+    }
+}
+
+fn collect_edge_values(edge: &MirEdge, demands: &mut ConstantDemands) {
+    collect_operands(edge.arguments(), demands);
+}
+
+fn collect_cleanup_edge_values(
+    edge: &MirCleanupEdge,
+    demands: &mut ConstantDemands,
+) {
+    collect_edge_values(edge.edge(), demands);
+}
+
+fn collect_place_values(place: &MirPlace, demands: &mut ConstantDemands) {
+    for projection in place.projections() {
+        match projection.kind() {
+            MirProjectionKind::Index(index) => collect_operand_value(index, demands),
+            MirProjectionKind::Slice { start, end } => {
+                if let Some(start) = start {
+                    collect_operand_value(start, demands);
+                }
+
+                if let Some(end) = end {
+                    collect_operand_value(end, demands);
+                }
+            }
+            MirProjectionKind::Dereference
+            | MirProjectionKind::Field(_)
+            | MirProjectionKind::TupleField(_)
+            | MirProjectionKind::ElementFromStart(_)
+            | MirProjectionKind::ElementFromEnd(_)
+            | MirProjectionKind::Variant(_)
+            | MirProjectionKind::ActiveUnionPayloadField { .. }
+            | MirProjectionKind::NullableValue => {}
+        }
+    }
+}
+
+fn collect_operands(operands: &[MirOperand], demands: &mut ConstantDemands) {
+    for operand in operands {
+        collect_operand_value(operand, demands);
+    }
+}
+
+fn collect_operand_value(operand: &MirOperand, demands: &mut ConstantDemands) {
+    match operand {
+        MirOperand::Constant { value, ty } => {
+            demands.values.insert(*value);
+            demands.types.entry(*value).or_default().insert(*ty);
+        }
+        MirOperand::Copy(place) | MirOperand::Move(place) => collect_place_values(place, demands),
+        MirOperand::Value(_) | MirOperand::Immediate { .. } => {}
+    }
+}

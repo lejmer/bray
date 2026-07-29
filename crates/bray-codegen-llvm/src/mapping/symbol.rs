@@ -348,6 +348,11 @@ mod tests {
             request.target(),
             mappings.types().iter().cloned().chain(types),
             symbols,
+            mappings.constants().iter().cloned(),
+            mappings.constant_terms().iter().copied(),
+            mappings.callables().iter().cloned(),
+            mappings.operations().iter().cloned(),
+            mappings.terminators().iter().cloned(),
             mappings.debug_locations().iter().cloned(),
         ) else {
             panic!("target-classified test signature must validate");

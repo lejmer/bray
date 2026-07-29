@@ -219,6 +219,19 @@ impl MirConstruction {
     pub fn inputs(&self) -> &[MirConstructionInput] {
         &self.inputs
     }
+
+    /// Returns the number of declaration-owned runtime defaults this construction evaluates.
+    pub fn runtime_default_count(&self) -> usize {
+        self.inputs
+            .iter()
+            .filter(|input| matches!(input, MirConstructionInput::Default { .. }))
+            .count()
+    }
+
+    /// Returns whether construction invokes a selected type-form callable.
+    pub const fn invokes_type_form(&self) -> bool {
+        matches!(self.target, ConstructionTarget::TypeForm { .. })
+    }
 }
 
 /// Terminal state published for one task run.
