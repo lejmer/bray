@@ -25,6 +25,7 @@ pub(crate) fn validate_file_inputs(plan: &LinkPlan) -> Result<(), LinkFailure> {
 
     Ok(())
 }
+
 pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
     let mut artifacts = Vec::new();
 

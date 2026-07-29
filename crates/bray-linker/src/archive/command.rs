@@ -8,9 +8,10 @@ use crate::external_tool::{
     response_file_path, response_file_reference,
 };
 use crate::{
-    ExternalToolInvocation, ExternalToolInvocationBuildError,
-    ExternalToolResponseFile, ExternalToolResponseFileBuildError, LinkInputKind,
-    LinkInputSource, LinkPlan, LinkedArtifactKind,
+    DeadStripPolicy, ExternalToolInvocation,
+    ExternalToolInvocationBuildError, ExternalToolResponseFile,
+    ExternalToolResponseFileBuildError, LinkInputKind, LinkInputSource,
+    LinkPlan, LinkedArtifactKind, SectionGarbageCollectionPolicy,
 };
 
 pub(super) fn invocation(
@@ -82,12 +83,21 @@ pub(super) fn invocation(
 fn validate_plan(
     plan: &LinkPlan,
 ) -> Result<(), ArchiveInvocationBuildError> {
+    let policy = plan.policy();
+
     if plan.outputs().len() != 1
         || plan.outputs()[0].kind() != LinkedArtifactKind::StaticLibrary
         || plan
             .inputs()
             .iter()
             .any(|input| input.kind() != LinkInputKind::RelocatableObject)
+        || !plan.exported_symbols().is_empty()
+        || !plan.retained_symbols().is_empty()
+        || !plan.search_paths().is_empty()
+        || policy.dead_strip() != DeadStripPolicy::Preserve
+        || policy.section_garbage_collection()
+            != SectionGarbageCollectionPolicy::Preserve
+        || policy.subsystem().is_some()
     {
         return Err(ArchiveInvocationBuildError::InvalidPlan);
     }

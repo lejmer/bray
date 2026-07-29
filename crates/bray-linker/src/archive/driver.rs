@@ -191,14 +191,15 @@ mod tests {
         RecordingExternalToolHost, TestOutput, planned_output, product,
     };
     use crate::{
-        DeadStripPolicy, DebugLinkPolicy, ExternalToolFailure,
-        ExternalToolHost, ExternalToolInvocation, ExternalToolOutput,
-        LinkFailure, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan,
-        LinkPlanBuilder, LinkPolicy, LinkStatus, LinkTarget,
-        LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-        LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
-        SectionGarbageCollectionPolicy,
+        BinarySymbolName, DeadStripPolicy, DebugLinkPolicy,
+        ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
+        ExternalToolOutput, LinkFailure, LinkInput, LinkInputId,
+        LinkInputKind, LinkInputMode, LinkInputProvenance,
+        LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy,
+        LinkSearchPath, LinkSearchPathKind, LinkStatus, LinkSubsystem,
+        LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement,
+        LinkedProductKind, LinkerDriver, LinkerDriverIdentity,
+        LinkerDriverKind, SectionGarbageCollectionPolicy,
     };
 
     #[test]
@@ -420,6 +421,80 @@ mod tests {
     }
 
     #[test]
+    fn driver_rejects_link_only_archive_semantics() {
+        let input = TemporaryFile::write("input.o", b"object");
+        let output = TestOutput::new("library.stage");
+        let host = Arc::new(RecordingExternalToolHost::default());
+        let identity = driver_identity(LinkerDriverKind::Archiver);
+
+        let cases: [fn(&mut LinkPlanBuilder); 6] = [
+            |builder| {
+                builder.push_exported_symbol(binary_symbol_name("exported"));
+            },
+            |builder| {
+                builder.push_retained_symbol(binary_symbol_name("retained"));
+            },
+            |builder| {
+                builder.push_search_path(
+                    LinkSearchPath::try_new(
+                        LinkSearchPathKind::Library,
+                        "native-libraries",
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!("test search path must be valid: {error:?}")
+                    }),
+                );
+            },
+            |builder| {
+                builder.set_policy(archive_policy(
+                    DeadStripPolicy::RemoveUnreachable,
+                    SectionGarbageCollectionPolicy::Preserve,
+                    None,
+                ));
+            },
+            |builder| {
+                builder.set_policy(archive_policy(
+                    DeadStripPolicy::Preserve,
+                    SectionGarbageCollectionPolicy::RemoveUnreferenced,
+                    None,
+                ));
+            },
+            |builder| {
+                builder.set_policy(archive_policy(
+                    DeadStripPolicy::Preserve,
+                    SectionGarbageCollectionPolicy::Preserve,
+                    Some(LinkSubsystem::Console),
+                ));
+            },
+        ];
+
+        let driver = driver(
+            identity.clone(),
+            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
+        );
+
+        for configure in cases {
+            let plan = archive_plan_with(
+                &identity,
+                target(
+                    TargetArchitecture::X86_64,
+                    ObjectFormat::Elf,
+                ),
+                [(input.path(), LinkInputKind::RelocatableObject)],
+                output.path(),
+                configure,
+            );
+
+            assert_eq!(
+                driver.link(&plan, &|| false).status(),
+                &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+            );
+        }
+
+        assert!(host.invocations().is_empty());
+    }
+
+    #[test]
     fn missing_inputs_fail_before_invocation() {
         let output = TestOutput::new("library.stage");
         let host = Arc::new(RecordingExternalToolHost::default());
@@ -565,15 +640,24 @@ mod tests {
         inputs: impl IntoIterator<Item = (&'a Path, LinkInputKind)>,
         output: &Path,
     ) -> LinkPlan {
+        archive_plan_with(driver, target, inputs, output, |_| {})
+    }
+
+    fn archive_plan_with<'a>(
+        driver: &LinkerDriverIdentity,
+        target: LinkTarget,
+        inputs: impl IntoIterator<Item = (&'a Path, LinkInputKind)>,
+        output: &Path,
+        configure: impl FnOnce(&mut LinkPlanBuilder),
+    ) -> LinkPlan {
         let mut builder = LinkPlanBuilder::new(
             product(),
             LinkedProductKind::StaticLibrary,
             target,
             driver.clone(),
-            LinkPolicy::new(
+            archive_policy(
                 DeadStripPolicy::Preserve,
                 SectionGarbageCollectionPolicy::Preserve,
-                DebugLinkPolicy::None,
                 None,
             ),
         );
@@ -602,8 +686,29 @@ mod tests {
             &output.to_string_lossy(),
         ));
 
+        configure(&mut builder);
+
         builder.finish().unwrap_or_else(|error| {
             panic!("test archive plan must be valid: {error:?}")
+        })
+    }
+
+    fn archive_policy(
+        dead_strip: DeadStripPolicy,
+        section_garbage_collection: SectionGarbageCollectionPolicy,
+        subsystem: Option<LinkSubsystem>,
+    ) -> LinkPolicy {
+        LinkPolicy::new(
+            dead_strip,
+            section_garbage_collection,
+            DebugLinkPolicy::None,
+            subsystem,
+        )
+    }
+
+    fn binary_symbol_name(name: &str) -> BinarySymbolName {
+        BinarySymbolName::try_new(name).unwrap_or_else(|| {
+            panic!("test binary symbol name must be valid")
         })
     }
 
