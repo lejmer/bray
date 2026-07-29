@@ -1,16 +1,128 @@
 use std::num::NonZeroU64;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
+use bray_base::Cancellation;
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactId};
 use bray_symbols::{PackageIdentity, ProductIdentity};
 use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
+use bray_testing::unique_temporary_directory;
 
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
-    LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy,
-    LinkTarget, LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
+    LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkTarget,
+    LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
     LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
-    StagingDestination, StagingDestinationId, StagingPathKey,
+    StagingDestination, StagingDestinationId, StagingPathKey, ExternalToolFailure,
+    ExternalToolHost, ExternalToolInvocation, ExternalToolOutput,
 };
+
+#[derive(Default)]
+pub(crate) struct RecordingExternalToolHost {
+    invocations: Mutex<Vec<ExternalToolInvocation>>,
+    output: Option<PathBuf>,
+    failure: Option<ExternalToolFailure>,
+    tool_output: Option<ExternalToolOutput>,
+}
+
+impl RecordingExternalToolHost {
+    pub(crate) fn writing(output: &Path) -> Self {
+        Self {
+            invocations: Mutex::new(Vec::new()),
+            output: Some(output.to_path_buf()),
+            failure: None,
+            tool_output: None,
+        }
+    }
+
+    pub(crate) fn failing(failure: ExternalToolFailure) -> Self {
+        Self {
+            invocations: Mutex::new(Vec::new()),
+            output: None,
+            failure: Some(failure),
+            tool_output: None,
+        }
+    }
+
+    pub(crate) fn reporting(tool_output: ExternalToolOutput) -> Self {
+        Self {
+            invocations: Mutex::new(Vec::new()),
+            output: None,
+            failure: None,
+            tool_output: Some(tool_output),
+        }
+    }
+
+    pub(crate) fn invocations(&self) -> MutexGuard<'_, Vec<ExternalToolInvocation>> {
+        self.invocations
+            .lock()
+            .unwrap_or_else(|error| panic!("test invocation lock must be available: {error:?}"))
+    }
+
+    pub(crate) fn only_invocation(&self) -> ExternalToolInvocation {
+        let invocations = self.invocations();
+
+        assert_eq!(invocations.len(), 1);
+
+        invocations[0].clone()
+    }
+}
+
+impl ExternalToolHost for RecordingExternalToolHost {
+    fn run(
+        &self,
+        invocation: &ExternalToolInvocation,
+        _cancellation: &dyn Cancellation,
+    ) -> Result<ExternalToolOutput, ExternalToolFailure> {
+        self.invocations().push(invocation.clone());
+
+        if let Some(failure) = &self.failure {
+            // Test failures are cloned so the recording host can be reused.
+            return Err(failure.clone());
+        }
+
+        if let Some(output) = &self.output {
+            std::fs::write(output, b"linked")
+                .unwrap_or_else(|error| panic!("test output must be written: {error:?}"));
+        }
+
+        if let Some(output) = &self.tool_output {
+            // Test tool results are cloned so the recording host can be reused.
+            return Ok(output.clone());
+        }
+
+        Ok(ExternalToolOutput::new(true, Some(0), [], []))
+    }
+}
+
+pub(crate) struct TestOutput {
+    directory: PathBuf,
+    path: PathBuf,
+}
+
+impl TestOutput {
+    pub(crate) fn new(file_name: &str) -> Self {
+        let directory = unique_temporary_directory();
+
+        std::fs::create_dir(&directory)
+            .unwrap_or_else(|error| panic!("test output directory must be created: {error:?}"));
+
+        let path = directory.join(file_name);
+
+        Self { directory, path }
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TestOutput {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_dir(&self.directory);
+    }
+}
 
 pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
     link_plan_builder_with_driver(driver())

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use bray_base::Cancellation;
 use bray_diagnostics::DiagnosticBag;
 
-use super::argument::{arguments_for, external_arguments};
 use super::{EmbeddedLldHost, LldFlavor};
+use crate::command::{LldPlanError, arguments_for};
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
@@ -157,24 +157,24 @@ fn external_invocation(
     ExternalToolInvocation::try_new(program, arguments, [], None, [])
 }
 
+fn external_arguments(
+    plan: &LinkPlan,
+    flavor: LldFlavor,
+) -> Result<Vec<OsString>, LldPlanError> {
+    let mut arguments = vec![
+        OsString::from("-flavor"),
+        OsString::from(flavor.external_selector()),
+    ];
+
+    arguments.extend(arguments_for(plan, flavor)?);
+
+    Ok(arguments)
+}
+
 fn outcome_from_run_error(error: LldRunError) -> LinkOutcome {
     match error {
-        LldRunError::ExternalTool(ExternalToolFailure::Cancelled) => {
-            LinkOutcome::cancelled(DiagnosticBag::new())
-        }
-        LldRunError::ExternalTool(ExternalToolFailure::ProcessBudgetUnavailable) => {
-            failed(LinkFailure::ResourceExhausted)
-        }
-        LldRunError::ExternalTool(ExternalToolFailure::ResponseFile { .. }) => {
-            failed(LinkFailure::ResponseFile)
-        }
-        LldRunError::ExternalTool(
-            ExternalToolFailure::Process(_)
-            | ExternalToolFailure::MissingOutputPipe(_)
-            | ExternalToolFailure::OutputCapture { .. }
-            | ExternalToolFailure::OutputReaderTerminated(_),
-        )
-        | LldRunError::Invocation => failed(LinkFailure::Invocation),
+        LldRunError::ExternalTool(error) => LinkOutcome::from_external_tool_failure(error),
+        LldRunError::Invocation => failed(LinkFailure::Invocation),
         LldRunError::Plan => failed(LinkFailure::DriverIncompatible),
     }
 }
@@ -193,22 +193,24 @@ mod tests {
     use bray_target::{
         CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
     };
-    use bray_testing::{TemporaryFile, unique_temporary_directory};
+    use bray_testing::TemporaryFile;
 
     use super::{LldDriver, LldDriverBuildError};
-    use crate::test_support::{executable_host_contract, planned_output, product};
+    use crate::test_support::{
+        RecordingExternalToolHost, TestOutput, executable_host_contract, planned_output, product,
+    };
     use crate::{
-        EmbeddedLldHost, ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
-        ExternalToolOutput, LinkFailure, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy,
-        LinkStatus, LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-        LinkerDriver, LinkerDriverIdentity, LinkerDriverKind, LldFlavor,
+        EmbeddedLldHost, ExternalToolFailure, ExternalToolHost, ExternalToolOutput, LinkFailure,
+        LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
+        LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkStatus, LinkTarget,
+        LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind, LinkerDriver,
+        LinkerDriverIdentity, LinkerDriverKind, LldFlavor,
     };
 
     #[test]
     fn driver_construction_matches_embedded_and_external_identity_kinds() {
         let embedded_host = Arc::new(RecordingEmbeddedHost::default());
-        let external_host = Arc::new(RecordingExternalHost::default());
+        let external_host = Arc::new(RecordingExternalToolHost::default());
 
         assert!(matches!(
             LldDriver::try_embedded(
@@ -231,7 +233,7 @@ mod tests {
             LldDriver::try_external(
                 driver_identity(LinkerDriverKind::ExternalLld),
                 "",
-                Arc::new(RecordingExternalHost::default()),
+                Arc::new(RecordingExternalToolHost::default()),
             ),
             Err(LldDriverBuildError::EmptyExternalProgram)
         ));
@@ -241,7 +243,7 @@ mod tests {
     fn external_driver_submits_exact_process_request_without_host_lld() {
         let input = TemporaryFile::write("main.o", b"object");
         let output = TestOutput::new("application.stage");
-        let host = Arc::new(RecordingExternalHost::writing(output.path()));
+        let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
         let identity = driver_identity(LinkerDriverKind::ExternalLld);
         let plan = executable_plan(&identity, input.path(), output.path());
 
@@ -256,10 +258,7 @@ mod tests {
 
         assert!(matches!(outcome.status(), LinkStatus::Complete(_)));
 
-        let invocations = host
-            .invocations
-            .lock()
-            .unwrap_or_else(|error| panic!("test invocation lock must be available: {error:?}"));
+        let invocations = host.invocations();
 
         assert_eq!(invocations.len(), 1);
         assert_eq!(invocations[0].program(), Path::new("toolchain/lld"));
@@ -328,11 +327,8 @@ mod tests {
         let identity = driver_identity(LinkerDriverKind::EmbeddedLld);
         let plan = executable_plan(&identity, input.path(), output.path());
 
-        let driver = LldDriver::try_embedded(
-            identity,
-            Arc::new(RecordingEmbeddedHost::default()),
-        )
-        .unwrap_or_else(|error| panic!("test LLD driver must be valid: {error:?}"));
+        let driver = LldDriver::try_embedded(identity, Arc::new(RecordingEmbeddedHost::default()))
+            .unwrap_or_else(|error| panic!("test LLD driver must be valid: {error:?}"));
 
         assert_eq!(
             driver.link(&plan, &|| false).status(),
@@ -423,38 +419,6 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct RecordingExternalHost {
-        invocations: Mutex<Vec<ExternalToolInvocation>>,
-        output: Option<PathBuf>,
-    }
-
-    impl RecordingExternalHost {
-        fn writing(output: &Path) -> Self {
-            Self {
-                invocations: Mutex::new(Vec::new()),
-                output: Some(output.to_path_buf()),
-            }
-        }
-    }
-
-    impl ExternalToolHost for RecordingExternalHost {
-        fn run(
-            &self,
-            invocation: &ExternalToolInvocation,
-            _cancellation: &dyn Cancellation,
-        ) -> Result<ExternalToolOutput, ExternalToolFailure> {
-            self.invocations
-                .lock()
-                .unwrap_or_else(|error| panic!("test invocation lock must be available: {error:?}"))
-                .push(invocation.clone());
-
-            write_test_output(self.output.as_deref());
-
-            Ok(successful_output())
-        }
-    }
-
-    #[derive(Default)]
     struct RecordingEmbeddedHost {
         calls: Mutex<Vec<(LldFlavor, Vec<OsString>)>>,
         output: Option<PathBuf>,
@@ -486,35 +450,6 @@ mod tests {
             write_test_output(self.output.as_deref());
 
             Ok(successful_output())
-        }
-    }
-
-    struct TestOutput {
-        directory: PathBuf,
-        path: PathBuf,
-    }
-
-    impl TestOutput {
-        fn new(file_name: &str) -> Self {
-            let directory = unique_temporary_directory();
-
-            std::fs::create_dir(&directory)
-                .unwrap_or_else(|error| panic!("test output directory must be created: {error:?}"));
-
-            let path = directory.join(file_name);
-
-            Self { directory, path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestOutput {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.path);
-            let _ = std::fs::remove_dir(&self.directory);
         }
     }
 

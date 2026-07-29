@@ -14,7 +14,7 @@ pub enum LldFlavor {
 }
 
 impl LldFlavor {
-    pub(super) fn for_target(target: &LinkTarget, product: LinkedProductKind) -> Option<Self> {
+    pub(crate) fn for_target(target: &LinkTarget, product: LinkedProductKind) -> Option<Self> {
         if product == LinkedProductKind::StaticLibrary {
             return None;
         }
