@@ -336,6 +336,7 @@ fn codegen_mappings(
         }
     }
 
+    // TODO(BRA-326): Replace this mapping-free reconstruction with complete realization mappings.
     CodegenMappings::try_new(
         unit,
         target,
