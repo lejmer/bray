@@ -12,14 +12,14 @@ const COPY_BUFFER_LEN: usize = 64 * 1024;
 
 pub(crate) enum ContentReader<'content> {
     Memory(Cursor<&'content [u8]>),
-    CompilerSpool(File),
+    File(File),
 }
 
 impl Read for ContentReader<'_> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         match self {
             Self::Memory(reader) => reader.read(buffer),
-            Self::CompilerSpool(reader) => reader.read(buffer),
+            Self::File(reader) => reader.read(buffer),
         }
     }
 }
@@ -31,9 +31,15 @@ pub(crate) fn open_content(
         ArtifactContentSource::Memory(bytes) => Ok(ContentReader::Memory(Cursor::new(bytes))),
         ArtifactContentSource::CompilerSpool(spool) => spool
             .open_reader()
-            .map(ContentReader::CompilerSpool)
+            .map(ContentReader::File)
             .map_err(|error| error.source().map_or(io::ErrorKind::Other, io::Error::kind)),
     }
+}
+
+pub(crate) fn open_linked_staging(path: &Path) -> Result<ContentReader<'static>, io::ErrorKind> {
+    File::open(path)
+        .map(ContentReader::File)
+        .map_err(|error| error.kind())
 }
 
 pub(crate) fn validate_content(

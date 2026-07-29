@@ -4,16 +4,13 @@ use std::path::PathBuf;
 use bray_linker::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
     LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError,
-    LinkPlanBuilder, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-    PlannedLinkedArtifact, StagingDestination, StagingDestinationBuildError,
-    StagingDestinationId, StagingPathKey,
+    LinkPlanBuilder, LinkedArtifactKind, LinkedProductKind, PlannedLinkedArtifact,
+    StagingDestination, StagingDestinationBuildError, StagingDestinationId, StagingPathKey,
 };
 use bray_target::TargetIdentity;
 
 use super::{LinkOutputStaging, ProductLinkFacts, StagedArtifact};
-use crate::{
-    ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, EmissionPlan,
-};
+use crate::{ArtifactId, ArtifactKind, ArtifactProducer, EmissionPlan};
 
 /// Constructs one immutable native link plan without invoking a linker.
 pub fn construct_link_plan(
@@ -288,7 +285,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
                 ));
             };
 
-            if !output_kind_matches(planned.id().kind(), kind) {
+            if !planned.id().kind().accepts_linked_kind(kind) {
                 return Err(LinkPlanConstructionError::OutputKindMismatch {
                     // Construction errors retain the Arc-backed artifact identity.
                     artifact: planned.id().clone(),
@@ -305,7 +302,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
 
             self.builder.push_output(PlannedLinkedArtifact::new(
                 kind,
-                linked_requirement(planned.requirement()),
+                planned.requirement().linked(),
                 destination,
             ));
 
@@ -435,40 +432,6 @@ fn output_staging_by_id(
     }
 
     Ok(by_id)
-}
-
-fn output_kind_matches(
-    artifact: ArtifactKind,
-    linked: LinkedArtifactKind,
-) -> bool {
-    match artifact {
-        ArtifactKind::Executable => linked == LinkedArtifactKind::Executable,
-        ArtifactKind::StaticLibrary => linked == LinkedArtifactKind::StaticLibrary,
-        ArtifactKind::SharedLibrary => linked == LinkedArtifactKind::SharedLibrary,
-        ArtifactKind::LinkedCompanion => matches!(
-            linked,
-            LinkedArtifactKind::ImportLibrary
-                | LinkedArtifactKind::DebugCompanion
-                | LinkedArtifactKind::PlatformCompanion
-        ),
-        ArtifactKind::Assembly
-        | ArtifactKind::BackendIr
-        | ArtifactKind::BackendBitcode
-        | ArtifactKind::RelocatableObject
-        | ArtifactKind::ExecutableModule
-        | ArtifactKind::DebugCompanion
-        | ArtifactKind::PackageInterface
-        | ArtifactKind::DependencyMetadata => false,
-    }
-}
-
-const fn linked_requirement(
-    requirement: ArtifactRequirement,
-) -> LinkedArtifactRequirement {
-    match requirement {
-        ArtifactRequirement::Required => LinkedArtifactRequirement::Required,
-        ArtifactRequirement::Optional => LinkedArtifactRequirement::Optional,
-    }
 }
 
 #[cfg(test)]

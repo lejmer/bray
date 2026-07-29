@@ -1,4 +1,5 @@
 use bray_codegen::{BackendArtifactId, BackendArtifactKind, BackendIdentity};
+use bray_linker::{LinkedArtifactKind, LinkedArtifactRequirement};
 use bray_target::TargetOutputKind;
 
 use crate::{DependencyMetadataProducerId, LinkerProducerId};
@@ -84,6 +85,28 @@ impl ArtifactKind {
             }
         }
     }
+
+    pub(crate) fn accepts_linked_kind(self, linked: LinkedArtifactKind) -> bool {
+        match self {
+            Self::Executable => linked == LinkedArtifactKind::Executable,
+            Self::StaticLibrary => linked == LinkedArtifactKind::StaticLibrary,
+            Self::SharedLibrary => linked == LinkedArtifactKind::SharedLibrary,
+            Self::LinkedCompanion => matches!(
+                linked,
+                LinkedArtifactKind::ImportLibrary
+                    | LinkedArtifactKind::DebugCompanion
+                    | LinkedArtifactKind::PlatformCompanion
+            ),
+            Self::Assembly
+            | Self::BackendIr
+            | Self::BackendBitcode
+            | Self::RelocatableObject
+            | Self::ExecutableModule
+            | Self::DebugCompanion
+            | Self::PackageInterface
+            | Self::DependencyMetadata => false,
+        }
+    }
 }
 
 impl From<BackendArtifactKind> for ArtifactKind {
@@ -106,6 +129,15 @@ pub enum ArtifactRequirement {
     Required,
     /// Product emission may complete when this artifact is unavailable.
     Optional,
+}
+
+impl ArtifactRequirement {
+    pub(crate) const fn linked(self) -> LinkedArtifactRequirement {
+        match self {
+            Self::Required => LinkedArtifactRequirement::Required,
+            Self::Optional => LinkedArtifactRequirement::Optional,
+        }
+    }
 }
 
 /// Role one artifact has in the emission lifecycle.
