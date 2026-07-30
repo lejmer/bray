@@ -36,6 +36,60 @@ const INSPECTION_REPORT_WRITE_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
+const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read Bray project manifest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const PROJECT_MANIFEST_PARSE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("Bray project manifest does not match the required schema: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_MANIFEST_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("invalid Bray project manifest selection "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_MANIFEST_DUPLICATE_SELECTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("duplicate Bray project manifest selection "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_SOURCE_ROOT_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("invalid project-owned source root "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_DEPENDENCY_PACKAGE_UNKNOWN: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("dependency package "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is absent from the explicit workspace inventory in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_DEPENDENCY_PRODUCT_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("dependency product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is not a declared library product in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_DEPENDENCY_CYCLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("package dependency cycle includes "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
 const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("no source inputs were provided")];
 
@@ -890,6 +944,30 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::InspectionReportWriteFailed => {
             MessageTemplate::new(INSPECTION_REPORT_WRITE_FAILED)
+        }
+        DiagnosticKind::ProjectManifestReadFailed => {
+            MessageTemplate::new(PROJECT_MANIFEST_READ_FAILED)
+        }
+        DiagnosticKind::ProjectManifestParseFailed => {
+            MessageTemplate::new(PROJECT_MANIFEST_PARSE_FAILED)
+        }
+        DiagnosticKind::ProjectManifestInvalid => {
+            MessageTemplate::new(PROJECT_MANIFEST_INVALID)
+        }
+        DiagnosticKind::ProjectManifestDuplicateSelection => {
+            MessageTemplate::new(PROJECT_MANIFEST_DUPLICATE_SELECTION)
+        }
+        DiagnosticKind::ProjectSourceRootInvalid => {
+            MessageTemplate::new(PROJECT_SOURCE_ROOT_INVALID)
+        }
+        DiagnosticKind::ProjectDependencyPackageUnknown => {
+            MessageTemplate::new(PROJECT_DEPENDENCY_PACKAGE_UNKNOWN)
+        }
+        DiagnosticKind::ProjectDependencyProductInvalid => {
+            MessageTemplate::new(PROJECT_DEPENDENCY_PRODUCT_INVALID)
+        }
+        DiagnosticKind::ProjectDependencyCycle => {
+            MessageTemplate::new(PROJECT_DEPENDENCY_CYCLE)
         }
         DiagnosticKind::LexicalInvalidCharacter => MessageTemplate::new(LEXICAL_INVALID_CHARACTER),
         DiagnosticKind::LexicalMisplacedBom => MessageTemplate::new(LEXICAL_MISPLACED_BOM),

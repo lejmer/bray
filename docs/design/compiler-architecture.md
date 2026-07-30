@@ -19,6 +19,8 @@ Compiler-known catalog implementation rules live in `docs/design/compiler-known-
 
 Compiled package interface implementation rules live in `docs/design/compiled-package-interfaces.md`.
 
+Project manifest and deterministic package-graph rules live in `docs/design/project-manifests.md`.
+
 Symbol and symbol-construction implementation rules live in `docs/design/symbols.md`.
 
 Binder and bound-tree implementation rules live in `docs/design/binder.md`.
@@ -73,6 +75,11 @@ Compiler panics are for violated compiler invariants.
 ---
 
 ## Pipeline
+
+Project-oriented tools first load explicit workspace and package manifests through `bray-project`. That boundary validates
+project-owned paths, enumerates declared source roots, resolves exact package-product dependency edges against the workspace
+inventory, and publishes one immutable dependency-first graph. Compilation, inspection, and language tooling consume that graph;
+they do not search for packages or consult ambient dependency state.
 
 The compiler pipeline is a logical dependency order:
 

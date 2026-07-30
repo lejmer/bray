@@ -33,6 +33,9 @@ documents.
 - `bray-package-interface`
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
 
+- `bray-project`
+    - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build graphs.
+
 - `bray-binder`
     - Name resolution, semantic reference binding, local symbol construction, and immutable bound-unit construction.
 

@@ -388,6 +388,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-project"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-diagnostics",
+ "bray-symbols",
+ "bray-target",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
