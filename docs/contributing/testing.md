@@ -12,12 +12,17 @@ cargo xtask readiness
 ```
 
 Pass `semantic`, `diagnostics`, `lowering`, `codegen`, `emission`, or `linker` to run one structural audit. The command parses the
-Rust workspace once and shares that corpus across every selected audit. Pass `native-execution` to compile a Bray fixture twice,
-inspect its native object, and execute the linked product. Normal `cargo test` does not run these comparatively expensive
+Rust workspace once and shares that corpus across every selected audit. Pass `native-execution` to compile Bray fixtures twice,
+inspect their native objects, and execute the linked products. Normal `cargo test` does not run these comparatively expensive
 repository-wide and toolchain checks.
 
-The native execution fixture lives under `xtask/fixtures/native-execution/`. It must remain independent of standard-library I/O so
-the compiler-to-process boundary can be validated before a target standard library is available.
+The native execution fixtures live under `xtask/fixtures/native-execution/`. The startup fixture verifies deterministic objects and
+executables, the expected ELF structure and direct-call relocation, and a successful process exit. The ABI fixture exports a Bray
+function under an exact C-compatible symbol. A checked-in target-native host calls that symbol and exits with the returned value so
+the audit observes behavior across the native call boundary.
+
+Keep these fixtures independent of standard-library I/O so the compiler-to-process boundary can be validated before a target
+standard library is available.
 
 ## Semantic coverage fixture
 
