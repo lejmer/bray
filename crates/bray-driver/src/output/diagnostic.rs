@@ -6,4 +6,6 @@ mod text;
 mod writer;
 
 pub(crate) use json::{DiagnosticJson, diagnostic_jsons};
-pub(crate) use writer::{write_driver_output, write_driver_output_error};
+pub(crate) use writer::{
+    write_diagnostics, write_driver_output, write_driver_output_error,
+};

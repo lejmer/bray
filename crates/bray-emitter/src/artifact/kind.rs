@@ -139,6 +139,25 @@ impl From<BackendArtifactKind> for ArtifactKind {
     }
 }
 
+impl From<TargetOutputKind> for ArtifactKind {
+    fn from(kind: TargetOutputKind) -> Self {
+        match kind {
+            TargetOutputKind::Assembly => Self::Assembly,
+            TargetOutputKind::BackendIr => Self::BackendIr,
+            TargetOutputKind::BackendBitcode => Self::BackendBitcode,
+            TargetOutputKind::RelocatableObject => Self::RelocatableObject,
+            TargetOutputKind::ExecutableModule => Self::ExecutableModule,
+            TargetOutputKind::DebugCompanion => Self::DebugCompanion,
+            TargetOutputKind::PackageInterface => Self::PackageInterface,
+            TargetOutputKind::DependencyMetadata => Self::DependencyMetadata,
+            TargetOutputKind::Executable => Self::Executable,
+            TargetOutputKind::StaticLibrary => Self::StaticLibrary,
+            TargetOutputKind::SharedLibrary => Self::SharedLibrary,
+            TargetOutputKind::LinkedCompanion => Self::LinkedCompanion,
+        }
+    }
+}
+
 /// Whether one planned artifact is mandatory for complete product emission.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ArtifactRequirement {
@@ -201,6 +220,7 @@ impl ArtifactProducer {
 #[cfg(test)]
 mod tests {
     use bray_codegen::BackendArtifactKind;
+    use bray_target::TargetOutputKind;
 
     use super::ArtifactKind;
 
@@ -220,6 +240,30 @@ mod tests {
                 ArtifactKind::from(backend_kind).backend_kind(),
                 Some(backend_kind)
             );
+        }
+    }
+
+    #[test]
+    fn target_output_kinds_have_lossless_emitter_projections() {
+        let output_kinds = [
+            TargetOutputKind::Assembly,
+            TargetOutputKind::BackendIr,
+            TargetOutputKind::BackendBitcode,
+            TargetOutputKind::RelocatableObject,
+            TargetOutputKind::ExecutableModule,
+            TargetOutputKind::DebugCompanion,
+            TargetOutputKind::PackageInterface,
+            TargetOutputKind::DependencyMetadata,
+            TargetOutputKind::Executable,
+            TargetOutputKind::StaticLibrary,
+            TargetOutputKind::SharedLibrary,
+            TargetOutputKind::LinkedCompanion,
+        ];
+
+        for output_kind in output_kinds {
+            let artifact = ArtifactKind::from(output_kind);
+
+            assert_eq!(artifact.target_output_kind(), output_kind);
         }
     }
 }

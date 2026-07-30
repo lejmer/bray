@@ -81,6 +81,9 @@ project-owned paths, enumerates declared source roots, resolves exact package-pr
 inventory, and publishes one immutable dependency-first graph. Compilation, inspection, and language tooling consume that graph;
 they do not search for packages or consult ambient dependency state.
 
+The user-facing command boundary and its explicit acquisition non-goals are defined in
+[Bray Tack project driver](bray-tack.md).
+
 The compiler pipeline is a logical dependency order:
 
 ```text

@@ -20,6 +20,8 @@ bray-linker = { path = "../bray-linker" }
 bray-messages = { path = "../bray-messages" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-parser = { path = "../bray-parser" }
+bray-platform = { path = "../bray-platform" }
+bray-project = { path = "../bray-project" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }

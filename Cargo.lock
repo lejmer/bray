@@ -116,6 +116,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray"
+version = "0.0.0"
+dependencies = [
+ "bray-driver",
+]
+
+[[package]]
 name = "bray-base"
 version = "0.0.0"
 dependencies = [
@@ -273,6 +280,8 @@ dependencies = [
  "bray-messages",
  "bray-package-interface",
  "bray-parser",
+ "bray-platform",
+ "bray-project",
  "bray-runtime-interface",
  "bray-source",
  "bray-symbols",

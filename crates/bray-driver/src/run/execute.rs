@@ -378,7 +378,7 @@ fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverR
     DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
 }
 
-pub(super) fn load_compilation(
+pub(crate) fn load_compilation(
     request: CompilationRequest,
     backend: Option<DriverBackend>,
 ) -> Option<Compilation> {
