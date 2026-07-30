@@ -13,7 +13,7 @@ use bray_codegen::{
     CodegenMappings, CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping,
     CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
     CodegenTypeKind, CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind, child_constants,
-    demanded_callable_references, demanded_constant_terms, demanded_constants,
+    demanded_callable_instances, demanded_constant_terms, demanded_constants,
     demanded_runtime_references, demanded_types,
 };
 use bray_compiler_known::RepresentationRole;
@@ -28,27 +28,45 @@ use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
-use super::super::substitution::empty_substitution;
+use super::specialization::{
+    ConcreteCodegenInstance, ConcreteCodegenReachability,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
-    pub(in crate::compilation) fn codegen_mappings_for_product(
+    pub(super) fn codegen_mappings_for_product(
         &self,
         unit: &CodegenUnit,
         executable_host: Option<&ExecutableHostContract>,
         target: &CodegenTarget,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        reachability: &ConcreteCodegenReachability,
         cancellation: &CancellationToken,
     ) -> Result<CodegenMappings, CodegenFactError> {
-        let mut symbols =
-            self.codegen_symbols(unit, executable_host, target, roots, cancellation)?;
+        let mut symbols = self.codegen_symbols(
+            unit,
+            executable_host,
+            target,
+            roots,
+            reachability,
+            cancellation,
+        )?;
 
-        let callables = self.codegen_callables(unit, target, cancellation)?;
+        let callables =
+            self.codegen_callables(unit, target, reachability, cancellation)?;
+
+        let realization = unit
+            .instances()
+            .first()
+            .and_then(|instance| reachability.instance(instance.key()))
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
         let constants = self.codegen_constants(unit)?;
 
-        let (constant_terms, terminators) = self.codegen_constant_terms(unit)?;
+        let (constant_terms, terminators) =
+            self.codegen_constant_terms(unit, realization)?;
 
-        let operations = self.codegen_operations(unit)?;
+        let operations = self.codegen_operations(unit, realization)?;
 
         let mut demanded = demanded_types(unit);
 
@@ -58,7 +76,12 @@ impl Compilation {
             demanded.extend(signature_types(symbol.signature()));
         }
 
-        let types = self.codegen_types(demanded, target, cancellation)?;
+        let types = self.codegen_types(
+            demanded,
+            realization.substitution(),
+            target,
+            cancellation,
+        )?;
 
         symbols.sort_unstable_by(|left, right| left.key().cmp(right.key()));
 
@@ -80,6 +103,7 @@ impl Compilation {
     fn codegen_operations(
         &self,
         unit: &CodegenUnit,
+        realization: &ConcreteCodegenInstance,
     ) -> Result<Vec<CodegenOperationMapping>, CodegenFactError> {
         let mut mappings = Vec::new();
 
@@ -93,7 +117,9 @@ impl Compilation {
 
                 let helpers = references
                     .into_iter()
-                    .map(|reference| self.codegen_helper(reference))
+                    .map(|reference| {
+                        self.codegen_helper(reference, realization.substitution())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 mappings.push(CodegenOperationMapping::new(
@@ -110,6 +136,7 @@ impl Compilation {
     fn codegen_helper(
         &self,
         reference: MirHelperReference,
+        substitution: Option<GenericSubstitutionId>,
     ) -> Result<CodegenHelperMapping, CodegenFactError> {
         let ty = match &reference {
             MirHelperReference::Finalize(ty)
@@ -132,9 +159,22 @@ impl Compilation {
         };
 
         if let Some(ty) = ty {
+            let ty = self.substitute_codegen_type(ty, substitution)?;
+
+            let concrete_reference = match reference {
+                MirHelperReference::Finalize(_) => MirHelperReference::Finalize(ty),
+                MirHelperReference::Destroy(_) => MirHelperReference::Destroy(ty),
+                MirHelperReference::Cleanup { phase, .. } => {
+                    MirHelperReference::Cleanup { phase, ty }
+                }
+                _ => return Err(FactQueryError::InfrastructureFailure.into()),
+            };
+
             if self.has_trivial_codegen_lifecycle(ty)? {
                 return Ok(CodegenHelperMapping::lowered(reference));
             }
+
+            return Err(CodegenFactError::UnsupportedHelper(concrete_reference));
         }
 
         Err(CodegenFactError::UnsupportedHelper(reference))
@@ -183,6 +223,7 @@ impl Compilation {
         executable_host: Option<&ExecutableHostContract>,
         target: &CodegenTarget,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        reachability: &ConcreteCodegenReachability,
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenSymbolMapping>, CodegenFactError> {
         let mut symbols = Vec::new();
@@ -195,6 +236,10 @@ impl Compilation {
                     void_signature(CallableAbi::Bray),
                 ),
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
+                    let realization = reachability
+                        .instance(instance.key())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
                     let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
 
                     let linkage = boundary
@@ -214,7 +259,10 @@ impl Compilation {
                             Ok,
                         )?,
                         linkage,
-                        self.codegen_instance_signature(instance.key(), cancellation)?,
+                        self.codegen_instance_signature(
+                            realization,
+                            cancellation,
+                        )?,
                     )
                 }
             };
@@ -228,6 +276,10 @@ impl Compilation {
         }
 
         for instance in unit.external_instances() {
+            let realization = reachability
+                .instance(instance)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
             let boundary = self.codegen_native_boundary(instance, cancellation)?;
 
             let linkage = boundary
@@ -242,7 +294,7 @@ impl Compilation {
                     Ok,
                 )?,
                 linkage,
-                self.codegen_instance_signature(instance, cancellation)?,
+                self.codegen_instance_signature(realization, cancellation)?,
             ));
         }
 
@@ -312,15 +364,28 @@ impl Compilation {
         &self,
         unit: &CodegenUnit,
         target: &CodegenTarget,
+        reachability: &ConcreteCodegenReachability,
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenCallableMapping>, CodegenFactError> {
-        demanded_callable_references(unit)
+        demanded_callable_instances(unit)
             .into_iter()
-            .map(|(owner, reference)| {
-                let instance =
-                    self.codegen_instance_key(reference.instance(), target, cancellation)?;
+            .map(|(owner, demand)| {
+                let owner_realization = reachability
+                    .instance(&owner)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                Ok(CodegenCallableMapping::new(owner, reference, instance))
+                let instance = self.concrete_codegen_callee(
+                    owner_realization,
+                    &demand,
+                    target,
+                    cancellation,
+                )?;
+
+                Ok(CodegenCallableMapping::new(
+                    owner,
+                    demand.reference(),
+                    instance.key().clone(),
+                ))
             })
             .collect()
     }
@@ -355,6 +420,7 @@ impl Compilation {
     fn codegen_constant_terms(
         &self,
         unit: &CodegenUnit,
+        realization: &ConcreteCodegenInstance,
     ) -> Result<
         (
             Vec<CodegenConstantTermMapping>,
@@ -367,7 +433,12 @@ impl Compilation {
         let mut resolved = BTreeMap::new();
 
         for instance in unit.instances() {
-            for term in demanded_constant_terms(instance.mir()) {
+            for template_term in demanded_constant_terms(instance.mir()) {
+                let term = self.substitute_codegen_constant_term(
+                    template_term,
+                    realization.substitution(),
+                )?;
+
                 let data = values
                     .constant_term_data(term)
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -376,11 +447,11 @@ impl Compilation {
                     return Err(CodegenFactError::OpenConstantTerm(term));
                 };
 
-                resolved.insert((instance.key().clone(), term), *value);
+                resolved.insert((instance.key().clone(), template_term), *value);
 
                 terms.push(CodegenConstantTermMapping::new(
                     instance.key().clone(),
-                    term,
+                    template_term,
                     *value,
                 ));
             }
@@ -412,12 +483,15 @@ impl Compilation {
     fn codegen_types(
         &self,
         demanded: BTreeSet<TypeId>,
+        substitution: Option<GenericSubstitutionId>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenTypeMapping>, CodegenFactError> {
         let mut mappings = BTreeMap::new();
 
-        for ty in demanded {
+        for template in demanded {
+            let ty = self.substitute_codegen_type(template, substitution)?;
+
             self.codegen_type(
                 ty,
                 target,
@@ -425,9 +499,53 @@ impl Compilation {
                 &mut mappings,
                 &mut BTreeSet::new(),
             )?;
+
+            if template != ty {
+                let mapping = mappings
+                    .get(&ty)
+                    .cloned()
+                    .ok_or(CodegenFactError::UnsupportedType(ty))?;
+
+                mappings.insert(
+                    template,
+                    CodegenTypeMapping::new(
+                        template,
+                        mapping.layout(),
+                        mapping.kind().clone(),
+                    ),
+                );
+            }
         }
 
         Ok(mappings.into_values().collect())
+    }
+
+    fn substitute_codegen_type(
+        &self,
+        ty: TypeId,
+        substitution: Option<GenericSubstitutionId>,
+    ) -> Result<TypeId, FactQueryError> {
+        let Some(substitution) = substitution else {
+            return Ok(ty);
+        };
+
+        self.semantic_value_store()?
+            .substitute_type(ty, substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
+    fn substitute_codegen_constant_term(
+        &self,
+        term: bray_symbols::ConstantTermId,
+        substitution: Option<GenericSubstitutionId>,
+    ) -> Result<bray_symbols::ConstantTermId, FactQueryError> {
+        let Some(substitution) = substitution else {
+            return Ok(term);
+        };
+
+        self.semantic_value_store()?
+            .substitute_constant_term(term, substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
     fn codegen_type(
@@ -709,29 +827,29 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
-    pub(in crate::compilation) fn codegen_instance_signature(
+    pub(super) fn codegen_instance_signature(
         &self,
-        instance: &bray_codegen::CodegenInstanceKey,
+        instance: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenFactError> {
-        let definition = match instance.template() {
+        let definition = match instance.key().template() {
             MirUnitKey::ExecutableHost(_) => return Ok(void_signature(CallableAbi::Bray)),
             MirUnitKey::Bound(_) | MirUnitKey::ExternalCallable(_) => {
-                self.codegen_callable_definition(instance)?
+                self.codegen_callable_definition(instance.key())?
             }
         };
 
-        if !matches!(
-            instance.specialization(),
-            bray_codegen::CodegenSpecialization::NonGeneric
-        ) {
-            return Err(CodegenFactError::UnsupportedSpecialization(
-                instance.clone(),
-            ));
+        let values = self.semantic_value_store()?;
+
+        let callable = instance
+            .callable_instance()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        if callable.definition() != definition {
+            return Err(FactQueryError::InfrastructureFailure.into());
         }
 
-        let values = self.semantic_value_store()?;
-        let substitution = empty_substitution(values, definition.symbol())?;
+        let substitution = callable.substitution();
         let facts = self.binder_facts(cancellation)?;
 
         let template = facts

@@ -3,6 +3,7 @@ mod dependency;
 mod entry;
 mod query;
 mod realization;
+mod specialization;
 mod visibility;
 
 pub use codegen::{NativeProductFactError, NativeProductFacts};

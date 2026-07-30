@@ -382,6 +382,15 @@ different representation.
 
 Code generation consumes concrete reachable instances selected by compilation, binding, checking, and lowering.
 
+Concrete instance keys retain backend-neutral structural identity only. Their generic argument and implementation-witness digests
+are not reversible semantic storage. Compilation retains the exact concrete type, constant, callable, and implementation-instance
+substitutions beside each reachable key, validates that their forward-derived identity matches the key, and uses that retained
+payload to realize signatures, layouts, symbols, callees, and mappings.
+
+Specialization discovery remains demand-driven. Compilation starts from concrete product roots, realizes direct MIR dependencies
+only when their owning instance reaches the frontier, and publishes the closed graph and its validated payloads in canonical key
+order. Backends receive completed immutable mappings and do not query semantic values.
+
 The backend does not:
 
 - discover generic instantiations,
