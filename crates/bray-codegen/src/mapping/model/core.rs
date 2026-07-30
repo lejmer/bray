@@ -9,7 +9,7 @@ use crate::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
     CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey, CodegenOperationMapping,
     CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
@@ -75,6 +75,30 @@ impl CodegenMappings {
 
         if types.windows(2).any(|pair| pair[0].ty() == pair[1].ty()) {
             return Err(CodegenMappingsBuildError::DuplicateType);
+        }
+
+        if types.iter().any(|mapping| {
+            matches!(
+                (mapping.layout(), mapping.kind()),
+                (
+                    Some(_),
+                    CodegenTypeKind::UnsizedSlice { .. } | CodegenTypeKind::UnsizedTraitView
+                ) | (
+                    None,
+                    CodegenTypeKind::Unit
+                        | CodegenTypeKind::Boolean
+                        | CodegenTypeKind::SignedInteger(_)
+                        | CodegenTypeKind::UnsignedInteger(_)
+                        | CodegenTypeKind::Float(_)
+                        | CodegenTypeKind::Pointer { .. }
+                        | CodegenTypeKind::Aggregate(_)
+                        | CodegenTypeKind::Array { .. }
+                        | CodegenTypeKind::Union { .. }
+                        | CodegenTypeKind::Callable(_)
+                )
+            )
+        }) {
+            return Err(CodegenMappingsBuildError::InvalidTypeLayout);
         }
 
         if symbols
@@ -223,6 +247,25 @@ impl CodegenMappings {
                 .is_err()
         }) {
             return Err(CodegenMappingsBuildError::TypeCoverageMismatch);
+        }
+
+        let is_unsized = |ty: TypeId| {
+            types
+                .binary_search_by_key(&ty, CodegenTypeMapping::ty)
+                .ok()
+                .is_some_and(|index| types[index].layout().is_none())
+        };
+
+        if symbols.iter().any(|symbol| {
+            signature_passes_unsized_by_value(symbol.signature(), &is_unsized)
+        }) || types.iter().any(|mapping| {
+            let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+                return false;
+            };
+
+            signature_passes_unsized_by_value(signature, &is_unsized)
+        }) {
+            return Err(CodegenMappingsBuildError::InvalidAbiTypeLayout);
         }
 
         Ok(Self {
@@ -419,6 +462,10 @@ pub enum CodegenMappingsBuildError {
     TargetMismatch,
     /// One semantic type appears more than once.
     DuplicateType,
+    /// A sized type kind lacks a layout or an unsized type kind declares one.
+    InvalidTypeLayout,
+    /// A callable signature passes an unsized semantic type by value.
+    InvalidAbiTypeLayout,
     /// One semantic symbol appears more than once.
     DuplicateSymbol,
     /// One semantic constant value appears more than once.
@@ -451,7 +498,7 @@ pub enum CodegenMappingsBuildError {
     RuntimeSymbolCoverageMismatch,
     /// Protected-frame descriptors do not have exact operation-symbol coverage.
     FrameSymbolCoverageMismatch,
-    /// One directly demanded MIR type has no physical representation.
+    /// One directly demanded MIR type has no code generation representation.
     TypeCoverageMismatch,
 }
 
@@ -462,6 +509,25 @@ fn compare_constant_terms(
     left.owner()
         .cmp(right.owner())
         .then_with(|| left.term().cmp(&right.term()))
+}
+
+fn signature_passes_unsized_by_value(
+    signature: &crate::CodegenCallableSignature,
+    is_unsized: &impl Fn(TypeId) -> bool,
+) -> bool {
+    signature.parameters().iter().any(|parameter| match parameter {
+        CodegenParameterMapping::Ignore => false,
+        CodegenParameterMapping::Direct { ty, .. } => is_unsized(*ty),
+        CodegenParameterMapping::Indirect {
+            pointer, pointee, ..
+        } => is_unsized(*pointer) || is_unsized(*pointee),
+    }) || match signature.result() {
+        crate::CodegenResultMapping::Void => false,
+        crate::CodegenResultMapping::Direct { ty, .. } => is_unsized(*ty),
+        crate::CodegenResultMapping::Indirect {
+            pointer, pointee, ..
+        } => is_unsized(*pointer) || is_unsized(*pointee),
+    }
 }
 
 fn compare_callables(
@@ -698,7 +764,7 @@ mod tests {
     use crate::test_support::codegen_request;
     use crate::{
         CodegenCallableSignature, CodegenConstantMapping, CodegenLinkage, CodegenResultMapping,
-        CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeMapping, CodegenUnit,
+        CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
     };
 
     #[test]
@@ -771,6 +837,87 @@ mod tests {
                 mappings.debug_locations().iter().cloned(),
             ),
             Err(CodegenMappingsBuildError::ConstantCoverageMismatch)
+        );
+    }
+
+    #[test]
+    fn mappings_reject_layouts_that_disagree_with_sizedness() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let mappings = request.mappings();
+        let invalid_type = mappings.types()[0].ty();
+
+        let types = mappings.types().iter().map(|mapping| {
+            if mapping.ty() == invalid_type {
+                CodegenTypeMapping::new_unsized(invalid_type, mapping.kind().clone())
+            } else {
+                mapping.clone()
+            }
+        });
+
+        assert_eq!(
+            CodegenMappings::try_new(
+                request.unit(),
+                request.target(),
+                types,
+                mappings.symbols().iter().cloned(),
+                mappings.constants().iter().cloned(),
+                mappings.constant_terms().iter().cloned(),
+                mappings.callables().iter().cloned(),
+                mappings.operations().iter().cloned(),
+                mappings.terminators().iter().cloned(),
+                mappings.debug_locations().iter().cloned(),
+            ),
+            Err(CodegenMappingsBuildError::InvalidTypeLayout)
+        );
+    }
+
+    #[test]
+    fn mappings_reject_unsized_direct_abi_values() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let mappings = request.mappings();
+        let ty = mappings.types()[0].ty();
+
+        let types = mappings.types().iter().map(|mapping| {
+            if mapping.ty() == ty {
+                CodegenTypeMapping::new_unsized(
+                    ty,
+                    CodegenTypeKind::UnsizedSlice { element: ty },
+                )
+            } else {
+                mapping.clone()
+            }
+        });
+
+        let symbols = mappings.symbols().iter().map(|mapping| {
+            CodegenSymbolMapping::new(
+                mapping.key().clone(),
+                mapping.name().clone(),
+                mapping.linkage(),
+                CodegenCallableSignature::new(
+                    [crate::CodegenParameterMapping::direct(ty, None, [])],
+                    CodegenResultMapping::Void,
+                    mapping.signature().abi(),
+                    false,
+                ),
+            )
+        });
+
+        assert_eq!(
+            CodegenMappings::try_new(
+                request.unit(),
+                request.target(),
+                types,
+                symbols,
+                mappings.constants().iter().cloned(),
+                mappings.constant_terms().iter().cloned(),
+                mappings.callables().iter().cloned(),
+                mappings.operations().iter().cloned(),
+                mappings.terminators().iter().cloned(),
+                mappings.debug_locations().iter().cloned(),
+            ),
+            Err(CodegenMappingsBuildError::InvalidAbiTypeLayout)
         );
     }
 
@@ -893,7 +1040,10 @@ mod tests {
         let types = demanded_types(&unit).into_iter().map(|ty| {
             let mapping = &base_mappings.types()[0];
 
-            CodegenTypeMapping::new(ty, mapping.layout(), mapping.kind().clone())
+            match mapping.layout() {
+                Some(layout) => CodegenTypeMapping::new(ty, layout, mapping.kind().clone()),
+                None => CodegenTypeMapping::new_unsized(ty, mapping.kind().clone()),
+            }
         });
 
         let debug_locations = demanded_debug_sources(&unit).into_iter().map(|anchor| {

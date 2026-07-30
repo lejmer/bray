@@ -56,12 +56,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         // Keep this exhaustive so every place projection requires an explicit translation.
         match projection.kind() {
-            MirProjectionKind::Dereference => pointer_value(llvm(self.builder.build_load(
-                self.types.map(source_type)?,
-                pointer,
-                "dereference",
-            ))?)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant),
+            MirProjectionKind::Dereference
+                if self
+                    .request
+                    .mappings()
+                    .ty(projection.result_type())
+                    .is_some_and(|mapping| {
+                        matches!(
+                            mapping.kind(),
+                            CodegenTypeKind::UnsizedSlice { .. }
+                                | CodegenTypeKind::UnsizedTraitView
+                        )
+                    }) =>
+            {
+                Ok(pointer)
+            }
+            MirProjectionKind::Dereference => {
+                pointer_value(llvm(self.builder.build_load(
+                    self.types.map(source_type)?,
+                    pointer,
+                    "dereference",
+                ))?)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            }
             MirProjectionKind::Field(_)
             | MirProjectionKind::TupleField(_)
             | MirProjectionKind::ElementFromStart(_)
@@ -147,7 +164,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .ty(*element)
-            .map(|mapping| mapping.layout().size())
+            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let offset = stride
@@ -160,18 +177,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn index_pointer(
         &mut self,
         pointer: PointerValue<'context>,
-        _source_type: bray_symbols::TypeId,
+        source_type: bray_symbols::TypeId,
         kind: &CodegenTypeKind,
         index: BasicValueEnum<'context>,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let index = int_value(index).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match kind {
-            CodegenTypeKind::Array { .. } => index
-                .get_zero_extended_constant()
-                .ok_or(CodegenFailure::UnsupportedTarget)
-                .and_then(|index| self.static_element_pointer(pointer, kind, index)),
-            CodegenTypeKind::Aggregate(_) => Err(CodegenFailure::UnsupportedTarget),
+            CodegenTypeKind::Array { element, .. } => {
+                let stride = self
+                    .request
+                    .mappings()
+                    .ty(*element)
+                    .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.dynamic_offset_pointer(pointer, index, stride)
+            }
+            CodegenTypeKind::UnsizedSlice { element } => {
+                let (data, _) = self.unsized_slice_parts(pointer, source_type)?;
+
+                let stride = self
+                    .request
+                    .mappings()
+                    .ty(*element)
+                    .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.dynamic_offset_pointer(data, index, stride)
+            }
+            CodegenTypeKind::Aggregate(_) => Err(CodegenFailure::GeneratedModuleInvariant),
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
     }
@@ -196,11 +231,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(start) => {
                 let start = self.operand(start)?;
 
-                let start = int_value(start)
-                    .and_then(|value| value.get_zero_extended_constant())
-                    .ok_or(CodegenFailure::UnsupportedTarget)?;
-
-                integer_type.const_int(start, false)
+                self.pointer_sized_integer(start)?
             }
             None => zero,
         };
@@ -224,6 +255,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 (data, self.pointer_sized_integer(length.into())?, element)
             }
+            CodegenTypeKind::UnsizedSlice { element } => {
+                let (data, length) = self.unsized_slice_parts(pointer, source_type)?;
+
+                (data, length, *element)
+            }
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         };
 
@@ -231,30 +267,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(end) => {
                 let end = self.operand(end)?;
 
-                let end = int_value(end)
-                    .and_then(|value| value.get_zero_extended_constant())
-                    .ok_or(CodegenFailure::UnsupportedTarget)?;
-
-                integer_type.const_int(end, false)
+                self.pointer_sized_integer(end)?
             }
             None => source_length,
         };
-
-        let Some(start_constant) = start.get_zero_extended_constant() else {
-            return Err(CodegenFailure::UnsupportedTarget);
-        };
-
-        let Some(end_constant) = end.get_zero_extended_constant() else {
-            return Err(CodegenFailure::UnsupportedTarget);
-        };
-
-        let Some(source_length_constant) = source_length.get_zero_extended_constant() else {
-            return Err(CodegenFailure::UnsupportedTarget);
-        };
-
-        if start_constant > end_constant || end_constant > source_length_constant {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
 
         let length = llvm(self.builder.build_int_sub(end, start, "slice.length"))?;
 
@@ -262,7 +278,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .ty(element)
-            .map(|mapping| mapping.layout().size())
+            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let data = self.dynamic_offset_pointer(data, start, stride)?;
@@ -273,57 +289,63 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ty(result_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Aggregate(fields) = result_mapping.kind() else {
+        let CodegenTypeKind::UnsizedSlice { .. } = result_mapping.kind() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
         let mut result = self.types.map(result_type)?.const_zero();
 
-        let pointer_index = fields
-            .iter()
-            .position(|field| {
-                self.request
-                    .mappings()
-                    .ty(field.ty())
-                    .is_some_and(|mapping| {
-                        matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
-                    })
-            })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let length_index = 1_usize
-            .checked_sub(pointer_index)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
         result = insert_value(
             &self.builder,
             result,
             data.into(),
-            usize::try_from(aggregate_element(
-                self.request.mappings(),
-                fields,
-                pointer_index,
-            )?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            0,
         )?;
 
-        result = insert_value(
-            &self.builder,
-            result,
-            length.into(),
-            usize::try_from(aggregate_element(
-                self.request.mappings(),
-                fields,
-                length_index,
-            )?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
-        )?;
+        result = insert_value(&self.builder, result, length.into(), 1)?;
 
         let storage = llvm(self.builder.build_alloca(result.get_type(), "slice.value"))?;
 
         llvm(self.builder.build_store(storage, result))?;
 
         Ok(storage)
+    }
+
+    pub(super) fn unsized_slice_parts(
+        &mut self,
+        pointer: PointerValue<'context>,
+        source_type: bray_symbols::TypeId,
+    ) -> Result<(PointerValue<'context>, inkwell::values::IntValue<'context>), CodegenFailure> {
+        let source = self.types.map(source_type)?;
+
+        let data = llvm(
+            self.builder
+                .build_struct_gep(source, pointer, 0, "slice.data.address"),
+        )?;
+
+        let length = llvm(
+            self.builder
+                .build_struct_gep(source, pointer, 1, "slice.length.address"),
+        )?;
+
+        let data = llvm(self.builder.build_load(
+            self.types.default_pointer_type()?,
+            data,
+            "slice.data",
+        ))?;
+
+        let length = llvm(self.builder.build_load(
+            self.types
+                .context()
+                .ptr_sized_int_type(self.types.target_data(), None),
+            length,
+            "slice.length",
+        ))?;
+
+        Ok((
+            pointer_value(data).ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+            int_value(length).ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+        ))
     }
 
     pub(super) fn slice_parts(
@@ -685,6 +707,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::Pointer { .. }
             | CodegenTypeKind::Aggregate(_)
             | CodegenTypeKind::Array { .. }
+            | CodegenTypeKind::UnsizedSlice { .. }
+            | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
             | CodegenTypeKind::Callable(_) => Err(CodegenFailure::GeneratedModuleInvariant),
         }

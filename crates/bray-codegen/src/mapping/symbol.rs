@@ -63,4 +63,16 @@ impl CodegenSymbolMapping {
     pub const fn signature(&self) -> &CodegenCallableSignature {
         &self.signature
     }
+
+    /// Consumes the mapping into its completed symbol contributions.
+    pub fn into_parts(
+        self,
+    ) -> (
+        CodegenSymbolKey,
+        BinarySymbolName,
+        CodegenLinkage,
+        CodegenCallableSignature,
+    ) {
+        (self.key, self.name, self.linkage, self.signature)
+    }
 }

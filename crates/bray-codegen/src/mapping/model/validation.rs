@@ -127,3 +127,4 @@ fn terminator_runtime_references(
         | MirTerminatorKind::CancelCurrentRun { .. } => [None, None],
     }
 }
+

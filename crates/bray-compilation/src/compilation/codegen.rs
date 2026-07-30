@@ -399,8 +399,16 @@ pub enum CodegenFactError {
     MissingRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
     /// A constant term needed by code generation still contains unresolved parameters.
     OpenConstantTerm(bray_symbols::ConstantTermId),
+    /// A closed array length term did not contain its checked integer value.
+    InvalidArrayLength(bray_symbols::ConstantTermId),
     /// A value type contains itself without an indirection boundary.
     RecursiveValueType(bray_symbols::TypeId),
+    /// A demanded semantic type still contains an unresolved checking placeholder.
+    UnresolvedType(bray_symbols::TypeId),
+    /// An unsized semantic type was demanded in a by-value position.
+    UnsizedTypeByValue(bray_symbols::TypeId),
+    /// A callable signature reached target classification in a non-semantic mapping state.
+    InvalidAbiMapping,
     /// The selected backend cannot represent a demanded semantic type.
     UnsupportedType(bray_symbols::TypeId),
     /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.

@@ -1,7 +1,7 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_element, aggregate_value_length, extract_value, insert_value, llvm, next_helper,
-    pointer_value, u128_words,
+    aggregate_element, aggregate_value_length, extract_value, insert_value, integer_constant, llvm,
+    next_helper, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
 use bray_ir::{
@@ -224,7 +224,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let tag_value = tag_type.const_int_arbitrary_precision(&u128_words(variant.tag()));
+        let tag_value = integer_constant(tag_type, variant.tag());
 
         llvm(self.builder.build_store(storage, tag_value))?;
 

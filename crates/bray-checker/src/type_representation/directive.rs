@@ -160,36 +160,29 @@ where
     ) -> CheckerFactResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
         let explicitly_laid_out = layout != DeclaredLayoutMode::Default;
 
-        if !explicitly_laid_out {
-            for variant in definition.variants() {
-                if let Some(directive) = variant
-                    .directives()
-                    .directives()
-                    .iter()
-                    .find(|directive| directive.kind() == DirectiveKind::Tag)
-                {
-                    self.add_diagnostic(
-                        DiagnosticKind::CheckingInvalidUnionTag,
-                        directive_span(directive.syntax()),
-                    );
-
-                    *recovered = true;
-                }
-            }
-
-            return Ok((Vec::new(), None));
-        }
-
         let mut tags = Vec::with_capacity(definition.variants().len());
         let mut explicit_count = 0_usize;
         let mut values = BTreeSet::new();
 
         for (ordinal, variant) in definition.variants().iter().enumerate() {
-            let explicit = variant
+            let declared = variant
                 .directives()
                 .directives()
                 .iter()
                 .find(|directive| directive.kind() == DirectiveKind::Tag);
+
+            if !explicitly_laid_out
+                && let Some(directive) = declared
+            {
+                self.add_diagnostic(
+                    DiagnosticKind::CheckingInvalidUnionTag,
+                    directive_span(directive.syntax()),
+                );
+
+                *recovered = true;
+            }
+
+            let explicit = declared.filter(|_| explicitly_laid_out);
 
             let value = match explicit {
                 Some(directive) => {
@@ -253,7 +246,11 @@ where
 
         let tag_type = match tag_type {
             Some(tag_type) => Some(tag_type),
-            None if layout == DeclaredLayoutMode::Stable => {
+            None if matches!(
+                layout,
+                DeclaredLayoutMode::Default | DeclaredLayoutMode::Stable
+            ) =>
+            {
                 let Some(maximum) = tags.iter().map(DeclaredUnionTag::value).max() else {
                     return self
                         .context

@@ -1,6 +1,6 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_element, extract_value, int_value, llvm, pointer_value, result_type, u128_words,
+    aggregate_element, extract_value, int_value, integer_constant, llvm, pointer_value, result_type,
 };
 use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{MirBlockId, MirEdge, MirOperand, MirPlace, MirTerminatorKind, PatternPredicate};
@@ -493,7 +493,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_codegen::CodegenUnionVariantLayout::tag)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        Ok(tag_type.const_int_arbitrary_precision(&u128_words(tag)))
+        Ok(integer_constant(tag_type, tag))
     }
 
     pub(super) fn translate_return(

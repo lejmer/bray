@@ -1,6 +1,6 @@
 use super::core::UnitTranslator;
 use super::support::{llvm, next_helper};
-use bray_codegen::{CodegenFailure, CodegenHelperMapping};
+use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
 use bray_ir::{
     BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirGeneratorKind,
     MirGeneratorOperation, MirHelperReference, MirHostOperation, MirOperation,
@@ -29,7 +29,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Borrow { place, .. } => Some(self.place(place)?.into()),
+            MirOperationKind::Borrow { place, .. } => {
+                let pointer = self.place(place)?;
+                let result = self.operation_result_type(operation)?;
+
+                let source = self
+                    .request
+                    .mappings()
+                    .ty(place.ty())
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                if matches!(
+                    source.kind(),
+                    CodegenTypeKind::UnsizedSlice { .. } | CodegenTypeKind::UnsizedTraitView
+                ) {
+                    Some(llvm(self.builder.build_load(
+                        self.types.map(result)?,
+                        pointer,
+                        "borrow.metadata",
+                    ))?)
+                } else {
+                    Some(pointer.into())
+                }
+            }
             MirOperationKind::Unary { operator, operand } => {
                 Some(self.translate_unary(*operator, operand)?)
             }
@@ -235,7 +257,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .mappings()
             .ty(element)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
-            .layout();
+            .layout()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let kind = match kind {
             MirGeneratorKind::Array => 0,
@@ -291,7 +314,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .mappings()
             .ty(element)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
-            .layout();
+            .layout()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let storage =
             self.aligned_alloca(element, layout.alignment().get(), "generator.element")?;

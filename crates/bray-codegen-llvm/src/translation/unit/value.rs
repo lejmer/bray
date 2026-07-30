@@ -1,10 +1,10 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_value_element, insert_value, integer_words, llvm, real_width, real_words, u128_words,
+    aggregate_value_element, insert_value, integer_constant, llvm, real_width, real_words,
 };
 use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{MirImmediateValue, MirOperand};
-use bray_symbols::{ConstantValueId, ConstantValueKind, IntegerSign, RealConstantBits};
+use bray_symbols::{ConstantValueId, ConstantValueKind, RealConstantBits};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
 
@@ -191,16 +191,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let words = integer_words(value.magnitude());
-        let integer = ty.const_int_arbitrary_precision(&words);
-
-        let integer = if value.sign() == IntegerSign::Negative {
-            integer.const_neg()
-        } else {
-            integer
-        };
-
-        Ok(integer.into())
+        Ok(integer_constant(ty, value).into())
     }
 
     pub(super) fn real_constant(
@@ -376,6 +367,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::Float(_)
             | CodegenTypeKind::Aggregate(_)
             | CodegenTypeKind::Array { .. }
+            | CodegenTypeKind::UnsizedSlice { .. }
+            | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
             | CodegenTypeKind::Callable(_) => Err(CodegenFailure::GeneratedModuleInvariant),
         }
@@ -414,7 +407,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let tag = tag_type.const_int_arbitrary_precision(&u128_words(variant.tag()));
+        let tag = integer_constant(tag_type, variant.tag());
 
         llvm(self.builder.build_store(storage, tag))?;
 
