@@ -3,9 +3,9 @@ use bray_codegen::{
     CodegenResultMapping,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
-use bray_symbols::RealConstantBits;
+use bray_symbols::{IntegerConstant, IntegerSign, RealConstantBits};
 use inkwell::builder::{Builder, BuilderError};
-use inkwell::values::{AggregateValueEnum, BasicValueEnum, PointerValue};
+use inkwell::values::{AggregateValueEnum, BasicValueEnum, IntValue, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate};
 
 pub(super) fn llvm<T>(result: Result<T, BuilderError>) -> Result<T, CodegenFailure> {
@@ -106,7 +106,7 @@ pub(super) fn aggregate_element(
     physical_aggregate_element(fields, semantic_index, |field| {
         mappings
             .ty(field.ty())
-            .map(|mapping| mapping.layout().size())
+            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
     })
 }
 
@@ -169,18 +169,17 @@ pub(super) fn integer_words(magnitude: &[u8]) -> Vec<u64> {
         .collect()
 }
 
-pub(super) const fn u128_words(value: u128) -> [u64; 2] {
-    let bytes = value.to_le_bytes();
+pub(super) fn integer_constant<'context>(
+    ty: inkwell::types::IntType<'context>,
+    value: &IntegerConstant,
+) -> IntValue<'context> {
+    let integer = ty.const_int_arbitrary_precision(&integer_words(value.magnitude()));
 
-    let low = u64::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ]);
-
-    let high = u64::from_le_bytes([
-        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
-    ]);
-
-    [low, high]
+    if value.sign() == IntegerSign::Negative {
+        integer.const_neg()
+    } else {
+        integer
+    }
 }
 
 pub(super) const fn real_width(bits: RealConstantBits) -> u32 {

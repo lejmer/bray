@@ -767,7 +767,7 @@ pub enum NativeProductFactError {
 }
 
 impl NativeProductFactError {
-    /// Returns whether the selected product uses a native feature not yet supported.
+    /// Returns whether the selected target cannot realize a demanded native representation.
     pub const fn is_unsupported(&self) -> bool {
         matches!(
             self,

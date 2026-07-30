@@ -3,6 +3,7 @@ mod construction;
 mod control;
 mod core;
 mod effect;
+mod generator;
 mod place;
 mod scalar;
 mod support;

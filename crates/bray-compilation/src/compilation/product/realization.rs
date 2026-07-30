@@ -10,11 +10,12 @@ use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping, CodegenInstance,
-    CodegenLinkage, CodegenMappings, CodegenOperationMapping, CodegenParameterMapping,
-    CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
-    CodegenUnit, TargetAddressSpaceKind, child_constants, demanded_callable_instances,
-    demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
+    CodegenIndirectParameterKind, CodegenLinkage, CodegenMappings, CodegenOperationMapping,
+    CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTarget, CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping,
+    CodegenUnionVariantLayout, CodegenUnit, CodegenValueAttribute, TargetAddressSpaceKind,
+    child_constants, demanded_callable_instances, demanded_callable_instances_for_mir,
+    demanded_constant_terms, demanded_constants,
     demanded_runtime_references, demanded_types,
 };
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
@@ -32,12 +33,14 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableSignature,
     CallableSignatureFact, ConstantTermData, ConstantValueKind, DeclaredLayoutMode,
     ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId, SymbolFactRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    StructSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
+use super::super::substitution::named_type;
 use super::specialization::{
     ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
@@ -142,6 +145,20 @@ impl Compilation {
             cancellation,
         )?;
 
+        let mut type_mappings: BTreeMap<_, _> = types
+            .into_iter()
+            .map(|mapping| (mapping.ty(), mapping))
+            .collect();
+
+        symbols = self.classify_codegen_symbols(
+            symbols,
+            target,
+            cancellation,
+            &mut type_mappings,
+        )?;
+
+        let types: Vec<_> = type_mappings.into_values().collect();
+
         symbols.sort_unstable_by(|left, right| left.key().cmp(right.key()));
 
         CodegenMappings::try_new(
@@ -203,6 +220,33 @@ impl Compilation {
         }
 
         Ok(mappings)
+    }
+
+    fn classify_codegen_symbols(
+        &self,
+        symbols: Vec<CodegenSymbolMapping>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+    ) -> Result<Vec<CodegenSymbolMapping>, CodegenFactError> {
+        let mut classified = Vec::with_capacity(symbols.len());
+        let mut pending = BTreeSet::new();
+
+        for symbol in symbols {
+            let (key, name, linkage, signature) = symbol.into_parts();
+
+            let signature = self.classify_codegen_signature(
+                signature,
+                target,
+                cancellation,
+                mappings,
+                &mut pending,
+            )?;
+
+            classified.push(CodegenSymbolMapping::new(key, name, linkage, signature));
+        }
+
+        Ok(classified)
     }
 
     fn codegen_helper(
@@ -2010,6 +2054,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenTypeMapping>, CodegenFactError> {
         let mut mappings = BTreeMap::new();
+        let mut pending = BTreeSet::new();
 
         for template in demanded {
             let ty = self.substitute_codegen_type(template, substitution)?;
@@ -2019,7 +2064,7 @@ impl Compilation {
                 target,
                 cancellation,
                 &mut mappings,
-                &mut BTreeSet::new(),
+                &mut pending,
             )?;
 
             if template != ty {
@@ -2028,16 +2073,23 @@ impl Compilation {
                     .cloned()
                     .ok_or(CodegenFactError::UnsupportedType(ty))?;
 
-                mappings.insert(
-                    template,
-                    CodegenTypeMapping::new(
+                let mapping = match mapping.layout() {
+                    Some(layout) => CodegenTypeMapping::new(
                         template,
-                        mapping.layout(),
+                        layout,
                         mapping.kind().clone(),
                     ),
-                );
+                    None => CodegenTypeMapping::new_unsized(
+                        template,
+                        mapping.kind().clone(),
+                    ),
+                };
+
+                mappings.insert(template, mapping);
             }
         }
+
+        self.classify_codegen_callable_types(target, cancellation, &mut mappings, &mut pending)?;
 
         Ok(mappings.into_values().collect())
     }
@@ -2068,6 +2120,64 @@ impl Compilation {
         self.semantic_value_store()?
             .substitute_constant_term(term, substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
+    fn classify_codegen_callable_types(
+        &self,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<(), CodegenFactError> {
+        let mut classified = BTreeSet::new();
+
+        loop {
+            let callable = mappings.values().find_map(|mapping| {
+                if classified.contains(&mapping.ty()) {
+                    return None;
+                }
+
+                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+                    return None;
+                };
+
+                // Signatures use shared slices; this clone releases the mapping borrow before recursion.
+                Some((mapping.ty(), signature.as_ref().clone()))
+            });
+
+            let Some((ty, signature)) = callable else {
+                break;
+            };
+
+            classified.insert(ty);
+
+            self.codegen_signature_types(
+                &signature,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?;
+
+            let signature = self.classify_codegen_signature(
+                signature,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?;
+
+            mappings.insert(
+                ty,
+                CodegenTypeMapping::new(
+                    ty,
+                    pointer_layout(target),
+                    CodegenTypeKind::Callable(signature.into()),
+                ),
+            );
+        }
+
+        Ok(())
     }
 
     fn codegen_type(
@@ -2125,8 +2235,8 @@ impl Compilation {
 
                 let element_layout = mappings
                     .get(element)
-                    .map(CodegenTypeMapping::layout)
-                    .ok_or(CodegenFactError::UnsupportedType(*element))?;
+                    .and_then(CodegenTypeMapping::layout)
+                    .ok_or(CodegenFactError::UnsizedTypeByValue(*element))?;
 
                 CodegenTypeMapping::new(
                     ty,
@@ -2144,45 +2254,29 @@ impl Compilation {
                     },
                 )
             }
-            TypeData::Nullable(element) => {
-                let boolean =
-                    self.codegen_representation_type(RepresentationRole::ScalarBool)?;
-
-                self.codegen_aggregate_type(
-                    ty,
-                    [(None, boolean), (None, *element)],
-                    TargetLayoutContract::Default,
-                    None,
-                    None,
-                    target,
-                    cancellation,
-                    mappings,
-                    pending,
-                )?
-            }
             TypeData::Borrow {
+                kind,
+                target: pointee,
+            } => self.codegen_indirection_type(
+                ty,
+                *pointee,
+                Some(*kind),
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?,
+            TypeData::OwnedIndirection {
                 target: pointee, ..
-            } => pointer_mapping(ty, *pointee, target),
-            TypeData::OwnedIndirection { storage, .. } => {
-                self.codegen_type(
-                    *storage,
-                    target,
-                    cancellation,
-                    mappings,
-                    pending,
-                )?;
-
-                let storage = mappings
-                    .get(storage)
-                    .ok_or(CodegenFactError::UnsupportedType(*storage))?;
-
-                // The owned value and policy value share one immutable physical mapping.
-                CodegenTypeMapping::new(
-                    ty,
-                    storage.layout(),
-                    storage.kind().clone(),
-                )
-            }
+            } => self.codegen_indirection_type(
+                ty,
+                *pointee,
+                None,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?,
             TypeData::Callable(callable) => {
                 let signature = callable_type_signature(self, callable)?;
 
@@ -2192,13 +2286,39 @@ impl Compilation {
                     CodegenTypeKind::Callable(signature.into()),
                 )
             }
+            TypeData::Slice(element) => {
+                self.codegen_type(*element, target, cancellation, mappings, pending)?;
+
+                CodegenTypeMapping::new_unsized(
+                    ty,
+                    CodegenTypeKind::UnsizedSlice { element: *element },
+                )
+            }
+            TypeData::Generator(element) => self.codegen_generator_type(
+                ty,
+                *element,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?,
+            TypeData::Nullable(element) => self.codegen_nullable_type(
+                ty,
+                *element,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?,
+            TypeData::TraitView(_) => {
+                CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::UnsizedTraitView)
+            }
             TypeData::Error
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Slice(_)
-            | TypeData::TraitView(_) => return Err(CodegenFactError::UnsupportedType(ty)),
-            TypeData::Generator(_) => pointer_mapping(ty, ty, target),
+            | TypeData::TypeValuedMemberProjection { .. } => {
+                return Err(CodegenFactError::UnresolvedType(ty));
+            }
         };
 
         pending.remove(&ty);
@@ -2224,7 +2344,16 @@ impl Compilation {
         let role = super::super::foreign::compiler_known_representation(self, definition);
 
         if let Some(role) = role {
-            return self.codegen_compiler_known_type(ty, role, target);
+            if let Some(mapping) = self.codegen_compiler_known_type(
+                ty,
+                role,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )? {
+                return Ok(mapping);
+            }
         }
 
         let heap_key = CompilerKnownDeclarationKey::try_new("Heap")
@@ -2294,34 +2423,92 @@ impl Compilation {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "compiler-known type realization shares recursive mapping state with structural types"
+    )]
     fn codegen_compiler_known_type(
         &self,
         ty: TypeId,
         role: RepresentationRole,
         target: &CodegenTarget,
-    ) -> Result<CodegenTypeMapping, CodegenFactError> {
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<Option<CodegenTypeMapping>, CodegenFactError> {
         if matches!(role, RepresentationRole::Unit | RepresentationRole::Never) {
-            return Ok(CodegenTypeMapping::new(
+            return Ok(Some(CodegenTypeMapping::new(
                 ty,
                 TargetValueLayout::new(0, NonZeroU64::MIN, TargetLayoutContract::Default),
                 CodegenTypeKind::Unit,
-            ));
+            )));
         }
 
         if role == RepresentationRole::RawPointer {
-            return Ok(pointer_mapping(ty, ty, target));
+            return Ok(Some(pointer_mapping(ty, ty, target)));
         }
 
-        let Some(scalar) = super::super::representation::target_scalar(role) else {
-            return Err(CodegenFactError::UnsupportedType(ty));
-        };
+        if let Some(scalar) = super::super::representation::target_scalar(role) {
+            return scalar_mapping(
+                self,
+                ty,
+                role,
+                scalar,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )
+            .map(Some);
+        }
 
-        scalar_mapping(ty, scalar, target)
+        match role {
+            RepresentationRole::String => self
+                .codegen_string_type(ty, target, cancellation, mappings, pending)
+                .map(Some),
+            RepresentationRole::PanicReport
+            | RepresentationRole::Future
+            | RepresentationRole::Task => Ok(Some(pointer_mapping(ty, ty, target))),
+            RepresentationRole::Result
+            | RepresentationRole::RunResult
+            | RepresentationRole::ConversionError => Ok(None),
+            RepresentationRole::BooleanTrue
+            | RepresentationRole::BooleanFalse
+            | RepresentationRole::UnitValue
+            | RepresentationRole::NoneValue => Err(CodegenFactError::UnresolvedType(ty)),
+            RepresentationRole::Unit
+            | RepresentationRole::Never
+            | RepresentationRole::RawPointer
+            | RepresentationRole::ScalarBool
+            | RepresentationRole::ScalarChar
+            | RepresentationRole::ScalarI8
+            | RepresentationRole::ScalarI16
+            | RepresentationRole::ScalarI32
+            | RepresentationRole::ScalarI64
+            | RepresentationRole::ScalarI128
+            | RepresentationRole::ScalarU8
+            | RepresentationRole::ScalarU16
+            | RepresentationRole::ScalarU32
+            | RepresentationRole::ScalarU64
+            | RepresentationRole::ScalarU128
+            | RepresentationRole::ScalarIsize
+            | RepresentationRole::ScalarUsize
+            | RepresentationRole::ScalarR16
+            | RepresentationRole::ScalarR32
+            | RepresentationRole::ScalarR64
+            | RepresentationRole::ScalarR128
+            | RepresentationRole::ScalarC32
+            | RepresentationRole::ScalarC64
+            | RepresentationRole::ScalarC128
+            | RepresentationRole::ScalarC256 => {
+                Err(CodegenFactError::UnresolvedType(ty))
+            }
+        }
     }
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "union realization keeps the selected target and recursive mapping state explicit"
+        reason = "union realization keeps checked representation and recursive mapping state explicit"
     )]
     fn codegen_union_type(
         &self,
@@ -2333,88 +2520,57 @@ impl Compilation {
         mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
         pending: &mut BTreeSet<TypeId>,
     ) -> Result<CodegenTypeMapping, CodegenFactError> {
-        let definition = NamedTypeSymbolId::Union(union);
-
-        let representation =
-            self.declared_type_representation_with_cancellation(definition, cancellation)?;
-
-        let tag = representation
-            .value()
-            .union_tag_type()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        self.codegen_type(tag, target, cancellation, mappings, pending)?;
-
-        let tag_layout = mappings
-            .get(&tag)
-            .map(CodegenTypeMapping::layout)
-            .ok_or(CodegenFactError::UnsupportedType(tag))?;
-
-        let packing = representation
-            .value()
-            .packing()
-            .and_then(NonZeroU64::new);
-
-        let tag_alignment = packing
-            .map_or(tag_layout.alignment(), |packing| {
-                tag_layout.alignment().min(packing)
-            });
-
         let facts = self.binder_facts(cancellation)?;
 
-        let record = facts
+        let union = facts
             .symbols()
             .union(union)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let mut alignment = tag_alignment;
-        let mut maximum_size = tag_layout.size();
-        let mut variants = Vec::with_capacity(record.variants().len());
+        let representation = self.declared_type_representation_with_cancellation(
+            NamedTypeSymbolId::Union(union.id()),
+            cancellation,
+        )?;
 
-        for variant in record.variants() {
-            let variant_record = facts
+        let tag = representation
+            .value()
+            .union_tag_type()
+            .ok_or(CodegenFactError::UnresolvedType(ty))?;
+
+        self.codegen_type(tag, target, cancellation, mappings, pending)?;
+
+        let tag_layout = sized_layout(mappings, tag)?;
+        let packing = representation.value().packing().and_then(NonZeroU64::new);
+
+        let tag_alignment = packed_alignment(tag_layout.alignment(), packing);
+
+        let mut payload_alignment = NonZeroU64::MIN;
+        let mut payload_size = 0_u64;
+        let mut variants = Vec::with_capacity(union.variants().len());
+
+        for variant in union.variants() {
+            let record = facts
                 .symbols()
                 .union_variant(*variant)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let tag_value = representation
-                .value()
-                .union_tags()
-                .iter()
-                .find(|tag| tag.variant() == *variant)
-                .and_then(|tag| tag.value().to_u128())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let mut offset = 0_u64;
+            let mut alignment = NonZeroU64::MIN;
+            let mut fields = Vec::with_capacity(record.payload_fields().len());
 
-            let mut offset = tag_layout.size();
-            let mut fields = Vec::with_capacity(variant_record.payload_fields().len());
-
-            for field in variant_record.payload_fields() {
+            for field in record.payload_fields() {
                 let template = facts
-                    .symbol_fact(bray_symbols::SymbolFactRequest::<
-                        bray_symbols::UnionPayloadFieldTypeFact,
-                    >::new(*field))
+                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(*field))
                     .map_err(super::super::binder::binder_fact_error)?;
 
                 let field_ty =
                     self.resolve_codegen_type(template.value(), substitution, cancellation)?;
 
-                self.codegen_type(
-                    field_ty,
-                    target,
-                    cancellation,
-                    mappings,
-                    pending,
-                )?;
+                self.codegen_type(field_ty, target, cancellation, mappings, pending)?;
 
-                let field_layout = mappings
-                    .get(&field_ty)
-                    .map(CodegenTypeMapping::layout)
-                    .ok_or(CodegenFactError::UnsupportedType(field_ty))?;
+                let field_layout = sized_layout(mappings, field_ty)?;
 
-                let field_alignment = packing
-                    .map_or(field_layout.alignment(), |packing| {
-                        field_layout.alignment().min(packing)
-                    });
+                let field_alignment = packed_alignment(field_layout.alignment(), packing);
 
                 alignment = alignment.max(field_alignment);
 
@@ -2432,14 +2588,52 @@ impl Compilation {
                     .ok_or(CodegenFactError::LayoutOverflow(ty))?;
             }
 
-            maximum_size = maximum_size.max(offset);
+            let size =
+                align_to(offset, alignment).ok_or(CodegenFactError::LayoutOverflow(ty))?;
 
-            variants.push(CodegenUnionVariantLayout::new(
-                *variant,
-                tag_value,
-                fields,
-            ));
+            payload_alignment = payload_alignment.max(alignment);
+            payload_size = payload_size.max(size);
+            variants.push((*variant, fields));
         }
+
+        let payload_offset = align_to(tag_layout.size(), payload_alignment)
+            .ok_or(CodegenFactError::LayoutOverflow(ty))?;
+
+        let variants = variants
+            .into_iter()
+            .map(|(variant, fields)| {
+                let tag = representation
+                    .value()
+                    .union_tags()
+                    .iter()
+                    .find(|tag| tag.variant() == variant)
+                    .ok_or(CodegenFactError::UnresolvedType(ty))?;
+
+                let fields = fields
+                    .into_iter()
+                    .map(|field| {
+                        let offset = payload_offset
+                            .checked_add(field.offset_bytes())
+                            .ok_or(CodegenFactError::LayoutOverflow(ty))?;
+
+                        Ok(CodegenFieldLayout::new(
+                            field.reference(),
+                            field.ty(),
+                            offset,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, CodegenFactError>>()?;
+
+                // Representation facts are shared; codegen mappings own exact tag magnitudes.
+                Ok(CodegenUnionVariantLayout::new(
+                    variant,
+                    tag.value().clone(),
+                    fields,
+                ))
+            })
+            .collect::<Result<Vec<_>, CodegenFactError>>()?;
+
+        let mut alignment = tag_alignment.max(payload_alignment);
 
         if let Some(requested) = representation
             .value()
@@ -2449,8 +2643,12 @@ impl Compilation {
             alignment = alignment.max(requested);
         }
 
-        let size =
-            align_to(maximum_size, alignment).ok_or(CodegenFactError::LayoutOverflow(ty))?;
+        ensure_target_alignment(ty, alignment, target)?;
+
+        let size = payload_offset
+            .checked_add(payload_size)
+            .and_then(|size| align_to(size, alignment))
+            .ok_or(CodegenFactError::LayoutOverflow(ty))?;
 
         Ok(CodegenTypeMapping::new(
             ty,
@@ -2461,6 +2659,194 @@ impl Compilation {
             ),
             CodegenTypeKind::union(tag, variants),
         ))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "indirection realization keeps boundary metadata and recursive mapping state explicit"
+    )]
+    fn codegen_indirection_type(
+        &self,
+        ty: TypeId,
+        pointee: TypeId,
+        borrow: Option<BorrowKind>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenFactError> {
+        let values = self.semantic_value_store()?;
+
+        let pointee_data = values
+            .type_data(pointee)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let fields = match pointee_data.as_ref() {
+            TypeData::Slice(element) => {
+                self.codegen_type(
+                    pointee,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )?;
+
+                let data = self.indirection_metadata_pointer(
+                    *element,
+                    borrow.unwrap_or(BorrowKind::Mutable),
+                )?;
+
+                let length = self.compiler_known_type(RepresentationRole::ScalarUsize)?;
+
+                vec![data, length]
+            }
+            TypeData::TraitView(_) => {
+                self.codegen_type(
+                    pointee,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )?;
+
+                let metadata = self.compiler_known_type(RepresentationRole::ScalarUsize)?;
+
+                let pointer =
+                    self.indirection_metadata_pointer(metadata, BorrowKind::Shared)?;
+
+                vec![pointer, pointer]
+            }
+            _ => return Ok(pointer_mapping(ty, pointee, target)),
+        };
+
+        self.codegen_aggregate_type(
+            ty,
+            fields.into_iter().map(|field| (None, field)),
+            TargetLayoutContract::Default,
+            None,
+            None,
+            target,
+            cancellation,
+            mappings,
+            pending,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generator realization shares recursive mapping state with element and metadata types"
+    )]
+    fn codegen_generator_type(
+        &self,
+        ty: TypeId,
+        element: TypeId,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenFactError> {
+        self.codegen_type(element, target, cancellation, mappings, pending)?;
+
+        if mappings
+            .get(&element)
+            .is_none_or(|mapping| mapping.layout().is_none())
+        {
+            return Err(CodegenFactError::UnsizedTypeByValue(element));
+        }
+
+        let data = self.indirection_metadata_pointer(element, BorrowKind::Mutable)?;
+        let length = self.compiler_known_type(RepresentationRole::ScalarUsize)?;
+
+        self.codegen_aggregate_type(
+            ty,
+            [data, length, length].into_iter().map(|field| (None, field)),
+            TargetLayoutContract::Default,
+            None,
+            None,
+            target,
+            cancellation,
+            mappings,
+            pending,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "nullable realization shares recursive mapping state with tag and payload types"
+    )]
+    fn codegen_nullable_type(
+        &self,
+        ty: TypeId,
+        element: TypeId,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenFactError> {
+        let present = self.compiler_known_type(RepresentationRole::ScalarBool)?;
+
+        self.codegen_aggregate_type(
+            ty,
+            [(None, present), (None, element)],
+            TargetLayoutContract::Default,
+            None,
+            None,
+            target,
+            cancellation,
+            mappings,
+            pending,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "string realization shares recursive mapping state with data and length types"
+    )]
+    fn codegen_string_type(
+        &self,
+        ty: TypeId,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenFactError> {
+        let byte = self.compiler_known_type(RepresentationRole::ScalarU8)?;
+        let data = self.indirection_metadata_pointer(byte, BorrowKind::Shared)?;
+        let length = self.compiler_known_type(RepresentationRole::ScalarUsize)?;
+
+        self.codegen_aggregate_type(
+            ty,
+            [(None, data), (None, length)],
+            TargetLayoutContract::Default,
+            None,
+            None,
+            target,
+            cancellation,
+            mappings,
+            pending,
+        )
+    }
+
+    fn compiler_known_type(&self, role: RepresentationRole) -> Result<TypeId, FactQueryError> {
+        let definition = self
+            .available_compiler_known_symbols()
+            .representation_symbol::<StructSymbolId>(role)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        named_type(
+            self.semantic_value_store()?,
+            NamedTypeSymbolId::Struct(definition),
+        )
+    }
+
+    fn indirection_metadata_pointer(
+        &self,
+        target: TypeId,
+        kind: BorrowKind,
+    ) -> Result<TypeId, FactQueryError> {
+        self.semantic_value_store()?
+            .intern_type(TypeData::Borrow { kind, target })
+            .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
     #[expect(
@@ -2482,20 +2868,17 @@ impl Compilation {
         let mut offset = 0_u64;
         let mut alignment = NonZeroU64::MIN;
         let mut layouts = Vec::new();
+        let packing = packing.and_then(NonZeroU64::new);
 
         for (reference, field) in fields {
             self.codegen_type(field, target, cancellation, mappings, pending)?;
 
             let field_layout = mappings
                 .get(&field)
-                .map(CodegenTypeMapping::layout)
-                .ok_or(CodegenFactError::UnsupportedType(field))?;
+                .and_then(CodegenTypeMapping::layout)
+                .ok_or(CodegenFactError::UnsizedTypeByValue(field))?;
 
-            let field_alignment = packing
-                .and_then(NonZeroU64::new)
-                .map_or(field_layout.alignment(), |packing| {
-                    field_layout.alignment().min(packing)
-                });
+            let field_alignment = packed_alignment(field_layout.alignment(), packing);
 
             alignment = alignment.max(field_alignment);
 
@@ -2512,6 +2895,8 @@ impl Compilation {
         if let Some(requested) = requested_alignment.and_then(NonZeroU64::new) {
             alignment = alignment.max(requested);
         }
+
+        ensure_target_alignment(ty, alignment, target)?;
 
         let size = align_to(offset, alignment).ok_or(CodegenFactError::LayoutOverflow(ty))?;
 
@@ -2542,6 +2927,150 @@ impl Compilation {
         self.semantic_value_store()?
             .substitute_type(ty, substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
+    fn codegen_signature_types(
+        &self,
+        signature: &CodegenCallableSignature,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<(), CodegenFactError> {
+        for ty in signature_types(signature) {
+            self.codegen_type(ty, target, cancellation, mappings, pending)?;
+        }
+
+        Ok(())
+    }
+
+    fn classify_codegen_signature(
+        &self,
+        signature: CodegenCallableSignature,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenCallableSignature, CodegenFactError> {
+        let mut parameters = Vec::with_capacity(signature.parameters().len());
+
+        for parameter in signature.parameters() {
+            let ty = match parameter {
+                CodegenParameterMapping::Direct { ty, .. } => *ty,
+                CodegenParameterMapping::Ignore | CodegenParameterMapping::Indirect { .. } => {
+                    return Err(CodegenFactError::InvalidAbiMapping);
+                }
+            };
+
+            parameters.push(self.classify_codegen_parameter(
+                ty,
+                signature.abi(),
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?);
+        }
+
+        let result = match signature.result() {
+            CodegenResultMapping::Void => CodegenResultMapping::Void,
+            CodegenResultMapping::Direct { ty, .. } => self.classify_codegen_result(
+                *ty,
+                signature.abi(),
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?,
+            CodegenResultMapping::Indirect { .. } => {
+                return Err(CodegenFactError::InvalidAbiMapping);
+            }
+        };
+
+        Ok(CodegenCallableSignature::new(
+            parameters,
+            result,
+            signature.abi(),
+            signature.is_variadic(),
+        ))
+    }
+
+    fn classify_codegen_parameter(
+        &self,
+        ty: TypeId,
+        abi: CallableAbi,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenParameterMapping, CodegenFactError> {
+        let mapping = mappings
+            .get(&ty)
+            .ok_or(CodegenFactError::UnresolvedType(ty))?;
+
+        let layout = mapping
+            .layout()
+            .ok_or(CodegenFactError::UnsizedTypeByValue(ty))?;
+
+        if layout.size() == 0 {
+            return Ok(CodegenParameterMapping::Ignore);
+        }
+
+        if abi != CallableAbi::Bray || !indirect_abi_value(mapping.kind(), layout, target) {
+            return Ok(CodegenParameterMapping::direct(ty, None, []));
+        }
+
+        let pointer = self.indirection_metadata_pointer(ty, BorrowKind::Shared)?;
+
+        self.codegen_type(pointer, target, cancellation, mappings, pending)?;
+
+        Ok(CodegenParameterMapping::indirect(
+            pointer,
+            ty,
+            CodegenIndirectParameterKind::ByValue,
+            layout.alignment(),
+            [CodegenValueAttribute::NonNull],
+        ))
+    }
+
+    fn classify_codegen_result(
+        &self,
+        ty: TypeId,
+        abi: CallableAbi,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenResultMapping, CodegenFactError> {
+        let mapping = mappings
+            .get(&ty)
+            .ok_or(CodegenFactError::UnresolvedType(ty))?;
+
+        let layout = mapping
+            .layout()
+            .ok_or(CodegenFactError::UnsizedTypeByValue(ty))?;
+
+        if layout.size() == 0 {
+            return Ok(CodegenResultMapping::Void);
+        }
+
+        if abi != CallableAbi::Bray || !indirect_abi_value(mapping.kind(), layout, target) {
+            return Ok(CodegenResultMapping::direct(ty, None, []));
+        }
+
+        let pointer = self.indirection_metadata_pointer(ty, BorrowKind::Mutable)?;
+
+        self.codegen_type(pointer, target, cancellation, mappings, pending)?;
+
+        Ok(CodegenResultMapping::indirect(
+            pointer,
+            ty,
+            layout.alignment(),
+            [
+                CodegenValueAttribute::NoAlias,
+                CodegenValueAttribute::NonNull,
+            ],
+        ))
     }
 
     pub(super) fn codegen_instance_signature(
@@ -2795,7 +3324,7 @@ fn closed_array_length(
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let ConstantValueKind::Integer(value) = data.kind() else {
-        return Err(CodegenFactError::UnsupportedType(data.ty()));
+        return Err(CodegenFactError::InvalidArrayLength(term_id));
     };
 
     value
@@ -2804,10 +3333,35 @@ fn closed_array_length(
 }
 
 fn scalar_mapping(
+    compilation: &Compilation,
     ty: TypeId,
+    role: RepresentationRole,
     scalar: TargetScalarKind,
     target: &CodegenTarget,
+    cancellation: &CancellationToken,
+    mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+    pending: &mut BTreeSet<TypeId>,
 ) -> Result<CodegenTypeMapping, CodegenFactError> {
+    if !target.profile().facts().scalars().supports(scalar) {
+        return Err(CodegenFactError::UnsupportedType(ty));
+    }
+
+    if let Some(component) = role.complex_component() {
+        let component = compilation.compiler_known_type(component)?;
+
+        return compilation.codegen_aggregate_type(
+            ty,
+            [(None, component), (None, component)],
+            TargetLayoutContract::Default,
+            Some(target.profile().facts().scalars().alignment(scalar).get()),
+            None,
+            target,
+            cancellation,
+            mappings,
+            pending,
+        );
+    }
+
     let pointer_width = target.machine().pointer_width_bits().get();
 
     let (size, kind) = match scalar {
@@ -2838,7 +3392,7 @@ fn scalar_mapping(
         TargetScalarKind::C32
         | TargetScalarKind::C64
         | TargetScalarKind::C128
-        | TargetScalarKind::C256 => return Err(CodegenFactError::UnsupportedType(ty)),
+        | TargetScalarKind::C256 => return Err(CodegenFactError::UnresolvedType(ty)),
     };
 
     Ok(CodegenTypeMapping::new(
@@ -3036,10 +3590,54 @@ fn is_unit(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError
     )
 }
 
+fn sized_layout(
+    mappings: &BTreeMap<TypeId, CodegenTypeMapping>,
+    ty: TypeId,
+) -> Result<TargetValueLayout, CodegenFactError> {
+    mappings
+        .get(&ty)
+        .and_then(CodegenTypeMapping::layout)
+        .ok_or(CodegenFactError::UnsizedTypeByValue(ty))
+}
+
+fn ensure_target_alignment(
+    ty: TypeId,
+    alignment: NonZeroU64,
+    target: &CodegenTarget,
+) -> Result<(), CodegenFactError> {
+    if alignment > target.profile().facts().alignments().max_storage() {
+        return Err(CodegenFactError::UnsupportedType(ty));
+    }
+
+    Ok(())
+}
+
+fn indirect_abi_value(
+    kind: &CodegenTypeKind,
+    layout: TargetValueLayout,
+    target: &CodegenTarget,
+) -> bool {
+    let register_pair_bytes = pointer_layout(target).size().saturating_mul(2);
+
+    matches!(
+        kind,
+        CodegenTypeKind::Aggregate(_)
+            | CodegenTypeKind::Array { .. }
+            | CodegenTypeKind::Union { .. }
+    ) && layout.size() > register_pair_bytes
+}
+
 fn align_to(value: u64, alignment: NonZeroU64) -> Option<u64> {
     let mask = alignment.get().checked_sub(1)?;
 
     value.checked_add(mask).map(|value| value & !mask)
+}
+
+fn packed_alignment(
+    alignment: NonZeroU64,
+    packing: Option<NonZeroU64>,
+) -> NonZeroU64 {
+    packing.map_or(alignment, |packing| alignment.min(packing))
 }
 
 fn nonzero_width(width: u16) -> NonZeroU16 {
@@ -3103,13 +3701,15 @@ fn binary_symbol_name(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use bray_codegen::{
-        CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenSymbolKey,
-        CodegenResultMapping, CodegenTarget, CodegenTypeKind,
+        CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
+        CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
+        CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey, CodegenTarget,
+        CodegenTypeKind, CodegenTypeMapping,
     };
-    use bray_compiler_known::CompilerKnownDeclarationKey;
+    use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_ir::{
         MirBlockKind, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
         MirHelperReference, MirOperationKind, MirProjectionKind, MirRuntimeReference,
@@ -3119,13 +3719,21 @@ mod tests {
         ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
         RuntimeRoleContractEffect,
     };
-    use bray_symbols::{NamedTypeSymbolId, SymbolOrigin, TypeData, TypeId};
+    use bray_symbols::{
+        BorrowKind, CallableAbi, NamedTypeSymbolId, SymbolOrigin, TraitApplicationData,
+        TypeData, TypeId,
+    };
+    use bray_target::TargetValueLayout;
     use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
 
-    use super::{dependency_symbol, direct_helper_symbol};
+    use super::{
+        dependency_symbol, direct_helper_symbol, named_type, pointer_layout,
+    };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
-    use crate::{CancellationToken, Compilation};
+    use crate::compilation::substitution::empty_substitution;
+    use crate::test_support::compilation;
+    use crate::{CancellationToken, Compilation, SelectedTarget};
 
     #[test]
     fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
@@ -3697,7 +4305,11 @@ mod tests {
         assert!(matches!(
             union.kind(),
             CodegenTypeKind::Union { variants, .. }
-                if variants.iter().map(|variant| variant.tag()).collect::<Vec<_>>() == [3, 7]
+                if variants
+                    .iter()
+                    .map(|variant| variant.tag().to_u64())
+                    .collect::<Vec<_>>()
+                    == [Some(3), Some(7)]
         ));
     }
 
@@ -3853,42 +4465,8 @@ mod tests {
     }
 
     #[test]
-    fn generator_codegen_uses_pointer_storage_and_stable_erased_abis() {
+    fn generator_runtime_helpers_use_stable_erased_abis() {
         let compilation = crate::test_support::compilation("module app; func main() {}");
-        let target = codegen_target(&compilation);
-
-        let values = compilation
-            .semantic_value_store()
-            .expect("semantic values must resolve");
-
-        let element = values
-            .intern_type(TypeData::tuple([]))
-            .expect("generator element type must intern");
-
-        let generator = values
-            .intern_type(TypeData::Generator(element))
-            .expect("generator type must intern");
-
-        let mut mappings = std::collections::BTreeMap::new();
-        let mut pending = BTreeSet::new();
-
-        compilation
-            .codegen_type(
-                generator,
-                &target,
-                &CancellationToken::new(),
-                &mut mappings,
-                &mut pending,
-            )
-            .expect("generator representation must realize");
-
-        assert!(matches!(
-            mappings
-                .get(&generator)
-                .expect("generator mapping must be present")
-                .kind(),
-            CodegenTypeKind::Pointer { target, .. } if *target == generator
-        ));
 
         let begin = compilation
             .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
@@ -4064,5 +4642,374 @@ mod tests {
                 substitution,
             })
             .expect("union type must intern")
+    }
+
+    #[test]
+    fn unsized_subjects_receive_layout_only_at_indirection_boundaries() {
+        let compilation = compilation("module app;\ntrait Marker {}\n");
+        let target = baseline_codegen_target();
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let scalar = compilation
+            .compiler_known_type(RepresentationRole::ScalarI32)
+            .unwrap_or_else(|error| panic!("i32 must be available: {error:?}"));
+
+        let slice = intern_type(values, TypeData::Slice(scalar));
+
+        let borrowed_slice = intern_type(
+            values,
+            TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: slice,
+            },
+        );
+
+        let owned_slice = intern_type(
+            values,
+            TypeData::OwnedIndirection {
+                storage: scalar,
+                target: slice,
+            },
+        );
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let marker = symbols
+            .traits()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("fixture must declare Marker"));
+
+        let substitution = empty_substitution(values, marker.id().into())
+            .unwrap_or_else(|error| panic!("trait substitution must be available: {error:?}"));
+
+        let application = values
+            .intern_trait_application(TraitApplicationData::new(marker.id(), substitution))
+            .unwrap_or_else(|error| panic!("trait application must be valid: {error:?}"));
+
+        let view = intern_type(values, TypeData::TraitView(application));
+
+        let borrowed_view = intern_type(
+            values,
+            TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: view,
+            },
+        );
+
+        let owned_view = intern_type(
+            values,
+            TypeData::OwnedIndirection {
+                storage: scalar,
+                target: view,
+            },
+        );
+
+        let mappings = realized_types(
+            &compilation,
+            &target,
+            [borrowed_slice, owned_slice, borrowed_view, owned_view],
+        );
+
+        assert!(mappings[&slice].layout().is_none());
+
+        assert!(matches!(
+            mappings[&slice].kind(),
+            CodegenTypeKind::UnsizedSlice { element } if *element == scalar
+        ));
+
+        assert!(mappings[&view].layout().is_none());
+
+        assert!(matches!(
+            mappings[&view].kind(),
+            CodegenTypeKind::UnsizedTraitView
+        ));
+
+        for boundary in [borrowed_slice, owned_slice, borrowed_view, owned_view] {
+            let mapping = &mappings[&boundary];
+
+            assert_eq!(
+                mapping.layout().map(TargetValueLayout::size),
+                Some(pointer_layout(&target).size() * 2)
+            );
+
+            assert!(matches!(
+                mapping.kind(),
+                CodegenTypeKind::Aggregate(fields) if fields.len() == 2
+            ));
+        }
+    }
+
+    #[test]
+    fn special_values_use_component_and_metadata_layouts() {
+        let compilation = compilation("module app;\n");
+        let target = baseline_codegen_target();
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let scalar = compilation
+            .compiler_known_type(RepresentationRole::ScalarI32)
+            .unwrap_or_else(|error| panic!("i32 must be available: {error:?}"));
+
+        let real = compilation
+            .compiler_known_type(RepresentationRole::ScalarR64)
+            .unwrap_or_else(|error| panic!("r64 must be available: {error:?}"));
+
+        let complex = compilation
+            .compiler_known_type(RepresentationRole::ScalarC128)
+            .unwrap_or_else(|error| panic!("c128 must be available: {error:?}"));
+
+        let nullable = intern_type(values, TypeData::Nullable(scalar));
+        let generator = intern_type(values, TypeData::Generator(scalar));
+
+        let mappings = realized_types(&compilation, &target, [complex, nullable, generator]);
+
+        let CodegenTypeKind::Aggregate(complex_fields) = mappings[&complex].kind() else {
+            panic!("complex values must map to their two real components");
+        };
+
+        assert_eq!(
+            complex_fields
+                .iter()
+                .map(|field| (field.ty(), field.offset_bytes()))
+                .collect::<Vec<_>>(),
+            [(real, 0), (real, 8)]
+        );
+
+        assert_eq!(
+            mappings[&complex].layout().map(TargetValueLayout::size),
+            Some(16)
+        );
+
+        let CodegenTypeKind::Aggregate(nullable_fields) = mappings[&nullable].kind() else {
+            panic!("nullable values must map to state and payload");
+        };
+
+        assert_eq!(
+            nullable_fields
+                .iter()
+                .map(CodegenFieldLayout::offset_bytes)
+                .collect::<Vec<_>>(),
+            [0, 4]
+        );
+
+        assert_eq!(
+            mappings[&nullable].layout().map(TargetValueLayout::size),
+            Some(8)
+        );
+
+        assert_eq!(
+            mappings[&generator].layout().map(TargetValueLayout::size),
+            Some(pointer_layout(&target).size() * 3)
+        );
+    }
+
+    #[test]
+    fn union_realization_uses_checked_tags_and_payload_facts() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    Empty;\n",
+            "    Number(value: i64);\n",
+            "    Pair(small: i8, large: i64);\n",
+            "}\n",
+        ));
+
+        let target = baseline_codegen_target();
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let union = symbols
+            .unions()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("fixture must declare Choice"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let ty = named_type(values, NamedTypeSymbolId::Union(union.id()))
+            .unwrap_or_else(|error| panic!("union type must be available: {error:?}"));
+
+        let mappings = realized_types(&compilation, &target, [ty]);
+        let mapping = &mappings[&ty];
+
+        let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
+            panic!("Choice must map to a tagged union");
+        };
+
+        assert_eq!(
+            variants
+                .iter()
+                .map(|variant| variant.tag().to_u64())
+                .collect::<Vec<_>>(),
+            [Some(0), Some(1), Some(2)]
+        );
+
+        assert_eq!(
+            variants
+                .iter()
+                .map(|variant| {
+                    variant
+                        .fields()
+                        .iter()
+                        .map(CodegenFieldLayout::offset_bytes)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>(),
+            [vec![], vec![8], vec![8, 16]]
+        );
+
+        assert_eq!(
+            mappings[tag].layout().map(TargetValueLayout::size),
+            Some(1)
+        );
+
+        assert_eq!(mapping.layout().map(TargetValueLayout::size), Some(24));
+    }
+
+    #[test]
+    fn bray_abi_passes_large_composites_indirectly_and_rejects_unsized_values() {
+        let compilation = compilation("module app;\n");
+        let target = baseline_codegen_target();
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let scalar = compilation
+            .compiler_known_type(RepresentationRole::ScalarI32)
+            .unwrap_or_else(|error| panic!("i32 must be available: {error:?}"));
+
+        let generator = intern_type(values, TypeData::Generator(scalar));
+        let slice = intern_type(values, TypeData::Slice(scalar));
+        let mut mappings = realized_types(&compilation, &target, [generator, slice]);
+        let mut pending = BTreeSet::new();
+
+        let signature = CodegenCallableSignature::new(
+            [CodegenParameterMapping::direct(generator, None, [])],
+            CodegenResultMapping::direct(generator, None, []),
+            CallableAbi::Bray,
+            false,
+        );
+
+        let classified = compilation
+            .classify_codegen_signature(
+                signature,
+                &target,
+                &CancellationToken::new(),
+                &mut mappings,
+                &mut pending,
+            )
+            .unwrap_or_else(|error| panic!("Bray ABI must classify: {error:?}"));
+
+        assert!(matches!(
+            classified.parameters(),
+            [CodegenParameterMapping::Indirect {
+                kind: CodegenIndirectParameterKind::ByValue,
+                ..
+            }]
+        ));
+
+        assert!(matches!(
+            classified.result(),
+            CodegenResultMapping::Indirect { .. }
+        ));
+
+        let unsized_signature = CodegenCallableSignature::new(
+            [CodegenParameterMapping::direct(slice, None, [])],
+            CodegenResultMapping::Void,
+            CallableAbi::Bray,
+            false,
+        );
+
+        assert_eq!(
+            compilation.classify_codegen_signature(
+                unsized_signature,
+                &target,
+                &CancellationToken::new(),
+                &mut mappings,
+                &mut pending,
+            ),
+            Err(CodegenFactError::UnsizedTypeByValue(slice))
+        );
+    }
+
+    #[test]
+    fn callable_indirection_closes_recursive_value_layouts_before_abi_classification() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Node\n",
+            "{\n",
+            "    visit: func(pos node: Node) -> unit;\n",
+            "}\n",
+        ));
+
+        let target = baseline_codegen_target();
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let node = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("fixture must declare Node"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let ty = named_type(values, NamedTypeSymbolId::Struct(node.id()))
+            .unwrap_or_else(|error| panic!("Node type must be available: {error:?}"));
+
+        let mappings = realized_types(&compilation, &target, [ty]);
+
+        assert_eq!(
+            mappings[&ty].layout().map(TargetValueLayout::size),
+            Some(pointer_layout(&target).size())
+        );
+    }
+
+    fn realized_types(
+        compilation: &Compilation,
+        target: &CodegenTarget,
+        demanded: impl IntoIterator<Item = TypeId>,
+    ) -> BTreeMap<TypeId, CodegenTypeMapping> {
+        compilation
+            .codegen_types(
+                demanded.into_iter().collect(),
+                None,
+                target,
+                &CancellationToken::new(),
+            )
+            .unwrap_or_else(|error| panic!("types must realize: {error:?}"))
+            .into_iter()
+            .map(|mapping| (mapping.ty(), mapping))
+            .collect()
+    }
+
+    fn baseline_codegen_target() -> CodegenTarget {
+        SelectedTarget::baseline()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("baseline codegen target must be valid: {error:?}"))
+    }
+
+    fn intern_type(values: &bray_symbols::SemanticValueStore, data: TypeData) -> TypeId {
+        values
+            .intern_type(data)
+            .unwrap_or_else(|error| panic!("test type must be valid: {error:?}"))
     }
 }

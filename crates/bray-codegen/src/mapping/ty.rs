@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_ir::MirFieldReference;
-use bray_symbols::{CallableAbi, TypeId, UnionVariantSymbolId};
+use bray_symbols::{CallableAbi, IntegerConstant, TypeId, UnionVariantSymbolId};
 use bray_target::TargetValueLayout;
 
 use crate::TargetAddressSpaceKind;
@@ -261,7 +261,7 @@ impl CodegenFieldLayout {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenUnionVariantLayout {
     variant: UnionVariantSymbolId,
-    tag: u128,
+    tag: IntegerConstant,
     fields: Arc<[CodegenFieldLayout]>,
 }
 
@@ -269,7 +269,7 @@ impl CodegenUnionVariantLayout {
     /// Creates one tagged union payload layout.
     pub fn new(
         variant: UnionVariantSymbolId,
-        tag: u128,
+        tag: IntegerConstant,
         fields: impl IntoIterator<Item = CodegenFieldLayout>,
     ) -> Self {
         Self {
@@ -285,8 +285,8 @@ impl CodegenUnionVariantLayout {
     }
 
     /// Returns the checked integer tag value.
-    pub const fn tag(&self) -> u128 {
-        self.tag
+    pub const fn tag(&self) -> &IntegerConstant {
+        &self.tag
     }
 
     /// Returns payload fields in declaration order.
@@ -324,6 +324,13 @@ pub enum CodegenTypeKind {
         /// Checked element count.
         length: u64,
     },
+    /// An unsized contiguous sequence whose runtime length is carried by an indirection.
+    UnsizedSlice {
+        /// Element representation.
+        element: TypeId,
+    },
+    /// An unsized trait view whose implementation witness is carried by an indirection.
+    UnsizedTraitView,
     /// A tagged union representation.
     Union {
         /// Integer type used for the active tag.
@@ -369,14 +376,27 @@ impl CodegenTypeKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenTypeMapping {
     ty: TypeId,
-    layout: TargetValueLayout,
+    layout: Option<TargetValueLayout>,
     kind: CodegenTypeKind,
 }
 
 impl CodegenTypeMapping {
-    /// Creates one completed type mapping.
+    /// Creates one completed sized type mapping.
     pub const fn new(ty: TypeId, layout: TargetValueLayout, kind: CodegenTypeKind) -> Self {
-        Self { ty, layout, kind }
+        Self {
+            ty,
+            layout: Some(layout),
+            kind,
+        }
+    }
+
+    /// Creates one completed unsized type mapping.
+    pub const fn new_unsized(ty: TypeId, kind: CodegenTypeKind) -> Self {
+        Self {
+            ty,
+            layout: None,
+            kind,
+        }
     }
 
     /// Returns the semantic type identity.
@@ -384,8 +404,8 @@ impl CodegenTypeMapping {
         self.ty
     }
 
-    /// Returns the exact selected physical layout.
-    pub const fn layout(&self) -> TargetValueLayout {
+    /// Returns the exact selected physical layout, or `None` for an unsized semantic type.
+    pub const fn layout(&self) -> Option<TargetValueLayout> {
         self.layout
     }
 

@@ -413,7 +413,9 @@ mod tests {
 
         let types = [crate::CodegenTypeMapping::new(
             descriptor.result_type(),
-            type_mapping.layout(),
+            type_mapping
+                .layout()
+                .unwrap_or_else(|| panic!("test runtime type must be sized")),
             type_mapping.kind().clone(),
         )];
 

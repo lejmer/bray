@@ -46,6 +46,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         self.target_data
     }
 
+    pub(crate) fn default_pointer_type(&self) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        self.map_pointer(bray_codegen::TargetAddressSpaceKind::Default)
+    }
+
     #[cfg(test)]
     pub(crate) fn map_all(&mut self) -> Result<(), CodegenFailure> {
         for mapping in self.mappings.types() {
@@ -74,7 +78,9 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
         self.active.remove(&ty);
 
-        if !layout_matches(self.target_data, mapped, mapping) {
+        if let Some(layout) = mapping.layout()
+            && !layout_matches(self.target_data, mapped, layout)
+        {
             return Err(CodegenFailure::UnsupportedTarget);
         }
 
@@ -136,8 +142,27 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
                 Ok(self.map(*element)?.array_type(length).into())
             }
+            CodegenTypeKind::UnsizedSlice { .. } => self.map_unsized_slice(),
+            CodegenTypeKind::UnsizedTraitView => self.map_unsized_trait_view(),
             CodegenTypeKind::Union { .. } => self.map_union(mapping),
         }
+    }
+
+    fn map_unsized_slice(&self) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        let pointer = self.map_pointer(bray_codegen::TargetAddressSpaceKind::Default)?;
+
+        let length = self
+            .context
+            .ptr_sized_int_type(self.target_data, None)
+            .into();
+
+        Ok(self.context.struct_type(&[pointer, length], false).into())
+    }
+
+    fn map_unsized_trait_view(&self) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        let pointer = self.map_pointer(bray_codegen::TargetAddressSpaceKind::Default)?;
+
+        Ok(self.context.struct_type(&[pointer, pointer], false).into())
     }
 
     fn map_scalar(
@@ -185,6 +210,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         mapping: &CodegenTypeMapping,
         fields: &[bray_codegen::CodegenFieldLayout],
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        let layout = mapping
+            .layout()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let structure = self
             .context
             .opaque_struct_type(&format!("bray.type.{}", mapping.ty().slot()));
@@ -216,20 +245,24 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             };
 
+            let field_layout = field_mapping
+                .layout()
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
             current_offset = field
                 .offset_bytes()
-                .checked_add(field_mapping.layout().size())
+                .checked_add(field_layout.size())
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
         }
 
-        if current_offset > mapping.layout().size() {
+        if current_offset > layout.size() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
         push_padding(
             self.context,
             &mut elements,
-            mapping.layout().size() - current_offset,
+            layout.size() - current_offset,
         )?;
 
         push_alignment_carrier(self.context, &mut elements, mapping)?;
@@ -248,13 +281,17 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         &mut self,
         mapping: &CodegenTypeMapping,
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        let layout = mapping
+            .layout()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let structure = self
             .context
             .opaque_struct_type(&format!("bray.union.{}", mapping.ty().slot()));
 
         let mut elements = Vec::new();
 
-        push_padding(self.context, &mut elements, mapping.layout().size())?;
+        push_padding(self.context, &mut elements, layout.size())?;
 
         push_alignment_carrier(self.context, &mut elements, mapping)?;
         structure.set_body(&elements, false);
@@ -286,6 +323,7 @@ fn push_alignment_carrier<'context>(
 ) -> Result<(), CodegenFailure> {
     let alignment_bits = mapping
         .layout()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
         .alignment()
         .get()
         .checked_mul(8)
@@ -305,10 +343,10 @@ fn push_alignment_carrier<'context>(
 fn layout_matches(
     target_data: &TargetData,
     ty: BasicTypeEnum<'_>,
-    mapping: &CodegenTypeMapping,
+    layout: bray_target::TargetValueLayout,
 ) -> bool {
-    target_data.get_store_size(&ty) == mapping.layout().size()
-        && u64::from(target_data.get_abi_alignment(&ty)) == mapping.layout().alignment().get()
+    target_data.get_store_size(&ty) == layout.size()
+        && u64::from(target_data.get_abi_alignment(&ty)) == layout.alignment().get()
 }
 
 #[cfg(test)]
@@ -376,6 +414,18 @@ mod tests {
             .collect();
 
         assert!(representations.iter().all(Result::is_ok));
+
+        assert_eq!(
+            llvm.map(types.unsized_slice)
+                .map(|ty| ty.print_to_string().to_string()),
+            Ok("{ ptr, i64 }".to_owned())
+        );
+
+        assert_eq!(
+            llvm.map(types.unsized_trait_view)
+                .map(|ty| ty.print_to_string().to_string()),
+            Ok("{ ptr, ptr }".to_owned())
+        );
     }
 
     #[test]
@@ -437,6 +487,8 @@ mod tests {
         byte: bray_symbols::TypeId,
         scalar: bray_symbols::TypeId,
         invalid_aggregate: bray_symbols::TypeId,
+        unsized_slice: bray_symbols::TypeId,
+        unsized_trait_view: bray_symbols::TypeId,
     }
 
     fn mapped_type_fixture() -> MappedTypeFixture {
@@ -452,6 +504,8 @@ mod tests {
         let callable = intern_type(&store, TypeData::Generator(scalar));
         let union = intern_type(&store, TypeData::Nullable(scalar));
         let invalid_aggregate = intern_type(&store, TypeData::tuple([byte, scalar]));
+        let unsized_slice = intern_type(&store, TypeData::Slice(byte));
+        let unsized_trait_view = intern_type(&store, TypeData::tuple([byte, byte, byte]));
 
         let one = NonZeroU64::MIN;
         let four = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
@@ -505,6 +559,14 @@ mod tests {
                 ),
             ),
             CodegenTypeMapping::new(union, layout(8, eight), CodegenTypeKind::union(scalar, [])),
+            CodegenTypeMapping::new_unsized(
+                unsized_slice,
+                CodegenTypeKind::UnsizedSlice { element: byte },
+            ),
+            CodegenTypeMapping::new_unsized(
+                unsized_trait_view,
+                CodegenTypeKind::UnsizedTraitView,
+            ),
             CodegenTypeMapping::new(
                 intern_type(&store, TypeData::tuple([])),
                 layout(0, one),
@@ -517,6 +579,8 @@ mod tests {
             byte,
             scalar,
             invalid_aggregate,
+            unsized_slice,
+            unsized_trait_view,
         }
     }
 
