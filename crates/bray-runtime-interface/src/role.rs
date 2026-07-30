@@ -57,6 +57,10 @@ pub enum RuntimeAbiRole {
     GeneratorPush,
     /// Finish generator accumulation and publish its value.
     GeneratorFinish,
+    /// Broadcast task cleanup through initialized generator elements.
+    GeneratorCleanupBroadcast,
+    /// Destroy initialized generator elements and release accumulation storage.
+    GeneratorDestruction,
     /// Construct one owned panic report.
     PanicReportConstruction,
     /// Create one inactive erased protected frame.
@@ -71,7 +75,7 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 33] = [
         Self::RootExecution,
         Self::RootCancellationRequest,
         Self::TaskAllocation,
@@ -98,6 +102,8 @@ impl RuntimeAbiRole {
         Self::GeneratorBegin,
         Self::GeneratorPush,
         Self::GeneratorFinish,
+        Self::GeneratorCleanupBroadcast,
+        Self::GeneratorDestruction,
         Self::PanicReportConstruction,
         Self::FrameCreation,
         Self::InactiveFrameMove,
@@ -134,6 +140,8 @@ impl RuntimeAbiRole {
             Self::GeneratorBegin => "generator_begin",
             Self::GeneratorPush => "generator_push",
             Self::GeneratorFinish => "generator_finish",
+            Self::GeneratorCleanupBroadcast => "generator_cleanup_broadcast",
+            Self::GeneratorDestruction => "generator_destruction",
             Self::PanicReportConstruction => "panic_report_construction",
             Self::FrameCreation => "frame_creation",
             Self::InactiveFrameMove => "inactive_frame_move",
@@ -198,6 +206,10 @@ pub enum RuntimeRoleContractEffect {
     AppendGeneratorValue,
     /// Finish generator accumulation and transfer its completed value.
     FinishGenerator,
+    /// Invoke task-cleanup callbacks for initialized generator elements.
+    BroadcastGeneratorCleanup,
+    /// Finalize and destroy initialized generator elements, then release their storage.
+    DestroyGenerator,
     /// Construct one owned panic report.
     ConstructPanicReport,
     /// Create one inactive protected frame value.
@@ -369,6 +381,8 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::GeneratorBegin => &[Effect::InitializeGenerator],
         RuntimeAbiRole::GeneratorPush => &[Effect::AppendGeneratorValue],
         RuntimeAbiRole::GeneratorFinish => &[Effect::FinishGenerator],
+        RuntimeAbiRole::GeneratorCleanupBroadcast => &[Effect::BroadcastGeneratorCleanup],
+        RuntimeAbiRole::GeneratorDestruction => &[Effect::DestroyGenerator],
         RuntimeAbiRole::PanicReportConstruction => &[Effect::ConstructPanicReport],
         RuntimeAbiRole::FrameCreation => &[Effect::CreateFrame],
         RuntimeAbiRole::InactiveFrameMove => &[Effect::MoveFrame],

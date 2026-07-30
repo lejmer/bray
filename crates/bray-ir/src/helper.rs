@@ -107,11 +107,27 @@ impl MirOperationKind {
                 collect_conversion_helpers(conversion, &mut helpers);
             }
             Self::Generator(operation) => {
-                helpers.push(match operation {
-                    MirGeneratorOperation::Begin { .. } => MirHelperReference::BeginGenerator,
-                    MirGeneratorOperation::Push { .. } => MirHelperReference::PushGenerator,
-                    MirGeneratorOperation::Finish { .. } => MirHelperReference::FinishGenerator,
-                });
+                match operation {
+                    MirGeneratorOperation::Begin { .. } => {
+                        helpers.push(MirHelperReference::BeginGenerator);
+                    }
+                    MirGeneratorOperation::Push { .. } => {
+                        helpers.push(MirHelperReference::PushGenerator);
+                    }
+                    MirGeneratorOperation::Finish { .. } => {
+                        helpers.push(MirHelperReference::FinishGenerator);
+                    }
+                    MirGeneratorOperation::CleanupBroadcast { element, .. } => {
+                        helpers.push(MirHelperReference::Cleanup {
+                            phase: crate::MirCleanupPhase::TaskCancellation,
+                            ty: *element,
+                        });
+                    }
+                    MirGeneratorOperation::Destroy { element, .. } => {
+                        helpers.push(MirHelperReference::Finalize(*element));
+                        helpers.push(MirHelperReference::Destroy(*element));
+                    }
+                }
             }
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
             Self::Call(call) => collect_call_defaults(call, &mut helpers),

@@ -969,12 +969,14 @@ fn generator_operation(
         MirGeneratorOperation::Begin {
             kind,
             destination,
+            element,
             exact_count,
         } => {
             parts.attribute("step", "begin");
             parts.attribute("generator_kind", generator_kind(*kind));
 
             parts.attribute("has_exact_count", exact_count.is_some());
+            parts.r#type("element_type", *element, context)?;
 
             if let Some(exact_count) = exact_count {
                 parts.semantic_value(
@@ -994,6 +996,26 @@ fn generator_operation(
         }
         MirGeneratorOperation::Finish { destination } => {
             parts.attribute("step", "finish");
+            parts.place("destination", destination, context)?;
+        }
+        MirGeneratorOperation::CleanupBroadcast {
+            destination,
+            element,
+            runtime,
+        } => {
+            parts.attribute("step", "cleanup_broadcast");
+            parts.r#type("element_type", *element, context)?;
+            runtime_reference("runtime", *runtime, parts);
+            parts.place("destination", destination, context)?;
+        }
+        MirGeneratorOperation::Destroy {
+            destination,
+            element,
+            runtime,
+        } => {
+            parts.attribute("step", "destroy");
+            parts.r#type("element_type", *element, context)?;
+            runtime_reference("runtime", *runtime, parts);
             parts.place("destination", destination, context)?;
         }
     }

@@ -20,8 +20,8 @@ use bray_codegen::{
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCall, MirCallTarget, MirCallableReference,
-    MirCleanupEdge, MirEdge, MirFrameInitializer, MirFrameReference, MirHelperReference,
-    MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirCleanupEdge, MirEdge, MirFrameInitializer, MirFrameReference, MirGeneratorOperation,
+    MirHelperReference, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
     MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
     MirUnit, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
 };
@@ -626,6 +626,7 @@ impl Compilation {
                     source,
                     bray_ir::MirGeneratedLifecycleRole::Destroy,
                     place,
+                    runtime_abi,
                     cancellation,
                 );
             }
@@ -641,6 +642,7 @@ impl Compilation {
                         bray_ir::MirCleanupPhase::TaskCancellation,
                     ),
                     place,
+                    runtime_abi,
                     cancellation,
                 );
             }
@@ -690,6 +692,7 @@ impl Compilation {
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
+        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
         cancellation: &CancellationToken,
     ) -> Result<bray_ir::MirBlockId, CodegenFactError> {
         let values = self.semantic_value_store()?;
@@ -720,8 +723,42 @@ impl Compilation {
                 place,
                 *target,
             ),
-            TypeData::Generator(_) => {
-                Err(CodegenFactError::UnsupportedType(place.ty()))
+            TypeData::Generator(element) => {
+                let operation = match role {
+                    bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                        MirGeneratorOperation::Destroy {
+                            destination: place,
+                            element: *element,
+                            runtime: MirRuntimeReference::new(
+                                RuntimeAbiRole::GeneratorDestruction,
+                                runtime_abi,
+                            ),
+                        }
+                    }
+                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::TaskCancellation,
+                    ) => MirGeneratorOperation::CleanupBroadcast {
+                        destination: place,
+                        element: *element,
+                        runtime: MirRuntimeReference::new(
+                            RuntimeAbiRole::GeneratorCleanupBroadcast,
+                            runtime_abi,
+                        ),
+                    },
+                    bray_ir::MirGeneratedLifecycleRole::Finalize
+                    | bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::LifecycleResolution,
+                    ) => return Err(FactQueryError::InfrastructureFailure.into()),
+                };
+
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Generator(operation),
+                )?;
+
+                Ok(block)
             }
             TypeData::OwnedIndirection { storage, target } => self
                 .push_owned_indirection_lifecycle_operations(
@@ -1762,7 +1799,7 @@ impl Compilation {
                 CodegenSymbolKey::Runtime(reference),
                 binding.symbol_name().clone(),
                 CodegenLinkage::Import,
-                void_signature(CallableAbi::Bray),
+                self.codegen_runtime_signature(reference.role())?,
             ));
         }
 
@@ -2108,17 +2145,8 @@ impl Compilation {
                 )
             }
             TypeData::Nullable(element) => {
-                let boolean = self
-                    .available_compiler_known_symbols()
-                    .representation_symbol::<bray_symbols::StructSymbolId>(
-                        RepresentationRole::ScalarBool,
-                    )
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let boolean = super::super::substitution::named_type(
-                    values,
-                    NamedTypeSymbolId::Struct(boolean),
-                )?;
+                let boolean =
+                    self.codegen_representation_type(RepresentationRole::ScalarBool)?;
 
                 self.codegen_aggregate_type(
                     ty,
@@ -2169,8 +2197,8 @@ impl Compilation {
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
             | TypeData::Slice(_)
-            | TypeData::Generator(_)
             | TypeData::TraitView(_) => return Err(CodegenFactError::UnsupportedType(ty)),
+            TypeData::Generator(_) => pointer_mapping(ty, ty, target),
         };
 
         pending.remove(&ty);
@@ -2649,6 +2677,80 @@ impl Compilation {
             false,
         ))
     }
+
+    fn codegen_runtime_signature(
+        &self,
+        role: RuntimeAbiRole,
+    ) -> Result<CodegenCallableSignature, CodegenFactError> {
+        if !matches!(
+            role,
+            RuntimeAbiRole::GeneratorBegin
+                | RuntimeAbiRole::GeneratorPush
+                | RuntimeAbiRole::GeneratorFinish
+                | RuntimeAbiRole::GeneratorCleanupBroadcast
+                | RuntimeAbiRole::GeneratorDestruction
+        ) {
+            return Ok(void_signature(CallableAbi::Bray));
+        }
+
+        let pointer = self.codegen_representation_type(RepresentationRole::RawPointer)?;
+        let usize = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+        let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
+        let parameter = |ty| CodegenParameterMapping::direct(ty, None, []);
+
+        let (parameters, result) = match role {
+            RuntimeAbiRole::GeneratorBegin => (
+                vec![
+                    parameter(pointer),
+                    parameter(usize),
+                    parameter(usize),
+                    parameter(usize),
+                    parameter(usize),
+                    parameter(boolean),
+                ],
+                CodegenResultMapping::Void,
+            ),
+            RuntimeAbiRole::GeneratorPush
+            | RuntimeAbiRole::GeneratorCleanupBroadcast => (
+                vec![parameter(pointer), parameter(pointer)],
+                CodegenResultMapping::Void,
+            ),
+            RuntimeAbiRole::GeneratorFinish => {
+                (vec![parameter(pointer)], CodegenResultMapping::Void)
+            }
+            RuntimeAbiRole::GeneratorDestruction => (
+                vec![
+                    parameter(pointer),
+                    parameter(pointer),
+                    parameter(pointer),
+                ],
+                CodegenResultMapping::Void,
+            ),
+            _ => return Err(FactQueryError::InfrastructureFailure.into()),
+        };
+
+        Ok(CodegenCallableSignature::new(
+            parameters,
+            result,
+            CallableAbi::Bray,
+            false,
+        ))
+    }
+
+    fn codegen_representation_type(
+        &self,
+        role: RepresentationRole,
+    ) -> Result<TypeId, FactQueryError> {
+        let definition = self
+            .available_compiler_known_symbols()
+            .representation_symbol::<bray_symbols::StructSymbolId>(role)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        super::super::substitution::named_type(
+            self.semantic_value_store()?,
+            NamedTypeSymbolId::Struct(definition),
+        )
+    }
 }
 
 const fn target_layout_contract(layout: DeclaredLayoutMode) -> TargetLayoutContract {
@@ -3005,16 +3107,17 @@ mod tests {
 
     use bray_codegen::{
         CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenSymbolKey,
-        CodegenTarget, CodegenTypeKind,
+        CodegenResultMapping, CodegenTarget, CodegenTypeKind,
     };
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_ir::{
-        MirBlockKind, MirCleanupPhase, MirFrameReference, MirHelperReference,
-        MirOperationKind, MirProjectionKind, MirRuntimeReference, MirTerminatorKind,
-        MirUnit, MirUnitId,
+        MirBlockKind, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
+        MirHelperReference, MirOperationKind, MirProjectionKind, MirRuntimeReference,
+        MirTerminatorKind, MirUnit, MirUnitId,
     };
     use bray_runtime_interface::{
         ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
+        RuntimeRoleContractEffect,
     };
     use bray_symbols::{NamedTypeSymbolId, SymbolOrigin, TypeData, TypeId};
     use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
@@ -3599,7 +3702,7 @@ mod tests {
     }
 
     #[test]
-    fn generator_lifecycle_fails_instead_of_silently_no_oping() {
+    fn generator_destruction_reaches_element_lifecycle_and_releases_storage() {
         let compilation = crate::test_support::compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
@@ -3607,34 +3710,198 @@ mod tests {
             .semantic_value_store()
             .expect("semantic values must resolve");
 
-        let payload = values
+        let leaf = values
             .intern_type(TypeData::tuple([]))
-            .expect("generator payload type must intern");
+            .expect("generator leaf type must intern");
+
+        let element = values
+            .intern_type(TypeData::Generator(leaf))
+            .expect("nontrivial generator element type must intern");
 
         let generator = values
-            .intern_type(TypeData::Generator(payload))
-            .expect("generator type must intern");
+            .intern_type(TypeData::Generator(element))
+            .expect("outer generator type must intern");
 
-        let instance = compilation
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(generator),
+            80,
+        );
+
+        let [operation] = generated.operations() else {
+            panic!("generator destruction must contain one represented operation");
+        };
+
+        let MirOperationKind::Generator(MirGeneratorOperation::Destroy {
+            element: operation_element,
+            runtime,
+            ..
+        }) = operation.kind()
+        else {
+            panic!("generator destruction must use the generator destruction ABI");
+        };
+
+        assert_eq!(*operation_element, element);
+        assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorDestruction);
+
+        assert_eq!(
+            runtime.role().contract().effects(),
+            &[RuntimeRoleContractEffect::DestroyGenerator]
+        );
+
+        assert_eq!(
+            operation.kind().helper_references(),
+            [
+                MirHelperReference::Finalize(element),
+                MirHelperReference::Destroy(element),
+            ]
+        );
+
+        let owner = compilation
             .concrete_codegen_lifecycle(
                 MirHelperReference::Destroy(generator),
                 &target,
             )
-            .expect("generator lifecycle identity must realize");
+            .expect("outer generator lifecycle instance must realize");
 
-        let reference = instance
-            .generated_lifecycle_reference()
-            .expect("generator lifecycle payload must be retained");
+        let dependencies = compilation
+            .concrete_codegen_dependencies_for_mir(
+                &owner,
+                &generated,
+                &target,
+                &CancellationToken::new(),
+            )
+            .expect("element lifecycle dependencies must realize");
+
+        assert_eq!(dependencies.len(), 2);
+
+        assert!(dependencies.iter().any(|dependency| {
+            dependency.generated_lifecycle_reference()
+                == Some(&MirHelperReference::Finalize(element))
+        }));
+
+        assert!(dependencies.iter().any(|dependency| {
+            dependency.generated_lifecycle_reference()
+                == Some(&MirHelperReference::Destroy(element))
+        }));
+    }
+
+    #[test]
+    fn generator_cleanup_broadcast_reaches_exact_element_cleanup() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let leaf = values
+            .intern_type(TypeData::tuple([]))
+            .expect("generator leaf type must intern");
+
+        let element = values
+            .intern_type(TypeData::Generator(leaf))
+            .expect("nontrivial generator element type must intern");
+
+        let generator = values
+            .intern_type(TypeData::Generator(element))
+            .expect("outer generator type must intern");
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: generator,
+            },
+            83,
+        );
+
+        let operation = generated
+            .operations()
+            .iter()
+            .find(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Generator(
+                        MirGeneratorOperation::CleanupBroadcast { .. }
+                    )
+                )
+            })
+            .expect("generator cleanup must contain one broadcast operation");
+
+        let MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast {
+            element: operation_element,
+            runtime,
+            ..
+        }) = operation.kind()
+        else {
+            unreachable!("the operation was selected by its exact variant");
+        };
+
+        assert_eq!(*operation_element, element);
+        assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorCleanupBroadcast);
 
         assert_eq!(
-            compilation.codegen_generated_lifecycle_mir(
-                instance.key(),
-                reference,
-                MirUnitId::new(80),
-                &CancellationToken::new(),
-            ),
-            Err(CodegenFactError::UnsupportedType(generator))
+            operation.kind().helper_references(),
+            [MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: element,
+            }]
         );
+    }
+
+    #[test]
+    fn generator_codegen_uses_pointer_storage_and_stable_erased_abis() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let element = values
+            .intern_type(TypeData::tuple([]))
+            .expect("generator element type must intern");
+
+        let generator = values
+            .intern_type(TypeData::Generator(element))
+            .expect("generator type must intern");
+
+        let mut mappings = std::collections::BTreeMap::new();
+        let mut pending = BTreeSet::new();
+
+        compilation
+            .codegen_type(
+                generator,
+                &target,
+                &CancellationToken::new(),
+                &mut mappings,
+                &mut pending,
+            )
+            .expect("generator representation must realize");
+
+        assert!(matches!(
+            mappings
+                .get(&generator)
+                .expect("generator mapping must be present")
+                .kind(),
+            CodegenTypeKind::Pointer { target, .. } if *target == generator
+        ));
+
+        let begin = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
+            .expect("generator begin signature must realize");
+
+        let destruction = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::GeneratorDestruction)
+            .expect("generator destruction signature must realize");
+
+        assert_eq!(begin.parameters().len(), 6);
+        assert_eq!(destruction.parameters().len(), 3);
+        assert_eq!(begin.result(), &CodegenResultMapping::Void);
+        assert_eq!(destruction.result(), &CodegenResultMapping::Void);
     }
 
     #[test]

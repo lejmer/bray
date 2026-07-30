@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use bray_ir::{
-    MirAsyncOperation, MirHostOperation, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
-    MirTerminatorKind,
+    MirAsyncOperation, MirGeneratorOperation, MirHostOperation, MirOperationKind,
+    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
 };
 use bray_symbols::TypeId;
 
@@ -72,6 +72,10 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirHostOperation::ObserveRootTerminal { runtime }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
+        )
+        | MirOperationKind::Generator(
+            MirGeneratorOperation::CleanupBroadcast { runtime, .. }
+            | MirGeneratorOperation::Destroy { runtime, .. },
         ) => [Some(*runtime), None],
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::Store { .. }
@@ -82,7 +86,11 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(_)
+        | MirOperationKind::Generator(
+            MirGeneratorOperation::Begin { .. }
+            | MirGeneratorOperation::Push { .. }
+            | MirGeneratorOperation::Finish { .. },
+        )
         | MirOperationKind::Call(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)

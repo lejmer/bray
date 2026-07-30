@@ -225,7 +225,9 @@ fn collect_generator_values(
 ) {
     match operation {
         MirGeneratorOperation::Begin { destination, .. }
-        | MirGeneratorOperation::Finish { destination } => {
+        | MirGeneratorOperation::Finish { destination }
+        | MirGeneratorOperation::CleanupBroadcast { destination, .. }
+        | MirGeneratorOperation::Destroy { destination, .. } => {
             collect_place_values(destination, demands);
         }
         MirGeneratorOperation::Push { destination, value } => {
