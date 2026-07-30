@@ -4,9 +4,117 @@ use bray_bound_tree::BoundUnitKey;
 use bray_symbols::{CallableDefinitionId, ProductIdentity};
 
 use crate::{
-    MirBlock, MirBlockId, MirFrameDescriptor, MirOperation, MirOperationId, MirSourceOrigin,
-    MirStorage, MirStorageId, MirTargetFacts, MirUnitId, MirUnitKind, MirValue, MirValueId,
+    MirBlock, MirBlockId, MirCleanupPhase, MirFrameDescriptor, MirHelperReference, MirOperation,
+    MirOperationId, MirSourceOrigin, MirStorage, MirStorageId, MirTargetFacts, MirUnitId,
+    MirUnitKind, MirValue, MirValueId,
 };
+
+/// Stable role of one generated lifecycle definition.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirGeneratedLifecycleRole {
+    /// Runs semantic finalization.
+    Finalize,
+    /// Runs semantic destruction.
+    Destroy,
+    /// Runs one checked cleanup phase.
+    Cleanup(MirCleanupPhase),
+}
+
+impl MirGeneratedLifecycleRole {
+    /// Returns the stable role represented by an exact lifecycle helper reference.
+    pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
+        match reference {
+            MirHelperReference::Finalize(_) => Some(Self::Finalize),
+            MirHelperReference::Destroy(_) => Some(Self::Destroy),
+            MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
+            MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::CallableDefault(_)
+            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::TypeForm(_)
+            | MirHelperReference::Conversion(_)
+            | MirHelperReference::BeginGenerator
+            | MirHelperReference::PushGenerator
+            | MirHelperReference::FinishGenerator
+            | MirHelperReference::PanicReport
+            | MirHelperReference::CreateFrame(_)
+            | MirHelperReference::MoveInactiveFrame(_)
+            | MirHelperReference::ComposeAwaitedFrame(_)
+            | MirHelperReference::CommitAwaitedCompletion(_)
+            | MirHelperReference::DestroyTerminalTask => None,
+        }
+    }
+}
+
+/// Stable identity of one generated lifecycle definition.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MirGeneratedLifecycleKey {
+    role: MirGeneratedLifecycleRole,
+    type_identity: [u8; 32],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MirGeneratedLifecycleKey, MirGeneratedLifecycleRole};
+    use crate::MirCleanupPhase;
+
+    #[test]
+    fn generated_lifecycle_identity_uses_role_and_structural_type_identity() {
+        let identity = [7; 32];
+
+        let finalize =
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, identity);
+
+        let destroy =
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Destroy, identity);
+
+        let cleanup = MirGeneratedLifecycleKey::new(
+            MirGeneratedLifecycleRole::Cleanup(
+                MirCleanupPhase::LifecycleResolution,
+            ),
+            identity,
+        );
+
+        assert_ne!(finalize, destroy);
+        assert_ne!(destroy, cleanup);
+
+        let equivalent_type = MirGeneratedLifecycleKey::new(
+            MirGeneratedLifecycleRole::Finalize,
+            identity,
+        );
+
+        assert_eq!(finalize, equivalent_type);
+
+        let other_type_identity = MirGeneratedLifecycleKey::new(
+            MirGeneratedLifecycleRole::Finalize,
+            [8; 32],
+        );
+
+        assert_ne!(finalize, other_type_identity);
+    }
+}
+
+impl MirGeneratedLifecycleKey {
+    /// Creates a stable generated lifecycle identity.
+    pub const fn new(
+        role: MirGeneratedLifecycleRole,
+        type_identity: [u8; 32],
+    ) -> Self {
+        Self {
+            role,
+            type_identity,
+        }
+    }
+
+    /// Returns the generated lifecycle role.
+    pub const fn role(&self) -> MirGeneratedLifecycleRole {
+        self.role
+    }
+
+    /// Returns the stable structural type identity.
+    pub const fn type_identity(&self) -> [u8; 32] {
+        self.type_identity
+    }
+}
 
 /// Stable semantic key of one MIR unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -15,6 +123,8 @@ pub enum MirUnitKey {
     Bound(BoundUnitKey),
     /// MIR synthesized for one executable product host.
     ExecutableHost(ProductIdentity),
+    /// MIR synthesized for one type-specialized lifecycle role.
+    GeneratedLifecycle(MirGeneratedLifecycleKey),
     /// A bodyless callable referenced by generated MIR.
     ExternalCallable(CallableDefinitionId),
 }

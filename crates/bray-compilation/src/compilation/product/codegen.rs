@@ -1,21 +1,20 @@
-use std::collections::BTreeSet;
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_base::{StableDigestHasher, shared_slice};
+use bray_binder::SymbolFactProvider;
+use bray_base::shared_slice;
 use bray_codegen::{
-    AssemblySyntaxKind, CodegenGenericArgument, CodegenInstance, CodegenInstanceBuildError,
+    AssemblySyntaxKind, CodegenInstance, CodegenInstanceBuildError,
     CodegenInstanceDependency, CodegenInstanceKey, CodegenMappings, CodegenOptions,
-    CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenSpecialization,
-    CodegenTarget, CodegenTargetBuildError, CodegenUnit, CodegenUnitBuildError,
-    CodegenValueKey, DebugInformationMode, DebugInformationOutputMode,
-    LinkableArtifactKind, demanded_callable_references_for_mir,
+    CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenTarget,
+    CodegenTargetBuildError, CodegenUnit, CodegenUnitBuildError,
+    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
     demanded_runtime_references, partition_codegen_units,
 };
 use bray_emitter::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, ProductLinkFacts,
 };
-use bray_ir::{MirTargetFacts, MirUnit, MirUnitId, MirUnitKey};
+use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 use bray_linker::{
     DeadStripPolicy, DebugLinkPolicy, LinkInputBuildError, LinkInputKind,
     LinkInputMode, LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkModel,
@@ -28,10 +27,14 @@ use bray_runtime_interface::{
     RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericArgument,
-    GenericSubstitutionId, NativeLinkKind, ProductIdentity, ProductKind,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData,
+    GenericDeclarationTemplateFact, GenericOwnerId, NativeLinkKind, ProductIdentity,
+    ProductKind, SymbolFactRequest,
 };
 
+use super::specialization::{
+    ConcreteCodegenInstance, ConcreteCodegenReachability,
+};
 use super::super::Compilation;
 use super::super::substitution::empty_substitution;
 use crate::fact::{
@@ -191,7 +194,8 @@ impl Compilation {
             return Err(NativeProductFactError::UnsupportedAsyncProduct);
         }
 
-        let source_roots = self.product_root_instances(semantic.value(), &target, cancellation)?;
+        let source_roots =
+            self.product_root_instances(semantic.value(), &target, cancellation)?;
 
         let (host, units, mappings) = if source_roots.is_empty() {
             (None, Arc::from([]), Vec::new())
@@ -204,7 +208,7 @@ impl Compilation {
                 semantic.value().kind(),
                 semantic.value().requires_async_runtime(),
                 &source_roots,
-                &source_reachability,
+                source_reachability.graph(),
                 runtime.as_ref(),
                 required_capabilities,
                 &target,
@@ -220,17 +224,19 @@ impl Compilation {
                     let host_mir = bray_lowering::lower_executable_host(
                         bray_lowering::ExecutableHostLoweringInput::new(
                             GENERATED_HOST_UNIT,
-                            bound_template(root)?,
+                            bound_template(root.key())?,
                             host.clone(),
-                            root.target().clone(),
+                            root.key().target().clone(),
                         ),
                     )
                     .map_err(NativeProductFactError::InvalidHostMir)?;
 
-                    let host_key = CodegenInstanceKey::non_generic(&host_mir);
+                    let host = ConcreteCodegenInstance::generated(
+                        CodegenInstanceKey::non_generic(&host_mir),
+                    );
 
                     self.codegen_reachability(
-                        [host_key],
+                        [host],
                         Some((host_mir, root.clone())),
                         &target,
                         cancellation,
@@ -239,10 +245,16 @@ impl Compilation {
                 None => source_reachability,
             };
 
-            let units = partition_codegen_units(CODEGEN_PARTITION_REVISION, &reachability)
-                .map_err(NativeProductFactError::InvalidCodegenUnit)?;
+            let units =
+                partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
+                    .map_err(NativeProductFactError::InvalidCodegenUnit)?;
 
-            let roots: BTreeSet<_> = reachability.roots().iter().cloned().collect();
+            let roots: BTreeSet<_> = reachability
+                .graph()
+                .roots()
+                .iter()
+                .cloned()
+                .collect();
 
             let mappings = units
                 .iter()
@@ -252,6 +264,7 @@ impl Compilation {
                         host.as_ref(),
                         &target,
                         &roots,
+                        &reachability,
                         cancellation,
                     )
                 })
@@ -307,7 +320,7 @@ impl Compilation {
         semantic: &bray_symbols::ProductSemanticFacts,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<CodegenInstanceKey>, NativeProductFactError> {
+    ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductFactError> {
         let symbols: Vec<_> = match semantic.kind() {
             ProductKind::Executable => semantic.entrypoint().map(AnySymbolId::from).into_iter().collect(),
             ProductKind::Test => semantic
@@ -320,23 +333,38 @@ impl Compilation {
         };
 
         let mut roots = Vec::new();
+        let facts = self.binder_facts(cancellation)?;
 
         for symbol in symbols {
             let Some(definition) = CallableDefinitionId::try_new(symbol) else {
                 continue;
             };
 
+            let owner =
+                GenericOwnerId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let generic = facts
+                .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+                    owner,
+                ))
+                .map_err(super::super::binder::binder_fact_error)?;
+
+            if !generic.value().parameters().is_empty() {
+                continue;
+            }
+
             let substitution = empty_substitution(self.semantic_value_store()?, symbol)?;
 
-            roots.push(self.codegen_instance_key(
+            roots.push(self.concrete_codegen_callable(
                 CallableInstanceData::new(definition, substitution),
+                [],
                 target,
                 cancellation,
             )?);
         }
 
-        roots.sort_unstable();
-        roots.dedup();
+        roots.sort_unstable_by(|left, right| left.key().cmp(right.key()));
+        roots.dedup_by(|left, right| left.key() == right.key());
 
         if roots.is_empty() && semantic.kind() != ProductKind::Library {
             return Err(NativeProductFactError::MissingProductRoot);
@@ -347,19 +375,31 @@ impl Compilation {
 
     fn codegen_reachability(
         &self,
-        roots: impl IntoIterator<Item = CodegenInstanceKey>,
-        generated_host: Option<(MirUnit, CodegenInstanceKey)>,
+        roots: impl IntoIterator<Item = ConcreteCodegenInstance>,
+        generated_host: Option<(MirUnit, ConcreteCodegenInstance)>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<bray_codegen::CodegenReachability, NativeProductFactError> {
-        let mut builder = CodegenReachabilityBuilder::try_new(roots)
+    ) -> Result<ConcreteCodegenReachability, NativeProductFactError> {
+        let roots: Vec<_> = roots.into_iter().collect();
+
+        let mut realizations: BTreeMap<_, _> = roots
+            .iter()
+            .cloned()
+            .map(|instance| (instance.key().clone(), instance))
+            .collect();
+
+        let mut builder = CodegenReachabilityBuilder::try_new(
+            roots.iter().map(|instance| instance.key().clone()),
+        )
             .map_err(NativeProductFactError::InvalidReachability)?;
 
         let generated_host = generated_host.map(|(mir, root)| {
+            realizations.insert(root.key().clone(), root.clone());
+
             (
                 CodegenInstanceKey::non_generic(&mir),
                 mir,
-                CodegenInstanceDependency::definition(root),
+                CodegenInstanceDependency::definition(root.key().clone()),
             )
         });
 
@@ -372,6 +412,11 @@ impl Compilation {
 
             for key in frontier.iter() {
                 cancellation.check()?;
+
+                let realization = realizations
+                    .get(key)
+                    .cloned()
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 if matches!(key.template(), MirUnitKey::ExternalCallable(_)) {
                     builder
@@ -398,16 +443,54 @@ impl Compilation {
                     continue;
                 }
 
-                let mir =
-                    self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)?;
+                let mir = match realization.generated_lifecycle_reference() {
+                    Some(reference) => self.codegen_generated_lifecycle_mir(
+                        key,
+                        reference,
+                        MirUnitId::new(0),
+                        cancellation,
+                    )?,
+                    None => {
+                        self.codegen_mir_for_plan(
+                            key,
+                            MirUnitId::new(0),
+                            None,
+                            cancellation,
+                        )?
+                    }
+                };
 
-                let dependencies = demanded_callable_references_for_mir(&mir)
-                    .into_iter()
-                    .map(|reference| {
-                        self.codegen_instance_key(reference.instance(), target, cancellation)
-                            .map(CodegenInstanceDependency::definition)
+                let concrete_dependencies = self
+                    .concrete_codegen_dependencies_for_mir(
+                        &realization,
+                        &mir,
+                        target,
+                        cancellation,
+                    )?;
+
+                let dependencies = concrete_dependencies
+                    .iter()
+                    .map(|dependency| {
+                        CodegenInstanceDependency::definition(
+                            dependency.key().clone(),
+                        )
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Vec<_>>();
+
+                for dependency in concrete_dependencies {
+                    match realizations.entry(dependency.key().clone()) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(dependency);
+                        }
+                        std::collections::btree_map::Entry::Occupied(entry) => {
+                            if entry.get() != &dependency {
+                                return Err(
+                                    FactQueryError::InfrastructureFailure.into(),
+                                );
+                            }
+                        }
+                    }
+                }
 
                 let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
                     .map_err(NativeProductFactError::InvalidCodegenInstance)?;
@@ -418,68 +501,11 @@ impl Compilation {
             }
         }
 
-        builder
+        let graph = builder
             .finish()
-            .map_err(NativeProductFactError::InvalidReachability)
-    }
+            .map_err(NativeProductFactError::InvalidReachability)?;
 
-    pub(super) fn codegen_instance_key(
-        &self,
-        callable: CallableInstanceData,
-        target: &CodegenTarget,
-        _cancellation: &CancellationToken,
-    ) -> Result<CodegenInstanceKey, super::super::CodegenFactError> {
-        let template = self
-            .callable_body_key(callable.definition())?
-            .map(MirUnitKey::Bound)
-            .unwrap_or_else(|| MirUnitKey::ExternalCallable(callable.definition()));
-
-        Ok(CodegenInstanceKey::new(
-            template,
-            self.codegen_specialization(callable.substitution())?,
-            [],
-            MirTargetFacts::new(
-                target.profile().clone(),
-                self.selected_target().target().runtime_abi(),
-            ),
-        ))
-    }
-
-    fn codegen_specialization(
-        &self,
-        substitution: GenericSubstitutionId,
-    ) -> Result<CodegenSpecialization, super::super::CodegenFactError> {
-        let values = self.semantic_value_store()?;
-
-        let substitution = values
-            .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        if substitution.bindings().is_empty() {
-            return Ok(CodegenSpecialization::NonGeneric);
-        }
-
-        let arguments = substitution
-            .bindings()
-            .iter()
-            .map(|binding| {
-                let mut digest = StableDigestHasher::new();
-
-                digest.write(b"bray.codegen-generic-argument");
-                binding.argument().hash(&mut digest);
-
-                match binding.argument() {
-                    GenericArgument::Type(_) => CodegenGenericArgument::Type(CodegenValueKey::new(
-                        digest.finalize(),
-                    )),
-                    GenericArgument::Constant(_) => CodegenGenericArgument::Constant(
-                        CodegenValueKey::new(digest.finalize()),
-                    ),
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Ok(CodegenSpecialization::generic(arguments))
+        Ok(ConcreteCodegenReachability::new(graph, realizations))
     }
 
     fn executable_host(
@@ -487,7 +513,7 @@ impl Compilation {
         product: &ProductIdentity,
         kind: ProductKind,
         is_async: bool,
-        roots: &[CodegenInstanceKey],
+        roots: &[ConcreteCodegenInstance],
         reachability: &bray_codegen::CodegenReachability,
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
@@ -498,13 +524,16 @@ impl Compilation {
             return Ok(None);
         }
 
-        let root = roots
+        let root_realization = roots
             .first()
-            .and_then(|root| reachability.instance(root))
+            .ok_or(NativeProductFactError::MissingProductRoot)?;
+
+        let root = reachability
+            .instance(root_realization.key())
             .ok_or(NativeProductFactError::MissingProductRoot)?;
 
         if !matches!(
-            self.codegen_instance_signature(root.key(), cancellation)?
+            self.codegen_instance_signature(root_realization, cancellation)?
                 .result(),
             bray_codegen::CodegenResultMapping::Void
         ) {
@@ -683,12 +712,11 @@ impl Compilation {
 fn bound_template(
     key: &CodegenInstanceKey,
 ) -> Result<bray_bound_tree::BoundUnitKey, NativeProductFactError> {
-    match key.template() {
-        MirUnitKey::Bound(key) => Ok(key.clone()),
-        MirUnitKey::ExecutableHost(_) | MirUnitKey::ExternalCallable(_) => {
-            Err(NativeProductFactError::MissingProductRoot)
-        }
-    }
+    let MirUnitKey::Bound(template) = key.template() else {
+        return Err(NativeProductFactError::MissingProductRoot);
+    };
+
+    Ok(template.clone())
 }
 
 /// A failure to derive complete native product facts.
@@ -751,8 +779,6 @@ impl NativeProductFactError {
                 | Self::MissingRuntime
                 | Self::Codegen(
                     super::super::CodegenFactError::UnsupportedType(_)
-                        | super::super::CodegenFactError::UnsupportedHelper(_)
-                        | super::super::CodegenFactError::UnsupportedSpecialization(_)
                 )
         )
     }
@@ -767,5 +793,497 @@ impl From<FactQueryError> for NativeProductFactError {
 impl From<super::super::CodegenFactError> for NativeProductFactError {
     fn from(error: super::super::CodegenFactError) -> Self {
         Self::Codegen(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use bray_codegen::{
+        CodegenGenericArgument, CodegenResultMapping, CodegenSpecialization,
+        partition_codegen_units,
+    };
+    use bray_compiler_known::RepresentationRole;
+    use bray_symbols::{
+        CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
+        GenericParameterSymbolId, GenericSubstitutionData, ImplementationRequirementKey,
+        ImplementationSelection, NamedTypeSymbolId, SymbolOrigin, TraitApplicationData,
+        ConstantTermData, ConstantValueData, ConstantValueKind, TypeData,
+    };
+
+    use super::CODEGEN_PARTITION_REVISION;
+    use crate::CancellationToken;
+
+    const CONCRETE_GENERIC_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func entry()\n",
+        "{\n",
+        "    main();\n",
+        "}\n",
+        "\n",
+        "func accept<T>(pos value: T) -> T\n",
+        "{\n",
+        "    return value;\n",
+        "}\n",
+        "\n",
+        "func repeat<const count: usize>() -> usize\n",
+        "{\n",
+        "    return count;\n",
+        "}\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let accepted: i32 = accept<i32>(1);\n",
+        "    let repeated: usize = repeat<2>();\n",
+        "}\n",
+    );
+
+    #[test]
+    fn concrete_generic_instances_realize_signatures_and_layouts() {
+        let compilation =
+            crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), &target, &cancellation)
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        let reachability = compilation
+            .codegen_reachability(roots.clone(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
+
+        let reversed_reachability = compilation
+            .codegen_reachability(
+                roots.into_iter().rev(),
+                None,
+                &target,
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("reversed reachability must close: {error:?}"));
+
+        assert_eq!(reachability.graph(), reversed_reachability.graph());
+
+        for instance in reachability.graph().instances() {
+            assert_eq!(
+                reachability.instance(instance.key()),
+                reversed_reachability.instance(instance.key())
+            );
+        }
+
+        let units = partition_codegen_units(
+            CODEGEN_PARTITION_REVISION,
+            reachability.graph(),
+        )
+        .unwrap_or_else(|error| panic!("generic units must partition: {error:?}"));
+
+        let mut saw_concrete_generic_signature = false;
+        let mut saw_const_specialization = false;
+
+        for unit in units.iter() {
+            let instance = &unit.instances()[0];
+
+            let realization = reachability
+                .instance(instance.key())
+                .unwrap_or_else(|| panic!("reachable instance payload must be retained"));
+
+            let signature = compilation
+                .codegen_instance_signature(realization, &cancellation)
+                .unwrap_or_else(|error| panic!("generic signature must realize: {error:?}"));
+
+            let mappings = compilation
+                .codegen_mappings_for_product(
+                    unit,
+                    None,
+                    &target,
+                    &reachability
+                        .graph()
+                        .roots()
+                        .iter()
+                        .cloned()
+                        .collect(),
+                    &reachability,
+                    &cancellation,
+                )
+                .unwrap_or_else(|error| panic!("generic mappings must realize: {error:?}"));
+
+            if instance
+                .key()
+                .specialization()
+                .arguments()
+                .iter()
+                .any(|argument| matches!(argument, CodegenGenericArgument::Constant(_)))
+            {
+                saw_const_specialization = true;
+            }
+
+            let CodegenResultMapping::Direct { ty, .. } = signature.result() else {
+                continue;
+            };
+
+            assert!(mappings.ty(*ty).is_some());
+
+            let values = compilation
+                .semantic_value_store()
+                .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+            let data = values
+                .type_data(*ty)
+                .unwrap_or_else(|error| panic!("signature result must resolve: {error:?}"));
+
+            assert!(!matches!(data.as_ref(), TypeData::TypeParameter(_)));
+
+            saw_concrete_generic_signature |= matches!(
+                instance.key().specialization(),
+                CodegenSpecialization::Generic(_)
+            );
+        }
+
+        assert!(saw_concrete_generic_signature);
+        assert!(saw_const_specialization);
+    }
+
+    #[test]
+    fn concrete_generic_specializations_are_stable_across_store_order() {
+        let first = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
+        let second = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
+
+        perturb_semantic_value_order(&second);
+
+        let first = concrete_generic_specializations(&first);
+        let second = concrete_generic_specializations(&second);
+
+        assert_eq!(first, second);
+
+        assert!(first.iter().any(|specialization| {
+            specialization.arguments().iter().any(|argument| {
+                matches!(argument, CodegenGenericArgument::Type(_))
+            })
+        }));
+
+        assert!(first.iter().any(|specialization| {
+            specialization.arguments().iter().any(|argument| {
+                matches!(argument, CodegenGenericArgument::Constant(_))
+            })
+        }));
+    }
+
+    #[test]
+    fn concrete_generic_instances_retain_exact_implementation_witnesses() {
+        let compilation = crate::test_support::compilation(concat!(
+            "module app;\n",
+            "\n",
+            "func entry()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "trait Converts<T>\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "struct Wrapper<T>\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "func target<T>()\n",
+            "{\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbols must resolve: {error:?}"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("test values must resolve: {error:?}"));
+
+        let wrapper = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("test wrapper must be declared"));
+
+        let conversion = symbols
+            .traits()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("test trait must be declared"));
+
+        let target_function = symbols
+            .functions()
+            .iter()
+            .find(|symbol| {
+                symbols
+                    .member_name(symbol.id().into())
+                    .is_some_and(|name| name.as_str() == "target")
+            })
+            .unwrap_or_else(|| panic!("test target must be declared"));
+
+        let boolean_definition = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<bray_symbols::StructSymbolId>(
+                RepresentationRole::ScalarBool,
+            )
+            .unwrap_or_else(|| panic!("test bool representation must be available"));
+
+        let boolean = named_test_type(values, boolean_definition, [], []);
+
+        let wrapper_type = named_test_type(
+            values,
+            wrapper.id(),
+            wrapper
+                .generic_type_parameters()
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Type),
+            [GenericArgument::Type(boolean)],
+        );
+
+        let trait_substitution = test_substitution(
+            values,
+            conversion.id().into(),
+            conversion
+                .generic_type_parameters()
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Type),
+            [GenericArgument::Type(boolean)],
+        );
+
+        let trait_application = values
+            .intern_trait_application(TraitApplicationData::new(
+                conversion.id(),
+                trait_substitution,
+            ))
+            .unwrap_or_else(|error| panic!("test trait application must intern: {error:?}"));
+
+        let selection = compilation
+            .implementation_selection_result(ImplementationRequirementKey::new(
+                wrapper_type,
+                trait_application,
+            ))
+            .unwrap_or_else(|error| panic!("test witness must select: {error:?}"));
+
+        let ImplementationSelection::Selected(witness) = *selection.value() else {
+            panic!("test generic implementation must be selected");
+        };
+
+        let callable_substitution = test_substitution(
+            values,
+            target_function.id().into(),
+            target_function
+                .generic_type_parameters()
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Type),
+            [GenericArgument::Type(boolean)],
+        );
+
+        let definition = CallableDefinitionId::try_new(target_function.id().into())
+            .unwrap_or_else(|| panic!("test target must be callable"));
+
+        let root = compilation
+            .concrete_codegen_callable(
+                CallableInstanceData::new(definition, callable_substitution),
+                [witness],
+                &target,
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("test concrete root must realize: {error:?}"));
+
+        assert!(
+            super::ConcreteCodegenInstance::try_callable(
+                root.key().clone(),
+                root.callable_instance()
+                    .unwrap_or_else(|| panic!("test root must retain its callable")),
+                CodegenSpecialization::NonGeneric,
+                [],
+            )
+            .is_none()
+        );
+
+        let reachability = compilation
+            .codegen_reachability([root], None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
+
+        let [instance] = reachability.graph().instances() else {
+            panic!("test root must be the only reachable instance");
+        };
+
+        assert!(matches!(
+            instance.key().witnesses()[0].specialization(),
+            CodegenSpecialization::Generic(_)
+        ));
+
+        let realization = reachability
+            .instance(instance.key())
+            .unwrap_or_else(|| panic!("test witness payload must be retained"));
+
+        assert_eq!(realization.witness_instances(), [witness]);
+    }
+
+    fn named_test_type(
+        values: &bray_symbols::SemanticValueStore,
+        definition: bray_symbols::StructSymbolId,
+        parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
+        arguments: impl IntoIterator<Item = GenericArgument>,
+    ) -> bray_symbols::TypeId {
+        let substitution = test_substitution(
+            values,
+            definition.into(),
+            parameters,
+            arguments,
+        );
+
+        values
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(definition),
+                substitution,
+            })
+            .unwrap_or_else(|error| panic!("test named type must intern: {error:?}"))
+    }
+
+    fn test_substitution(
+        values: &bray_symbols::SemanticValueStore,
+        owner: bray_symbols::AnySymbolId,
+        parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
+        arguments: impl IntoIterator<Item = GenericArgument>,
+    ) -> bray_symbols::GenericSubstitutionId {
+        let owner = GenericOwnerId::try_new(owner)
+            .unwrap_or_else(|| panic!("test substitution owner must be generic"));
+
+        let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
+            .unwrap_or_else(|error| panic!("test substitution must validate: {error:?}"));
+
+        values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("test substitution must intern: {error:?}"))
+    }
+
+    fn perturb_semantic_value_order(compilation: &crate::Compilation) {
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+        let mut ty = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("noise tuple type must intern: {error:?}"));
+
+        let mut value = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Unit,
+            ))
+            .unwrap_or_else(|error| panic!("noise unit value must intern: {error:?}"));
+
+        for _ in 0..4 {
+            ty = values
+                .intern_type(TypeData::Nullable(ty))
+                .unwrap_or_else(|error| {
+                    panic!("noise nullable type must intern: {error:?}")
+                });
+
+            value = values
+                .intern_constant_value(ConstantValueData::new(
+                    ty,
+                    ConstantValueKind::NullablePresent(value),
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("noise nullable value must intern: {error:?}")
+                });
+
+            values
+                .intern_constant_term(ConstantTermData::Value(value))
+                .unwrap_or_else(|error| {
+                    panic!("noise constant term must intern: {error:?}")
+                });
+        }
+    }
+
+    fn concrete_generic_specializations(
+        compilation: &crate::Compilation,
+    ) -> BTreeSet<CodegenSpecialization> {
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| {
+                panic!("test codegen target must validate: {error:?}")
+            });
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| {
+                panic!("test product facts must resolve: {error:?}")
+            });
+
+        let roots = compilation
+            .product_root_instances(
+                semantic.value(),
+                &target,
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| {
+                panic!("generic reachability must close: {error:?}")
+            })
+            .graph()
+            .instances()
+            .iter()
+            .filter_map(|instance| match instance.key().specialization() {
+                CodegenSpecialization::Generic(_) => {
+                    Some(instance.key().specialization().clone())
+                }
+                CodegenSpecialization::NonGeneric => None,
+            })
+            .collect()
     }
 }

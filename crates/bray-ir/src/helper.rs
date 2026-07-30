@@ -60,6 +60,27 @@ impl MirHelperReference {
     pub const fn abi(&self) -> CallableAbi {
         CallableAbi::Bray
     }
+
+    /// Returns the semantic value type retained by a lifecycle helper.
+    pub const fn lifecycle_type(&self) -> Option<TypeId> {
+        match self {
+            Self::Finalize(ty) | Self::Destroy(ty) | Self::Cleanup { ty, .. } => Some(*ty),
+            Self::AnonymousCallable(_)
+            | Self::CallableDefault(_)
+            | Self::ConstructionDefault(_)
+            | Self::TypeForm(_)
+            | Self::Conversion(_)
+            | Self::BeginGenerator
+            | Self::PushGenerator
+            | Self::FinishGenerator
+            | Self::PanicReport
+            | Self::CreateFrame(_)
+            | Self::MoveInactiveFrame(_)
+            | Self::ComposeAwaitedFrame(_)
+            | Self::CommitAwaitedCompletion(_)
+            | Self::DestroyTerminalTask => None,
+        }
+    }
 }
 
 impl MirOperationKind {
@@ -86,11 +107,27 @@ impl MirOperationKind {
                 collect_conversion_helpers(conversion, &mut helpers);
             }
             Self::Generator(operation) => {
-                helpers.push(match operation {
-                    MirGeneratorOperation::Begin { .. } => MirHelperReference::BeginGenerator,
-                    MirGeneratorOperation::Push { .. } => MirHelperReference::PushGenerator,
-                    MirGeneratorOperation::Finish { .. } => MirHelperReference::FinishGenerator,
-                });
+                match operation {
+                    MirGeneratorOperation::Begin { .. } => {
+                        helpers.push(MirHelperReference::BeginGenerator);
+                    }
+                    MirGeneratorOperation::Push { .. } => {
+                        helpers.push(MirHelperReference::PushGenerator);
+                    }
+                    MirGeneratorOperation::Finish { .. } => {
+                        helpers.push(MirHelperReference::FinishGenerator);
+                    }
+                    MirGeneratorOperation::CleanupBroadcast { element, .. } => {
+                        helpers.push(MirHelperReference::Cleanup {
+                            phase: crate::MirCleanupPhase::TaskCancellation,
+                            ty: *element,
+                        });
+                    }
+                    MirGeneratorOperation::Destroy { element, .. } => {
+                        helpers.push(MirHelperReference::Finalize(*element));
+                        helpers.push(MirHelperReference::Destroy(*element));
+                    }
+                }
             }
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
             Self::Call(call) => collect_call_defaults(call, &mut helpers),

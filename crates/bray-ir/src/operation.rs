@@ -108,6 +108,8 @@ pub enum MirGeneratorOperation {
         kind: MirGeneratorKind,
         /// Destination retaining the in-progress result.
         destination: MirPlace,
+        /// Checked yielded-element type whose layout governs accumulation.
+        element: TypeId,
         /// Exact element count when checking proved one.
         exact_count: Option<ConstantTermId>,
     },
@@ -122,6 +124,24 @@ pub enum MirGeneratorOperation {
     Finish {
         /// Completed result storage.
         destination: MirPlace,
+    },
+    /// Broadcast task cleanup through initialized accumulated elements.
+    CleanupBroadcast {
+        /// Generator value storage retaining the accumulation.
+        destination: MirPlace,
+        /// Checked yielded-element type whose cleanup helper is invoked.
+        element: TypeId,
+        /// Runtime operation that visits initialized elements without releasing storage.
+        runtime: MirRuntimeReference,
+    },
+    /// Destroy initialized accumulated elements and release their storage.
+    Destroy {
+        /// Generator value storage retaining the accumulation.
+        destination: MirPlace,
+        /// Checked yielded-element type whose lifecycle helpers are invoked.
+        element: TypeId,
+        /// Runtime operation that visits elements in reverse and releases storage.
+        runtime: MirRuntimeReference,
     },
 }
 

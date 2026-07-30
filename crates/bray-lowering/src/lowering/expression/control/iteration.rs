@@ -163,6 +163,7 @@ impl Lowerer<'_> {
             MirOperationKind::Generator(MirGeneratorOperation::Begin {
                 kind,
                 destination: Self::retained_place(&destination),
+                element: selection.element_type(),
                 exact_count: selection.exact_count(),
             }),
             None,

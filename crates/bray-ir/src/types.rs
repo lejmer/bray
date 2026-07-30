@@ -160,8 +160,25 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
 
 fn collect_generator_types(operation: &MirGeneratorOperation, types: &mut BTreeSet<TypeId>) {
     match operation {
-        MirGeneratorOperation::Begin { destination, .. }
-        | MirGeneratorOperation::Finish { destination } => collect_place_types(destination, types),
+        MirGeneratorOperation::Begin {
+            destination,
+            element,
+            ..
+        }
+        | MirGeneratorOperation::CleanupBroadcast {
+            destination,
+            element,
+            ..
+        }
+        | MirGeneratorOperation::Destroy {
+            destination,
+            element,
+            ..
+        } => {
+            collect_place_types(destination, types);
+            types.insert(*element);
+        }
+        MirGeneratorOperation::Finish { destination } => collect_place_types(destination, types),
         MirGeneratorOperation::Push { destination, value } => {
             collect_place_types(destination, types);
             collect_operand_types(value, types);
@@ -289,7 +306,8 @@ fn collect_place_types(place: &MirPlace, types: &mut BTreeSet<TypeId>) {
             | MirProjectionKind::ElementFromEnd(_)
             | MirProjectionKind::Variant(_)
             | MirProjectionKind::ActiveUnionPayloadField { .. }
-            | MirProjectionKind::NullableValue => {}
+            | MirProjectionKind::NullableValue
+            | MirProjectionKind::OwnedStorage => {}
         }
     }
 }

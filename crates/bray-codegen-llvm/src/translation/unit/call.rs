@@ -173,15 +173,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         parameter: usize,
         value: u64,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let key = CodegenSymbolKey::Runtime(runtime);
-
-        let symbol = self
-            .request
-            .mappings()
-            .symbol(&key)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let ty = parameter_type(symbol.signature(), parameter)?;
+        let ty = self.runtime_parameter_type(runtime, parameter)?;
 
         let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -195,6 +187,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         helper: &CodegenHelperMapping,
         parameter: usize,
         value: bool,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        self.helper_integer_argument(helper, parameter, u64::from(value))
+    }
+
+    pub(super) fn helper_integer_argument(
+        &mut self,
+        helper: &CodegenHelperMapping,
+        parameter: usize,
+        value: u64,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let key = helper
             .symbol()
@@ -212,7 +213,61 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        Ok(ty.const_int(u64::from(value), false).into())
+        Ok(ty.const_int(value, false).into())
+    }
+
+    pub(super) fn helper_address(
+        &self,
+        helper: &CodegenHelperMapping,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let Some(key) = helper.symbol() else {
+            return Ok(None);
+        };
+
+        let symbol = self
+            .request
+            .mappings()
+            .symbol(key)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let function = self
+            .module
+            .get_function(symbol.name().as_str())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        Ok(Some(
+            function.as_global_value().as_pointer_value().into(),
+        ))
+    }
+
+    pub(super) fn runtime_null_pointer_argument(
+        &mut self,
+        runtime: bray_ir::MirRuntimeReference,
+        parameter: usize,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let ty = self.runtime_parameter_type(runtime, parameter)?;
+
+        let BasicTypeEnum::PointerType(ty) = self.types.map(ty)? else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        Ok(ty.const_null().into())
+    }
+
+    fn runtime_parameter_type(
+        &self,
+        runtime: bray_ir::MirRuntimeReference,
+        parameter: usize,
+    ) -> Result<bray_symbols::TypeId, CodegenFailure> {
+        let key = CodegenSymbolKey::Runtime(runtime);
+
+        let symbol = self
+            .request
+            .mappings()
+            .symbol(&key)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        parameter_type(symbol.signature(), parameter)
     }
 
     pub(super) fn terminal_state_arguments(
@@ -355,7 +410,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(result_storage)
     }
 
-    fn aligned_alloca(
+    pub(super) fn aligned_alloca(
         &mut self,
         pointee: bray_symbols::TypeId,
         alignment: u64,

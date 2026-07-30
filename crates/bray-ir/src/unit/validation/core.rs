@@ -72,7 +72,12 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         (crate::MirUnitKind::ProtectedAsyncFrame(_), None) => {
             return Err(MirUnitBuildError::MissingFrameDescriptor);
         }
-        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::ExecutableHost(_), Some(_)) => {
+        (
+            crate::MirUnitKind::Synchronous
+            | crate::MirUnitKind::ExecutableHost(_)
+            | crate::MirUnitKind::GeneratedLifecycle(_),
+            Some(_),
+        ) => {
             return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
         }
         (crate::MirUnitKind::ExecutableHost(host), None) => {
@@ -82,7 +87,9 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 
             return Ok(());
         }
-        (crate::MirUnitKind::Synchronous, None) => return Ok(()),
+        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::GeneratedLifecycle(_), None) => {
+            return Ok(());
+        }
     };
 
     for state in descriptor.states() {

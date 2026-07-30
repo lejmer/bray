@@ -1067,6 +1067,7 @@ mod tests {
                 kind,
                 destination: begin,
                 exact_count: None,
+                ..
             },
             bray_ir::MirGeneratorOperation::Push {
                 destination: push, ..

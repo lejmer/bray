@@ -4,9 +4,9 @@ use bray_symbols::TypeId;
 
 use crate::{
     MirBlock, MirBlockId, MirBlockKind, MirFrameDescriptor, MirOperation, MirOperationCommit,
-    MirOperationId, MirOperationKind, MirSourceAnchor, MirSourceOrigin, MirStorage, MirStorageId,
-    MirStorageKind, MirTargetFacts, MirTerminator, MirTerminatorKind, MirUnit, MirUnitId,
-    MirUnitKey, MirUnitKind, MirValue, MirValueId, MirValueOrigin,
+    MirHelperReference, MirOperationId, MirOperationKind, MirSourceAnchor, MirSourceOrigin,
+    MirStorage, MirStorageId, MirStorageKind, MirTargetFacts, MirTerminator, MirTerminatorKind,
+    MirUnit, MirUnitId, MirUnitKey, MirUnitKind, MirValue, MirValueId, MirValueOrigin,
 };
 
 use super::MirUnitBuildError;
@@ -85,6 +85,27 @@ impl MirUnitBuilder {
         }
     }
 
+    /// Starts MIR construction for one type-specialized generated lifecycle definition.
+    pub fn for_generated_lifecycle(
+        unit: MirUnitId,
+        key: MirUnitKey,
+        reference: MirHelperReference,
+        target: MirTargetFacts,
+    ) -> Self {
+        Self {
+            key,
+            unit,
+            source: MirSourceOrigin::GeneratedLifecycle(reference.clone()),
+            target,
+            kind: MirUnitKind::GeneratedLifecycle(reference),
+            frame_descriptor: None,
+            blocks: Vec::new(),
+            operations: Vec::new(),
+            storages: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
     /// Attaches the hidden descriptor for this unit's protected async frame.
     pub fn set_frame_descriptor(
         &mut self,
@@ -99,7 +120,9 @@ impl MirUnitBuilder {
             MirUnitKind::ProtectedAsyncFrame(_) => {
                 return Err(MirUnitBuildError::ProtectedFrameMismatch);
             }
-            MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => {
+            MirUnitKind::Synchronous
+            | MirUnitKind::ExecutableHost(_)
+            | MirUnitKind::GeneratedLifecycle(_) => {
                 return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
             }
         }

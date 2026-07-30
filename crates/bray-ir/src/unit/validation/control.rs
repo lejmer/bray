@@ -14,15 +14,15 @@ pub(super) fn validate_terminator(
     block: &MirBlock,
 ) -> Result<(), MirUnitBuildError> {
     match block.terminator().kind() {
-        MirTerminatorKind::Goto(edge) => validate_ordinary_edge(unit, block_id, edge)?,
+        MirTerminatorKind::Goto(edge) => validate_goto_edge(unit, block_id, edge)?,
         MirTerminatorKind::Branch {
             condition,
             then_edge,
             else_edge,
         } => {
             validate_operand(unit, condition, block_id, None)?;
-            validate_ordinary_edge(unit, block_id, then_edge)?;
-            validate_ordinary_edge(unit, block_id, else_edge)?;
+            validate_local_edge(unit, block_id, then_edge)?;
+            validate_local_edge(unit, block_id, else_edge)?;
         }
         MirTerminatorKind::PatternBranch {
             subject,
@@ -31,8 +31,8 @@ pub(super) fn validate_terminator(
             ..
         } => {
             validate_operand(unit, subject, block_id, None)?;
-            validate_ordinary_edge(unit, block_id, matched)?;
-            validate_ordinary_edge(unit, block_id, unmatched)?;
+            validate_local_edge(unit, block_id, matched)?;
+            validate_local_edge(unit, block_id, unmatched)?;
         }
         MirTerminatorKind::Iterate {
             cursor,
@@ -59,10 +59,10 @@ pub(super) fn validate_terminator(
                     return Err(MirUnitBuildError::DuplicateSwitchCase(block_id));
                 }
 
-                validate_ordinary_edge(unit, block_id, case.edge())?;
+                validate_local_edge(unit, block_id, case.edge())?;
             }
 
-            validate_ordinary_edge(unit, block_id, otherwise)?;
+            validate_local_edge(unit, block_id, otherwise)?;
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {
@@ -139,7 +139,11 @@ pub(super) fn validate_terminator(
     if block.kind() == MirBlockKind::CleanupBroadcast
         && !matches!(
             block.terminator().kind(),
-            MirTerminatorKind::ContinueCleanup(_)
+            MirTerminatorKind::Goto(_)
+                | MirTerminatorKind::Branch { .. }
+                | MirTerminatorKind::PatternBranch { .. }
+                | MirTerminatorKind::Switch { .. }
+                | MirTerminatorKind::ContinueCleanup(_)
         )
     {
         return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block_id));
@@ -167,6 +171,49 @@ fn validate_iteration_item(
 
     if block.kind() != MirBlockKind::Ordinary || parameter.ty() != element_type {
         return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(item));
+    }
+
+    Ok(())
+}
+
+fn validate_local_edge(
+    unit: &MirUnit,
+    source: MirBlockId,
+    edge: &MirEdge,
+) -> Result<(), MirUnitBuildError> {
+    validate_edge(unit, source, edge)?;
+
+    let source_kind = unit
+        .block(source)
+        .map(MirBlock::kind)
+        .ok_or_else(|| missing_or_foreign_block(unit, source))?;
+
+    if unit.block(edge.target()).map(MirBlock::kind) != Some(source_kind) {
+        return Err(MirUnitBuildError::CleanupPhaseOrderViolation(edge.target()));
+    }
+
+    Ok(())
+}
+
+fn validate_goto_edge(
+    unit: &MirUnit,
+    source: MirBlockId,
+    edge: &MirEdge,
+) -> Result<(), MirUnitBuildError> {
+    validate_edge(unit, source, edge)?;
+
+    let source_kind = unit
+        .block(source)
+        .map(MirBlock::kind)
+        .ok_or_else(|| missing_or_foreign_block(unit, source))?;
+
+    let target_kind = unit.block(edge.target()).map(MirBlock::kind);
+
+    if target_kind != Some(source_kind)
+        && !(source_kind == MirBlockKind::LifecycleResolution
+            && target_kind == Some(MirBlockKind::Ordinary))
+    {
+        return Err(MirUnitBuildError::CleanupPhaseOrderViolation(edge.target()));
     }
 
     Ok(())

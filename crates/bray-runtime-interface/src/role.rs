@@ -51,11 +51,31 @@ pub enum RuntimeAbiRole {
     FrameCompletionMove,
     /// Infallibly destroy terminal frame storage.
     FrameDestruction,
+    /// Initialize one generator accumulation.
+    GeneratorBegin,
+    /// Append one value to generator accumulation.
+    GeneratorPush,
+    /// Finish generator accumulation and publish its value.
+    GeneratorFinish,
+    /// Broadcast task cleanup through initialized generator elements.
+    GeneratorCleanupBroadcast,
+    /// Destroy initialized generator elements and release accumulation storage.
+    GeneratorDestruction,
+    /// Construct one owned panic report.
+    PanicReportConstruction,
+    /// Create one inactive erased protected frame.
+    FrameCreation,
+    /// Move one inactive erased protected frame before first resume.
+    InactiveFrameMove,
+    /// Compose one erased directly awaited frame into its parent.
+    AwaitedFrameComposition,
+    /// Infallibly destroy one terminal task control record.
+    TaskDestruction,
 }
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 33] = [
         Self::RootExecution,
         Self::RootCancellationRequest,
         Self::TaskAllocation,
@@ -79,6 +99,16 @@ impl RuntimeAbiRole {
         Self::FrameLifecycleResolution,
         Self::FrameCompletionMove,
         Self::FrameDestruction,
+        Self::GeneratorBegin,
+        Self::GeneratorPush,
+        Self::GeneratorFinish,
+        Self::GeneratorCleanupBroadcast,
+        Self::GeneratorDestruction,
+        Self::PanicReportConstruction,
+        Self::FrameCreation,
+        Self::InactiveFrameMove,
+        Self::AwaitedFrameComposition,
+        Self::TaskDestruction,
     ];
 
     /// Returns this role's stable textual name.
@@ -107,6 +137,16 @@ impl RuntimeAbiRole {
             Self::FrameLifecycleResolution => "frame_lifecycle_resolution",
             Self::FrameCompletionMove => "frame_completion_move",
             Self::FrameDestruction => "frame_destruction",
+            Self::GeneratorBegin => "generator_begin",
+            Self::GeneratorPush => "generator_push",
+            Self::GeneratorFinish => "generator_finish",
+            Self::GeneratorCleanupBroadcast => "generator_cleanup_broadcast",
+            Self::GeneratorDestruction => "generator_destruction",
+            Self::PanicReportConstruction => "panic_report_construction",
+            Self::FrameCreation => "frame_creation",
+            Self::InactiveFrameMove => "inactive_frame_move",
+            Self::AwaitedFrameComposition => "awaited_frame_composition",
+            Self::TaskDestruction => "task_destruction",
         }
     }
 
@@ -160,6 +200,26 @@ pub enum RuntimeRoleContractEffect {
     MoveCompletion,
     /// Infallibly destroy terminal frame storage.
     DestroyFrame,
+    /// Initialize generator-owned accumulation storage.
+    InitializeGenerator,
+    /// Transfer one yielded value into generator-owned accumulation storage.
+    AppendGeneratorValue,
+    /// Finish generator accumulation and transfer its completed value.
+    FinishGenerator,
+    /// Invoke task-cleanup callbacks for initialized generator elements.
+    BroadcastGeneratorCleanup,
+    /// Finalize and destroy initialized generator elements, then release their storage.
+    DestroyGenerator,
+    /// Construct one owned panic report.
+    ConstructPanicReport,
+    /// Create one inactive protected frame value.
+    CreateFrame,
+    /// Move one inactive frame before first resume.
+    MoveFrame,
+    /// Compose one directly awaited child frame.
+    ComposeAwaitedFrame,
+    /// Infallibly destroy one terminal task control record.
+    DestroyTask,
     /// Shut product execution infrastructure down.
     StructuredShutdown,
 }
@@ -318,6 +378,16 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::FrameLifecycleResolution => &[Effect::ResolveFrameLifecycle],
         RuntimeAbiRole::FrameCompletionMove => &[Effect::MoveCompletion],
         RuntimeAbiRole::FrameDestruction => &[Effect::DestroyFrame],
+        RuntimeAbiRole::GeneratorBegin => &[Effect::InitializeGenerator],
+        RuntimeAbiRole::GeneratorPush => &[Effect::AppendGeneratorValue],
+        RuntimeAbiRole::GeneratorFinish => &[Effect::FinishGenerator],
+        RuntimeAbiRole::GeneratorCleanupBroadcast => &[Effect::BroadcastGeneratorCleanup],
+        RuntimeAbiRole::GeneratorDestruction => &[Effect::DestroyGenerator],
+        RuntimeAbiRole::PanicReportConstruction => &[Effect::ConstructPanicReport],
+        RuntimeAbiRole::FrameCreation => &[Effect::CreateFrame],
+        RuntimeAbiRole::InactiveFrameMove => &[Effect::MoveFrame],
+        RuntimeAbiRole::AwaitedFrameComposition => &[Effect::ComposeAwaitedFrame],
+        RuntimeAbiRole::TaskDestruction => &[Effect::DestroyTask],
     }
 }
 

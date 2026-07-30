@@ -131,13 +131,23 @@ fn validate_operation_block(
                 block_kind == MirBlockKind::LifecycleResolution
             }
         },
+        MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast { .. }) => {
+            block_kind == MirBlockKind::CleanupBroadcast
+        }
+        MirOperationKind::Generator(MirGeneratorOperation::Destroy { .. }) => {
+            block_kind != MirBlockKind::CleanupBroadcast
+        }
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(_)
+        | MirOperationKind::Generator(
+            MirGeneratorOperation::Begin { .. }
+            | MirGeneratorOperation::Push { .. }
+            | MirGeneratorOperation::Finish { .. },
+        )
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
@@ -183,7 +193,10 @@ fn validate_operation_result(
         operation.kind(),
         MirOperationKind::Store { .. }
             | MirOperationKind::Generator(
-                MirGeneratorOperation::Begin { .. } | MirGeneratorOperation::Push { .. }
+                MirGeneratorOperation::Begin { .. }
+                    | MirGeneratorOperation::Push { .. }
+                    | MirGeneratorOperation::CleanupBroadcast { .. }
+                    | MirGeneratorOperation::Destroy { .. }
             )
             | MirOperationKind::Finalize(_)
             | MirOperationKind::Destroy(_)
@@ -362,6 +375,32 @@ fn validate_generator_operation(
         | MirGeneratorOperation::Finish { destination } => destination,
         MirGeneratorOperation::Push { destination, value } => {
             validate_operand(unit, value, block, Some(operation))?;
+
+            destination
+        }
+        MirGeneratorOperation::CleanupBroadcast {
+            destination,
+            runtime,
+            ..
+        } => {
+            validate_runtime_role(
+                unit,
+                *runtime,
+                bray_runtime_interface::RuntimeAbiRole::GeneratorCleanupBroadcast,
+            )?;
+
+            destination
+        }
+        MirGeneratorOperation::Destroy {
+            destination,
+            runtime,
+            ..
+        } => {
+            validate_runtime_role(
+                unit,
+                *runtime,
+                bray_runtime_interface::RuntimeAbiRole::GeneratorDestruction,
+            )?;
 
             destination
         }
@@ -636,7 +675,8 @@ pub(super) fn validate_place(
             | MirProjectionKind::ElementFromEnd(_)
             | MirProjectionKind::Variant(_)
             | MirProjectionKind::ActiveUnionPayloadField { .. }
-            | MirProjectionKind::NullableValue => {}
+            | MirProjectionKind::NullableValue
+            | MirProjectionKind::OwnedStorage => {}
         }
 
         expected_type = projection.result_type();

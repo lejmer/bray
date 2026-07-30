@@ -215,6 +215,19 @@ pub enum ConstructionDefaultProvider {
     CallableParameter(CallableParameterDefaultProviderSymbolId),
 }
 
+impl ConstructionDefaultProvider {
+    /// Returns the declaration symbol that owns this runtime default.
+    pub const fn symbol(self) -> AnySymbolId {
+        match self {
+            Self::StructField(symbol) => AnySymbolId::StructFieldDefaultProvider(symbol),
+            Self::UnionPayload(symbol) => AnySymbolId::UnionPayloadDefaultProvider(symbol),
+            Self::CallableParameter(symbol) => {
+                AnySymbolId::CallableParameterDefaultProvider(symbol)
+            }
+        }
+    }
+}
+
 /// One supplied or defaulted construction value in evaluation order.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SelectedConstructionInput {

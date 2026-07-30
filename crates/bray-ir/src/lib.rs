@@ -46,6 +46,9 @@ pub use reference::{
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};
 pub use target::MirTargetFacts;
-pub use unit::{MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey, MirUnitKind};
+pub use unit::{
+    MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirUnit, MirUnitBuildError,
+    MirUnitBuilder, MirUnitKey, MirUnitKind,
+};
 pub use value::{MirImmediateValue, MirOperand, MirValue, MirValueOrigin};
 pub use walk::{MirVisitControl, MirVisitor, walk_mir_unit};

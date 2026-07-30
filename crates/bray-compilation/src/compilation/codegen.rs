@@ -5,19 +5,18 @@ use bray_codegen::{
     CodegenMappingsBuildError, CodegenOptions, CodegenOutcome, CodegenRequest,
     CodegenRequestBuildError, CodegenTarget, CodegenUnit, CodegenUnitBuildError, CodegenUnitKey,
 };
-use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
-use bray_runtime_interface::ExecutableHostContract;
-use bray_symbols::CallableDefinitionId;
-
 #[cfg(test)]
 use bray_codegen::{
     CodegenCallableSignature, CodegenLinkage, CodegenResultMapping, CodegenSymbolKey,
     CodegenSymbolMapping, demanded_runtime_references,
 };
+use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
 #[cfg(test)]
 use bray_ir::MirUnitKind;
+use bray_runtime_interface::ExecutableHostContract;
 #[cfg(test)]
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
+use bray_symbols::CallableDefinitionId;
 #[cfg(test)]
 use bray_symbols::CallableAbi;
 
@@ -54,33 +53,6 @@ impl Compilation {
             })?
             .into_iter()
             .collect()
-    }
-
-    pub(super) fn codegen_artifact_for_unit(
-        &self,
-        unit: &CodegenUnit,
-        executable_host: Option<&ExecutableHostContract>,
-        target: &CodegenTarget,
-        options: &CodegenOptions,
-        artifacts: &BackendArtifactRequest,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<CodegenOutcome>, CodegenFactError> {
-        let mappings = self.codegen_mappings_for_product(
-            unit,
-            executable_host,
-            target,
-            &std::collections::BTreeSet::new(),
-            cancellation,
-        )?;
-
-        self.codegen_artifact_with_cancellation(
-            unit,
-            &mappings,
-            target,
-            options,
-            artifacts,
-            cancellation,
-        )
     }
 
     fn codegen_unit_for_plan(
@@ -189,6 +161,9 @@ impl Compilation {
                 )
                 .map_err(CodegenFactError::InvalidHostMir)
             }
+            MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
+                instance.template().clone(),
+            )),
             MirUnitKey::ExternalCallable(_) => Err(CodegenFactError::MirUnavailable(
                 instance.template().clone(),
             )),
@@ -300,7 +275,9 @@ fn codegen_mappings(
                 // The mapping owns the selected process-entry spelling past the MIR borrow.
                 (host.native_entry().clone(), CodegenLinkage::Export)
             }
-            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => (
+            MirUnitKind::Synchronous
+            | MirUnitKind::ProtectedAsyncFrame(_)
+            | MirUnitKind::GeneratedLifecycle(_) => (
                 super::product::generated_symbol_name(
                     target,
                     CodegenLinkage::Internal,
@@ -355,11 +332,7 @@ fn codegen_mappings(
         for operation in ProtectedFrameOperation::ALL {
             symbols.push(symbol_mapping(
                 CodegenSymbolKey::ProtectedFrame { frame, operation },
-                super::product::generated_frame_symbol_name(
-                    target,
-                    frame,
-                    operation,
-                )?,
+                super::product::generated_frame_symbol_name(target, frame, operation)?,
                 CodegenLinkage::Internal,
             ));
         }
@@ -418,6 +391,8 @@ pub enum CodegenFactError {
     UnitMismatch(CodegenUnitKey),
     /// A generated executable host did not satisfy the MIR contract.
     InvalidHostMir(MirUnitBuildError),
+    /// A generated lifecycle definition did not satisfy the MIR contract.
+    InvalidGeneratedLifecycleMir(MirUnitBuildError),
     /// Compilation could not construct complete realization mappings for the planned unit.
     InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.
@@ -428,12 +403,10 @@ pub enum CodegenFactError {
     RecursiveValueType(bray_symbols::TypeId),
     /// The selected backend cannot represent a demanded semantic type.
     UnsupportedType(bray_symbols::TypeId),
-    /// A required MIR helper has no concrete code generation realization.
-    UnsupportedHelper(MirHelperReference),
+    /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.
+    MissingHelperInstance(MirHelperReference),
     /// A demanded type layout exceeds the selected target's representable size.
     LayoutOverflow(bray_symbols::TypeId),
-    /// A demanded callable specialization cannot be reconstructed.
-    UnsupportedSpecialization(bray_codegen::CodegenInstanceKey),
     /// A deterministic generated binary symbol could not be represented.
     InvalidSymbolName,
     /// The compilation fact runtime could not complete the request.

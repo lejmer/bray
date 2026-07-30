@@ -1,5 +1,7 @@
 use bray_runtime_interface::{ExecutableHostContract, ProtectedAsyncFrameId};
 
+use crate::MirHelperReference;
+
 /// Representation category of one MIR unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirUnitKind {
@@ -9,6 +11,8 @@ pub enum MirUnitKind {
     ProtectedAsyncFrame(ProtectedAsyncFrameId),
     /// Compiler-generated native host stub for one executable or test root.
     ExecutableHost(ExecutableHostContract),
+    /// Compiler-generated type-specialized lifecycle definition.
+    GeneratedLifecycle(MirHelperReference),
 }
 
 impl MirUnitKind {
@@ -16,7 +20,7 @@ impl MirUnitKind {
     pub const fn protected_frame(&self) -> Option<ProtectedAsyncFrameId> {
         match self {
             Self::ProtectedAsyncFrame(frame) => Some(*frame),
-            Self::Synchronous | Self::ExecutableHost(_) => None,
+            Self::Synchronous | Self::ExecutableHost(_) | Self::GeneratedLifecycle(_) => None,
         }
     }
 }
