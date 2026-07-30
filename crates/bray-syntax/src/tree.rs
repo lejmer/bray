@@ -152,7 +152,7 @@ mod tests {
     use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion};
 
     use super::SyntaxTree;
-    use crate::{SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNode, SyntaxToken};
+    use crate::{SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxToken};
 
     #[test]
     fn syntax_trees_store_a_compilation_unit_root() {

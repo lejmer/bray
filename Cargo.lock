@@ -314,6 +314,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-formatter"
+version = "0.0.0"
+dependencies = [
+ "bray-parser",
+ "bray-source",
+ "bray-syntax",
+ "bray-testing",
+]
+
+[[package]]
 name = "bray-ir"
 version = "0.0.0"
 dependencies = [

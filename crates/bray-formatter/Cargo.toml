@@ -1,0 +1,17 @@
+[package]
+name = "bray-formatter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-parser = { path = "../bray-parser" }
+bray-source = { path = "../bray-source" }
+bray-syntax = { path = "../bray-syntax" }
+
+[dev-dependencies]
+bray-testing = { path = "../bray-testing" }
+
+[lints]
+workspace = true

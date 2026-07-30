@@ -63,6 +63,9 @@ documents.
 - `bray-emitter`
     - Artifact planning, serialization coordination, staging, publication, bookkeeping, and link-plan construction.
 
+- `bray-formatter`
+    - Deterministic Bray source formatting, comment and recovery preservation, and reusable check/write file operations.
+
 - `bray-runtime-interface`
     - Backend-neutral compiler/runtime interface for protected-frame identities, private execution ABI roles, runtime requirements,
       and executable-host contracts.
