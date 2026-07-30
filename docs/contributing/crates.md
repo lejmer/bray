@@ -4,7 +4,8 @@ Use this page to find the crate that owns a concept. Detailed phase contracts an
 documents.
 
 - `bray-base`
-    - Small, dependency-light foundational types and helpers shared across otherwise unrelated compiler crates.
+    - Small foundational types and helpers shared across otherwise unrelated compiler crates,
+      including private same-directory staging for atomic file publication.
 
 - `bray-source`
     - Source identities, snapshots, text ranges, spans, and source-location utilities.
@@ -63,6 +64,9 @@ documents.
 - `bray-emitter`
     - Artifact planning, serialization coordination, staging, publication, bookkeeping, and link-plan construction.
 
+- `bray-formatter`
+    - Deterministic Bray source formatting, comment and recovery preservation, and reusable check/write file operations.
+
 - `bray-runtime-interface`
     - Backend-neutral compiler/runtime interface for protected-frame identities, private execution ABI roles, runtime requirements,
       and executable-host contracts.
@@ -85,7 +89,7 @@ documents.
     - User-facing command orchestration that translates tool requests into compilation operations and results.
 
 - `bray`
-    - The minimal Bray Tack project and workspace driver executable entry point.
+    - Bray Tack executable composition and local adapters that link optional tool services into the project driver.
 
 - `brayc`
     - The minimal Bray compiler executable entry point.

@@ -297,7 +297,7 @@ impl<'host> ArtifactPublisher<'host> {
             return Err(ArtifactPublicationFailure::Cancelled);
         }
 
-        staging.promote(destination, replacement).map_err(|error| {
+        staging.promote(destination).map_err(|error| {
             artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
         })?;
 

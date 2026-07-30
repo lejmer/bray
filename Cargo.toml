@@ -12,6 +12,7 @@ members = [
     "crates/bray-diagnostics",
     "crates/bray-driver",
     "crates/bray-emitter",
+    "crates/bray-formatter",
     "crates/bray-runtime-interface",
     "crates/bray-ir",
     "crates/bray-linker",

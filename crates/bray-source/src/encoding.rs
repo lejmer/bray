@@ -3,6 +3,15 @@ use std::str::Utf8Error;
 const UTF8_BOM_BYTES: &[u8] = b"\xEF\xBB\xBF";
 const UTF8_BOM_CHARACTER: char = '\u{feff}';
 
+/// Returns the byte length of an accepted leading UTF-8 byte order mark.
+pub fn leading_utf8_bom_len(bytes: &[u8]) -> usize {
+    if bytes.starts_with(UTF8_BOM_BYTES) {
+        UTF8_BOM_BYTES.len()
+    } else {
+        0
+    }
+}
+
 /// Error returned when source bytes are not valid UTF-8.
 ///
 /// When produced by [`SourceLoader`](crate::SourceLoader), byte offsets are
@@ -42,8 +51,10 @@ impl From<Utf8Error> for SourceUtf8Error {
 }
 
 pub(crate) fn decode_source_bytes(mut bytes: Vec<u8>) -> Result<String, SourceUtf8Error> {
-    if bytes.starts_with(UTF8_BOM_BYTES) {
-        bytes.drain(..UTF8_BOM_BYTES.len());
+    let byte_order_mark_len = leading_utf8_bom_len(&bytes);
+
+    if byte_order_mark_len > 0 {
+        bytes.drain(..byte_order_mark_len);
     }
 
     match String::from_utf8(bytes) {
@@ -62,7 +73,9 @@ pub(crate) fn normalize_source_text(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceUtf8Error, decode_source_bytes, normalize_source_text};
+    use super::{
+        SourceUtf8Error, decode_source_bytes, leading_utf8_bom_len, normalize_source_text,
+    };
 
     #[test]
     fn source_bytes_decode_as_utf8() {
@@ -76,6 +89,9 @@ mod tests {
 
     #[test]
     fn source_bytes_strip_leading_utf8_bom() {
+        assert_eq!(leading_utf8_bom_len(b"\xEF\xBB\xBFmodule main\n"), 3);
+        assert_eq!(leading_utf8_bom_len(b"module main\n"), 0);
+
         let text = match decode_source_bytes(Vec::from(b"\xEF\xBB\xBFmodule main\n")) {
             Ok(text) => text,
             Err(error) => panic!("test source bytes should decode as UTF-8: {error:?}"),

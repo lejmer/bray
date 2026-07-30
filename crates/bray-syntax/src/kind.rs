@@ -729,6 +729,37 @@ impl SyntaxKind {
         )
     }
 
+    /// Returns whether this kind represents an expression operator token.
+    pub const fn is_expression_operator(self) -> bool {
+        matches!(
+            self,
+            Self::EqualsToken
+                | Self::PipePipeToken
+                | Self::AmpersandAmpersandToken
+                | Self::EqualsEqualsToken
+                | Self::BangEqualsToken
+                | Self::LessToken
+                | Self::LessEqualsToken
+                | Self::GreaterToken
+                | Self::GreaterEqualsToken
+                | Self::PipeToken
+                | Self::CaretToken
+                | Self::AmpersandToken
+                | Self::LessLessToken
+                | Self::GreaterGreaterToken
+                | Self::PlusToken
+                | Self::MinusToken
+                | Self::StarToken
+                | Self::SlashToken
+                | Self::PercentToken
+                | Self::AtToken
+                | Self::StarStarToken
+                | Self::TildeToken
+                | Self::BangToken
+                | Self::ColonToken
+        )
+    }
+
     /// Returns whether this kind represents a literal-pattern token.
     pub const fn is_pattern_literal(self) -> bool {
         self.is_literal() || matches!(self, Self::TrueKeyword | Self::FalseKeyword)
@@ -1243,6 +1274,11 @@ mod tests {
         assert!(SyntaxKind::FalseKeyword.is_pattern_literal());
         assert!(SyntaxKind::StringLiteralToken.is_pattern_literal());
         assert!(!SyntaxKind::NoneKeyword.is_pattern_literal());
+
+        assert!(SyntaxKind::EqualsToken.is_expression_operator());
+        assert!(SyntaxKind::PlusToken.is_expression_operator());
+        assert!(!SyntaxKind::ArrowToken.is_expression_operator());
+        assert!(!SyntaxKind::DotDotToken.is_expression_operator());
     }
 
     #[test]

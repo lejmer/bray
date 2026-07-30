@@ -132,7 +132,7 @@ impl ExpressionSyntax {
     /// Returns the operator token when this expression is operator-shaped.
     pub fn operator_token(&self) -> Option<SyntaxToken> {
         self.node
-            .first_child_token_matching(self.start, is_expression_operator)
+            .first_child_token_matching(self.start, SyntaxKind::is_expression_operator)
     }
 
     /// Returns the primary-expression child when this is a primary expression.
@@ -152,42 +152,12 @@ impl ExpressionSyntaxBuilder {
     /// Appends an expression operator token.
     pub fn push_operator_token(&mut self, token: SyntaxToken) {
         assert!(
-            is_expression_operator(token.kind()),
+            token.kind().is_expression_operator(),
             "expression.operator_token expected an expression operator"
         );
 
         self.node.push_token(token);
     }
-}
-
-fn is_expression_operator(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::EqualsToken
-            | SyntaxKind::PipePipeToken
-            | SyntaxKind::AmpersandAmpersandToken
-            | SyntaxKind::EqualsEqualsToken
-            | SyntaxKind::BangEqualsToken
-            | SyntaxKind::LessToken
-            | SyntaxKind::LessEqualsToken
-            | SyntaxKind::GreaterToken
-            | SyntaxKind::GreaterEqualsToken
-            | SyntaxKind::PipeToken
-            | SyntaxKind::CaretToken
-            | SyntaxKind::AmpersandToken
-            | SyntaxKind::LessLessToken
-            | SyntaxKind::GreaterGreaterToken
-            | SyntaxKind::PlusToken
-            | SyntaxKind::MinusToken
-            | SyntaxKind::StarToken
-            | SyntaxKind::SlashToken
-            | SyntaxKind::PercentToken
-            | SyntaxKind::AtToken
-            | SyntaxKind::StarStarToken
-            | SyntaxKind::TildeToken
-            | SyntaxKind::BangToken
-            | SyntaxKind::ColonToken
-    )
 }
 
 #[cfg(test)]

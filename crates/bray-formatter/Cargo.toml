@@ -1,21 +1,18 @@
 [package]
-name = "bray"
+name = "bray-formatter"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-bray-diagnostics = { path = "../bray-diagnostics" }
-bray-driver = { path = "../bray-driver" }
-bray-formatter = { path = "../bray-formatter" }
+bray-base = { path = "../bray-base" }
+bray-parser = { path = "../bray-parser" }
+bray-source = { path = "../bray-source" }
+bray-syntax = { path = "../bray-syntax" }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }
 
 [lints]
 workspace = true
-
-[[bin]]
-name = "bray"
-path = "src/main.rs"

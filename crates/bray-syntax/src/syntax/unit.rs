@@ -160,6 +160,11 @@ impl SourceUnitSyntax {
         SyntaxNode::full_range(self)
     }
 
+    /// Returns whether this source unit contains parser recovery syntax.
+    pub fn is_recovered(&self) -> bool {
+        self.node.contains_recovery(TextSize::ZERO)
+    }
+
     /// Returns this source unit's syntax tokens in source order, including EOF.
     ///
     /// Grammar-aware code should prefer named slots and child lists on concrete
@@ -720,6 +725,10 @@ impl GreenSyntaxNode for SourceUnitSyntax {
     fn range_description(&self) -> &'static str {
         "source-unit"
     }
+
+    fn is_recovered(&self) -> bool {
+        SourceUnitSyntax::is_recovered(self)
+    }
 }
 
 impl GreenSourceSyntaxNode for SourceUnitSyntax {
@@ -813,6 +822,8 @@ mod tests {
             source_unit.full_range(),
             TextRange::new(TextSize::ZERO, TextSize::new(4))
         );
+
+        assert!(!source_unit.is_recovered());
 
         assert_eq!(
             source_unit.tokens().collect::<Vec<_>>(),
@@ -932,6 +943,7 @@ mod tests {
         let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
 
         assert_eq!(source_unit.full_text(), "func @ main");
+        assert!(source_unit.is_recovered());
 
         assert_eq!(
             source_unit.tokens().collect::<Vec<_>>(),

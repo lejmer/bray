@@ -73,7 +73,7 @@ where
 }
 
 pub(crate) fn diagnostic_id(index: usize) -> DiagnosticId {
-    DiagnosticId::new(u32::try_from(index).unwrap_or(u32::MAX))
+    DiagnosticId::from_index(index)
 }
 
 fn source_span<C>(
