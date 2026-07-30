@@ -8,21 +8,27 @@ use std::num::{NonZeroU16, NonZeroU64};
 use bray_base::StableDigestHasher;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
-    CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping, CodegenLinkage,
-    CodegenMappings, CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind, child_constants,
-    demanded_callable_references, demanded_constant_terms, demanded_constants,
-    demanded_runtime_references, demanded_types,
+    CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping, CodegenInstance,
+    CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping,
+    CodegenInstanceDependency, CodegenInstanceKey, CodegenLinkage, CodegenMappings,
+    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
+    CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind, child_constants,
+    demanded_callable_references, demanded_callable_references_for_mir,
+    demanded_constant_terms, demanded_constants, demanded_runtime_references, demanded_types,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirHelperReference, MirUnitKey, MirUnitKind};
-use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
+use bray_ir::{
+    MirAsyncOperation, MirCallTarget, MirCleanupPhase, MirFrameInitializer, MirFrameReference,
+    MirHelperReference, MirOperationKind, MirRuntimeReference, MirUnitKey, MirUnitKind,
+};
+use bray_runtime_interface::{
+    BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
+};
 use bray_symbols::{
-    CallableAbi, CallableDefinitionId, CallableSignatureFact, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId,
-    SymbolFactRequest, TypeData, TypeId,
+    AnySymbolId, CallableAbi, CallableDefinitionId, CallableSignatureFact, ConstantTermData,
+    ConstantValueKind, DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId,
+    NamedTypeSymbolId, SymbolFactRequest, TypeData, TypeId,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -40,15 +46,21 @@ impl Compilation {
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         cancellation: &CancellationToken,
     ) -> Result<CodegenMappings, CodegenFactError> {
-        let mut symbols =
-            self.codegen_symbols(unit, executable_host, target, roots, cancellation)?;
-
         let callables = self.codegen_callables(unit, target, cancellation)?;
         let constants = self.codegen_constants(unit)?;
 
         let (constant_terms, terminators) = self.codegen_constant_terms(unit)?;
 
-        let operations = self.codegen_operations(unit)?;
+        let operations = self.codegen_operations(unit, target, cancellation)?;
+
+        let mut symbols = self.codegen_symbols(
+            unit,
+            &operations,
+            executable_host,
+            target,
+            roots,
+            cancellation,
+        )?;
 
         let mut demanded = demanded_types(unit);
 
@@ -77,9 +89,11 @@ impl Compilation {
         .map_err(CodegenFactError::InvalidMappings)
     }
 
-    fn codegen_operations(
+    pub(super) fn codegen_operations(
         &self,
         unit: &CodegenUnit,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenOperationMapping>, CodegenFactError> {
         let mut mappings = Vec::new();
 
@@ -93,7 +107,15 @@ impl Compilation {
 
                 let helpers = references
                     .into_iter()
-                    .map(|reference| self.codegen_helper(reference))
+                    .map(|reference| {
+                        self.codegen_helper(
+                            instance,
+                            data.kind(),
+                            reference,
+                            target,
+                            cancellation,
+                        )
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 mappings.push(CodegenOperationMapping::new(
@@ -107,37 +129,172 @@ impl Compilation {
         Ok(mappings)
     }
 
-    fn codegen_helper(
+    pub(super) fn codegen_runtime_references(
         &self,
-        reference: MirHelperReference,
-    ) -> Result<CodegenHelperMapping, CodegenFactError> {
-        let ty = match &reference {
-            MirHelperReference::Finalize(ty)
-            | MirHelperReference::Destroy(ty)
-            | MirHelperReference::Cleanup { ty, .. } => Some(*ty),
-            MirHelperReference::AnonymousCallable(_)
-            | MirHelperReference::CallableDefault(_)
-            | MirHelperReference::ConstructionDefault(_)
-            | MirHelperReference::TypeForm(_)
-            | MirHelperReference::Conversion(_)
-            | MirHelperReference::BeginGenerator
+        unit: &CodegenUnit,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<BTreeSet<MirRuntimeReference>, CodegenFactError> {
+        let operations = self.codegen_operations(unit, target, cancellation)?;
+
+        Ok(codegen_runtime_references(unit, &operations))
+    }
+
+    pub(super) fn codegen_instance_dependencies(
+        &self,
+        owner: &CodegenInstanceKey,
+        mir: &bray_ir::MirUnit,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<CodegenInstanceDependency>, CodegenFactError> {
+        let mut dependencies = demanded_callable_references_for_mir(mir)
+            .into_iter()
+            .map(|reference| {
+                self.codegen_instance_key(reference.instance(), target, cancellation)
+                    .map(CodegenInstanceDependency::definition)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for reference in mir
+            .operations()
+            .iter()
+            .flat_map(|operation| operation.kind().helper_references())
+        {
+            if let Some(instance) =
+                self.codegen_helper_instance_key(owner, &reference, target, cancellation)?
+            {
+                dependencies.push(CodegenInstanceDependency::definition(instance));
+            }
+        }
+
+        Ok(dependencies)
+    }
+
+    fn codegen_helper_instance_key(
+        &self,
+        owner: &CodegenInstanceKey,
+        reference: &MirHelperReference,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<CodegenInstanceKey>, CodegenFactError> {
+        let instance = match reference {
+            MirHelperReference::AnonymousCallable(unit) => {
+                concrete_bound_helper_instance(owner, unit.clone())
+            }
+            MirHelperReference::CallableDefault(provider) => concrete_bound_helper_instance(
+                owner,
+                self.runtime_default_unit((*provider).into(), reference)?,
+            ),
+            MirHelperReference::ConstructionDefault(provider) => concrete_bound_helper_instance(
+                owner,
+                self.runtime_default_unit(provider.symbol(), reference)?,
+            ),
+            MirHelperReference::TypeForm(callable)
+            | MirHelperReference::Conversion(callable) => {
+                self.codegen_instance_key(*callable, target, cancellation)?
+            }
+            MirHelperReference::BeginGenerator
             | MirHelperReference::PushGenerator
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
+            | MirHelperReference::Finalize(_)
+            | MirHelperReference::Destroy(_)
+            | MirHelperReference::Cleanup { .. }
             | MirHelperReference::CreateFrame(_)
             | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
-            | MirHelperReference::DestroyTerminalTask => None,
+            | MirHelperReference::DestroyTerminalTask => return Ok(None),
         };
 
-        if let Some(ty) = ty {
-            if self.has_trivial_codegen_lifecycle(ty)? {
-                return Ok(CodegenHelperMapping::lowered(reference));
-            }
+        Ok(Some(instance))
+    }
+
+    fn runtime_default_unit(
+        &self,
+        provider: AnySymbolId,
+        reference: &MirHelperReference,
+    ) -> Result<bray_bound_tree::BoundUnitKey, CodegenFactError> {
+        let symbols = self.symbol_graph()?;
+
+        let provider = symbols
+            .symbol_key(provider)
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        self.declared_unit_keys()?
+            .into_iter()
+            .find(|unit| {
+                unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+                    && unit.declared_owner() == provider
+            })
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))
+    }
+
+    fn codegen_helper(
+        &self,
+        owner: &CodegenInstance,
+        operation: &MirOperationKind,
+        reference: MirHelperReference,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenHelperMapping, CodegenFactError> {
+        if let Some(ty) = helper_lifecycle_type(&reference)
+            && self.has_trivial_codegen_lifecycle(ty)?
+        {
+            return Ok(CodegenHelperMapping::lowered(reference));
         }
 
-        Err(CodegenFactError::UnsupportedHelper(reference))
+        if let Some(symbol) = direct_helper_symbol(owner, &reference) {
+            return Ok(CodegenHelperMapping::new(reference, symbol));
+        }
+
+        if let Some(instance) =
+            self.codegen_helper_instance_key(owner.key(), &reference, target, cancellation)?
+        {
+            let symbol = dependency_symbol(owner, &instance, &reference)?;
+
+            return Ok(CodegenHelperMapping::new(reference, symbol));
+        }
+
+        if !matches!(reference, MirHelperReference::CreateFrame(_)) {
+            return Err(CodegenFactError::MissingHelperInstance(reference));
+        }
+
+        let symbol =
+            self.frame_creation_symbol(owner, operation, &reference, target, cancellation)?;
+
+        Ok(CodegenHelperMapping::new(reference, symbol))
+    }
+
+    fn frame_creation_symbol(
+        &self,
+        owner: &CodegenInstance,
+        operation: &MirOperationKind,
+        reference: &MirHelperReference,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenSymbolKey, CodegenFactError> {
+        let MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }) = operation
+        else {
+            return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
+        };
+
+        match initializer {
+            MirFrameInitializer::Callable(call) => match call.target() {
+                MirCallTarget::Direct(callable) => {
+                    let instance =
+                        self.codegen_instance_key(callable.instance(), target, cancellation)?;
+
+                    dependency_symbol(owner, &instance, reference)
+                }
+                MirCallTarget::Indirect { .. } => {
+                    Ok(helper_runtime_symbol(owner, RuntimeAbiRole::FrameCreation))
+                }
+            },
+            MirFrameInitializer::TaskObservation { .. } => {
+                Ok(helper_runtime_symbol(owner, RuntimeAbiRole::JoinRegistration))
+            }
+        }
     }
 
     fn has_trivial_codegen_lifecycle(&self, ty: TypeId) -> Result<bool, FactQueryError> {
@@ -180,6 +337,7 @@ impl Compilation {
     fn codegen_symbols(
         &self,
         unit: &CodegenUnit,
+        operations: &[CodegenOperationMapping],
         executable_host: Option<&ExecutableHostContract>,
         target: &CodegenTarget,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
@@ -246,7 +404,7 @@ impl Compilation {
             ));
         }
 
-        for reference in demanded_runtime_references(unit) {
+        for reference in codegen_runtime_references(unit, operations) {
             let Some(binding) =
                 executable_host.and_then(|host| host.role_binding(reference.role()))
             else {
@@ -274,6 +432,30 @@ impl Compilation {
                     void_signature(CallableAbi::Bray),
                 ));
             }
+        }
+
+        for (frame, operation) in operations.iter().flat_map(|mapping| {
+            mapping.helpers().iter().filter_map(|helper| {
+                let Some(CodegenSymbolKey::ProtectedFrame { frame, operation }) = helper.symbol()
+                else {
+                    return None;
+                };
+
+                Some((*frame, *operation))
+            })
+        }) {
+            let key = CodegenSymbolKey::ProtectedFrame { frame, operation };
+
+            if symbols.iter().any(|symbol| symbol.key() == &key) {
+                continue;
+            }
+
+            symbols.push(CodegenSymbolMapping::new(
+                key,
+                generated_frame_symbol_name(target, frame, operation)?,
+                CodegenLinkage::Import,
+                void_signature(CallableAbi::Bray),
+            ));
         }
 
         Ok(symbols)
@@ -950,6 +1132,144 @@ fn void_signature(abi: CallableAbi) -> CodegenCallableSignature {
     CodegenCallableSignature::new([], CodegenResultMapping::Void, abi, false)
 }
 
+fn concrete_bound_helper_instance(
+    owner: &CodegenInstanceKey,
+    unit: bray_bound_tree::BoundUnitKey,
+) -> CodegenInstanceKey {
+    CodegenInstanceKey::new(
+        MirUnitKey::Bound(unit),
+        owner.specialization().clone(),
+        owner.witnesses().iter().cloned(),
+        owner.target().clone(),
+    )
+}
+
+const fn helper_lifecycle_type(reference: &MirHelperReference) -> Option<TypeId> {
+    match reference {
+        MirHelperReference::Finalize(ty)
+        | MirHelperReference::Destroy(ty)
+        | MirHelperReference::Cleanup { ty, .. } => Some(*ty),
+        MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::CallableDefault(_)
+        | MirHelperReference::ConstructionDefault(_)
+        | MirHelperReference::TypeForm(_)
+        | MirHelperReference::Conversion(_)
+        | MirHelperReference::BeginGenerator
+        | MirHelperReference::PushGenerator
+        | MirHelperReference::FinishGenerator
+        | MirHelperReference::PanicReport
+        | MirHelperReference::CreateFrame(_)
+        | MirHelperReference::MoveInactiveFrame(_)
+        | MirHelperReference::ComposeAwaitedFrame(_)
+        | MirHelperReference::CommitAwaitedCompletion(_)
+        | MirHelperReference::DestroyTerminalTask => None,
+    }
+}
+
+fn helper_runtime_symbol(owner: &CodegenInstance, role: RuntimeAbiRole) -> CodegenSymbolKey {
+    CodegenSymbolKey::Runtime(MirRuntimeReference::new(
+        role,
+        owner.key().target().runtime_abi(),
+    ))
+}
+
+fn direct_helper_symbol(
+    owner: &CodegenInstance,
+    reference: &MirHelperReference,
+) -> Option<CodegenSymbolKey> {
+    let symbol = match reference {
+        MirHelperReference::BeginGenerator => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorBegin)
+        }
+        MirHelperReference::PushGenerator => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorPush)
+        }
+        MirHelperReference::FinishGenerator => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorFinish)
+        }
+        MirHelperReference::PanicReport => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::PanicReportConstruction)
+        }
+        MirHelperReference::Finalize(_) => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::FrameLifecycleResolution)
+        }
+        MirHelperReference::Destroy(_) => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::FrameDestruction)
+        }
+        MirHelperReference::Cleanup { phase, .. } => helper_runtime_symbol(
+            owner,
+            match phase {
+                MirCleanupPhase::TaskCancellation => RuntimeAbiRole::FrameTaskBroadcast,
+                MirCleanupPhase::LifecycleResolution => RuntimeAbiRole::FrameLifecycleResolution,
+            },
+        ),
+        MirHelperReference::MoveInactiveFrame(frame) => match frame {
+            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
+                frame: *frame,
+                operation: ProtectedFrameOperation::MoveBeforeStart,
+            },
+            MirFrameReference::Erased => {
+                helper_runtime_symbol(owner, RuntimeAbiRole::InactiveFrameMove)
+            }
+        },
+        MirHelperReference::ComposeAwaitedFrame(_) => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::AwaitedFrameComposition)
+        }
+        MirHelperReference::CommitAwaitedCompletion(frame) => match frame {
+            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
+                frame: *frame,
+                operation: ProtectedFrameOperation::CompletionMove,
+            },
+            MirFrameReference::Erased => {
+                helper_runtime_symbol(owner, RuntimeAbiRole::FrameCompletionMove)
+            }
+        },
+        MirHelperReference::DestroyTerminalTask => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::TaskDestruction)
+        }
+        MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::CallableDefault(_)
+        | MirHelperReference::ConstructionDefault(_)
+        | MirHelperReference::TypeForm(_)
+        | MirHelperReference::Conversion(_)
+        | MirHelperReference::CreateFrame(_) => return None,
+    };
+
+    Some(symbol)
+}
+
+fn codegen_runtime_references(
+    unit: &CodegenUnit,
+    operations: &[CodegenOperationMapping],
+) -> BTreeSet<MirRuntimeReference> {
+    let mut references = demanded_runtime_references(unit);
+
+    references.extend(operations.iter().flat_map(|operation| {
+        operation.helpers().iter().filter_map(|helper| {
+            let Some(CodegenSymbolKey::Runtime(reference)) = helper.symbol() else {
+                return None;
+            };
+
+            Some(*reference)
+        })
+    }));
+
+    references
+}
+
+fn dependency_symbol(
+    owner: &CodegenInstance,
+    instance: &bray_codegen::CodegenInstanceKey,
+    reference: &MirHelperReference,
+) -> Result<CodegenSymbolKey, CodegenFactError> {
+    owner
+        .dependencies()
+        .iter()
+        .find(|dependency| dependency.instance() == instance)
+        .map(|dependency| CodegenSymbolKey::Instance(dependency.instance().clone()))
+        .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))
+}
+
 fn is_unit(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
@@ -1030,4 +1350,143 @@ fn binary_symbol_name(
     }
 
     BinarySymbolName::try_new(name).ok_or(CodegenFactError::InvalidSymbolName)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::{
+        CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenSymbolKey,
+    };
+    use bray_ir::{MirCleanupPhase, MirFrameReference, MirHelperReference, MirRuntimeReference};
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
+    };
+    use bray_testing::{test_mir_type, test_mir_unit, test_mir_unit_with_declaration};
+
+    use super::{dependency_symbol, direct_helper_symbol};
+    use crate::compilation::CodegenFactError;
+
+    #[test]
+    fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
+        let owner = CodegenInstance::non_generic(test_mir_unit(1));
+        let ty = test_mir_type();
+        let frame = ProtectedAsyncFrameId::new([7; 32]);
+
+        let runtime = |role| {
+            CodegenSymbolKey::Runtime(MirRuntimeReference::new(
+                role,
+                owner.key().target().runtime_abi(),
+            ))
+        };
+
+        let cases = [
+            (
+                MirHelperReference::BeginGenerator,
+                runtime(RuntimeAbiRole::GeneratorBegin),
+            ),
+            (
+                MirHelperReference::PushGenerator,
+                runtime(RuntimeAbiRole::GeneratorPush),
+            ),
+            (
+                MirHelperReference::FinishGenerator,
+                runtime(RuntimeAbiRole::GeneratorFinish),
+            ),
+            (
+                MirHelperReference::PanicReport,
+                runtime(RuntimeAbiRole::PanicReportConstruction),
+            ),
+            (
+                MirHelperReference::Finalize(ty),
+                runtime(RuntimeAbiRole::FrameLifecycleResolution),
+            ),
+            (
+                MirHelperReference::Destroy(ty),
+                runtime(RuntimeAbiRole::FrameDestruction),
+            ),
+            (
+                MirHelperReference::Cleanup {
+                    phase: MirCleanupPhase::TaskCancellation,
+                    ty,
+                },
+                runtime(RuntimeAbiRole::FrameTaskBroadcast),
+            ),
+            (
+                MirHelperReference::Cleanup {
+                    phase: MirCleanupPhase::LifecycleResolution,
+                    ty,
+                },
+                runtime(RuntimeAbiRole::FrameLifecycleResolution),
+            ),
+            (
+                MirHelperReference::MoveInactiveFrame(MirFrameReference::Known(frame)),
+                CodegenSymbolKey::ProtectedFrame {
+                    frame,
+                    operation: ProtectedFrameOperation::MoveBeforeStart,
+                },
+            ),
+            (
+                MirHelperReference::MoveInactiveFrame(MirFrameReference::Erased),
+                runtime(RuntimeAbiRole::InactiveFrameMove),
+            ),
+            (
+                MirHelperReference::ComposeAwaitedFrame(MirFrameReference::Erased),
+                runtime(RuntimeAbiRole::AwaitedFrameComposition),
+            ),
+            (
+                MirHelperReference::CommitAwaitedCompletion(MirFrameReference::Known(frame)),
+                CodegenSymbolKey::ProtectedFrame {
+                    frame,
+                    operation: ProtectedFrameOperation::CompletionMove,
+                },
+            ),
+            (
+                MirHelperReference::CommitAwaitedCompletion(MirFrameReference::Erased),
+                runtime(RuntimeAbiRole::FrameCompletionMove),
+            ),
+            (
+                MirHelperReference::DestroyTerminalTask,
+                runtime(RuntimeAbiRole::TaskDestruction),
+            ),
+        ];
+
+        for (reference, expected) in cases {
+            assert_eq!(direct_helper_symbol(&owner, &reference), Some(expected));
+        }
+    }
+
+    #[test]
+    fn declaration_helpers_require_the_exact_concrete_dependency() {
+        let owner_mir = test_mir_unit(2);
+        let dependency = CodegenInstanceKey::non_generic(&test_mir_unit_with_declaration(3, 4));
+
+        let owner = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&owner_mir),
+            owner_mir,
+            [CodegenInstanceDependency::definition(dependency.clone())],
+        )
+        .unwrap_or_else(|error| panic!("test helper dependency must validate: {error:?}"));
+
+        let reference = MirHelperReference::AnonymousCallable(
+            match dependency.template() {
+                bray_ir::MirUnitKey::Bound(unit) => unit.clone(),
+                bray_ir::MirUnitKey::ExecutableHost(_)
+                | bray_ir::MirUnitKey::ExternalCallable(_) => {
+                    panic!("test dependency must be bound")
+                }
+            },
+        );
+
+        assert_eq!(
+            dependency_symbol(&owner, &dependency, &reference),
+            Ok(CodegenSymbolKey::Instance(dependency.clone()))
+        );
+
+        let missing = CodegenInstanceKey::non_generic(&test_mir_unit_with_declaration(5, 6));
+
+        assert_eq!(
+            dependency_symbol(&owner, &missing, &reference),
+            Err(CodegenFactError::MissingHelperInstance(reference))
+        );
+    }
 }

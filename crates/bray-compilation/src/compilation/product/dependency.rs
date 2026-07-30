@@ -412,13 +412,7 @@ fn push_construction_default(
     provider: ConstructionDefaultProvider,
     dependencies: &mut Vec<AnySymbolId>,
 ) {
-    let symbol = match provider {
-        ConstructionDefaultProvider::StructField(symbol) => symbol.into(),
-        ConstructionDefaultProvider::UnionPayload(symbol) => symbol.into(),
-        ConstructionDefaultProvider::CallableParameter(symbol) => symbol.into(),
-    };
-
-    dependencies.push(symbol);
+    dependencies.push(provider.symbol());
 }
 
 fn push_conversion_dependencies(

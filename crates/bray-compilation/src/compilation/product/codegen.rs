@@ -8,9 +8,8 @@ use bray_codegen::{
     CodegenInstanceDependency, CodegenInstanceKey, CodegenMappings, CodegenOptions,
     CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenSpecialization,
     CodegenTarget, CodegenTargetBuildError, CodegenUnit, CodegenUnitBuildError,
-    CodegenValueKey, DebugInformationMode, DebugInformationOutputMode,
-    LinkableArtifactKind, demanded_callable_references_for_mir,
-    demanded_runtime_references, partition_codegen_units,
+    CodegenValueKey, DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
+    partition_codegen_units,
 };
 use bray_emitter::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, ProductLinkFacts,
@@ -401,13 +400,8 @@ impl Compilation {
                 let mir =
                     self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)?;
 
-                let dependencies = demanded_callable_references_for_mir(&mir)
-                    .into_iter()
-                    .map(|reference| {
-                        self.codegen_instance_key(reference.instance(), target, cancellation)
-                            .map(CodegenInstanceDependency::definition)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                let dependencies =
+                    self.codegen_instance_dependencies(key, &mir, target, cancellation)?;
 
                 let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
                     .map_err(NativeProductFactError::InvalidCodegenInstance)?;
@@ -519,25 +513,23 @@ impl Compilation {
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
-        if is_async && runtime_contract.is_none() {
-            return Err(NativeProductFactError::MissingRuntime);
+        let mut runtime_roles = BTreeSet::new();
+
+        for instance in reachability.instances() {
+            let unit =
+                CodegenUnit::try_from_instances(CODEGEN_PARTITION_REVISION, [instance.clone()])
+                    .map_err(super::super::CodegenFactError::InvalidUnit)?;
+
+            runtime_roles.extend(
+                self.codegen_runtime_references(&unit, target, cancellation)?
+                    .into_iter()
+                    .map(|reference| reference.role()),
+            );
         }
 
-        let runtime_roles: BTreeSet<_> = reachability
-            .instances()
-            .iter()
-            .flat_map(|instance| {
-                CodegenUnit::try_new(CODEGEN_PARTITION_REVISION, [instance.mir().clone()])
-                    .ok()
-                    .into_iter()
-                    .flat_map(|unit| demanded_runtime_references(&unit))
-                    .map(|reference| reference.role())
-            })
-            .filter(|role| {
-                runtime_contract
-                    .is_some_and(|runtime| runtime.role_binding(*role).is_some())
-            })
-            .collect();
+        if runtime_contract.is_none() && (is_async || !runtime_roles.is_empty()) {
+            return Err(NativeProductFactError::MissingRuntime);
+        }
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
@@ -751,7 +743,6 @@ impl NativeProductFactError {
                 | Self::MissingRuntime
                 | Self::Codegen(
                     super::super::CodegenFactError::UnsupportedType(_)
-                        | super::super::CodegenFactError::UnsupportedHelper(_)
                         | super::super::CodegenFactError::UnsupportedSpecialization(_)
                 )
         )
