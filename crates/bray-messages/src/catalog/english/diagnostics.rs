@@ -90,6 +90,21 @@ const PROJECT_DEPENDENCY_CYCLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
+const PROJECT_COMMAND_SELECTION_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("project command selection is not present in the explicit graph: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const PROJECT_COMMAND_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("project command capability is unavailable in this toolchain: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const PROJECT_COMMAND_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("project command operation failed: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("no source inputs were provided")];
 
@@ -968,6 +983,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::ProjectDependencyCycle => {
             MessageTemplate::new(PROJECT_DEPENDENCY_CYCLE)
+        }
+        DiagnosticKind::ProjectCommandSelectionInvalid => {
+            MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
+        }
+        DiagnosticKind::ProjectCommandUnavailable => {
+            MessageTemplate::new(PROJECT_COMMAND_UNAVAILABLE)
+        }
+        DiagnosticKind::ProjectCommandFailed => {
+            MessageTemplate::new(PROJECT_COMMAND_FAILED)
         }
         DiagnosticKind::LexicalInvalidCharacter => MessageTemplate::new(LEXICAL_INVALID_CHARACTER),
         DiagnosticKind::LexicalMisplacedBom => MessageTemplate::new(LEXICAL_MISPLACED_BOM),

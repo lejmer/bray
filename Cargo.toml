@@ -27,6 +27,7 @@ members = [
     "crates/bray-syntax",
     "crates/bray-target",
     "crates/bray-testing",
+    "crates/bray",
     "crates/brayc",
     "tools/rust-style",
     "xtask",

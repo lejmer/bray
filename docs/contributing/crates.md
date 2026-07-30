@@ -84,6 +84,9 @@ documents.
 - `bray-driver`
     - User-facing command orchestration that translates tool requests into compilation operations and results.
 
+- `bray`
+    - The minimal Bray Tack project and workspace driver executable entry point.
+
 - `brayc`
     - The minimal Bray compiler executable entry point.
 

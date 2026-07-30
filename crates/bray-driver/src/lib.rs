@@ -6,6 +6,7 @@ mod command;
 mod inspection;
 mod output;
 mod run;
+mod tack;
 #[cfg(test)]
 mod test_support;
 
@@ -17,3 +18,10 @@ pub use command::{
     source_inputs_from_file_arguments,
 };
 pub use run::{DriverRunResult, run, run_result};
+pub use tack::{
+    TackCliError, TackCommandKind, TackFormatInput, TackFormatMode, TackFormatRequest,
+    TackFormatService, TackInvocation, TackLanguageServerRequest,
+    TackLanguageServerService, TackDiagnostics, TackRunResult,
+    TackServiceResult, TackServices, run_tack, run_tack_result,
+    run_tack_with_services,
+};

@@ -16,8 +16,28 @@ pub(crate) fn write_json_diagnostics(
     sources: Option<&SourceStore>,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    let source_map = DiagnosticSourceMap::new(sources);
-    let report = DiagnosticJsonReport::from_bag(diagnostics, &source_map);
+    write_json_diagnostic_groups([(diagnostics, sources)], writer)
+}
+
+pub(super) fn write_json_diagnostic_groups<'diagnostic>(
+    groups: impl IntoIterator<
+        Item = (&'diagnostic DiagnosticBag, Option<&'diagnostic SourceStore>),
+    >,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    let mut has_errors = false;
+    let mut diagnostics = Vec::new();
+
+    for (bag, sources) in groups {
+        has_errors |= bag.has_errors();
+
+        diagnostics.extend(diagnostic_jsons(bag, sources));
+    }
+
+    let report = DiagnosticJsonReport {
+        has_errors,
+        diagnostics,
+    };
 
     serde_json::to_writer_pretty(&mut *writer, &report).map_err(io::Error::other)?;
 
@@ -47,15 +67,6 @@ fn diagnostic_jsons_from_map(
 struct DiagnosticJsonReport {
     has_errors: bool,
     diagnostics: Vec<DiagnosticJson>,
-}
-
-impl DiagnosticJsonReport {
-    fn from_bag(bag: &DiagnosticBag, source_map: &DiagnosticSourceMap<'_>) -> Self {
-        Self {
-            has_errors: bag.has_errors(),
-            diagnostics: diagnostic_jsons_from_map(bag, source_map),
-        }
-    }
 }
 
 #[derive(Serialize)]

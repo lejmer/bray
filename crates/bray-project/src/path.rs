@@ -11,6 +11,11 @@ use bray_base::NonEmptySharedStr;
 pub struct ProjectPath(NonEmptySharedStr);
 
 impl ProjectPath {
+    /// Creates a non-root canonical portable project path.
+    pub fn try_relative(value: impl Into<Arc<str>>) -> Option<Self> {
+        Self::try_new(value, false)
+    }
+
     /// Returns the portable serialized path.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
@@ -88,6 +93,12 @@ mod tests {
         let Some(path) = ProjectPath::try_new("vendor/math", false) else {
             panic!("test project path must be valid");
         };
+
+        assert_eq!(
+            ProjectPath::try_relative("vendor/math")
+                .map(|path| path.as_str().to_owned()),
+            Some(String::from("vendor/math"))
+        );
 
         assert_eq!(path.as_str(), "vendor/math");
 

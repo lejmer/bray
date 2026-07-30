@@ -9,7 +9,9 @@ use bray_diagnostics::{
 use crate::command::DriverOutputFormat;
 use crate::run::DriverRunResult;
 
-use super::json::write_json_diagnostics;
+use super::json::{
+    write_json_diagnostic_groups, write_json_diagnostics,
+};
 use super::text::write_text_diagnostics;
 
 pub(crate) enum DriverOutputError {
@@ -47,15 +49,67 @@ pub(crate) fn write_driver_output(
         return Ok(());
     }
 
-    match result.output_format() {
+    write_diagnostics(
+        result.diagnostics(),
+        result.sources(),
+        result.output_format(),
+        stdout,
+        stderr,
+    )
+    .map_err(|_| DriverOutputError::Terminal)
+}
+
+pub(crate) fn write_diagnostics(
+    diagnostics: &DiagnosticBag,
+    sources: Option<&bray_source::SourceStore>,
+    output_format: DriverOutputFormat,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> io::Result<()> {
+    match output_format {
         DriverOutputFormat::Text => {
-            write_text_diagnostics(result.diagnostics(), result.sources(), stderr)
+            write_text_diagnostics(diagnostics, sources, stderr)
         }
         DriverOutputFormat::Json => {
-            write_json_diagnostics(result.diagnostics(), result.sources(), stdout)
+            write_json_diagnostics(diagnostics, sources, stdout)
         }
     }
-    .map_err(|_| DriverOutputError::Terminal)
+}
+
+pub(crate) fn write_diagnostic_groups<'diagnostic>(
+    groups: impl IntoIterator<
+        Item = (
+            &'diagnostic DiagnosticBag,
+            Option<&'diagnostic bray_source::SourceStore>,
+        ),
+    >,
+    output_format: DriverOutputFormat,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> io::Result<()> {
+    match output_format {
+        DriverOutputFormat::Text => {
+            let mut wrote_diagnostics = false;
+
+            for (diagnostics, sources) in groups {
+                if diagnostics.is_empty() {
+                    continue;
+                }
+
+                if wrote_diagnostics {
+                    writeln!(stderr)?;
+                }
+
+                write_text_diagnostics(diagnostics, sources, stderr)?;
+                wrote_diagnostics = true;
+            }
+
+            Ok(())
+        }
+        DriverOutputFormat::Json => {
+            write_json_diagnostic_groups(groups, stdout)
+        }
+    }
 }
 
 pub(crate) fn write_driver_output_error(
