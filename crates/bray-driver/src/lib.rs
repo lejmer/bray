@@ -21,7 +21,7 @@ pub use run::{DriverRunResult, run, run_result};
 pub use tack::{
     TackCliError, TackCommandKind, TackFormatInput, TackFormatMode, TackFormatRequest,
     TackFormatService, TackInvocation, TackLanguageServerRequest,
-    TackLanguageServerService, TackRunResult,
+    TackLanguageServerService, TackDiagnostics, TackRunResult,
     TackServiceResult, TackServices, run_tack, run_tack_result,
     run_tack_with_services,
 };

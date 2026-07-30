@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use bray_diagnostics::DiagnosticBag;
 
-use crate::output::write_diagnostics;
+use crate::output::write_diagnostic_groups;
 use crate::run::exit_code_from_diagnostics;
 use crate::tack::compiler::ProjectCompiler;
 use crate::tack::error::{
@@ -24,78 +24,12 @@ use crate::tack::model::{
 use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products,
 };
+use crate::tack::result::TackRunResult;
 use crate::tack::service::{
     TackFormatInput, TackFormatMode, TackFormatRequest,
     TackLanguageServerRequest, TackServices,
 };
 use crate::DriverOutputFormat;
-
-/// Structured result from running Bray Tack.
-#[derive(Debug)]
-pub struct TackRunResult {
-    exit_code: ExitCode,
-    diagnostics: DiagnosticBag,
-    output_format: DriverOutputFormat,
-    stdout: String,
-    stderr: String,
-}
-
-impl TackRunResult {
-    fn new(
-        exit_code: ExitCode,
-        diagnostics: DiagnosticBag,
-        output_format: DriverOutputFormat,
-    ) -> Self {
-        Self {
-            exit_code,
-            diagnostics,
-            output_format,
-            stdout: String::new(),
-            stderr: String::new(),
-        }
-    }
-
-    fn with_output(
-        exit_code: ExitCode,
-        diagnostics: DiagnosticBag,
-        output_format: DriverOutputFormat,
-        stdout: String,
-        stderr: String,
-    ) -> Self {
-        Self {
-            exit_code,
-            diagnostics,
-            output_format,
-            stdout,
-            stderr,
-        }
-    }
-
-    /// Returns the process exit code selected by Bray Tack.
-    pub const fn exit_code(&self) -> ExitCode {
-        self.exit_code
-    }
-
-    /// Returns structured diagnostics produced by the command.
-    pub const fn diagnostics(&self) -> &DiagnosticBag {
-        &self.diagnostics
-    }
-
-    /// Returns the selected diagnostic output format.
-    pub const fn output_format(&self) -> DriverOutputFormat {
-        self.output_format
-    }
-
-    /// Returns command-owned standard output.
-    pub fn stdout(&self) -> &str {
-        &self.stdout
-    }
-
-    /// Returns command-owned standard error.
-    pub fn stderr(&self) -> &str {
-        &self.stderr
-    }
-}
 
 /// Runs Bray Tack with no optional formatter or language-server implementation.
 pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -136,17 +70,16 @@ fn run_tack_with_io(
 ) -> ExitCode {
     let result = run_tack_result_with_input(arguments, services, stdin);
 
-    if stdout.write_all(result.stdout.as_bytes()).is_err()
-        || stderr.write_all(result.stderr.as_bytes()).is_err()
+    if stdout.write_all(result.stdout().as_bytes()).is_err()
+        || stderr.write_all(result.stderr().as_bytes()).is_err()
     {
         return ExitCode::FAILURE;
     }
 
-    if !result.diagnostics.is_empty()
-        && write_diagnostics(
-            &result.diagnostics,
-            None,
-            result.output_format,
+    if !result.diagnostics().is_empty()
+        && write_diagnostic_groups(
+            result.diagnostic_groups(),
+            result.output_format(),
             stdout,
             stderr,
         )
@@ -155,7 +88,7 @@ fn run_tack_with_io(
         return ExitCode::FAILURE;
     }
 
-    result.exit_code
+    result.exit_code()
 }
 
 fn run_tack_result_with_input(
@@ -191,6 +124,17 @@ fn execute_invocation(
 ) -> TackRunResult {
     let (workspace_root, worker_budget, output_format, command) =
         invocation.into_parts();
+
+    let workspace_root = match std::path::absolute(workspace_root) {
+        Ok(workspace_root) => workspace_root,
+        Err(_) => {
+            return TackRunResult::new(
+                ExitCode::FAILURE,
+                operation_diagnostics("workspace_path"),
+                output_format,
+            );
+        }
+    };
 
     match command {
         TackCommand::VendorInstall { name, repository } => {
@@ -335,22 +279,27 @@ fn run_check(
     };
 
     let mut compiler = ProjectCompiler::new(workspace_root, graph, worker_budget);
-    let mut diagnostics = DiagnosticBag::new();
+
+    let mut result = TackRunResult::new(
+        ExitCode::SUCCESS,
+        DiagnosticBag::new(),
+        output_format,
+    );
 
     for product in products {
         match compiler.check(&product) {
             Ok(compilation) => {
-                diagnostics = diagnostics.merged(compilation.check_diagnostics());
+                let diagnostics = compilation.check_diagnostics().clone();
+
+                result.add_compilation_diagnostics(compilation, diagnostics);
             }
-            Err(error) => diagnostics = diagnostics.merged(&error),
+            Err(error) => result.add_unscoped_diagnostics(error),
         }
     }
 
-    TackRunResult::new(
-        exit_code_from_diagnostics(&diagnostics),
-        diagnostics,
-        output_format,
-    )
+    result.select_diagnostic_exit_code();
+
+    result
 }
 
 fn run_build(
@@ -736,6 +685,7 @@ fn result_from_operation(
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
+    use std::path::PathBuf;
     use std::process::ExitCode;
     use std::sync::Mutex;
 
@@ -799,6 +749,124 @@ mod tests {
         }
     }
 
+    fn run_check_output(
+        workspace: &ProjectWorkspace,
+        output_format: &str,
+    ) -> (ExitCode, Vec<u8>, Vec<u8>) {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_tack_with_io(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "--format".into(),
+                output_format.into(),
+                "check".into(),
+            ],
+            TackServices::new(),
+            &mut Cursor::new(Vec::new()),
+            &mut stdout,
+            &mut stderr,
+        );
+
+        (exit_code, stdout, stderr)
+    }
+
+    fn write_two_invalid_products(workspace: &ProjectWorkspace) {
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "features": [],
+                "source_roots": [
+                    {
+                        "name": "first",
+                        "path": "first"
+                    },
+                    {
+                        "name": "second",
+                        "path": "second"
+                    }
+                ],
+                "dependencies": [],
+                "products": [
+                    {
+                        "name": "first",
+                        "kind": "library",
+                        "source_roots": ["first"],
+                        "targets": ["native"],
+                        "outputs": ["package_interface"]
+                    },
+                    {
+                        "name": "second",
+                        "kind": "library",
+                        "source_roots": ["second"],
+                        "targets": ["native"],
+                        "outputs": ["package_interface"]
+                    }
+                ]
+            }"#,
+        );
+
+        workspace.write("app/first/first.bray", "$");
+        workspace.write("app/second/second.bray", "$");
+    }
+
+    fn write_backend_only_product(workspace: &ProjectWorkspace, product_kind: &str) {
+        workspace.write(
+            "app/bray-package.json",
+            &format!(
+                r#"{{
+                    "format": 1,
+                    "identity": "example.application",
+                    "features": [],
+                    "source_roots": [
+                        {{
+                            "name": "main",
+                            "path": "src"
+                        }}
+                    ],
+                    "dependencies": [],
+                    "products": [
+                        {{
+                            "name": "application",
+                            "kind": "{product_kind}",
+                            "source_roots": ["main"],
+                            "targets": ["native"],
+                            "outputs": ["backend_ir"]
+                        }}
+                    ]
+                }}"#,
+            ),
+        );
+
+        if product_kind == "library" {
+            workspace.write(
+                "app/src/main.bray",
+                "module app;\n\nfunc helper()\n{\n}\n",
+            );
+        }
+    }
+
+    fn output_directory_contains_extension(
+        workspace: &ProjectWorkspace,
+        extension: &str,
+    ) -> bool {
+        let directory = workspace
+            .path()
+            .join("build/native/example.application/application");
+
+        std::fs::read_dir(directory)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .any(|entry| entry.path().extension().is_some_and(|value| value == extension))
+    }
+
     #[test]
     fn check_loads_the_manifest_and_returns_compiler_exit_status() {
         let workspace = ProjectWorkspace::basic();
@@ -816,6 +884,106 @@ mod tests {
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
         assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn check_renders_one_compilation_source_in_text_and_json() {
+        let workspace = ProjectWorkspace::basic();
+
+        workspace.write("app/src/main.bray", "$");
+
+        let (text_code, text_stdout, text_stderr) =
+            run_check_output(&workspace, "text");
+
+        assert_eq!(text_code, ExitCode::FAILURE);
+        assert!(text_stdout.is_empty());
+
+        let text = String::from_utf8(text_stderr)
+            .unwrap_or_else(|error| panic!("text diagnostics should be UTF-8: {error:?}"));
+
+        assert!(text.contains("main.bray"));
+        assert!(text.contains("$"));
+
+        let (json_code, json_stdout, json_stderr) =
+            run_check_output(&workspace, "json");
+
+        assert_eq!(json_code, ExitCode::FAILURE);
+        assert!(json_stderr.is_empty());
+
+        let output: serde_json::Value = serde_json::from_slice(&json_stdout)
+            .unwrap_or_else(|error| panic!("diagnostics should be JSON: {error:?}"));
+
+        let lexical = output["diagnostics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|diagnostic| {
+                diagnostic["kind"] == DiagnosticKind::LexicalInvalidCharacter.as_str()
+            })
+            .unwrap_or_else(|| panic!("lexical diagnostic should be present"));
+
+        let file_path = lexical["primary_span"]["source_origin"]["file_path"]
+            .as_str()
+            .unwrap_or_else(|| panic!("diagnostic should retain its source file"));
+
+        assert!(file_path.ends_with("main.bray"));
+    }
+
+    #[test]
+    fn check_keeps_matching_diagnostics_from_distinct_compilations() {
+        let workspace = ProjectWorkspace::basic();
+
+        write_two_invalid_products(&workspace);
+
+        let (text_code, text_stdout, text_stderr) =
+            run_check_output(&workspace, "text");
+
+        assert_eq!(text_code, ExitCode::FAILURE);
+        assert!(text_stdout.is_empty());
+
+        let text = String::from_utf8(text_stderr)
+            .unwrap_or_else(|error| panic!("text diagnostics should be UTF-8: {error:?}"));
+
+        assert!(text.contains("first.bray"));
+        assert!(text.contains("second.bray"));
+
+        let (json_code, json_stdout, json_stderr) =
+            run_check_output(&workspace, "json");
+
+        assert_eq!(json_code, ExitCode::FAILURE);
+        assert!(json_stderr.is_empty());
+
+        let output: serde_json::Value = serde_json::from_slice(&json_stdout)
+            .unwrap_or_else(|error| panic!("diagnostics should be JSON: {error:?}"));
+
+        let diagnostics = output["diagnostics"]
+            .as_array()
+            .unwrap_or_else(|| panic!("JSON diagnostics should be an array"));
+
+        let lexical: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic["kind"] == DiagnosticKind::LexicalInvalidCharacter.as_str()
+            })
+            .collect();
+
+        assert_eq!(lexical.len(), 2);
+
+        assert!(
+            lexical
+                .iter()
+                .any(|diagnostic| diagnostic["primary_span"]["source_origin"]["file_path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("first.bray")))
+        );
+
+        assert!(
+            lexical
+                .iter()
+                .any(|diagnostic| diagnostic["primary_span"]["source_origin"]["file_path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("second.bray")))
+        );
     }
 
     #[test]
@@ -935,6 +1103,50 @@ mod tests {
     }
 
     #[test]
+    fn build_emits_backend_only_library_outputs() {
+        let workspace = ProjectWorkspace::basic();
+
+        write_backend_only_product(&workspace, "library");
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "build".into(),
+            ],
+            TackServices::new(),
+            &mut Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
+        assert!(output_directory_contains_extension(&workspace, "ll"));
+    }
+
+    #[test]
+    fn build_emits_backend_only_executable_outputs() {
+        let workspace = ProjectWorkspace::basic();
+
+        write_backend_only_product(&workspace, "executable");
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "build".into(),
+            ],
+            TackServices::new(),
+            &mut Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
+        assert!(output_directory_contains_extension(&workspace, "ll"));
+    }
+
+    #[test]
     fn formatter_receives_standard_input_without_file_discovery() {
         let formatter = RecordingFormatter::default();
         let workspace = unique_temporary_directory();
@@ -999,6 +1211,52 @@ mod tests {
             request.input(),
             &TackFormatInput::Files(vec![
                 workspace.path().join("app").join("src").join("main.bray")
+            ])
+        );
+    }
+
+    #[test]
+    fn relative_workspace_is_normalized_before_child_paths_are_derived() {
+        let formatter = RecordingFormatter::default();
+        let unique = unique_temporary_directory();
+
+        let name = unique
+            .file_name()
+            .unwrap_or_else(|| panic!("temporary path should have a file name"));
+
+        let relative = PathBuf::from("target").join(name);
+
+        let absolute = std::path::absolute(&relative)
+            .unwrap_or_else(|error| panic!("relative workspace should become absolute: {error:?}"));
+
+        let workspace = ProjectWorkspace::basic_at(absolute.clone());
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                relative.into_os_string(),
+                "fmt".into(),
+            ],
+            TackServices::new().with_formatter(&formatter),
+            &mut Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+
+        let request = formatter
+            .request
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .unwrap_or_else(|| panic!("formatter should receive one request"));
+
+        assert_eq!(request.workspace_root(), absolute);
+
+        assert_eq!(
+            request.input(),
+            &TackFormatInput::Files(vec![
+                workspace.path().join("app/src/main.bray")
             ])
         );
     }

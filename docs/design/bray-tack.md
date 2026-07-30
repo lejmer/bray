@@ -66,8 +66,12 @@ named repository and does not:
 The user remains responsible for declaring the installed package directory and exact dependency
 edge in project-owned manifests.
 
-## Initial Target Boundary
+## Target Selection
 
-The compiler currently provides one complete selected target profile:
-`x86_64-unknown-linux-gnu`. Manifests may describe other exact target identities, but commands
-requiring compiler target facts report those targets as unavailable until their profiles exist.
+Bray Tack selects targets only by workspace-local manifest name and passes the declared exact
+target identity to the compiler. It does not infer a target from the host or substitute another
+manifest target.
+
+A command requiring compiler target facts proceeds only when the toolchain provides the declared
+target capability. Otherwise it reports that target capability as unavailable without changing
+the project graph or falling back to ambient configuration.

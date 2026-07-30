@@ -8,7 +8,11 @@ pub(crate) struct ProjectWorkspace {
 
 impl ProjectWorkspace {
     pub(crate) fn basic() -> Self {
-        let workspace = Self::new();
+        Self::basic_at(unique_temporary_directory())
+    }
+
+    pub(crate) fn basic_at(path: PathBuf) -> Self {
+        let workspace = Self::new(path);
 
         workspace.write(
             "bray-workspace.json",
@@ -192,10 +196,8 @@ impl ProjectWorkspace {
         workspace
     }
 
-    fn new() -> Self {
-        let path = unique_temporary_directory();
-
-        std::fs::create_dir(&path)
+    fn new(path: PathBuf) -> Self {
+        std::fs::create_dir_all(&path)
             .unwrap_or_else(|error| panic!("test workspace should be created: {error:?}"));
 
         Self { path }

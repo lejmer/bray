@@ -9,7 +9,9 @@ use bray_diagnostics::{
 use crate::command::DriverOutputFormat;
 use crate::run::DriverRunResult;
 
-use super::json::write_json_diagnostics;
+use super::json::{
+    write_json_diagnostic_groups, write_json_diagnostics,
+};
 use super::text::write_text_diagnostics;
 
 pub(crate) enum DriverOutputError {
@@ -70,6 +72,42 @@ pub(crate) fn write_diagnostics(
         }
         DriverOutputFormat::Json => {
             write_json_diagnostics(diagnostics, sources, stdout)
+        }
+    }
+}
+
+pub(crate) fn write_diagnostic_groups<'diagnostic>(
+    groups: impl IntoIterator<
+        Item = (
+            &'diagnostic DiagnosticBag,
+            Option<&'diagnostic bray_source::SourceStore>,
+        ),
+    >,
+    output_format: DriverOutputFormat,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> io::Result<()> {
+    match output_format {
+        DriverOutputFormat::Text => {
+            let mut wrote_diagnostics = false;
+
+            for (diagnostics, sources) in groups {
+                if diagnostics.is_empty() {
+                    continue;
+                }
+
+                if wrote_diagnostics {
+                    writeln!(stderr)?;
+                }
+
+                write_text_diagnostics(diagnostics, sources, stderr)?;
+                wrote_diagnostics = true;
+            }
+
+            Ok(())
+        }
+        DriverOutputFormat::Json => {
+            write_json_diagnostic_groups(groups, stdout)
         }
     }
 }

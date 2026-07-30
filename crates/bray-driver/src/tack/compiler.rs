@@ -76,14 +76,8 @@ impl<'project> ProjectCompiler<'project> {
     ) -> Result<Compilation, DiagnosticBag> {
         let product = self.project_product(planned)?;
         let selected_target = self.selected_target(planned.target())?;
-        let compilation = self.compile_product(&product, selected_target, false)?;
-        let diagnostics = compilation.check_diagnostics().clone();
 
-        if diagnostics.has_errors() {
-            return Err(diagnostics);
-        }
-
-        Ok(compilation)
+        self.compile_product(&product, selected_target, false)
     }
 
     pub(crate) fn build(
@@ -92,7 +86,7 @@ impl<'project> ProjectCompiler<'project> {
     ) -> Result<ProductBuildOutcome, DiagnosticBag> {
         let product = self.project_product(planned)?;
 
-        self.build_product(&product, planned.target(), planned.target_name())
+        self.build_product(&product, planned.target(), planned.target_name(), false)
     }
 
     pub(crate) fn compilation_for_inspection(
@@ -110,10 +104,15 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
         target_name: &str,
+        require_interface: bool,
     ) -> Result<ProductBuildOutcome, DiagnosticBag> {
         let key = (product.identity().clone(), target.clone());
 
         if self.built.contains(&key) {
+            if require_interface && !self.interfaces.contains_key(&key) {
+                self.interface_for(product.identity(), target)?;
+            }
+
             return Ok(ProductBuildOutcome {
                 diagnostics: DiagnosticBag::new(),
                 executable: executable_path(
@@ -144,7 +143,7 @@ impl<'project> ProjectCompiler<'project> {
                 )));
             }
 
-            match self.build_product(&dependency_product, target, target_name) {
+            match self.build_product(&dependency_product, target, target_name, true) {
                 Ok(outcome) => {
                     diagnostics = diagnostics.merged(outcome.diagnostics());
                 }
@@ -160,7 +159,13 @@ impl<'project> ProjectCompiler<'project> {
             return Err(diagnostics);
         }
 
-        self.retain_interface(product, target, &compilation)?;
+        if require_interface
+            || product
+                .outputs()
+                .contains(&TargetOutputKind::PackageInterface)
+        {
+            self.retain_interface(product, target, &compilation)?;
+        }
 
         let output_directory = self.output_directory(product, target_name);
 
@@ -339,7 +344,18 @@ impl<'project> ProjectCompiler<'project> {
             )
         });
 
-        let linker = if linked {
+        let requires_codegen = product
+            .outputs()
+            .iter()
+            .copied()
+            .map(ArtifactKind::from)
+            .any(|artifact| artifact.backend_kind().is_some());
+
+        let requires_generation = linked
+            || requires_codegen
+            || matches!(product.kind(), ProductKind::Executable | ProductKind::Test);
+
+        let linker = if requires_generation {
             Some(
                 native_linker()
                     .ok_or_else(|| unavailable_diagnostics("native_linker"))?,
@@ -351,7 +367,7 @@ impl<'project> ProjectCompiler<'project> {
         let product_identity = product.identity().clone();
 
         let native = match &linker {
-            Some(linker) if linked => Some(
+            Some(linker) => Some(
                 compilation
                     .native_product_facts(
                         product_identity.clone(),
@@ -380,7 +396,11 @@ impl<'project> ProjectCompiler<'project> {
         let mut inputs = ProductEmissionInputs::new(&outputs);
 
         if let (Some(native), Some(linker)) = (native.as_ref(), linker.as_ref()) {
-            inputs = inputs.with_native_product(native, linker);
+            inputs = if linked {
+                inputs.with_native_product(native, linker)
+            } else {
+                inputs.with_native_codegen(native)
+            };
         }
 
         let outcome = compilation
