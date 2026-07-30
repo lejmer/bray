@@ -19,8 +19,8 @@ use bray_codegen::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirAsyncOperation, MirCallTarget, MirCleanupPhase, MirFrameInitializer, MirFrameReference,
-    MirHelperReference, MirOperationKind, MirRuntimeReference, MirUnitKey, MirUnitKind,
+    MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirFrameReference, MirHelperReference,
+    MirOperationKind, MirRuntimeReference, MirUnitKey, MirUnitKind,
 };
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
@@ -1190,19 +1190,6 @@ fn direct_helper_symbol(
         MirHelperReference::PanicReport => {
             helper_runtime_symbol(owner, RuntimeAbiRole::PanicReportConstruction)
         }
-        MirHelperReference::Finalize(_) => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::FrameLifecycleResolution)
-        }
-        MirHelperReference::Destroy(_) => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::FrameDestruction)
-        }
-        MirHelperReference::Cleanup { phase, .. } => helper_runtime_symbol(
-            owner,
-            match phase {
-                MirCleanupPhase::TaskCancellation => RuntimeAbiRole::FrameTaskBroadcast,
-                MirCleanupPhase::LifecycleResolution => RuntimeAbiRole::FrameLifecycleResolution,
-            },
-        ),
         MirHelperReference::MoveInactiveFrame(frame) => match frame {
             MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
                 frame: *frame,
@@ -1232,6 +1219,9 @@ fn direct_helper_symbol(
         | MirHelperReference::ConstructionDefault(_)
         | MirHelperReference::TypeForm(_)
         | MirHelperReference::Conversion(_)
+        | MirHelperReference::Finalize(_)
+        | MirHelperReference::Destroy(_)
+        | MirHelperReference::Cleanup { .. }
         | MirHelperReference::CreateFrame(_) => return None,
     };
 
@@ -1369,7 +1359,6 @@ mod tests {
     #[test]
     fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
         let owner = CodegenInstance::non_generic(test_mir_unit(1));
-        let ty = test_mir_type();
         let frame = ProtectedAsyncFrameId::new([7; 32]);
 
         let runtime = |role| {
@@ -1395,28 +1384,6 @@ mod tests {
             (
                 MirHelperReference::PanicReport,
                 runtime(RuntimeAbiRole::PanicReportConstruction),
-            ),
-            (
-                MirHelperReference::Finalize(ty),
-                runtime(RuntimeAbiRole::FrameLifecycleResolution),
-            ),
-            (
-                MirHelperReference::Destroy(ty),
-                runtime(RuntimeAbiRole::FrameDestruction),
-            ),
-            (
-                MirHelperReference::Cleanup {
-                    phase: MirCleanupPhase::TaskCancellation,
-                    ty,
-                },
-                runtime(RuntimeAbiRole::FrameTaskBroadcast),
-            ),
-            (
-                MirHelperReference::Cleanup {
-                    phase: MirCleanupPhase::LifecycleResolution,
-                    ty,
-                },
-                runtime(RuntimeAbiRole::FrameLifecycleResolution),
             ),
             (
                 MirHelperReference::MoveInactiveFrame(MirFrameReference::Known(frame)),
@@ -1452,6 +1419,29 @@ mod tests {
 
         for (reference, expected) in cases {
             assert_eq!(direct_helper_symbol(&owner, &reference), Some(expected));
+        }
+    }
+
+    #[test]
+    fn value_lifecycle_helpers_do_not_conflate_values_with_protected_frames() {
+        let owner = CodegenInstance::non_generic(test_mir_unit(1));
+        let ty = test_mir_type();
+
+        let references = [
+            MirHelperReference::Finalize(ty),
+            MirHelperReference::Destroy(ty),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty,
+            },
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty,
+            },
+        ];
+
+        for reference in references {
+            assert_eq!(direct_helper_symbol(&owner, &reference), None);
         }
     }
 

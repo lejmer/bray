@@ -428,7 +428,7 @@ pub enum CodegenFactError {
     RecursiveValueType(bray_symbols::TypeId),
     /// The selected backend cannot represent a demanded semantic type.
     UnsupportedType(bray_symbols::TypeId),
-    /// A declaration-backed MIR helper has no matching concrete dependency.
+    /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.
     MissingHelperInstance(MirHelperReference),
     /// A demanded type layout exceeds the selected target's representable size.
     LayoutOverflow(bray_symbols::TypeId),
