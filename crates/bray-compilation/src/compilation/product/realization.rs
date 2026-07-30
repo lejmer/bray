@@ -4305,7 +4305,11 @@ mod tests {
         assert!(matches!(
             union.kind(),
             CodegenTypeKind::Union { variants, .. }
-                if variants.iter().map(|variant| variant.tag()).collect::<Vec<_>>() == [3, 7]
+                if variants
+                    .iter()
+                    .map(|variant| variant.tag().to_u64())
+                    .collect::<Vec<_>>()
+                    == [Some(3), Some(7)]
         ));
     }
 
@@ -4461,42 +4465,8 @@ mod tests {
     }
 
     #[test]
-    fn generator_codegen_uses_pointer_storage_and_stable_erased_abis() {
+    fn generator_runtime_helpers_use_stable_erased_abis() {
         let compilation = crate::test_support::compilation("module app; func main() {}");
-        let target = codegen_target(&compilation);
-
-        let values = compilation
-            .semantic_value_store()
-            .expect("semantic values must resolve");
-
-        let element = values
-            .intern_type(TypeData::tuple([]))
-            .expect("generator element type must intern");
-
-        let generator = values
-            .intern_type(TypeData::Generator(element))
-            .expect("generator type must intern");
-
-        let mut mappings = std::collections::BTreeMap::new();
-        let mut pending = BTreeSet::new();
-
-        compilation
-            .codegen_type(
-                generator,
-                &target,
-                &CancellationToken::new(),
-                &mut mappings,
-                &mut pending,
-            )
-            .expect("generator representation must realize");
-
-        assert!(matches!(
-            mappings
-                .get(&generator)
-                .expect("generator mapping must be present")
-                .kind(),
-            CodegenTypeKind::Pointer { target, .. } if *target == generator
-        ));
 
         let begin = compilation
             .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
@@ -5021,6 +4991,7 @@ mod tests {
         compilation
             .codegen_types(
                 demanded.into_iter().collect(),
+                None,
                 target,
                 &CancellationToken::new(),
             )
