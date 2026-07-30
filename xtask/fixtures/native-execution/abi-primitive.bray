@@ -1,0 +1,13 @@
+module native_execution.abi_primitive;
+
+@symbol(name = "bray_identity")
+@abi(c)
+func identity(pos value: i32) -> i32
+{
+    return value;
+}
+
+func main()
+{
+    identity(42);
+}

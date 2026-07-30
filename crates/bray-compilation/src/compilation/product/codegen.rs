@@ -751,7 +751,6 @@ impl NativeProductFactError {
                 | Self::MissingRuntime
                 | Self::Codegen(
                     super::super::CodegenFactError::UnsupportedType(_)
-                        | super::super::CodegenFactError::UnsupportedCallableAbi(_)
                         | super::super::CodegenFactError::UnsupportedHelper(_)
                         | super::super::CodegenFactError::UnsupportedSpecialization(_)
                 )

@@ -3,6 +3,7 @@ mod command;
 mod emission;
 mod linker;
 mod lowering;
+mod native_execution;
 mod semantic;
 mod workspace;
 

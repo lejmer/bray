@@ -1,0 +1,13 @@
+module native_execution;
+
+func helper()
+{
+}
+
+func main()
+{
+    if true
+    {
+        helper();
+    };
+}

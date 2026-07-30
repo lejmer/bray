@@ -12,24 +12,22 @@ use bray_codegen::{
     CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping, CodegenLinkage,
     CodegenMappings, CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping,
     CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind,
-    child_constants, demanded_callable_references, demanded_constant_terms, demanded_constants,
+    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind, child_constants,
+    demanded_callable_references, demanded_constant_terms, demanded_constants,
     demanded_runtime_references, demanded_types,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirHelperReference, MirUnitKey, MirUnitKind};
-use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation,
-};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
 use bray_symbols::{
-    CallableAbi, CallableDefinitionId, CallableSignatureFact, ConstantTermData,
-    ConstantValueKind, DeclaredLayoutMode, GenericSubstitutionId, NamedTypeSymbolId,
+    CallableAbi, CallableDefinitionId, CallableSignatureFact, ConstantTermData, ConstantValueKind,
+    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId,
     SymbolFactRequest, TypeData, TypeId,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
-use super::super::Compilation;
 use super::super::CodegenFactError;
+use super::super::Compilation;
 use super::super::substitution::empty_substitution;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -42,7 +40,9 @@ impl Compilation {
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         cancellation: &CancellationToken,
     ) -> Result<CodegenMappings, CodegenFactError> {
-        let mut symbols = self.codegen_symbols(unit, executable_host, target, roots, cancellation)?;
+        let mut symbols =
+            self.codegen_symbols(unit, executable_host, target, roots, cancellation)?;
+
         let callables = self.codegen_callables(unit, target, cancellation)?;
         let constants = self.codegen_constants(unit)?;
 
@@ -149,15 +149,16 @@ impl Compilation {
 
         let trivial = match data.as_ref() {
             TypeData::Named { definition, .. } => {
-                super::super::foreign::compiler_known_representation(self, *definition)
-                    .is_some_and(|role| {
+                super::super::foreign::compiler_known_representation(self, *definition).is_some_and(
+                    |role| {
                         matches!(
                             role,
                             RepresentationRole::Unit
                                 | RepresentationRole::Never
                                 | RepresentationRole::RawPointer
                         ) || super::super::representation::target_scalar(role).is_some()
-                    })
+                    },
+                )
             }
             TypeData::Borrow { .. } | TypeData::Callable(_) => true,
             TypeData::Error
@@ -194,18 +195,23 @@ impl Compilation {
                     void_signature(CallableAbi::Bray),
                 ),
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
-                    let linkage = if roots.contains(instance.key()) {
-                        CodegenLinkage::Export
-                    } else {
-                        CodegenLinkage::Internal
-                    };
+                    let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
+
+                    let linkage = boundary
+                        .as_ref()
+                        .map(|(_, linkage)| *linkage)
+                        .unwrap_or_else(|| {
+                            if roots.contains(instance.key()) {
+                                CodegenLinkage::Export
+                            } else {
+                                CodegenLinkage::Internal
+                            }
+                        });
 
                     (
-                        generated_symbol_name(
-                            target,
-                            linkage,
-                            "instance",
-                            instance.key(),
+                        boundary.map(|(name, _)| name).map_or_else(
+                            || generated_symbol_name(target, linkage, "instance", instance.key()),
+                            Ok,
                         )?,
                         linkage,
                         self.codegen_instance_signature(instance.key(), cancellation)?,
@@ -222,21 +228,27 @@ impl Compilation {
         }
 
         for instance in unit.external_instances() {
+            let boundary = self.codegen_native_boundary(instance, cancellation)?;
+
+            let linkage = boundary
+                .as_ref()
+                .map(|(_, linkage)| *linkage)
+                .unwrap_or(CodegenLinkage::Import);
+
             symbols.push(CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.clone()),
-                generated_symbol_name(
-                    target,
-                    CodegenLinkage::Import,
-                    "instance",
-                    instance,
+                boundary.map(|(name, _)| name).map_or_else(
+                    || generated_symbol_name(target, linkage, "instance", instance),
+                    Ok,
                 )?,
-                CodegenLinkage::Import,
+                linkage,
                 self.codegen_instance_signature(instance, cancellation)?,
             ));
         }
 
         for reference in demanded_runtime_references(unit) {
-            let Some(binding) = executable_host.and_then(|host| host.role_binding(reference.role()))
+            let Some(binding) =
+                executable_host.and_then(|host| host.role_binding(reference.role()))
             else {
                 return Err(CodegenFactError::MissingRuntimeRole(reference.role()));
             };
@@ -265,6 +277,35 @@ impl Compilation {
         }
 
         Ok(symbols)
+    }
+
+    fn codegen_native_boundary(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<(BinarySymbolName, CodegenLinkage)>, CodegenFactError> {
+        let definition = self.codegen_callable_definition(instance)?;
+
+        let bray_symbols::CallableSymbolId::Function(function) = definition.callable_symbol()
+        else {
+            return Ok(None);
+        };
+
+        let contract = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+
+        let Some(contract) = contract.value() else {
+            return Ok(None);
+        };
+
+        let name = BinarySymbolName::try_new(contract.symbol())
+            .ok_or(CodegenFactError::InvalidSymbolName)?;
+
+        let linkage = match contract.direction() {
+            ForeignCallableDirection::Import => CodegenLinkage::Import,
+            ForeignCallableDirection::Export => CodegenLinkage::Export,
+        };
+
+        Ok(Some((name, linkage)))
     }
 
     fn codegen_callables(
@@ -377,7 +418,13 @@ impl Compilation {
         let mut mappings = BTreeMap::new();
 
         for ty in demanded {
-            self.codegen_type(ty, target, cancellation, &mut mappings, &mut BTreeSet::new())?;
+            self.codegen_type(
+                ty,
+                target,
+                cancellation,
+                &mut mappings,
+                &mut BTreeSet::new(),
+            )?;
         }
 
         Ok(mappings.into_values().collect())
@@ -420,19 +467,17 @@ impl Compilation {
                 mappings,
                 pending,
             )?,
-            TypeData::Tuple(elements) => {
-                self.codegen_aggregate_type(
-                    ty,
-                    elements.iter().copied().map(|element| (None, element)),
-                    TargetLayoutContract::Default,
-                    None,
-                    None,
-                    target,
-                    cancellation,
-                    mappings,
-                    pending,
-                )?
-            }
+            TypeData::Tuple(elements) => self.codegen_aggregate_type(
+                ty,
+                elements.iter().copied().map(|element| (None, element)),
+                TargetLayoutContract::Default,
+                None,
+                None,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?,
             TypeData::Array { element, length } => {
                 self.codegen_type(*element, target, cancellation, mappings, pending)?;
 
@@ -459,7 +504,9 @@ impl Compilation {
                     },
                 )
             }
-            TypeData::Borrow { target: pointee, .. }
+            TypeData::Borrow {
+                target: pointee, ..
+            }
             | TypeData::OwnedIndirection {
                 target: pointee, ..
             } => pointer_mapping(ty, *pointee, target),
@@ -537,8 +584,8 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, FactQueryError>>()?;
 
-                let representation = self
-                    .declared_type_representation_with_cancellation(definition, cancellation)?;
+                let representation =
+                    self.declared_type_representation_with_cancellation(definition, cancellation)?;
 
                 self.codegen_aggregate_type(
                     ty,
@@ -565,11 +612,7 @@ impl Compilation {
         if matches!(role, RepresentationRole::Unit | RepresentationRole::Never) {
             return Ok(CodegenTypeMapping::new(
                 ty,
-                TargetValueLayout::new(
-                    0,
-                    NonZeroU64::MIN,
-                    TargetLayoutContract::Default,
-                ),
+                TargetValueLayout::new(0, NonZeroU64::MIN, TargetLayoutContract::Default),
                 CodegenTypeKind::Unit,
             ));
         }
@@ -621,8 +664,8 @@ impl Compilation {
 
             alignment = alignment.max(field_alignment);
 
-            offset = align_to(offset, field_alignment)
-                .ok_or(CodegenFactError::LayoutOverflow(ty))?;
+            offset =
+                align_to(offset, field_alignment).ok_or(CodegenFactError::LayoutOverflow(ty))?;
 
             layouts.push(CodegenFieldLayout::new(reference, field, offset));
 
@@ -650,8 +693,8 @@ impl Compilation {
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
     ) -> Result<TypeId, FactQueryError> {
-        let constants = self
-            .checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
+        let constants =
+            self.checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
 
         let ty = bray_checker::resolve_type_expression_template(
             self.semantic_value_store()?,
@@ -672,17 +715,10 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenFactError> {
         let definition = match instance.template() {
-            MirUnitKey::Bound(key) => {
-                let symbol = self
-                    .symbol_graph()?
-                    .symbol_for_key(key.declared_owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                CallableDefinitionId::try_new(symbol)
-                    .ok_or(FactQueryError::InfrastructureFailure)?
-            }
-            MirUnitKey::ExternalCallable(definition) => *definition,
             MirUnitKey::ExecutableHost(_) => return Ok(void_signature(CallableAbi::Bray)),
+            MirUnitKey::Bound(_) | MirUnitKey::ExternalCallable(_) => {
+                self.codegen_callable_definition(instance)?
+            }
         };
 
         if !matches!(
@@ -705,10 +741,7 @@ impl Compilation {
             .map_err(super::super::binder::binder_fact_error)?;
 
         let constants = self.checked_constant_terms_for_templates_with_cancellation(
-            [
-                template.value().callable_type(),
-                template.value().result(),
-            ],
+            [template.value().callable_type(), template.value().result()],
             cancellation,
         )?;
 
@@ -729,15 +762,16 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure.into());
         };
 
-        if callable.abi() != CallableAbi::Bray {
-            return Err(CodegenFactError::UnsupportedCallableAbi(callable.abi()));
-        }
-
         let parameters = signature
             .receiver()
             .map(|receiver| receiver.ty())
             .into_iter()
-            .chain(signature.parameters().iter().map(|parameter| parameter.ty()))
+            .chain(
+                signature
+                    .parameters()
+                    .iter()
+                    .map(|parameter| parameter.ty()),
+            )
             .map(|ty| CodegenParameterMapping::direct(ty, None, []));
 
         let result = if is_unit(self, signature.result())? {
@@ -752,6 +786,24 @@ impl Compilation {
             callable.abi(),
             false,
         ))
+    }
+
+    fn codegen_callable_definition(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+    ) -> Result<CallableDefinitionId, FactQueryError> {
+        match instance.template() {
+            MirUnitKey::Bound(key) => {
+                let symbol = self
+                    .symbol_graph()?
+                    .symbol_for_key(key.declared_owner())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                CallableDefinitionId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)
+            }
+            MirUnitKey::ExternalCallable(definition) => Ok(*definition),
+            MirUnitKey::ExecutableHost(_) => Err(FactQueryError::InfrastructureFailure),
+        }
     }
 }
 
@@ -814,10 +866,7 @@ fn scalar_mapping(
 
     let (size, kind) = match scalar {
         TargetScalarKind::Bool => (1, CodegenTypeKind::Boolean),
-        TargetScalarKind::Char => (
-            4,
-            CodegenTypeKind::UnsignedInteger(nonzero_width(32)),
-        ),
+        TargetScalarKind::Char => (4, CodegenTypeKind::UnsignedInteger(nonzero_width(32))),
         TargetScalarKind::I8 => (1, CodegenTypeKind::SignedInteger(nonzero_width(8))),
         TargetScalarKind::I16 => (2, CodegenTypeKind::SignedInteger(nonzero_width(16))),
         TargetScalarKind::I32 => (4, CodegenTypeKind::SignedInteger(nonzero_width(32))),
@@ -880,10 +929,6 @@ fn callable_type_signature(
     compilation: &Compilation,
     callable: &bray_symbols::CallableTypeData,
 ) -> Result<CodegenCallableSignature, CodegenFactError> {
-    if callable.abi() != CallableAbi::Bray {
-        return Err(CodegenFactError::UnsupportedCallableAbi(callable.abi()));
-    }
-
     let result = if is_unit(compilation, callable.result())? {
         CodegenResultMapping::Void
     } else {
