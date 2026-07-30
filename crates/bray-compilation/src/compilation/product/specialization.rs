@@ -5,7 +5,10 @@ use bray_codegen::{
     CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability,
     CodegenSpecialization, CodegenTarget, DemandedCallableInstance,
 };
-use bray_ir::{MirTargetFacts, MirUnitKey};
+use bray_ir::{
+    MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirHelperReference,
+    MirTargetFacts, MirUnitKey,
+};
 use bray_symbols::{
     CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
     GenericArgument, GenericSubstitutionData, GenericSubstitutionId,
@@ -15,13 +18,16 @@ use bray_symbols::{
 
 use super::super::Compilation;
 use super::super::CodegenFactError;
-use super::super::substitution::named_type;
+use super::super::substitution::{empty_substitution, named_type};
+use super::specialization_identity::encoding::structural_type_identity;
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ConcreteCodegenInstance {
     key: CodegenInstanceKey,
     callable: Option<CallableInstanceData>,
+    lifecycle: Option<MirHelperReference>,
+    substitution: Option<GenericSubstitutionId>,
     witnesses: Arc<[ImplementationInstanceId]>,
 }
 
@@ -76,6 +82,8 @@ impl ConcreteCodegenInstance {
         Some(Self {
             key,
             callable: Some(callable),
+            lifecycle: None,
+            substitution: Some(callable.substitution()),
             witnesses: witnesses
                 .into_iter()
                 .map(|(_, witness)| witness)
@@ -88,8 +96,52 @@ impl ConcreteCodegenInstance {
         Self {
             key,
             callable: None,
+            lifecycle: None,
+            substitution: None,
             witnesses: Arc::from([]),
         }
+    }
+
+    pub(super) fn bound_helper(
+        owner: &Self,
+        template: bray_bound_tree::BoundUnitKey,
+        callable: CallableInstanceData,
+    ) -> Self {
+        Self {
+            key: CodegenInstanceKey::new(
+                MirUnitKey::Bound(template),
+                owner.key.specialization().clone(),
+                owner.key.witnesses().iter().cloned(),
+                owner.key.target().clone(),
+            ),
+            callable: Some(callable),
+            lifecycle: None,
+            substitution: owner.substitution,
+            witnesses: Arc::clone(&owner.witnesses),
+        }
+    }
+
+    pub(super) fn try_generated_lifecycle(
+        key: CodegenInstanceKey,
+        reference: MirHelperReference,
+    ) -> Option<Self> {
+        let MirUnitKey::GeneratedLifecycle(template) = key.template() else {
+            return None;
+        };
+
+        if Some(template.role())
+            != bray_ir::MirGeneratedLifecycleRole::from_reference(&reference)
+        {
+            return None;
+        }
+
+        Some(Self {
+            key,
+            callable: None,
+            lifecycle: Some(reference),
+            substitution: None,
+            witnesses: Arc::from([]),
+        })
     }
 
     pub(super) const fn key(&self) -> &CodegenInstanceKey {
@@ -101,7 +153,13 @@ impl ConcreteCodegenInstance {
     }
 
     pub(super) fn substitution(&self) -> Option<GenericSubstitutionId> {
-        self.callable.map(CallableInstanceData::substitution)
+        self.substitution
+    }
+
+    pub(super) const fn generated_lifecycle_reference(
+        &self,
+    ) -> Option<&MirHelperReference> {
+        self.lifecycle.as_ref()
     }
 
     #[cfg(test)]
@@ -112,6 +170,68 @@ impl ConcreteCodegenInstance {
 }
 
 impl Compilation {
+    pub(super) fn concrete_codegen_bound_helper(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        template: bray_bound_tree::BoundUnitKey,
+    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        let symbol = self
+            .symbol_graph()?
+            .symbol_for_key(template.declared_owner())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let definition = bray_symbols::CallableDefinitionId::try_new(symbol)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let substitution = match owner.substitution() {
+            Some(substitution) => substitution,
+            None => empty_substitution(
+                self.semantic_value_store()?,
+                definition.symbol(),
+            )?,
+        };
+
+        Ok(ConcreteCodegenInstance::bound_helper(
+            owner,
+            template,
+            CallableInstanceData::new(definition, substitution),
+        ))
+    }
+
+    pub(super) fn concrete_codegen_lifecycle(
+        &self,
+        reference: MirHelperReference,
+        target: &CodegenTarget,
+    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        let role = MirGeneratedLifecycleRole::from_reference(&reference)
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        let ty = reference
+            .lifecycle_type()
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        let identity = structural_type_identity(
+            self.semantic_value_store()?,
+            self.symbol_graph()?,
+            ty,
+        )?;
+
+        let key = CodegenInstanceKey::new(
+            MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
+                role, identity,
+            )),
+            CodegenSpecialization::NonGeneric,
+            [],
+            MirTargetFacts::new(
+                target.profile().clone(),
+                self.selected_target().target().runtime_abi(),
+            ),
+        );
+
+        ConcreteCodegenInstance::try_generated_lifecycle(key, reference)
+            .ok_or(FactQueryError::InfrastructureFailure.into())
+    }
+
     pub(super) fn concrete_codegen_callable(
         &self,
         callable: CallableInstanceData,
@@ -213,6 +333,33 @@ impl Compilation {
             .collect::<Result<Vec<_>, _>>()?;
 
         self.concrete_codegen_callable(callable, witnesses, target, cancellation)
+    }
+
+    pub(super) fn concrete_codegen_callable_data(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        callable: &CallableInstanceData,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        let values = self.semantic_value_store()?;
+
+        let substitution = match owner.substitution() {
+            Some(owner_substitution) => values
+                .substitute_generic_substitution(
+                    callable.substitution(),
+                    owner_substitution,
+                )
+                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            None => callable.substitution(),
+        };
+
+        self.concrete_codegen_callable(
+            CallableInstanceData::new(callable.definition(), substitution),
+            [],
+            target,
+            cancellation,
+        )
     }
 
     fn realize_codegen_substitution(

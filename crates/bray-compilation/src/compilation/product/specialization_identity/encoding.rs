@@ -14,6 +14,14 @@ use bray_symbols::{
 
 use crate::fact::FactQueryError;
 
+pub(in crate::compilation::product) fn structural_type_identity(
+    values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    ty: TypeId,
+) -> Result<[u8; 32], FactQueryError> {
+    StructuralValueEncoder::type_identity(values, symbols, ty)
+}
+
 pub(super) struct StructuralValueEncoder<'a> {
     values: &'a SemanticValueStore,
     symbols: &'a SymbolGraph,
@@ -21,6 +29,20 @@ pub(super) struct StructuralValueEncoder<'a> {
 }
 
 impl<'a> StructuralValueEncoder<'a> {
+    fn type_identity(
+        values: &'a SemanticValueStore,
+        symbols: &'a SymbolGraph,
+        ty: TypeId,
+    ) -> Result<[u8; 32], FactQueryError> {
+        let CodegenGenericArgument::Type(key) =
+            Self::argument_key(values, symbols, GenericArgument::Type(ty))?
+        else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        Ok(key.digest())
+    }
+
     pub(super) fn argument_key(
         values: &'a SemanticValueStore,
         symbols: &'a SymbolGraph,

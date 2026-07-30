@@ -1,6 +1,8 @@
 use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
 use bray_symbols::ProductIdentity;
 
+use crate::MirHelperReference;
+
 /// Source or compiler-generated product that owns one MIR unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirSourceOrigin {
@@ -8,6 +10,8 @@ pub enum MirSourceOrigin {
     Source(BoundSourceAnchor),
     /// A compiler-generated executable host.
     ExecutableHost(ProductIdentity),
+    /// A compiler-generated type-specialized lifecycle definition.
+    GeneratedLifecycle(MirHelperReference),
 }
 
 /// Source-correlated provenance for a MIR element.
@@ -17,6 +21,8 @@ pub enum MirSourceAnchor {
     Source(BoundNodeOrigin),
     /// Provenance belonging to a compiler-generated executable host.
     ExecutableHost(ProductIdentity),
+    /// Provenance belonging to a compiler-generated type-specialized lifecycle definition.
+    GeneratedLifecycle(MirHelperReference),
 }
 
 impl MirSourceAnchor {
@@ -30,6 +36,11 @@ impl MirSourceAnchor {
         Self::ExecutableHost(product)
     }
 
+    /// Creates compiler-generated lifecycle provenance.
+    pub const fn generated_lifecycle(reference: MirHelperReference) -> Self {
+        Self::GeneratedLifecycle(reference)
+    }
+
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {
         match (self, owner) {
             (Self::Source(anchor), MirSourceOrigin::Source(owner)) => {
@@ -41,8 +52,15 @@ impl MirSourceAnchor {
             (Self::ExecutableHost(anchor), MirSourceOrigin::ExecutableHost(owner)) => {
                 anchor == owner
             }
+            (Self::GeneratedLifecycle(anchor), MirSourceOrigin::GeneratedLifecycle(owner)) => {
+                anchor == owner
+            }
             (Self::Source(_), MirSourceOrigin::ExecutableHost(_))
-            | (Self::ExecutableHost(_), MirSourceOrigin::Source(_)) => false,
+            | (Self::Source(_), MirSourceOrigin::GeneratedLifecycle(_))
+            | (Self::ExecutableHost(_), MirSourceOrigin::Source(_))
+            | (Self::ExecutableHost(_), MirSourceOrigin::GeneratedLifecycle(_))
+            | (Self::GeneratedLifecycle(_), MirSourceOrigin::Source(_))
+            | (Self::GeneratedLifecycle(_), MirSourceOrigin::ExecutableHost(_)) => false,
         }
     }
 }

@@ -9,20 +9,30 @@ use bray_base::StableDigestHasher;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping, CodegenLinkage,
-    CodegenMappings, CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind, child_constants,
-    demanded_callable_instances, demanded_constant_terms, demanded_constants,
+    CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping, CodegenInstance,
+    CodegenLinkage, CodegenMappings, CodegenOperationMapping, CodegenParameterMapping,
+    CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
+    TargetAddressSpaceKind, child_constants, demanded_callable_instances,
+    demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
     demanded_runtime_references, demanded_types,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirHelperReference, MirUnitKey, MirUnitKind};
-use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
+use bray_ir::{
+    MirAsyncOperation, MirBlockKind, MirCall, MirCallTarget, MirCallableReference,
+    MirCleanupEdge, MirEdge, MirFrameInitializer, MirFrameReference, MirHelperReference,
+    MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit,
+    MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
+};
+use bray_runtime_interface::{
+    BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
+};
 use bray_symbols::{
-    CallableAbi, CallableDefinitionId, CallableSignatureFact, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId,
-    SymbolFactRequest, TypeData, TypeId,
+    AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableSignatureFact,
+    ConstantTermData, ConstantValueKind, DeclaredLayoutMode, ForeignCallableDirection,
+    GenericSubstitutionId, NamedTypeSymbolId, SymbolFactRequest,
+    TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -34,6 +44,53 @@ use super::specialization::{
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(super) fn concrete_codegen_dependencies_for_mir(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        mir: &MirUnit,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<ConcreteCodegenInstance>, CodegenFactError> {
+        let mut dependencies = demanded_callable_instances_for_mir(mir)
+            .into_iter()
+            .map(|demand| {
+                self.concrete_codegen_callee(
+                    owner,
+                    &demand,
+                    target,
+                    cancellation,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for reference in mir
+            .operations()
+            .iter()
+            .flat_map(|operation| operation.kind().helper_references())
+        {
+            if let Some(dependency) = self.concrete_codegen_helper_dependency(
+                owner,
+                &reference,
+                target,
+                cancellation,
+            )? {
+                dependencies.push(dependency);
+            }
+        }
+
+        dependencies.sort_unstable_by(|left, right| left.key().cmp(right.key()));
+
+        for pair in dependencies.windows(2) {
+            if pair[0].key() == pair[1].key() && pair[0] != pair[1] {
+                return Err(FactQueryError::InfrastructureFailure.into());
+            }
+        }
+
+        dependencies.dedup_by(|left, right| left.key() == right.key());
+
+        Ok(dependencies)
+    }
+
     pub(super) fn codegen_mappings_for_product(
         &self,
         unit: &CodegenUnit,
@@ -43,8 +100,12 @@ impl Compilation {
         reachability: &ConcreteCodegenReachability,
         cancellation: &CancellationToken,
     ) -> Result<CodegenMappings, CodegenFactError> {
+        let operations =
+            self.codegen_operations(unit, target, reachability, cancellation)?;
+
         let mut symbols = self.codegen_symbols(
             unit,
+            &operations,
             executable_host,
             target,
             roots,
@@ -65,8 +126,6 @@ impl Compilation {
 
         let (constant_terms, terminators) =
             self.codegen_constant_terms(unit, realization)?;
-
-        let operations = self.codegen_operations(unit, realization)?;
 
         let mut demanded = demanded_types(unit);
 
@@ -103,11 +162,17 @@ impl Compilation {
     fn codegen_operations(
         &self,
         unit: &CodegenUnit,
-        realization: &ConcreteCodegenInstance,
+        target: &CodegenTarget,
+        reachability: &ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenOperationMapping>, CodegenFactError> {
         let mut mappings = Vec::new();
 
         for instance in unit.instances() {
+            let realization = reachability
+                .instance(instance.key())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
             for (operation, data) in instance.mir().operations_with_ids() {
                 let references = data.kind().helper_references();
 
@@ -118,7 +183,14 @@ impl Compilation {
                 let helpers = references
                     .into_iter()
                     .map(|reference| {
-                        self.codegen_helper(reference, realization.substitution())
+                        self.codegen_helper(
+                            instance,
+                            data.kind(),
+                            realization,
+                            reference,
+                            target,
+                            cancellation,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -135,13 +207,133 @@ impl Compilation {
 
     fn codegen_helper(
         &self,
+        owner: &CodegenInstance,
+        operation: &MirOperationKind,
+        owner_realization: &ConcreteCodegenInstance,
         reference: MirHelperReference,
-        substitution: Option<GenericSubstitutionId>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
     ) -> Result<CodegenHelperMapping, CodegenFactError> {
-        let ty = match &reference {
+        let concrete_reference =
+            self.concrete_codegen_helper_reference(owner_realization, &reference)?;
+
+        if let Some(ty) = concrete_reference.lifecycle_type()
+            && self.has_trivial_codegen_lifecycle(ty)?
+        {
+            return Ok(CodegenHelperMapping::lowered(reference));
+        }
+
+        if let Some(symbol) = direct_helper_symbol(owner, &reference) {
+            return Ok(CodegenHelperMapping::new(reference, symbol));
+        }
+
+        if let Some(dependency) = self.concrete_codegen_helper_dependency(
+            owner_realization,
+            &reference,
+            target,
+            cancellation,
+        )? {
+            return dependency_symbol(owner, dependency.key(), &reference)
+                .map(|symbol| CodegenHelperMapping::new(reference, symbol));
+        }
+
+        if matches!(reference, MirHelperReference::CreateFrame(_)) {
+            let symbol =
+                self.frame_creation_symbol(
+                    owner,
+                    owner_realization,
+                    operation,
+                    &reference,
+                    target,
+                    cancellation,
+                )?;
+
+            return Ok(CodegenHelperMapping::new(reference, symbol));
+        }
+
+        Err(CodegenFactError::MissingHelperInstance(reference))
+    }
+
+    pub(super) fn concrete_codegen_helper_dependency(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &MirHelperReference,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ConcreteCodegenInstance>, CodegenFactError> {
+        let concrete_reference =
+            self.concrete_codegen_helper_reference(owner, reference)?;
+
+        let dependency = match &concrete_reference {
+            MirHelperReference::AnonymousCallable(unit) => self
+                .concrete_codegen_bound_helper(owner, unit.clone())?,
+            MirHelperReference::CallableDefault(provider) => {
+                self.concrete_codegen_bound_helper(
+                    owner,
+                    self.runtime_default_unit((*provider).into(), reference)?,
+                )?
+            }
+            MirHelperReference::ConstructionDefault(provider) => {
+                self.concrete_codegen_bound_helper(
+                    owner,
+                    self.runtime_default_unit(provider.symbol(), reference)?,
+                )?
+            }
+            MirHelperReference::TypeForm(callable)
+            | MirHelperReference::Conversion(callable) => self
+                .concrete_codegen_callable_data(
+                    owner,
+                    callable,
+                    target,
+                    cancellation,
+                )?,
             MirHelperReference::Finalize(ty)
             | MirHelperReference::Destroy(ty)
-            | MirHelperReference::Cleanup { ty, .. } => Some(*ty),
+            | MirHelperReference::Cleanup { ty, .. } => {
+                if self.has_trivial_codegen_lifecycle(*ty)? {
+                    return Ok(None);
+                }
+
+                self.concrete_codegen_lifecycle(concrete_reference, target)?
+            }
+            MirHelperReference::BeginGenerator
+            | MirHelperReference::PushGenerator
+            | MirHelperReference::FinishGenerator
+            | MirHelperReference::PanicReport
+            | MirHelperReference::CreateFrame(_)
+            | MirHelperReference::MoveInactiveFrame(_)
+            | MirHelperReference::ComposeAwaitedFrame(_)
+            | MirHelperReference::CommitAwaitedCompletion(_)
+            | MirHelperReference::DestroyTerminalTask => return Ok(None),
+        };
+
+        Ok(Some(dependency))
+    }
+
+    fn concrete_codegen_helper_reference(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &MirHelperReference,
+    ) -> Result<MirHelperReference, FactQueryError> {
+        let substitution = owner.substitution();
+
+        Ok(match reference {
+            MirHelperReference::Finalize(ty) => {
+                MirHelperReference::Finalize(
+                    self.substitute_codegen_type(*ty, substitution)?,
+                )
+            }
+            MirHelperReference::Destroy(ty) => {
+                MirHelperReference::Destroy(
+                    self.substitute_codegen_type(*ty, substitution)?,
+                )
+            }
+            MirHelperReference::Cleanup { phase, ty } => {
+                MirHelperReference::Cleanup {
+                    phase: *phase,
+                    ty: self.substitute_codegen_type(*ty, substitution)?,
+                }
+            }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
@@ -155,29 +347,777 @@ impl Compilation {
             | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
-            | MirHelperReference::DestroyTerminalTask => None,
+            | MirHelperReference::DestroyTerminalTask => reference.clone(),
+        })
+    }
+
+    fn runtime_default_unit(
+        &self,
+        provider: AnySymbolId,
+        reference: &MirHelperReference,
+    ) -> Result<bray_bound_tree::BoundUnitKey, CodegenFactError> {
+        let symbols = self.symbol_graph()?;
+
+        let provider = symbols
+            .symbol_key(provider)
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        self.declared_unit_keys()?
+            .into_iter()
+            .find(|unit| {
+                unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+                    && unit.declared_owner() == provider
+            })
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))
+    }
+
+    fn frame_creation_symbol(
+        &self,
+        owner: &CodegenInstance,
+        owner_realization: &ConcreteCodegenInstance,
+        operation: &MirOperationKind,
+        reference: &MirHelperReference,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenSymbolKey, CodegenFactError> {
+        let MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+            initializer,
+            ..
+        }) = operation
+        else {
+            return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
         };
 
-        if let Some(ty) = ty {
-            let ty = self.substitute_codegen_type(ty, substitution)?;
+        match initializer {
+            MirFrameInitializer::Callable(call) => match call.target() {
+                MirCallTarget::Direct(callable) => {
+                    let dependency = self.concrete_codegen_callable_data(
+                        owner_realization,
+                        &callable.instance(),
+                        target,
+                        cancellation,
+                    )?;
 
-            let concrete_reference = match reference {
-                MirHelperReference::Finalize(_) => MirHelperReference::Finalize(ty),
-                MirHelperReference::Destroy(_) => MirHelperReference::Destroy(ty),
-                MirHelperReference::Cleanup { phase, .. } => {
-                    MirHelperReference::Cleanup { phase, ty }
+                    dependency_symbol(owner, dependency.key(), reference)
                 }
-                _ => return Err(FactQueryError::InfrastructureFailure.into()),
-            };
-
-            if self.has_trivial_codegen_lifecycle(ty)? {
-                return Ok(CodegenHelperMapping::lowered(reference));
+                MirCallTarget::Indirect { .. } => {
+                    Ok(helper_runtime_symbol(owner, RuntimeAbiRole::FrameCreation))
+                }
+            },
+            MirFrameInitializer::TaskObservation { .. } => {
+                Ok(helper_runtime_symbol(owner, RuntimeAbiRole::JoinRegistration))
             }
+        }
+    }
 
-            return Err(CodegenFactError::UnsupportedHelper(concrete_reference));
+    pub(in crate::compilation) fn codegen_generated_lifecycle_mir(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+        reference: &MirHelperReference,
+        unit: MirUnitId,
+        cancellation: &CancellationToken,
+    ) -> Result<MirUnit, CodegenFactError> {
+        let MirUnitKey::GeneratedLifecycle(key) = instance.template() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        if Some(key.role())
+            != bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+        {
+            return Err(FactQueryError::InfrastructureFailure.into());
         }
 
-        Err(CodegenFactError::UnsupportedHelper(reference))
+        let ty = reference
+            .lifecycle_type()
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        let values = self.semantic_value_store()?;
+
+        let pointer = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: ty,
+            })
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let source = MirSourceAnchor::generated_lifecycle(reference.clone());
+
+        let mut builder = MirUnitBuilder::for_generated_lifecycle(
+            unit,
+            instance.template().clone(),
+            reference.clone(),
+            instance.target().clone(),
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Parameter, pointer)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let place = MirPlace::new(
+            storage,
+            [MirProjection::new(
+                MirProjectionKind::Dereference,
+                pointer,
+                ty,
+            )],
+            ty,
+        );
+
+        let operation_block = match reference {
+            MirHelperReference::Cleanup { phase, .. } => {
+                let kind = match phase {
+                    bray_ir::MirCleanupPhase::TaskCancellation => {
+                        MirBlockKind::CleanupBroadcast
+                    }
+                    bray_ir::MirCleanupPhase::LifecycleResolution => {
+                        MirBlockKind::LifecycleResolution
+                    }
+                };
+
+                let block = builder
+                    .push_block(source.clone(), kind)
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+                builder
+                    .set_terminator(
+                        entry,
+                        source.clone(),
+                        MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                            *phase,
+                            MirEdge::new(block, []),
+                        )),
+                    )
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+                block
+            }
+            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => entry,
+            MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::CallableDefault(_)
+            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::TypeForm(_)
+            | MirHelperReference::Conversion(_)
+            | MirHelperReference::BeginGenerator
+            | MirHelperReference::PushGenerator
+            | MirHelperReference::FinishGenerator
+            | MirHelperReference::PanicReport
+            | MirHelperReference::CreateFrame(_)
+            | MirHelperReference::MoveInactiveFrame(_)
+            | MirHelperReference::ComposeAwaitedFrame(_)
+            | MirHelperReference::CommitAwaitedCompletion(_)
+            | MirHelperReference::DestroyTerminalTask => {
+                return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
+            }
+        };
+
+        self.push_generated_lifecycle_operations(
+            &mut builder,
+            operation_block,
+            &source,
+            reference,
+            place,
+            instance.target().runtime_abi(),
+            cancellation,
+        )?;
+
+        match reference {
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                ..
+            } => {
+                let lifecycle = builder
+                    .push_block(source.clone(), MirBlockKind::LifecycleResolution)
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+                builder
+                    .set_terminator(
+                        operation_block,
+                        source.clone(),
+                        MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                            bray_ir::MirCleanupPhase::LifecycleResolution,
+                            MirEdge::new(lifecycle, []),
+                        )),
+                    )
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+                builder
+                    .set_terminator(
+                        lifecycle,
+                        source,
+                        MirTerminatorKind::Return(None),
+                    )
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+            }
+            MirHelperReference::Finalize(_)
+            | MirHelperReference::Destroy(_)
+            | MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ..
+            } => {
+                builder
+                    .set_terminator(
+                        operation_block,
+                        source,
+                        MirTerminatorKind::Return(None),
+                    )
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+            }
+            MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::CallableDefault(_)
+            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::TypeForm(_)
+            | MirHelperReference::Conversion(_)
+            | MirHelperReference::BeginGenerator
+            | MirHelperReference::PushGenerator
+            | MirHelperReference::FinishGenerator
+            | MirHelperReference::PanicReport
+            | MirHelperReference::CreateFrame(_)
+            | MirHelperReference::MoveInactiveFrame(_)
+            | MirHelperReference::ComposeAwaitedFrame(_)
+            | MirHelperReference::CommitAwaitedCompletion(_)
+            | MirHelperReference::DestroyTerminalTask => {
+                return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
+            }
+        }
+
+        builder
+            .finish(entry)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)
+    }
+
+    fn push_generated_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        reference: &MirHelperReference,
+        place: MirPlace,
+        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+        cancellation: &CancellationToken,
+    ) -> Result<(), CodegenFactError> {
+        if self.push_compiler_known_lifecycle_operations(
+            builder,
+            block,
+            source,
+            reference,
+            &place,
+            runtime_abi,
+        )? {
+            return Ok(());
+        }
+
+        match reference {
+            MirHelperReference::Finalize(ty) => {
+                if let Some(callable) = self.lifecycle_callable(
+                    *ty,
+                    TypeAssociatedLifecycleSlot::Finalizer,
+                    cancellation,
+                )? {
+                    self.push_lifecycle_call(
+                        builder, block, source, place, callable,
+                    )?;
+                }
+            }
+            MirHelperReference::Destroy(ty) => {
+                if let Some(callable) = self.lifecycle_callable(
+                    *ty,
+                    TypeAssociatedLifecycleSlot::Destructor,
+                    cancellation,
+                )? {
+                    self.push_lifecycle_call(
+                        builder,
+                        block,
+                        source,
+                        place.clone(),
+                        callable,
+                    )?;
+                }
+
+                for child in self
+                    .lifecycle_children(place, cancellation)?
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Finalize(child.clone()),
+                    )?;
+
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Destroy(child),
+                    )?;
+                }
+            }
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                ..
+            } => {
+                for child in self
+                    .lifecycle_children(place, cancellation)?
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Cleanup {
+                            phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                            place: child,
+                        },
+                    )?;
+                }
+            }
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ..
+            } => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Finalize(place.clone()),
+                )?;
+
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Destroy(place),
+                )?;
+            }
+            MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::CallableDefault(_)
+            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::TypeForm(_)
+            | MirHelperReference::Conversion(_)
+            | MirHelperReference::BeginGenerator
+            | MirHelperReference::PushGenerator
+            | MirHelperReference::FinishGenerator
+            | MirHelperReference::PanicReport
+            | MirHelperReference::CreateFrame(_)
+            | MirHelperReference::MoveInactiveFrame(_)
+            | MirHelperReference::ComposeAwaitedFrame(_)
+            | MirHelperReference::CommitAwaitedCompletion(_)
+            | MirHelperReference::DestroyTerminalTask => {
+                return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn push_compiler_known_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        reference: &MirHelperReference,
+        place: &MirPlace,
+        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+    ) -> Result<bool, CodegenFactError> {
+        let Some(ty) = reference.lifecycle_type() else {
+            return Ok(false);
+        };
+
+        let values = self.semantic_value_store()?;
+
+        let data = values
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::Named { definition, .. } = data.as_ref() else {
+            return Ok(false);
+        };
+
+        let Some(role) =
+            super::super::foreign::compiler_known_representation(self, *definition)
+        else {
+            return Ok(false);
+        };
+
+        if role != RepresentationRole::Task {
+            return Ok(false);
+        }
+
+        match reference {
+            MirHelperReference::Finalize(_) => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Async(MirAsyncOperation::ResolveTask {
+                        task: MirOperand::Move(place.clone()),
+                        runtime: MirRuntimeReference::new(
+                            RuntimeAbiRole::JoinRegistration,
+                            runtime_abi,
+                        ),
+                    }),
+                )?;
+            }
+            MirHelperReference::Destroy(_) => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Async(
+                        MirAsyncOperation::DestroyTerminalTask {
+                            task: MirOperand::Move(place.clone()),
+                        },
+                    ),
+                )?;
+            }
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                ..
+            } => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Async(
+                        MirAsyncOperation::RequestTaskCancellation {
+                            task: MirOperand::Move(place.clone()),
+                            runtime: MirRuntimeReference::new(
+                                RuntimeAbiRole::TaskCancellationRequest,
+                                runtime_abi,
+                            ),
+                        },
+                    ),
+                )?;
+            }
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ..
+            } => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Async(MirAsyncOperation::ResolveTask {
+                        task: MirOperand::Move(place.clone()),
+                        runtime: MirRuntimeReference::new(
+                            RuntimeAbiRole::JoinRegistration,
+                            runtime_abi,
+                        ),
+                    }),
+                )?;
+
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Async(
+                        MirAsyncOperation::DestroyTerminalTask {
+                            task: MirOperand::Move(place.clone()),
+                        },
+                    ),
+                )?;
+            }
+            MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::CallableDefault(_)
+            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::TypeForm(_)
+            | MirHelperReference::Conversion(_)
+            | MirHelperReference::BeginGenerator
+            | MirHelperReference::PushGenerator
+            | MirHelperReference::FinishGenerator
+            | MirHelperReference::PanicReport
+            | MirHelperReference::CreateFrame(_)
+            | MirHelperReference::MoveInactiveFrame(_)
+            | MirHelperReference::ComposeAwaitedFrame(_)
+            | MirHelperReference::CommitAwaitedCompletion(_)
+            | MirHelperReference::DestroyTerminalTask => {
+                return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
+            }
+        }
+
+        Ok(true)
+    }
+
+    fn push_lifecycle_operation(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        operation: MirOperationKind,
+    ) -> Result<(), CodegenFactError> {
+        builder
+            .push_operation(block, source.clone(), operation, None)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        Ok(())
+    }
+
+    fn push_lifecycle_call(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        place: MirPlace,
+        callable: (MirCallableReference, TypeId, TypeId),
+    ) -> Result<(), CodegenFactError> {
+        let (callable, receiver, result) = callable;
+
+        let values = self.semantic_value_store()?;
+
+        let receiver_data = values
+            .type_data(receiver)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let receiver = match receiver_data.as_ref() {
+            TypeData::Borrow { kind, .. } => {
+                let value = builder
+                    .push_operation(
+                        block,
+                        source.clone(),
+                        MirOperationKind::Borrow {
+                            kind: *kind,
+                            place,
+                        },
+                        Some(receiver),
+                    )
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?
+                    .result()
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                MirOperand::Value(value)
+            }
+            TypeData::Error
+            | TypeData::Named { .. }
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_)
+            | TypeData::TypeValuedMemberProjection { .. }
+            | TypeData::Tuple(_)
+            | TypeData::Array { .. }
+            | TypeData::Slice(_)
+            | TypeData::Generator(_)
+            | TypeData::Nullable(_)
+            | TypeData::TraitView(_)
+            | TypeData::OwnedIndirection { .. }
+            | TypeData::Callable(_) => MirOperand::Move(place),
+        };
+
+        builder
+            .push_operation(
+                block,
+                source.clone(),
+                MirOperationKind::Call(MirCall::protocol(
+                    MirCallTarget::Direct(callable),
+                    bray_bound_tree::BoundCallResult::Immediate(result),
+                    [receiver],
+                    [],
+                )),
+                Some(result),
+            )
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        Ok(())
+    }
+
+    fn lifecycle_callable(
+        &self,
+        ty: TypeId,
+        slot: TypeAssociatedLifecycleSlot,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<(MirCallableReference, TypeId, TypeId)>, CodegenFactError> {
+        let values = self.semantic_value_store()?;
+
+        let data = values
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::Named {
+            definition,
+            substitution,
+        } = data.as_ref()
+        else {
+            return Ok(None);
+        };
+
+        let surface =
+            self.type_associated_surface_result_with_cancellation(*definition, cancellation)?;
+
+        let mut members = surface
+            .value()
+            .lifecycle_members()
+            .iter()
+            .filter(|member| member.slot() == slot)
+            .map(|member| member.id());
+
+        let Some(member) = members.next() else {
+            return Ok(None);
+        };
+
+        if members.next().is_some() {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        }
+
+        let callable = super::super::implementation::callable_instance(
+            values,
+            member,
+            [*substitution],
+        )?;
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let signature = facts
+            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+                callable.definition().callable_symbol(),
+            ))
+            .map_err(super::super::binder::binder_fact_error)?;
+
+        let constants = self.checked_constant_terms_for_templates_with_cancellation(
+            [signature.value().callable_type(), signature.value().result()],
+            cancellation,
+        )?;
+
+        let signature = bray_checker::resolve_callable_signature_template(
+            values,
+            signature.value(),
+            callable.substitution(),
+            constants.value(),
+        )
+        .map_err(FactQueryError::CheckerInfrastructure)?
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let receiver = signature
+            .receiver()
+            .map(|receiver| receiver.ty())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let callable_type = values
+            .type_data(signature.callable_type())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::Callable(callable_type) = callable_type.as_ref() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        Ok(Some((
+            MirCallableReference::new(callable, callable_type.abi()),
+            receiver,
+            signature.result(),
+        )))
+    }
+
+    fn lifecycle_children(
+        &self,
+        place: MirPlace,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<MirPlace>, CodegenFactError> {
+        let values = self.semantic_value_store()?;
+
+        let data = values
+            .type_data(place.ty())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let children = match data.as_ref() {
+            TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(structure),
+                substitution,
+            } => {
+                if super::super::foreign::compiler_known_representation(
+                    self,
+                    NamedTypeSymbolId::Struct(*structure),
+                )
+                .is_some()
+                {
+                    return Ok(Vec::new());
+                }
+
+                let facts = self.binder_facts(cancellation)?;
+
+                let structure = facts
+                    .symbols()
+                    .structure(*structure)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                structure
+                    .fields()
+                    .iter()
+                    .map(|field| {
+                        let template = facts
+                            .symbol_fact(bray_symbols::SymbolFactRequest::<
+                                bray_symbols::StructFieldTypeFact,
+                            >::new(*field))
+                            .map_err(super::super::binder::binder_fact_error)?;
+
+                        let ty = self.resolve_codegen_type(
+                            template.value(),
+                            *substitution,
+                            cancellation,
+                        )?;
+
+                        Ok((
+                            MirProjectionKind::Field(
+                                bray_ir::MirFieldReference::Struct(*field),
+                            ),
+                            ty,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, FactQueryError>>()?
+            }
+            TypeData::Tuple(elements) => elements
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, ty)| {
+                    let index = u32::try_from(index)
+                        .map_err(|_| CodegenFactError::LayoutOverflow(place.ty()))?;
+
+                    Ok((MirProjectionKind::TupleField(index), ty))
+                })
+                .collect::<Result<Vec<_>, CodegenFactError>>()?,
+            TypeData::Array { element, length } => {
+                let length = closed_array_length(values, *length)?;
+
+                let length = u32::try_from(length)
+                    .map_err(|_| CodegenFactError::LayoutOverflow(place.ty()))?;
+
+                (0..length)
+                    .map(|index| {
+                        (MirProjectionKind::ElementFromStart(index), *element)
+                    })
+                    .collect()
+            }
+            TypeData::OwnedIndirection { target, .. } => {
+                vec![(MirProjectionKind::Dereference, *target)]
+            }
+            TypeData::Error
+            | TypeData::Named {
+                definition: NamedTypeSymbolId::Union(_),
+                ..
+            }
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_)
+            | TypeData::TypeValuedMemberProjection { .. }
+            | TypeData::Slice(_)
+            | TypeData::Generator(_)
+            | TypeData::Nullable(_)
+            | TypeData::Borrow { .. }
+            | TypeData::TraitView(_)
+            | TypeData::Callable(_) => Vec::new(),
+        };
+
+        Ok(children
+            .into_iter()
+            .map(|(kind, ty)| {
+                let mut projections = place.projections().to_vec();
+                projections.push(MirProjection::new(kind, place.ty(), ty));
+
+                MirPlace::new(place.storage(), projections, ty)
+            })
+            .collect())
     }
 
     fn has_trivial_codegen_lifecycle(&self, ty: TypeId) -> Result<bool, FactQueryError> {
@@ -220,6 +1160,7 @@ impl Compilation {
     fn codegen_symbols(
         &self,
         unit: &CodegenUnit,
+        operations: &[CodegenOperationMapping],
         executable_host: Option<&ExecutableHostContract>,
         target: &CodegenTarget,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
@@ -234,6 +1175,16 @@ impl Compilation {
                     host.native_entry().clone(),
                     CodegenLinkage::Export,
                     void_signature(CallableAbi::Bray),
+                ),
+                MirUnitKind::GeneratedLifecycle(reference) => (
+                    generated_symbol_name(
+                        target,
+                        CodegenLinkage::Internal,
+                        "lifecycle",
+                        instance.key(),
+                    )?,
+                    CodegenLinkage::Internal,
+                    self.generated_lifecycle_signature(reference)?,
                 ),
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
                     let realization = reachability
@@ -298,7 +1249,7 @@ impl Compilation {
             ));
         }
 
-        for reference in demanded_runtime_references(unit) {
+        for reference in codegen_runtime_references(unit, operations) {
             let Some(binding) =
                 executable_host.and_then(|host| host.role_binding(reference.role()))
             else {
@@ -328,6 +1279,31 @@ impl Compilation {
             }
         }
 
+        for (frame, operation) in operations.iter().flat_map(|mapping| {
+            mapping.helpers().iter().filter_map(|helper| {
+                let Some(CodegenSymbolKey::ProtectedFrame { frame, operation }) =
+                    helper.symbol()
+                else {
+                    return None;
+                };
+
+                Some((*frame, *operation))
+            })
+        }) {
+            let key = CodegenSymbolKey::ProtectedFrame { frame, operation };
+
+            if symbols.iter().any(|symbol| symbol.key() == &key) {
+                continue;
+            }
+
+            symbols.push(CodegenSymbolMapping::new(
+                key,
+                generated_frame_symbol_name(target, frame, operation)?,
+                CodegenLinkage::Import,
+                void_signature(CallableAbi::Bray),
+            ));
+        }
+
         Ok(symbols)
     }
 
@@ -336,6 +1312,13 @@ impl Compilation {
         instance: &bray_codegen::CodegenInstanceKey,
         cancellation: &CancellationToken,
     ) -> Result<Option<(BinarySymbolName, CodegenLinkage)>, CodegenFactError> {
+        if matches!(
+            instance.template(),
+            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExecutableHost(_)
+        ) {
+            return Ok(None);
+        }
+
         let definition = self.codegen_callable_definition(instance)?;
 
         let bray_symbols::CallableSymbolId::Function(function) = definition.callable_symbol()
@@ -832,10 +1815,21 @@ impl Compilation {
         instance: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenFactError> {
+        if let MirUnitKey::GeneratedLifecycle(_) = instance.key().template() {
+            let reference = instance
+                .generated_lifecycle_reference()
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            return self.generated_lifecycle_signature(reference);
+        }
+
         let definition = match instance.key().template() {
             MirUnitKey::ExecutableHost(_) => return Ok(void_signature(CallableAbi::Bray)),
             MirUnitKey::Bound(_) | MirUnitKey::ExternalCallable(_) => {
                 self.codegen_callable_definition(instance.key())?
+            }
+            MirUnitKey::GeneratedLifecycle(_) => {
+                return Err(FactQueryError::InfrastructureFailure.into());
             }
         };
 
@@ -920,8 +1914,34 @@ impl Compilation {
                 CallableDefinitionId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)
             }
             MirUnitKey::ExternalCallable(definition) => Ok(*definition),
-            MirUnitKey::ExecutableHost(_) => Err(FactQueryError::InfrastructureFailure),
+            MirUnitKey::ExecutableHost(_) | MirUnitKey::GeneratedLifecycle(_) => {
+                Err(FactQueryError::InfrastructureFailure)
+            }
         }
+    }
+
+    fn generated_lifecycle_signature(
+        &self,
+        reference: &MirHelperReference,
+    ) -> Result<CodegenCallableSignature, CodegenFactError> {
+        let ty = reference
+            .lifecycle_type()
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        let pointer = self
+            .semantic_value_store()?
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: ty,
+            })
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok(CodegenCallableSignature::new(
+            [CodegenParameterMapping::direct(pointer, None, [])],
+            CodegenResultMapping::Void,
+            CallableAbi::Bray,
+            false,
+        ))
     }
 }
 
@@ -1068,6 +2088,103 @@ fn void_signature(abi: CallableAbi) -> CodegenCallableSignature {
     CodegenCallableSignature::new([], CodegenResultMapping::Void, abi, false)
 }
 
+fn helper_runtime_symbol(
+    owner: &CodegenInstance,
+    role: RuntimeAbiRole,
+) -> CodegenSymbolKey {
+    CodegenSymbolKey::Runtime(MirRuntimeReference::new(
+        role,
+        owner.key().target().runtime_abi(),
+    ))
+}
+
+fn direct_helper_symbol(
+    owner: &CodegenInstance,
+    reference: &MirHelperReference,
+) -> Option<CodegenSymbolKey> {
+    let symbol = match reference {
+        MirHelperReference::BeginGenerator => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorBegin)
+        }
+        MirHelperReference::PushGenerator => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorPush)
+        }
+        MirHelperReference::FinishGenerator => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorFinish)
+        }
+        MirHelperReference::PanicReport => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::PanicReportConstruction)
+        }
+        MirHelperReference::MoveInactiveFrame(frame) => match frame {
+            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
+                frame: *frame,
+                operation: ProtectedFrameOperation::MoveBeforeStart,
+            },
+            MirFrameReference::Erased => {
+                helper_runtime_symbol(owner, RuntimeAbiRole::InactiveFrameMove)
+            }
+        },
+        MirHelperReference::ComposeAwaitedFrame(_) => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::AwaitedFrameComposition)
+        }
+        MirHelperReference::CommitAwaitedCompletion(frame) => match frame {
+            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
+                frame: *frame,
+                operation: ProtectedFrameOperation::CompletionMove,
+            },
+            MirFrameReference::Erased => {
+                helper_runtime_symbol(owner, RuntimeAbiRole::FrameCompletionMove)
+            }
+        },
+        MirHelperReference::DestroyTerminalTask => {
+            helper_runtime_symbol(owner, RuntimeAbiRole::TaskDestruction)
+        }
+        MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::CallableDefault(_)
+        | MirHelperReference::ConstructionDefault(_)
+        | MirHelperReference::TypeForm(_)
+        | MirHelperReference::Conversion(_)
+        | MirHelperReference::Finalize(_)
+        | MirHelperReference::Destroy(_)
+        | MirHelperReference::Cleanup { .. }
+        | MirHelperReference::CreateFrame(_) => return None,
+    };
+
+    Some(symbol)
+}
+
+fn codegen_runtime_references(
+    unit: &CodegenUnit,
+    operations: &[CodegenOperationMapping],
+) -> BTreeSet<MirRuntimeReference> {
+    let mut references = demanded_runtime_references(unit);
+
+    references.extend(operations.iter().flat_map(|operation| {
+        operation.helpers().iter().filter_map(|helper| {
+            let Some(CodegenSymbolKey::Runtime(reference)) = helper.symbol() else {
+                return None;
+            };
+
+            Some(*reference)
+        })
+    }));
+
+    references
+}
+
+fn dependency_symbol(
+    owner: &CodegenInstance,
+    instance: &bray_codegen::CodegenInstanceKey,
+    reference: &MirHelperReference,
+) -> Result<CodegenSymbolKey, CodegenFactError> {
+    owner
+        .dependencies()
+        .iter()
+        .find(|dependency| dependency.instance() == instance)
+        .map(|dependency| CodegenSymbolKey::Instance(dependency.instance().clone()))
+        .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))
+}
+
 fn is_unit(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
@@ -1148,4 +2265,368 @@ fn binary_symbol_name(
     }
 
     BinarySymbolName::try_new(name).ok_or(CodegenFactError::InvalidSymbolName)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use bray_codegen::{
+        CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenSymbolKey,
+        CodegenTarget,
+    };
+    use bray_ir::{
+        MirCleanupPhase, MirFrameReference, MirHelperReference, MirOperationKind,
+        MirProjectionKind, MirRuntimeReference, MirUnitId,
+    };
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
+    };
+    use bray_symbols::TypeData;
+    use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
+
+    use super::{dependency_symbol, direct_helper_symbol};
+    use crate::compilation::CodegenFactError;
+    use crate::compilation::product::specialization::ConcreteCodegenInstance;
+    use crate::{CancellationToken, Compilation};
+
+    #[test]
+    fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
+        let owner = CodegenInstance::non_generic(test_mir_unit(1));
+        let frame = ProtectedAsyncFrameId::new([7; 32]);
+
+        let runtime = |role| {
+            CodegenSymbolKey::Runtime(MirRuntimeReference::new(
+                role,
+                owner.key().target().runtime_abi(),
+            ))
+        };
+
+        let cases = [
+            (
+                MirHelperReference::BeginGenerator,
+                runtime(RuntimeAbiRole::GeneratorBegin),
+            ),
+            (
+                MirHelperReference::PushGenerator,
+                runtime(RuntimeAbiRole::GeneratorPush),
+            ),
+            (
+                MirHelperReference::FinishGenerator,
+                runtime(RuntimeAbiRole::GeneratorFinish),
+            ),
+            (
+                MirHelperReference::PanicReport,
+                runtime(RuntimeAbiRole::PanicReportConstruction),
+            ),
+            (
+                MirHelperReference::MoveInactiveFrame(MirFrameReference::Known(frame)),
+                CodegenSymbolKey::ProtectedFrame {
+                    frame,
+                    operation: ProtectedFrameOperation::MoveBeforeStart,
+                },
+            ),
+            (
+                MirHelperReference::MoveInactiveFrame(MirFrameReference::Erased),
+                runtime(RuntimeAbiRole::InactiveFrameMove),
+            ),
+            (
+                MirHelperReference::ComposeAwaitedFrame(MirFrameReference::Erased),
+                runtime(RuntimeAbiRole::AwaitedFrameComposition),
+            ),
+            (
+                MirHelperReference::CommitAwaitedCompletion(
+                    MirFrameReference::Known(frame),
+                ),
+                CodegenSymbolKey::ProtectedFrame {
+                    frame,
+                    operation: ProtectedFrameOperation::CompletionMove,
+                },
+            ),
+            (
+                MirHelperReference::CommitAwaitedCompletion(
+                    MirFrameReference::Erased,
+                ),
+                runtime(RuntimeAbiRole::FrameCompletionMove),
+            ),
+            (
+                MirHelperReference::DestroyTerminalTask,
+                runtime(RuntimeAbiRole::TaskDestruction),
+            ),
+        ];
+
+        for (reference, expected) in cases {
+            assert_eq!(direct_helper_symbol(&owner, &reference), Some(expected));
+        }
+    }
+
+    #[test]
+    fn lifecycle_helpers_use_distinct_type_aware_instance_dependencies() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let leaf = values
+            .intern_type(TypeData::tuple([]))
+            .expect("leaf type must intern");
+
+        let aggregate = values
+            .intern_type(TypeData::tuple([leaf]))
+            .expect("aggregate type must intern");
+
+        let references = [
+            MirHelperReference::Finalize(aggregate),
+            MirHelperReference::Destroy(aggregate),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: aggregate,
+            },
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty: aggregate,
+            },
+        ];
+
+        let dependencies = references
+            .iter()
+            .cloned()
+            .map(|reference| {
+                compilation
+                    .concrete_codegen_lifecycle(reference, &target)
+                    .expect("lifecycle instance must realize")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            dependencies
+                .iter()
+                .map(ConcreteCodegenInstance::key)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            references.len()
+        );
+
+        let owner_mir = test_mir_unit(2);
+
+        let owner = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&owner_mir),
+            owner_mir,
+            dependencies
+                .iter()
+                .map(|dependency| {
+                    CodegenInstanceDependency::definition(dependency.key().clone())
+                }),
+        )
+        .expect("generated lifecycle dependencies must validate");
+
+        for (reference, dependency) in references.into_iter().zip(dependencies) {
+            assert_eq!(
+                dependency_symbol(&owner, dependency.key(), &reference),
+                Ok(CodegenSymbolKey::Instance(dependency.key().clone()))
+            );
+        }
+    }
+
+    #[test]
+    fn lifecycle_identity_is_stable_and_payload_remains_compilation_local() {
+        let first = crate::test_support::compilation("module app; func main() {}");
+        let second = crate::test_support::compilation("module app; func main() {}");
+
+        let first_values = first
+            .semantic_value_store()
+            .expect("first semantic values must resolve");
+
+        let first_leaf = first_values
+            .intern_type(TypeData::Error)
+            .expect("first leaf type must intern");
+
+        let first_type = first_values
+            .intern_type(TypeData::tuple([first_leaf]))
+            .expect("first aggregate type must intern");
+
+        let second_values = second
+            .semantic_value_store()
+            .expect("second semantic values must resolve");
+
+        let _ = second_values
+            .intern_type(TypeData::tuple([]))
+            .expect("unrelated type must intern");
+
+        let second_leaf = second_values
+            .intern_type(TypeData::Error)
+            .expect("second leaf type must intern");
+
+        let second_type = second_values
+            .intern_type(TypeData::tuple([second_leaf]))
+            .expect("second aggregate type must intern");
+
+        let first = first
+            .concrete_codegen_lifecycle(
+                MirHelperReference::Destroy(first_type),
+                &codegen_target(&first),
+            )
+            .expect("first lifecycle instance must realize");
+
+        let second = second
+            .concrete_codegen_lifecycle(
+                MirHelperReference::Destroy(second_type),
+                &codegen_target(&second),
+            )
+            .expect("second lifecycle instance must realize");
+
+        assert_eq!(first.key(), second.key());
+
+        assert_eq!(
+            first.generated_lifecycle_reference(),
+            Some(&MirHelperReference::Destroy(first_type))
+        );
+
+        assert_eq!(
+            second.generated_lifecycle_reference(),
+            Some(&MirHelperReference::Destroy(second_type))
+        );
+    }
+
+    #[test]
+    fn lifecycle_payload_must_match_the_stable_key_role() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let ty = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve")
+            .intern_type(TypeData::tuple([]))
+            .expect("test type must intern");
+
+        let finalize = compilation
+            .concrete_codegen_lifecycle(
+                MirHelperReference::Finalize(ty),
+                &target,
+            )
+            .expect("finalization instance must realize");
+
+        assert!(
+            ConcreteCodegenInstance::try_generated_lifecycle(
+                finalize.key().clone(),
+                MirHelperReference::Destroy(ty),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn generated_destruction_composes_parts_in_reverse_order() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let leaf = values
+            .intern_type(TypeData::tuple([]))
+            .expect("leaf type must intern");
+
+        let aggregate = values
+            .intern_type(TypeData::tuple([leaf, leaf]))
+            .expect("aggregate type must intern");
+
+        let instance = compilation
+            .concrete_codegen_lifecycle(
+                MirHelperReference::Destroy(aggregate),
+                &target,
+            )
+            .expect("destruction instance must realize");
+
+        let reference = instance
+            .generated_lifecycle_reference()
+            .expect("generated lifecycle payload must be retained");
+
+        let generated = compilation
+            .codegen_generated_lifecycle_mir(
+                instance.key(),
+                reference,
+                MirUnitId::new(77),
+                &CancellationToken::new(),
+            )
+            .expect("represented-part destruction must generate");
+
+        let operations = generated
+            .operations()
+            .iter()
+            .map(|operation| operation.kind())
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("finalize", 1),
+            ("destroy", 1),
+            ("finalize", 0),
+            ("destroy", 0),
+        ];
+
+        assert_eq!(operations.len(), expected.len());
+
+        for (operation, (kind, field)) in operations.into_iter().zip(expected) {
+            let place = match operation {
+                MirOperationKind::Finalize(place) if kind == "finalize" => place,
+                MirOperationKind::Destroy(place) if kind == "destroy" => place,
+                other => panic!("unexpected lifecycle operation: {other:?}"),
+            };
+
+            assert!(matches!(
+                place.projections().last().map(|projection| projection.kind()),
+                Some(MirProjectionKind::TupleField(actual)) if *actual == field
+            ));
+        }
+    }
+
+    #[test]
+    fn declaration_helpers_require_the_exact_concrete_dependency() {
+        let owner_mir = test_mir_unit(3);
+
+        let dependency =
+            CodegenInstanceKey::non_generic(&test_mir_unit_with_declaration(4, 5));
+
+        let owner = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&owner_mir),
+            owner_mir,
+            [CodegenInstanceDependency::definition(dependency.clone())],
+        )
+        .expect("test helper dependency must validate");
+
+        let reference = MirHelperReference::AnonymousCallable(
+            match dependency.template() {
+                bray_ir::MirUnitKey::Bound(unit) => unit.clone(),
+                bray_ir::MirUnitKey::ExecutableHost(_)
+                | bray_ir::MirUnitKey::GeneratedLifecycle(_)
+                | bray_ir::MirUnitKey::ExternalCallable(_) => {
+                    panic!("test dependency must be bound");
+                }
+            },
+        );
+
+        assert_eq!(
+            dependency_symbol(&owner, &dependency, &reference),
+            Ok(CodegenSymbolKey::Instance(dependency.clone()))
+        );
+
+        let missing =
+            CodegenInstanceKey::non_generic(&test_mir_unit_with_declaration(6, 7));
+
+        assert_eq!(
+            dependency_symbol(&owner, &missing, &reference),
+            Err(CodegenFactError::MissingHelperInstance(reference))
+        );
+    }
+
+    fn codegen_target(compilation: &Compilation) -> CodegenTarget {
+        compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("test codegen target must validate")
+    }
 }

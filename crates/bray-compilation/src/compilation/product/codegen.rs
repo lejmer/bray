@@ -9,8 +9,7 @@ use bray_codegen::{
     CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenTarget,
     CodegenTargetBuildError, CodegenUnit, CodegenUnitBuildError,
     DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
-    demanded_callable_instances_for_mir, demanded_runtime_references,
-    partition_codegen_units,
+    demanded_runtime_references, partition_codegen_units,
 };
 use bray_emitter::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, ProductLinkFacts,
@@ -444,20 +443,30 @@ impl Compilation {
                     continue;
                 }
 
-                let mir =
-                    self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)?;
-
-                let concrete_dependencies = demanded_callable_instances_for_mir(&mir)
-                    .into_iter()
-                    .map(|demand| {
-                        self.concrete_codegen_callee(
-                            &realization,
-                            &demand,
-                            target,
+                let mir = match realization.generated_lifecycle_reference() {
+                    Some(reference) => self.codegen_generated_lifecycle_mir(
+                        key,
+                        reference,
+                        MirUnitId::new(0),
+                        cancellation,
+                    )?,
+                    None => {
+                        self.codegen_mir_for_plan(
+                            key,
+                            MirUnitId::new(0),
+                            None,
                             cancellation,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                        )?
+                    }
+                };
+
+                let concrete_dependencies = self
+                    .concrete_codegen_dependencies_for_mir(
+                        &realization,
+                        &mir,
+                        target,
+                        cancellation,
+                    )?;
 
                 let dependencies = concrete_dependencies
                     .iter()
@@ -703,12 +712,11 @@ impl Compilation {
 fn bound_template(
     key: &CodegenInstanceKey,
 ) -> Result<bray_bound_tree::BoundUnitKey, NativeProductFactError> {
-    match key.template() {
-        MirUnitKey::Bound(key) => Ok(key.clone()),
-        MirUnitKey::ExecutableHost(_) | MirUnitKey::ExternalCallable(_) => {
-            Err(NativeProductFactError::MissingProductRoot)
-        }
-    }
+    let MirUnitKey::Bound(template) = key.template() else {
+        return Err(NativeProductFactError::MissingProductRoot);
+    };
+
+    Ok(template.clone())
 }
 
 /// A failure to derive complete native product facts.
@@ -771,7 +779,6 @@ impl NativeProductFactError {
                 | Self::MissingRuntime
                 | Self::Codegen(
                     super::super::CodegenFactError::UnsupportedType(_)
-                        | super::super::CodegenFactError::UnsupportedHelper(_)
                 )
         )
     }

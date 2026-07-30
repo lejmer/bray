@@ -161,6 +161,9 @@ impl Compilation {
                 )
                 .map_err(CodegenFactError::InvalidHostMir)
             }
+            MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
+                instance.template().clone(),
+            )),
             MirUnitKey::ExternalCallable(_) => Err(CodegenFactError::MirUnavailable(
                 instance.template().clone(),
             )),
@@ -272,7 +275,9 @@ fn codegen_mappings(
                 // The mapping owns the selected process-entry spelling past the MIR borrow.
                 (host.native_entry().clone(), CodegenLinkage::Export)
             }
-            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => (
+            MirUnitKind::Synchronous
+            | MirUnitKind::ProtectedAsyncFrame(_)
+            | MirUnitKind::GeneratedLifecycle(_) => (
                 super::product::generated_symbol_name(
                     target,
                     CodegenLinkage::Internal,
@@ -386,6 +391,8 @@ pub enum CodegenFactError {
     UnitMismatch(CodegenUnitKey),
     /// A generated executable host did not satisfy the MIR contract.
     InvalidHostMir(MirUnitBuildError),
+    /// A generated lifecycle definition did not satisfy the MIR contract.
+    InvalidGeneratedLifecycleMir(MirUnitBuildError),
     /// Compilation could not construct complete realization mappings for the planned unit.
     InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.

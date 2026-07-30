@@ -1,3 +1,3 @@
-mod encoding;
+pub(super) mod encoding;
 mod leaf;
 mod query;

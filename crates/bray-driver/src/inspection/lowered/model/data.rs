@@ -11,10 +11,11 @@ use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
     MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirConstructionInput,
     MirEdge, MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
-    MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirOperand, MirOperation,
-    MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind, MirRuntimeReference,
-    MirSourceAnchor, MirSourceOrigin, MirStorageKind, MirStoreKind, MirTaskTerminalState,
-    MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind, MirValueOrigin,
+    MirGeneratorOperation, MirHelperReference, MirHostOperation, MirImmediateValue, MirOperand,
+    MirOperation, MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind,
+    MirRuntimeReference, MirSourceAnchor, MirSourceOrigin, MirStorageKind, MirStoreKind,
+    MirTaskTerminalState, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind,
+    MirValueOrigin,
 };
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, SymbolGraph, TypeId,
@@ -28,6 +29,7 @@ use crate::inspection::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MirInspectionModelError {
+    InvalidGeneratedLifecycle,
     MissingOperation,
     MissingSymbol,
     Source,
@@ -214,6 +216,10 @@ pub(crate) enum InspectionMirUnitKey {
         package: String,
         product: String,
     },
+    GeneratedLifecycle {
+        role: &'static str,
+        type_identity: String,
+    },
     ExternalCallable {
         callable: InspectionSymbolIdentity,
     },
@@ -229,6 +235,9 @@ pub(crate) enum InspectionMirSource {
     ExecutableHost {
         package: String,
         product: String,
+    },
+    GeneratedLifecycle {
+        role: &'static str,
     },
 }
 
@@ -1601,6 +1610,10 @@ fn inspection_unit_key(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
+        MirUnitKey::GeneratedLifecycle(key) => Ok(InspectionMirUnitKey::GeneratedLifecycle {
+            role: generated_lifecycle_role(key.role()),
+            type_identity: digest_text(key.type_identity()),
+        }),
         MirUnitKey::ExternalCallable(definition) => {
             Ok(InspectionMirUnitKey::ExternalCallable {
                 callable: InspectionSymbolIdentity::from_symbol(
@@ -1625,6 +1638,12 @@ fn inspection_source_origin(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
+        MirSourceOrigin::GeneratedLifecycle(reference) => {
+            Ok(InspectionMirSource::GeneratedLifecycle {
+                role: lifecycle_helper_role(reference)
+                    .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
+            })
+        }
     }
 }
 
@@ -1649,6 +1668,12 @@ fn inspection_source_anchor(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
+        MirSourceAnchor::GeneratedLifecycle(reference) => {
+            Ok(InspectionMirSource::GeneratedLifecycle {
+                role: lifecycle_helper_role(reference)
+                    .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
+            })
+        }
     }
 }
 
@@ -1986,6 +2011,51 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
         MirUnitKind::Synchronous => "synchronous",
         MirUnitKind::ProtectedAsyncFrame(_) => "protected_async_frame",
         MirUnitKind::ExecutableHost(_) => "executable_host",
+        MirUnitKind::GeneratedLifecycle(_) => "generated_lifecycle",
+    }
+}
+
+const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
+    match reference {
+        MirHelperReference::Finalize(_) => Some("finalize"),
+        MirHelperReference::Destroy(_) => Some("destroy"),
+        MirHelperReference::Cleanup {
+            phase: MirCleanupPhase::TaskCancellation,
+            ..
+        } => Some("cleanup_task_cancellation"),
+        MirHelperReference::Cleanup {
+            phase: MirCleanupPhase::LifecycleResolution,
+            ..
+        } => Some("cleanup_lifecycle_resolution"),
+        MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::CallableDefault(_)
+        | MirHelperReference::ConstructionDefault(_)
+        | MirHelperReference::TypeForm(_)
+        | MirHelperReference::Conversion(_)
+        | MirHelperReference::BeginGenerator
+        | MirHelperReference::PushGenerator
+        | MirHelperReference::FinishGenerator
+        | MirHelperReference::PanicReport
+        | MirHelperReference::CreateFrame(_)
+        | MirHelperReference::MoveInactiveFrame(_)
+        | MirHelperReference::ComposeAwaitedFrame(_)
+        | MirHelperReference::CommitAwaitedCompletion(_)
+        | MirHelperReference::DestroyTerminalTask => None,
+    }
+}
+
+const fn generated_lifecycle_role(
+    role: bray_ir::MirGeneratedLifecycleRole,
+) -> &'static str {
+    match role {
+        bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(
+            MirCleanupPhase::TaskCancellation,
+        ) => "cleanup_task_cancellation",
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(
+            MirCleanupPhase::LifecycleResolution,
+        ) => "cleanup_lifecycle_resolution",
     }
 }
 

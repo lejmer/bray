@@ -60,6 +60,27 @@ impl MirHelperReference {
     pub const fn abi(&self) -> CallableAbi {
         CallableAbi::Bray
     }
+
+    /// Returns the semantic value type retained by a lifecycle helper.
+    pub const fn lifecycle_type(&self) -> Option<TypeId> {
+        match self {
+            Self::Finalize(ty) | Self::Destroy(ty) | Self::Cleanup { ty, .. } => Some(*ty),
+            Self::AnonymousCallable(_)
+            | Self::CallableDefault(_)
+            | Self::ConstructionDefault(_)
+            | Self::TypeForm(_)
+            | Self::Conversion(_)
+            | Self::BeginGenerator
+            | Self::PushGenerator
+            | Self::FinishGenerator
+            | Self::PanicReport
+            | Self::CreateFrame(_)
+            | Self::MoveInactiveFrame(_)
+            | Self::ComposeAwaitedFrame(_)
+            | Self::CommitAwaitedCompletion(_)
+            | Self::DestroyTerminalTask => None,
+        }
+    }
 }
 
 impl MirOperationKind {

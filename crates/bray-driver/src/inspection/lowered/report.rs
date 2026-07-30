@@ -638,6 +638,9 @@ fn source_text(source: &InspectionMirSource) -> String {
         InspectionMirSource::ExecutableHost { package, product } => {
             format!("generated {package}/{product}")
         }
+        InspectionMirSource::GeneratedLifecycle { role } => {
+            format!("generated lifecycle {role}")
+        }
     }
 }
 
