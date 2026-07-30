@@ -667,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn async_executable_plans_require_the_generated_host_and_root_frame() {
+    fn async_executable_plans_require_exact_generated_host_and_root_frame_artifacts() {
         let product = ProductIdentity::try_new(package_identity(), "application")
             .unwrap_or_else(|| panic!("test product identity must be valid"));
 
@@ -700,14 +700,51 @@ mod tests {
             Ok(()),
         );
 
-        let host_only = bray_codegen::CodegenUnit::try_new(1, [host_mir])
+        let host_only = bray_codegen::CodegenUnit::try_new(1, [host_mir.clone()])
             .unwrap_or_else(|error| panic!("host-only test unit must be valid: {error:?}"));
 
-        let host_only_plan = async_plan(product, host, &host_only);
+        let host_only_plan = async_plan(product.clone(), host.clone(), &host_only);
 
         assert_eq!(
             validate_executable_units(&host_only_plan, &[host_only]),
             Err(ProductEmissionErrorKind::MissingRootFrame(frame)),
+        );
+
+        let other_frame = ProtectedAsyncFrameId::new([8; 32]);
+
+        let wrong_frame = bray_codegen::CodegenUnit::try_new(
+            1,
+            [host_mir.clone(), protected_frame_mir(other_frame)],
+        )
+        .unwrap_or_else(|error| panic!("wrong-frame test unit must be valid: {error:?}"));
+
+        let wrong_frame_plan = async_plan(product.clone(), host.clone(), &wrong_frame);
+
+        assert_eq!(
+            validate_executable_units(&wrong_frame_plan, &[wrong_frame]),
+            Err(ProductEmissionErrorKind::MissingRootFrame(frame)),
+        );
+
+        let mismatched_runtime = RuntimeArtifactId::try_new("runtime.other")
+            .unwrap_or_else(|| panic!("mismatched runtime identity must be valid"));
+
+        let mismatched_host = test_async_executable_host_contract_for(
+            product.clone(),
+            test_mir_target().identity().clone(),
+            mismatched_runtime,
+        );
+
+        let wrong_host = bray_codegen::CodegenUnit::try_new(
+            1,
+            [executable_host_mir(mismatched_host), protected_frame_mir(frame)],
+        )
+        .unwrap_or_else(|error| panic!("wrong-host test unit must be valid: {error:?}"));
+
+        let wrong_host_plan = async_plan(product, host, &wrong_host);
+
+        assert_eq!(
+            validate_executable_units(&wrong_host_plan, &[wrong_host]),
+            Err(ProductEmissionErrorKind::MissingExecutableHost),
         );
     }
 

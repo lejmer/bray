@@ -1,0 +1,129 @@
+{
+  "contracts": [
+    {
+      "name": "equivalent immutable plans",
+      "production": "artifacts.sort_unstable_by(|left, right| left.id().cmp(right.id()))",
+      "test": "plans_are_deterministic_and_reject_sink_collisions"
+    },
+    {
+      "name": "reversed parallel contributions",
+      "production": "BackendContributionSet::try_from_backend(",
+      "test": "planned_codegen_demand_is_parallel_but_merges_in_plan_order"
+    },
+    {
+      "name": "sink collisions",
+      "production": "sink.collision_key()",
+      "test": "plans_are_deterministic_and_reject_sink_collisions"
+    },
+    {
+      "name": "hostile output paths",
+      "production": "is_valid_host_file_name",
+      "test": "planning_rejects_host_invalid_and_equivalent_file_names"
+    },
+    {
+      "name": "transactional stream failures",
+      "production": "transaction.flush().map_err",
+      "test": "failed_indirect_writes_flushes_and_commits_discard_buffered_bytes"
+    },
+    {
+      "name": "filesystem failures",
+      "production": "FilesystemStaging::create",
+      "test": "filesystem_publication_obeys_replacement_policy"
+    },
+    {
+      "name": "atomic staging cleanup",
+      "production": "LinkStagingCleanup::new",
+      "test": "failed_promotion_preserves_destination_and_cleans_staging"
+    },
+    {
+      "name": "digest mismatches",
+      "production": "validate_staged_content(",
+      "test": "digest_mismatches_fail_before_any_bytes_are_published"
+    },
+    {
+      "name": "reused pure facts",
+      "production": "package_interface_export_bundle()",
+      "test": "package_interface_emission_reuses_pure_facts_across_publications"
+    },
+    {
+      "name": "planning cancellation",
+      "production": "pub fn emit_product_with_cancellation(",
+      "test": "cancellation_before_planning_preserves_existing_output"
+    },
+    {
+      "name": "codegen cancellation",
+      "production": "codegen_artifact_with_cancellation(",
+      "test": "cancelled_codegen_requests_do_not_invoke_or_publish_the_backend"
+    },
+    {
+      "name": "staging cancellation",
+      "production": "fn stage_input(",
+      "test": "cancellation_after_staging_creation_discards_private_state"
+    },
+    {
+      "name": "link cancellation",
+      "production": "pub fn link_product_with_cancellation(",
+      "test": "cancellation_during_link_discards_driver_success"
+    },
+    {
+      "name": "publication cancellation",
+      "production": "fn copy_content(",
+      "test": "cancellation_during_staged_validation_preserves_the_destination"
+    },
+    {
+      "name": "external process cancellation",
+      "production": "fn wait_for_process(",
+      "test": "cancellation_terminates_and_reaps_native_external_tool_child"
+    },
+    {
+      "name": "bounded compiler workers",
+      "production": "scheduler.map_indexed(priority, len",
+      "test": "nested_indexed_work_uses_available_workers_without_exceeding_the_budget"
+    },
+    {
+      "name": "bounded external processes",
+      "production": "self.budget.acquire(cancellation)",
+      "test": "process_budget_serializes_external_tool_ownership"
+    },
+    {
+      "name": "deterministic merged diagnostics",
+      "production": "DiagnosticBag::merged_all(",
+      "test": "planned_codegen_demand_is_parallel_but_merges_in_plan_order"
+    },
+    {
+      "name": "narrow artifact requests",
+      "production": "should_plan_artifact(",
+      "test": "package_interfaces_plan_without_backend_participation"
+    },
+    {
+      "name": "missing runtime capabilities",
+      "production": "MissingCapability(RuntimeCapability)",
+      "test": "compatibility_failures_are_typed_and_deterministic"
+    },
+    {
+      "name": "incompatible runtime ABI",
+      "production": "RuntimeCompatibilityError::RuntimeAbi",
+      "test": "compatibility_failures_are_typed_and_deterministic"
+    },
+    {
+      "name": "async host artifact matching",
+      "production": "fn validate_executable_units(",
+      "test": "async_executable_plans_require_exact_generated_host_and_root_frame_artifacts"
+    },
+    {
+      "name": "root runtime artifact matching",
+      "production": "LinkPlanBuildError::RuntimeArtifactMismatch",
+      "test": "async_host_plans_reject_another_runtime_artifact"
+    },
+    {
+      "name": "structured shutdown ordering",
+      "production": "MirHostOperation::StructuredShutdown",
+      "test": "executable_host_validation_rejects_reordered_shutdown_operations"
+    },
+    {
+      "name": "source run cancellation in MIR",
+      "production": "MirHostOperation::RequestRootCancellation",
+      "test": "host_input_creates_generated_mir_without_a_bound_unit"
+    }
+  ]
+}

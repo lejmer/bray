@@ -731,6 +731,35 @@ mod tests {
     }
 
     #[test]
+    fn async_host_plans_reject_another_runtime_artifact() {
+        let Some(selected) = RuntimeArtifactId::try_new("runtime.selected") else {
+            panic!("selected test runtime identity must be valid");
+        };
+
+        let Some(other) = RuntimeArtifactId::try_new("runtime.other") else {
+            panic!("other test runtime identity must be valid");
+        };
+
+        let mut builder = link_plan_builder();
+        builder.push_input(link_input(0, "main.o"));
+        builder.push_input(runtime_input(1, other));
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+
+        builder.set_executable_host(async_executable_host_contract(selected));
+
+        assert_eq!(
+            builder.finish(),
+            Err(LinkPlanBuildError::RuntimeArtifactMismatch)
+        );
+    }
+
+    #[test]
     fn async_host_plans_reject_multiple_selected_runtime_components() {
         let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
             panic!("test runtime identity must be valid");

@@ -47,6 +47,10 @@ pub(crate) fn validate_content(
     expected: Option<&ArtifactDigest>,
     cancellation: &dyn Cancellation,
 ) -> Result<ArtifactDigest, ContentValidationError> {
+    if cancellation.is_cancelled() {
+        return Err(ContentValidationError::Cancelled);
+    }
+
     let reader = open_content(content).map_err(ContentValidationError::Read)?;
 
     validate_reader(reader, content.byte_len(), expected, cancellation)
@@ -58,6 +62,10 @@ pub(crate) fn validate_staged_content(
     expected_digest: Option<&ArtifactDigest>,
     cancellation: &dyn Cancellation,
 ) -> Result<ArtifactDigest, ContentValidationError> {
+    if cancellation.is_cancelled() {
+        return Err(ContentValidationError::Cancelled);
+    }
+
     let reader = File::open(path).map_err(|error| ContentValidationError::Read(error.kind()))?;
 
     validate_reader(reader, expected_byte_len, expected_digest, cancellation)
