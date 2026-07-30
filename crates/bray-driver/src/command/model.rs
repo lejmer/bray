@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use bray_compilation::{CompilationOptions, WorkerBudget};
 use bray_source::TextSize;
 
+use super::DriverProductConfiguration;
+
 /// Output format selected for driver-produced output.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DriverOutputFormat {
@@ -58,6 +60,8 @@ impl Default for DriverOptions {
 /// Stable category for a driver command.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DriverCommandKind {
+    /// Builds one selected package product.
+    Build,
     /// Checks source files.
     Check,
     /// Inspects loaded source snapshots.
@@ -116,6 +120,13 @@ impl UnitInspectionTarget {
 /// Driver command selected by the CLI.
 #[derive(Debug, Eq, PartialEq)]
 pub enum DriverCommand {
+    /// Builds one selected package product.
+    Build {
+        /// Typed product configuration.
+        configuration: DriverProductConfiguration,
+        /// Source files in the product source graph.
+        files: Vec<PathBuf>,
+    },
     /// Checks source files.
     Check {
         /// Source files to check.
@@ -170,6 +181,14 @@ pub enum DriverCommand {
 }
 
 impl DriverCommand {
+    /// Creates a product build command.
+    pub fn build(configuration: DriverProductConfiguration, files: Vec<PathBuf>) -> Self {
+        Self::Build {
+            configuration,
+            files,
+        }
+    }
+
     /// Creates a check command.
     pub fn check(files: Vec<PathBuf>) -> Self {
         Self::Check { files }
@@ -218,6 +237,7 @@ impl DriverCommand {
     /// Returns this command's stable category.
     pub const fn kind(&self) -> DriverCommandKind {
         match self {
+            Self::Build { .. } => DriverCommandKind::Build,
             Self::Check { .. } => DriverCommandKind::Check,
             Self::InspectSource { .. } => DriverCommandKind::InspectSource,
             Self::InspectTokens { .. } => DriverCommandKind::InspectTokens,
@@ -233,7 +253,8 @@ impl DriverCommand {
     /// Returns the command's source file paths.
     pub fn files(&self) -> &[PathBuf] {
         match self {
-            Self::Check { files }
+            Self::Build { files, .. }
+            | Self::Check { files }
             | Self::InspectSource { files }
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
@@ -255,9 +276,18 @@ impl DriverCommand {
         }
     }
 
+    /// Returns the selected product configuration for a build command.
+    pub const fn product_configuration(&self) -> Option<&DriverProductConfiguration> {
+        match self {
+            Self::Build { configuration, .. } => Some(configuration),
+            _ => None,
+        }
+    }
+
     pub(crate) fn into_files(self) -> Vec<PathBuf> {
         match self {
-            Self::Check { files }
+            Self::Build { files, .. }
+            | Self::Check { files }
             | Self::InspectSource { files }
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }

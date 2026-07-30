@@ -8,7 +8,8 @@ use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::command::{
-    DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat, UnitInspectionTarget,
+    CliBuildCommand, DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat,
+    UnitInspectionTarget,
 };
 use crate::output::{clap_styles, render_styled_text};
 use crate::run::exit_code_from_diagnostics;
@@ -181,6 +182,7 @@ impl CliOptions {
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
+    Build(CliBuildCommand),
     Check(CliSourceFiles),
     Inspect(CliInspectCommand),
 }
@@ -188,6 +190,7 @@ enum CliCommand {
 impl CliCommand {
     fn into_driver_parts(self) -> (DriverCommand, Option<PathBuf>) {
         match self {
+            Self::Build(command) => (command.into_driver_command(), None),
             Self::Check(files) => (DriverCommand::check(files.files), None),
             Self::Inspect(command) => command.into_driver_parts(),
         }
@@ -291,8 +294,110 @@ mod tests {
 
     use bray_compilation::WorkerBudget;
     use bray_diagnostics::DiagnosticKind;
+    use bray_runtime_interface::RuntimeCapability;
+    use bray_symbols::ProductKind;
 
-    use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
+    use crate::command::{
+        DriverBackend, DriverCommandKind, DriverInspectionArtifact, DriverInvocation,
+        DriverOutputFormat, DriverRuntimeSelection, DriverTarget,
+    };
+
+    #[test]
+    fn parses_typed_build_product_configuration() {
+        let invocation = DriverInvocation::try_from_arguments([
+            "brayc",
+            "build",
+            "--product-kind",
+            "executable",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--backend",
+            "llvm",
+            "--runtime-profile",
+            "native",
+            "--require-capability",
+            "main-thread-lane",
+            "--require-capability",
+            "cooperative-execution",
+            "--inspect",
+            "backend-ir",
+            "--output",
+            "out",
+            "main.bray",
+        ])
+        .unwrap_or_else(|error| panic!("build invocation should parse: {error:?}"));
+
+        assert_eq!(invocation.command().kind(), DriverCommandKind::Build);
+        assert_eq!(invocation.command().files(), [PathBuf::from("main.bray")]);
+
+        let configuration = invocation
+            .command()
+            .product_configuration()
+            .unwrap_or_else(|| panic!("build command must retain product configuration"));
+
+        assert_eq!(configuration.product_kind(), ProductKind::Executable);
+        assert_eq!(configuration.target(), DriverTarget::X86_64UnknownLinuxGnu);
+        assert_eq!(configuration.backend(), DriverBackend::Llvm);
+
+        assert_eq!(
+            configuration
+                .runtime()
+                .and_then(|runtime| match runtime {
+                    DriverRuntimeSelection::Profile(profile) => Some(profile.as_str()),
+                    DriverRuntimeSelection::Artifact(_) => None,
+                }),
+            Some("native")
+        );
+
+        assert_eq!(
+            configuration.required_capabilities(),
+            &[
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ]
+        );
+
+        assert_eq!(
+            configuration.inspections(),
+            &[DriverInspectionArtifact::BackendIr]
+        );
+
+        assert_eq!(configuration.output(), std::path::Path::new("out"));
+    }
+
+    #[test]
+    fn rejects_multiple_runtime_selection_forms() {
+        assert!(
+            DriverInvocation::try_from_arguments([
+                "brayc",
+                "build",
+                "--runtime-artifact",
+                "runtime.json",
+                "--runtime-profile",
+                "native",
+                "--output",
+                "out",
+                "main.bray",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_empty_runtime_profile() {
+        assert!(
+            DriverInvocation::try_from_arguments([
+                "brayc",
+                "build",
+                "--runtime-profile",
+                "",
+                "--output",
+                "out",
+                "main.bray",
+            ])
+            .is_err()
+        );
+    }
 
     #[test]
     fn parses_check_command_with_global_options() {
