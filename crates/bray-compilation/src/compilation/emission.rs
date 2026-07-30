@@ -14,6 +14,53 @@ use super::{CodegenFactError, Compilation};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(super) fn planned_emission_backend_contributions(
+        &self,
+        plan: &EmissionPlan,
+        units: &[CodegenUnit],
+        target: &CodegenTarget,
+        options: &CodegenOptions,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
+        let requests = plan.backend_requests();
+
+        let outcomes = self
+            .state
+            .fact_runtime
+            .map_indexed(requests.len(), |index| {
+                let request = &requests[index];
+
+                let Some(unit) = units.get(index).filter(|unit| unit.key() == request.unit()) else {
+                    // The error owns its Arc-backed unit identity past the immutable plan borrow.
+                    return Err(EmissionCodegenErrorKind::MissingUnit(
+                        request.unit().clone(),
+                    ));
+                };
+
+                self.codegen_artifact_for_unit(
+                    unit,
+                    plan.request().executable_host(),
+                    target,
+                    options,
+                    request,
+                    cancellation,
+                )
+                .map_err(|error| EmissionCodegenErrorKind::Request {
+                    // The request failure outlives this borrow from the immutable plan.
+                    unit: request.unit().clone(),
+                    error: Box::new(error),
+                })
+            })
+            .map_err(|error| {
+                EmissionCodegenError::new(
+                    EmissionCodegenErrorKind::Query(error),
+                    DiagnosticBag::new(),
+                )
+            })?;
+
+        finish_backend_contributions(plan, requests, &outcomes, cancellation)
+    }
+
     /// Returns the backend contributions demanded by one immutable emission plan.
     pub fn emission_backend_contributions(
         &self,
@@ -87,30 +134,7 @@ impl Compilation {
                 )
             })?;
 
-        let diagnostics = DiagnosticBag::merged_all(
-            outcomes
-                .iter()
-                .filter_map(|outcome| outcome.as_ref().ok())
-                .map(|outcome| outcome.diagnostics()),
-        );
-
-        let sets = match complete_sets(requests, &outcomes) {
-            Ok(sets) => sets,
-            Err(kind) => return Err(EmissionCodegenError::new(kind, diagnostics)),
-        };
-
-        let contributions =
-            match BackendContributionSet::try_from_backend(plan, sets, cancellation) {
-                Ok(contributions) => contributions,
-                Err(error) => {
-                    return Err(EmissionCodegenError::new(
-                        EmissionCodegenErrorKind::InvalidContributions(error),
-                        diagnostics,
-                    ));
-                }
-            };
-
-        Ok(DiagnosticResult::new(contributions, diagnostics))
+        finish_backend_contributions(plan, requests, &outcomes, cancellation)
     }
 }
 
@@ -122,7 +146,7 @@ pub struct EmissionCodegenError {
 }
 
 impl EmissionCodegenError {
-    fn new(kind: EmissionCodegenErrorKind, diagnostics: DiagnosticBag) -> Self {
+    pub(super) fn new(kind: EmissionCodegenErrorKind, diagnostics: DiagnosticBag) -> Self {
         Self { kind, diagnostics }
     }
 
@@ -253,6 +277,41 @@ fn complete_sets<'outcome>(
     }
 
     Ok(sets)
+}
+
+fn finish_backend_contributions(
+    plan: &EmissionPlan,
+    requests: &[bray_codegen::BackendArtifactRequest],
+    outcomes: &[Result<Arc<bray_codegen::CodegenOutcome>, EmissionCodegenErrorKind>],
+    cancellation: &CancellationToken,
+) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
+    let diagnostics = DiagnosticBag::merged_all(
+        outcomes
+            .iter()
+            .filter_map(|outcome| outcome.as_ref().ok())
+            .map(|outcome| outcome.diagnostics()),
+    );
+
+    let sets = match complete_sets(requests, outcomes) {
+        Ok(sets) => sets,
+        Err(kind) => return Err(EmissionCodegenError::new(kind, diagnostics)),
+    };
+
+    let contributions = match BackendContributionSet::try_from_backend(
+        plan,
+        sets,
+        cancellation,
+    ) {
+        Ok(contributions) => contributions,
+        Err(error) => {
+            return Err(EmissionCodegenError::new(
+                EmissionCodegenErrorKind::InvalidContributions(error),
+                diagnostics,
+            ));
+        }
+    };
+
+    Ok(DiagnosticResult::new(contributions, diagnostics))
 }
 
 #[cfg(test)]

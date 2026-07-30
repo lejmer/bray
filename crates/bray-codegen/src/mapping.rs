@@ -8,7 +8,9 @@ mod ty;
 
 pub use constant::{CodegenConstantMapping, CodegenConstantTermMapping};
 pub use debug::{CodegenDebugLocation, CodegenSourceFile};
-pub use model::{CodegenMappings, CodegenMappingsBuildError};
+pub use model::{
+    CodegenMappings, CodegenMappingsBuildError, demanded_runtime_references,
+};
 pub use reference::{
     CodegenCallableMapping, CodegenHelperMapping, CodegenOperationMapping,
     CodegenTerminatorMapping,

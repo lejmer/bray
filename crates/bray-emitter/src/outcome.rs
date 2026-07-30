@@ -92,7 +92,8 @@ impl EmissionOutcome {
         &self.artifacts
     }
 
-    pub(crate) fn with_prior_diagnostics(mut self, diagnostics: &DiagnosticBag) -> Self {
+    /// Prepends diagnostics produced by compiler facts before emitter publication.
+    pub fn with_prior_diagnostics(mut self, diagnostics: &DiagnosticBag) -> Self {
         self.diagnostics = diagnostics.merged(&self.diagnostics);
 
         self

@@ -33,7 +33,7 @@ pub use mapping::{
     CodegenMappingsBuildError, CodegenOperationMapping, CodegenParameterMapping,
     CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
-    CodegenValueAttribute,
+    CodegenValueAttribute, demanded_runtime_references,
 };
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};

@@ -99,6 +99,19 @@ impl ProtectedFrameOperation {
         Self::CompletionMove,
         Self::Destruction,
     ];
+
+    /// Returns this compiler-generated operation's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MoveBeforeStart => "move_before_start",
+            Self::Resume => "resume",
+            Self::CancellationEntry => "cancellation_entry",
+            Self::TaskBroadcast => "task_broadcast",
+            Self::LifecycleResolution => "lifecycle_resolution",
+            Self::CompletionMove => "completion_move",
+            Self::Destruction => "destruction",
+        }
+    }
 }
 
 /// Binary symbol table for compiler-emitted protected-frame operations.
@@ -479,6 +492,8 @@ mod tests {
     #[test]
     fn frame_descriptors_expose_emitted_operation_symbols() {
         let operations = test_operations();
+
+        assert_eq!(ProtectedFrameOperation::Resume.as_str(), "resume");
 
         assert_eq!(
             operations.symbol(ProtectedFrameOperation::Resume).as_str(),

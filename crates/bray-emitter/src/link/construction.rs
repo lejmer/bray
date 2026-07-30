@@ -217,12 +217,11 @@ impl<'plan> LinkPlanConstructor<'plan> {
             return Ok(());
         };
 
-        if self
-            .emission
-            .request()
-            .executable_host()
-            .and_then(|host| host.runtime())
-            .is_some_and(|selected| selected != runtime.contract())
+        if let Some(host) = self.emission.request().executable_host()
+            && (runtime.contract().validate(host.requirements()).is_err()
+                || host
+                    .runtime()
+                    .is_some_and(|selected| selected != runtime.contract()))
         {
             return Err(LinkPlanConstructionError::RuntimeContractMismatch);
         }
