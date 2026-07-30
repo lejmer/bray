@@ -43,6 +43,22 @@ define_diagnostic_kinds! {
     RequestUnsupportedProductEmission,
     /// An inspection report could not be written to its requested file.
     InspectionReportWriteFailed,
+    /// A required Bray project manifest could not be read.
+    ProjectManifestReadFailed,
+    /// A Bray project manifest does not match the serialized schema.
+    ProjectManifestParseFailed,
+    /// A Bray project manifest value violates a project invariant.
+    ProjectManifestInvalid,
+    /// A Bray project manifest repeats one canonical selection.
+    ProjectManifestDuplicateSelection,
+    /// A declared Bray source root is not a valid project-owned source tree.
+    ProjectSourceRootInvalid,
+    /// A package depends on a package absent from the explicit workspace inventory.
+    ProjectDependencyPackageUnknown,
+    /// A package dependency does not select a declared library product.
+    ProjectDependencyProductInvalid,
+    /// Declared package dependencies form a cycle.
+    ProjectDependencyCycle,
     /// Source input contains a character that the lexer cannot accept.
     LexicalInvalidCharacter,
     /// Source input contains a byte order mark after the start of the source.
@@ -363,6 +379,14 @@ impl DiagnosticKind {
             Self::RequestDuplicateSourceInput => 1104,
             Self::InspectionReportWriteFailed => 1105,
             Self::RequestUnsupportedProductEmission => 1106,
+            Self::ProjectManifestReadFailed => 1201,
+            Self::ProjectManifestParseFailed => 1202,
+            Self::ProjectManifestInvalid => 1203,
+            Self::ProjectManifestDuplicateSelection => 1204,
+            Self::ProjectSourceRootInvalid => 1205,
+            Self::ProjectDependencyPackageUnknown => 1206,
+            Self::ProjectDependencyProductInvalid => 1207,
+            Self::ProjectDependencyCycle => 1208,
             Self::LexicalInvalidCharacter => 2001,
             Self::LexicalMisplacedBom => 2002,
             Self::LexicalLoneCarriageReturn => 2003,
@@ -535,6 +559,14 @@ impl DiagnosticKind {
             }
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
             Self::InspectionReportWriteFailed => "inspection_report_write_failed",
+            Self::ProjectManifestReadFailed => "project_manifest_read_failed",
+            Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
+            Self::ProjectManifestInvalid => "project_manifest_invalid",
+            Self::ProjectManifestDuplicateSelection => "project_manifest_duplicate_selection",
+            Self::ProjectSourceRootInvalid => "project_source_root_invalid",
+            Self::ProjectDependencyPackageUnknown => "project_dependency_package_unknown",
+            Self::ProjectDependencyProductInvalid => "project_dependency_product_invalid",
+            Self::ProjectDependencyCycle => "project_dependency_cycle",
             Self::LexicalInvalidCharacter => "lexical_invalid_character",
             Self::LexicalMisplacedBom => "lexical_misplaced_bom",
             Self::LexicalLoneCarriageReturn => "lexical_lone_carriage_return",
