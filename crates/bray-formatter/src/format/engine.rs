@@ -1,6 +1,7 @@
 use bray_parser::parse_source_unit;
 use bray_source::{
-    SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSizeOverflow,
+    SourceIdentity, SourceLoadError, SourceLoader, SourceOrigin, SourceSnapshot, SourceVersion,
+    TextSizeOverflow, leading_utf8_bom_len,
 };
 use bray_syntax::{
     SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText, SyntaxToken,
@@ -18,17 +19,39 @@ use super::writer::FormatWriter;
 
 /// Parses and formats one UTF-8 Bray source text.
 pub fn format_text(source_text: &str) -> Result<FormattedSource, TextSizeOverflow> {
-    let snapshot = SourceSnapshot::new(
-        SourceId::new(0),
-        SourceIdentity::new(0),
-        SourceOrigin::virtual_source("formatter"),
-        SourceVersion::new(0),
-        source_text,
-    )?;
+    let has_byte_order_mark = leading_utf8_bom_len(source_text.as_bytes()) > 0;
+    let mut loader = SourceLoader::new();
 
-    let result = parse_source_unit(&snapshot);
+    let snapshot = loader
+        .load_snapshot(
+            SourceIdentity::new(0),
+            SourceOrigin::virtual_source("formatter"),
+            SourceVersion::new(0),
+            source_text,
+        )
+        .map_err(|error| match error {
+            SourceLoadError::TextTooLarge(error) => error,
+            SourceLoadError::InvalidUtf8(_) => {
+                unreachable!("owned UTF-8 formatter text cannot fail UTF-8 validation")
+            }
+            SourceLoadError::TooManySources { .. } => {
+                unreachable!("a fresh formatter source loader must accept its first source")
+            }
+        })?;
 
-    Ok(format_source_unit(result.source_unit()))
+    let formatted = format_snapshot(&snapshot);
+
+    Ok(if has_byte_order_mark {
+        formatted.with_leading_byte_order_mark()
+    } else {
+        formatted
+    })
+}
+
+pub(crate) fn format_snapshot(snapshot: &SourceSnapshot) -> FormattedSource {
+    let result = parse_source_unit(snapshot);
+
+    format_source_unit(result.source_unit())
 }
 
 /// Formats one parsed Bray source unit.

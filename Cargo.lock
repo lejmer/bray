@@ -119,7 +119,10 @@ dependencies = [
 name = "bray"
 version = "0.0.0"
 dependencies = [
+ "bray-diagnostics",
  "bray-driver",
+ "bray-formatter",
+ "bray-testing",
 ]
 
 [[package]]

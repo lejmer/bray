@@ -2,11 +2,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bray_source::TextSizeOverflow;
+use bray_source::{
+    SourceIdentity, SourceLoadError, SourceLoader, SourceOrigin, SourceUtf8Error, SourceVersion,
+    TextSizeOverflow, leading_utf8_bom_len,
+};
 
-use crate::{FormattedSource, format_text};
-
-const UTF8_BYTE_ORDER_MARK: &[u8] = b"\xef\xbb\xbf";
+use crate::FormattedSource;
+use crate::format::format_snapshot;
 
 /// Stable category for a source-byte formatting failure.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -41,11 +43,11 @@ impl FormatBytesError {
         self.invalid_utf8_at
     }
 
-    fn invalid_utf8(byte_count: usize, valid_up_to: usize) -> Self {
+    fn invalid_utf8(byte_count: usize, error: SourceUtf8Error) -> Self {
         Self {
             kind: FormatBytesErrorKind::InvalidUtf8,
             byte_count,
-            invalid_utf8_at: Some(valid_up_to),
+            invalid_utf8_at: Some(error.valid_up_to()),
         }
     }
 
@@ -104,6 +106,7 @@ pub struct FormatFileError {
     kind: FormatFileErrorKind,
     path: PathBuf,
     io_error_kind: Option<io::ErrorKind>,
+    byte_count: Option<usize>,
     invalid_utf8_at: Option<usize>,
 }
 
@@ -123,6 +126,11 @@ impl FormatFileError {
         self.io_error_kind
     }
 
+    /// Returns the source byte count when the failure depends on input size.
+    pub const fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
     /// Returns the first invalid UTF-8 byte offset when available.
     pub const fn invalid_utf8_at(&self) -> Option<usize> {
         self.invalid_utf8_at
@@ -133,6 +141,7 @@ impl FormatFileError {
             kind,
             path: path.to_path_buf(),
             io_error_kind: Some(error.kind()),
+            byte_count: None,
             invalid_utf8_at: None,
         }
     }
@@ -142,15 +151,17 @@ impl FormatFileError {
             kind: FormatFileErrorKind::InvalidUtf8,
             path: path.to_path_buf(),
             io_error_kind: None,
+            byte_count: None,
             invalid_utf8_at: Some(valid_up_to),
         }
     }
 
-    fn source_too_large(path: &Path) -> Self {
+    fn source_too_large(path: &Path, byte_count: usize) -> Self {
         Self {
             kind: FormatFileErrorKind::SourceTooLarge,
             path: path.to_path_buf(),
             io_error_kind: None,
+            byte_count: Some(byte_count),
             invalid_utf8_at: None,
         }
     }
@@ -161,17 +172,32 @@ impl FormatFileError {
 /// Source bytes must be UTF-8. An accepted leading UTF-8 byte order mark is
 /// retained in the formatted output and excluded from reported byte offsets.
 pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
-    let (has_byte_order_mark, source_bytes) = match bytes.strip_prefix(UTF8_BYTE_ORDER_MARK) {
-        Some(source_bytes) => (true, source_bytes),
-        None => (false, bytes),
-    };
+    let byte_order_mark_len = leading_utf8_bom_len(bytes);
+    let has_byte_order_mark = byte_order_mark_len > 0;
+    let byte_count = bytes.len() - byte_order_mark_len;
 
-    let source_text = std::str::from_utf8(source_bytes).map_err(|error| {
-        FormatBytesError::invalid_utf8(source_bytes.len(), error.valid_up_to())
-    })?;
+    let mut loader = SourceLoader::new();
 
-    let formatted = format_text(source_text)
-        .map_err(|error| FormatBytesError::source_too_large(source_bytes.len(), error))?;
+    let snapshot = loader
+        .load_bytes(
+            SourceIdentity::new(0),
+            SourceOrigin::virtual_source("formatter"),
+            SourceVersion::new(0),
+            bytes.to_vec(),
+        )
+        .map_err(|error| match error {
+            SourceLoadError::InvalidUtf8(error) => {
+                FormatBytesError::invalid_utf8(byte_count, error)
+            }
+            SourceLoadError::TextTooLarge(error) => {
+                FormatBytesError::source_too_large(byte_count, error)
+            }
+            SourceLoadError::TooManySources { .. } => {
+                unreachable!("a fresh formatter source loader must accept its first source")
+            }
+        })?;
+
+    let formatted = format_snapshot(&snapshot);
 
     Ok(if has_byte_order_mark {
         formatted.with_leading_byte_order_mark()
@@ -202,7 +228,7 @@ pub fn format_file(
             FormatFileError::invalid_utf8(path, valid_up_to)
         }
         FormatBytesErrorKind::SourceTooLarge => {
-            FormatFileError::source_too_large(path)
+            FormatFileError::source_too_large(path, error.byte_count())
         }
     })?;
 

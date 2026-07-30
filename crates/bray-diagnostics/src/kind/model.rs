@@ -4,6 +4,11 @@ use crate::code::DiagnosticCode;
 
 use super::definition::define_diagnostic_kinds;
 
+const REQUEST_PRODUCT_EMISSION_KEY: &str = "request_unsupported_product_emission";
+const DECLARATION_VISIBILITY_KEY: &str = "declaration_conflicting_module_visibility";
+const INTERFACE_CONSTANT_BODY_KEY: &str = "interface_constant_callable_body_unavailable";
+const CHECKING_PROPAGATION_BOUNDARY_KEY: &str = "checking_no_compatible_propagation_boundary";
+
 define_diagnostic_kinds! {
     /// A requested source file could not be read.
     SourceFileReadFailed,
@@ -47,6 +52,14 @@ define_diagnostic_kinds! {
     ProjectCommandUnavailable,
     /// A Bray Tack project operation failed.
     ProjectCommandFailed,
+    /// Selected Bray source does not match deterministic formatter output.
+    FormatterSourceNotFormatted,
+    /// Selected formatter source contains bytes that are not valid UTF-8.
+    FormatterSourceInvalidUtf8,
+    /// Selected formatter source is too large for compact syntax offsets.
+    FormatterSourceTooLarge,
+    /// Formatted Bray source could not be written to its selected file.
+    FormatterSourceWriteFailed,
     /// Source input contains a character that the lexer cannot accept.
     LexicalInvalidCharacter,
     /// Source input contains a byte order mark after the start of the source.
@@ -378,6 +391,10 @@ impl DiagnosticKind {
             Self::ProjectCommandSelectionInvalid => 1209,
             Self::ProjectCommandUnavailable => 1210,
             Self::ProjectCommandFailed => 1211,
+            Self::FormatterSourceNotFormatted => 1301,
+            Self::FormatterSourceInvalidUtf8 => 1302,
+            Self::FormatterSourceTooLarge => 1303,
+            Self::FormatterSourceWriteFailed => 1304,
             Self::LexicalInvalidCharacter => 2001,
             Self::LexicalMisplacedBom => 2002,
             Self::LexicalLoneCarriageReturn => 2003,
@@ -545,9 +562,7 @@ impl DiagnosticKind {
             Self::RequestMissingSourceInput => "request_missing_source_input",
             Self::RequestInvalidSourceInput => "request_invalid_source_input",
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
-            Self::RequestUnsupportedProductEmission => {
-                "request_unsupported_product_emission"
-            }
+            Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
             Self::InspectionReportWriteFailed => "inspection_report_write_failed",
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
@@ -561,6 +576,10 @@ impl DiagnosticKind {
             Self::ProjectCommandSelectionInvalid => "project_command_selection_invalid",
             Self::ProjectCommandUnavailable => "project_command_unavailable",
             Self::ProjectCommandFailed => "project_command_failed",
+            Self::FormatterSourceNotFormatted => "formatter_source_not_formatted",
+            Self::FormatterSourceInvalidUtf8 => "formatter_source_invalid_utf8",
+            Self::FormatterSourceTooLarge => "formatter_source_too_large",
+            Self::FormatterSourceWriteFailed => "formatter_source_write_failed",
             Self::LexicalInvalidCharacter => "lexical_invalid_character",
             Self::LexicalMisplacedBom => "lexical_misplaced_bom",
             Self::LexicalLoneCarriageReturn => "lexical_lone_carriage_return",
@@ -580,9 +599,7 @@ impl DiagnosticKind {
             Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
             Self::SyntaxNestingLimitExceeded => "syntax_nesting_limit_exceeded",
             Self::DeclarationDuplicateName => "declaration_duplicate_name",
-            Self::DeclarationConflictingModuleVisibility => {
-                "declaration_conflicting_module_visibility"
-            }
+            Self::DeclarationConflictingModuleVisibility => DECLARATION_VISIBILITY_KEY,
             Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",
             Self::DeclarationDuplicateModifier => "declaration_duplicate_modifier",
             Self::DeclarationIncompatibleModifiers => "declaration_incompatible_modifiers",
@@ -608,9 +625,7 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => "interface_product_identity_mismatch",
             Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
             Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
-            Self::InterfaceConstantCallableBodyUnavailable => {
-                "interface_constant_callable_body_unavailable"
-            }
+            Self::InterfaceConstantCallableBodyUnavailable => INTERFACE_CONSTANT_BODY_KEY,
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",
@@ -630,9 +645,7 @@ impl DiagnosticKind {
             Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
-            Self::CheckingNoCompatiblePropagationBoundary => {
-                "checking_no_compatible_propagation_boundary"
-            }
+            Self::CheckingNoCompatiblePropagationBoundary => CHECKING_PROPAGATION_BOUNDARY_KEY,
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
             Self::CheckingArrayLengthNotPositive => "checking_array_length_not_positive",
             Self::CheckingConstantLiteralNotRepresentable => {
@@ -810,6 +823,11 @@ mod tests {
     #[test]
     fn diagnostic_kinds_expose_stable_numeric_codes() {
         assert_eq!(DiagnosticKind::SourceInvalidUtf8.code().raw(), 1002);
+
+        assert_eq!(
+            DiagnosticKind::FormatterSourceNotFormatted.code().raw(),
+            1301
+        );
 
         assert_eq!(
             DiagnosticKind::LexicalUnterminatedBlockComment.code().raw(),

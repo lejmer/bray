@@ -1,6 +1,4 @@
-use bray_formatter::{
-    FormatBytesErrorKind, FormattedSource, format_bytes, format_text,
-};
+use bray_formatter::{FormatBytesErrorKind, FormattedSource, format_bytes, format_text};
 use bray_parser::parse_source_unit;
 use bray_testing::test_source_snapshot;
 
@@ -249,6 +247,19 @@ fn standard_input_text_returns_formatted_output_without_filesystem_state() {
             "    return;\n",
             "}\n",
         )
+    );
+}
+
+#[test]
+fn editor_text_preserves_utf8_byte_order_mark() {
+    let output = formatted("\u{feff}module editor;func main(){}");
+
+    assert!(output.changed());
+    assert!(output.text().starts_with('\u{feff}'));
+
+    assert_eq!(
+        output.text().trim_start_matches('\u{feff}'),
+        "module editor;\n\nfunc main()\n{\n}\n"
     );
 }
 

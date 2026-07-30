@@ -6,7 +6,12 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-diagnostics = { path = "../bray-diagnostics" }
 bray-driver = { path = "../bray-driver" }
+bray-formatter = { path = "../bray-formatter" }
+
+[dev-dependencies]
+bray-testing = { path = "../bray-testing" }
 
 [lints]
 workspace = true

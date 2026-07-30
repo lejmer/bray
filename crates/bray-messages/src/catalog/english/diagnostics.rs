@@ -105,6 +105,31 @@ const PROJECT_COMMAND_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const FORMATTER_SOURCE_NOT_FORMATTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("source needs formatting: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const FORMATTER_SOURCE_INVALID_UTF8: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("formatter source contains invalid UTF-8: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const FORMATTER_SOURCE_TOO_LARGE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("formatter source is too large: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" ("),
+    MessageTemplatePart::Arg(DiagnosticArgName::ByteCount),
+    MessageTemplatePart::Text(" bytes)"),
+];
+
+const FORMATTER_SOURCE_WRITE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not write formatted source "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
 const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("no source inputs were provided")];
 
@@ -966,9 +991,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::ProjectManifestParseFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_PARSE_FAILED)
         }
-        DiagnosticKind::ProjectManifestInvalid => {
-            MessageTemplate::new(PROJECT_MANIFEST_INVALID)
-        }
+        DiagnosticKind::ProjectManifestInvalid => MessageTemplate::new(PROJECT_MANIFEST_INVALID),
         DiagnosticKind::ProjectManifestDuplicateSelection => {
             MessageTemplate::new(PROJECT_MANIFEST_DUPLICATE_SELECTION)
         }
@@ -981,17 +1004,23 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::ProjectDependencyProductInvalid => {
             MessageTemplate::new(PROJECT_DEPENDENCY_PRODUCT_INVALID)
         }
-        DiagnosticKind::ProjectDependencyCycle => {
-            MessageTemplate::new(PROJECT_DEPENDENCY_CYCLE)
-        }
+        DiagnosticKind::ProjectDependencyCycle => MessageTemplate::new(PROJECT_DEPENDENCY_CYCLE),
         DiagnosticKind::ProjectCommandSelectionInvalid => {
             MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
         }
         DiagnosticKind::ProjectCommandUnavailable => {
             MessageTemplate::new(PROJECT_COMMAND_UNAVAILABLE)
         }
-        DiagnosticKind::ProjectCommandFailed => {
-            MessageTemplate::new(PROJECT_COMMAND_FAILED)
+        DiagnosticKind::ProjectCommandFailed => MessageTemplate::new(PROJECT_COMMAND_FAILED),
+        DiagnosticKind::FormatterSourceNotFormatted => {
+            MessageTemplate::new(FORMATTER_SOURCE_NOT_FORMATTED)
+        }
+        DiagnosticKind::FormatterSourceInvalidUtf8 => {
+            MessageTemplate::new(FORMATTER_SOURCE_INVALID_UTF8)
+        }
+        DiagnosticKind::FormatterSourceTooLarge => MessageTemplate::new(FORMATTER_SOURCE_TOO_LARGE),
+        DiagnosticKind::FormatterSourceWriteFailed => {
+            MessageTemplate::new(FORMATTER_SOURCE_WRITE_FAILED)
         }
         DiagnosticKind::LexicalInvalidCharacter => MessageTemplate::new(LEXICAL_INVALID_CHARACTER),
         DiagnosticKind::LexicalMisplacedBom => MessageTemplate::new(LEXICAL_MISPLACED_BOM),

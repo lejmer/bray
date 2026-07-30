@@ -8,6 +8,14 @@ impl DiagnosticId {
         Self(raw)
     }
 
+    /// Creates an identity from an ordered diagnostic index.
+    ///
+    /// Indexes beyond the compact identity domain saturate at the last
+    /// representable identity.
+    pub fn from_index(index: usize) -> Self {
+        Self(u32::try_from(index).unwrap_or(u32::MAX))
+    }
+
     /// Returns the raw diagnostic identity.
     pub const fn raw(self) -> u32 {
         self.0
@@ -32,5 +40,7 @@ mod tests {
         let copied = diagnostic_id;
 
         assert_eq!(copied.raw(), 12);
+        assert_eq!(DiagnosticId::from_index(7).raw(), 7);
+        assert_eq!(DiagnosticId::from_index(usize::MAX).raw(), u32::MAX);
     }
 }

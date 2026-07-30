@@ -47,15 +47,17 @@ does not render or add user-facing English diagnostics.
 
 ## Command integration
 
-The `bray fmt` command should map directly to the formatter operations:
+The `bray` executable links a local `TackFormatService` adapter to the reusable
+formatter operations:
 
 - Standard input calls `format_text` and writes formatted text to standard
   output in write mode.
 - File write mode calls `format_file` with `FormatMode::Write`.
 - Check mode calls `format_text` or `format_file` without publishing changes and
   fails when any result reports changed source.
-- `FormatFileErrorKind` and its typed path, I/O category, or invalid byte offset
-  are rendered through `bray-messages`.
+- Typed formatter failures are converted to path, I/O category, size, and
+  formatting-status diagnostic arguments rendered through `bray-messages`.
 
-The command layer owns argument selection, manifest source discovery, terminal
-I/O, localized messages, and process exit status.
+`bray-driver` owns argument selection, manifest source discovery, terminal I/O,
+and process exit status. The executable adapter converts typed formatter
+failures into locale-neutral diagnostics, and `bray-messages` renders them.

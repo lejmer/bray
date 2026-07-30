@@ -20,7 +20,7 @@ mod text;
 mod version;
 
 pub use edit::{SourceEdit, SourceEditError};
-pub use encoding::SourceUtf8Error;
+pub use encoding::{SourceUtf8Error, leading_utf8_bom_len};
 pub use id::SourceId;
 pub use identity::SourceIdentity;
 pub use input::{SourceInput, SourceInputKind};
