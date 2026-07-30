@@ -149,12 +149,17 @@ impl IntegerConstant {
 
     /// Converts this value to an unsigned 64-bit integer when representable.
     pub fn to_u64(&self) -> Option<u64> {
+        self.to_u128().and_then(|value| u64::try_from(value).ok())
+    }
+
+    /// Converts this value to an unsigned 128-bit integer when representable.
+    pub fn to_u128(&self) -> Option<u128> {
         if self.sign != IntegerSign::NonNegative {
             return None;
         }
 
-        self.magnitude.iter().try_fold(0_u64, |value, byte| {
-            value.checked_mul(256)?.checked_add(u64::from(*byte))
+        self.magnitude.iter().try_fold(0_u128, |value, byte| {
+            value.checked_mul(256)?.checked_add(u128::from(*byte))
         })
     }
 }
@@ -510,11 +515,19 @@ mod tests {
 
         let overflow = IntegerConstant::new(IntegerSign::NonNegative, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
 
+        let maximum_u128 = IntegerConstant::new(IntegerSign::NonNegative, [0xff; 16]);
+
+        let overflow_u128 =
+            IntegerConstant::new(IntegerSign::NonNegative, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
         let negative = IntegerConstant::new(IntegerSign::Negative, [1]);
 
         assert_eq!(maximum.to_u64(), Some(u64::MAX));
         assert_eq!(overflow.to_u64(), None);
+        assert_eq!(maximum_u128.to_u128(), Some(u128::MAX));
+        assert_eq!(overflow_u128.to_u128(), None);
         assert_eq!(negative.to_u64(), None);
+        assert_eq!(negative.to_u128(), None);
     }
 
     #[test]

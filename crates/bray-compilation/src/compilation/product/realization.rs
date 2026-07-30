@@ -12,26 +12,26 @@ use bray_codegen::{
     CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping, CodegenInstance,
     CodegenLinkage, CodegenMappings, CodegenOperationMapping, CodegenParameterMapping,
     CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
-    TargetAddressSpaceKind, child_constants, demanded_callable_instances,
+    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+    CodegenUnit, TargetAddressSpaceKind, child_constants, demanded_callable_instances,
     demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
     demanded_runtime_references, demanded_types,
 };
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCall, MirCallTarget, MirCallableReference,
     MirCleanupEdge, MirEdge, MirFrameInitializer, MirFrameReference, MirHelperReference,
     MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-    MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit,
-    MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
+    MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
+    MirUnit, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
 };
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
 };
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableSignatureFact,
-    ConstantTermData, ConstantValueKind, DeclaredLayoutMode, ForeignCallableDirection,
-    GenericSubstitutionId, NamedTypeSymbolId, SymbolFactRequest,
+    AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableSignature,
+    CallableSignatureFact, ConstantTermData, ConstantValueKind, DeclaredLayoutMode,
+    ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId, SymbolFactRequest,
     TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
@@ -467,19 +467,14 @@ impl Compilation {
             ty,
         );
 
-        let operation_block = match reference {
+        match reference {
             MirHelperReference::Cleanup { phase, .. } => {
-                let kind = match phase {
-                    bray_ir::MirCleanupPhase::TaskCancellation => {
-                        MirBlockKind::CleanupBroadcast
-                    }
-                    bray_ir::MirCleanupPhase::LifecycleResolution => {
-                        MirBlockKind::LifecycleResolution
-                    }
-                };
+                let broadcast = builder
+                    .push_block(source.clone(), MirBlockKind::CleanupBroadcast)
+                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
-                let block = builder
-                    .push_block(source.clone(), kind)
+                let lifecycle = builder
+                    .push_block(source.clone(), MirBlockKind::LifecycleResolution)
                     .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
                 builder
@@ -487,55 +482,42 @@ impl Compilation {
                         entry,
                         source.clone(),
                         MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
-                            *phase,
-                            MirEdge::new(block, []),
+                            bray_ir::MirCleanupPhase::TaskCancellation,
+                            MirEdge::new(broadcast, []),
                         )),
                     )
                     .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
-                block
-            }
-            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => entry,
-            MirHelperReference::AnonymousCallable(_)
-            | MirHelperReference::CallableDefault(_)
-            | MirHelperReference::ConstructionDefault(_)
-            | MirHelperReference::TypeForm(_)
-            | MirHelperReference::Conversion(_)
-            | MirHelperReference::BeginGenerator
-            | MirHelperReference::PushGenerator
-            | MirHelperReference::FinishGenerator
-            | MirHelperReference::PanicReport
-            | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
-            | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
-            | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
-            }
-        };
-
-        self.push_generated_lifecycle_operations(
-            &mut builder,
-            operation_block,
-            &source,
-            reference,
-            place,
-            instance.target().runtime_abi(),
-            cancellation,
-        )?;
-
-        match reference {
-            MirHelperReference::Cleanup {
-                phase: bray_ir::MirCleanupPhase::TaskCancellation,
-                ..
-            } => {
-                let lifecycle = builder
-                    .push_block(source.clone(), MirBlockKind::LifecycleResolution)
-                    .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+                let (broadcast_end, lifecycle_end) = match phase {
+                    bray_ir::MirCleanupPhase::TaskCancellation => (
+                        self.push_generated_lifecycle_operations(
+                            &mut builder,
+                            broadcast,
+                            &source,
+                            reference,
+                            place,
+                            instance.target().runtime_abi(),
+                            cancellation,
+                        )?,
+                        lifecycle,
+                    ),
+                    bray_ir::MirCleanupPhase::LifecycleResolution => (
+                        broadcast,
+                        self.push_generated_lifecycle_operations(
+                            &mut builder,
+                            lifecycle,
+                            &source,
+                            reference,
+                            place,
+                            instance.target().runtime_abi(),
+                            cancellation,
+                        )?,
+                    ),
+                };
 
                 builder
                     .set_terminator(
-                        operation_block,
+                        broadcast_end,
                         source.clone(),
                         MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                             bray_ir::MirCleanupPhase::LifecycleResolution,
@@ -546,24 +528,25 @@ impl Compilation {
 
                 builder
                     .set_terminator(
-                        lifecycle,
+                        lifecycle_end,
                         source,
                         MirTerminatorKind::Return(None),
                     )
                     .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
             }
-            MirHelperReference::Finalize(_)
-            | MirHelperReference::Destroy(_)
-            | MirHelperReference::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                ..
-            } => {
+            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
+                let end = self.push_generated_lifecycle_operations(
+                    &mut builder,
+                    entry,
+                    &source,
+                    reference,
+                    place,
+                    instance.target().runtime_abi(),
+                    cancellation,
+                )?;
+
                 builder
-                    .set_terminator(
-                        operation_block,
-                        source,
-                        MirTerminatorKind::Return(None),
-                    )
+                    .set_terminator(end, source, MirTerminatorKind::Return(None))
                     .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
             }
             MirHelperReference::AnonymousCallable(_)
@@ -598,7 +581,7 @@ impl Compilation {
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
         cancellation: &CancellationToken,
-    ) -> Result<(), CodegenFactError> {
+    ) -> Result<bray_ir::MirBlockId, CodegenFactError> {
         if self.push_compiler_known_lifecycle_operations(
             builder,
             block,
@@ -607,7 +590,7 @@ impl Compilation {
             &place,
             runtime_abi,
         )? {
-            return Ok(());
+            return Ok(block);
         }
 
         match reference {
@@ -637,45 +620,29 @@ impl Compilation {
                     )?;
                 }
 
-                for child in self
-                    .lifecycle_children(place, cancellation)?
-                    .into_iter()
-                    .rev()
-                {
-                    self.push_lifecycle_operation(
-                        builder,
-                        block,
-                        source,
-                        MirOperationKind::Finalize(child.clone()),
-                    )?;
-
-                    self.push_lifecycle_operation(
-                        builder,
-                        block,
-                        source,
-                        MirOperationKind::Destroy(child),
-                    )?;
-                }
+                return self.push_represented_lifecycle_operations(
+                    builder,
+                    block,
+                    source,
+                    bray_ir::MirGeneratedLifecycleRole::Destroy,
+                    place,
+                    cancellation,
+                );
             }
             MirHelperReference::Cleanup {
                 phase: bray_ir::MirCleanupPhase::TaskCancellation,
                 ..
             } => {
-                for child in self
-                    .lifecycle_children(place, cancellation)?
-                    .into_iter()
-                    .rev()
-                {
-                    self.push_lifecycle_operation(
-                        builder,
-                        block,
-                        source,
-                        MirOperationKind::Cleanup {
-                            phase: bray_ir::MirCleanupPhase::TaskCancellation,
-                            place: child,
-                        },
-                    )?;
-                }
+                return self.push_represented_lifecycle_operations(
+                    builder,
+                    block,
+                    source,
+                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::TaskCancellation,
+                    ),
+                    place,
+                    cancellation,
+                );
             }
             MirHelperReference::Cleanup {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
@@ -713,7 +680,547 @@ impl Compilation {
             }
         }
 
+        Ok(block)
+    }
+
+    fn push_represented_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_ir::MirBlockId, CodegenFactError> {
+        let values = self.semantic_value_store()?;
+
+        let data = values
+            .type_data(place.ty())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        match data.as_ref() {
+            TypeData::Named {
+                definition: NamedTypeSymbolId::Union(union),
+                substitution,
+            } => self.push_union_lifecycle_operations(
+                builder,
+                block,
+                source,
+                role,
+                place,
+                *union,
+                *substitution,
+                cancellation,
+            ),
+            TypeData::Nullable(target) => self.push_nullable_lifecycle_operations(
+                builder,
+                block,
+                source,
+                role,
+                place,
+                *target,
+            ),
+            TypeData::Generator(_) => {
+                Err(CodegenFactError::UnsupportedType(place.ty()))
+            }
+            TypeData::OwnedIndirection { storage, target } => self
+                .push_owned_indirection_lifecycle_operations(
+                    builder,
+                    block,
+                    source,
+                    role,
+                    place,
+                    *storage,
+                    *target,
+                    cancellation,
+                ),
+            TypeData::Error
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_)
+            | TypeData::TypeValuedMemberProjection { .. }
+            | TypeData::Slice(_)
+            | TypeData::TraitView(_) => {
+                Err(CodegenFactError::UnsupportedType(place.ty()))
+            }
+            TypeData::Named { .. }
+            | TypeData::Tuple(_)
+            | TypeData::Array { .. } => {
+                let children = self.lifecycle_children(place, cancellation)?;
+
+                self.push_child_lifecycle_operations(
+                    builder, block, source, role, children,
+                )?;
+
+                Ok(block)
+            }
+            TypeData::Borrow { .. } | TypeData::Callable(_) => {
+                Err(FactQueryError::InfrastructureFailure.into())
+            }
+        }
+    }
+
+    fn push_nullable_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        target: TypeId,
+    ) -> Result<bray_ir::MirBlockId, CodegenFactError> {
+        let kind = lifecycle_operation_block_kind(role)?;
+
+        let present = builder
+            .push_block(source.clone(), kind)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let absent = builder
+            .push_block(source.clone(), kind)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let merge = builder
+            .push_block(source.clone(), kind)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        builder
+            .set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::PatternBranch {
+                    subject: MirOperand::Copy(place.clone()),
+                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    matched: MirEdge::new(present, []),
+                    unmatched: MirEdge::new(absent, []),
+                },
+            )
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let child = projected_lifecycle_place(
+            &place,
+            MirProjectionKind::NullableValue,
+            target,
+        );
+
+        self.push_child_lifecycle_operations(
+            builder,
+            present,
+            source,
+            role,
+            [child],
+        )?;
+
+        for branch in [present, absent] {
+            builder
+                .set_terminator(
+                    branch,
+                    source.clone(),
+                    MirTerminatorKind::Goto(MirEdge::new(merge, [])),
+                )
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+        }
+
+        Ok(merge)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "union lifecycle dispatch keeps its checked type and MIR context explicit"
+    )]
+    fn push_union_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        union: bray_symbols::UnionSymbolId,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_ir::MirBlockId, CodegenFactError> {
+        let kind = lifecycle_operation_block_kind(role)?;
+
+        let merge = builder
+            .push_block(source.clone(), kind)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let union = facts
+            .symbols()
+            .union(union)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let mut current = block;
+
+        for variant in union.variants() {
+            let variant_record = facts
+                .symbols()
+                .union_variant(*variant)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let matched = builder
+                .push_block(source.clone(), kind)
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+            let unmatched = builder
+                .push_block(source.clone(), kind)
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+            builder
+                .set_terminator(
+                    current,
+                    source.clone(),
+                    MirTerminatorKind::PatternBranch {
+                        subject: MirOperand::Copy(place.clone()),
+                        predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(
+                            *variant,
+                        ),
+                        matched: MirEdge::new(matched, []),
+                        unmatched: MirEdge::new(unmatched, []),
+                    },
+                )
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+            let children = variant_record
+                .payload_fields()
+                .iter()
+                .map(|field| {
+                    let template = facts
+                        .symbol_fact(bray_symbols::SymbolFactRequest::<
+                            bray_symbols::UnionPayloadFieldTypeFact,
+                        >::new(*field))
+                        .map_err(super::super::binder::binder_fact_error)?;
+
+                    let ty = self.resolve_codegen_type(
+                        template.value(),
+                        substitution,
+                        cancellation,
+                    )?;
+
+                    Ok(projected_lifecycle_place(
+                        &place,
+                        MirProjectionKind::ActiveUnionPayloadField {
+                            variant: *variant,
+                            field: *field,
+                        },
+                        ty,
+                    ))
+                })
+                .collect::<Result<Vec<_>, FactQueryError>>()?;
+
+            self.push_child_lifecycle_operations(
+                builder, matched, source, role, children,
+            )?;
+
+            builder
+                .set_terminator(
+                    matched,
+                    source.clone(),
+                    MirTerminatorKind::Goto(MirEdge::new(merge, [])),
+                )
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+            current = unmatched;
+        }
+
+        builder
+            .set_terminator(current, source.clone(), MirTerminatorKind::Unreachable)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        Ok(merge)
+    }
+
+    fn push_child_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        children: impl IntoIterator<Item = MirPlace>,
+    ) -> Result<(), CodegenFactError> {
+        for child in children.into_iter().collect::<Vec<_>>().into_iter().rev() {
+            match role {
+                bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Finalize(child.clone()),
+                    )?;
+
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Destroy(child),
+                    )?;
+                }
+                bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Cleanup {
+                            phase,
+                            place: child,
+                        },
+                    )?;
+                }
+                bray_ir::MirGeneratedLifecycleRole::Finalize => {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "owned lifecycle realization keeps the storage policy and target explicit"
+    )]
+    fn push_owned_indirection_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        storage: TypeId,
+        target: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_ir::MirBlockId, CodegenFactError> {
+        let storage_place = projected_lifecycle_place(
+            &place,
+            MirProjectionKind::OwnedStorage,
+            storage,
+        );
+
+        let target_place = self.storage_target_place(
+            builder,
+            block,
+            source,
+            storage_place.clone(),
+            storage,
+            target,
+            cancellation,
+        )?;
+
+        match role {
+            bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Finalize(target_place),
+                )?;
+
+                self.push_storage_lifecycle_call(
+                    builder,
+                    block,
+                    source,
+                    storage_place.clone(),
+                    storage,
+                    target,
+                    "StorageDestroy",
+                    Some(BorrowKind::Mutable),
+                    cancellation,
+                )?;
+
+                self.push_storage_lifecycle_call(
+                    builder,
+                    block,
+                    source,
+                    storage_place,
+                    storage,
+                    target,
+                    "StorageRelease",
+                    None,
+                    cancellation,
+                )?;
+            }
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Cleanup {
+                        phase,
+                        place: target_place,
+                    },
+                )?;
+            }
+            bray_ir::MirGeneratedLifecycleRole::Finalize => {
+                return Err(FactQueryError::InfrastructureFailure.into());
+            }
+        }
+
+        Ok(block)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "storage projection retains the selected policy and target type"
+    )]
+    fn storage_target_place(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        storage_place: MirPlace,
+        storage: TypeId,
+        target: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<MirPlace, CodegenFactError> {
+        let borrowed = self.push_storage_lifecycle_call(
+            builder,
+            block,
+            source,
+            storage_place,
+            storage,
+            target,
+            "StorageBorrowMut",
+            Some(BorrowKind::Mutable),
+            cancellation,
+        )?;
+
+        let values = self.semantic_value_store()?;
+
+        let pointer = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target,
+            })
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let temporary = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, pointer)
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
+
+        let temporary_place = MirPlace::new(temporary, [], pointer);
+
+        self.push_lifecycle_operation(
+            builder,
+            block,
+            source,
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: temporary_place.clone(),
+                value: MirOperand::Value(borrowed),
+            },
+        )?;
+
+        Ok(projected_lifecycle_place(
+            &temporary_place,
+            MirProjectionKind::Dereference,
+            target,
+        ))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "storage protocol calls retain exact policy, target, and MIR placement"
+    )]
+    fn push_storage_lifecycle_call(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        storage_place: MirPlace,
+        storage: TypeId,
+        target: TypeId,
+        member: &str,
+        borrow: Option<BorrowKind>,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_ir::MirValueId, CodegenFactError> {
+        let member = CompilerKnownDeclarationKey::try_new(member)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let (callable, signature) =
+            self.storage_lifecycle_callable(storage, target, &member, cancellation)?;
+
+        let [parameter] = signature.parameters() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        let argument = if let Some(kind) = borrow {
+            let value = builder
+                .push_operation(
+                    block,
+                    source.clone(),
+                    MirOperationKind::Borrow {
+                        kind,
+                        place: storage_place,
+                    },
+                    Some(parameter.ty()),
+                )
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?
+                .result()
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            MirOperand::Value(value)
+        } else {
+            MirOperand::Move(storage_place)
+        };
+
+        builder
+            .push_operation(
+                block,
+                source.clone(),
+                MirOperationKind::Call(MirCall::protocol(
+                    MirCallTarget::Direct(callable),
+                    bray_bound_tree::BoundCallResult::Immediate(signature.result()),
+                    [argument],
+                    [],
+                )),
+                Some(signature.result()),
+            )
+            .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?
+            .result()
+            .ok_or(FactQueryError::InfrastructureFailure.into())
+    }
+
+    fn storage_lifecycle_callable(
+        &self,
+        storage: TypeId,
+        target: TypeId,
+        member: &CompilerKnownDeclarationKey,
+        cancellation: &CancellationToken,
+    ) -> Result<(MirCallableReference, CallableSignature), CodegenFactError> {
+        let facts = self.binder_facts(cancellation)?;
+
+        let selected = super::super::operation::selected_storage_callable(
+            self,
+            &facts,
+            storage,
+            target,
+            member,
+            cancellation,
+        )?;
+
+        if selected.diagnostics().has_errors() {
+            return Err(CodegenFactError::UnsupportedType(storage));
+        }
+
+        let Some((_, _, callable, signature)) = selected.value() else {
+            return Err(CodegenFactError::UnsupportedType(storage));
+        };
+
+        let values = self.semantic_value_store()?;
+
+        let callable_type = values
+            .type_data(signature.callable_type())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::Callable(callable_type) = callable_type.as_ref() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        // The generated MIR owns this Arc-backed signature after releasing the fact result.
+        Ok((
+            MirCallableReference::new(*callable, callable_type.abi()),
+            signature.clone(),
+        ))
     }
 
     fn push_compiler_known_lifecycle_operations(
@@ -1032,7 +1539,7 @@ impl Compilation {
                 )
                 .is_some()
                 {
-                    return Ok(Vec::new());
+                    return Err(CodegenFactError::UnsupportedType(place.ty()));
                 }
 
                 let facts = self.binder_facts(cancellation)?;
@@ -1090,9 +1597,6 @@ impl Compilation {
                     })
                     .collect()
             }
-            TypeData::OwnedIndirection { target, .. } => {
-                vec![(MirProjectionKind::Dereference, *target)]
-            }
             TypeData::Error
             | TypeData::Named {
                 definition: NamedTypeSymbolId::Union(_),
@@ -1106,17 +1610,15 @@ impl Compilation {
             | TypeData::Nullable(_)
             | TypeData::Borrow { .. }
             | TypeData::TraitView(_)
-            | TypeData::Callable(_) => Vec::new(),
+            | TypeData::OwnedIndirection { .. }
+            | TypeData::Callable(_) => {
+                return Err(CodegenFactError::UnsupportedType(place.ty()));
+            }
         };
 
         Ok(children
             .into_iter()
-            .map(|(kind, ty)| {
-                let mut projections = place.projections().to_vec();
-                projections.push(MirProjection::new(kind, place.ty(), ty));
-
-                MirPlace::new(place.storage(), projections, ty)
-            })
+            .map(|(kind, ty)| projected_lifecycle_place(&place, kind, ty))
             .collect())
     }
 
@@ -1605,12 +2107,54 @@ impl Compilation {
                     },
                 )
             }
+            TypeData::Nullable(element) => {
+                let boolean = self
+                    .available_compiler_known_symbols()
+                    .representation_symbol::<bray_symbols::StructSymbolId>(
+                        RepresentationRole::ScalarBool,
+                    )
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let boolean = super::super::substitution::named_type(
+                    values,
+                    NamedTypeSymbolId::Struct(boolean),
+                )?;
+
+                self.codegen_aggregate_type(
+                    ty,
+                    [(None, boolean), (None, *element)],
+                    TargetLayoutContract::Default,
+                    None,
+                    None,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )?
+            }
             TypeData::Borrow {
                 target: pointee, ..
-            }
-            | TypeData::OwnedIndirection {
-                target: pointee, ..
             } => pointer_mapping(ty, *pointee, target),
+            TypeData::OwnedIndirection { storage, .. } => {
+                self.codegen_type(
+                    *storage,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )?;
+
+                let storage = mappings
+                    .get(storage)
+                    .ok_or(CodegenFactError::UnsupportedType(*storage))?;
+
+                // The owned value and policy value share one immutable physical mapping.
+                CodegenTypeMapping::new(
+                    ty,
+                    storage.layout(),
+                    storage.kind().clone(),
+                )
+            }
             TypeData::Callable(callable) => {
                 let signature = callable_type_signature(self, callable)?;
 
@@ -1626,7 +2170,6 @@ impl Compilation {
             | TypeData::TypeValuedMemberProjection { .. }
             | TypeData::Slice(_)
             | TypeData::Generator(_)
-            | TypeData::Nullable(_)
             | TypeData::TraitView(_) => return Err(CodegenFactError::UnsupportedType(ty)),
         };
 
@@ -1654,6 +2197,17 @@ impl Compilation {
 
         if let Some(role) = role {
             return self.codegen_compiler_known_type(ty, role, target);
+        }
+
+        let heap_key = CompilerKnownDeclarationKey::try_new("Heap")
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        if self
+            .available_compiler_known_symbols()
+            .declaration_symbol::<bray_symbols::StructSymbolId>(&heap_key)
+            .is_some_and(|heap| definition == NamedTypeSymbolId::Struct(heap))
+        {
+            return Ok(pointer_mapping(ty, ty, target));
         }
 
         let facts = self.binder_facts(cancellation)?;
@@ -1700,7 +2254,15 @@ impl Compilation {
                     pending,
                 )
             }
-            NamedTypeSymbolId::Union(_) => Err(CodegenFactError::UnsupportedType(ty)),
+            NamedTypeSymbolId::Union(union) => self.codegen_union_type(
+                ty,
+                union,
+                substitution,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            ),
         }
     }
 
@@ -1727,6 +2289,150 @@ impl Compilation {
         };
 
         scalar_mapping(ty, scalar, target)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "union realization keeps the selected target and recursive mapping state explicit"
+    )]
+    fn codegen_union_type(
+        &self,
+        ty: TypeId,
+        union: bray_symbols::UnionSymbolId,
+        substitution: GenericSubstitutionId,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenFactError> {
+        let definition = NamedTypeSymbolId::Union(union);
+
+        let representation =
+            self.declared_type_representation_with_cancellation(definition, cancellation)?;
+
+        let tag = representation
+            .value()
+            .union_tag_type()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        self.codegen_type(tag, target, cancellation, mappings, pending)?;
+
+        let tag_layout = mappings
+            .get(&tag)
+            .map(CodegenTypeMapping::layout)
+            .ok_or(CodegenFactError::UnsupportedType(tag))?;
+
+        let packing = representation
+            .value()
+            .packing()
+            .and_then(NonZeroU64::new);
+
+        let tag_alignment = packing
+            .map_or(tag_layout.alignment(), |packing| {
+                tag_layout.alignment().min(packing)
+            });
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let record = facts
+            .symbols()
+            .union(union)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let mut alignment = tag_alignment;
+        let mut maximum_size = tag_layout.size();
+        let mut variants = Vec::with_capacity(record.variants().len());
+
+        for variant in record.variants() {
+            let variant_record = facts
+                .symbols()
+                .union_variant(*variant)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let tag_value = representation
+                .value()
+                .union_tags()
+                .iter()
+                .find(|tag| tag.variant() == *variant)
+                .and_then(|tag| tag.value().to_u128())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let mut offset = tag_layout.size();
+            let mut fields = Vec::with_capacity(variant_record.payload_fields().len());
+
+            for field in variant_record.payload_fields() {
+                let template = facts
+                    .symbol_fact(bray_symbols::SymbolFactRequest::<
+                        bray_symbols::UnionPayloadFieldTypeFact,
+                    >::new(*field))
+                    .map_err(super::super::binder::binder_fact_error)?;
+
+                let field_ty =
+                    self.resolve_codegen_type(template.value(), substitution, cancellation)?;
+
+                self.codegen_type(
+                    field_ty,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )?;
+
+                let field_layout = mappings
+                    .get(&field_ty)
+                    .map(CodegenTypeMapping::layout)
+                    .ok_or(CodegenFactError::UnsupportedType(field_ty))?;
+
+                let field_alignment = packing
+                    .map_or(field_layout.alignment(), |packing| {
+                        field_layout.alignment().min(packing)
+                    });
+
+                alignment = alignment.max(field_alignment);
+
+                offset = align_to(offset, field_alignment)
+                    .ok_or(CodegenFactError::LayoutOverflow(ty))?;
+
+                fields.push(CodegenFieldLayout::new(
+                    Some(bray_ir::MirFieldReference::UnionPayload(*field)),
+                    field_ty,
+                    offset,
+                ));
+
+                offset = offset
+                    .checked_add(field_layout.size())
+                    .ok_or(CodegenFactError::LayoutOverflow(ty))?;
+            }
+
+            maximum_size = maximum_size.max(offset);
+
+            variants.push(CodegenUnionVariantLayout::new(
+                *variant,
+                tag_value,
+                fields,
+            ));
+        }
+
+        if let Some(requested) = representation
+            .value()
+            .alignment()
+            .and_then(NonZeroU64::new)
+        {
+            alignment = alignment.max(requested);
+        }
+
+        let size =
+            align_to(maximum_size, alignment).ok_or(CodegenFactError::LayoutOverflow(ty))?;
+
+        Ok(CodegenTypeMapping::new(
+            ty,
+            TargetValueLayout::new(
+                size,
+                alignment,
+                target_layout_contract(representation.value().layout()),
+            ),
+            CodegenTypeKind::union(tag, variants),
+        ))
     }
 
     #[expect(
@@ -2088,6 +2794,32 @@ fn void_signature(abi: CallableAbi) -> CodegenCallableSignature {
     CodegenCallableSignature::new([], CodegenResultMapping::Void, abi, false)
 }
 
+fn lifecycle_operation_block_kind(
+    role: bray_ir::MirGeneratedLifecycleRole,
+) -> Result<MirBlockKind, FactQueryError> {
+    match role {
+        bray_ir::MirGeneratedLifecycleRole::Destroy => Ok(MirBlockKind::Ordinary),
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(
+            bray_ir::MirCleanupPhase::TaskCancellation,
+        ) => Ok(MirBlockKind::CleanupBroadcast),
+        bray_ir::MirGeneratedLifecycleRole::Finalize
+        | bray_ir::MirGeneratedLifecycleRole::Cleanup(
+            bray_ir::MirCleanupPhase::LifecycleResolution,
+        ) => Err(FactQueryError::InfrastructureFailure),
+    }
+}
+
+fn projected_lifecycle_place(
+    parent: &MirPlace,
+    kind: MirProjectionKind,
+    ty: TypeId,
+) -> MirPlace {
+    let mut projections = parent.projections().to_vec();
+    projections.push(MirProjection::new(kind, parent.ty(), ty));
+
+    MirPlace::new(parent.storage(), projections, ty)
+}
+
 fn helper_runtime_symbol(
     owner: &CodegenInstance,
     role: RuntimeAbiRole,
@@ -2273,16 +3005,18 @@ mod tests {
 
     use bray_codegen::{
         CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenSymbolKey,
-        CodegenTarget,
+        CodegenTarget, CodegenTypeKind,
     };
+    use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_ir::{
-        MirCleanupPhase, MirFrameReference, MirHelperReference, MirOperationKind,
-        MirProjectionKind, MirRuntimeReference, MirUnitId,
+        MirBlockKind, MirCleanupPhase, MirFrameReference, MirHelperReference,
+        MirOperationKind, MirProjectionKind, MirRuntimeReference, MirTerminatorKind,
+        MirUnit, MirUnitId,
     };
     use bray_runtime_interface::{
         ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
     };
-    use bray_symbols::TypeData;
+    use bray_symbols::{NamedTypeSymbolId, SymbolOrigin, TypeData, TypeId};
     use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
 
     use super::{dependency_symbol, direct_helper_symbol};
@@ -2584,6 +3318,388 @@ mod tests {
     }
 
     #[test]
+    fn nullable_lifecycle_resolves_only_the_present_payload() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let payload = values
+            .intern_type(TypeData::tuple([]))
+            .expect("payload type must intern");
+
+        let nullable = values
+            .intern_type(TypeData::Nullable(payload))
+            .expect("nullable type must intern");
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(nullable),
+            78,
+        );
+
+        let branch = generated
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::PatternBranch {
+                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    matched,
+                    unmatched,
+                    ..
+                } => Some((matched.target(), unmatched.target())),
+                _ => None,
+            })
+            .expect("nullable destruction must branch on presence");
+
+        let present = generated
+            .block(branch.0)
+            .expect("present block must exist");
+
+        let absent = generated
+            .block(branch.1)
+            .expect("absent block must exist");
+
+        assert_eq!(present.operations().len(), 2);
+        assert!(absent.operations().is_empty());
+
+        for (operation, expected) in present
+            .operations()
+            .iter()
+            .zip(["finalize", "destroy"])
+        {
+            let operation = generated
+                .operation(*operation)
+                .expect("present lifecycle operation must exist");
+
+            let place = match (expected, operation.kind()) {
+                ("finalize", MirOperationKind::Finalize(place))
+                | ("destroy", MirOperationKind::Destroy(place)) => place,
+                other => panic!("unexpected nullable lifecycle operation: {other:?}"),
+            };
+
+            assert!(matches!(
+                place.projections().last().map(|projection| projection.kind()),
+                Some(MirProjectionKind::NullableValue)
+            ));
+        }
+    }
+
+    #[test]
+    fn nullable_cancellation_branches_within_the_cleanup_phase() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let payload = values
+            .intern_type(TypeData::tuple([]))
+            .expect("payload type must intern");
+
+        let nullable = values
+            .intern_type(TypeData::Nullable(payload))
+            .expect("nullable type must intern");
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: nullable,
+            },
+            82,
+        );
+
+        let branch = generated
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::PatternBranch {
+                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    matched,
+                    unmatched,
+                    ..
+                } => Some((matched.target(), unmatched.target())),
+                _ => None,
+            })
+            .expect("nullable cleanup must branch on presence");
+
+        let present = generated
+            .block(branch.0)
+            .expect("present cleanup block must exist");
+
+        let absent = generated
+            .block(branch.1)
+            .expect("absent cleanup block must exist");
+
+        assert_eq!(present.kind(), MirBlockKind::CleanupBroadcast);
+        assert_eq!(present.operations().len(), 1);
+        assert!(absent.operations().is_empty());
+
+        let operation = generated
+            .operation(present.operations()[0])
+            .expect("present cleanup operation must exist");
+
+        assert!(matches!(
+            operation.kind(),
+            MirOperationKind::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                place,
+            } if matches!(
+                place.projections().last().map(|projection| projection.kind()),
+                Some(MirProjectionKind::NullableValue)
+            )
+        ));
+    }
+
+    #[test]
+    fn union_lifecycle_resolves_only_the_active_variant_payload() {
+        let compilation = crate::test_support::compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    Value(value: i32);\n",
+            "    Empty;\n",
+            "}\n",
+            "func main() {}\n",
+        ));
+
+        let target = codegen_target(&compilation);
+        let union = source_union_type(&compilation);
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(union),
+            79,
+        );
+
+        let mut branches = generated
+            .blocks()
+            .iter()
+            .filter_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::PatternBranch {
+                    predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(
+                        variant,
+                    ),
+                    matched,
+                    ..
+                } => Some((*variant, matched.target())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(branches.len(), 2);
+
+        branches.sort_by_key(|(variant, _)| *variant);
+
+        let payload_blocks = branches
+            .into_iter()
+            .map(|(_, block)| {
+                generated
+                    .block(block)
+                    .expect("variant lifecycle block must exist")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            payload_blocks
+                .iter()
+                .map(|block| block.operations().len())
+                .collect::<Vec<_>>(),
+            [2, 0]
+        );
+
+        for (operation, expected) in payload_blocks[0]
+            .operations()
+            .iter()
+            .zip(["finalize", "destroy"])
+        {
+            let operation = generated
+                .operation(*operation)
+                .expect("active payload operation must exist");
+
+            let place = match (expected, operation.kind()) {
+                ("finalize", MirOperationKind::Finalize(place))
+                | ("destroy", MirOperationKind::Destroy(place)) => place,
+                other => panic!("unexpected union lifecycle operation: {other:?}"),
+            };
+
+            assert!(matches!(
+                place.projections().last().map(|projection| projection.kind()),
+                Some(MirProjectionKind::ActiveUnionPayloadField { .. })
+            ));
+        }
+
+        assert!(generated.blocks().iter().any(|block| {
+            matches!(block.terminator().kind(), MirTerminatorKind::Unreachable)
+        }));
+    }
+
+    #[test]
+    fn nullable_and_union_codegen_use_checked_payload_layouts() {
+        let compilation = crate::test_support::compilation(concat!(
+            "module app;\n",
+            "@layout(stable, tag = u8)\n",
+            "union Choice\n",
+            "{\n",
+            "    @tag(3)\n",
+            "    Value(value: i32);\n",
+            "    @tag(7)\n",
+            "    Empty;\n",
+            "}\n",
+            "func main() {}\n",
+        ));
+
+        let target = codegen_target(&compilation);
+        let union = source_union_type(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let nullable = values
+            .intern_type(TypeData::Nullable(union))
+            .expect("nullable union type must intern");
+
+        let mut mappings = std::collections::BTreeMap::new();
+        let mut pending = BTreeSet::new();
+
+        compilation
+            .codegen_type(
+                nullable,
+                &target,
+                &CancellationToken::new(),
+                &mut mappings,
+                &mut pending,
+            )
+            .expect("nullable union must realize");
+
+        let nullable = mappings
+            .get(&nullable)
+            .expect("nullable mapping must be present");
+
+        assert!(matches!(
+            nullable.kind(),
+            CodegenTypeKind::Aggregate(fields) if fields.len() == 2
+        ));
+
+        let union = mappings.get(&union).expect("union mapping must be present");
+
+        assert!(matches!(
+            union.kind(),
+            CodegenTypeKind::Union { variants, .. }
+                if variants.iter().map(|variant| variant.tag()).collect::<Vec<_>>() == [3, 7]
+        ));
+    }
+
+    #[test]
+    fn generator_lifecycle_fails_instead_of_silently_no_oping() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let payload = values
+            .intern_type(TypeData::tuple([]))
+            .expect("generator payload type must intern");
+
+        let generator = values
+            .intern_type(TypeData::Generator(payload))
+            .expect("generator type must intern");
+
+        let instance = compilation
+            .concrete_codegen_lifecycle(
+                MirHelperReference::Destroy(generator),
+                &target,
+            )
+            .expect("generator lifecycle identity must realize");
+
+        let reference = instance
+            .generated_lifecycle_reference()
+            .expect("generator lifecycle payload must be retained");
+
+        assert_eq!(
+            compilation.codegen_generated_lifecycle_mir(
+                instance.key(),
+                reference,
+                MirUnitId::new(80),
+                &CancellationToken::new(),
+            ),
+            Err(CodegenFactError::UnsupportedType(generator))
+        );
+    }
+
+    #[test]
+    fn owned_indirection_uses_storage_policy_teardown() {
+        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let payload = values
+            .intern_type(TypeData::tuple([]))
+            .expect("owned payload type must intern");
+
+        let heap_key = CompilerKnownDeclarationKey::try_new("Heap")
+            .expect("compiler-known Heap key must validate");
+
+        let heap = compilation
+            .available_compiler_known_symbols()
+            .declaration_symbol::<bray_symbols::StructSymbolId>(&heap_key)
+            .expect("compiler-known Heap must be available");
+
+        let storage = crate::compilation::substitution::named_type(
+            values,
+            NamedTypeSymbolId::Struct(heap),
+        )
+        .expect("Heap storage type must intern");
+
+        let owned = values
+            .intern_type(TypeData::OwnedIndirection {
+                storage,
+                target: payload,
+            })
+            .expect("owned indirection type must intern");
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(owned),
+            81,
+        );
+
+        assert_eq!(
+            generated
+                .operations()
+                .iter()
+                .filter(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+                .count(),
+            3
+        );
+
+        assert!(generated.operations().iter().any(|operation| {
+            match operation.kind() {
+                MirOperationKind::Borrow { place, .. }
+                | MirOperationKind::Finalize(place) => place
+                    .projections()
+                    .iter()
+                    .any(|projection| projection.kind() == &MirProjectionKind::OwnedStorage),
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
     fn declaration_helpers_require_the_exact_concrete_dependency() {
         let owner_mir = test_mir_unit(3);
 
@@ -2628,5 +3744,58 @@ mod tests {
             .target()
             .codegen_target()
             .expect("test codegen target must validate")
+    }
+
+    fn generated_lifecycle(
+        compilation: &Compilation,
+        target: &CodegenTarget,
+        reference: MirHelperReference,
+        unit: u32,
+    ) -> MirUnit {
+        let instance = compilation
+            .concrete_codegen_lifecycle(reference, target)
+            .expect("lifecycle instance must realize");
+
+        let reference = instance
+            .generated_lifecycle_reference()
+            .expect("generated lifecycle payload must be retained");
+
+        compilation
+            .codegen_generated_lifecycle_mir(
+                instance.key(),
+                reference,
+                MirUnitId::new(unit),
+                &CancellationToken::new(),
+            )
+            .expect("generated lifecycle MIR must realize")
+    }
+
+    fn source_union_type(compilation: &Compilation) -> TypeId {
+        let symbols = compilation
+            .symbol_graph()
+            .expect("test symbol graph must build");
+
+        let union = symbols
+            .unions()
+            .iter()
+            .find(|union| union.origin() == SymbolOrigin::Source)
+            .expect("test source must declare one union");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let substitution = crate::compilation::substitution::empty_substitution(
+            values,
+            union.id().into(),
+        )
+        .expect("union substitution must intern");
+
+        values
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Union(union.id()),
+                substitution,
+            })
+            .expect("union type must intern")
     }
 }

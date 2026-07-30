@@ -88,6 +88,8 @@ pub enum MirProjectionKind {
     },
     /// Select the present contents of nullable storage.
     NullableValue,
+    /// Select the storage-policy value represented by owned indirection.
+    OwnedStorage,
 }
 
 /// One projection step with its checked input and result types.

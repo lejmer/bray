@@ -636,7 +636,8 @@ pub(super) fn validate_place(
             | MirProjectionKind::ElementFromEnd(_)
             | MirProjectionKind::Variant(_)
             | MirProjectionKind::ActiveUnionPayloadField { .. }
-            | MirProjectionKind::NullableValue => {}
+            | MirProjectionKind::NullableValue
+            | MirProjectionKind::OwnedStorage => {}
         }
 
         expected_type = projection.result_type();

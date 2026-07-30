@@ -122,6 +122,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirProjectionKind::NullableValue => {
                 self.nullable_value_pointer(pointer, source_type, &kind)
             }
+            MirProjectionKind::OwnedStorage => Ok(pointer),
             MirProjectionKind::Field(_) | MirProjectionKind::TupleField(_) => {
                 Err(CodegenFailure::GeneratedModuleInvariant)
             }
@@ -549,7 +550,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 aggregate_element(self.request.mappings(), fields, index)
             }
-            (_, MirProjectionKind::NullableValue | MirProjectionKind::Variant(_)) => Ok(0),
+            (
+                _,
+                MirProjectionKind::NullableValue
+                | MirProjectionKind::Variant(_)
+                | MirProjectionKind::OwnedStorage,
+            ) => Ok(0),
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
     }

@@ -1786,6 +1786,7 @@ fn projection_kind(
             ),
         ),
         MirProjectionKind::NullableValue => ("nullable_value", None),
+        MirProjectionKind::OwnedStorage => ("owned_storage", None),
     }
 }
 

@@ -289,7 +289,8 @@ fn collect_place_types(place: &MirPlace, types: &mut BTreeSet<TypeId>) {
             | MirProjectionKind::ElementFromEnd(_)
             | MirProjectionKind::Variant(_)
             | MirProjectionKind::ActiveUnionPayloadField { .. }
-            | MirProjectionKind::NullableValue => {}
+            | MirProjectionKind::NullableValue
+            | MirProjectionKind::OwnedStorage => {}
         }
     }
 }
