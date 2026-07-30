@@ -423,6 +423,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::OperationSelection(key.clone())
     });
 
+    reuse!(native_products, |key| {
+        CompilationFactKey::NativeProduct(key.clone())
+    });
+
     reuse!(constant_instances, |key| {
         CompilationFactKey::ConstantInstance(key.clone())
     });

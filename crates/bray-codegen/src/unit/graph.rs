@@ -93,6 +93,7 @@ impl CodegenReachabilityBuilder {
 
             if dependency != &key
                 && !self.instances.contains_key(dependency)
+                && !self.external.contains(dependency)
                 && !self.demanded.contains(dependency)
             {
                 self.pending.insert(dependency.clone());
@@ -302,6 +303,53 @@ mod tests {
             builder.finish(),
             Err(CodegenReachabilityBuildError::Incomplete)
         );
+    }
+
+    #[test]
+    fn resolved_external_leaves_are_not_requeued_by_later_instances() {
+        let first_mir = test_mir_unit(4);
+        let second_mir = test_mir_unit_with_declaration(8, 1);
+        let external_mir = test_mir_unit_with_declaration(12, 2);
+        let first_key = CodegenInstanceKey::non_generic(&first_mir);
+        let second_key = CodegenInstanceKey::non_generic(&second_mir);
+        let external_key = CodegenInstanceKey::non_generic(&external_mir);
+
+        let Ok(first) = CodegenInstance::try_new(
+            first_key.clone(),
+            first_mir,
+            [
+                CodegenInstanceDependency::definition(second_key.clone()),
+                CodegenInstanceDependency::definition(external_key.clone()),
+            ],
+        ) else {
+            panic!("first test instance must validate");
+        };
+
+        let Ok(second) = CodegenInstance::try_new(
+            second_key.clone(),
+            second_mir,
+            [CodegenInstanceDependency::definition(external_key.clone())],
+        ) else {
+            panic!("second test instance must validate");
+        };
+
+        let Ok(mut builder) = CodegenReachabilityBuilder::try_new([first_key]) else {
+            panic!("test root must validate");
+        };
+
+        let _ = builder.take_frontier();
+
+        assert_eq!(builder.push_instance(first), Ok(()));
+
+        let mut expected_frontier = vec![second_key.clone(), external_key.clone()];
+
+        expected_frontier.sort_unstable();
+
+        assert_eq!(builder.take_frontier().as_ref(), expected_frontier);
+        assert_eq!(builder.push_external(external_key), Ok(()));
+        assert_eq!(builder.push_instance(second), Ok(()));
+        assert!(builder.take_frontier().is_empty());
+        assert!(builder.finish().is_ok());
     }
 
     fn graph(

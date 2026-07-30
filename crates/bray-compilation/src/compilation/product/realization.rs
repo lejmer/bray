@@ -23,8 +23,8 @@ use bray_runtime_interface::{
 };
 use bray_symbols::{
     CallableAbi, CallableDefinitionId, CallableSignatureFact, ConstantTermData,
-    ConstantValueKind, GenericSubstitutionId, NamedTypeSymbolId, SymbolFactRequest, TypeData,
-    TypeId,
+    ConstantValueKind, DeclaredLayoutMode, GenericSubstitutionId, NamedTypeSymbolId,
+    SymbolFactRequest, TypeData, TypeId,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -425,6 +425,8 @@ impl Compilation {
                     ty,
                     elements.iter().copied().map(|element| (None, element)),
                     TargetLayoutContract::Default,
+                    None,
+                    None,
                     target,
                     cancellation,
                     mappings,
@@ -462,7 +464,7 @@ impl Compilation {
                 target: pointee, ..
             } => pointer_mapping(ty, *pointee, target),
             TypeData::Callable(callable) => {
-                let signature = callable_type_signature(callable);
+                let signature = callable_type_signature(self, callable)?;
 
                 CodegenTypeMapping::new(
                     ty,
@@ -535,10 +537,15 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, FactQueryError>>()?;
 
+                let representation = self
+                    .declared_type_representation_with_cancellation(definition, cancellation)?;
+
                 self.codegen_aggregate_type(
                     ty,
                     fields,
-                    TargetLayoutContract::Default,
+                    target_layout_contract(representation.value().layout()),
+                    representation.value().alignment(),
+                    representation.value().packing(),
                     target,
                     cancellation,
                     mappings,
@@ -587,6 +594,8 @@ impl Compilation {
         ty: TypeId,
         fields: impl IntoIterator<Item = (Option<bray_ir::MirFieldReference>, TypeId)>,
         contract: TargetLayoutContract,
+        requested_alignment: Option<u64>,
+        packing: Option<u64>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
         mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
@@ -604,9 +613,15 @@ impl Compilation {
                 .map(CodegenTypeMapping::layout)
                 .ok_or(CodegenFactError::UnsupportedType(field))?;
 
-            alignment = alignment.max(field_layout.alignment());
+            let field_alignment = packing
+                .and_then(NonZeroU64::new)
+                .map_or(field_layout.alignment(), |packing| {
+                    field_layout.alignment().min(packing)
+                });
 
-            offset = align_to(offset, field_layout.alignment())
+            alignment = alignment.max(field_alignment);
+
+            offset = align_to(offset, field_alignment)
                 .ok_or(CodegenFactError::LayoutOverflow(ty))?;
 
             layouts.push(CodegenFieldLayout::new(reference, field, offset));
@@ -614,6 +629,10 @@ impl Compilation {
             offset = offset
                 .checked_add(field_layout.size())
                 .ok_or(CodegenFactError::LayoutOverflow(ty))?;
+        }
+
+        if let Some(requested) = requested_alignment.and_then(NonZeroU64::new) {
+            alignment = alignment.max(requested);
         }
 
         let size = align_to(offset, alignment).ok_or(CodegenFactError::LayoutOverflow(ty))?;
@@ -647,7 +666,7 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
-    fn codegen_instance_signature(
+    pub(in crate::compilation) fn codegen_instance_signature(
         &self,
         instance: &bray_codegen::CodegenInstanceKey,
         cancellation: &CancellationToken,
@@ -710,6 +729,10 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure.into());
         };
 
+        if callable.abi() != CallableAbi::Bray {
+            return Err(CodegenFactError::UnsupportedCallableAbi(callable.abi()));
+        }
+
         let parameters = signature
             .receiver()
             .map(|receiver| receiver.ty())
@@ -729,6 +752,15 @@ impl Compilation {
             callable.abi(),
             false,
         ))
+    }
+}
+
+const fn target_layout_contract(layout: DeclaredLayoutMode) -> TargetLayoutContract {
+    match layout {
+        DeclaredLayoutMode::Default => TargetLayoutContract::Default,
+        DeclaredLayoutMode::Stable => TargetLayoutContract::Stable,
+        DeclaredLayoutMode::C => TargetLayoutContract::C,
+        DeclaredLayoutMode::Transparent => TargetLayoutContract::Transparent,
     }
 }
 
@@ -845,17 +877,28 @@ fn pointer_layout(target: &CodegenTarget) -> TargetValueLayout {
 }
 
 fn callable_type_signature(
+    compilation: &Compilation,
     callable: &bray_symbols::CallableTypeData,
-) -> CodegenCallableSignature {
-    CodegenCallableSignature::new(
+) -> Result<CodegenCallableSignature, CodegenFactError> {
+    if callable.abi() != CallableAbi::Bray {
+        return Err(CodegenFactError::UnsupportedCallableAbi(callable.abi()));
+    }
+
+    let result = if is_unit(compilation, callable.result())? {
+        CodegenResultMapping::Void
+    } else {
+        CodegenResultMapping::direct(callable.result(), None, [])
+    };
+
+    Ok(CodegenCallableSignature::new(
         callable
             .parameters()
             .iter()
             .map(|parameter| CodegenParameterMapping::direct(parameter.ty(), None, [])),
-        CodegenResultMapping::direct(callable.result(), None, []),
+        result,
         callable.abi(),
         false,
-    )
+    ))
 }
 
 fn void_signature(abi: CallableAbi) -> CodegenCallableSignature {

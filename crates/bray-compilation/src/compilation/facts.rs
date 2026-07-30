@@ -167,6 +167,10 @@ pub(super) struct CompilationState {
     pub(super) codegen: Option<CodegenConfiguration>,
     pub(super) codegen_artifacts:
         FactCellMap<crate::fact::CodegenArtifactFactKey, Arc<CodegenOutcome>>,
+    pub(super) native_products: FactCellMap<
+        crate::fact::NativeProductFactKey,
+        Result<Arc<super::NativeProductFacts>, Arc<super::NativeProductFactError>>,
+    >,
     pub(super) constant_template_keys:
         FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
     pub(super) callable_body_keys:
@@ -337,6 +341,7 @@ impl Compilation {
                 lowered_units: UnitFactCache::new(),
                 codegen,
                 codegen_artifacts: FactCellMap::new(),
+                native_products: FactCellMap::new(),
                 constant_template_keys: FactCell::new(),
                 callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),

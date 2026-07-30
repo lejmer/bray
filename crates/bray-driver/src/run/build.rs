@@ -95,7 +95,10 @@ pub(crate) fn run_build_command(
         &linker,
     ) {
         Ok(native) => native,
-        Err(_) => return unsupported_product_result(compilation, output_format),
+        Err(error) if error.is_unsupported() => {
+            return unsupported_product_result(compilation, output_format);
+        }
+        Err(_) => return native_product_failure_result(compilation, output_format),
     };
 
     let target_outputs = target_outputs(&selected_target, &configuration);
@@ -573,4 +576,18 @@ mod tests {
         std::fs::remove_dir(&output)
             .unwrap_or_else(|error| panic!("build output directory must be removed: {error:?}"));
     }
+}
+
+fn native_product_failure_result(
+    compilation: bray_compilation::Compilation,
+    output_format: DriverOutputFormat,
+) -> DriverRunResult {
+    let diagnostics = compilation.check_diagnostics().clone();
+
+    driver_result_from_compilation(
+        compilation,
+        diagnostics,
+        output_format,
+        ExitCode::FAILURE,
+    )
 }

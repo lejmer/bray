@@ -428,6 +428,8 @@ pub enum CodegenFactError {
     RecursiveValueType(bray_symbols::TypeId),
     /// The selected backend cannot represent a demanded semantic type.
     UnsupportedType(bray_symbols::TypeId),
+    /// Native classification for the selected callable ABI is not available.
+    UnsupportedCallableAbi(bray_symbols::CallableAbi),
     /// A required MIR helper has no concrete code generation realization.
     UnsupportedHelper(MirHelperReference),
     /// A demanded type layout exceeds the selected target's representable size.

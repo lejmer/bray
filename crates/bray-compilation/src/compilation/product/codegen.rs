@@ -34,7 +34,9 @@ use bray_symbols::{
 
 use super::super::Compilation;
 use super::super::substitution::empty_substitution;
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey,
+};
 
 const CODEGEN_PARTITION_REVISION: u32 = 1;
 const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
@@ -94,7 +96,7 @@ impl Compilation {
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: &Linker,
-    ) -> Result<NativeProductFacts, NativeProductFactError> {
+    ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         self.native_product_facts_with_cancellation(
             product,
             runtime,
@@ -111,6 +113,65 @@ impl Compilation {
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: &Linker,
         cancellation: &CancellationToken,
+    ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
+        let mut required_capabilities: Vec<_> = required_capabilities.into_iter().collect();
+
+        required_capabilities.sort_unstable();
+        required_capabilities.dedup();
+
+        let key = NativeProductFactKey::new(
+            product.clone(),
+            runtime.as_ref().map(|runtime| {
+                (
+                    runtime.metadata().archive_digest(),
+                    runtime.archive().to_path_buf(),
+                )
+            }),
+            Arc::from(required_capabilities.clone()),
+            Arc::from(
+                linker
+                    .driver_identities()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            ),
+        );
+
+        let cell = self
+            .state
+            .native_products
+            .cell(key.clone())
+            .map_err(|error| Arc::new(NativeProductFactError::Query(error)))?;
+
+        let result = cell
+            .get_or_compute(
+                &self.state.fact_runtime,
+                CompilationFactKey::NativeProduct(key),
+                cancellation,
+                || {
+                    Ok(self
+                        .compute_native_product_facts(
+                            product,
+                            runtime,
+                            required_capabilities,
+                            linker,
+                            cancellation,
+                        )
+                        .map(Arc::new)
+                        .map_err(Arc::new))
+                },
+            )
+            .map_err(|error| Arc::new(NativeProductFactError::Query(error)))?;
+
+        result.clone()
+    }
+
+    fn compute_native_product_facts(
+        &self,
+        product: ProductIdentity,
+        runtime: Option<RuntimeArtifact>,
+        required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
+        linker: &Linker,
+        cancellation: &CancellationToken,
     ) -> Result<NativeProductFacts, NativeProductFactError> {
         let target = self
             .selected_target()
@@ -119,6 +180,17 @@ impl Compilation {
             .map_err(NativeProductFactError::InvalidCodegenTarget)?;
 
         let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
+
+        if semantic.value().kind() == ProductKind::Test {
+            return Err(NativeProductFactError::UnsupportedProductKind(
+                ProductKind::Test,
+            ));
+        }
+
+        if semantic.value().requires_async_runtime() {
+            return Err(NativeProductFactError::UnsupportedAsyncProduct);
+        }
+
         let source_roots = self.product_root_instances(semantic.value(), &target, cancellation)?;
 
         let (host, units, mappings) = if source_roots.is_empty() {
@@ -136,6 +208,7 @@ impl Compilation {
                 runtime.as_ref(),
                 required_capabilities,
                 &target,
+                cancellation,
             )?;
 
             let reachability = match host.as_ref() {
@@ -419,6 +492,7 @@ impl Compilation {
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
+        cancellation: &CancellationToken,
     ) -> Result<Option<ExecutableHostContract>, NativeProductFactError> {
         if kind == ProductKind::Library {
             return Ok(None);
@@ -428,6 +502,14 @@ impl Compilation {
             .first()
             .and_then(|root| reachability.instance(root))
             .ok_or(NativeProductFactError::MissingProductRoot)?;
+
+        if !matches!(
+            self.codegen_instance_signature(root.key(), cancellation)?
+                .result(),
+            bray_codegen::CodegenResultMapping::Void
+        ) {
+            return Err(NativeProductFactError::UnsupportedEntryResult);
+        }
 
         let root_execution = match (is_async, root.protected_frame_identity()) {
             (false, _) => RootExecution::Synchronous,
@@ -616,6 +698,12 @@ pub enum NativeProductFactError {
     CodegenUnavailable,
     /// The selected product has no executable code root.
     MissingProductRoot,
+    /// Native test-product hosting is not available.
+    UnsupportedProductKind(ProductKind),
+    /// Native asynchronous hosting is not available.
+    UnsupportedAsyncProduct,
+    /// Native process hosting does not support the selected entry result.
+    UnsupportedEntryResult,
     /// An asynchronous root has no protected-frame identity.
     MissingProtectedRootFrame,
     /// An asynchronous product has no selected runtime artifact.
@@ -648,6 +736,27 @@ pub enum NativeProductFactError {
     Linker(bray_linker::LinkFailure),
     /// One code generation fact is unavailable.
     Codegen(super::super::CodegenFactError),
+}
+
+impl NativeProductFactError {
+    /// Returns whether the selected product uses a native feature not yet supported.
+    pub const fn is_unsupported(&self) -> bool {
+        matches!(
+            self,
+            Self::CodegenUnavailable
+                | Self::UnsupportedProductKind(_)
+                | Self::UnsupportedAsyncProduct
+                | Self::UnsupportedEntryResult
+                | Self::MissingProtectedRootFrame
+                | Self::MissingRuntime
+                | Self::Codegen(
+                    super::super::CodegenFactError::UnsupportedType(_)
+                        | super::super::CodegenFactError::UnsupportedCallableAbi(_)
+                        | super::super::CodegenFactError::UnsupportedHelper(_)
+                        | super::super::CodegenFactError::UnsupportedSpecialization(_)
+                )
+        )
+    }
 }
 
 impl From<FactQueryError> for NativeProductFactError {
