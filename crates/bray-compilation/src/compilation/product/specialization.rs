@@ -1,13 +1,10 @@
 use std::collections::BTreeMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bray_codegen::{
-    CodegenGenericArgument, CodegenImplementationWitness, CodegenInstanceKey,
-    CodegenReachability, CodegenSpecialization, CodegenTarget, CodegenValueKey,
-    DemandedCallableInstance,
+    CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability,
+    CodegenSpecialization, CodegenTarget, DemandedCallableInstance,
 };
-use bray_base::StableDigestHasher;
 use bray_ir::{MirTargetFacts, MirUnitKey};
 use bray_symbols::{
     CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
@@ -297,51 +294,6 @@ impl Compilation {
         values
             .intern_constant_term(ConstantTermData::Value(value))
             .map_err(|_| FactQueryError::InfrastructureFailure.into())
-    }
-
-    fn codegen_specialization(
-        &self,
-        substitution: GenericSubstitutionId,
-    ) -> Result<CodegenSpecialization, CodegenFactError> {
-        let values = self.semantic_value_store()?;
-
-        values
-            .require_concrete_substitution(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let substitution = values
-            .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        if substitution.bindings().is_empty() {
-            return Ok(CodegenSpecialization::NonGeneric);
-        }
-
-        let arguments = substitution
-            .bindings()
-            .iter()
-            .map(|binding| {
-                let mut digest = StableDigestHasher::new();
-
-                digest.write(b"bray.codegen-generic-argument");
-                binding.argument().hash(&mut digest);
-
-                match binding.argument() {
-                    GenericArgument::Type(_) => {
-                        CodegenGenericArgument::Type(CodegenValueKey::new(
-                            digest.finalize(),
-                        ))
-                    }
-                    GenericArgument::Constant(_) => {
-                        CodegenGenericArgument::Constant(CodegenValueKey::new(
-                            digest.finalize(),
-                        ))
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Ok(CodegenSpecialization::generic(arguments))
     }
 
     fn concrete_codegen_witnesses(

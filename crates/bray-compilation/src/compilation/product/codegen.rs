@@ -791,6 +791,8 @@ impl From<super::super::CodegenFactError> for NativeProductFactError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_codegen::{
         CodegenGenericArgument, CodegenResultMapping, CodegenSpecialization,
         partition_codegen_units,
@@ -800,38 +802,41 @@ mod tests {
         CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, ImplementationRequirementKey,
         ImplementationSelection, NamedTypeSymbolId, SymbolOrigin, TraitApplicationData,
-        TypeData,
+        ConstantTermData, ConstantValueData, ConstantValueKind, TypeData,
     };
 
     use super::CODEGEN_PARTITION_REVISION;
     use crate::CancellationToken;
 
+    const CONCRETE_GENERIC_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func entry()\n",
+        "{\n",
+        "    main();\n",
+        "}\n",
+        "\n",
+        "func accept<T>(pos value: T) -> T\n",
+        "{\n",
+        "    return value;\n",
+        "}\n",
+        "\n",
+        "func repeat<const count: usize>() -> usize\n",
+        "{\n",
+        "    return count;\n",
+        "}\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let accepted: i32 = accept<i32>(1);\n",
+        "    let repeated: usize = repeat<2>();\n",
+        "}\n",
+    );
+
     #[test]
     fn concrete_generic_instances_realize_signatures_and_layouts() {
-        let compilation = crate::test_support::compilation(concat!(
-            "module app;\n",
-            "\n",
-            "func entry()\n",
-            "{\n",
-            "    main();\n",
-            "}\n",
-            "\n",
-            "func accept<T>(pos value: T) -> T\n",
-            "{\n",
-            "    return value;\n",
-            "}\n",
-            "\n",
-            "func repeat<const count: usize>() -> usize\n",
-            "{\n",
-            "    return count;\n",
-            "}\n",
-            "\n",
-            "func main()\n",
-            "{\n",
-            "    let accepted: i32 = accept<i32>(1);\n",
-            "    let repeated: usize = repeat<2>();\n",
-            "}\n",
-        ));
+        let compilation =
+            crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -947,6 +952,31 @@ mod tests {
 
         assert!(saw_concrete_generic_signature);
         assert!(saw_const_specialization);
+    }
+
+    #[test]
+    fn concrete_generic_specializations_are_stable_across_store_order() {
+        let first = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
+        let second = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
+
+        perturb_semantic_value_order(&second);
+
+        let first = concrete_generic_specializations(&first);
+        let second = concrete_generic_specializations(&second);
+
+        assert_eq!(first, second);
+
+        assert!(first.iter().any(|specialization| {
+            specialization.arguments().iter().any(|argument| {
+                matches!(argument, CodegenGenericArgument::Type(_))
+            })
+        }));
+
+        assert!(first.iter().any(|specialization| {
+            specialization.arguments().iter().any(|argument| {
+                matches!(argument, CodegenGenericArgument::Constant(_))
+            })
+        }));
     }
 
     #[test]
@@ -1158,5 +1188,95 @@ mod tests {
         values
             .intern_generic_substitution(substitution)
             .unwrap_or_else(|error| panic!("test substitution must intern: {error:?}"))
+    }
+
+    fn perturb_semantic_value_order(compilation: &crate::Compilation) {
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+        let mut ty = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("noise tuple type must intern: {error:?}"));
+
+        let mut value = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Unit,
+            ))
+            .unwrap_or_else(|error| panic!("noise unit value must intern: {error:?}"));
+
+        for _ in 0..4 {
+            ty = values
+                .intern_type(TypeData::Nullable(ty))
+                .unwrap_or_else(|error| {
+                    panic!("noise nullable type must intern: {error:?}")
+                });
+
+            value = values
+                .intern_constant_value(ConstantValueData::new(
+                    ty,
+                    ConstantValueKind::NullablePresent(value),
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("noise nullable value must intern: {error:?}")
+                });
+
+            values
+                .intern_constant_term(ConstantTermData::Value(value))
+                .unwrap_or_else(|error| {
+                    panic!("noise constant term must intern: {error:?}")
+                });
+        }
+    }
+
+    fn concrete_generic_specializations(
+        compilation: &crate::Compilation,
+    ) -> BTreeSet<CodegenSpecialization> {
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| {
+                panic!("test codegen target must validate: {error:?}")
+            });
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| {
+                panic!("test product facts must resolve: {error:?}")
+            });
+
+        let roots = compilation
+            .product_root_instances(
+                semantic.value(),
+                &target,
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| {
+                panic!("generic reachability must close: {error:?}")
+            })
+            .graph()
+            .instances()
+            .iter()
+            .filter_map(|instance| match instance.key().specialization() {
+                CodegenSpecialization::Generic(_) => {
+                    Some(instance.key().specialization().clone())
+                }
+                CodegenSpecialization::NonGeneric => None,
+            })
+            .collect()
     }
 }
