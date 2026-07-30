@@ -1,7 +1,8 @@
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use bray_base::{FileReplacementMode, StagedFile};
 use bray_source::{
     SourceIdentity, SourceLoadError, SourceLoader, SourceOrigin, SourceUtf8Error, SourceVersion,
     TextSizeOverflow, leading_utf8_bom_len,
@@ -240,7 +241,19 @@ pub fn format_file(
         return Ok(FormatFileOutcome::WouldChange);
     }
 
-    fs::write(path, formatted.text().as_bytes())
+    let mut staging = StagedFile::create(path, FileReplacementMode::ReplaceExisting, None)
+        .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
+
+    staging
+        .write_all(formatted.text().as_bytes())
+        .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
+
+    let staging = staging
+        .finish()
+        .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
+
+    staging
+        .promote(path)
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
 
     Ok(FormatFileOutcome::Written)

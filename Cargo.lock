@@ -130,6 +130,8 @@ name = "bray-base"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "renamore",
+ "tempfile",
 ]
 
 [[package]]
@@ -311,7 +313,6 @@ dependencies = [
  "bray-symbols",
  "bray-target",
  "bray-testing",
- "renamore",
  "sha2",
  "tempfile",
 ]
@@ -320,6 +321,7 @@ dependencies = [
 name = "bray-formatter"
 version = "0.0.0"
 dependencies = [
+ "bray-base",
  "bray-parser",
  "bray-source",
  "bray-syntax",

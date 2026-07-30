@@ -47,8 +47,8 @@ does not render or add user-facing English diagnostics.
 
 ## Command integration
 
-The `bray` executable links a local `TackFormatService` adapter to the reusable
-formatter operations:
+The `bray` executable must link a local `TackFormatService` adapter to the
+reusable formatter operations:
 
 - Standard input calls `format_text` and writes formatted text to standard
   output in write mode.

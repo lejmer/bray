@@ -15,7 +15,6 @@ bray-package-interface = { path = "../bray-package-interface" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 blake3 = "1"
-renamore = "0.3"
 sha2 = "0.10"
 tempfile = "3"
 

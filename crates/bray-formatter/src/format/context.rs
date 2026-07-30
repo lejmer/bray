@@ -27,7 +27,9 @@ pub(super) fn needs_space_before(
     }
 
     if is_operator(current) {
-        return !current_operator_is_prefix || is_word(previous);
+        return !current_operator_is_prefix
+            || is_word(previous)
+            || (is_operator(previous) && !previous_operator_was_prefix);
     }
 
     if is_operator(previous) {

@@ -161,6 +161,21 @@ fn preserves_comment_text_and_positions_comments_deterministically() {
 }
 
 #[test]
+fn preserves_trailing_whitespace_in_exact_line_comments() {
+    let source = concat!(
+        "module app; // ordinary  \n",
+        "/// documentation\t \n",
+        "func main(){}",
+    );
+
+    let output = formatted(source);
+
+    assert!(output.text().contains("// ordinary  \n"));
+    assert!(output.text().contains("/// documentation\t \n"));
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
 fn preserves_skipped_and_invalid_recovery_text() {
     let source = "module app; func main(){let value=$ badly ???;return value;}";
     let output = formatted(source);
@@ -177,9 +192,9 @@ fn preserves_skipped_and_invalid_recovery_text() {
 fn formats_generic_delimiters_prefix_operators_and_inline_collections() {
     let source = concat!(
         "module app;",
-        "@test @abi(\"C\") public async func transform<T,const N:Int>",
-        "(pos value:Int=1,mut tail:Bool,)->Unit{}",
-        "func negate(value:Int)->Int{return -value;}",
+        "@test @abi(\"C\") public async func transform<T,const N:i32>",
+        "(pos value:i32=1,mut tail:bool,)->unit{}",
+        "func negate(value:i32)->i32{return -value;}",
     );
 
     let output = formatted(source);
@@ -191,16 +206,39 @@ fn formats_generic_delimiters_prefix_operators_and_inline_collections() {
             "\n",
             "@test\n",
             "@abi(\"C\")\n",
-            "public async func transform<T, const N: Int>(pos value: Int = 1, mut tail: Bool,) -> Unit\n",
+            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool,) -> unit\n",
             "{\n",
             "}\n",
             "\n",
-            "func negate(value: Int) -> Int\n",
+            "func negate(value: i32) -> i32\n",
             "{\n",
             "    return -value;\n",
             "}\n",
         )
     );
+}
+
+#[test]
+fn separates_binary_operators_from_prefix_operands() {
+    let source = concat!(
+        "module app;",
+        "func main(){",
+        "let borrowed=left& &right;",
+        "let negated=left+ -right;",
+        "}",
+    );
+
+    let output = formatted(source);
+
+    assert!(output.text().contains("left & &right"));
+    assert!(output.text().contains("left + -right"));
+
+    let snapshot = test_source_snapshot(output.text());
+    let parsed = parse_source_unit(&snapshot);
+
+    assert!(parsed.diagnostics().is_empty());
+    assert!(!parsed.source_unit().is_recovered());
+    assert!(!formatted(output.text()).changed());
 }
 
 #[test]

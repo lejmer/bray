@@ -68,8 +68,6 @@ impl FormatWriter {
     pub(super) fn finish(mut self) -> String {
         self.pending_space = false;
 
-        self.trim_trailing_horizontal_whitespace();
-
         while self.output.ends_with('\n') {
             self.output.pop();
 
@@ -86,8 +84,6 @@ impl FormatWriter {
     }
 
     fn flush_layout(&mut self) {
-        self.trim_trailing_horizontal_whitespace();
-
         if self.pending_newlines > 0 && !self.output.is_empty() {
             for _ in 0..self.pending_newlines {
                 self.output.push_str(self.line_ending);
@@ -108,11 +104,5 @@ impl FormatWriter {
 
         self.pending_newlines = 0;
         self.pending_space = false;
-    }
-
-    fn trim_trailing_horizontal_whitespace(&mut self) {
-        while matches!(self.output.as_bytes().last(), Some(b' ' | b'\t')) {
-            self.output.pop();
-        }
     }
 }

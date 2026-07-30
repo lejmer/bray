@@ -2,15 +2,14 @@ use std::fs::Permissions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use tempfile::{Builder, NamedTempFile, PathPersistError, TempPath};
+use bray_base::{
+    CompletedStagedFile, FileReplacementMode, StagedFile,
+};
 
 use crate::{ArtifactKind, ReplacementPolicy};
 
-const STAGING_FILE_PREFIX: &str = ".bray-stage-";
-
 pub(super) struct FilesystemStaging {
-    file: NamedTempFile,
-    final_permissions: Option<Permissions>,
+    file: StagedFile,
 }
 
 impl FilesystemStaging {
@@ -19,27 +18,23 @@ impl FilesystemStaging {
         kind: ArtifactKind,
         replacement: ReplacementPolicy,
     ) -> io::Result<Self> {
-        let final_permissions = replacement_permissions(destination, replacement)?;
-        let directory = destination_directory(destination);
-        let mut builder = Builder::new();
+        let file = StagedFile::create(
+            destination,
+            replacement_mode(replacement),
+            default_permissions(kind),
+        )?;
 
-        builder.prefix(STAGING_FILE_PREFIX);
-        configure_default_permissions(&mut builder, kind);
-
-        let file = builder.tempfile_in(directory)?;
-
-        Ok(Self {
-            file,
-            final_permissions,
-        })
+        Ok(Self { file })
     }
 
-    pub(super) fn finish(mut self) -> io::Result<CompletedFilesystemStaging> {
-        self.file.flush()?;
+    #[cfg(test)]
+    pub(super) fn path(&self) -> &Path {
+        self.file.path()
+    }
 
+    pub(super) fn finish(self) -> io::Result<CompletedFilesystemStaging> {
         Ok(CompletedFilesystemStaging {
-            path: self.file.into_temp_path(),
-            final_permissions: self.final_permissions,
+            file: self.file.finish()?,
         })
     }
 }
@@ -55,73 +50,30 @@ impl Write for FilesystemStaging {
 }
 
 pub(super) struct CompletedFilesystemStaging {
-    path: TempPath,
-    final_permissions: Option<Permissions>,
+    file: CompletedStagedFile,
 }
 
 impl CompletedFilesystemStaging {
     pub(super) fn path(&self) -> &Path {
-        &self.path
+        self.file.path()
     }
 
-    pub(super) fn promote(
-        self,
-        destination: &Path,
-        replacement: ReplacementPolicy,
-    ) -> io::Result<()> {
-        let Self {
-            path,
-            final_permissions,
-        } = self;
-
-        if let Some(permissions) = final_permissions {
-            std::fs::set_permissions(&path, permissions)?;
-        }
-
-        match replacement {
-            ReplacementPolicy::RequireAbsent => promote_exclusive(path, destination),
-            ReplacementPolicy::ReplaceExisting => {
-                path.persist(destination).map_err(promotion_error)
-            }
-        }
+    pub(super) fn promote(self, destination: &Path) -> io::Result<()> {
+        self.file.promote(destination)
     }
 }
 
-fn promote_exclusive(path: TempPath, destination: &Path) -> io::Result<()> {
-    let result = renamore::rename_exclusive(&path, destination);
-
-    drop(path);
-
-    result
-}
-
-fn destination_directory(destination: &Path) -> &Path {
-    destination
-        .parent()
-        .filter(|directory| !directory.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-}
-
-fn replacement_permissions(
-    destination: &Path,
+fn replacement_mode(
     replacement: ReplacementPolicy,
-) -> io::Result<Option<Permissions>> {
-    if replacement == ReplacementPolicy::ReplaceExisting {
-        match std::fs::symlink_metadata(destination) {
-            Ok(metadata) if metadata.file_type().is_file() => {
-                return Ok(Some(metadata.permissions()));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
+) -> FileReplacementMode {
+    match replacement {
+        ReplacementPolicy::RequireAbsent => FileReplacementMode::RequireAbsent,
+        ReplacementPolicy::ReplaceExisting => FileReplacementMode::ReplaceExisting,
     }
-
-    Ok(None)
 }
 
 #[cfg(unix)]
-fn configure_default_permissions(builder: &mut Builder<'_, '_>, kind: ArtifactKind) {
+fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
     use std::os::unix::fs::PermissionsExt;
 
     let mode = match kind {
@@ -138,18 +90,12 @@ fn configure_default_permissions(builder: &mut Builder<'_, '_>, kind: ArtifactKi
         | ArtifactKind::LinkedCompanion => 0o644,
     };
 
-    builder.permissions(Permissions::from_mode(mode));
+    Some(Permissions::from_mode(mode))
 }
 
 #[cfg(not(unix))]
-fn configure_default_permissions(_: &mut Builder<'_, '_>, _: ArtifactKind) {}
-
-fn promotion_error(error: PathPersistError) -> io::Error {
-    let PathPersistError { error, path } = error;
-
-    drop(path);
-
-    error
+fn default_permissions(_: ArtifactKind) -> Option<Permissions> {
+    None
 }
 
 #[cfg(test)]
@@ -191,10 +137,7 @@ mod tests {
         assert_eq!(file_bytes(&destination), b"existing");
         assert_eq!(staging.path().parent(), Some(directory.path()));
 
-        if staging
-            .promote(&destination, ReplacementPolicy::ReplaceExisting)
-            .is_err()
-        {
+        if staging.promote(&destination).is_err() {
             panic!("test staging file must replace its destination");
         }
 
@@ -231,7 +174,7 @@ mod tests {
 
         let staging_path = staging.path().to_owned();
 
-        let result = staging.promote(&destination, ReplacementPolicy::RequireAbsent);
+        let result = staging.promote(&destination);
 
         assert!(result.is_err());
         assert_eq!(file_bytes(&destination), b"existing");
@@ -264,10 +207,7 @@ mod tests {
 
         let staging_path = staging.path().to_owned();
 
-        if staging
-            .promote(&destination, ReplacementPolicy::RequireAbsent)
-            .is_err()
-        {
+        if staging.promote(&destination).is_err() {
             panic!("test staging file must be promoted exclusively");
         }
 
@@ -297,7 +237,7 @@ mod tests {
             panic!("test staging file must be created");
         };
 
-        let staging_path: PathBuf = staging.file.path().to_owned();
+        let staging_path: PathBuf = staging.path().to_owned();
 
         drop(staging);
 
@@ -332,10 +272,7 @@ mod tests {
             panic!("test staging file must finish");
         };
 
-        if staging
-            .promote(&destination, ReplacementPolicy::RequireAbsent)
-            .is_err()
-        {
+        if staging.promote(&destination).is_err() {
             panic!("test executable must be promoted");
         }
 
@@ -381,10 +318,7 @@ mod tests {
             panic!("test staging file must finish");
         };
 
-        if staging
-            .promote(&destination, ReplacementPolicy::ReplaceExisting)
-            .is_err()
-        {
+        if staging.promote(&destination).is_err() {
             panic!("test executable must replace its destination");
         }
 

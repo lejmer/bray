@@ -4,7 +4,8 @@ Use this page to find the crate that owns a concept. Detailed phase contracts an
 documents.
 
 - `bray-base`
-    - Small, dependency-light foundational types and helpers shared across otherwise unrelated compiler crates.
+    - Small foundational types and helpers shared across otherwise unrelated compiler crates,
+      including private same-directory staging for atomic file publication.
 
 - `bray-source`
     - Source identities, snapshots, text ranges, spans, and source-location utilities.

@@ -76,6 +76,37 @@ fn invalid_utf8_returns_a_typed_failure_without_writing() {
     assert_eq!(read(file.path()), original);
 }
 
+#[cfg(windows)]
+#[test]
+fn failed_atomic_replacement_preserves_original_source() {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 1;
+
+    let file = TemporaryFile::write("main.bray", b"module app;func main(){return;}");
+    let original = read(file.path());
+
+    let lock = match OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(file.path())
+    {
+        Ok(lock) => lock,
+        Err(error) => panic!("test source must be locked against replacement: {error:?}"),
+    };
+
+    let error = match format_file(file.path(), FormatMode::Write) {
+        Ok(outcome) => panic!("locked source replacement should fail, got {outcome:?}"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.kind(), FormatFileErrorKind::Write);
+    assert_eq!(read(file.path()), original);
+
+    drop(lock);
+}
+
 fn read(path: &std::path::Path) -> Vec<u8> {
     match std::fs::read(path) {
         Ok(bytes) => bytes,
