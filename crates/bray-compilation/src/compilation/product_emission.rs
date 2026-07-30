@@ -1,4 +1,4 @@
-use bray_codegen::{CodegenOptions, CodegenTarget, CodegenUnit};
+use bray_codegen::{CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
 use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactKind, ArtifactProducer, ArtifactPublisher, BackendContributionSet, EmissionBackend,
@@ -35,10 +35,11 @@ impl<'operation> ProductEmissionInputs<'operation> {
         }
     }
 
-    /// Supplies selected backend, target, and generation policy for backend-owned artifacts.
+    /// Supplies selected backend, validated mappings, target, and generation policy.
     pub const fn with_codegen(
         mut self,
         backend: &'operation EmissionBackend,
+        mappings: &'operation [CodegenMappings],
         target: &'operation CodegenTarget,
         options: &'operation CodegenOptions,
     ) -> Self {
@@ -50,6 +51,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self.generation = ProductGenerationInputs::Custom {
             codegen: Some(ProductCodegenInputs {
                 backend,
+                mappings,
                 target,
                 options,
             }),
@@ -114,12 +116,13 @@ enum ProductGenerationInputs<'operation> {
 }
 
 impl<'operation> ProductGenerationInputs<'operation> {
-    const fn codegen(self) -> Option<ProductCodegenInputs<'operation>> {
+    fn codegen(self) -> Option<ProductCodegenInputs<'operation>> {
         match self {
             Self::None => None,
             Self::Custom { codegen, .. } => codegen,
             Self::Native { facts, .. } => Some(ProductCodegenInputs {
                 backend: facts.backend(),
+                mappings: facts.mappings(),
                 target: facts.target(),
                 options: facts.options(),
             }),
@@ -148,6 +151,7 @@ impl<'operation> ProductGenerationInputs<'operation> {
 #[derive(Clone, Copy)]
 struct ProductCodegenInputs<'operation> {
     backend: &'operation EmissionBackend,
+    mappings: &'operation [CodegenMappings],
     target: &'operation CodegenTarget,
     options: &'operation CodegenOptions,
 }
@@ -402,23 +406,14 @@ impl Compilation {
             .codegen()
             .unwrap_or_else(|| panic!("backend emission plans must retain codegen configuration"));
 
-        let result = match inputs.generation.native() {
-            Some(native) => self.emission_backend_contributions_with_cancellation(
-                plan,
-                units,
-                native.mappings(),
-                codegen.target,
-                codegen.options,
-                cancellation,
-            )?,
-            None => self.planned_emission_backend_contributions(
-                plan,
-                units,
-                codegen.target,
-                codegen.options,
-                cancellation,
-            )?,
-        };
+        let result = self.emission_backend_contributions_with_cancellation(
+            plan,
+            units,
+            codegen.mappings,
+            codegen.target,
+            codegen.options,
+            cancellation,
+        )?;
 
         let (contributions, diagnostics) = result.into_parts();
 

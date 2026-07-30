@@ -1,10 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_ir::{
-    MirAsyncOperation, MirCallTarget, MirCallableReference, MirFrameInitializer, MirOperationKind,
-    MirSourceAnchor, MirTerminatorKind,
-};
+use bray_ir::{MirCallableReference, MirSourceAnchor};
 use bray_runtime_interface::ProtectedFrameOperation;
 use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
@@ -16,6 +13,7 @@ use crate::{
 };
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
+use super::callable_demand::demanded_callable_references;
 use super::validation::{
     demanded_debug_sources, demanded_runtime_references, demanded_types,
 };
@@ -682,96 +680,6 @@ fn valid_helper(symbols: &[CodegenSymbolMapping], helper: &CodegenHelperMapping)
         .binary_search_by(|symbol| symbol.key().cmp(key))
         .ok()
         .is_some_and(|index| symbols[index].signature().abi() == helper.reference().abi())
-}
-
-/// Returns direct callable references retained by one code generation unit.
-pub fn demanded_callable_references(
-    unit: &CodegenUnit,
-) -> BTreeSet<(CodegenInstanceKey, MirCallableReference)> {
-    unit.instances()
-        .iter()
-        .flat_map(|instance| {
-            instance
-                .mir()
-                .operations()
-                .iter()
-                .filter_map(|operation| operation_callable_reference(operation.kind()))
-                .chain(
-                    instance
-                        .mir()
-                        .blocks()
-                        .iter()
-                        .filter_map(|block| terminator_callable_reference(block.terminator().kind())),
-                )
-                .map(|reference| (instance.key().clone(), reference))
-        })
-        .collect()
-}
-
-/// Returns direct callable references retained by one MIR definition.
-pub fn demanded_callable_references_for_mir(
-    unit: &bray_ir::MirUnit,
-) -> BTreeSet<MirCallableReference> {
-    unit.operations()
-        .iter()
-        .filter_map(|operation| operation_callable_reference(operation.kind()))
-        .chain(
-            unit.blocks()
-                .iter()
-                .filter_map(|block| terminator_callable_reference(block.terminator().kind())),
-        )
-        .collect()
-}
-
-fn operation_callable_reference(operation: &MirOperationKind) -> Option<MirCallableReference> {
-    match operation {
-        MirOperationKind::Call(call)
-        | MirOperationKind::Async(MirAsyncOperation::CreateFrame {
-            initializer: MirFrameInitializer::Callable(call),
-            ..
-        }) => call_target_reference(call.target()),
-        MirOperationKind::AnonymousCallable(_)
-        | MirOperationKind::Store { .. }
-        | MirOperationKind::Borrow { .. }
-        | MirOperationKind::Unary { .. }
-        | MirOperationKind::Binary { .. }
-        | MirOperationKind::Aggregate(_)
-        | MirOperationKind::Construct(_)
-        | MirOperationKind::Convert { .. }
-        | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(_)
-        | MirOperationKind::PanicReport(_)
-        | MirOperationKind::Finalize(_)
-        | MirOperationKind::Destroy(_)
-        | MirOperationKind::Cleanup { .. }
-        | MirOperationKind::Async(_)
-        | MirOperationKind::Host(_) => None,
-    }
-}
-
-fn terminator_callable_reference(terminator: &MirTerminatorKind) -> Option<MirCallableReference> {
-    match terminator {
-        MirTerminatorKind::Iterate { next, .. } => Some(*next),
-        MirTerminatorKind::Goto(_)
-        | MirTerminatorKind::Branch { .. }
-        | MirTerminatorKind::PatternBranch { .. }
-        | MirTerminatorKind::Switch { .. }
-        | MirTerminatorKind::Return(_)
-        | MirTerminatorKind::Unreachable
-        | MirTerminatorKind::Suspend { .. }
-        | MirTerminatorKind::ForwardRunResult { .. }
-        | MirTerminatorKind::BeginCleanup(_)
-        | MirTerminatorKind::ContinueCleanup(_)
-        | MirTerminatorKind::Panic { .. }
-        | MirTerminatorKind::CancelCurrentRun { .. } => None,
-    }
-}
-
-fn call_target_reference(target: &MirCallTarget) -> Option<MirCallableReference> {
-    match target {
-        MirCallTarget::Direct(reference) => Some(*reference),
-        MirCallTarget::Indirect { .. } => None,
-    }
 }
 
 #[cfg(test)]
