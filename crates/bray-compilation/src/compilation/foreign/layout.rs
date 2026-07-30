@@ -220,7 +220,7 @@ fn representation_alignment(
 ) -> NonZeroU64 {
     use bray_compiler_known::RepresentationRole;
 
-    if let Some(scalar) = super::validation::target_scalar(role) {
+    if let Some(scalar) = super::super::representation::target_scalar(role) {
         return compilation
             .selected_target()
             .target()

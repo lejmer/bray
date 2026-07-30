@@ -168,7 +168,7 @@ pub struct LinkPlan {
 
 impl LinkPlan {
     fn try_from_builder(mut builder: LinkPlanBuilder) -> Result<Self, LinkPlanBuildError> {
-        validate_inputs(&builder.inputs)?;
+        validate_inputs(builder.product_kind, &builder.inputs)?;
 
         crate::execution::validate_execution_inputs(
             builder.executable_host.as_ref(),
@@ -345,8 +345,11 @@ pub enum LinkPlanBuildError {
     },
 }
 
-fn validate_inputs(inputs: &[LinkInput]) -> Result<(), LinkPlanBuildError> {
-    if inputs.is_empty() {
+fn validate_inputs(
+    product_kind: LinkedProductKind,
+    inputs: &[LinkInput],
+) -> Result<(), LinkPlanBuildError> {
+    if inputs.is_empty() && product_kind != LinkedProductKind::StaticLibrary {
         return Err(LinkPlanBuildError::MissingInputs);
     }
 

@@ -154,7 +154,7 @@ fn validate_backend(
     };
 
     if backend.units().is_empty() {
-        return if request_requires_backend(request) {
+        return if request_requires_codegen_units(request) {
             Err(EmissionPlanningError::MissingCodegenUnits)
         } else {
             Ok(())
@@ -325,6 +325,25 @@ fn request_requires_backend(request: &EmissionRequest) -> bool {
         || request.artifacts().iter().any(|artifact| {
             artifact.requirement() == ArtifactRequirement::Required
                 && artifact.kind().backend_kind().is_some()
+        })
+}
+
+fn request_requires_codegen_units(request: &EmissionRequest) -> bool {
+    request
+        .artifacts()
+        .iter()
+        .any(|artifact| {
+            artifact.requirement() == ArtifactRequirement::Required
+                && matches!(
+                    artifact.kind(),
+                    ArtifactKind::Executable
+                        | ArtifactKind::SharedLibrary
+                        | ArtifactKind::Assembly
+                        | ArtifactKind::BackendIr
+                        | ArtifactKind::BackendBitcode
+                        | ArtifactKind::RelocatableObject
+                        | ArtifactKind::DebugCompanion
+                )
         })
 }
 

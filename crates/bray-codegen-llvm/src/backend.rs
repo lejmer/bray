@@ -524,7 +524,13 @@ mod tests {
             panic!("exact mapped symbol name must be declared");
         };
 
-        assert_eq!(function.get_linkage(), inkwell::module::Linkage::Internal);
+        assert_eq!(function.get_linkage(), inkwell::module::Linkage::External);
+
+        assert_eq!(
+            function.as_global_value().get_visibility(),
+            inkwell::GlobalVisibility::Hidden,
+        );
+
         assert_eq!(function.get_call_conventions(), 0);
         assert_ne!(function.count_basic_blocks(), 0);
 

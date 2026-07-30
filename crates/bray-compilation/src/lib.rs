@@ -15,7 +15,8 @@ mod test_support;
 pub use compilation::{
     CodegenFactError, Compilation, CompilationLoadError, EmissionCodegenError,
     EmissionCodegenErrorKind, PackageInterfaceExportError, ProductEmissionError,
-    ProductEmissionErrorKind, ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
+    NativeProductFactError, NativeProductFacts, ProductEmissionErrorKind,
+    ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

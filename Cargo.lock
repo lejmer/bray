@@ -268,6 +268,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-emitter",
  "bray-ir",
+ "bray-linker",
  "bray-lowering",
  "bray-messages",
  "bray-package-interface",
@@ -281,6 +282,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

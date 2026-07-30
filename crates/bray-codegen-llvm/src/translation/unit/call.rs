@@ -80,7 +80,39 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
         };
 
-        self.invoke_function(function, signature, &semantic_arguments, "call")
+        let result = self.invoke_function(function, signature, &semantic_arguments, "call")?;
+
+        if result.is_some() {
+            return Ok(result);
+        }
+
+        let Some(result) = self
+            .unit
+            .operation(operation)
+            .and_then(bray_ir::MirOperation::result)
+        else {
+            return Ok(None);
+        };
+
+        let ty = self
+            .unit
+            .value(result)
+            .map(bray_ir::MirValue::ty)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let mapping = self
+            .request
+            .mappings()
+            .ty(ty)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if mapping.kind() != &CodegenTypeKind::Unit {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let ty = self.types.map(ty)?;
+
+        Ok(Some(ty.const_zero()))
     }
 
     pub(super) fn evaluate_call_arguments<'mapping>(
@@ -164,10 +196,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         parameter: usize,
         value: bool,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let key = helper
+            .symbol()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let symbol = self
             .request
             .mappings()
-            .symbol(helper.symbol())
+            .symbol(key)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let ty = parameter_type(symbol.signature(), parameter)?;
@@ -207,10 +243,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         helper: &CodegenHelperMapping,
         arguments: &[BasicValueEnum<'context>],
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let key = helper
+            .symbol()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let symbol = self
             .request
             .mappings()
-            .symbol(helper.symbol())
+            .symbol(key)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let function = self
@@ -450,10 +490,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         operation: bray_ir::MirOperationId,
     ) -> Result<Vec<CodegenHelperMapping>, CodegenFailure> {
-        self.request
+        if let Some(mapping) = self
+            .request
             .mappings()
             .operation(self.instance.key(), operation)
-            .map(|mapping| mapping.helpers().to_vec())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        {
+            return Ok(mapping.helpers().to_vec());
+        }
+
+        let has_helpers = self
+            .unit
+            .operation(operation)
+            .map(|operation| !operation.kind().helper_references().is_empty())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if has_helpers {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        Ok(Vec::new())
     }
 }

@@ -12,7 +12,7 @@ use bray_runtime_interface::{ProtectedAsyncFrameId, RootExecution};
 use bray_target::{TargetIdentity, TargetOutputDescription};
 
 use super::{
-    Compilation, EmissionCodegenError, EmissionCodegenErrorKind,
+    Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductFacts,
     PackageInterfaceExportError,
 };
 use crate::fact::{CancellationToken, FactQueryError};
@@ -23,6 +23,7 @@ pub struct ProductEmissionInputs<'operation> {
     target_outputs: &'operation TargetOutputDescription,
     codegen: Option<ProductCodegenInputs<'operation>>,
     linking: Option<ProductLinkingInputs<'operation>>,
+    native: Option<&'operation NativeProductFacts>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
 }
 
@@ -33,6 +34,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
             target_outputs,
             codegen: None,
             linking: None,
+            native: None,
             sink_resolver: None,
         }
     }
@@ -49,6 +51,28 @@ impl<'operation> ProductEmissionInputs<'operation> {
             target,
             options,
         });
+
+        self
+    }
+
+    /// Supplies compilation-owned native product facts and the linker invocation boundary.
+    pub const fn with_native_product(
+        mut self,
+        facts: &'operation NativeProductFacts,
+        linker: &'operation Linker,
+    ) -> Self {
+        self.codegen = Some(ProductCodegenInputs {
+            backend: facts.backend(),
+            target: facts.target(),
+            options: facts.options(),
+        });
+
+        self.linking = Some(ProductLinkingInputs {
+            linker,
+            facts: facts.link(),
+        });
+
+        self.native = Some(facts);
 
         self
     }
@@ -123,24 +147,27 @@ impl Compilation {
             )
         })?;
 
-        let units = self
-            .codegen_units_for_plan(
-                plan.backend_requests(),
-                plan.request().executable_host(),
-                cancellation,
-            )
-            .map_err(|(unit, error)| {
-                ProductEmissionError::new(
-                    ProductEmissionErrorKind::Codegen(EmissionCodegenError::new(
-                        EmissionCodegenErrorKind::Request {
-                            unit,
-                            error: Box::new(error),
-                        },
-                        DiagnosticBag::new(),
-                    )),
-                    planning_diagnostics.clone(),
+        let units = match inputs.native {
+            Some(native) => native.units().to_vec(),
+            None => self
+                .codegen_units_for_plan(
+                    plan.backend_requests(),
+                    plan.request().executable_host(),
+                    cancellation,
                 )
-            })?;
+                .map_err(|(unit, error)| {
+                    ProductEmissionError::new(
+                        ProductEmissionErrorKind::Codegen(EmissionCodegenError::new(
+                            EmissionCodegenErrorKind::Request {
+                                unit,
+                                error: Box::new(error),
+                            },
+                            DiagnosticBag::new(),
+                        )),
+                        planning_diagnostics.clone(),
+                    )
+                })?,
+        };
 
         validate_executable_units(&plan, &units).map_err(|kind| {
             ProductEmissionError::new(kind, planning_diagnostics.clone())
@@ -321,13 +348,23 @@ impl Compilation {
             .codegen
             .unwrap_or_else(|| panic!("backend emission plans must retain codegen configuration"));
 
-        let result = self.planned_emission_backend_contributions(
-            plan,
-            units,
-            codegen.target,
-            codegen.options,
-            cancellation,
-        )?;
+        let result = match inputs.native {
+            Some(native) => self.emission_backend_contributions_with_cancellation(
+                plan,
+                units,
+                native.mappings(),
+                codegen.target,
+                codegen.options,
+                cancellation,
+            )?,
+            None => self.planned_emission_backend_contributions(
+                plan,
+                units,
+                codegen.target,
+                codegen.options,
+                cancellation,
+            )?,
+        };
 
         let (contributions, diagnostics) = result.into_parts();
 

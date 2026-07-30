@@ -674,13 +674,18 @@ fn validate_constant_mappings(
 }
 
 fn valid_helper(symbols: &[CodegenSymbolMapping], helper: &CodegenHelperMapping) -> bool {
+    let Some(key) = helper.symbol() else {
+        return true;
+    };
+
     symbols
-        .binary_search_by(|symbol| symbol.key().cmp(helper.symbol()))
+        .binary_search_by(|symbol| symbol.key().cmp(key))
         .ok()
         .is_some_and(|index| symbols[index].signature().abi() == helper.reference().abi())
 }
 
-fn demanded_callable_references(
+/// Returns direct callable references retained by one code generation unit.
+pub fn demanded_callable_references(
     unit: &CodegenUnit,
 ) -> BTreeSet<(CodegenInstanceKey, MirCallableReference)> {
     unit.instances()
@@ -700,6 +705,21 @@ fn demanded_callable_references(
                 )
                 .map(|reference| (instance.key().clone(), reference))
         })
+        .collect()
+}
+
+/// Returns direct callable references retained by one MIR definition.
+pub fn demanded_callable_references_for_mir(
+    unit: &bray_ir::MirUnit,
+) -> BTreeSet<MirCallableReference> {
+    unit.operations()
+        .iter()
+        .filter_map(|operation| operation_callable_reference(operation.kind()))
+        .chain(
+            unit.blocks()
+                .iter()
+                .filter_map(|block| terminator_callable_reference(block.terminator().kind())),
+        )
         .collect()
 }
 

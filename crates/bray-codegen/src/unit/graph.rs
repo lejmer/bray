@@ -41,6 +41,7 @@ pub struct CodegenReachabilityBuilder {
     pending: BTreeSet<CodegenInstanceKey>,
     demanded: BTreeSet<CodegenInstanceKey>,
     instances: BTreeMap<CodegenInstanceKey, CodegenInstance>,
+    external: BTreeSet<CodegenInstanceKey>,
 }
 
 impl CodegenReachabilityBuilder {
@@ -59,6 +60,7 @@ impl CodegenReachabilityBuilder {
             roots,
             demanded: BTreeSet::new(),
             instances: BTreeMap::new(),
+            external: BTreeSet::new(),
         })
     }
 
@@ -98,6 +100,24 @@ impl CodegenReachabilityBuilder {
         }
 
         self.instances.insert(key, instance);
+
+        Ok(())
+    }
+
+    /// Marks one demanded bodyless definition as an external leaf.
+    pub fn push_external(
+        &mut self,
+        key: CodegenInstanceKey,
+    ) -> Result<(), CodegenReachabilityBuildError> {
+        if self.instances.contains_key(&key) || !self.external.insert(key.clone()) {
+            return Err(CodegenReachabilityBuildError::DuplicateInstance);
+        }
+
+        if !self.demanded.remove(&key) {
+            self.external.remove(&key);
+
+            return Err(CodegenReachabilityBuildError::InstanceWasNotDemanded);
+        }
 
         Ok(())
     }
@@ -166,9 +186,18 @@ mod tests {
             panic!("test root must validate");
         };
 
-        assert_eq!(builder.take_frontier().as_ref(), &[first_key.clone()]);
+        assert_eq!(
+            builder.take_frontier().as_ref(),
+            std::slice::from_ref(&first_key)
+        );
+
         assert_eq!(builder.push_instance(first), Ok(()));
-        assert_eq!(builder.take_frontier().as_ref(), &[second_key.clone()]);
+
+        assert_eq!(
+            builder.take_frontier().as_ref(),
+            std::slice::from_ref(&second_key)
+        );
+
         assert_eq!(builder.push_instance(second), Ok(()));
         assert!(builder.take_frontier().is_empty());
 

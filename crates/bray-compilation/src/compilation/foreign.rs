@@ -4,4 +4,6 @@ mod layout;
 mod query;
 mod validation;
 
-pub(in crate::compilation) use validation::target_abi_value_from_type;
+pub(in crate::compilation) use validation::{
+    compiler_known_representation, target_abi_value_from_type,
+};

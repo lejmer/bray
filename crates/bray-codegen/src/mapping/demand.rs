@@ -9,22 +9,26 @@ use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
 
 use crate::CodegenUnit;
 
-pub(super) struct ConstantDemands {
+/// Constant values and exact use-site types demanded by one code generation unit.
+pub struct ConstantDemands {
     values: BTreeSet<ConstantValueId>,
     types: BTreeMap<ConstantValueId, BTreeSet<TypeId>>,
 }
 
 impl ConstantDemands {
-    pub(super) fn values(&self) -> &BTreeSet<ConstantValueId> {
+    /// Returns directly demanded constant values.
+    pub fn values(&self) -> &BTreeSet<ConstantValueId> {
         &self.values
     }
 
-    pub(super) fn types(&self) -> &BTreeMap<ConstantValueId, BTreeSet<TypeId>> {
+    /// Returns the semantic type required at each direct constant use.
+    pub fn types(&self) -> &BTreeMap<ConstantValueId, BTreeSet<TypeId>> {
         &self.types
     }
 }
 
-pub(super) fn demanded_constants(unit: &CodegenUnit) -> ConstantDemands {
+/// Returns constant values directly demanded by one code generation unit.
+pub fn demanded_constants(unit: &CodegenUnit) -> ConstantDemands {
     let mut demands = ConstantDemands {
         values: BTreeSet::new(),
         types: BTreeMap::new(),
@@ -43,7 +47,8 @@ pub(super) fn demanded_constants(unit: &CodegenUnit) -> ConstantDemands {
     demands
 }
 
-pub(super) fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
+/// Returns closed constant terms retained by one MIR unit.
+pub fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
     let mut terms = BTreeSet::new();
 
     for operation in unit.operations() {
@@ -65,7 +70,8 @@ pub(super) fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId
     terms
 }
 
-pub(super) fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = ConstantValueId> {
+/// Returns constant values directly retained by one aggregate constant.
+pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = ConstantValueId> {
     let values: Vec<_> = match kind {
         ConstantValueKind::NullablePresent(value) => vec![*value],
         ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => values.to_vec(),

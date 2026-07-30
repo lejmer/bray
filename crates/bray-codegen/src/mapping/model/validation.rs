@@ -8,14 +8,16 @@ use bray_symbols::TypeId;
 
 use crate::CodegenUnit;
 
-pub(crate) fn demanded_types(unit: &CodegenUnit) -> BTreeSet<TypeId> {
+/// Returns semantic types directly demanded by one code generation unit.
+pub fn demanded_types(unit: &CodegenUnit) -> BTreeSet<TypeId> {
     unit.instances()
         .iter()
         .flat_map(|instance| instance.mir().referenced_types())
         .collect()
 }
 
-pub(crate) fn demanded_debug_sources(unit: &CodegenUnit) -> BTreeSet<MirSourceAnchor> {
+/// Returns source anchors directly demanded by one code generation unit.
+pub fn demanded_debug_sources(unit: &CodegenUnit) -> BTreeSet<MirSourceAnchor> {
     unit.mir_units()
         .flat_map(|mir| {
             mir.blocks()

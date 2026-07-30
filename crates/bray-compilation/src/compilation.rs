@@ -25,6 +25,7 @@ mod overload;
 mod pattern;
 mod product;
 mod product_emission;
+mod representation;
 mod snapshot;
 mod source_graph;
 mod source_module;
@@ -43,5 +44,6 @@ pub use load::CompilationLoadError;
 pub use product_emission::{
     ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs,
 };
+pub use product::{NativeProductFactError, NativeProductFacts};
 pub use source_graph::ProductSourceGraph;
 pub use tooling::SemanticAvailability;

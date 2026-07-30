@@ -214,6 +214,9 @@ pub(crate) enum InspectionMirUnitKey {
         package: String,
         product: String,
     },
+    ExternalCallable {
+        callable: InspectionSymbolIdentity,
+    },
 }
 
 #[derive(Serialize)]
@@ -1598,6 +1601,14 @@ fn inspection_unit_key(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
+        MirUnitKey::ExternalCallable(definition) => {
+            Ok(InspectionMirUnitKey::ExternalCallable {
+                callable: InspectionSymbolIdentity::from_symbol(
+                    symbols,
+                    definition.symbol(),
+                ),
+            })
+        }
     }
 }
 
