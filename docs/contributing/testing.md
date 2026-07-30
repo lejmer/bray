@@ -11,9 +11,13 @@ Repository-wide readiness audits are development checks rather than ordinary beh
 cargo xtask readiness
 ```
 
-Pass `semantic`, `diagnostics`, `lowering`, `codegen`, `emission`, or `linker` to run one audit. The command parses the Rust
-workspace once and shares that corpus across every selected audit. Normal `cargo test` does not run these comparatively expensive
-repository-wide checks.
+Pass `semantic`, `diagnostics`, `lowering`, `codegen`, `emission`, or `linker` to run one structural audit. The command parses the
+Rust workspace once and shares that corpus across every selected audit. Pass `native-execution` to compile a Bray fixture twice,
+inspect its native object, and execute the linked product. Normal `cargo test` does not run these comparatively expensive
+repository-wide and toolchain checks.
+
+The native execution fixture lives under `xtask/fixtures/native-execution/`. It must remain independent of standard-library I/O so
+the compiler-to-process boundary can be validated before a target standard library is available.
 
 ## Semantic coverage fixture
 
