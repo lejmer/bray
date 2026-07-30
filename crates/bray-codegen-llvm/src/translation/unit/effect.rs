@@ -5,7 +5,9 @@ use bray_ir::{
     BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirGeneratorOperation,
     MirHelperReference, MirHostOperation, MirOperation, MirOperationKind, MirPlace,
 };
-use bray_runtime_interface::{ProtectedFrameOperation, RootExecution};
+use bray_runtime_interface::{
+    ProtectedFrameOperation, RootExecution, RuntimeRoleImplementation,
+};
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -158,10 +160,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
+        let key = helper
+            .symbol()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let symbol = self
             .request
             .mappings()
-            .symbol(helper.symbol())
+            .symbol(key)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let function = self
@@ -234,6 +240,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         if helper.reference() != &expected {
             return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        if helper.symbol().is_none() {
+            return Ok(());
         }
 
         let place = self.place(place)?.into();
@@ -423,32 +433,129 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 execution,
                 runtime,
             } => {
-                let root = self.root_entry_pointer(root, *execution)?;
+                if self.host_role_implementation(*runtime)?
+                    == RuntimeRoleImplementation::CompilerLowering
+                    && *execution == RootExecution::Synchronous
+                {
+                    let (function, signature) = self.root_entry(root, *execution)?;
 
-                self.invoke_runtime(*runtime, &[root.into()])
+                    let result = self.invoke_function(function, signature, &[], "root")?;
+
+                    return if result.is_none() {
+                        Ok(None)
+                    } else {
+                        Err(CodegenFailure::GeneratedModuleInvariant)
+                    };
+                }
+
+                let (root, _) = self.root_entry(root, *execution)?;
+
+                self.invoke_runtime(
+                    *runtime,
+                    &[root.as_global_value().as_pointer_value().into()],
+                )
             }
             MirHostOperation::RequestRootCancellation { runtime }
             | MirHostOperation::ObserveRootTerminal { runtime }
-            | MirHostOperation::ReportCleanupIncidents { runtime }
-            | MirHostOperation::StructuredShutdown { runtime } => {
-                self.invoke_runtime(*runtime, &[])
+            | MirHostOperation::ReportCleanupIncidents { runtime } => {
+                if self.host_role_implementation(*runtime)?
+                    == RuntimeRoleImplementation::CompilerLowering
+                {
+                    Ok(None)
+                } else {
+                    self.invoke_runtime(*runtime, &[])
+                }
+            }
+            MirHostOperation::StructuredShutdown { runtime } => {
+                if self.host_role_implementation(*runtime)?
+                    == RuntimeRoleImplementation::CompilerLowering
+                {
+                    self.translate_compiler_shutdown()
+                } else {
+                    self.invoke_runtime(*runtime, &[])
+                }
             }
         }
     }
 
-    fn root_entry_pointer(
+    fn translate_compiler_shutdown(
+        &mut self,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let machine = self.request.target().machine();
+
+        if machine.architecture() != bray_target::TargetArchitecture::X86_64
+            || machine.object_format() != bray_target::ObjectFormat::Elf
+        {
+            return Err(CodegenFailure::UnsupportedTarget);
+        }
+
+        let context = self.module.get_context();
+        let integer = context.i64_type();
+
+        let function_type =
+            context
+                .void_type()
+                .fn_type(&[integer.into(), integer.into()], false);
+
+        let function = context.create_inline_asm(
+            function_type,
+            "syscall".to_owned(),
+            "{rax},{rdi},~{rcx},~{r11},~{memory}".to_owned(),
+            true,
+            false,
+            None,
+            false,
+        );
+
+        let arguments = [
+            integer.const_int(60, false).into(),
+            integer.const_zero().into(),
+        ];
+
+        llvm(self.builder.build_indirect_call(
+            function_type,
+            function,
+            &arguments,
+            "process.exit",
+        ))?;
+
+        Ok(None)
+    }
+
+    fn host_role_implementation(
+        &self,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<RuntimeRoleImplementation, CodegenFailure> {
+        let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        host.role_binding(runtime.role())
+            .map(bray_runtime_interface::RuntimeRoleBinding::implementation)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    }
+
+    fn root_entry(
         &self,
         root: &BoundUnitKey,
         execution: RootExecution,
-    ) -> Result<inkwell::values::PointerValue<'context>, CodegenFailure> {
+    ) -> Result<
+        (
+            inkwell::values::FunctionValue<'context>,
+            &'request bray_codegen::CodegenCallableSignature,
+        ),
+        CodegenFailure,
+    > {
         let instance = self
             .request
             .unit()
             .instances()
             .iter()
+            .map(|instance| instance.key())
+            .chain(self.request.unit().external_instances())
             .find(|instance| {
                 matches!(
-                    instance.key().template(),
+                    instance.template(),
                     bray_ir::MirUnitKey::Bound(candidate) if candidate == root
                 )
             })
@@ -458,23 +565,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             RootExecution::Synchronous => self
                 .request
                 .mappings()
-                .instance_symbol(instance.key()),
-            RootExecution::Asynchronous { frame } => {
-                if instance.mir().kind().protected_frame() != Some(frame) {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                }
-
-                let frame = instance
-                    .protected_frame_identity()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                self.request
-                    .mappings()
-                    .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
-                        frame,
-                        operation: ProtectedFrameOperation::Resume,
-                    })
-            }
+                .instance_symbol(instance),
+            RootExecution::Asynchronous { frame } => self
+                .request
+                .mappings()
+                .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
+                    frame,
+                    operation: ProtectedFrameOperation::Resume,
+                }),
         }
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -483,6 +581,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .get_function(symbol.name().as_str())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        Ok(function.as_global_value().as_pointer_value())
+        Ok((function, symbol.signature()))
     }
 }

@@ -7,9 +7,14 @@ mod symbol;
 mod ty;
 
 pub use constant::{CodegenConstantMapping, CodegenConstantTermMapping};
+pub use demand::{
+    ConstantDemands, child_constants, demanded_constant_terms, demanded_constants,
+};
 pub use debug::{CodegenDebugLocation, CodegenSourceFile};
 pub use model::{
-    CodegenMappings, CodegenMappingsBuildError, demanded_runtime_references,
+    CodegenMappings, CodegenMappingsBuildError, demanded_callable_references,
+    demanded_callable_references_for_mir, demanded_debug_sources,
+    demanded_runtime_references, demanded_types,
 };
 pub use reference::{
     CodegenCallableMapping, CodegenHelperMapping, CodegenOperationMapping,
@@ -21,6 +26,3 @@ pub use ty::{
     CodegenIntegerExtension, CodegenParameterMapping, CodegenResultMapping, CodegenTypeKind,
     CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute,
 };
-
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) use model::{demanded_debug_sources, demanded_types};

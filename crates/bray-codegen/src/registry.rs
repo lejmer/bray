@@ -5,8 +5,8 @@ use std::sync::Arc;
 use bray_diagnostics::DiagnosticBag;
 
 use crate::{
-    AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement, BackendIdentity,
-    CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
+    AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities,
+    BackendIdentity, CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
 };
 
 /// Immutable code generators available to one compiler composition.
@@ -41,6 +41,14 @@ impl CodegenConfiguration {
     /// Returns the selected backend identity.
     pub const fn selected(&self) -> &BackendIdentity {
         &self.selected
+    }
+
+    /// Returns the declared capabilities of the selected backend.
+    pub fn selected_capabilities(&self) -> &BackendCapabilities {
+        self.generators
+            .generator(&self.selected)
+            .map(CodeGenerator::capabilities)
+            .unwrap_or_else(|| panic!("selected code generator must remain registered"))
     }
 
     /// Validates and executes one request through the selected backend.
@@ -86,6 +94,10 @@ impl CodeGeneratorRegistry {
     /// Returns available backend identities in canonical order.
     pub fn identities(&self) -> impl ExactSizeIterator<Item = &BackendIdentity> {
         self.generators.keys()
+    }
+
+    fn generator(&self, identity: &BackendIdentity) -> Option<&dyn CodeGenerator> {
+        self.generators.get(identity).map(Arc::as_ref)
     }
 
     /// Validates and executes one request through its selected backend.

@@ -121,6 +121,24 @@ impl Linker {
         Ok(driver)
     }
 
+    /// Selects the first compatible driver in canonical identity order.
+    pub fn select_identity(
+        &self,
+        target: &LinkTarget,
+        product: LinkedProductKind,
+    ) -> Result<&LinkerDriverIdentity, LinkFailure> {
+        self.drivers
+            .iter()
+            .find(|driver| driver.supports(target, product))
+            .map(|driver| driver.identity())
+            .ok_or(LinkFailure::DriverUnavailable)
+    }
+
+    /// Returns configured driver identities in deterministic selection order.
+    pub fn driver_identities(&self) -> impl Iterator<Item = &LinkerDriverIdentity> {
+        self.drivers.iter().map(|driver| driver.identity())
+    }
+
     /// Links one plan through its selected driver.
     pub fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome {
         if cancellation.is_cancelled() {

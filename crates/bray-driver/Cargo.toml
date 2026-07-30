@@ -16,6 +16,7 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-emitter = { path = "../bray-emitter" }
 bray-ir = { path = "../bray-ir" }
 bray-lowering = { path = "../bray-lowering" }
+bray-linker = { path = "../bray-linker" }
 bray-messages = { path = "../bray-messages" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-parser = { path = "../bray-parser" }
@@ -35,6 +36,7 @@ clap = { version = "4", default-features = false, features = ["color", "derive",
 serde = { version = "1", features = ["derive"] }
 
 serde_json = "1"
+sha2 = "0.10"
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

@@ -1,20 +1,25 @@
-use std::fmt::Write;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use bray_base::StableDigestHasher;
 use bray_codegen::{
-    BackendArtifactRequest, CodegenCallableSignature, CodegenInstance,
-    CodegenInstanceBuildError, CodegenLinkage, CodegenMappings, CodegenMappingsBuildError,
-    CodegenOptions, CodegenOutcome, CodegenRequest, CodegenRequestBuildError,
-    CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenUnit,
-    CodegenUnitBuildError, CodegenUnitKey, demanded_runtime_references,
+    BackendArtifactRequest, CodegenInstance, CodegenInstanceBuildError, CodegenMappings,
+    CodegenMappingsBuildError, CodegenOptions, CodegenOutcome, CodegenRequest,
+    CodegenRequestBuildError, CodegenTarget, CodegenUnit, CodegenUnitBuildError, CodegenUnitKey,
 };
-use bray_ir::{MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey, MirUnitKind};
-use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation,
+use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
+use bray_runtime_interface::ExecutableHostContract;
+use bray_symbols::CallableDefinitionId;
+
+#[cfg(test)]
+use bray_codegen::{
+    CodegenCallableSignature, CodegenLinkage, CodegenResultMapping, CodegenSymbolKey,
+    CodegenSymbolMapping, demanded_runtime_references,
 };
-use bray_symbols::{CallableAbi, CallableDefinitionId};
+#[cfg(test)]
+use bray_ir::MirUnitKind;
+#[cfg(test)]
+use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
+#[cfg(test)]
+use bray_symbols::CallableAbi;
 
 use super::Compilation;
 use crate::fact::{
@@ -60,7 +65,13 @@ impl Compilation {
         artifacts: &BackendArtifactRequest,
         cancellation: &CancellationToken,
     ) -> Result<Arc<CodegenOutcome>, CodegenFactError> {
-        let mappings = codegen_mappings(unit, executable_host, target)?;
+        let mappings = self.codegen_mappings_for_product(
+            unit,
+            executable_host,
+            target,
+            &std::collections::BTreeSet::new(),
+            cancellation,
+        )?;
 
         self.codegen_artifact_with_cancellation(
             unit,
@@ -118,7 +129,7 @@ impl Compilation {
         Ok(unit)
     }
 
-    fn codegen_mir_for_plan(
+    pub(in crate::compilation) fn codegen_mir_for_plan(
         &self,
         instance: &bray_codegen::CodegenInstanceKey,
         mir_unit: MirUnitId,
@@ -178,6 +189,9 @@ impl Compilation {
                 )
                 .map_err(CodegenFactError::InvalidHostMir)
             }
+            MirUnitKey::ExternalCallable(_) => Err(CodegenFactError::MirUnavailable(
+                instance.template().clone(),
+            )),
         }
     }
 
@@ -272,6 +286,7 @@ impl Compilation {
     }
 }
 
+#[cfg(test)]
 fn codegen_mappings(
     unit: &CodegenUnit,
     executable_host: Option<&ExecutableHostContract>,
@@ -286,7 +301,12 @@ fn codegen_mappings(
                 (host.native_entry().clone(), CodegenLinkage::Export)
             }
             MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => (
-                generated_symbol_name(target, "instance", instance.key())?,
+                super::product::generated_symbol_name(
+                    target,
+                    CodegenLinkage::Internal,
+                    "instance",
+                    instance.key(),
+                )?,
                 CodegenLinkage::Internal,
             ),
         };
@@ -303,7 +323,12 @@ fn codegen_mappings(
         // Imported mappings own identities independently of the unit's dependency recipe.
         symbols.push(symbol_mapping(
             CodegenSymbolKey::Instance(instance.clone()),
-            generated_symbol_name(target, "instance", instance)?,
+            super::product::generated_symbol_name(
+                target,
+                CodegenLinkage::Import,
+                "instance",
+                instance,
+            )?,
             CodegenLinkage::Import,
         ));
     }
@@ -330,13 +355,16 @@ fn codegen_mappings(
         for operation in ProtectedFrameOperation::ALL {
             symbols.push(symbol_mapping(
                 CodegenSymbolKey::ProtectedFrame { frame, operation },
-                generated_frame_symbol_name(target, frame, operation)?,
+                super::product::generated_frame_symbol_name(
+                    target,
+                    frame,
+                    operation,
+                )?,
                 CodegenLinkage::Internal,
             ));
         }
     }
 
-    // TODO(BRA-326): Replace this mapping-free reconstruction with complete realization mappings.
     CodegenMappings::try_new(
         unit,
         target,
@@ -352,6 +380,7 @@ fn codegen_mappings(
     .map_err(CodegenFactError::InvalidMappings)
 }
 
+#[cfg(test)]
 fn symbol_mapping(
     key: CodegenSymbolKey,
     name: BinarySymbolName,
@@ -368,52 +397,6 @@ fn symbol_mapping(
             false,
         ),
     )
-}
-
-fn generated_symbol_name(
-    target: &CodegenTarget,
-    category: &str,
-    identity: &impl Hash,
-) -> Result<BinarySymbolName, CodegenFactError> {
-    let mut hasher = StableDigestHasher::new();
-
-    hasher.write(b"bray.codegen-symbol");
-    category.hash(&mut hasher);
-    identity.hash(&mut hasher);
-
-    binary_symbol_name(target, category, hasher.finalize())
-}
-
-fn generated_frame_symbol_name(
-    target: &CodegenTarget,
-    frame: bray_runtime_interface::ProtectedAsyncFrameId,
-    operation: ProtectedFrameOperation,
-) -> Result<BinarySymbolName, CodegenFactError> {
-    let mut hasher = StableDigestHasher::new();
-
-    hasher.write(b"bray.protected-frame-symbol");
-    frame.hash(&mut hasher);
-    operation.hash(&mut hasher);
-
-    binary_symbol_name(
-        target,
-        operation.as_str(),
-        hasher.finalize(),
-    )
-}
-
-fn binary_symbol_name(
-    target: &CodegenTarget,
-    category: &str,
-    digest: [u8; 32],
-) -> Result<BinarySymbolName, CodegenFactError> {
-    let mut name = format!("{}bray_{category}_", target.symbols().private_prefix());
-
-    for byte in digest {
-        let _ = write!(name, "{byte:02x}");
-    }
-
-    BinarySymbolName::try_new(name).ok_or(CodegenFactError::InvalidSymbolName)
 }
 
 /// A failure to request one lazy code generation contribution fact.
@@ -439,6 +422,20 @@ pub enum CodegenFactError {
     InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.
     MissingRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
+    /// A constant term needed by code generation still contains unresolved parameters.
+    OpenConstantTerm(bray_symbols::ConstantTermId),
+    /// A value type contains itself without an indirection boundary.
+    RecursiveValueType(bray_symbols::TypeId),
+    /// The selected backend cannot represent a demanded semantic type.
+    UnsupportedType(bray_symbols::TypeId),
+    /// Native classification for the selected callable ABI is not available.
+    UnsupportedCallableAbi(bray_symbols::CallableAbi),
+    /// A required MIR helper has no concrete code generation realization.
+    UnsupportedHelper(MirHelperReference),
+    /// A demanded type layout exceeds the selected target's representable size.
+    LayoutOverflow(bray_symbols::TypeId),
+    /// A demanded callable specialization cannot be reconstructed.
+    UnsupportedSpecialization(bray_codegen::CodegenInstanceKey),
     /// A deterministic generated binary symbol could not be represented.
     InvalidSymbolName,
     /// The compilation fact runtime could not complete the request.

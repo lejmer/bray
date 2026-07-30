@@ -12,7 +12,7 @@ use bray_runtime_interface::{ProtectedAsyncFrameId, RootExecution};
 use bray_target::{TargetIdentity, TargetOutputDescription};
 
 use super::{
-    Compilation, EmissionCodegenError, EmissionCodegenErrorKind,
+    Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductFacts,
     PackageInterfaceExportError,
 };
 use crate::fact::{CancellationToken, FactQueryError};
@@ -21,8 +21,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 #[derive(Clone, Copy)]
 pub struct ProductEmissionInputs<'operation> {
     target_outputs: &'operation TargetOutputDescription,
-    codegen: Option<ProductCodegenInputs<'operation>>,
-    linking: Option<ProductLinkingInputs<'operation>>,
+    generation: ProductGenerationInputs<'operation>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
 }
 
@@ -31,8 +30,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
     pub const fn new(target_outputs: &'operation TargetOutputDescription) -> Self {
         Self {
             target_outputs,
-            codegen: None,
-            linking: None,
+            generation: ProductGenerationInputs::None,
             sink_resolver: None,
         }
     }
@@ -44,18 +42,49 @@ impl<'operation> ProductEmissionInputs<'operation> {
         target: &'operation CodegenTarget,
         options: &'operation CodegenOptions,
     ) -> Self {
-        self.codegen = Some(ProductCodegenInputs {
-            backend,
-            target,
-            options,
-        });
+        let linking = match self.generation {
+            ProductGenerationInputs::Custom { linking, .. } => linking,
+            ProductGenerationInputs::None | ProductGenerationInputs::Native { .. } => None,
+        };
+
+        self.generation = ProductGenerationInputs::Custom {
+            codegen: Some(ProductCodegenInputs {
+                backend,
+                target,
+                options,
+            }),
+            linking,
+        };
+
+        self
+    }
+
+    /// Supplies compilation-owned native product facts and the linker invocation boundary.
+    pub const fn with_native_product(
+        mut self,
+        facts: &'operation NativeProductFacts,
+        linker: &'operation Linker,
+    ) -> Self {
+        self.generation = ProductGenerationInputs::Native { facts, linker };
 
         self
     }
 
     /// Supplies selected native link facts and the linker invocation boundary.
-    pub const fn with_linking(mut self, linker: &'operation Linker, facts: &'operation ProductLinkFacts) -> Self {
-        self.linking = Some(ProductLinkingInputs { linker, facts });
+    pub const fn with_linking(
+        mut self,
+        linker: &'operation Linker,
+        facts: &'operation ProductLinkFacts,
+    ) -> Self {
+        let codegen = match self.generation {
+            ProductGenerationInputs::Custom { codegen, .. } => codegen,
+            ProductGenerationInputs::None | ProductGenerationInputs::Native { .. } => None,
+        };
+
+        self.generation = ProductGenerationInputs::Custom {
+            codegen,
+            linking: Some(ProductLinkingInputs { linker, facts }),
+        };
 
         self
     }
@@ -68,6 +97,51 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self.sink_resolver = Some(resolver);
 
         self
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ProductGenerationInputs<'operation> {
+    None,
+    Custom {
+        codegen: Option<ProductCodegenInputs<'operation>>,
+        linking: Option<ProductLinkingInputs<'operation>>,
+    },
+    Native {
+        facts: &'operation NativeProductFacts,
+        linker: &'operation Linker,
+    },
+}
+
+impl<'operation> ProductGenerationInputs<'operation> {
+    const fn codegen(self) -> Option<ProductCodegenInputs<'operation>> {
+        match self {
+            Self::None => None,
+            Self::Custom { codegen, .. } => codegen,
+            Self::Native { facts, .. } => Some(ProductCodegenInputs {
+                backend: facts.backend(),
+                target: facts.target(),
+                options: facts.options(),
+            }),
+        }
+    }
+
+    const fn linking(self) -> Option<ProductLinkingInputs<'operation>> {
+        match self {
+            Self::None => None,
+            Self::Custom { linking, .. } => linking,
+            Self::Native { facts, linker } => Some(ProductLinkingInputs {
+                linker,
+                facts: facts.link(),
+            }),
+        }
+    }
+
+    const fn native(self) -> Option<&'operation NativeProductFacts> {
+        match self {
+            Self::Native { facts, .. } => Some(facts),
+            Self::None | Self::Custom { .. } => None,
+        }
     }
 }
 
@@ -112,7 +186,10 @@ impl Compilation {
         // The immutable plan owns the selected target and backend facts past this operation input.
         let planner = EmissionPlanner::new(
             inputs.target_outputs.clone(),
-            inputs.codegen.map(|codegen| codegen.backend.clone()),
+            inputs
+                .generation
+                .codegen()
+                .map(|codegen| codegen.backend.clone()),
             package_interface,
         );
 
@@ -123,24 +200,27 @@ impl Compilation {
             )
         })?;
 
-        let units = self
-            .codegen_units_for_plan(
-                plan.backend_requests(),
-                plan.request().executable_host(),
-                cancellation,
-            )
-            .map_err(|(unit, error)| {
-                ProductEmissionError::new(
-                    ProductEmissionErrorKind::Codegen(EmissionCodegenError::new(
-                        EmissionCodegenErrorKind::Request {
-                            unit,
-                            error: Box::new(error),
-                        },
-                        DiagnosticBag::new(),
-                    )),
-                    planning_diagnostics.clone(),
+        let units = match inputs.generation.native() {
+            Some(native) => native.units().to_vec(),
+            None => self
+                .codegen_units_for_plan(
+                    plan.backend_requests(),
+                    plan.request().executable_host(),
+                    cancellation,
                 )
-            })?;
+                .map_err(|(unit, error)| {
+                    ProductEmissionError::new(
+                        ProductEmissionErrorKind::Codegen(EmissionCodegenError::new(
+                            EmissionCodegenErrorKind::Request {
+                                unit,
+                                error: Box::new(error),
+                            },
+                            DiagnosticBag::new(),
+                        )),
+                        planning_diagnostics.clone(),
+                    )
+                })?,
+        };
 
         validate_executable_units(&plan, &units).map_err(|kind| {
             ProductEmissionError::new(kind, planning_diagnostics.clone())
@@ -169,7 +249,7 @@ impl Compilation {
         let outcome = self.publish_product(
             &plan,
             codegen.backend,
-            inputs.linking,
+            inputs.generation.linking(),
             inputs.sink_resolver,
             cancellation,
         )
@@ -318,16 +398,27 @@ impl Compilation {
 
         // The planner receives its backend only from this same codegen configuration.
         let codegen = inputs
-            .codegen
+            .generation
+            .codegen()
             .unwrap_or_else(|| panic!("backend emission plans must retain codegen configuration"));
 
-        let result = self.planned_emission_backend_contributions(
-            plan,
-            units,
-            codegen.target,
-            codegen.options,
-            cancellation,
-        )?;
+        let result = match inputs.generation.native() {
+            Some(native) => self.emission_backend_contributions_with_cancellation(
+                plan,
+                units,
+                native.mappings(),
+                codegen.target,
+                codegen.options,
+                cancellation,
+            )?,
+            None => self.planned_emission_backend_contributions(
+                plan,
+                units,
+                codegen.target,
+                codegen.options,
+                cancellation,
+            )?,
+        };
 
         let (contributions, diagnostics) = result.into_parts();
 

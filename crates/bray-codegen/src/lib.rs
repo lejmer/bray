@@ -33,7 +33,9 @@ pub use mapping::{
     CodegenMappingsBuildError, CodegenOperationMapping, CodegenParameterMapping,
     CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
-    CodegenValueAttribute, demanded_runtime_references,
+    CodegenValueAttribute, ConstantDemands, child_constants, demanded_callable_references,
+    demanded_callable_references_for_mir, demanded_constant_terms, demanded_constants,
+    demanded_debug_sources, demanded_runtime_references, demanded_types,
 };
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};

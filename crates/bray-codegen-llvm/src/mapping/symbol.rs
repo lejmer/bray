@@ -7,6 +7,7 @@ use inkwell::DLLStorageClass;
 use inkwell::attributes::AttributeLoc;
 use inkwell::module::{Linkage, Module};
 use inkwell::values::FunctionValue;
+use inkwell::GlobalVisibility;
 
 use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
 use super::LlvmTypeMappings;
@@ -36,7 +37,7 @@ fn apply_linkage(
 ) -> Result<(), CodegenFailure> {
     let linkage = match mapping.linkage() {
         CodegenLinkage::Private => Linkage::Private,
-        CodegenLinkage::Internal => Linkage::Internal,
+        CodegenLinkage::Internal => Linkage::External,
         CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export => {
             Linkage::External
         }
@@ -46,6 +47,12 @@ fn apply_linkage(
     };
 
     function.set_linkage(linkage);
+
+    if mapping.linkage() == CodegenLinkage::Internal {
+        function
+            .as_global_value()
+            .set_visibility(GlobalVisibility::Hidden);
+    }
 
     if target.machine().object_format() == bray_target::ObjectFormat::Coff {
         match mapping.linkage() {

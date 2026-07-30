@@ -124,13 +124,24 @@ impl CodegenOperationMapping {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenHelperMapping {
     reference: MirHelperReference,
-    symbol: CodegenSymbolKey,
+    symbol: Option<CodegenSymbolKey>,
 }
 
 impl CodegenHelperMapping {
-    /// Creates one helper realization.
+    /// Creates one symbol-backed helper realization.
     pub const fn new(reference: MirHelperReference, symbol: CodegenSymbolKey) -> Self {
-        Self { reference, symbol }
+        Self {
+            reference,
+            symbol: Some(symbol),
+        }
+    }
+
+    /// Creates one helper realization performed directly by the selected backend.
+    pub const fn lowered(reference: MirHelperReference) -> Self {
+        Self {
+            reference,
+            symbol: None,
+        }
     }
 
     /// Returns the semantic helper role retained by MIR.
@@ -138,8 +149,8 @@ impl CodegenHelperMapping {
         &self.reference
     }
 
-    /// Returns the selected binary symbol.
-    pub const fn symbol(&self) -> &CodegenSymbolKey {
-        &self.symbol
+    /// Returns the selected binary symbol when the helper requires one.
+    pub const fn symbol(&self) -> Option<&CodegenSymbolKey> {
+        self.symbol.as_ref()
     }
 }

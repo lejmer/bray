@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_bound_tree::BoundUnitKey;
-use bray_symbols::ProductIdentity;
+use bray_symbols::{CallableDefinitionId, ProductIdentity};
 
 use crate::{
     MirBlock, MirBlockId, MirFrameDescriptor, MirOperation, MirOperationId, MirSourceOrigin,
@@ -15,6 +15,8 @@ pub enum MirUnitKey {
     Bound(BoundUnitKey),
     /// MIR synthesized for one executable product host.
     ExecutableHost(ProductIdentity),
+    /// A bodyless callable referenced by generated MIR.
+    ExternalCallable(CallableDefinitionId),
 }
 
 /// One immutable backend-independent MIR unit.

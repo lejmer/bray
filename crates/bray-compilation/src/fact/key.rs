@@ -5,16 +5,43 @@ use bray_codegen::{
     CodegenUnitKey,
 };
 use bray_declarations::ModulePartId;
+use bray_linker::LinkerDriverIdentity;
 use bray_package_interface::InterfaceSemanticFactKind;
+use bray_runtime_interface::{RuntimeArtifactDigest, RuntimeCapability};
 use bray_source::SourceId;
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
     ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
     ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
     ImplementationSymbolId, ImportedInterfaceId, ImportedSymbolFactAddress, InterfaceSymbolId,
-    NamedTypeSymbolId, SymbolFactKind, TypeId,
+    NamedTypeSymbolId, ProductIdentity, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
+
+/// Exact host selections that determine one native product fact.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct NativeProductFactKey {
+    product: ProductIdentity,
+    runtime: Option<(RuntimeArtifactDigest, std::path::PathBuf)>,
+    required_capabilities: std::sync::Arc<[RuntimeCapability]>,
+    linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
+}
+
+impl NativeProductFactKey {
+    pub(crate) fn new(
+        product: ProductIdentity,
+        runtime: Option<(RuntimeArtifactDigest, std::path::PathBuf)>,
+        required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
+        linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
+    ) -> Self {
+        Self {
+            product,
+            runtime,
+            required_capabilities: required_capabilities.into(),
+            linker_drivers: linker_drivers.into(),
+        }
+    }
+}
 
 /// The exact artifact-local address of one imported symbol-owned fact category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -309,6 +336,8 @@ pub(crate) enum CompilationFactKey {
     LoweredUnit(BoundUnitKey),
     /// One exact backend artifact contribution requested from a code generation unit.
     CodegenArtifact(CodegenArtifactFactKey),
+    /// Complete native product facts for exact product and host selections.
+    NativeProduct(NativeProductFactKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
@@ -418,6 +447,7 @@ impl CompilationFactKey {
             | Self::ConstantTemplateKeys
             | Self::CallableBodyKeys
             | Self::PredicateDefinitionKeys
+            | Self::NativeProduct(_)
             | Self::ConstantInstance(_)
             | Self::ConstantCall(_)
             | Self::ConstantCallCycle(_)
