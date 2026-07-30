@@ -119,6 +119,13 @@ fn test_host_contract(
         test_runtime_requirements(target.clone(), runtime.is_some()),
     );
 
+    if matches!(root, RootExecution::Asynchronous { .. }) {
+        builder.set_root_frame_adapter(
+            BinarySymbolName::try_new("__bray_test_root_frame_adapter")
+                .unwrap_or_else(|| panic!("test frame adapter symbol must be valid")),
+        );
+    }
+
     for role in roles {
         builder.push_role_binding(test_role_binding(
             role,

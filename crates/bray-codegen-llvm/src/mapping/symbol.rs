@@ -19,12 +19,25 @@ pub(crate) fn declare_symbols<'context>(
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
-        let function_type = types.function_type(mapping.signature())?;
+        let native_type = crate::native::symbol_function_type(
+            types.context(),
+            target,
+            mapping.key(),
+        );
+
+        let function_type = native_type
+            .unwrap_or(types.function_type(mapping.signature())?);
+
         let function = module.add_function(mapping.name().as_str(), function_type, None);
 
         apply_linkage(function, mapping, target)?;
-        function.set_call_conventions(call_convention(mapping, target)?);
-        apply_signature_attributes(function, mapping, types)?;
+
+        if native_type.is_some() {
+            function.set_call_conventions(0);
+        } else {
+            function.set_call_conventions(call_convention(mapping, target)?);
+            apply_signature_attributes(function, mapping, types)?;
+        }
     }
 
     Ok(())

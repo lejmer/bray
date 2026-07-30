@@ -19,7 +19,38 @@ use crate::{
 pub(super) struct NativeFrame {
     descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
-    terminal_payload: Arc<Mutex<Option<usize>>>,
+    terminal_payload: Arc<Mutex<Option<NativeTerminalPayload>>>,
+}
+
+pub(super) enum NativeTerminalPayload {
+    Completion {
+        address: usize,
+        _storage: Box<[u128]>,
+    },
+    Opaque(usize),
+}
+
+impl NativeTerminalPayload {
+    fn completion(size: usize, alignment: usize) -> Option<Self> {
+        if alignment > align_of::<u128>() {
+            return None;
+        }
+
+        let word_count = size.div_ceil(size_of::<u128>()).max(1);
+        let storage = vec![0_u128; word_count].into_boxed_slice();
+        let address = storage.as_ptr() as usize;
+
+        Some(Self::Completion {
+            address,
+            _storage: storage,
+        })
+    }
+
+    pub(super) const fn handle(&self) -> usize {
+        match self {
+            Self::Completion { address, .. } | Self::Opaque(address) => *address,
+        }
+    }
 }
 
 impl NativeFrame {
@@ -62,11 +93,13 @@ impl NativeFrame {
         })
     }
 
-    pub(super) fn terminal_payload(&self) -> Arc<Mutex<Option<usize>>> {
+    pub(super) fn terminal_payload(
+        &self,
+    ) -> Arc<Mutex<Option<NativeTerminalPayload>>> {
         self.terminal_payload.clone()
     }
 
-    fn record_terminal_payload(&self, payload: usize) {
+    fn record_terminal_payload(&self, payload: NativeTerminalPayload) {
         *self
             .terminal_payload
             .lock()
@@ -99,9 +132,19 @@ impl ProtectedFrame for NativeFrame {
         }
 
         if kind == NativeFrameProgressKind::COMPLETED {
-            self.record_terminal_payload(progress.payload());
+            let Some(payload) = NativeTerminalPayload::completion(
+                self.abi.completion_size(),
+                self.abi.completion_alignment(),
+            ) else {
+                return FrameProgress::RuntimeFailure;
+            };
 
-            return FrameProgress::Completed(progress.payload());
+            (self.abi.move_completion())(self.abi.context(), payload.handle());
+
+            let handle = payload.handle();
+            self.record_terminal_payload(payload);
+
+            return FrameProgress::Completed(handle);
         }
 
         if kind == NativeFrameProgressKind::CANCELLED {
@@ -109,7 +152,9 @@ impl ProtectedFrame for NativeFrame {
         }
 
         if kind == NativeFrameProgressKind::PANICKED {
-            self.record_terminal_payload(progress.payload());
+            self.record_terminal_payload(NativeTerminalPayload::Opaque(
+                progress.payload(),
+            ));
 
             return FrameProgress::Panicked(RuntimePanic::new(progress.payload()));
         }

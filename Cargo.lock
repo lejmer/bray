@@ -230,6 +230,7 @@ dependencies = [
  "bray-bound-tree",
  "bray-checker",
  "bray-codegen",
+ "bray-codegen-llvm",
  "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",

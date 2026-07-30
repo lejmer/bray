@@ -19,7 +19,7 @@ use crate::{
 };
 use crate::context::with_task_execution_context;
 
-use super::frame::NativeFrame;
+use super::frame::{NativeFrame, NativeTerminalPayload};
 
 thread_local! {
     static NATIVE_RUNTIME: RefCell<Option<Rc<NativeRuntime>>> =
@@ -39,12 +39,16 @@ pub(super) struct NativeRuntime {
 enum NativeTaskSlot {
     Allocated,
     Started(StartedTask),
+    Terminal {
+        outcome: NativeRunOutcome,
+        task: StartedTask,
+    },
 }
 
 struct StartedTask {
     task: Arc<NativeTask>,
     registration: TaskRegistration,
-    terminal_payload: Arc<Mutex<Option<usize>>>,
+    terminal_payload: Arc<Mutex<Option<NativeTerminalPayload>>>,
 }
 
 pub(super) fn initialize(
@@ -327,12 +331,35 @@ impl NativeRuntime {
     ) -> NativeRunOutcome {
         let slot = self.tasks.borrow_mut().remove(&handle);
 
-        let Some(NativeTaskSlot::Started(task)) = slot else {
+        let Some(slot) = slot else {
             return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
         };
 
+        let task = match slot {
+            NativeTaskSlot::Started(task) => task,
+            NativeTaskSlot::Terminal { outcome, task } => {
+                self.tasks
+                    .borrow_mut()
+                    .insert(handle, NativeTaskSlot::Terminal { outcome, task });
+
+                return outcome;
+            }
+            NativeTaskSlot::Allocated => {
+                return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
+            }
+        };
+
         match task.task.take_outcome() {
-            Ok(outcome) => task_outcome(outcome, &task.terminal_payload),
+            Ok(outcome) => {
+                let outcome = task_outcome(outcome, &task.terminal_payload);
+
+                self.tasks.borrow_mut().insert(
+                    handle,
+                    NativeTaskSlot::Terminal { outcome, task },
+                );
+
+                outcome
+            }
             Err(TaskObservationError::Pending) => {
                 self.tasks
                     .borrow_mut()
@@ -389,7 +416,7 @@ impl NativeRuntime {
 
 fn task_outcome(
     outcome: RunOutcome<usize>,
-    terminal_payload: &Mutex<Option<usize>>,
+    terminal_payload: &Mutex<Option<NativeTerminalPayload>>,
 ) -> NativeRunOutcome {
     match outcome {
         RunOutcome::Completed(payload) => {
@@ -404,6 +431,8 @@ fn task_outcome(
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take()
+                .as_ref()
+                .map(NativeTerminalPayload::handle)
                 .unwrap_or(0),
         ),
     }

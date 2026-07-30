@@ -80,7 +80,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))?;
             }
             MirTerminatorKind::Return(value) => {
-                self.translate_return(value.as_ref())?;
+                if self.frame_context.is_some() {
+                    if value.is_some() {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
+
+                    let progress = self
+                        .frame_progress
+                        .take()
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    llvm(self.builder.build_return(Some(&progress)))?;
+                } else {
+                    self.translate_return(value.as_ref())?;
+                }
             }
             MirTerminatorKind::Unreachable => {
                 llvm(self.builder.build_unreachable())?;
@@ -130,6 +143,46 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 wake,
                 ..
             } => {
+                if let Some(frame_context) = self.frame_context {
+                    let context = self
+                        .function
+                        .get_first_param()
+                        .and_then(int_value)
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    let pointer = llvm(self.builder.build_int_to_ptr(
+                        context,
+                        self.types.context().ptr_type(inkwell::AddressSpace::default()),
+                        "frame.context",
+                    ))?;
+
+                    let state_pointer = llvm(self.builder.build_struct_gep(
+                        frame_context,
+                        pointer,
+                        0,
+                        "frame.state.pointer",
+                    ))?;
+
+                    let state = self
+                        .types
+                        .context()
+                        .i32_type()
+                        .const_int(u64::from(resume_state.raw()), false);
+
+                    llvm(self.builder.build_store(state_pointer, state))?;
+
+                    let progress = crate::native::frame_progress_type(self.types.context())
+                        .const_named_struct(&[
+                            self.types.context().i32_type().const_zero().into(),
+                            state.into(),
+                            self.types.context().i64_type().const_zero().into(),
+                        ]);
+
+                    llvm(self.builder.build_return(Some(&progress)))?;
+
+                    return Ok(());
+                }
+
                 self.runtime_function_pointer(*wake)?;
 
                 let state = self.runtime_integer_argument(

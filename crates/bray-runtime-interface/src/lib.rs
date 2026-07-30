@@ -21,8 +21,9 @@ pub use compatibility::{
     RuntimeRequirementsMergeError,
 };
 pub use contract::{
-    ExecutableHostContract, ExecutableHostContractBuildError, ExecutableHostContractBuilder,
-    ExecutionCapacityLimits, ExecutionLaneRequirement, RootExecution, RuntimeCapability,
+    ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuildError,
+    ExecutableHostContractBuilder, ExecutionCapacityLimits, ExecutionLaneRequirement,
+    RootExecution, RuntimeCapability,
 };
 pub use frame::{
     ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
@@ -46,7 +47,7 @@ pub use native::{
     NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
     NativeRuntimeEventCallback, NativeRuntimeStatus, NativeTaskAllocation,
     NativeTaskHandle, NativeWakeCallback, RUNTIME_EVENT_SYMBOL,
-    STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
+    ROOT_EXECUTION_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
     TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
     TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
 };

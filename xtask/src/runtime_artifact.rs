@@ -11,7 +11,7 @@ use bray_runtime_interface::{
     RuntimeAbiRole, RuntimeAbiVersion,
     RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
     RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
-    RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL,
+    RuntimeRoleImplementation, ROOT_EXECUTION_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL,
     SUSPENSION_REGISTRATION_SYMBOL, TASK_ALLOCATION_SYMBOL,
     TASK_CANCELLATION_REQUEST_SYMBOL, TASK_START_SYMBOL,
     TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
@@ -179,6 +179,7 @@ fn metadata(
 
 fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
     [
+        (RuntimeAbiRole::RootExecution, ROOT_EXECUTION_SYMBOL),
         (RuntimeAbiRole::TaskAllocation, TASK_ALLOCATION_SYMBOL),
         (RuntimeAbiRole::TaskStart, TASK_START_SYMBOL),
         (

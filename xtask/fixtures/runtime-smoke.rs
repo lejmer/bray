@@ -69,6 +69,7 @@ struct ProtectedFrame {
     resume: extern "C" fn(usize, u8) -> FrameProgress,
     broadcast_tasks: extern "C" fn(usize),
     resolve_lifecycle: extern "C" fn(usize, FrameExit),
+    move_completion: extern "C" fn(usize, usize),
     destroy: extern "C" fn(usize),
 }
 
@@ -102,6 +103,8 @@ extern "C" fn ignore_action(_: usize) {}
 
 extern "C" fn ignore_resolution(_: usize, _: FrameExit) {}
 
+extern "C" fn ignore_completion_move(_: usize, _: usize) {}
+
 fn main() {
     assert!(
         bray_runtime_main_thread_lane_startup_v1(Configuration {
@@ -128,6 +131,7 @@ fn main() {
         resume: resume_frame,
         broadcast_tasks: ignore_action,
         resolve_lifecycle: ignore_resolution,
+        move_completion: ignore_completion_move,
         destroy: ignore_action,
     };
 

@@ -30,10 +30,10 @@ use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
 };
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableSignature,
-    CallableSignatureFact, ConstantTermData, ConstantValueKind, DeclaredLayoutMode,
-    ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId, SymbolFactRequest,
-    StructSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
+    CallableSignature, CallableSignatureFact, ConstantTermData, ConstantValueKind,
+    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId,
+    SymbolFactRequest, StructSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
     UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
@@ -3149,7 +3149,13 @@ impl Compilation {
             )
             .map(|ty| CodegenParameterMapping::direct(ty, None, []));
 
-        let result = if is_unit(self, signature.result())? {
+        let result = if callable.execution() == CallableExecution::Asynchronous {
+            CodegenResultMapping::direct(
+                self.codegen_representation_type(RepresentationRole::RawPointer)?,
+                None,
+                [],
+            )
+        } else if is_unit(self, signature.result())? {
             CodegenResultMapping::Void
         } else {
             CodegenResultMapping::direct(signature.result(), None, [])

@@ -9,4 +9,4 @@ mod scalar;
 mod support;
 mod value;
 
-pub(crate) use core::{TranslationError, translate_instances};
+pub(crate) use core::{TranslationError, UnitTranslator, translate_instances};

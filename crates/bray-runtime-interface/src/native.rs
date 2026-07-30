@@ -1,3 +1,6 @@
+/// Stable symbol executing one compiler-generated root frame.
+pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
+
 /// Stable symbol initializing the distinguished main-thread runtime lane.
 pub const MAIN_THREAD_LANE_STARTUP_SYMBOL: &str =
     "bray_runtime_main_thread_lane_startup_v1";
@@ -382,6 +385,10 @@ pub type NativeFrameResumeCallback = extern "C" fn(
 /// Callback performing one infallible generated frame action.
 pub type NativeFrameActionCallback = extern "C" fn(context: usize);
 
+/// Callback moving a generated completion value into runtime-owned storage.
+pub type NativeFrameCompletionMoveCallback =
+    extern "C" fn(context: usize, destination: usize);
+
 /// Callback resolving generated frame lifecycle state for one terminal exit.
 pub type NativeFrameResolveCallback =
     extern "C" fn(context: usize, exit: NativeFrameExit);
@@ -401,6 +408,7 @@ pub struct NativeProtectedFrame {
     resume: NativeFrameResumeCallback,
     broadcast_tasks: NativeFrameActionCallback,
     resolve_lifecycle: NativeFrameResolveCallback,
+    move_completion: NativeFrameCompletionMoveCallback,
     destroy: NativeFrameActionCallback,
 }
 
@@ -422,6 +430,7 @@ impl NativeProtectedFrame {
         resume: NativeFrameResumeCallback,
         broadcast_tasks: NativeFrameActionCallback,
         resolve_lifecycle: NativeFrameResolveCallback,
+        move_completion: NativeFrameCompletionMoveCallback,
         destroy: NativeFrameActionCallback,
     ) -> Self {
         Self {
@@ -436,6 +445,7 @@ impl NativeProtectedFrame {
             resume,
             broadcast_tasks,
             resolve_lifecycle,
+            move_completion,
             destroy,
         }
     }
@@ -493,6 +503,11 @@ impl NativeProtectedFrame {
     /// Returns the lifecycle-resolution callback.
     pub const fn resolve_lifecycle(&self) -> NativeFrameResolveCallback {
         self.resolve_lifecycle
+    }
+
+    /// Returns the completion-move callback.
+    pub const fn move_completion(&self) -> NativeFrameCompletionMoveCallback {
+        self.move_completion
     }
 
     /// Returns the frame-destruction callback.

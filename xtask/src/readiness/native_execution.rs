@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
+const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
 const ABI_FIXTURE: &str = "xtask/fixtures/native-execution/abi-primitive.bray";
 const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-linux.s";
 const PRODUCT_NAME: &str = "application";
@@ -10,6 +11,7 @@ const PRODUCT_NAME: &str = "application";
 pub(super) fn audit(root: &Path) -> Result<(), String> {
     build_compiler(root)?;
     audit_startup(root)?;
+    audit_entry_result(root)?;
 
     audit_primitive_abi(root)
 }
@@ -93,6 +95,44 @@ fn audit_primitive_abi(root: &Path) -> Result<(), String> {
     link_host(root, &host_object, &bray_objects, &executable)?;
 
     execute_product(&executable, 42, "executing Bray through the C ABI host")
+}
+
+fn audit_entry_result(root: &Path) -> Result<(), String> {
+    let first = native_output("bray-native-entry-result-first-")?;
+    let second = native_output("bray-native-entry-result-second-")?;
+
+    build_fixture(root, ENTRY_RESULT_FIXTURE, first.path())?;
+    build_fixture(root, ENTRY_RESULT_FIXTURE, second.path())?;
+
+    let first_executable = first.path().join(PRODUCT_NAME);
+    let second_executable = second.path().join(PRODUCT_NAME);
+    let first_objects = object_files(first.path())?;
+    let second_objects = object_files(second.path())?;
+
+    require_equal_files(
+        &first_executable,
+        &second_executable,
+        "entry-result executable",
+    )?;
+
+    require_equal_artifacts(&first_objects, &second_objects)?;
+
+    let report = inspect_objects(root, &first_objects)?;
+
+    require_evidence(
+        &report,
+        &[
+            "Format: elf64-x86-64",
+            "Name: _start",
+            "R_X86_64_PLT32 bray_instance_",
+        ],
+    )?;
+
+    execute_product(
+        &first_executable,
+        42,
+        "executing generated i32 entry result",
+    )
 }
 
 fn native_output(prefix: &str) -> Result<tempfile::TempDir, String> {

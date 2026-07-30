@@ -4,7 +4,7 @@ use bray_codegen::{
     ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
     BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendTargetPlatform,
     CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
-    CodegenTarget, DebugInformationMode,
+    CodegenTarget, DebugInformationMode, ProtectedAsyncFrameMetadata,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_target::{ObjectFormat, TargetArchitecture};
@@ -229,6 +229,32 @@ fn capabilities() -> BackendCapabilities {
 fn runtime_metadata(
     request: CodegenRequest<'_>,
 ) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
+    let frames = request
+        .unit()
+        .instances()
+        .iter()
+        .filter_map(|instance| {
+            let frame = instance.protected_frame_identity()?;
+            let descriptor = instance.mir().frame_descriptor()?;
+
+            let operations = bray_runtime_interface::ProtectedFrameOperations::new(
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart)?,
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::Resume)?,
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::CancellationEntry)?,
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast)?,
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::LifecycleResolution)?,
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::CompletionMove)?,
+                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::Destruction)?,
+            );
+
+            Some(ProtectedAsyncFrameMetadata::new(
+                frame,
+                descriptor.frame_abi(),
+                operations,
+            ))
+        })
+        .collect::<Vec<_>>();
+
     let mut hosts = request.unit().mir_units().filter_map(|unit| {
         let bray_ir::MirUnitKind::ExecutableHost(host) = unit.kind() else {
             return None;
@@ -244,8 +270,19 @@ fn runtime_metadata(
         return Err(CodegenFailure::GeneratedModuleInvariant);
     }
 
-    CodegenRuntimeMetadata::try_new(request.unit(), [], host)
+    CodegenRuntimeMetadata::try_new(request.unit(), frames, host)
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+}
+
+fn frame_symbol(
+    request: CodegenRequest<'_>,
+    frame: bray_runtime_interface::ProtectedAsyncFrameId,
+    operation: bray_runtime_interface::ProtectedFrameOperation,
+) -> Option<bray_runtime_interface::BinarySymbolName> {
+    request
+        .mappings()
+        .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
+        .map(|symbol| symbol.name().clone())
 }
 
 fn target_platforms() -> impl Iterator<Item = BackendTargetPlatform> {
