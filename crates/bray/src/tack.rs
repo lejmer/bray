@@ -14,4 +14,4 @@ mod tool;
 pub use cli::TackCliError;
 pub use execute::{run_tack, run_tack_result};
 pub use model::{TackCommandKind, TackInvocation};
-pub use result::{TackDiagnostics, TackRunResult};
+pub use result::TackRunResult;

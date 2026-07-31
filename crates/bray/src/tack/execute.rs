@@ -552,7 +552,9 @@ fn run_format(
     executor: &dyn ToolExecutor,
     stdin: &mut dyn Read,
 ) -> TackRunResult {
-    let files = if files.is_empty() {
+    let explicit_files = !files.is_empty();
+
+    let mut files = if files.is_empty() {
         let graph = match load_graph(workspace_root) {
             Ok(graph) => graph,
             Err(diagnostics) => return failure(diagnostics, output_format),
@@ -562,6 +564,24 @@ fn run_format(
     } else {
         files
     };
+
+    if explicit_files && files.as_slice() != [PathBuf::from("-")] {
+        let invocation_directory = match std::env::current_dir() {
+            Ok(directory) => directory,
+            Err(_) => {
+                return failure(
+                    operation_diagnostics("formatter_working_directory"),
+                    output_format,
+                );
+            }
+        };
+
+        for path in &mut files {
+            if path.is_relative() {
+                *path = invocation_directory.join(&*path);
+            }
+        }
+    }
 
     let mut request = ToolRequest::new(Tool::Formatter, workspace_root);
 
@@ -947,6 +967,43 @@ mod tests {
 
         assert_eq!(request.tool, Tool::Formatter);
         assert_eq!(request.input.as_deref(), Some(b"module app;".as_slice()));
+    }
+
+    #[test]
+    fn explicit_formatter_paths_remain_relative_to_the_invocation_directory() {
+        let workspace = ProjectWorkspace::basic();
+        let executor = RecordingExecutor::default();
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "fmt".into(),
+                "relative.bray".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+
+        let requests = executor.requests();
+
+        let [request] = requests.as_slice() else {
+            panic!("format should invoke exactly one formatter: {requests:#?}");
+        };
+
+        let expected = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("test invocation directory must exist: {error:?}"))
+            .join("relative.bray");
+
+        assert!(
+            request
+                .arguments
+                .iter()
+                .any(|argument| argument == expected.as_os_str())
+        );
     }
 
     #[test]

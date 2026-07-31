@@ -298,14 +298,18 @@ fn run_check_command(
         None => return compilation_load_failure_result(output_format),
     };
 
-    let diagnostics = compilation.check_diagnostics().clone();
+    let mut diagnostics = compilation.check_diagnostics().clone();
 
     if !diagnostics.has_errors() {
         if let Some(path) = interface_output {
-            if let Err(error) = publish_package_interface(&compilation, &path) {
+            let diagnostic_id = DiagnosticId::from_index(diagnostics.len());
+
+            if let Err(error) = publish_package_interface(&compilation, &path, diagnostic_id) {
+                diagnostics.add(error);
+
                 return driver_result_from_compilation(
                     compilation,
-                    DiagnosticBag::single(error),
+                    diagnostics,
                     output_format,
                     ExitCode::FAILURE,
                 );
@@ -429,35 +433,42 @@ pub(super) fn compilation_request(
 fn publish_package_interface(
     compilation: &Compilation,
     destination: &Path,
+    diagnostic_id: DiagnosticId,
 ) -> Result<(), Diagnostic> {
     let bundle = compilation
         .package_interface_export_bundle()
         .and_then(|result| result.as_ref().ok())
-        .ok_or_else(|| publication_diagnostic(destination, io::ErrorKind::Other))?;
+        .ok_or_else(|| publication_diagnostic(diagnostic_id, destination, io::ErrorKind::Other))?;
 
     let artifact = bray_package_interface::encode_package_interface(bundle)
-        .map_err(|_| publication_diagnostic(destination, io::ErrorKind::InvalidData))?;
+        .map_err(|_| {
+            publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
+        })?;
 
     let mut staging = StagedFile::create(
         destination,
         FileReplacementMode::ReplaceExisting,
         None,
     )
-    .map_err(|error| publication_diagnostic(destination, error.kind()))?;
+    .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
 
     staging
         .write_all(artifact.bytes())
-        .map_err(|error| publication_diagnostic(destination, error.kind()))?;
+        .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
 
     staging
         .finish()
         .and_then(|staged| staged.promote(destination))
-        .map_err(|error| publication_diagnostic(destination, error.kind()))
+        .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))
 }
 
-fn publication_diagnostic(path: &Path, kind: io::ErrorKind) -> Diagnostic {
+fn publication_diagnostic(
+    id: DiagnosticId,
+    path: &Path,
+    kind: io::ErrorKind,
+) -> Diagnostic {
     Diagnostic::new(
-        DiagnosticId::new(0),
+        id,
         DiagnosticKind::EmissionArtifactWriteFailed,
         SeverityKind::Error,
     )

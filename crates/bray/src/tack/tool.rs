@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use bray_platform::{NativeProcessCommand, NativeStdio};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Tool {
     Compiler,

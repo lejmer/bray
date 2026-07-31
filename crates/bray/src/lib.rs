@@ -9,6 +9,6 @@ mod test_support;
 
 pub use driver::run;
 pub use tack::{
-    TackCliError, TackCommandKind, TackDiagnostics, TackInvocation, TackRunResult, run_tack,
+    TackCliError, TackCommandKind, TackInvocation, TackRunResult, run_tack,
     run_tack_result,
 };

@@ -75,11 +75,9 @@ pub(crate) fn run_build_command(
         .map(ArtifactKind::from)
         .any(|artifact| artifact.backend_kind().is_some());
 
-    let requires_generation = linked
-        || requires_codegen
-        || matches!(product_kind, ProductKind::Executable | ProductKind::Test);
+    let requires_generation = linked || requires_codegen;
 
-    let linker = if requires_generation {
+    let linker = if linked {
         match native_linker() {
             Some(linker) => Some(linker),
             None => return unsupported_product_result(compilation, output_format),
@@ -88,27 +86,26 @@ pub(crate) fn run_build_command(
         None
     };
 
-    let native = match &linker {
-        Some(linker) => {
-            let runtime = match resolve_runtime(configuration.runtime(), &selected_target) {
-                Ok(runtime) => runtime,
-                Err(()) => return unsupported_product_result(compilation, output_format),
-            };
+    let native = if requires_generation {
+        let runtime = match resolve_runtime(configuration.runtime(), &selected_target) {
+            Ok(runtime) => runtime,
+            Err(()) => return unsupported_product_result(compilation, output_format),
+        };
 
-            match compilation.native_product_facts(
-                product.clone(),
-                runtime,
-                configuration.required_capabilities().iter().copied(),
-                linker,
-            ) {
-                Ok(native) => Some(native),
-                Err(error) if error.is_unsupported() => {
-                    return unsupported_product_result(compilation, output_format);
-                }
-                Err(_) => return native_product_failure_result(compilation, output_format),
+        match compilation.native_product_facts(
+            product.clone(),
+            runtime,
+            configuration.required_capabilities().iter().copied(),
+            linker.as_ref(),
+        ) {
+            Ok(native) => Some(native),
+            Err(error) if error.is_unsupported() => {
+                return unsupported_product_result(compilation, output_format);
             }
+            Err(_) => return native_product_failure_result(compilation, output_format),
         }
-        None => None,
+    } else {
+        None
     };
 
     let target_outputs = target_outputs(&selected_target, &artifacts, &configuration);
@@ -126,12 +123,14 @@ pub(crate) fn run_build_command(
 
     let mut inputs = ProductEmissionInputs::new(&target_outputs);
 
-    if let (Some(native), Some(linker)) = (native.as_ref(), linker.as_ref()) {
-        inputs = if linked {
-            inputs.with_native_product(native, linker)
-        } else {
-            inputs.with_native_codegen(native)
-        };
+    match (native.as_ref(), linker.as_ref()) {
+        (Some(native), Some(linker)) => {
+            inputs = inputs.with_native_product(native, linker);
+        }
+        (Some(native), None) => {
+            inputs = inputs.with_native_codegen(native);
+        }
+        (None, _) => {}
     }
 
     match compilation.emit_product(request, inputs) {
