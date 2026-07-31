@@ -121,26 +121,40 @@ pub enum CheckedMemoryOperationKind {
 }
 
 /// One source-correlated checked memory operation.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedMemoryOperation {
     expression: BoundExpressionId,
     kind: CheckedMemoryOperationKind,
+    arguments: Arc<[BoundExpressionId]>,
 }
 
 impl CheckedMemoryOperation {
     /// Creates one checked memory operation.
-    pub const fn new(expression: BoundExpressionId, kind: CheckedMemoryOperationKind) -> Self {
-        Self { expression, kind }
+    pub fn new(
+        expression: BoundExpressionId,
+        kind: CheckedMemoryOperationKind,
+        arguments: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> Self {
+        Self {
+            expression,
+            kind,
+            arguments: shared_slice(arguments),
+        }
     }
 
     /// Returns the source-correlated call expression.
-    pub const fn expression(self) -> BoundExpressionId {
+    pub const fn expression(&self) -> BoundExpressionId {
         self.expression
     }
 
     /// Returns the exact memory behavior selected for the call.
-    pub const fn kind(self) -> CheckedMemoryOperationKind {
+    pub const fn kind(&self) -> CheckedMemoryOperationKind {
         self.kind
+    }
+
+    /// Returns evaluated source arguments in declaration-parameter order.
+    pub fn arguments(&self) -> &[BoundExpressionId] {
+        &self.arguments
     }
 }
 
@@ -151,6 +165,49 @@ pub enum CheckedMemoryOperationsBuildError {
     ForeignUnit,
     /// More than one operation describes the same expression.
     DuplicateExpression,
+}
+
+/// Flow-sensitive outcome of one compiler-provided memory operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MemoryOperationStatus {
+    /// Control flow cannot reach the operation.
+    Unreachable,
+    /// The operation's obligations and memory-state transition are valid.
+    Valid,
+    /// Recovery prevents a complete decision.
+    Recovered,
+    /// No live trusted fact source acknowledges the operation's caller obligations.
+    MissingTrustedFacts,
+    /// The operation reaches an allocation invalidated by deallocation.
+    InvalidatedAllocation,
+    /// The operation reads raw storage without an initialized value of the required type.
+    UninitializedRawStorage,
+    /// Deallocation would discard live initialized values or dependent obligations.
+    OutstandingObligations,
+}
+
+/// One durable flow decision for a compiler-provided memory operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MemoryOperationDecision {
+    expression: BoundExpressionId,
+    status: MemoryOperationStatus,
+}
+
+impl MemoryOperationDecision {
+    /// Creates one source-correlated memory-flow decision.
+    pub const fn new(expression: BoundExpressionId, status: MemoryOperationStatus) -> Self {
+        Self { expression, status }
+    }
+
+    /// Returns the checked operation occurrence.
+    pub const fn expression(self) -> BoundExpressionId {
+        self.expression
+    }
+
+    /// Returns the flow-sensitive outcome.
+    pub const fn status(self) -> MemoryOperationStatus {
+        self.status
+    }
 }
 
 /// Compiler-provided memory operations selected within one checked bound unit.
@@ -212,11 +269,11 @@ impl CheckedMemoryOperations {
     }
 
     /// Returns the operation selected for one expression.
-    pub fn operation(&self, expression: BoundExpressionId) -> Option<CheckedMemoryOperation> {
+    pub fn operation(&self, expression: BoundExpressionId) -> Option<&CheckedMemoryOperation> {
         self.operations
             .binary_search_by_key(&expression, |operation| operation.expression())
             .ok()
-            .map(|index| self.operations[index])
+            .map(|index| &self.operations[index])
     }
 
     /// Returns whether recovery prevented complete memory-operation checking.
@@ -246,21 +303,29 @@ mod tests {
                 pointee: error_type(),
                 kind: MemoryReadKind::Move,
             },
+            [],
         );
 
-        let second_operation =
-            CheckedMemoryOperation::new(second, CheckedMemoryOperationKind::Allocate);
+        let second_operation = CheckedMemoryOperation::new(
+            second,
+            CheckedMemoryOperationKind::Allocate,
+            [],
+        );
 
         let table = CheckedMemoryOperations::try_new(
             unit,
             BoundUnitKind::CallableBody,
-            [second_operation, first_operation],
+            [second_operation.clone(), first_operation.clone()],
             false,
         )
         .unwrap_or_else(|error| panic!("memory operation table must build: {error:?}"));
 
-        assert_eq!(table.operations(), [first_operation, second_operation]);
-        assert_eq!(table.operation(first), Some(first_operation));
+        assert_eq!(
+            table.operations(),
+            [first_operation.clone(), second_operation]
+        );
+
+        assert_eq!(table.operation(first), Some(&first_operation));
     }
 
     #[test]
@@ -268,14 +333,17 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let expression = BoundExpressionId::from_slot(unit, 1);
 
-        let operation =
-            CheckedMemoryOperation::new(expression, CheckedMemoryOperationKind::Allocate);
+        let operation = CheckedMemoryOperation::new(
+            expression,
+            CheckedMemoryOperationKind::Allocate,
+            [],
+        );
 
         assert_eq!(
             CheckedMemoryOperations::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
-                [operation, operation],
+                [operation.clone(), operation],
                 false,
             ),
             Err(CheckedMemoryOperationsBuildError::DuplicateExpression)
@@ -284,6 +352,7 @@ mod tests {
         let foreign = CheckedMemoryOperation::new(
             BoundExpressionId::from_slot(BoundUnitId::new(5), 1),
             CheckedMemoryOperationKind::Deallocate,
+            [],
         );
 
         assert_eq!(

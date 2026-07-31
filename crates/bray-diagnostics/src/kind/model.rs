@@ -226,6 +226,14 @@ define_diagnostic_kinds! {
     CheckingTargetAbiRepresentationUnsupported,
     /// The selected target does not provide a compiler-provided memory operation.
     CheckingTargetMemoryOperationUnavailable,
+    /// A compiler-provided memory operation lacks trusted supporting facts.
+    CheckingMissingTrustedMemoryFacts,
+    /// A compiler-provided memory operation uses invalidated allocation storage.
+    CheckingMemoryOperationAfterDeallocation,
+    /// A compiler-provided memory read has no initialized value of the required type.
+    CheckingUninitializedRawStorage,
+    /// Deallocation would discard initialized raw storage.
+    CheckingDeallocationWithOutstandingObligations,
     /// The selected target cannot represent the required alignment.
     CheckingTargetAlignmentUnsupported,
     /// A pattern form cannot match values of its established input type.
@@ -480,6 +488,10 @@ impl DiagnosticKind {
             Self::CheckingTargetAlignmentUnsupported => 7016,
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
             Self::CheckingTargetMemoryOperationUnavailable => 7083,
+            Self::CheckingMissingTrustedMemoryFacts => 7084,
+            Self::CheckingMemoryOperationAfterDeallocation => 7085,
+            Self::CheckingDeallocationWithOutstandingObligations => 7086,
+            Self::CheckingUninitializedRawStorage => 7087,
             Self::CheckingIncompatiblePattern => 7021,
             Self::CheckingRefutablePattern => 7022,
             Self::CheckingNonExhaustiveMatch => 7023,
@@ -555,6 +567,7 @@ impl DiagnosticKind {
     }
 
     /// Returns the machine key for this diagnostic category.
+    // rust-style: allow(function-too-large, reason = "diagnostic kind keys form one exhaustive flat mapping")
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SourceFileReadFailed => "source_file_read_failed",
@@ -688,6 +701,14 @@ impl DiagnosticKind {
             }
             Self::CheckingTargetMemoryOperationUnavailable => {
                 "checking_target_memory_operation_unavailable"
+            }
+            Self::CheckingMissingTrustedMemoryFacts => "checking_missing_trusted_memory_facts",
+            Self::CheckingMemoryOperationAfterDeallocation => {
+                "checking_memory_operation_after_deallocation"
+            }
+            Self::CheckingUninitializedRawStorage => "checking_uninitialized_raw_storage",
+            Self::CheckingDeallocationWithOutstandingObligations => {
+                "checking_deallocation_with_outstanding_obligations"
             }
             Self::CheckingIncompatiblePattern => "checking_incompatible_pattern",
             Self::CheckingRefutablePattern => "checking_refutable_pattern",

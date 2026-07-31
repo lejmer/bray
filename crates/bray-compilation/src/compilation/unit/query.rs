@@ -2475,6 +2475,17 @@ mod tests {
         };
 
         assert!(Arc::ptr_eq(&first, &repeated));
+
+        let flow = match compilation.storage_flow_facts(source_callable_body_key(&compilation)) {
+            Ok(flow) => flow,
+            Err(error) => panic!("storage flow must publish: {error:?}"),
+        };
+
+        let [decision] = flow.value().memory_operations() else {
+            panic!("storage flow must retain the null operation decision");
+        };
+
+        assert_eq!(decision.status(), bray_bound_tree::MemoryOperationStatus::Valid);
     }
 
     #[test]

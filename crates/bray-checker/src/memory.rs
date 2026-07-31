@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{
     BoundCallableTarget, CheckedMemoryOperation, CheckedMemoryOperationKind,
     CheckedMemoryOperations, CheckedSemanticSelections, MemoryAddressKind, MemoryCopyKind,
-    MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind, SemanticSelection,
+    MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind, SelectedArgument,
+    SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, DiagnosticResult, SeverityKind};
@@ -94,7 +95,16 @@ where
             Err(outcome) => return outcome,
         };
 
-        operations.push(CheckedMemoryOperation::new(entry.expression(), kind));
+        let arguments = match selected_arguments(call.arguments()) {
+            Ok(arguments) => arguments,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+        operations.push(CheckedMemoryOperation::new(
+            entry.expression(),
+            kind,
+            arguments,
+        ));
     }
 
     let facts = match CheckedMemoryOperations::try_new(
@@ -112,6 +122,20 @@ where
     };
 
     CheckerOutcome::Complete(DiagnosticResult::new(facts, diagnostics))
+}
+
+fn selected_arguments(
+    arguments: &[SelectedArgument],
+) -> Result<Vec<bray_bound_tree::BoundExpressionId>, CheckerInfrastructureError> {
+    arguments
+        .iter()
+        .map(|argument| match argument {
+            SelectedArgument::Explicit { expression, .. } => Ok(*expression),
+            SelectedArgument::Default { .. } => {
+                Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            }
+        })
+        .collect()
 }
 
 fn type_arguments<C>(

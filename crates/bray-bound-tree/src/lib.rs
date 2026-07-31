@@ -54,7 +54,7 @@ pub use literal::{
 pub use memory::{
     CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
     CheckedMemoryOperationsBuildError, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
-    MemoryOffsetUnit, MemoryReadKind,
+    MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus, MemoryReadKind,
 };
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,

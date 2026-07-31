@@ -4,7 +4,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
     BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
+    MemoryOperationDecision, StorageAccessId, StorageAccessPurpose, StorageIdentityId,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -201,6 +201,8 @@ pub enum StorageFlowFactsBuildError {
     ForeignUnit,
     /// The same direct-await expression has more than one state snapshot.
     DuplicateSuspension,
+    /// The same expression has more than one memory-flow decision.
+    DuplicateMemoryOperation,
 }
 
 /// Immutable storage, ownership, and borrow decisions for one bound unit.
@@ -211,6 +213,7 @@ pub struct StorageFlowFacts {
     operations: Arc<[StorageOperationDecision]>,
     suspensions: Arc<[StorageSuspensionState]>,
     exits: Arc<[StorageExitDecision]>,
+    memory_operations: Arc<[MemoryOperationDecision]>,
     is_recovered: bool,
 }
 
@@ -282,8 +285,37 @@ impl StorageFlowFacts {
             operations: shared_slice(operations),
             suspensions: shared_slice(suspensions),
             exits: shared_slice(exits),
+            memory_operations: Arc::from([]),
             is_recovered,
         })
+    }
+
+    /// Adds validated memory-flow decisions without mutating the published facts.
+    pub fn with_memory_operations(
+        mut self,
+        operations: impl IntoIterator<Item = MemoryOperationDecision>,
+    ) -> Result<Self, StorageFlowFactsBuildError> {
+        let mut operations = operations.into_iter().collect::<Vec<_>>();
+
+        if operations
+            .iter()
+            .any(|operation| operation.expression().unit() != self.unit)
+        {
+            return Err(StorageFlowFactsBuildError::ForeignUnit);
+        }
+
+        operations.sort_unstable_by_key(|operation| operation.expression());
+
+        if operations
+            .windows(2)
+            .any(|pair| pair[0].expression() == pair[1].expression())
+        {
+            return Err(StorageFlowFactsBuildError::DuplicateMemoryOperation);
+        }
+
+        self.memory_operations = shared_slice(operations);
+
+        Ok(self)
     }
 
     /// Returns the bound unit described by these facts.
@@ -317,6 +349,11 @@ impl StorageFlowFacts {
     /// Returns lexical scope-exit decisions in control-flow order.
     pub fn exits(&self) -> &[StorageExitDecision] {
         &self.exits
+    }
+
+    /// Returns memory-operation decisions in bound-expression order.
+    pub fn memory_operations(&self) -> &[MemoryOperationDecision] {
+        &self.memory_operations
     }
 
     /// Returns whether recovery prevented complete storage decisions.

@@ -206,6 +206,25 @@ const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] =
         "selected target does not provide this compiler-provided memory operation",
     )];
 
+const CHECKING_MISSING_TRUSTED_MEMORY_FACTS: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "compiler-provided memory operation requires trusted supporting facts",
+    )];
+
+const CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "compiler-provided memory operation uses an invalidated allocation",
+    )];
+
+const CHECKING_UNINITIALIZED_RAW_STORAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "compiler-provided memory operation reads uninitialized raw storage",
+)];
+
+const CHECKING_DEALLOCATION_WITH_OUTSTANDING_OBLIGATIONS: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "cannot deallocate raw storage while initialized values remain",
+    )];
+
 const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid callable ABI directive")];
 
@@ -1357,6 +1376,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTargetMemoryOperationUnavailable => {
             MessageTemplate::new(CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingMissingTrustedMemoryFacts => {
+            MessageTemplate::new(CHECKING_MISSING_TRUSTED_MEMORY_FACTS)
+        }
+        DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
+            MessageTemplate::new(CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION)
+        }
+        DiagnosticKind::CheckingUninitializedRawStorage => {
+            MessageTemplate::new(CHECKING_UNINITIALIZED_RAW_STORAGE)
+        }
+        DiagnosticKind::CheckingDeallocationWithOutstandingObligations => {
+            MessageTemplate::new(CHECKING_DEALLOCATION_WITH_OUTSTANDING_OBLIGATIONS)
         }
         DiagnosticKind::BindingInvalidCallableAbi => {
             MessageTemplate::new(BINDING_INVALID_CALLABLE_ABI)

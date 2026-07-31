@@ -233,8 +233,9 @@ where
         storage: &StoragePlan,
         liveness: &LivenessFacts,
         refinements: &CheckedRefinementFacts,
+        memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<StorageFlowFacts> {
-        check_storage_flow(request, storage, liveness, refinements)
+        check_storage_flow(request, storage, liveness, refinements, memory)
     }
 }
 
