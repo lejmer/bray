@@ -174,6 +174,41 @@ pub(crate) fn compilation(source: &str) -> Compilation {
     compilation_with_options(source, CompilationOptions::default())
 }
 
+pub(crate) fn compilation_with_target_operations(
+    source: &str,
+    raw_memory: bool,
+    allocation: bool,
+) -> Compilation {
+    let baseline = crate::SelectedTarget::baseline();
+    let profile = baseline.profile();
+    let baseline_facts = profile.facts();
+
+    let facts = bray_target::TargetFacts::new(
+        baseline_facts.identity().clone(),
+        baseline_facts.scalars(),
+        baseline_facts.atomics(),
+        baseline_facts.abis(),
+        baseline_facts.address_spaces(),
+        baseline_facts.alignments(),
+        bray_target::TargetOperationFacts::new(raw_memory, allocation),
+    );
+
+    let profile = bray_target::TargetProfile::try_new(
+        profile.identity().clone(),
+        profile.machine().clone(),
+        facts,
+    )
+    .unwrap_or_else(|error| panic!("test target profile must be valid: {error:?}"));
+
+    let options = CompilationOptions::new(
+        WorkerBudget::serial(),
+        bray_symbols::ProductKind::Library,
+        crate::SelectedTarget::new(profile, baseline.runtime_abi()),
+    );
+
+    compilation_with_options(source, options)
+}
+
 pub(crate) fn compilation_with_options(source: &str, options: CompilationOptions) -> Compilation {
     let request = CompilationRequest::with_options(
         package_identity(),

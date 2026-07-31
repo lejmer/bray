@@ -201,6 +201,11 @@ const CHECKING_TARGET_ABI_REPRESENTATION_UNSUPPORTED: &[MessageTemplatePart] = &
     MessageTemplatePart::Text(" values by value"),
 ];
 
+const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "selected target does not provide this compiler-provided memory operation",
+    )];
+
 const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid callable ABI directive")];
 
@@ -1349,6 +1354,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTargetAbiRepresentationUnsupported => {
             MessageTemplate::new(CHECKING_TARGET_ABI_REPRESENTATION_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingTargetMemoryOperationUnavailable => {
+            MessageTemplate::new(CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE)
         }
         DiagnosticKind::BindingInvalidCallableAbi => {
             MessageTemplate::new(BINDING_INVALID_CALLABLE_ABI)

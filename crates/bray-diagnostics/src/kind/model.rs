@@ -1,5 +1,7 @@
 //! Stable diagnostic category inventory and machine identities.
 
+// rust-style: allow(module-too-large, reason = "diagnostic kinds and their exhaustive stable mappings form one cohesive protocol inventory")
+
 use crate::code::DiagnosticCode;
 
 use super::definition::define_diagnostic_kinds;
@@ -222,6 +224,8 @@ define_diagnostic_kinds! {
     CheckingTargetCallableAbiUnavailable,
     /// The selected callable ABI does not accept one by-value representation.
     CheckingTargetAbiRepresentationUnsupported,
+    /// The selected target does not provide a compiler-provided memory operation.
+    CheckingTargetMemoryOperationUnavailable,
     /// The selected target cannot represent the required alignment.
     CheckingTargetAlignmentUnsupported,
     /// A pattern form cannot match values of its established input type.
@@ -475,6 +479,7 @@ impl DiagnosticKind {
             Self::CheckingTargetCallableAbiUnavailable => 7015,
             Self::CheckingTargetAlignmentUnsupported => 7016,
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
+            Self::CheckingTargetMemoryOperationUnavailable => 7083,
             Self::CheckingIncompatiblePattern => 7021,
             Self::CheckingRefutablePattern => 7022,
             Self::CheckingNonExhaustiveMatch => 7023,
@@ -680,6 +685,9 @@ impl DiagnosticKind {
             Self::CheckingTargetAlignmentUnsupported => "checking_target_alignment_unsupported",
             Self::CheckingTargetAbiRepresentationUnsupported => {
                 "checking_target_abi_representation_unsupported"
+            }
+            Self::CheckingTargetMemoryOperationUnavailable => {
+                "checking_target_memory_operation_unavailable"
             }
             Self::CheckingIncompatiblePattern => "checking_incompatible_pattern",
             Self::CheckingRefutablePattern => "checking_refutable_pattern",

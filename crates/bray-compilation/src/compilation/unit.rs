@@ -1,3 +1,4 @@
+mod memory;
 mod query;
 mod storage;
 mod support;

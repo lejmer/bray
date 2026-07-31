@@ -11,6 +11,7 @@ mod dependency;
 mod dependency_table;
 mod identity;
 mod literal;
+mod memory;
 mod node;
 mod origin;
 mod pattern;
@@ -49,6 +50,11 @@ pub use dependency::{
 pub use dependency_table::{CheckedDependencyContracts, DependencyContractsBuildError};
 pub use literal::{
     CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
+};
+pub use memory::{
+    CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
+    CheckedMemoryOperationsBuildError, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
+    MemoryOffsetUnit, MemoryReadKind,
 };
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,

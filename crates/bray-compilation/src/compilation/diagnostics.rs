@@ -4,9 +4,9 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
     BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsyncFacts,
-    CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts, CheckedPatternFacts,
-    CheckedRefinementFacts, DeclaredValueTypeTemplates, LivenessFacts, SemanticSelection,
-    StorageFlowFacts, StoragePlan,
+    CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
+    CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
+    DeclaredValueTypeTemplates, LivenessFacts, SemanticSelection, StorageFlowFacts, StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -305,6 +305,7 @@ impl Compilation {
         let dependencies =
             self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
 
+        let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
         let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
@@ -326,6 +327,7 @@ impl Compilation {
             SemanticDiagnosticFact::Refinements(Arc::clone(refinements.result())),
             SemanticDiagnosticFact::StorageFlow(Arc::clone(storage_flow.result())),
             SemanticDiagnosticFact::Dependencies(Arc::clone(dependencies.result())),
+            SemanticDiagnosticFact::Memory(Arc::clone(memory.result())),
             SemanticDiagnosticFact::Async(Arc::clone(async_facts.result())),
             SemanticDiagnosticFact::BodyBehavior(Arc::clone(behavior.result())),
             SemanticDiagnosticFact::TargetValidity(target_validity),
@@ -616,6 +618,7 @@ enum SemanticDiagnosticFact {
     Refinements(Arc<DiagnosticResult<CheckedRefinementFacts>>),
     StorageFlow(Arc<DiagnosticResult<StorageFlowFacts>>),
     Dependencies(Arc<DiagnosticResult<CheckedDependencyContracts>>),
+    Memory(Arc<DiagnosticResult<CheckedMemoryOperations>>),
     Async(Arc<DiagnosticResult<CheckedAsyncFacts>>),
     BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
     TargetValidity(DiagnosticBag),
@@ -641,6 +644,7 @@ impl SemanticDiagnosticFact {
             Self::Refinements(result) => result.diagnostics(),
             Self::StorageFlow(result) => result.diagnostics(),
             Self::Dependencies(result) => result.diagnostics(),
+            Self::Memory(result) => result.diagnostics(),
             Self::Async(result) => result.diagnostics(),
             Self::BodyBehavior(result) => result.diagnostics(),
             Self::TargetValidity(diagnostics) => diagnostics,

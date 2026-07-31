@@ -4,9 +4,10 @@ use bray_binder::{BinderDependency, BoundUnitComputation};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitRoot, BoundWalkControl,
     BoundWalkEvent, BoundWalkOutcome, CheckedAsyncFacts, CheckedControlFlowFacts,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts,
-    CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
-    StorageFlowFacts, StoragePlan, walk_bound_unit_view,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, StorageFlowFacts,
+    StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     AsyncChecker, CheckerInfrastructureError, CheckerUnitView, DefaultAsyncChecker,
@@ -169,6 +170,16 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedDependencyContracts>>, FactQueryError> {
         let published =
             self.dependency_contracts_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns compiler-provided memory operations selected for one bound semantic unit.
+    pub fn memory_operations(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedMemoryOperations>>, FactQueryError> {
+        let published = self.memory_operations_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -794,15 +805,16 @@ mod tests {
     use bray_bound_tree::{
         AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencySubject,
         BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKind,
-        BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, ConstructionTarget,
-        ConversionTarget, DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates,
-        DeclaredValueTypeTerm, IndexTarget, PatternOperation, PatternPredicate, PatternProjection,
-        RefinementFactKind, SelectedArgument, SelectedOperation, SemanticSelection,
-        StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
-        StorageIdentity, StorageProjection, walk_bound_unit_view,
+        BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, CheckedMemoryOperationKind,
+        ConstructionTarget, ConversionTarget, DeclaredValueTypeConstraintKind,
+        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, IndexTarget, PatternOperation,
+        PatternPredicate, PatternProjection, RefinementFactKind, SelectedArgument,
+        SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageAccessRoot,
+        StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
+        walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
-    use bray_compiler_known::RepresentationRole;
+    use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
         ConstantValueKind, NamedTypeSymbolId, SymbolKind, SymbolOrdinal, TypeData,
@@ -813,7 +825,7 @@ mod tests {
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError, QueryPriority};
     use crate::test_support::{
         FactTestGate, compilation, compilation_with_sources_and_worker_budget,
-        source_callable_body_key,
+        compilation_with_target_operations, source_callable_body_key,
     };
 
     #[test]
@@ -2389,6 +2401,112 @@ mod tests {
 
         assert!(Arc::ptr_eq(&types, &repeated_types));
         assert!(Arc::ptr_eq(&selections, &repeated_selections));
+    }
+
+    #[test]
+    fn memory_operations_publish_lazily_from_compiler_known_hooks() {
+        let source = concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let pointer = core.memory.null<i32>();\n",
+            "}\n",
+        );
+
+        let compilation = compilation_with_target_operations(source, true, false);
+
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.memory_operations.is_published(&key),
+            Ok(false)
+        );
+
+        let selections = match compilation.semantic_selections(key.clone()) {
+            Ok(selections) => selections,
+            Err(error) => panic!("semantic selections must publish: {error:?}"),
+        };
+
+        let [selection] = selections.value().entries() else {
+            panic!(
+                "null pointer call must select one callable: {:?}",
+                selections.value().entries()
+            );
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("null pointer call must select a call");
+        };
+
+        let Some(definition) = call.target().declaration() else {
+            panic!("null pointer call must select a declaration");
+        };
+
+        assert_eq!(
+            compilation
+                .available_compiler_known_symbols()
+                .symbol_implementation(definition.symbol()),
+            Some(ImplementationHook::RawPointerNull)
+        );
+
+        let first = match compilation.memory_operations(key.clone()) {
+            Ok(operations) => operations,
+            Err(error) => panic!("memory operations must publish: {error:?}"),
+        };
+
+        assert!(
+            first.diagnostics().is_empty(),
+            "memory operation checking must be diagnostic-free: {:?}",
+            first.diagnostics()
+        );
+
+        let [operation] = first.value().operations() else {
+            panic!("null pointer call must publish one memory operation");
+        };
+
+        assert!(matches!(
+            operation.kind(),
+            CheckedMemoryOperationKind::Null { .. }
+        ));
+
+        let repeated = match compilation.memory_operations(key) {
+            Ok(operations) => operations,
+            Err(error) => panic!("repeated memory operations must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &repeated));
+    }
+
+    #[test]
+    fn unavailable_memory_operations_publish_structured_target_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let pointer = core.memory.null<i32>();\n",
+            "}\n",
+        ));
+
+        let operations = match compilation.memory_operations(source_callable_body_key(&compilation))
+        {
+            Ok(operations) => operations,
+            Err(error) => panic!("memory operations must publish: {error:?}"),
+        };
+
+        assert!(operations.value().operations().is_empty());
+
+        let mut diagnostics = operations.diagnostics().iter();
+
+        let Some(diagnostic) = diagnostics.next() else {
+            panic!("unavailable operation must publish one diagnostic");
+        };
+
+        assert!(diagnostics.next().is_none());
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::CheckingTargetMemoryOperationUnavailable
+        );
     }
 
     #[test]
