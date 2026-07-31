@@ -44,6 +44,12 @@ pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown_v
 /// Stable symbol allocating runtime-owned task storage.
 pub const TASK_ALLOCATION_SYMBOL: &str = "bray_runtime_task_allocation_v1";
 
+/// Stable symbol allocating manually managed Bray storage.
+pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation_v1";
+
+/// Stable symbol releasing manually managed Bray storage.
+pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation_v1";
+
 /// Stable symbol publishing an allocated task for execution.
 pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v1";
 

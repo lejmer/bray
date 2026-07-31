@@ -4,6 +4,7 @@ mod control;
 mod core;
 mod effect;
 mod generator;
+mod memory;
 mod place;
 mod scalar;
 mod support;
