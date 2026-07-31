@@ -120,6 +120,26 @@ pub enum CheckedMemoryOperationKind {
     Deallocate,
 }
 
+impl CheckedMemoryOperationKind {
+    /// Returns the exact number of runtime operands required by this operation.
+    pub const fn operand_count(self) -> usize {
+        match self {
+            Self::Address { .. }
+            | Self::IsNull { .. }
+            | Self::Reinterpret { .. }
+            | Self::Read { .. } => 1,
+            Self::Offset { .. } | Self::Write { .. } | Self::Allocate => 2,
+            Self::Copy { .. } | Self::Deallocate => 3,
+            Self::Null { .. } | Self::LayoutQuery { .. } => 0,
+        }
+    }
+
+    /// Returns whether the operation produces a value instead of only changing memory state.
+    pub const fn produces_value(self) -> bool {
+        !matches!(self, Self::Write { .. } | Self::Copy { .. } | Self::Deallocate)
+    }
+}
+
 /// One source-correlated checked memory operation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedMemoryOperation {

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{ConversionTarget, SelectedConversion};
+use bray_bound_tree::{CheckedMemoryOperationKind, ConversionTarget, SelectedConversion};
 use bray_symbols::TypeId;
 
 use crate::{
@@ -80,9 +80,34 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         }
         MirOperationKind::Generator(operation) => collect_generator_types(operation, types),
         MirOperationKind::Call(call) => collect_call_types(call, types),
+        MirOperationKind::Memory(memory) => {
+            collect_operands_types(memory.operands(), types);
+            collect_memory_types(memory.kind(), types);
+        }
         MirOperationKind::PanicReport(cause) => collect_panic_types(cause, types),
         MirOperationKind::Async(operation) => collect_async_types(operation, types),
         MirOperationKind::Host(operation) => collect_host_types(operation, types),
+    }
+}
+
+fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
+    match kind {
+        CheckedMemoryOperationKind::Address { pointee, .. }
+        | CheckedMemoryOperationKind::Null { pointee }
+        | CheckedMemoryOperationKind::IsNull { pointee }
+        | CheckedMemoryOperationKind::Offset { pointee, .. }
+        | CheckedMemoryOperationKind::Read { pointee, .. }
+        | CheckedMemoryOperationKind::Write { pointee }
+        | CheckedMemoryOperationKind::Copy { pointee, .. } => {
+            types.insert(pointee);
+        }
+        CheckedMemoryOperationKind::Reinterpret { source, target } => {
+            types.extend([source, target]);
+        }
+        CheckedMemoryOperationKind::LayoutQuery { ty, .. } => {
+            types.insert(ty);
+        }
+        CheckedMemoryOperationKind::Allocate | CheckedMemoryOperationKind::Deallocate => {}
     }
 }
 

@@ -219,10 +219,12 @@ mod tests {
         BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsyncFacts,
         CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
         CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
+        CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
         CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
         ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        LivenessFacts, OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion,
-        SelectedOperation, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+        LivenessFacts, MemoryOperationDecision, MemoryOperationStatus, OperatorTarget,
+        SelectedArgument, SelectedCall, SelectedConversion, SelectedOperation,
+        SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
         SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
     };
     use bray_ir::{
@@ -320,7 +322,7 @@ mod tests {
 
     #[test]
     fn lowering_retains_selected_call_behavior_and_runtime_defaults() {
-        let (fixture, call_type) = selected_call_fixture(83);
+        let (fixture, call_type) = selected_call_fixture(83, true);
 
         let input = fixture.input();
 
@@ -348,6 +350,67 @@ mod tests {
                 MirCallArgument::Explicit { ordinal: 0, .. },
                 MirCallArgument::Default { ordinal: 1, .. }
             ]
+        ));
+    }
+
+    #[test]
+    fn lowering_replaces_only_checked_memory_calls_with_explicit_mir() {
+        let (mut fixture, pointee) = selected_call_fixture(84, false);
+
+        let [entry] = fixture.selections.entries() else {
+            panic!("selected call fixture must contain one selection");
+        };
+
+        let expression = entry.expression();
+
+        let SemanticSelection::Call(call) = entry.selection() else {
+            panic!("selected call fixture must contain a call");
+        };
+
+        let [SelectedArgument::Explicit {
+            expression: argument,
+            ..
+        }] = call.arguments()
+        else {
+            panic!("memory fixture must contain one explicit argument");
+        };
+
+        let operations = CheckedMemoryOperations::try_new(
+            fixture.unit.unit(),
+            fixture.unit.key().kind(),
+            [CheckedMemoryOperation::new(
+                expression,
+                CheckedMemoryOperationKind::Read {
+                    pointee,
+                    kind: bray_bound_tree::MemoryReadKind::Copy,
+                },
+                [*argument],
+            )],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("checked memory operation must validate: {error:?}"));
+
+        fixture.storage_flow = fixture
+            .storage_flow
+            .with_memory_operations(
+                &operations,
+                [MemoryOperationDecision::new(
+                    expression,
+                    MemoryOperationStatus::Valid,
+                )],
+            )
+            .unwrap_or_else(|error| panic!("memory flow must validate: {error:?}"));
+
+        let mir = lower_unit(fixture.input())
+            .unwrap_or_else(|error| panic!("checked memory call must lower: {error:?}"));
+
+        assert!(matches!(
+            mir.operations()[0].kind(),
+            MirOperationKind::Memory(operation)
+                if operation.kind() == (CheckedMemoryOperationKind::Read {
+                    pointee,
+                    kind: bray_bound_tree::MemoryReadKind::Copy,
+                })
         ));
     }
 
@@ -393,7 +456,10 @@ mod tests {
         }
     }
 
-    fn selected_call_fixture(unit_id: u32) -> (LoweringFixture, bray_symbols::TypeId) {
+    fn selected_call_fixture(
+        unit_id: u32,
+        include_default: bool,
+    ) -> (LoweringFixture, bray_symbols::TypeId) {
         let values = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
 
@@ -504,30 +570,33 @@ mod tests {
             .empty_dependency_contract_template()
             .unwrap_or_else(|error| panic!("empty dependency template must exist: {error:?}"));
 
+        let mut arguments = vec![SelectedArgument::Explicit {
+            expression: argument,
+            parameter: Some(CallableParameterSymbolId::from_symbol_id(SymbolId::new(2))),
+            ordinal: 0,
+            conversion: SelectedConversion::new(
+                ty,
+                ty,
+                bray_bound_tree::ConversionTarget::Identity,
+            ),
+        }];
+
+        if include_default {
+            arguments.push(SelectedArgument::Default {
+                parameter: CallableParameterSymbolId::from_symbol_id(SymbolId::new(3)),
+                ordinal: 1,
+                provider: CallableParameterDefaultProviderSymbolId::from_symbol_id(
+                    SymbolId::new(4),
+                ),
+            });
+        }
+
         let selected = SelectedCall::new(
             resolution,
             CallableAbi::C,
             CallablePhaseBehaviors::empty(CallableDependencyContracts::synchronous(dependency)),
             None,
-            [
-                SelectedArgument::Explicit {
-                    expression: argument,
-                    parameter: Some(CallableParameterSymbolId::from_symbol_id(SymbolId::new(2))),
-                    ordinal: 0,
-                    conversion: SelectedConversion::new(
-                        ty,
-                        ty,
-                        bray_bound_tree::ConversionTarget::Identity,
-                    ),
-                },
-                SelectedArgument::Default {
-                    parameter: CallableParameterSymbolId::from_symbol_id(SymbolId::new(3)),
-                    ordinal: 1,
-                    provider: CallableParameterDefaultProviderSymbolId::from_symbol_id(
-                        SymbolId::new(4),
-                    ),
-                },
-            ],
+            arguments,
             [],
         );
 

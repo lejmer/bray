@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundCallResult, BoundUnitKey, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget, PatternProjection, SelectedConversion,
+    BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionDefaultProvider,
+    ConstructionInputId, ConstructionTarget, PatternProjection, SelectedConversion,
 };
 use bray_runtime_interface::{ProtectedAsyncFrameId, RootExecution};
 use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
@@ -97,6 +97,36 @@ pub enum MirGeneratorKind {
     Array,
     /// A lazy generator value.
     General,
+}
+
+/// One explicit compiler-provided memory operation with evaluated operands.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirMemoryOperation {
+    kind: CheckedMemoryOperationKind,
+    operands: Arc<[MirOperand]>,
+}
+
+impl MirMemoryOperation {
+    /// Creates one memory operation in evaluation order.
+    pub fn new(
+        kind: CheckedMemoryOperationKind,
+        operands: impl IntoIterator<Item = MirOperand>,
+    ) -> Self {
+        Self {
+            kind,
+            operands: shared_slice(operands),
+        }
+    }
+
+    /// Returns the checked memory behavior.
+    pub const fn kind(&self) -> CheckedMemoryOperationKind {
+        self.kind
+    }
+
+    /// Returns evaluated operands in declaration order.
+    pub fn operands(&self) -> &[MirOperand] {
+        &self.operands
+    }
 }
 
 /// One explicit generator accumulation step.
@@ -491,6 +521,8 @@ pub enum MirOperationKind {
     Generator(MirGeneratorOperation),
     /// Invoke an exact callable target.
     Call(MirCall),
+    /// Perform one checked compiler-provided memory operation.
+    Memory(MirMemoryOperation),
     /// Create an owned panic report from one checked failure cause.
     PanicReport(MirPanicCause),
     /// Run checked finalization for a storage place.

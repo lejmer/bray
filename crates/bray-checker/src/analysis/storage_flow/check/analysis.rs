@@ -151,7 +151,7 @@ where
             || liveness.is_recovered()
             || refinements.is_recovered(),
     )
-    .and_then(|facts| facts.with_memory_operations(memory_decisions))
+    .and_then(|facts| facts.with_memory_operations(memory, memory_decisions))
     {
         Ok(facts) => facts,
         Err(_) => {

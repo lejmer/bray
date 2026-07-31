@@ -94,6 +94,7 @@ fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedC
         | MirOperationKind::Convert { .. }
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(_)
+        | MirOperationKind::Memory(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)

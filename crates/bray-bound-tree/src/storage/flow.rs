@@ -4,7 +4,8 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
     BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-    MemoryOperationDecision, StorageAccessId, StorageAccessPurpose, StorageIdentityId,
+    CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision, StorageAccessId,
+    StorageAccessPurpose, StorageIdentityId,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -214,6 +215,7 @@ pub struct StorageFlowFacts {
     suspensions: Arc<[StorageSuspensionState]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
+    checked_memory_operations: Arc<[CheckedMemoryOperation]>,
     is_recovered: bool,
 }
 
@@ -286,6 +288,7 @@ impl StorageFlowFacts {
             suspensions: shared_slice(suspensions),
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
+            checked_memory_operations: Arc::from([]),
             is_recovered,
         })
     }
@@ -293,9 +296,14 @@ impl StorageFlowFacts {
     /// Adds validated memory-flow decisions without mutating the published facts.
     pub fn with_memory_operations(
         mut self,
-        operations: impl IntoIterator<Item = MemoryOperationDecision>,
+        checked: &CheckedMemoryOperations,
+        decisions: impl IntoIterator<Item = MemoryOperationDecision>,
     ) -> Result<Self, StorageFlowFactsBuildError> {
-        let mut operations = operations.into_iter().collect::<Vec<_>>();
+        if checked.unit() != self.unit || checked.kind() != self.kind {
+            return Err(StorageFlowFactsBuildError::ForeignUnit);
+        }
+
+        let mut operations = decisions.into_iter().collect::<Vec<_>>();
 
         if operations
             .iter()
@@ -314,6 +322,7 @@ impl StorageFlowFacts {
         }
 
         self.memory_operations = shared_slice(operations);
+        self.checked_memory_operations = shared_slice(checked.operations().iter().cloned());
 
         Ok(self)
     }
@@ -354,6 +363,17 @@ impl StorageFlowFacts {
     /// Returns memory-operation decisions in bound-expression order.
     pub fn memory_operations(&self) -> &[MemoryOperationDecision] {
         &self.memory_operations
+    }
+
+    /// Returns the checked memory operation for one bound expression.
+    pub fn checked_memory_operation(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<&CheckedMemoryOperation> {
+        self.checked_memory_operations
+            .binary_search_by_key(&expression, CheckedMemoryOperation::expression)
+            .ok()
+            .map(|index| &self.checked_memory_operations[index])
     }
 
     /// Returns whether recovery prevented complete storage decisions.

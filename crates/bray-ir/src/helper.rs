@@ -166,6 +166,7 @@ impl MirOperationKind {
             | Self::Binary { .. }
             | Self::Aggregate(_)
             | Self::PatternProjection { .. }
+            | Self::Memory(_)
             | Self::Async(_)
             | Self::Host(_) => {}
         }
