@@ -75,9 +75,7 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
     let values: Vec<_> = match kind {
         ConstantValueKind::NullablePresent(value) => vec![*value],
         ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => values.to_vec(),
-        ConstantValueKind::Product(fields) => {
-            fields.iter().map(|field| *field.value()).collect()
-        }
+        ConstantValueKind::Product(fields) => fields.iter().map(|field| *field.value()).collect(),
         ConstantValueKind::Union { fields, .. } => {
             fields.iter().map(|field| *field.value()).collect()
         }
@@ -95,16 +93,11 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
     values.into_iter()
 }
 
-fn collect_operation_values(
-    operation: &MirOperationKind,
-    demands: &mut ConstantDemands,
-) {
+fn collect_operation_values(operation: &MirOperationKind, demands: &mut ConstantDemands) {
     match operation {
         MirOperationKind::AnonymousCallable(_) => {}
         MirOperationKind::Store {
-            destination,
-            value,
-            ..
+            destination, value, ..
         } => {
             collect_place_values(destination, demands);
             collect_operand_value(value, demands);
@@ -141,10 +134,7 @@ fn collect_operation_values(
     }
 }
 
-fn collect_terminator_values(
-    terminator: &MirTerminatorKind,
-    demands: &mut ConstantDemands,
-) {
+fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut ConstantDemands) {
     match terminator {
         MirTerminatorKind::Goto(edge) => collect_edge_values(edge, demands),
         MirTerminatorKind::Branch {
@@ -205,13 +195,15 @@ fn collect_terminator_values(
             collect_cleanup_edge_values(edges.panicked(), demands);
             collect_cleanup_edge_values(edges.cancelled(), demands);
         }
-        MirTerminatorKind::BeginCleanup(edge)
-        | MirTerminatorKind::ContinueCleanup(edge) => {
+        MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {
             collect_cleanup_edge_values(edge, demands);
         }
         MirTerminatorKind::Panic { report, cleanup } => {
             collect_operand_value(report, demands);
             collect_cleanup_edge_values(cleanup, demands);
+        }
+        MirTerminatorKind::PropagatePanic { report, .. } => {
+            collect_operand_value(report, demands);
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             collect_cleanup_edge_values(cleanup, demands);
@@ -219,10 +211,7 @@ fn collect_terminator_values(
     }
 }
 
-fn collect_generator_values(
-    operation: &MirGeneratorOperation,
-    demands: &mut ConstantDemands,
-) {
+fn collect_generator_values(operation: &MirGeneratorOperation, demands: &mut ConstantDemands) {
     match operation {
         MirGeneratorOperation::Begin { destination, .. }
         | MirGeneratorOperation::Finish { destination }
@@ -237,10 +226,7 @@ fn collect_generator_values(
     }
 }
 
-fn collect_async_values(
-    operation: &MirAsyncOperation,
-    demands: &mut ConstantDemands,
-) {
+fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDemands) {
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
             MirFrameInitializer::Callable(call) => collect_call_values(call, demands),
@@ -282,14 +268,11 @@ fn collect_async_values(
     }
 }
 
-fn collect_host_values(
-    operation: &MirHostOperation,
-    _demands: &mut ConstantDemands,
-) {
+fn collect_host_values(operation: &MirHostOperation, _demands: &mut ConstantDemands) {
     match operation {
         MirHostOperation::ExecuteRoot { .. }
-        | MirHostOperation::RequestRootCancellation { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
+        | MirHostOperation::ResolveRootTerminal { .. }
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
     }
@@ -322,10 +305,7 @@ fn collect_edge_values(edge: &MirEdge, demands: &mut ConstantDemands) {
     collect_operands(edge.arguments(), demands);
 }
 
-fn collect_cleanup_edge_values(
-    edge: &MirCleanupEdge,
-    demands: &mut ConstantDemands,
-) {
+fn collect_cleanup_edge_values(edge: &MirCleanupEdge, demands: &mut ConstantDemands) {
     collect_edge_values(edge.edge(), demands);
 }
 

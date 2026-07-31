@@ -3,21 +3,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use crate::{digest, workspace};
 use bray_runtime_interface::{
-    BinarySymbolName, COMPATIBLE_LANE_SELECTION_SYMBOL,
-    CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL, JOIN_REGISTRATION_SYMBOL,
-    MAIN_THREAD_LANE_DRIVE_SYMBOL, MAIN_THREAD_LANE_STARTUP_SYMBOL,
-    PanicAbiIdentity, ProtectedFrameAbiVersions, RUNTIME_EVENT_SYMBOL,
-    RuntimeAbiRole, RuntimeAbiVersion,
-    RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
+    AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
+    COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
+    ENTRY_FAILURE_REPORTING_SYMBOL, FRAME_COMPLETION_MOVE_SYMBOL, JOIN_REGISTRATION_SYMBOL,
+    MAIN_THREAD_LANE_DRIVE_SYMBOL, MAIN_THREAD_LANE_STARTUP_SYMBOL, PANIC_PROPAGATION_SYMBOL,
+    PANIC_REPORT_CONSTRUCTION_SYMBOL, PANIC_REPORTING_SYMBOL, PanicAbiIdentity,
+    ProtectedFrameAbiVersions, ROOT_CANCELLATION_REQUEST_SYMBOL, ROOT_COMPLETION_RESOLUTION_SYMBOL,
+    ROOT_EXECUTION_SYMBOL, ROOT_TERMINAL_OBSERVATION_SYMBOL, RUNTIME_EVENT_SYMBOL, RuntimeAbiRole,
+    RuntimeAbiVersion, RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
     RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
-    RuntimeRoleImplementation, ROOT_EXECUTION_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL,
-    SUSPENSION_REGISTRATION_SYMBOL, TASK_ALLOCATION_SYMBOL,
-    TASK_CANCELLATION_REQUEST_SYMBOL, TASK_START_SYMBOL,
-    TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
+    RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
+    SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
+    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
 };
 use bray_target::TargetIdentity;
-use crate::{digest, workspace};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
     <build --target <triple> --output <directory> [--profile <profile>] | smoke-test>";
@@ -54,9 +55,7 @@ fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, Com
     build(&options)
 }
 
-fn smoke_test_command(
-    mut arguments: impl Iterator<Item = String>,
-) -> Result<(), CommandError> {
+fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
     if let Some(argument) = arguments.next() {
         return Err(CommandError::UnexpectedArgument(argument));
     }
@@ -81,25 +80,43 @@ fn smoke_test_command(
     Ok(())
 }
 
+pub(crate) fn smoke_test_host() -> Result<(), String> {
+    smoke_test_command(std::iter::empty()).map_err(|error| error.to_string())
+}
+
+pub(crate) fn build_for_readiness(target: &str, output: &Path) -> Result<PathBuf, String> {
+    let options = BuildOptions {
+        target: target.to_owned(),
+        output: output.to_path_buf(),
+        profile: "release".to_owned(),
+    };
+
+    build(&options)
+        .map(|package| package.metadata)
+        .map_err(|error| error.to_string())
+}
+
 fn build(options: &BuildOptions) -> Result<Package, CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
     let target_directory = root.join("target");
 
-    let status = Command::new("cargo")
-        .current_dir(&root)
-        .args([
-            "build",
-            "--package",
-            "bray-runtime",
-            "--target",
-            &options.target,
-            "--profile",
-            &options.profile,
-            "--target-dir",
-        ])
-        .arg(&target_directory)
-        .status()
-        .map_err(CommandError::Cargo)?;
+    let mut command = Command::new("cargo");
+
+    command.current_dir(&root).args([
+        "build",
+        "--package",
+        "bray-runtime",
+        "--target",
+        &options.target,
+        "--profile",
+        &options.profile,
+        "--target-dir",
+    ]);
+
+    command.arg(&target_directory);
+    configure_cross_c_toolchain(&mut command, &root, &options.target);
+
+    let status = command.status().map_err(CommandError::Cargo)?;
 
     if !status.success() {
         return Err(CommandError::BuildFailed);
@@ -118,8 +135,7 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
     fs::create_dir_all(&options.output)
         .map_err(|error| CommandError::write(&options.output, error))?;
 
-    fs::copy(&source, &archive)
-        .map_err(|error| CommandError::copy(&source, &archive, error))?;
+    fs::copy(&source, &archive).map_err(|error| CommandError::copy(&source, &archive, error))?;
 
     let digest = digest_file(&archive)?;
     let metadata_value = metadata(options, archive_file_name, digest)?;
@@ -128,8 +144,7 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
         .encode_json()
         .map_err(|_| CommandError::MetadataEncoding)?;
 
-    fs::write(&metadata_path, bytes)
-        .map_err(|error| CommandError::write(&metadata_path, error))?;
+    fs::write(&metadata_path, bytes).map_err(|error| CommandError::write(&metadata_path, error))?;
 
     Ok(Package {
         archive,
@@ -137,25 +152,37 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
     })
 }
 
+fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: &str) {
+    if !cfg!(windows) || target != "x86_64-unknown-linux-gnu" {
+        return;
+    }
+
+    command
+        .env(
+            "CC_x86_64_unknown_linux_gnu",
+            crate::llvm::tool_path(root, "clang"),
+        )
+        .env(
+            "AR_x86_64_unknown_linux_gnu",
+            crate::llvm::tool_path(root, "llvm-ar"),
+        );
+}
+
 fn metadata(
     options: &BuildOptions,
     archive_file_name: &str,
     digest: RuntimeArtifactDigest,
 ) -> Result<RuntimeArtifactMetadata, CommandError> {
-    let identity = RuntimeIdentity::try_new(RUNTIME_IDENTITY)
+    let identity =
+        RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
+
+    let artifact = RuntimeArtifactId::try_new(format!("{RUNTIME_IDENTITY}.{}", options.target))
         .ok_or(CommandError::MetadataContract)?;
 
-    let artifact = RuntimeArtifactId::try_new(format!(
-        "{RUNTIME_IDENTITY}.{}",
-        options.target
-    ))
-    .ok_or(CommandError::MetadataContract)?;
+    let target =
+        TargetIdentity::try_new(options.target.clone()).ok_or(CommandError::MetadataContract)?;
 
-    let target = TargetIdentity::try_new(options.target.clone())
-        .ok_or(CommandError::MetadataContract)?;
-
-    let panic_abi = PanicAbiIdentity::try_new(PANIC_ABI)
-        .ok_or(CommandError::MetadataContract)?;
+    let panic_abi = PanicAbiIdentity::try_new(PANIC_ABI).ok_or(CommandError::MetadataContract)?;
 
     let contract = RuntimeContract::try_new(
         identity,
@@ -180,8 +207,46 @@ fn metadata(
 fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
     [
         (RuntimeAbiRole::RootExecution, ROOT_EXECUTION_SYMBOL),
+        (
+            RuntimeAbiRole::SynchronousRootExecution,
+            SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::RootCancellationRequest,
+            ROOT_CANCELLATION_REQUEST_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::CleanupIncidentReporting,
+            CLEANUP_INCIDENT_REPORTING_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::RootTerminalObservation,
+            ROOT_TERMINAL_OBSERVATION_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::RootCompletionResolution,
+            ROOT_COMPLETION_RESOLUTION_SYMBOL,
+        ),
+        (RuntimeAbiRole::PanicReporting, PANIC_REPORTING_SYMBOL),
+        (
+            RuntimeAbiRole::PanicReportConstruction,
+            PANIC_REPORT_CONSTRUCTION_SYMBOL,
+        ),
+        (RuntimeAbiRole::PanicPropagation, PANIC_PROPAGATION_SYMBOL),
+        (
+            RuntimeAbiRole::EntryFailureReporting,
+            ENTRY_FAILURE_REPORTING_SYMBOL,
+        ),
         (RuntimeAbiRole::TaskAllocation, TASK_ALLOCATION_SYMBOL),
         (RuntimeAbiRole::TaskStart, TASK_START_SYMBOL),
+        (
+            RuntimeAbiRole::AwaitedFrameComposition,
+            AWAITED_FRAME_COMPOSITION_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::FrameCompletionMove,
+            FRAME_COMPLETION_MOVE_SYMBOL,
+        ),
         (
             RuntimeAbiRole::SuspensionRegistration,
             SUSPENSION_REGISTRATION_SYMBOL,
@@ -220,8 +285,7 @@ fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
     ]
     .into_iter()
     .map(|(role, name)| {
-        let symbol =
-            BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
+        let symbol = BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
 
         Ok(RuntimeRoleBinding::new(
             role,
@@ -238,11 +302,7 @@ fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
     Ok(RuntimeArtifactDigest::new(digest))
 }
 
-fn smoke_test(
-    package: &Package,
-    target: &str,
-    directory: &Path,
-) -> Result<(), CommandError> {
+fn smoke_test(package: &Package, target: &str, directory: &Path) -> Result<(), CommandError> {
     let source = directory.join("runtime-smoke.rs");
 
     let executable = directory.join(if cfg!(windows) {
@@ -251,13 +311,9 @@ fn smoke_test(
         "runtime-smoke"
     });
 
-    fs::write(&source, SMOKE_SOURCE)
-        .map_err(|error| CommandError::write(&source, error))?;
+    fs::write(&source, SMOKE_SOURCE).map_err(|error| CommandError::write(&source, error))?;
 
-    let archive = package
-        .archive
-        .to_str()
-        .ok_or(CommandError::NonUtf8Path)?;
+    let archive = package.archive.to_str().ok_or(CommandError::NonUtf8Path)?;
 
     let status = Command::new("rustc")
         .args([
@@ -278,12 +334,18 @@ fn smoke_test(
         return Err(CommandError::SmokeLinkFailed);
     }
 
-    let status = Command::new(&executable)
-        .status()
+    let output = Command::new(&executable)
+        .output()
         .map_err(CommandError::SmokeExecution)?;
 
-    if !status.success() {
+    if !output.status.success() {
         return Err(CommandError::SmokeExecutionFailed);
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !stderr.contains("cleanup_incident ordinal=0 ") {
+        return Err(CommandError::CleanupReportMissing);
     }
 
     Ok(())
@@ -299,8 +361,7 @@ fn host_target() -> Result<String, CommandError> {
         return Err(CommandError::HostTarget);
     }
 
-    let output =
-        String::from_utf8(output.stdout).map_err(|_| CommandError::HostTarget)?;
+    let output = String::from_utf8(output.stdout).map_err(|_| CommandError::HostTarget)?;
 
     output
         .lines()
@@ -318,11 +379,7 @@ fn archive_file_name(target: &str) -> &'static str {
 }
 
 fn profile_directory(profile: &str) -> &str {
-    if profile == "dev" {
-        "debug"
-    } else {
-        profile
-    }
+    if profile == "dev" { "debug" } else { profile }
 }
 
 struct BuildOptions {
@@ -341,10 +398,7 @@ impl BuildOptions {
             match argument.as_str() {
                 "--target" => target = Some(required_value(&mut arguments, "--target")?),
                 "--output" => {
-                    output = Some(PathBuf::from(required_value(
-                        &mut arguments,
-                        "--output",
-                    )?));
+                    output = Some(PathBuf::from(required_value(&mut arguments, "--output")?));
                 }
                 "--profile" => {
                     profile = required_value(&mut arguments, "--profile")?;
@@ -403,6 +457,7 @@ enum CommandError {
     SmokeLinkFailed,
     SmokeExecution(std::io::Error),
     SmokeExecutionFailed,
+    CleanupReportMissing,
 }
 
 impl CommandError {
@@ -434,7 +489,10 @@ impl fmt::Display for CommandError {
         match self {
             Self::Usage => formatter.write_str(USAGE),
             Self::UnexpectedArgument(argument) => {
-                write!(formatter, "unexpected runtime-artifact argument: {argument}")
+                write!(
+                    formatter,
+                    "unexpected runtime-artifact argument: {argument}"
+                )
             }
             Self::MissingValue(option) => {
                 write!(formatter, "{option} requires a value")
@@ -467,19 +525,18 @@ impl fmt::Display for CommandError {
             Self::TemporaryDirectory(error) => {
                 write!(formatter, "could not create smoke-test directory: {error}")
             }
-            Self::NonUtf8Path => {
-                formatter.write_str("runtime archive path is not valid UTF-8")
-            }
+            Self::NonUtf8Path => formatter.write_str("runtime archive path is not valid UTF-8"),
             Self::Rustc(error) => write!(formatter, "could not run rustc: {error}"),
             Self::HostTarget => formatter.write_str("could not determine rustc host target"),
-            Self::SmokeLinkFailed => {
-                formatter.write_str("runtime artifact smoke link failed")
-            }
+            Self::SmokeLinkFailed => formatter.write_str("runtime artifact smoke link failed"),
             Self::SmokeExecution(error) => {
                 write!(formatter, "could not run runtime smoke executable: {error}")
             }
             Self::SmokeExecutionFailed => {
                 formatter.write_str("runtime artifact smoke execution failed")
+            }
+            Self::CleanupReportMissing => {
+                formatter.write_str("runtime smoke did not report its cleanup incident")
             }
         }
     }
@@ -498,15 +555,12 @@ const SMOKE_SOURCE: &str = include_str!("../fixtures/runtime-smoke.rs");
 mod tests {
     use bray_runtime_interface::RuntimeAbiRole;
 
-    use super::{
-        BuildOptions, CommandError, archive_file_name, runtime_role_bindings,
-    };
+    use super::{BuildOptions, CommandError, archive_file_name, runtime_role_bindings};
 
     #[test]
     fn build_options_require_target_and_output() {
-        let result = BuildOptions::parse(
-            ["--target".to_owned(), "x86_64-test".to_owned()].into_iter(),
-        );
+        let result =
+            BuildOptions::parse(["--target".to_owned(), "x86_64-test".to_owned()].into_iter());
 
         assert!(matches!(result, Err(CommandError::Usage)));
     }
@@ -539,6 +593,16 @@ mod tests {
         assert_eq!(
             roles,
             [
+                RuntimeAbiRole::RootExecution,
+                RuntimeAbiRole::SynchronousRootExecution,
+                RuntimeAbiRole::RootCancellationRequest,
+                RuntimeAbiRole::CleanupIncidentReporting,
+                RuntimeAbiRole::RootTerminalObservation,
+                RuntimeAbiRole::RootCompletionResolution,
+                RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::PanicReportConstruction,
+                RuntimeAbiRole::PanicPropagation,
+                RuntimeAbiRole::EntryFailureReporting,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,
                 RuntimeAbiRole::SuspensionRegistration,

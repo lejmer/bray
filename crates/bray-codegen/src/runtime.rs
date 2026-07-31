@@ -292,6 +292,7 @@ mod tests {
             )),
             ProtectedFrameOperations::new(
                 binary_symbol_name("different_move"),
+                binary_symbol_name("frame_state"),
                 binary_symbol_name("frame_resume"),
                 binary_symbol_name("frame_cancel"),
                 binary_symbol_name("frame_broadcast"),
@@ -364,6 +365,7 @@ mod tests {
     fn frame_operation_names() -> ProtectedFrameOperations {
         ProtectedFrameOperations::new(
             binary_symbol_name("frame_move_before_start"),
+            binary_symbol_name("frame_state"),
             binary_symbol_name("frame_resume"),
             binary_symbol_name("frame_cancel"),
             binary_symbol_name("frame_broadcast"),
@@ -419,18 +421,7 @@ mod tests {
             type_mapping.kind().clone(),
         )];
 
-        match CodegenMappings::try_new(
-            unit,
-            &target,
-            types,
-            symbols,
-            [],
-            [],
-            [],
-            [],
-            [],
-            [],
-        ) {
+        match CodegenMappings::try_new(unit, &target, types, symbols, [], [], [], [], [], []) {
             Ok(mappings) => mappings,
             Err(error) => panic!("test frame mappings must validate: {error:?}"),
         }

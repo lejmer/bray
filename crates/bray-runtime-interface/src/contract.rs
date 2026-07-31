@@ -6,9 +6,9 @@ use bray_target::TargetIdentity;
 
 use crate::role::canonical_role_bindings;
 use crate::{
-    BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, RuntimeAbiRole,
-    RuntimeAbiVersion, RuntimeArtifactId, RuntimeCompatibilityError, RuntimeContract,
-    RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, RuntimeAbiRole, RuntimeAbiVersion,
+    RuntimeArtifactId, RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity,
+    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 
 /// Execution-lane predicate that reachable code requires the product to satisfy.
@@ -135,6 +135,8 @@ pub enum ExecutableEntryResult {
     Fallible {
         /// Exact concrete result-union type.
         ty: TypeId,
+        /// Exact concrete recoverable error type.
+        error: TypeId,
         /// Compiler-known success variant of the result union.
         success_variant: UnionVariantSymbolId,
     },
@@ -228,9 +230,9 @@ impl ExecutableHostContractBuilder {
             .iter()
             .find(|binding| binding.implementation() == RuntimeRoleImplementation::BrayRuntime)
         {
-            return Err(
-                ExecutableHostContractBuildError::RuntimeOwnedHostBinding(binding.role()),
-            );
+            return Err(ExecutableHostContractBuildError::RuntimeOwnedHostBinding(
+                binding.role(),
+            ));
         }
 
         if let Some(runtime) = &self.runtime {
@@ -241,7 +243,10 @@ impl ExecutableHostContractBuilder {
             if let Some(role) = host_role_bindings
                 .iter()
                 .map(RuntimeRoleBinding::role)
-                .find(|role| runtime.role_binding(*role).is_some())
+                .find(|role| {
+                    self.requirements.roles().binary_search(role).is_ok()
+                        && runtime.role_binding(*role).is_some()
+                })
             {
                 return Err(ExecutableHostContractBuildError::DuplicateRole(role));
             }
@@ -256,8 +261,7 @@ impl ExecutableHostContractBuilder {
             (RootExecution::Asynchronous { .. }, None) => {
                 return Err(ExecutableHostContractBuildError::MissingRootFrameAdapter);
             }
-            (RootExecution::Synchronous, None)
-            | (RootExecution::Asynchronous { .. }, Some(_)) => {}
+            (RootExecution::Synchronous, None) | (RootExecution::Asynchronous { .. }, Some(_)) => {}
         }
 
         validate_root_contract(
@@ -411,13 +415,17 @@ fn validate_root_contract(
             || runtime.is_some_and(|runtime| runtime.role_binding(role).is_some())
     };
 
-    for role in [
-        RuntimeAbiRole::RootExecution,
-        RuntimeAbiRole::RootCancellationRequest,
-        RuntimeAbiRole::CleanupIncidentReporting,
-        RuntimeAbiRole::RootTerminalObservation,
-        RuntimeAbiRole::StructuredShutdown,
-    ] {
+    let root_role = if root == RootExecution::Synchronous
+        && requirements
+            .roles()
+            .contains(&RuntimeAbiRole::SynchronousRootExecution)
+    {
+        RuntimeAbiRole::SynchronousRootExecution
+    } else {
+        RuntimeAbiRole::RootExecution
+    };
+
+    for role in std::iter::once(root_role).chain(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL) {
         if !has_role(role) {
             return Err(ExecutableHostContractBuildError::MissingRole(role));
         }
@@ -691,9 +699,9 @@ mod tests {
         RuntimeRequirements::new(
             Some(runtime_identity()),
             RuntimeAbiVersion::new(1, 0),
-            Some(ProtectedFrameAbiVersions::uniform(
-                RuntimeAbiVersion::new(1, 0),
-            )),
+            Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                1, 0,
+            ))),
             target(),
             panic_abi(),
             [
@@ -735,6 +743,9 @@ mod tests {
             RuntimeAbiRole::CleanupIncidentReporting,
             RuntimeAbiRole::RootCancellationRequest,
             RuntimeAbiRole::RootExecution,
+            RuntimeAbiRole::RootCompletionResolution,
+            RuntimeAbiRole::PanicReporting,
+            RuntimeAbiRole::EntryFailureReporting,
         ]
         .into_iter()
         .map(compiler_binding)

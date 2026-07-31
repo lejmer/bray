@@ -1,7 +1,9 @@
 use std::str;
 use std::sync::Arc;
 
-use bray_symbols::{ImportedSymbolIdentityInput, InterfaceSymbolId, PackageIdentity, SymbolName};
+use bray_symbols::{
+    CallablePosition, ImportedSymbolIdentityInput, InterfaceSymbolId, PackageIdentity, SymbolName,
+};
 
 use super::{
     DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,
@@ -216,6 +218,10 @@ pub(crate) fn decode_relationships(
             InterfaceSymbolId::new(read_u32(&mut reader)?),
             InterfaceSymbolId::new(read_u32(&mut reader)?),
             read_u32(&mut reader)?,
+        )
+        .with_position(
+            CallablePosition::from_wire(read_u32(&mut reader)?)
+                .ok_or(InterfaceValidationError::Malformed)?,
         );
 
         let relationship = match read_u32(&mut reader)? {

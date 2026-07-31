@@ -107,14 +107,8 @@ impl MirRunResultEdges {
     /// Creates the three distinct run-result successors.
     pub fn new(
         completed: (bray_symbols::UnionVariantSymbolId, MirEdge),
-        panicked: (
-            bray_symbols::UnionVariantSymbolId,
-            MirCleanupEdge,
-        ),
-        cancelled: (
-            bray_symbols::UnionVariantSymbolId,
-            MirCleanupEdge,
-        ),
+        panicked: (bray_symbols::UnionVariantSymbolId, MirCleanupEdge),
+        cancelled: (bray_symbols::UnionVariantSymbolId, MirCleanupEdge),
     ) -> Self {
         Self {
             completed_variant: completed.0,
@@ -239,6 +233,13 @@ pub enum MirTerminatorKind {
         /// Cleanup entered before propagation.
         cleanup: MirCleanupEdge,
     },
+    /// Transfer an already-cleaned panic report to the nearest native run boundary.
+    PropagatePanic {
+        /// Owned panic report being propagated.
+        report: MirOperand,
+        /// Selected private panic-propagation ABI role.
+        runtime: crate::MirRuntimeReference,
+    },
     /// Abandon normal continuation because the current run was cancelled.
     CancelCurrentRun {
         /// Cleanup entered before propagation.
@@ -296,6 +297,7 @@ impl MirTerminatorKind {
             | Self::Switch { .. }
             | Self::Return(_)
             | Self::Unreachable
+            | Self::PropagatePanic { .. }
             | Self::Suspend { .. }
             | Self::ForwardRunResult { .. }
             | Self::BeginCleanup(_)

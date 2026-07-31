@@ -1,0 +1,6 @@
+module app;
+
+func main()
+{
+    panic("native readiness panic");
+}

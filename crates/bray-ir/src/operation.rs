@@ -239,7 +239,6 @@ impl MirConstruction {
     pub fn inputs(&self) -> &[MirConstructionInput] {
         &self.inputs
     }
-
 }
 
 /// Terminal state published for one task run.
@@ -403,15 +402,21 @@ pub enum MirHostOperation {
         /// Selected private root-execution ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Request cooperative cancellation when product shutdown begins.
-    RequestRootCancellation {
-        /// Selected private root-cancellation ABI role.
-        runtime: MirRuntimeReference,
-    },
     /// Observe the root terminal record.
     ObserveRootTerminal {
         /// Selected private terminal-observation ABI role.
         runtime: MirRuntimeReference,
+    },
+    /// Map and release the observed terminal root payload.
+    ResolveRootTerminal {
+        /// Recoverable error type whose lifecycle the host resolves after reporting.
+        error: Option<TypeId>,
+        /// Selected private completion-release ABI role.
+        completion: MirRuntimeReference,
+        /// Selected private panic-reporting ABI role.
+        panic: MirRuntimeReference,
+        /// Selected private recoverable-entry-failure reporting ABI role.
+        entry_failure: MirRuntimeReference,
     },
     /// Report and destroy cleanup incidents transferred to the host.
     ReportCleanupIncidents {

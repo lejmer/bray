@@ -9,6 +9,74 @@ use crate::{
     LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkedArtifactKind, LinkedProductKind,
     PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
 };
+use crate::SystemLinkerFamily;
+
+pub(super) fn system_arguments_for(
+    plan: &LinkPlan,
+    family: SystemLinkerFamily,
+) -> Result<Vec<OsString>, LldPlanError> {
+    match family {
+        SystemLinkerFamily::Gnu
+        | SystemLinkerFamily::Microsoft
+        | SystemLinkerFamily::Apple => arguments_for(plan, family.flavor()),
+        SystemLinkerFamily::GnuCompiler => gnu_compiler_arguments(plan, false),
+        SystemLinkerFamily::WslGnuCompiler => gnu_compiler_arguments(plan, true),
+    }
+}
+
+fn gnu_compiler_arguments(
+    plan: &LinkPlan,
+    through_wsl: bool,
+) -> Result<Vec<OsString>, LldPlanError> {
+    let raw = arguments_for(plan, LldFlavor::Elf)?;
+    let mut arguments = Vec::with_capacity(raw.len() + 4);
+
+    if through_wsl {
+        arguments.extend(["--exec".into(), "cc".into()]);
+    }
+
+    arguments.push("-pthread".into());
+
+    for argument in raw {
+        let Some(argument) = argument.to_str() else {
+            return Err(LldPlanError::NonUnicodeArgument);
+        };
+
+        if argument == "--entry=main" {
+            continue;
+        }
+
+        let transformed = match argument {
+            "--static" => OsString::from("-static"),
+            "--pie" => OsString::from("-pie"),
+            "--shared" => OsString::from("-shared"),
+            argument if argument.starts_with("--") => OsString::from(format!("-Wl,{argument}")),
+            argument if through_wsl => OsString::from(wsl_path(argument)),
+            argument => OsString::from(argument),
+        };
+
+        arguments.push(transformed);
+    }
+
+    Ok(arguments)
+}
+
+fn wsl_path(argument: &str) -> String {
+    let bytes = argument.as_bytes();
+
+    if bytes.len() < 3
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':'
+        || !matches!(bytes[2], b'\\' | b'/')
+    {
+        return argument.replace('\\', "/");
+    }
+
+    let drive = char::from(bytes[0]).to_ascii_lowercase();
+    let suffix = argument[3..].replace('\\', "/");
+
+    format!("/mnt/{drive}/{suffix}")
+}
 
 pub(super) fn arguments_for(
     plan: &LinkPlan,
@@ -388,6 +456,7 @@ pub(super) enum LldPlanError {
     UnsupportedDebugPolicy,
     UnsupportedFramework,
     UnsupportedLinkModel,
+    NonUnicodeArgument,
     UnsupportedProduct,
     UnsupportedSubsystem,
 }

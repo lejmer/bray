@@ -7,6 +7,8 @@ use crate::BinarySymbolName;
 pub enum RuntimeAbiRole {
     /// Begin and own the executable root run.
     RootExecution,
+    /// Execute one synchronous entry callback behind the product panic boundary.
+    SynchronousRootExecution,
     /// Request cancellation of the root run from its host.
     RootCancellationRequest,
     /// Allocate stable task-owned storage.
@@ -41,6 +43,12 @@ pub enum RuntimeAbiRole {
     MainThreadLaneDrive,
     /// Observe the root terminal record without creating a source task.
     RootTerminalObservation,
+    /// Release runtime-owned root completion storage after host resolution.
+    RootCompletionResolution,
+    /// Report and resolve one root panic payload.
+    PanicReporting,
+    /// Report one recoverable entrypoint failure value before host resolution.
+    EntryFailureReporting,
     /// Shut runtime and product-host infrastructure down in checked order.
     StructuredShutdown,
     /// Broadcast cancellation to tasks reachable from one frame.
@@ -63,6 +71,8 @@ pub enum RuntimeAbiRole {
     GeneratorDestruction,
     /// Construct one owned panic report.
     PanicReportConstruction,
+    /// Propagate one owned panic report to the nearest native run boundary.
+    PanicPropagation,
     /// Create one inactive erased protected frame.
     FrameCreation,
     /// Move one inactive erased protected frame before first resume.
@@ -75,8 +85,9 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 38] = [
         Self::RootExecution,
+        Self::SynchronousRootExecution,
         Self::RootCancellationRequest,
         Self::TaskAllocation,
         Self::TaskStart,
@@ -94,6 +105,9 @@ impl RuntimeAbiRole {
         Self::MainThreadLaneStartup,
         Self::MainThreadLaneDrive,
         Self::RootTerminalObservation,
+        Self::RootCompletionResolution,
+        Self::PanicReporting,
+        Self::EntryFailureReporting,
         Self::StructuredShutdown,
         Self::FrameTaskBroadcast,
         Self::FrameLifecycleResolution,
@@ -105,16 +119,29 @@ impl RuntimeAbiRole {
         Self::GeneratorCleanupBroadcast,
         Self::GeneratorDestruction,
         Self::PanicReportConstruction,
+        Self::PanicPropagation,
         Self::FrameCreation,
         Self::InactiveFrameMove,
         Self::AwaitedFrameComposition,
         Self::TaskDestruction,
     ];
 
+    /// Product-host control roles shared by synchronous and asynchronous roots.
+    pub const EXECUTABLE_HOST_CONTROL: [Self; 7] = [
+        Self::RootCancellationRequest,
+        Self::CleanupIncidentReporting,
+        Self::RootTerminalObservation,
+        Self::RootCompletionResolution,
+        Self::PanicReporting,
+        Self::EntryFailureReporting,
+        Self::StructuredShutdown,
+    ];
+
     /// Returns this role's stable textual name.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::RootExecution => "root_execution",
+            Self::SynchronousRootExecution => "synchronous_root_execution",
             Self::RootCancellationRequest => "root_cancellation_request",
             Self::TaskAllocation => "task_allocation",
             Self::TaskStart => "task_start",
@@ -132,6 +159,9 @@ impl RuntimeAbiRole {
             Self::MainThreadLaneStartup => "main_thread_lane_startup",
             Self::MainThreadLaneDrive => "main_thread_lane_drive",
             Self::RootTerminalObservation => "root_terminal_observation",
+            Self::RootCompletionResolution => "root_completion_resolution",
+            Self::PanicReporting => "panic_reporting",
+            Self::EntryFailureReporting => "entry_failure_reporting",
             Self::StructuredShutdown => "structured_shutdown",
             Self::FrameTaskBroadcast => "frame_task_broadcast",
             Self::FrameLifecycleResolution => "frame_lifecycle_resolution",
@@ -143,6 +173,7 @@ impl RuntimeAbiRole {
             Self::GeneratorCleanupBroadcast => "generator_cleanup_broadcast",
             Self::GeneratorDestruction => "generator_destruction",
             Self::PanicReportConstruction => "panic_report_construction",
+            Self::PanicPropagation => "panic_propagation",
             Self::FrameCreation => "frame_creation",
             Self::InactiveFrameMove => "inactive_frame_move",
             Self::AwaitedFrameComposition => "awaited_frame_composition",
@@ -152,9 +183,7 @@ impl RuntimeAbiRole {
 
     /// Resolves one stable textual role name.
     pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|role| role.as_str() == name)
+        Self::ALL.into_iter().find(|role| role.as_str() == name)
     }
 
     /// Returns the compiler-owned semantic contract of this closed ABI role.
@@ -188,6 +217,12 @@ pub enum RuntimeRoleContractEffect {
     PublishTerminalState,
     /// Acquire one terminal run state.
     AcquireTerminalState,
+    /// Release runtime-owned completion storage after payload resolution.
+    ReleaseRootCompletion,
+    /// Report and destroy one owned panic report.
+    ReportPanic,
+    /// Report one borrowed recoverable entry failure value.
+    ReportEntryFailure,
     /// Transfer ownership of a cleanup incident.
     TransferCleanupIncident,
     /// Report and destroy owned cleanup incidents.
@@ -212,6 +247,8 @@ pub enum RuntimeRoleContractEffect {
     DestroyGenerator,
     /// Construct one owned panic report.
     ConstructPanicReport,
+    /// Propagate one owned panic report without resuming the failed continuation.
+    PropagatePanic,
     /// Create one inactive protected frame value.
     CreateFrame,
     /// Move one inactive frame before first resume.
@@ -232,10 +269,7 @@ pub struct RuntimeRoleContract {
 }
 
 impl RuntimeRoleContract {
-    const fn new(
-        role: RuntimeAbiRole,
-        effects: &'static [RuntimeRoleContractEffect],
-    ) -> Self {
+    const fn new(role: RuntimeAbiRole, effects: &'static [RuntimeRoleContractEffect]) -> Self {
         Self { role, effects }
     }
 
@@ -345,9 +379,13 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
     use RuntimeRoleContractEffect as Effect;
 
     match role {
-        RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun],
-        RuntimeAbiRole::RootCancellationRequest
-        | RuntimeAbiRole::TaskCancellationRequest => &[Effect::RequestCancellation],
+        RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun, Effect::TransferFrame],
+        RuntimeAbiRole::SynchronousRootExecution => {
+            &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
+        }
+        RuntimeAbiRole::RootCancellationRequest | RuntimeAbiRole::TaskCancellationRequest => {
+            &[Effect::RequestCancellation]
+        }
         RuntimeAbiRole::TaskAllocation => &[Effect::AllocateTask],
         RuntimeAbiRole::TaskStart => &[Effect::TransferFrame, Effect::PublishWork],
         RuntimeAbiRole::FrameResume => &[Effect::ExecuteCallbackRoot],
@@ -359,20 +397,21 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
             Effect::AcquireTerminalState,
             Effect::EstablishVisibility,
         ],
-        RuntimeAbiRole::TerminalPublication => &[
-            Effect::PublishTerminalState,
-            Effect::EstablishVisibility,
-        ],
+        RuntimeAbiRole::TerminalPublication => {
+            &[Effect::PublishTerminalState, Effect::EstablishVisibility]
+        }
         RuntimeAbiRole::RuntimeEvent => &[Effect::ExecuteCallbackRoot],
         RuntimeAbiRole::CompatibleLaneSelection
         | RuntimeAbiRole::MainThreadLaneStartup
         | RuntimeAbiRole::MainThreadLaneDrive => &[],
         RuntimeAbiRole::CleanupIncidentTransfer => &[Effect::TransferCleanupIncident],
         RuntimeAbiRole::CleanupIncidentReporting => &[Effect::ReportCleanupIncidents],
-        RuntimeAbiRole::RootTerminalObservation => &[
-            Effect::AcquireTerminalState,
-            Effect::EstablishVisibility,
-        ],
+        RuntimeAbiRole::RootTerminalObservation => {
+            &[Effect::AcquireTerminalState, Effect::EstablishVisibility]
+        }
+        RuntimeAbiRole::RootCompletionResolution => &[Effect::ReleaseRootCompletion],
+        RuntimeAbiRole::PanicReporting => &[Effect::ReportPanic],
+        RuntimeAbiRole::EntryFailureReporting => &[Effect::ReportEntryFailure],
         RuntimeAbiRole::StructuredShutdown => &[Effect::StructuredShutdown],
         RuntimeAbiRole::FrameTaskBroadcast => &[Effect::BroadcastFrameTasks],
         RuntimeAbiRole::FrameLifecycleResolution => &[Effect::ResolveFrameLifecycle],
@@ -384,6 +423,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::GeneratorCleanupBroadcast => &[Effect::BroadcastGeneratorCleanup],
         RuntimeAbiRole::GeneratorDestruction => &[Effect::DestroyGenerator],
         RuntimeAbiRole::PanicReportConstruction => &[Effect::ConstructPanicReport],
+        RuntimeAbiRole::PanicPropagation => &[Effect::PropagatePanic],
         RuntimeAbiRole::FrameCreation => &[Effect::CreateFrame],
         RuntimeAbiRole::InactiveFrameMove => &[Effect::MoveFrame],
         RuntimeAbiRole::AwaitedFrameComposition => &[Effect::ComposeAwaitedFrame],
@@ -406,6 +446,14 @@ mod tests {
             [
                 RuntimeRoleContractEffect::TransferFrame,
                 RuntimeRoleContractEffect::PublishWork
+            ]
+        );
+
+        assert_eq!(
+            RuntimeAbiRole::RootExecution.contract().effects(),
+            [
+                RuntimeRoleContractEffect::EstablishRootRun,
+                RuntimeRoleContractEffect::TransferFrame,
             ]
         );
     }

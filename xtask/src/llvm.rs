@@ -112,6 +112,18 @@ fn toolchain_directory() -> Result<PathBuf, ToolchainError> {
     Ok(root.join("target").join(TOOLCHAIN_DIRECTORY))
 }
 
+pub(crate) fn tool_path(root: &Path, name: &str) -> PathBuf {
+    root.join("target")
+        .join(TOOLCHAIN_DIRECTORY)
+        .join(ACTIVE_DIRECTORY)
+        .join("bin")
+        .join(if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_owned()
+        })
+}
+
 fn rustc_host() -> Result<String, ToolchainError> {
     let output = Command::new("rustc")
         .arg("-vV")

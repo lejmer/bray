@@ -226,7 +226,8 @@ fn construction_input(
             relationship.owner(),
             relationship.member(),
             relationship.ordinal(),
-        );
+        )
+        .with_position(relationship.position());
 
         if relationship.allows_mutation() {
             imported.with_mutation()

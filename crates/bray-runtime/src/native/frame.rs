@@ -1,25 +1,29 @@
 use std::num::NonZeroUsize;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutionLaneRequirement, NativeFrameAffinity,
-    NativeFrameExit, NativeFrameProgressKind, NativeLaneRequirements,
-    NativeProtectedFrame, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
-    ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameLayout,
-    ProtectedFrameOperations, ProtectedFrameStateDescriptor,
+    BinarySymbolName, ExecutionLaneRequirement, NativeFrameAffinity, NativeFrameExit,
+    NativeFrameProgressKind, NativeLaneRequirements, NativeProtectedFrame, ProtectedAsyncFrameId,
+    ProtectedFrameAbiVersions, ProtectedFrameAffinity, ProtectedFrameDescriptor,
+    ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,
     ProtectedFrameStateId, RuntimeAbiVersion,
 };
 
 use crate::{
-    FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame,
-    RuntimePanic,
+    FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RuntimePanic,
 };
 
 pub(super) struct NativeFrame {
     descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
-    terminal_payload: Arc<Mutex<Option<NativeTerminalPayload>>>,
+    terminal: Arc<NativeTerminalState>,
+}
+
+pub(super) struct NativeTerminalState {
+    payload: Mutex<Option<NativeTerminalPayload>>,
+    cleanup_incidents: Mutex<Vec<Box<dyn std::any::Any + Send>>>,
 }
 
 pub(super) enum NativeTerminalPayload {
@@ -60,16 +64,12 @@ impl NativeFrame {
 
         let alignment = NonZeroUsize::new(abi.alignment())?;
 
-        let completion_alignment =
-            NonZeroUsize::new(abi.completion_alignment())?;
+        let completion_alignment = NonZeroUsize::new(abi.completion_alignment())?;
 
         let layout = ProtectedFrameLayout::try_new(abi.size(), alignment).ok()?;
 
-        let completion_layout = ProtectedFrameLayout::try_new(
-            abi.completion_size(),
-            completion_alignment,
-        )
-        .ok()?;
+        let completion_layout =
+            ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment).ok()?;
 
         let states = states(abi)?;
         let operations = operations(abi.identity())?;
@@ -89,21 +89,49 @@ impl NativeFrame {
         Some(Self {
             descriptor,
             abi: transfer.take(),
-            terminal_payload: Arc::new(Mutex::new(None)),
+            terminal: Arc::new(NativeTerminalState {
+                payload: Mutex::new(None),
+                cleanup_incidents: Mutex::new(Vec::new()),
+            }),
         })
     }
 
-    pub(super) fn terminal_payload(
-        &self,
-    ) -> Arc<Mutex<Option<NativeTerminalPayload>>> {
-        self.terminal_payload.clone()
+    pub(super) fn terminal_state(&self) -> Arc<NativeTerminalState> {
+        self.terminal.clone()
     }
 
     fn record_terminal_payload(&self, payload: NativeTerminalPayload) {
         *self
-            .terminal_payload
+            .terminal
+            .payload
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(payload);
+    }
+
+    fn record_cleanup_incident(&self, payload: Box<dyn std::any::Any + Send>) {
+        self.terminal
+            .cleanup_incidents
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(payload);
+    }
+}
+
+impl NativeTerminalState {
+    pub(super) fn take_payload(&self) -> Option<NativeTerminalPayload> {
+        self.payload
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+
+    pub(super) fn take_cleanup_incidents(&self) -> Vec<Box<dyn std::any::Any + Send>> {
+        std::mem::take(
+            &mut *self
+                .cleanup_incidents
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
     }
 }
 
@@ -114,21 +142,19 @@ impl ProtectedFrame for NativeFrame {
         &self.descriptor
     }
 
-    fn resume(
-        self: Pin<&mut Self>,
-        context: FrameContext,
-    ) -> FrameProgress<Self::Output> {
-        let progress = (self.abi.resume())(
-            self.abi.context(),
-            u8::from(context.cancellation_requested()),
-        );
+    fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
+        let progress = if context.cancellation_requested() {
+            (self.abi.cancel())(self.abi.context())
+        } else {
+            (self.abi.resume())(self.abi.context())
+        };
 
         let kind = progress.kind();
 
         if kind == NativeFrameProgressKind::SUSPENDED {
-            return FrameProgress::Suspended(FrameSuspension::new(
-                ProtectedFrameStateId::new(progress.state()),
-            ));
+            return FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(
+                progress.state(),
+            )));
         }
 
         if kind == NativeFrameProgressKind::COMPLETED {
@@ -139,7 +165,13 @@ impl ProtectedFrame for NativeFrame {
                 return FrameProgress::RuntimeFailure;
             };
 
-            (self.abi.move_completion())(self.abi.context(), payload.handle());
+            if let Err(incident) = catch_unwind(AssertUnwindSafe(|| {
+                (self.abi.move_completion())(self.abi.context(), payload.handle());
+            })) {
+                self.record_cleanup_incident(incident);
+
+                return FrameProgress::RuntimeFailure;
+            }
 
             let handle = payload.handle();
             self.record_terminal_payload(payload);
@@ -152,9 +184,7 @@ impl ProtectedFrame for NativeFrame {
         }
 
         if kind == NativeFrameProgressKind::PANICKED {
-            self.record_terminal_payload(NativeTerminalPayload::Opaque(
-                progress.payload(),
-            ));
+            self.record_terminal_payload(NativeTerminalPayload::Opaque(progress.payload()));
 
             return FrameProgress::Panicked(RuntimePanic::new(progress.payload()));
         }
@@ -163,7 +193,11 @@ impl ProtectedFrame for NativeFrame {
     }
 
     fn broadcast_tasks(self: Pin<&mut Self>) {
-        (self.abi.broadcast_tasks())(self.abi.context());
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            (self.abi.broadcast_tasks())(self.abi.context());
+        })) {
+            self.record_cleanup_incident(payload);
+        }
     }
 
     fn resolve_lifecycle(self: Pin<&mut Self>, exit: FrameExit) {
@@ -174,19 +208,25 @@ impl ProtectedFrame for NativeFrame {
             FrameExit::RuntimeFailure => NativeFrameExit::RUNTIME_FAILURE,
         };
 
-        (self.abi.resolve_lifecycle())(self.abi.context(), exit);
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            (self.abi.resolve_lifecycle())(self.abi.context(), exit);
+        })) {
+            self.record_cleanup_incident(payload);
+        }
     }
 }
 
 impl Drop for NativeFrame {
     fn drop(&mut self) {
-        (self.abi.destroy())(self.abi.context());
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            (self.abi.destroy())(self.abi.context());
+        })) {
+            self.record_cleanup_incident(payload);
+        }
     }
 }
 
-fn states(
-    abi: &NativeProtectedFrame,
-) -> Option<Vec<ProtectedFrameStateDescriptor>> {
+fn states(abi: &NativeProtectedFrame) -> Option<Vec<ProtectedFrameStateDescriptor>> {
     (0..abi.state_count())
         .map(|state| {
             let native = (abi.state())(abi.context(), state);
@@ -255,9 +295,7 @@ fn affinity(native: NativeFrameAffinity) -> Option<ProtectedFrameAffinity> {
     }
 }
 
-fn lane_requirements(
-    native: NativeLaneRequirements,
-) -> Option<Vec<ExecutionLaneRequirement>> {
+fn lane_requirements(native: NativeLaneRequirements) -> Option<Vec<ExecutionLaneRequirement>> {
     let known = NativeLaneRequirements::BLOCKING.bits()
         | NativeLaneRequirements::COMPUTE.bits()
         | NativeLaneRequirements::MAIN_THREAD.bits();
@@ -288,6 +326,7 @@ fn operations(identity: [u8; 32]) -> Option<ProtectedFrameOperations> {
 
     Some(ProtectedFrameOperations::new(
         operation_symbol(&prefix, "move_before_start")?,
+        operation_symbol(&prefix, "state_description")?,
         operation_symbol(&prefix, "resume")?,
         operation_symbol(&prefix, "cancellation_entry")?,
         operation_symbol(&prefix, "task_broadcast")?,

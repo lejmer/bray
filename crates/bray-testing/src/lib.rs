@@ -18,7 +18,8 @@ pub use bound_unit::{
 #[cfg(feature = "mir-unit")]
 pub use mir_unit::{
     test_async_executable_host_contract, test_async_executable_host_contract_for,
-    test_executable_host_contract, test_executable_host_contract_for, test_mir_target,
+    test_async_executable_host_contract_for_frame, test_executable_host_contract,
+    test_executable_host_contract_for, test_executable_host_contract_with_result, test_mir_target,
     test_mir_type, test_mir_unit, test_mir_unit_with_declaration,
 };
 pub use source::{test_source_at, test_source_snapshot, test_source_store, try_test_source_store};

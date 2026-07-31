@@ -1,9 +1,11 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{int_value, llvm, next_helper};
-use bray_codegen::{CodegenFailure, CodegenTypeKind};
+use super::super::support::{
+    aggregate_value_element, extract_value, insert_value, int_value, llvm, next_helper,
+};
+use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
-    BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirHelperReference,
-    MirOperation, MirOperationKind, MirPlace,
+    BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation,
+    MirOperationKind, MirPlace,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -97,21 +99,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *pattern_operation,
                 )?)
             }
-            MirOperationKind::PanicReport(cause) => {
-                let arguments = match cause {
-                    bray_ir::MirPanicCause::Message(message)
-                    | bray_ir::MirPanicCause::Assertion(Some(message)) => {
-                        vec![self.operand(message)?]
-                    }
-                    bray_ir::MirPanicCause::Assertion(None) => Vec::new(),
-                };
-
-                self.invoke_single_operation_helper(
-                    _id,
-                    MirHelperReference::PanicReport,
-                    &arguments,
-                )?
-            }
+            MirOperationKind::PanicReport(cause) => self.translate_panic_report(_id, cause)?,
             MirOperationKind::AnonymousCallable(unit) => {
                 Some(self.translate_anonymous_callable(_id, unit)?)
             }
@@ -146,8 +134,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Async(operation) => self.translate_async_operation(_id, operation)?,
-            MirOperationKind::Host(operation) => self.translate_host_operation(operation)?,
+            MirOperationKind::Async(asynchronous) => {
+                self.translate_async_operation(_id, operation, asynchronous)?
+            }
+            MirOperationKind::Host(operation) => self.translate_host_operation(_id, operation)?,
         };
 
         if let Some(id) = operation.result() {
@@ -159,6 +149,104 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(())
+    }
+
+    fn translate_panic_report(
+        &mut self,
+        operation: bray_ir::MirOperationId,
+        cause: &bray_ir::MirPanicCause,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let message = match cause {
+            bray_ir::MirPanicCause::Message(message)
+            | bray_ir::MirPanicCause::Assertion(Some(message)) => {
+                self.native_string_view(message)?
+            }
+            bray_ir::MirPanicCause::Assertion(None) => {
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero()
+                    .into()
+            }
+        };
+
+        let helpers = self.operation_helpers(operation)?;
+
+        let [helper] = helpers.as_slice() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        if helper.reference() != &MirHelperReference::PanicReport {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let Some(CodegenSymbolKey::Runtime(runtime)) = helper.symbol() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        if runtime.role() != bray_runtime_interface::RuntimeAbiRole::PanicReportConstruction {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        self.invoke_native_runtime(*runtime, &[message])
+    }
+
+    fn native_string_view(
+        &mut self,
+        message: &bray_ir::MirOperand,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let message_type = self.operand_type(message)?;
+        let message = self.operand(message)?;
+
+        let fields = self
+            .request
+            .mappings()
+            .ty(message_type)
+            .and_then(|mapping| match mapping.kind() {
+                CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => Some(fields.clone()),
+                _ => None,
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let pointer = fields
+            .iter()
+            .position(|field| {
+                self.request
+                    .mappings()
+                    .ty(field.ty())
+                    .is_some_and(|mapping| {
+                        matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
+                    })
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let length = 1_usize
+            .checked_sub(pointer)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let pointer_element = u32::try_from(aggregate_value_element(
+            self.request.mappings(),
+            &fields,
+            pointer,
+        )?)
+        .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+        let pointer = extract_value(&self.builder, message, pointer_element)?;
+
+        let length_element = u32::try_from(aggregate_value_element(
+            self.request.mappings(),
+            &fields,
+            length,
+        )?)
+        .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+        let length = extract_value(&self.builder, message, length_element)?;
+
+        let mut view = crate::native::string_view_type(self.types.context(), self.request.target())
+            .const_zero()
+            .into();
+
+        view = insert_value(&self.builder, view, pointer, 0)?;
+
+        insert_value(&self.builder, view, length, 1)
     }
 
     pub(super) fn translate_anonymous_callable(
@@ -215,10 +303,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn translate_async_operation(
         &mut self,
         operation_id: bray_ir::MirOperationId,
-        operation: &MirAsyncOperation,
+        operation: &MirOperation,
+        asynchronous: &MirAsyncOperation,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         // Keep this exhaustive so every async operation requires an explicit translation.
-        match operation {
+        match asynchronous {
             MirAsyncOperation::CreateFrame { frame, initializer } => {
                 self.translate_frame_creation(operation_id, *frame, initializer)
             }
@@ -253,20 +342,44 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_runtime(*runtime, &[storage, state])
             }
             MirAsyncOperation::ComposeAwaitedFrame { child, frame, .. } => {
-                let frame = self.operand(frame)?;
+                let frame = self.native_inactive_frame(frame)?;
 
-                self.invoke_single_operation_helper(
+                let runtime = self.operation_runtime_helper(
                     operation_id,
                     MirHelperReference::ComposeAwaitedFrame(*child),
-                    &[frame],
-                )
+                )?;
+
+                self.invoke_native_runtime(runtime, &[frame])
             }
-            MirAsyncOperation::CommitAwaitedCompletion { child } => self
-                .invoke_single_operation_helper(
+            MirAsyncOperation::CommitAwaitedCompletion { child } => {
+                let runtime = self.operation_runtime_helper(
                     operation_id,
                     MirHelperReference::CommitAwaitedCompletion(*child),
-                    &[],
-                ),
+                )?;
+
+                let address = self
+                    .invoke_native_runtime(runtime, &[])?
+                    .and_then(int_value)
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                let result_type = self.types.map(self.operation_result_type(operation)?)?;
+
+                let pointer = llvm(
+                    self.builder.build_int_to_ptr(
+                        address,
+                        self.types
+                            .context()
+                            .ptr_type(inkwell::AddressSpace::default()),
+                        "awaited.completion",
+                    ),
+                )?;
+
+                llvm(
+                    self.builder
+                        .build_load(result_type, pointer, "awaited.result"),
+                )
+                .map(Some)
+            }
             MirAsyncOperation::StartTask {
                 value,
                 allocation,
@@ -288,9 +401,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_runtime(*runtime, &[task])
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
-                if let Some(cancellation) = self.frame_cancellation {
-                    let cancellation = int_value(cancellation)
+                if let Some(frame_context) = self.frame_context {
+                    let context = self
+                        .function
+                        .get_first_param()
+                        .and_then(int_value)
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    let context = llvm(
+                        self.builder.build_int_to_ptr(
+                            context,
+                            self.types
+                                .context()
+                                .ptr_type(inkwell::AddressSpace::default()),
+                            "frame.context",
+                        ),
+                    )?;
+
+                    let cancellation = llvm(self.builder.build_struct_gep(
+                        frame_context,
+                        context,
+                        2,
+                        "frame.cancellation.pointer",
+                    ))?;
+
+                    let cancellation = llvm(self.builder.build_load(
+                        self.types.context().i8_type(),
+                        cancellation,
+                        "frame.cancellation",
+                    ))?
+                    .into_int_value();
 
                     return llvm(self.builder.build_int_truncate(
                         cancellation,
@@ -332,6 +472,46 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )
             }
         }
+    }
+
+    fn native_inactive_frame(
+        &mut self,
+        frame: &bray_ir::MirOperand,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let frame_type = self.operand_type(frame)?;
+        let frame = self.operand(frame)?;
+
+        let fields = self
+            .request
+            .mappings()
+            .ty(frame_type)
+            .and_then(|mapping| match mapping.kind() {
+                CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => Some(fields.clone()),
+                _ => None,
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let mut native =
+            crate::native::inactive_frame_type(self.types.context()).const_zero().into();
+
+        for (index, _) in fields.iter().enumerate() {
+            let element = u32::try_from(aggregate_value_element(
+                self.request.mappings(),
+                &fields,
+                index,
+            )?)
+            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+            let value = extract_value(&self.builder, frame, element)?;
+
+            if !value.is_pointer_value() {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+
+            native = insert_value(&self.builder, native, value, index)?;
+        }
+
+        Ok(native)
     }
 
     pub(super) fn translate_frame_creation(
@@ -397,4 +577,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.invoke_helper(helper, arguments)
     }
 
+    fn operation_runtime_helper(
+        &self,
+        operation: bray_ir::MirOperationId,
+        expected: MirHelperReference,
+    ) -> Result<bray_ir::MirRuntimeReference, CodegenFailure> {
+        let helpers = self.operation_helpers(operation)?;
+
+        let [helper] = helpers.as_slice() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        if helper.reference() != &expected {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let Some(CodegenSymbolKey::Runtime(runtime)) = helper.symbol() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        Ok(*runtime)
+    }
 }

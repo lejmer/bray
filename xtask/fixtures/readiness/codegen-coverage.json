@@ -282,31 +282,31 @@
       "name": "ExecuteRoot",
       "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
         "symbol": "MirHostOperation::ExecuteRoot"
-      }
-    },
-    {
-      "name": "RequestRootCancellation",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
-        "symbol": "MirHostOperation::RequestRootCancellation"
       }
     },
     {
       "name": "ObserveRootTerminal",
       "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
         "symbol": "MirHostOperation::ObserveRootTerminal"
+      }
+    },
+    {
+      "name": "ResolveRootTerminal",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
+        "symbol": "MirHostOperation::ResolveRootTerminal"
       }
     },
     {
       "name": "ReportCleanupIncidents",
       "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
         "symbol": "MirHostOperation::ReportCleanupIncidents"
       }
     },
@@ -314,7 +314,7 @@
       "name": "StructuredShutdown",
       "disposition": "translated",
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
         "symbol": "MirHostOperation::StructuredShutdown"
       }
     }

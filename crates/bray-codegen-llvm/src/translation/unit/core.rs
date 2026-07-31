@@ -3,16 +3,14 @@ use crate::mapping::LlvmTypeMappings;
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
 };
-use bray_ir::{
-    MirBlockId, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId,
-};
+use bray_ir::{MirBlockId, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId};
+use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
-use inkwell::IntPredicate;
 use std::collections::BTreeMap;
 
 pub(crate) enum TranslationError {
@@ -33,11 +31,7 @@ pub(crate) fn translate_instances<'context, 'module, 'request>(
 
         if instance.protected_frame_identity().is_some() {
             super::super::frame::translate_protected_instance(
-                context,
-                module,
-                request,
-                instance,
-                types,
+                context, module, request, instance, types,
             )
             .map_err(TranslationError::Failed)?;
 
@@ -92,11 +86,12 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
     pub(super) storages: BTreeMap<MirStorageId, PointerValue<'context>>,
     pub(super) values: BTreeMap<MirValueId, BasicValueEnum<'context>>,
+    pub(super) host_root: Option<BasicValueEnum<'context>>,
     pub(super) host_result: Option<BasicValueEnum<'context>>,
+    pub(super) host_status: Option<inkwell::values::IntValue<'context>>,
     pub(super) frame_context: Option<StructType<'context>>,
     pub(super) frame_dispatch: Option<BasicBlock<'context>>,
     pub(super) frame_progress: Option<BasicValueEnum<'context>>,
-    pub(super) frame_cancellation: Option<BasicValueEnum<'context>>,
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -135,11 +130,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
+            host_root: None,
             host_result: None,
+            host_status: None,
             frame_context: None,
             frame_dispatch: None,
             frame_progress: None,
-            frame_cancellation: None,
         })
     }
 
@@ -184,11 +180,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
+            host_root: None,
             host_result: None,
+            host_status: None,
             frame_context: Some(frame_context),
             frame_dispatch: Some(dispatch),
             frame_progress: None,
-            frame_cancellation: function.get_nth_param(1),
         })
     }
 
@@ -219,8 +216,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     fn translate_frame_dispatch(&mut self) -> Result<(), CodegenFailure> {
-        let (Some(frame_context), Some(dispatch)) =
-            (self.frame_context, self.frame_dispatch)
+        let (Some(frame_context), Some(dispatch)) = (self.frame_context, self.frame_dispatch)
         else {
             return Ok(());
         };
@@ -238,18 +234,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(dispatch);
 
-        let pointer = llvm(self.builder.build_int_to_ptr(
-            context,
-            self.types.context().ptr_type(inkwell::AddressSpace::default()),
-            "frame.context",
-        ))?;
+        let pointer = llvm(
+            self.builder.build_int_to_ptr(
+                context,
+                self.types
+                    .context()
+                    .ptr_type(inkwell::AddressSpace::default()),
+                "frame.context",
+            ),
+        )?;
 
-        let state_pointer = llvm(self.builder.build_struct_gep(
-            frame_context,
-            pointer,
-            0,
-            "frame.state.pointer",
-        ))?;
+        let state_pointer =
+            llvm(
+                self.builder
+                    .build_struct_gep(frame_context, pointer, 0, "frame.state.pointer"),
+            )?;
 
         let state = llvm(self.builder.build_load(
             self.types.context().i32_type(),
@@ -258,28 +257,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?
         .into_int_value();
 
-        let cancellation = self
-            .frame_cancellation
-            .and_then(super::support::int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let cancellation_pointer = llvm(self.builder.build_struct_gep(
+            frame_context,
+            pointer,
+            2,
+            "frame.cancellation.pointer",
+        ))?;
+
+        let cancellation = llvm(self.builder.build_load(
+            self.types.context().i8_type(),
+            cancellation_pointer,
+            "frame.cancellation",
+        ))?
+        .into_int_value();
 
         let mut cases = Vec::with_capacity(descriptor.states().len());
 
         for facts in descriptor.states() {
             let entry = self.block(facts.entry())?;
 
-            let cancellation_entry = self
-                .unit
-                .blocks()
-                .iter()
-                .find_map(|block| match block.terminator().kind() {
-                    MirTerminatorKind::Suspend {
-                        resume_state,
-                        cancellation,
-                        ..
-                    } if *resume_state == facts.state() => Some(cancellation.edge()),
-                    _ => None,
-                });
+            let cancellation_entry =
+                self.unit
+                    .blocks()
+                    .iter()
+                    .find_map(|block| match block.terminator().kind() {
+                        MirTerminatorKind::Suspend {
+                            resume_state,
+                            cancellation,
+                            ..
+                        } if *resume_state == facts.state() => Some(cancellation.edge()),
+                        _ => None,
+                    });
 
             let entry = if let Some(cancellation_entry) = cancellation_entry {
                 if !cancellation_entry.arguments().is_empty() {
@@ -320,10 +328,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ));
         }
 
-        let fallback = self.types.context().append_basic_block(
-            self.function,
-            "frame.invalid-state",
-        );
+        let fallback = self
+            .types
+            .context()
+            .append_basic_block(self.function, "frame.invalid-state");
 
         self.builder.position_at_end(dispatch);
 
@@ -331,8 +339,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(fallback);
 
-        let failure = crate::native::frame_progress_type(self.types.context())
-            .const_named_struct(&[
+        let failure =
+            crate::native::frame_progress_type(self.types.context()).const_named_struct(&[
                 self.types.context().i32_type().const_int(4, false).into(),
                 self.types.context().i32_type().const_zero().into(),
                 self.types.context().i64_type().const_zero().into(),
@@ -366,27 +374,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     pub(super) fn create_storages(&mut self) -> Result<(), CodegenFailure> {
-        let entry = self.block(self.unit.entry())?;
-
-        self.builder.position_at_end(entry);
-
         if let Some(frame_context) = self.frame_context {
+            let dispatch = self
+                .frame_dispatch
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            self.builder.position_at_end(dispatch);
+
             let context = self
                 .function
                 .get_first_param()
                 .and_then(super::support::int_value)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-            let pointer = llvm(self.builder.build_int_to_ptr(
-                context,
-                self.types.context().ptr_type(inkwell::AddressSpace::default()),
-                "frame.context",
-            ))?;
+            let pointer = llvm(
+                self.builder.build_int_to_ptr(
+                    context,
+                    self.types
+                        .context()
+                        .ptr_type(inkwell::AddressSpace::default()),
+                    "frame.context",
+                ),
+            )?;
 
             for (id, _) in self.unit.storages_with_ids() {
                 let index = id
                     .slot()
-                    .checked_add(2)
+                    .checked_add(3)
                     .and_then(|index| u32::try_from(index).ok())
                     .ok_or(CodegenFailure::ResourceExhausted)?;
 
@@ -402,6 +416,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             return Ok(());
         }
+
+        let entry = self.block(self.unit.entry())?;
+
+        self.builder.position_at_end(entry);
 
         for (id, storage) in self.unit.storages_with_ids() {
             let ty = self.types.map(storage.ty())?;

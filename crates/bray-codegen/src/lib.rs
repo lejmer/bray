@@ -7,8 +7,8 @@ mod backend;
 mod mapping;
 mod options;
 mod outcome;
-mod request;
 mod registry;
+mod request;
 mod runtime;
 mod target;
 mod unit;
@@ -34,18 +34,17 @@ pub use mapping::{
     CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
     CodegenValueAttribute, ConstantDemands, DemandedCallableInstance, child_constants,
-    demanded_callable_instances, demanded_callable_instances_for_mir,
-    demanded_callable_references, demanded_callable_references_for_mir,
-    demanded_constant_terms, demanded_constants, demanded_debug_sources,
-    demanded_runtime_references, demanded_types,
+    demanded_callable_instances, demanded_callable_instances_for_mir, demanded_callable_references,
+    demanded_callable_references_for_mir, demanded_constant_terms, demanded_constants,
+    demanded_debug_sources, demanded_runtime_references, demanded_types, mapped_runtime_references,
 };
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
-pub use request::{CodegenRequest, CodegenRequestBuildError};
 pub use registry::{
     BackendSelectionError, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
     CodegenConfiguration,
 };
+pub use request::{CodegenRequest, CodegenRequestBuildError};
 pub use runtime::{
     CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
 };

@@ -74,6 +74,8 @@ pub enum ProtectedFrameAffinity {
 pub enum ProtectedFrameOperation {
     /// Moves an inactive frame into runtime-owned storage.
     MoveBeforeStart,
+    /// Describes one resumable state to the runtime.
+    StateDescription,
     /// Enters or resumes the frame.
     Resume,
     /// Enters cancellation cleanup.
@@ -90,8 +92,9 @@ pub enum ProtectedFrameOperation {
 
 impl ProtectedFrameOperation {
     /// Every compiler-emitted protected-frame operation in stable order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::MoveBeforeStart,
+        Self::StateDescription,
         Self::Resume,
         Self::CancellationEntry,
         Self::TaskBroadcast,
@@ -104,6 +107,7 @@ impl ProtectedFrameOperation {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::MoveBeforeStart => "move_before_start",
+            Self::StateDescription => "state_description",
             Self::Resume => "resume",
             Self::CancellationEntry => "cancellation_entry",
             Self::TaskBroadcast => "task_broadcast",
@@ -118,6 +122,7 @@ impl ProtectedFrameOperation {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameOperations {
     move_before_start: BinarySymbolName,
+    state_description: BinarySymbolName,
     resume: BinarySymbolName,
     cancellation_entry: BinarySymbolName,
     task_broadcast: BinarySymbolName,
@@ -130,6 +135,7 @@ impl ProtectedFrameOperations {
     /// Creates the complete protected-frame operation table.
     pub const fn new(
         move_before_start: BinarySymbolName,
+        state_description: BinarySymbolName,
         resume: BinarySymbolName,
         cancellation_entry: BinarySymbolName,
         task_broadcast: BinarySymbolName,
@@ -139,6 +145,7 @@ impl ProtectedFrameOperations {
     ) -> Self {
         Self {
             move_before_start,
+            state_description,
             resume,
             cancellation_entry,
             task_broadcast,
@@ -152,6 +159,7 @@ impl ProtectedFrameOperations {
     pub const fn symbol(&self, operation: ProtectedFrameOperation) -> &BinarySymbolName {
         match operation {
             ProtectedFrameOperation::MoveBeforeStart => &self.move_before_start,
+            ProtectedFrameOperation::StateDescription => &self.state_description,
             ProtectedFrameOperation::Resume => &self.resume,
             ProtectedFrameOperation::CancellationEntry => &self.cancellation_entry,
             ProtectedFrameOperation::TaskBroadcast => &self.task_broadcast,
@@ -511,6 +519,7 @@ mod tests {
     fn test_operations() -> ProtectedFrameOperations {
         ProtectedFrameOperations::new(
             symbol("__bray_test_move"),
+            symbol("__bray_test_state"),
             symbol("__bray_test_resume"),
             symbol("__bray_test_cancel"),
             symbol("__bray_test_broadcast"),

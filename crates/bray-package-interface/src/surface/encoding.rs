@@ -239,6 +239,7 @@ fn encode_relationships(surface: &PackageInterfaceSurface) -> EncodedSurfaceSect
         encoder.write_u32(relationship.owner().raw());
         encoder.write_u32(relationship.member().raw());
         encoder.write_u32(relationship.ordinal());
+        encoder.write_u32(relationship.position().to_wire());
         encoder.write_u32(u32::from(relationship.allows_mutation()));
     }
 

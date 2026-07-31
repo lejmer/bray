@@ -99,6 +99,17 @@ impl Compilation {
             return Ok(Some(result.ty()));
         }
 
+        if unit.tree().expressions().any(|(_, candidate)| {
+            matches!(
+                candidate,
+                BoundExpression::ControlTransfer(transfer)
+                    if transfer.kind() == bray_bound_tree::BoundControlTransferKind::Return
+                        && transfer.operand() == Some(expression)
+            )
+        }) {
+            return Ok(types.callable_result_type());
+        }
+
         let Some(BoundExpression::StructConstruction(construction)) =
             unit.view().expression(expression)
         else {

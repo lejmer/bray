@@ -7,6 +7,7 @@ use bray_ir::{
 use bray_symbols::TypeId;
 
 use crate::CodegenUnit;
+use crate::{CodegenOperationMapping, CodegenSymbolKey};
 
 /// Returns semantic types directly demanded by one code generation unit.
 pub fn demanded_types(unit: &CodegenUnit) -> BTreeSet<TypeId> {
@@ -33,9 +34,7 @@ pub fn demanded_debug_sources(unit: &CodegenUnit) -> BTreeSet<MirSourceAnchor> {
 }
 
 /// Returns private runtime symbols directly demanded by one code generation unit.
-pub fn demanded_runtime_references(
-    unit: &CodegenUnit,
-) -> BTreeSet<MirRuntimeReference> {
+pub fn demanded_runtime_references(unit: &CodegenUnit) -> BTreeSet<MirRuntimeReference> {
     unit.mir_units()
         .flat_map(|mir| {
             mir.operations()
@@ -51,11 +50,37 @@ pub fn demanded_runtime_references(
         .collect()
 }
 
-fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 2] {
+/// Returns direct MIR roles plus runtime helpers selected by operation mappings.
+pub fn mapped_runtime_references(
+    unit: &CodegenUnit,
+    operations: &[CodegenOperationMapping],
+) -> BTreeSet<MirRuntimeReference> {
+    let mut references = demanded_runtime_references(unit);
+
+    references.extend(operations.iter().flat_map(|operation| {
+        operation.helpers().iter().filter_map(|helper| {
+            let Some(CodegenSymbolKey::Runtime(reference)) = helper.symbol() else {
+                return None;
+            };
+
+            Some(*reference)
+        })
+    }));
+
+    references
+}
+
+fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 3] {
     match operation {
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
-        }) => [Some(*allocation), Some(*start)],
+        }) => [Some(*allocation), Some(*start), None],
+        MirOperationKind::Host(MirHostOperation::ResolveRootTerminal {
+            completion,
+            panic,
+            entry_failure,
+            ..
+        }) => [Some(*completion), Some(*panic), Some(*entry_failure)],
         MirOperationKind::Async(
             MirAsyncOperation::ResumeFrame { runtime, .. }
             | MirAsyncOperation::RequestTaskCancellation { runtime, .. }
@@ -68,7 +93,6 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         )
         | MirOperationKind::Host(
             MirHostOperation::ExecuteRoot { runtime, .. }
-            | MirHostOperation::RequestRootCancellation { runtime }
             | MirHostOperation::ObserveRootTerminal { runtime }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
@@ -76,7 +100,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::Generator(
             MirGeneratorOperation::CleanupBroadcast { runtime, .. }
             | MirGeneratorOperation::Destroy { runtime, .. },
-        ) => [Some(*runtime), None],
+        ) => [Some(*runtime), None, None],
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
@@ -102,17 +126,18 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::CommitAwaitedCompletion { .. }
             | MirAsyncOperation::DestroyTerminalTask { .. },
-        ) => [None, None],
+        ) => [None, None, None],
     }
 }
 
 fn terminator_runtime_references(
     terminator: &MirTerminatorKind,
-) -> [Option<MirRuntimeReference>; 2] {
+) -> [Option<MirRuntimeReference>; 3] {
     match terminator {
         MirTerminatorKind::Suspend {
             registration, wake, ..
-        } => [Some(*registration), Some(*wake)],
+        } => [Some(*registration), Some(*wake), None],
+        MirTerminatorKind::PropagatePanic { runtime, .. } => [Some(*runtime), None, None],
         MirTerminatorKind::Goto(_)
         | MirTerminatorKind::Branch { .. }
         | MirTerminatorKind::PatternBranch { .. }
@@ -124,7 +149,6 @@ fn terminator_runtime_references(
         | MirTerminatorKind::BeginCleanup(_)
         | MirTerminatorKind::ContinueCleanup(_)
         | MirTerminatorKind::Panic { .. }
-        | MirTerminatorKind::CancelCurrentRun { .. } => [None, None],
+        | MirTerminatorKind::CancelCurrentRun { .. } => [None, None, None],
     }
 }
-

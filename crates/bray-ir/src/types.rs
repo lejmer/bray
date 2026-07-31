@@ -21,6 +21,13 @@ impl MirUnit {
             types.insert(descriptor.result_type());
         }
 
+        if let crate::MirUnitKind::ExecutableHost(host) = self.kind()
+            && let bray_runtime_interface::ExecutableEntryResult::Fallible { ty, error, .. } =
+                host.entry_result()
+        {
+            types.extend([ty, error]);
+        }
+
         for operation in self.operations() {
             collect_operation_types(operation.kind(), &mut types);
         }
@@ -37,9 +44,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
     match operation {
         MirOperationKind::AnonymousCallable(_) => {}
         MirOperationKind::Store {
-            destination,
-            value,
-            ..
+            destination, value, ..
         } => {
             collect_place_types(destination, types);
             collect_operand_types(value, types);
@@ -146,11 +151,15 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             collect_cleanup_edge_types(edges.panicked(), types);
             collect_cleanup_edge_types(edges.cancelled(), types);
         }
-        MirTerminatorKind::BeginCleanup(edge)
-        | MirTerminatorKind::ContinueCleanup(edge) => collect_cleanup_edge_types(edge, types),
+        MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {
+            collect_cleanup_edge_types(edge, types)
+        }
         MirTerminatorKind::Panic { report, cleanup } => {
             collect_operand_types(report, types);
             collect_cleanup_edge_types(cleanup, types);
+        }
+        MirTerminatorKind::PropagatePanic { report, .. } => {
+            collect_operand_types(report, types);
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             collect_cleanup_edge_types(cleanup, types);
@@ -229,11 +238,16 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
     }
 }
 
-fn collect_host_types(operation: &MirHostOperation, _types: &mut BTreeSet<TypeId>) {
+fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>) {
     match operation {
+        MirHostOperation::ResolveRootTerminal {
+            error: Some(error), ..
+        } => {
+            types.insert(*error);
+        }
         MirHostOperation::ExecuteRoot { .. }
-        | MirHostOperation::RequestRootCancellation { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
+        | MirHostOperation::ResolveRootTerminal { error: None, .. }
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
     }

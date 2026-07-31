@@ -2,22 +2,21 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_codegen::{
-    CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability,
-    CodegenSpecialization, CodegenTarget, DemandedCallableInstance,
+    CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability, CodegenSpecialization,
+    CodegenTarget, DemandedCallableInstance,
 };
 use bray_ir::{
-    MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirHelperReference,
-    MirTargetFacts, MirUnitKey,
+    MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirHelperReference, MirTargetFacts,
+    MirUnitKey,
 };
 use bray_symbols::{
-    CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
-    GenericArgument, GenericSubstitutionData, GenericSubstitutionId,
-    ImplementationInstanceData, ImplementationInstanceId, NamedTypeSymbolId,
-    StructSymbolId, TargetSizedIntegerType,
+    CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind, GenericArgument,
+    GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
+    ImplementationInstanceId, NamedTypeSymbolId, StructSymbolId, TargetSizedIntegerType,
 };
 
-use super::super::Compilation;
 use super::super::CodegenFactError;
+use super::super::Compilation;
 use super::super::substitution::{empty_substitution, named_type};
 use super::specialization_identity::encoding::structural_type_identity;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -48,13 +47,9 @@ impl ConcreteCodegenReachability {
         &self.graph
     }
 
-    pub(super) fn instance(
-        &self,
-        key: &CodegenInstanceKey,
-    ) -> Option<&ConcreteCodegenInstance> {
+    pub(super) fn instance(&self, key: &CodegenInstanceKey) -> Option<&ConcreteCodegenInstance> {
         self.instances.get(key)
     }
-
 }
 
 impl ConcreteCodegenInstance {
@@ -62,9 +57,7 @@ impl ConcreteCodegenInstance {
         key: CodegenInstanceKey,
         callable: CallableInstanceData,
         specialization: CodegenSpecialization,
-        witnesses: impl IntoIterator<
-            Item = (CodegenImplementationWitness, ImplementationInstanceId),
-        >,
+        witnesses: impl IntoIterator<Item = (CodegenImplementationWitness, ImplementationInstanceId)>,
     ) -> Option<Self> {
         let mut witnesses: Vec<_> = witnesses.into_iter().collect();
 
@@ -129,9 +122,7 @@ impl ConcreteCodegenInstance {
             return None;
         };
 
-        if Some(template.role())
-            != bray_ir::MirGeneratedLifecycleRole::from_reference(&reference)
-        {
+        if Some(template.role()) != bray_ir::MirGeneratedLifecycleRole::from_reference(&reference) {
             return None;
         }
 
@@ -156,9 +147,7 @@ impl ConcreteCodegenInstance {
         self.substitution
     }
 
-    pub(super) const fn generated_lifecycle_reference(
-        &self,
-    ) -> Option<&MirHelperReference> {
+    pub(super) const fn generated_lifecycle_reference(&self) -> Option<&MirHelperReference> {
         self.lifecycle.as_ref()
     }
 
@@ -166,7 +155,6 @@ impl ConcreteCodegenInstance {
     pub(super) fn witness_instances(&self) -> &[ImplementationInstanceId] {
         &self.witnesses
     }
-
 }
 
 impl Compilation {
@@ -185,10 +173,7 @@ impl Compilation {
 
         let substitution = match owner.substitution() {
             Some(substitution) => substitution,
-            None => empty_substitution(
-                self.semantic_value_store()?,
-                definition.symbol(),
-            )?,
+            None => empty_substitution(self.semantic_value_store()?, definition.symbol())?,
         };
 
         Ok(ConcreteCodegenInstance::bound_helper(
@@ -210,16 +195,11 @@ impl Compilation {
             .lifecycle_type()
             .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
 
-        let identity = structural_type_identity(
-            self.semantic_value_store()?,
-            self.symbol_graph()?,
-            ty,
-        )?;
+        let identity =
+            structural_type_identity(self.semantic_value_store()?, self.symbol_graph()?, ty)?;
 
         let key = CodegenInstanceKey::new(
-            MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
-                role, identity,
-            )),
+            MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, identity)),
             CodegenSpecialization::NonGeneric,
             [],
             MirTargetFacts::new(
@@ -264,13 +244,8 @@ impl Compilation {
             ),
         );
 
-        ConcreteCodegenInstance::try_callable(
-            key,
-            callable,
-            specialization,
-            witnesses,
-        )
-        .ok_or(FactQueryError::InfrastructureFailure.into())
+        ConcreteCodegenInstance::try_callable(key, callable, specialization, witnesses)
+            .ok_or(FactQueryError::InfrastructureFailure.into())
     }
 
     pub(super) fn concrete_codegen_callee(
@@ -298,10 +273,7 @@ impl Compilation {
         };
 
         let substitution = values
-            .substitute_generic_substitution(
-                callable.substitution(),
-                owner_substitution,
-            )
+            .substitute_generic_substitution(callable.substitution(), owner_substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let callable = CallableInstanceData::new(callable.definition(), substitution);
@@ -315,10 +287,7 @@ impl Compilation {
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
                 let substitution = values
-                    .substitute_generic_substitution(
-                        data.substitution(),
-                        owner_substitution,
-                    )
+                    .substitute_generic_substitution(data.substitution(), owner_substitution)
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
                 let substitution = self.realize_codegen_substitution(substitution)?;
@@ -346,10 +315,7 @@ impl Compilation {
 
         let substitution = match owner.substitution() {
             Some(owner_substitution) => values
-                .substitute_generic_substitution(
-                    callable.substitution(),
-                    owner_substitution,
-                )
+                .substitute_generic_substitution(callable.substitution(), owner_substitution)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?,
             None => callable.substitution(),
         };
@@ -416,12 +382,8 @@ impl Compilation {
         };
 
         let role = match ty {
-            TargetSizedIntegerType::Isize => {
-                bray_compiler_known::RepresentationRole::ScalarIsize
-            }
-            TargetSizedIntegerType::Usize => {
-                bray_compiler_known::RepresentationRole::ScalarUsize
-            }
+            TargetSizedIntegerType::Isize => bray_compiler_known::RepresentationRole::ScalarIsize,
+            TargetSizedIntegerType::Usize => bray_compiler_known::RepresentationRole::ScalarUsize,
         };
 
         let definition = self
@@ -446,10 +408,8 @@ impl Compilation {
     fn concrete_codegen_witnesses(
         &self,
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
-    ) -> Result<
-        Vec<(CodegenImplementationWitness, ImplementationInstanceId)>,
-        CodegenFactError,
-    > {
+    ) -> Result<Vec<(CodegenImplementationWitness, ImplementationInstanceId)>, CodegenFactError>
+    {
         let values = self.semantic_value_store()?;
         let symbols = self.symbol_graph()?;
         let mut concrete = Vec::new();
@@ -470,11 +430,8 @@ impl Compilation {
 
             let specialization = self.codegen_specialization(data.substitution())?;
 
-            let identity = CodegenImplementationWitness::try_new(
-                definition,
-                specialization,
-            )
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            let identity = CodegenImplementationWitness::try_new(definition, specialization)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
 
             concrete.push((identity, witness));
         }

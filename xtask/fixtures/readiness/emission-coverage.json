@@ -122,8 +122,8 @@
     },
     {
       "name": "source run cancellation in MIR",
-      "production": "MirHostOperation::RequestRootCancellation",
-      "test": "host_input_creates_generated_mir_without_a_bound_unit"
+      "production": "bray_runtime_root_cancellation_request_v1",
+      "test": "host_cancellation_wakes_a_suspended_root_into_cancellation_entry"
     }
   ]
 }

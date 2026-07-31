@@ -300,15 +300,12 @@ pub(in crate::compilation) fn compiler_known_representation(
     compilation: &Compilation,
     definition: NamedTypeSymbolId,
 ) -> Option<RepresentationRole> {
-    let NamedTypeSymbolId::Struct(definition) = definition else {
-        return None;
-    };
+    let available = compilation.available_compiler_known_symbols();
 
-    compilation
-        .available_compiler_known_symbols()
-        .provider()
-        .role_registry()
-        .symbol_representation(definition)
+    match definition {
+        NamedTypeSymbolId::Struct(definition) => available.symbol_representation(definition),
+        NamedTypeSymbolId::Union(definition) => available.symbol_representation(definition),
+    }
 }
 
 fn target_abi_value(

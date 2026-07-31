@@ -13,8 +13,9 @@ use bray_compilation::{
 };
 use bray_linker::{
     ExternalToolHost, ExternalToolProcessBudget, Linker, LinkerDriver,
-    LinkerDriverIdentity, LinkerDriverKind, LldDriver,
-    LlvmArchiveDriver, NativeExternalToolHost,
+    LinkerDriverIdentity, LinkerDriverKind, LlvmArchiveDriver,
+    NativeExternalToolHost, SystemLinkerConfiguration, SystemLinkerDriver,
+    SystemLinkerFamily,
 };
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity,
@@ -107,18 +108,17 @@ pub fn baseline_target_outputs(
 
 /// Creates the native linker and archiver composition available to command drivers.
 pub fn native_linker() -> Option<Linker> {
-    let lld = llvm_tool("lld")?;
     let archive = llvm_tool("llvm-ar")?;
 
     let host = Arc::new(NativeExternalToolHost::new(
         ExternalToolProcessBudget::new(NonZeroUsize::MIN),
     ));
 
-    let lld_identity = LinkerDriverIdentity::try_new(
-        LinkerDriverKind::ExternalLld,
-        "lld",
+    let system_identity = LinkerDriverIdentity::try_new(
+        LinkerDriverKind::System,
+        "gnu-compiler",
         "1",
-        "22",
+        "1",
     )?;
 
     let archive_identity = LinkerDriverIdentity::try_new(
@@ -128,9 +128,40 @@ pub fn native_linker() -> Option<Linker> {
         "22",
     )?;
 
-    let lld = LldDriver::try_external(
-        lld_identity,
-        lld,
+    let (family, program, environment) = if cfg!(windows) {
+        let root = env::var_os("SystemRoot").map(PathBuf::from)?;
+
+        let environment = [
+            "SystemRoot",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "WSLENV",
+            "PATH",
+            "TEMP",
+            "TMP",
+        ]
+        .into_iter()
+        .filter_map(|name| env::var_os(name).map(|value| (name.into(), value)));
+
+        (
+            SystemLinkerFamily::WslGnuCompiler,
+            root.join("System32").join("wsl.exe"),
+            environment.collect::<Vec<_>>(),
+        )
+    } else {
+        (
+            SystemLinkerFamily::GnuCompiler,
+            PathBuf::from("/usr/bin/cc"),
+            Vec::new(),
+        )
+    };
+
+    let configuration =
+        SystemLinkerConfiguration::try_new(family, program, environment, None).ok()?;
+
+    let system = SystemLinkerDriver::try_new(
+        system_identity,
+        configuration,
         Arc::clone(&host) as Arc<dyn ExternalToolHost>,
     )
     .ok()?;
@@ -145,7 +176,7 @@ pub fn native_linker() -> Option<Linker> {
     .ok()?;
 
     Linker::try_new([
-        Arc::new(lld) as Arc<dyn LinkerDriver>,
+        Arc::new(system) as Arc<dyn LinkerDriver>,
         Arc::new(archive) as Arc<dyn LinkerDriver>,
     ])
     .ok()

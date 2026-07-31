@@ -30,6 +30,20 @@ impl CleanupIncident {
         }
     }
 
+    fn erased(
+        ordinal: u64,
+        producer: CleanupIncidentProducer,
+        origin: CleanupIncidentOrigin,
+        payload: Box<dyn Any + Send>,
+    ) -> Self {
+        Self {
+            ordinal,
+            producer,
+            origin,
+            payload,
+        }
+    }
+
     /// Returns the deterministic encounter ordinal.
     pub const fn ordinal(&self) -> u64 {
         self.ordinal
@@ -134,9 +148,29 @@ impl CleanupReportSink {
 
         state.next_ordinal = state.next_ordinal.saturating_add(1);
 
-        state.incidents.push_back(CleanupIncident::new(
-            ordinal, producer, origin, payload,
-        ));
+        state
+            .incidents
+            .push_back(CleanupIncident::new(ordinal, producer, origin, payload));
+    }
+
+    pub(crate) fn transfer_erased(
+        &self,
+        producer: CleanupIncidentProducer,
+        origin: CleanupIncidentOrigin,
+        payload: Box<dyn Any + Send>,
+    ) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let ordinal = state.next_ordinal;
+
+        state.next_ordinal = state.next_ordinal.saturating_add(1);
+
+        state
+            .incidents
+            .push_back(CleanupIncident::erased(ordinal, producer, origin, payload));
     }
 
     /// Reports and removes every incident in transfer order.
@@ -188,8 +222,7 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{
-        CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
-        finish_product_shutdown,
+        CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink, finish_product_shutdown,
     };
     use crate::RunOutcome;
 
@@ -202,17 +235,9 @@ mod tests {
             bray_runtime_interface::ProtectedFrameStateId::new(3),
         );
 
-        reports.transfer(
-            CleanupIncidentProducer::SynchronousRoot,
-            origin,
-            "first",
-        );
+        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "first");
 
-        reports.transfer(
-            CleanupIncidentProducer::SynchronousRoot,
-            origin,
-            "second",
-        );
+        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "second");
 
         let events = RefCell::new(Vec::new());
 
@@ -247,10 +272,7 @@ mod tests {
 
         assert_eq!(result, 7);
 
-        assert_eq!(
-            events.into_inner(),
-            ["map", "report", "report", "shutdown"]
-        );
+        assert_eq!(events.into_inner(), ["map", "report", "report", "shutdown"]);
 
         assert_eq!(reports.pending_count(), 0);
     }

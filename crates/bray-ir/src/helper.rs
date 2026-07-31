@@ -106,29 +106,27 @@ impl MirOperationKind {
             Self::Convert { conversion, .. } => {
                 collect_conversion_helpers(conversion, &mut helpers);
             }
-            Self::Generator(operation) => {
-                match operation {
-                    MirGeneratorOperation::Begin { .. } => {
-                        helpers.push(MirHelperReference::BeginGenerator);
-                    }
-                    MirGeneratorOperation::Push { .. } => {
-                        helpers.push(MirHelperReference::PushGenerator);
-                    }
-                    MirGeneratorOperation::Finish { .. } => {
-                        helpers.push(MirHelperReference::FinishGenerator);
-                    }
-                    MirGeneratorOperation::CleanupBroadcast { element, .. } => {
-                        helpers.push(MirHelperReference::Cleanup {
-                            phase: crate::MirCleanupPhase::TaskCancellation,
-                            ty: *element,
-                        });
-                    }
-                    MirGeneratorOperation::Destroy { element, .. } => {
-                        helpers.push(MirHelperReference::Finalize(*element));
-                        helpers.push(MirHelperReference::Destroy(*element));
-                    }
+            Self::Generator(operation) => match operation {
+                MirGeneratorOperation::Begin { .. } => {
+                    helpers.push(MirHelperReference::BeginGenerator);
                 }
-            }
+                MirGeneratorOperation::Push { .. } => {
+                    helpers.push(MirHelperReference::PushGenerator);
+                }
+                MirGeneratorOperation::Finish { .. } => {
+                    helpers.push(MirHelperReference::FinishGenerator);
+                }
+                MirGeneratorOperation::CleanupBroadcast { element, .. } => {
+                    helpers.push(MirHelperReference::Cleanup {
+                        phase: crate::MirCleanupPhase::TaskCancellation,
+                        ty: *element,
+                    });
+                }
+                MirGeneratorOperation::Destroy { element, .. } => {
+                    helpers.push(MirHelperReference::Finalize(*element));
+                    helpers.push(MirHelperReference::Destroy(*element));
+                }
+            },
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
             Self::Call(call) => collect_call_defaults(call, &mut helpers),
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
@@ -155,6 +153,12 @@ impl MirOperationKind {
             }
             Self::Async(MirAsyncOperation::DestroyTerminalTask { .. }) => {
                 helpers.push(MirHelperReference::DestroyTerminalTask);
+            }
+            Self::Host(crate::MirHostOperation::ResolveRootTerminal {
+                error: Some(error), ..
+            }) => {
+                helpers.push(MirHelperReference::Finalize(*error));
+                helpers.push(MirHelperReference::Destroy(*error));
             }
             Self::Store { .. }
             | Self::Borrow { .. }

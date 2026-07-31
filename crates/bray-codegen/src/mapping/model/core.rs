@@ -14,9 +14,7 @@ use crate::{
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
 use super::callable_demand::demanded_callable_references;
-use super::validation::{
-    demanded_debug_sources, demanded_runtime_references, demanded_types,
-};
+use super::validation::{demanded_debug_sources, demanded_types, mapped_runtime_references};
 
 /// Canonical code generation facts demanded by one concrete code generation unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -189,7 +187,7 @@ impl CodegenMappings {
         validate_terminator_mappings(unit, &terminators)?;
         validate_constant_mappings(unit, &constants, &constant_terms, &terminators)?;
 
-        let expected_runtime_references = demanded_runtime_references(unit);
+        let expected_runtime_references = mapped_runtime_references(unit, &operations);
 
         let actual_runtime_references: BTreeSet<_> = symbols
             .iter()
@@ -256,15 +254,17 @@ impl CodegenMappings {
                 .is_some_and(|index| types[index].layout().is_none())
         };
 
-        if symbols.iter().any(|symbol| {
-            signature_passes_unsized_by_value(symbol.signature(), &is_unsized)
-        }) || types.iter().any(|mapping| {
-            let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                return false;
-            };
+        if symbols
+            .iter()
+            .any(|symbol| signature_passes_unsized_by_value(symbol.signature(), &is_unsized))
+            || types.iter().any(|mapping| {
+                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+                    return false;
+                };
 
-            signature_passes_unsized_by_value(signature, &is_unsized)
-        }) {
+                signature_passes_unsized_by_value(signature, &is_unsized)
+            })
+        {
             return Err(CodegenMappingsBuildError::InvalidAbiTypeLayout);
         }
 
@@ -515,19 +515,23 @@ fn signature_passes_unsized_by_value(
     signature: &crate::CodegenCallableSignature,
     is_unsized: &impl Fn(TypeId) -> bool,
 ) -> bool {
-    signature.parameters().iter().any(|parameter| match parameter {
-        CodegenParameterMapping::Ignore => false,
-        CodegenParameterMapping::Direct { ty, .. } => is_unsized(*ty),
-        CodegenParameterMapping::Indirect {
-            pointer, pointee, ..
-        } => is_unsized(*pointer) || is_unsized(*pointee),
-    }) || match signature.result() {
-        crate::CodegenResultMapping::Void => false,
-        crate::CodegenResultMapping::Direct { ty, .. } => is_unsized(*ty),
-        crate::CodegenResultMapping::Indirect {
-            pointer, pointee, ..
-        } => is_unsized(*pointer) || is_unsized(*pointee),
-    }
+    signature
+        .parameters()
+        .iter()
+        .any(|parameter| match parameter {
+            CodegenParameterMapping::Ignore => false,
+            CodegenParameterMapping::Direct { ty, .. } => is_unsized(*ty),
+            CodegenParameterMapping::Indirect {
+                pointer, pointee, ..
+            } => is_unsized(*pointer) || is_unsized(*pointee),
+        })
+        || match signature.result() {
+            crate::CodegenResultMapping::Void => false,
+            crate::CodegenResultMapping::Direct { ty, .. } => is_unsized(*ty),
+            crate::CodegenResultMapping::Indirect {
+                pointer, pointee, ..
+            } => is_unsized(*pointer) || is_unsized(*pointee),
+        }
 }
 
 fn compare_callables(
@@ -581,9 +585,7 @@ fn validate_callable_mappings(
             symbols
                 .binary_search_by(|symbol| symbol.key().cmp(&key))
                 .ok()
-                .is_none_or(|index| {
-                    symbols[index].signature().abi() != mapping.reference().abi()
-                })
+                .is_none_or(|index| symbols[index].signature().abi() != mapping.reference().abi())
         })
     {
         return Err(CodegenMappingsBuildError::CallableCoverageMismatch);
@@ -618,19 +620,16 @@ fn validate_operation_mappings(
         || mappings.iter().any(|mapping| {
             let key = (mapping.owner().clone(), mapping.operation());
 
-            expected
-                .get(&key)
-                .is_none_or(|references| {
-                    references.len() != mapping.helpers().len()
-                        || references
-                            .iter()
-                            .zip(mapping.helpers())
-                            .any(|(reference, helper)| reference != helper.reference())
-                })
-                || mapping
-                    .helpers()
-                    .iter()
-                    .any(|helper| !valid_helper(symbols, helper))
+            expected.get(&key).is_none_or(|references| {
+                references.len() != mapping.helpers().len()
+                    || references
+                        .iter()
+                        .zip(mapping.helpers())
+                        .any(|(reference, helper)| reference != helper.reference())
+            }) || mapping
+                .helpers()
+                .iter()
+                .any(|helper| !valid_helper(symbols, helper))
         })
     {
         return Err(CodegenMappingsBuildError::OperationCoverageMismatch);
@@ -721,10 +720,7 @@ fn validate_constant_mappings(
 
     expected_values.extend(terms.iter().map(CodegenConstantTermMapping::value));
 
-    let actual_values: BTreeSet<_> = mappings
-        .iter()
-        .map(CodegenConstantMapping::value)
-        .collect();
+    let actual_values: BTreeSet<_> = mappings.iter().map(CodegenConstantMapping::value).collect();
 
     for mapping in mappings {
         expected_values.extend(child_constants(mapping.data().kind()));
@@ -881,10 +877,7 @@ mod tests {
 
         let types = mappings.types().iter().map(|mapping| {
             if mapping.ty() == ty {
-                CodegenTypeMapping::new_unsized(
-                    ty,
-                    CodegenTypeKind::UnsizedSlice { element: ty },
-                )
+                CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::UnsizedSlice { element: ty })
             } else {
                 mapping.clone()
             }

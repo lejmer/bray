@@ -198,7 +198,10 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<EmissionOutcome, ProductEmissionError> {
         self.validate_product_request(&request, inputs.target_outputs)?;
-        cancellation.check().map_err(|_| ProductEmissionError::cancelled())?;
+
+        cancellation
+            .check()
+            .map_err(|_| ProductEmissionError::cancelled())?;
 
         let ProductEmissionPlanningFacts {
             package_interface,
@@ -244,19 +247,15 @@ impl Compilation {
                 })?,
         };
 
-        validate_executable_units(&plan, &units).map_err(|kind| {
-            ProductEmissionError::new(kind, planning_diagnostics.clone())
-        })?;
+        validate_executable_units(&plan, &units)
+            .map_err(|kind| ProductEmissionError::new(kind, planning_diagnostics.clone()))?;
 
         let codegen = self
             .product_emission_contributions(&plan, &units, inputs, cancellation)
             .map_err(|error| {
                 let diagnostics = planning_diagnostics.merged(error.diagnostics());
 
-                ProductEmissionError::new(
-                    ProductEmissionErrorKind::Codegen(error),
-                    diagnostics,
-                )
+                ProductEmissionError::new(ProductEmissionErrorKind::Codegen(error), diagnostics)
             })?;
 
         let diagnostics = planning_diagnostics.merged(&codegen.diagnostics);
@@ -268,14 +267,15 @@ impl Compilation {
             ));
         }
 
-        let outcome = self.publish_product(
-            &plan,
-            codegen.backend,
-            inputs.generation.linking(),
-            inputs.sink_resolver,
-            cancellation,
-        )
-        .map_err(|kind| ProductEmissionError::new(kind, diagnostics.clone()))?;
+        let outcome = self
+            .publish_product(
+                &plan,
+                codegen.backend,
+                inputs.generation.linking(),
+                inputs.sink_resolver,
+                cancellation,
+            )
+            .map_err(|kind| ProductEmissionError::new(kind, diagnostics.clone()))?;
 
         Ok(outcome.with_prior_diagnostics(&diagnostics))
     }
@@ -320,22 +320,18 @@ impl Compilation {
         let facts = self
             .state
             .fact_runtime
-            .map_indexed(2, |index| {
-                match index {
-                    0 => ProductEmissionPlanningFact::PackageInterface(
-                        self.product_interface_artifact(requires_interface, cancellation),
-                    ),
-                    1 => ProductEmissionPlanningFact::Diagnostics(
-                        cancellation
-                            .check()
-                            .and_then(|()| {
-                                self.check_diagnostics_with_cancellation(cancellation)
-                            })
-                            .cloned()
-                            .map_err(product_query_error),
-                    ),
-                    _ => unreachable!("product planning fact index must be in range"),
-                }
+            .map_indexed(2, |index| match index {
+                0 => ProductEmissionPlanningFact::PackageInterface(
+                    self.product_interface_artifact(requires_interface, cancellation),
+                ),
+                1 => ProductEmissionPlanningFact::Diagnostics(
+                    cancellation
+                        .check()
+                        .and_then(|()| self.check_diagnostics_with_cancellation(cancellation))
+                        .cloned()
+                        .map_err(product_query_error),
+                ),
+                _ => unreachable!("product planning fact index must be in range"),
             })
             .map_err(product_query_error)
             .map_err(|kind| ProductEmissionError::new(kind, DiagnosticBag::new()))?;
@@ -510,10 +506,7 @@ struct ProductEmissionPlanningFacts {
 
 enum ProductEmissionPlanningFact {
     PackageInterface(
-        Result<
-            Option<bray_package_interface::InterfaceArtifact>,
-            ProductEmissionErrorKind,
-        >,
+        Result<Option<bray_package_interface::InterfaceArtifact>, ProductEmissionErrorKind>,
     ),
     Diagnostics(Result<DiagnosticBag, ProductEmissionErrorKind>),
 }
@@ -600,26 +593,29 @@ fn validate_executable_units(
         return Ok(());
     };
 
-        let planned_units = units.iter().filter(|unit| plan.backend_request(unit.key()).is_some());
+    let planned_units = units
+        .iter()
+        .filter(|unit| plan.backend_request(unit.key()).is_some());
 
     let mut has_host = false;
     let mut has_root_frame = !matches!(host.root(), RootExecution::Asynchronous { .. });
 
     for unit in planned_units {
+        if let RootExecution::Asynchronous { frame } = host.root()
+            && unit
+                .instances()
+                .iter()
+                .any(|instance| instance.protected_frame_identity() == Some(frame))
+        {
+            has_root_frame = true;
+        }
+
         for mir in unit.mir_units() {
             if matches!(
                 mir.kind(),
                 bray_ir::MirUnitKind::ExecutableHost(candidate) if candidate == host
             ) {
                 has_host = true;
-            }
-
-            if let RootExecution::Asynchronous { frame } = host.root()
-                && mir
-                    .frame_descriptor()
-                    .is_some_and(|descriptor| descriptor.frame() == frame)
-            {
-                has_root_frame = true;
             }
         }
     }
@@ -628,9 +624,7 @@ fn validate_executable_units(
         return Err(ProductEmissionErrorKind::MissingExecutableHost);
     }
 
-    if !has_root_frame
-        && let RootExecution::Asynchronous { frame } = host.root()
-    {
+    if !has_root_frame && let RootExecution::Asynchronous { frame } = host.root() {
         return Err(ProductEmissionErrorKind::MissingRootFrame(frame));
     }
 
@@ -666,13 +660,13 @@ fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {
 #[cfg(test)]
 mod tests {
     use bray_emitter::{
-        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend,
-        EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy,
-        RequestedArtifact, RequestedArtifactDestination,
+        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlanner,
+        EmissionRequest, EmissionStatus, ReplacementPolicy, RequestedArtifact,
+        RequestedArtifactDestination,
     };
     use bray_ir::{
-        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId,
-        MirSourceAnchor, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind,
+        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
+        MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind,
     };
     use bray_lowering::{ExecutableHostLoweringInput, lower_executable_host};
     use bray_package_interface::{
@@ -688,13 +682,11 @@ mod tests {
     use bray_target::test_support::test_target_profile;
     use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
     use bray_testing::{
-        TemporaryFile, test_async_executable_host_contract_for, test_bound_unit,
+        TemporaryFile, test_async_executable_host_contract_for_frame, test_bound_unit,
         test_mir_target, test_mir_type,
     };
 
-    use super::{
-        ProductEmissionErrorKind, ProductEmissionInputs, validate_executable_units,
-    };
+    use super::{ProductEmissionErrorKind, ProductEmissionInputs, validate_executable_units};
     use crate::{
         CancellationToken, Compilation, CompilationOptions, CompilationRequest,
         PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
@@ -781,24 +773,30 @@ mod tests {
         let runtime = RuntimeArtifactId::try_new("runtime.test")
             .unwrap_or_else(|| panic!("test runtime identity must be valid"));
 
-        let host = test_async_executable_host_contract_for(
+        let frame_template = ProtectedAsyncFrameId::new([7; 32]);
+        let frame_mir = protected_frame_mir(frame_template);
+
+        let frame = bray_codegen::CodegenInstance::non_generic(frame_mir.clone())
+            .protected_frame_identity()
+            .unwrap_or_else(|| panic!("test frame must have a concrete identity"));
+
+        let host = test_async_executable_host_contract_for_frame(
             product.clone(),
             test_mir_target().identity().clone(),
             runtime,
+            frame,
         );
 
-        let RootExecution::Asynchronous { frame } = host.root() else {
+        let RootExecution::Asynchronous { frame: host_frame } = host.root() else {
             panic!("test executable host must be asynchronous");
         };
 
-        let host_mir = executable_host_mir(host.clone());
-        let frame_mir = protected_frame_mir(frame);
+        assert_eq!(host_frame, frame);
 
-        let complete_unit = bray_codegen::CodegenUnit::try_new(
-            1,
-            [host_mir.clone(), frame_mir],
-        )
-        .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
+        let host_mir = executable_host_mir(host.clone());
+
+        let complete_unit = bray_codegen::CodegenUnit::try_new(1, [host_mir.clone(), frame_mir])
+            .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
 
         let complete_plan = async_plan(product.clone(), host.clone(), &complete_unit);
 
@@ -835,15 +833,19 @@ mod tests {
         let mismatched_runtime = RuntimeArtifactId::try_new("runtime.other")
             .unwrap_or_else(|| panic!("mismatched runtime identity must be valid"));
 
-        let mismatched_host = test_async_executable_host_contract_for(
+        let mismatched_host = test_async_executable_host_contract_for_frame(
             product.clone(),
             test_mir_target().identity().clone(),
             mismatched_runtime,
+            frame,
         );
 
         let wrong_host = bray_codegen::CodegenUnit::try_new(
             1,
-            [executable_host_mir(mismatched_host), protected_frame_mir(frame)],
+            [
+                executable_host_mir(mismatched_host),
+                protected_frame_mir(frame),
+            ],
         )
         .unwrap_or_else(|error| panic!("wrong-host test unit must be valid: {error:?}"));
 
@@ -869,10 +871,8 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test package interface identity must be valid"));
 
-        let export = PackageInterfaceExportRequest::new(
-            identity,
-            InterfaceLanguageRevision::new(0),
-        );
+        let export =
+            PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(0),
@@ -912,12 +912,8 @@ mod tests {
     }
 
     fn target_outputs() -> TargetOutputDescription {
-        let name = TargetOutputName::try_new(
-            TargetOutputKind::PackageInterface,
-            "",
-            ".brayi",
-        )
-        .unwrap_or_else(|error| panic!("test output name must be valid: {error:?}"));
+        let name = TargetOutputName::try_new(TargetOutputKind::PackageInterface, "", ".brayi")
+            .unwrap_or_else(|error| panic!("test output name must be valid: {error:?}"));
 
         TargetOutputDescription::try_new(SelectedTarget::default().profile().clone(), [name])
             .unwrap_or_else(|error| panic!("test target outputs must be valid: {error:?}"))
@@ -928,9 +924,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test package identity must be valid"))
     }
 
-    fn executable_host_mir(
-        host: bray_runtime_interface::ExecutableHostContract,
-    ) -> MirUnit {
+    fn executable_host_mir(host: bray_runtime_interface::ExecutableHostContract) -> MirUnit {
         let root = test_bound_unit(8).key().clone();
 
         lower_executable_host(ExecutableHostLoweringInput::new(
@@ -960,14 +954,7 @@ mod tests {
             .set_terminator(entry, source, MirTerminatorKind::Return(None))
             .unwrap_or_else(|error| panic!("test frame terminator must be valid: {error:?}"));
 
-        let state = MirFrameStateFacts::new(
-            MirFrameStateId::new(0),
-            entry,
-            [],
-            None,
-            [],
-            [],
-        );
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
 
         let descriptor = MirFrameDescriptor::try_new(
             frame,

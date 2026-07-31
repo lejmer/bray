@@ -6,6 +6,10 @@ use crate::{LinkTarget, LinkedProductKind, LldFlavor};
 pub enum SystemLinkerFamily {
     /// GNU `ld` command language for ELF targets.
     Gnu,
+    /// GNU compiler-driver command language for ELF targets.
+    GnuCompiler,
+    /// GNU compiler-driver command language reached through Windows Subsystem for Linux.
+    WslGnuCompiler,
     /// Microsoft `LINK` command language for COFF targets.
     Microsoft,
     /// Apple `ld` command language for Mach-O targets.
@@ -13,9 +17,9 @@ pub enum SystemLinkerFamily {
 }
 
 impl SystemLinkerFamily {
-    pub(super) const fn flavor(self) -> LldFlavor {
+    pub(crate) const fn flavor(self) -> LldFlavor {
         match self {
-            Self::Gnu => LldFlavor::Elf,
+            Self::Gnu | Self::GnuCompiler | Self::WslGnuCompiler => LldFlavor::Elf,
             Self::Microsoft => LldFlavor::Coff,
             Self::Apple => LldFlavor::MachO,
         }
@@ -28,6 +32,7 @@ impl SystemLinkerFamily {
     pub(super) const fn response_file_encoding(self) -> Option<ResponseFileEncoding> {
         match self {
             Self::Gnu => Some(ResponseFileEncoding::Utf8),
+            Self::GnuCompiler | Self::WslGnuCompiler => None,
             Self::Microsoft => Some(ResponseFileEncoding::Utf16LittleEndian),
             Self::Apple => None,
         }

@@ -158,6 +158,7 @@ pub(crate) struct StructFieldRelationships {
 pub(crate) struct UnionPayloadFieldRelationships {
     pub(crate) owner: UnionVariantSymbolId,
     pub(crate) ordinal: u32,
+    pub(crate) position: crate::CallablePosition,
     pub(crate) allows_mutation: bool,
     pub(crate) default_presence: RuntimeDefaultPresence,
     pub(crate) default_provider: Option<UnionPayloadDefaultProviderSymbolId>,
@@ -177,6 +178,7 @@ pub(crate) struct RelationshipIndex {
     imported_overload_arms: BTreeMap<AnySymbolId, Vec<AnySymbolId>>,
     providers: BTreeMap<AnySymbolId, AnySymbolId>,
     mutable_members: BTreeSet<AnySymbolId>,
+    positional_members: BTreeSet<AnySymbolId>,
 }
 
 pub(crate) trait BuildRelationships<I>: Sized {
@@ -202,6 +204,10 @@ impl RelationshipIndex {
 
     pub(crate) fn allow_mutation(&mut self, member: AnySymbolId) {
         self.mutable_members.insert(member);
+    }
+
+    pub(crate) fn allow_positional(&mut self, member: AnySymbolId) {
+        self.positional_members.insert(member);
     }
 
     pub(crate) fn add_imported_overload_arm(&mut self, owner: AnySymbolId, arm: AnySymbolId) {
@@ -452,6 +458,11 @@ impl UnionPayloadFieldRelationships {
         Some(Self {
             owner,
             ordinal: ordinal_within_kind(erased, index),
+            position: if index.positional_members.contains(&erased) {
+                crate::CallablePosition::PositionalOrNamed
+            } else {
+                crate::CallablePosition::NamedOnly
+            },
             allows_mutation: index.mutable_members.contains(&erased),
             default_presence: index.runtime_default(erased),
             default_provider: match index.providers.get(&erased) {

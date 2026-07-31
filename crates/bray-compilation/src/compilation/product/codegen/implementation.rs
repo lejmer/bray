@@ -1,44 +1,34 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
 use bray_base::shared_slice;
+use bray_binder::SymbolFactProvider;
 use bray_codegen::{
     AssemblySyntaxKind, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
     CodegenMappings, CodegenOptions, CodegenReachabilityBuilder, CodegenTarget, CodegenUnit,
     DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
-    demanded_runtime_references, partition_codegen_units,
+    partition_codegen_units,
 };
-use bray_compiler_known::RepresentationRole;
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend, ProductLinkFacts};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 use bray_linker::{
     DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind,
-    Linker, SectionGarbageCollectionPolicy,
+    LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind, Linker,
+    SectionGarbageCollectionPolicy,
 };
-use bray_runtime_interface::{
-    BinarySymbolName, ExecutableEntryResult, ExecutableHostContract,
-    ExecutableHostContractBuilder, RootExecution, RuntimeAbiRole, RuntimeArtifact,
-    RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
-};
+use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData,
-    GenericDeclarationTemplateFact, GenericOwnerId, NativeLinkKind, ProductIdentity,
-    ProductKind, SymbolFactRequest,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericDeclarationTemplateFact,
+    GenericOwnerId, NativeLinkKind, ProductIdentity, ProductKind, SymbolFactRequest,
 };
 
-use super::super::specialization::{
-    ConcreteCodegenInstance, ConcreteCodegenReachability,
-};
 use super::super::super::Compilation;
 use super::super::super::substitution::empty_substitution;
-use crate::fact::{
-    CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey,
-};
+use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductFactError;
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey};
 
-const CODEGEN_PARTITION_REVISION: u32 = 1;
+pub(super) const CODEGEN_PARTITION_REVISION: u32 = 1;
 const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
 
 /// Compilation-owned native product facts consumed by emission.
@@ -128,12 +118,7 @@ impl Compilation {
                 )
             }),
             Arc::from(required_capabilities.clone()),
-            Arc::from(
-                linker
-                    .driver_identities()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            ),
+            Arc::from(linker.driver_identities().cloned().collect::<Vec<_>>()),
         );
 
         let cell = self
@@ -187,8 +172,7 @@ impl Compilation {
             ));
         }
 
-        let source_roots =
-            self.product_root_instances(semantic.value(), &target, cancellation)?;
+        let source_roots = self.product_root_instances(semantic.value(), &target, cancellation)?;
 
         let (host, units, mappings) = if source_roots.is_empty() {
             (None, Arc::from([]), Vec::new())
@@ -224,9 +208,9 @@ impl Compilation {
                     )
                     .map_err(NativeProductFactError::InvalidHostMir)?;
 
-                    let host = ConcreteCodegenInstance::generated(
-                        CodegenInstanceKey::non_generic(&host_mir),
-                    );
+                    let host = ConcreteCodegenInstance::generated(CodegenInstanceKey::non_generic(
+                        &host_mir,
+                    ));
 
                     self.codegen_reachability(
                         [host],
@@ -238,16 +222,10 @@ impl Compilation {
                 None => source_reachability,
             };
 
-            let units =
-                partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
-                    .map_err(NativeProductFactError::InvalidCodegenUnit)?;
+            let units = partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
+                .map_err(NativeProductFactError::InvalidCodegenUnit)?;
 
-            let roots: BTreeSet<_> = reachability
-                .graph()
-                .roots()
-                .iter()
-                .cloned()
-                .collect();
+            let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
 
             let mappings = units
                 .iter()
@@ -276,9 +254,7 @@ impl Compilation {
             DebugInformationMode::None,
             DebugInformationOutputMode::Omit,
             Some(LinkableArtifactKind::RelocatableObject),
-            bray_codegen::BackendSerializationOptions::new(
-                AssemblySyntaxKind::TargetDefault,
-            ),
+            bray_codegen::BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         );
 
         let backend = EmissionBackend::try_new(
@@ -315,7 +291,11 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductFactError> {
         let symbols: Vec<_> = match semantic.kind() {
-            ProductKind::Executable => semantic.entrypoint().map(AnySymbolId::from).into_iter().collect(),
+            ProductKind::Executable => semantic
+                .entrypoint()
+                .map(AnySymbolId::from)
+                .into_iter()
+                .collect(),
             ProductKind::Test => semantic
                 .test_entries()
                 .iter()
@@ -384,7 +364,7 @@ impl Compilation {
         let mut builder = CodegenReachabilityBuilder::try_new(
             roots.iter().map(|instance| instance.key().clone()),
         )
-            .map_err(NativeProductFactError::InvalidReachability)?;
+        .map_err(NativeProductFactError::InvalidReachability)?;
 
         let generated_host = generated_host.map(|(mir, root)| {
             realizations.insert(root.key().clone(), root.clone());
@@ -444,29 +424,21 @@ impl Compilation {
                         cancellation,
                     )?,
                     None => {
-                        self.codegen_mir_for_plan(
-                            key,
-                            MirUnitId::new(0),
-                            None,
-                            cancellation,
-                        )?
+                        self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)?
                     }
                 };
 
-                let concrete_dependencies = self
-                    .concrete_codegen_dependencies_for_mir(
-                        &realization,
-                        &mir,
-                        target,
-                        cancellation,
-                    )?;
+                let concrete_dependencies = self.concrete_codegen_dependencies_for_mir(
+                    &realization,
+                    &mir,
+                    target,
+                    cancellation,
+                )?;
 
                 let dependencies = concrete_dependencies
                     .iter()
                     .map(|dependency| {
-                        CodegenInstanceDependency::definition(
-                            dependency.key().clone(),
-                        )
+                        CodegenInstanceDependency::definition(dependency.key().clone())
                     })
                     .collect::<Vec<_>>();
 
@@ -477,9 +449,7 @@ impl Compilation {
                         }
                         std::collections::btree_map::Entry::Occupied(entry) => {
                             if entry.get() != &dependency {
-                                return Err(
-                                    FactQueryError::InfrastructureFailure.into(),
-                                );
+                                return Err(FactQueryError::InfrastructureFailure.into());
                             }
                         }
                     }
@@ -499,196 +469,6 @@ impl Compilation {
             .map_err(NativeProductFactError::InvalidReachability)?;
 
         Ok(ConcreteCodegenReachability::new(graph, realizations))
-    }
-
-    fn executable_host(
-        &self,
-        product: &ProductIdentity,
-        kind: ProductKind,
-        is_async: bool,
-        roots: &[ConcreteCodegenInstance],
-        reachability: &bray_codegen::CodegenReachability,
-        runtime: Option<&RuntimeArtifact>,
-        required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<ExecutableHostContract>, NativeProductFactError> {
-        if kind == ProductKind::Library {
-            return Ok(None);
-        }
-
-        let root_realization = roots
-            .first()
-            .ok_or(NativeProductFactError::MissingProductRoot)?;
-
-        let root = reachability
-            .instance(root_realization.key())
-            .ok_or(NativeProductFactError::MissingProductRoot)?;
-
-        let entry_result_type = root
-            .mir()
-            .frame_descriptor()
-            .map(bray_ir::MirFrameDescriptor::result_type);
-
-        let entry_result = self.executable_entry_result(
-            root_realization,
-            entry_result_type,
-            cancellation,
-        )?;
-
-        let root_frame = root.protected_frame_identity();
-
-        let root_execution = match (is_async, root_frame) {
-            (false, _) => RootExecution::Synchronous,
-            (true, Some(frame)) => RootExecution::Asynchronous { frame },
-            (true, None) => return Err(NativeProductFactError::MissingProtectedRootFrame),
-        };
-
-        let runtime_contract = runtime.map(RuntimeArtifact::contract);
-
-        if is_async && runtime_contract.is_none() {
-            return Err(NativeProductFactError::MissingRuntime);
-        }
-
-        let mut runtime_roles: BTreeSet<_> = reachability
-            .instances()
-            .iter()
-            .flat_map(|instance| {
-                CodegenUnit::try_new(CODEGEN_PARTITION_REVISION, [instance.mir().clone()])
-                    .ok()
-                    .into_iter()
-                    .flat_map(|unit| demanded_runtime_references(&unit))
-                    .map(|reference| reference.role())
-            })
-            .filter(|role| {
-                runtime_contract
-                    .is_some_and(|runtime| runtime.role_binding(*role).is_some())
-            })
-            .collect();
-
-        if is_async {
-            runtime_roles.extend([
-                RuntimeAbiRole::RootExecution,
-                RuntimeAbiRole::StructuredShutdown,
-            ]);
-        }
-
-        let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
-
-        if is_async {
-            capabilities.insert(RuntimeCapability::CooperativeExecution);
-            capabilities.insert(RuntimeCapability::MainThreadLane);
-        }
-
-        let requirements = RuntimeRequirements::new(
-            runtime_contract.map(|runtime| runtime.identity().clone()),
-            self.selected_target().target().runtime_abi(),
-            runtime_contract.map(|runtime| runtime.frame_abi()),
-            target.identity().clone(),
-            target.panic_abi().clone(),
-            runtime_roles,
-            capabilities,
-            [],
-        );
-
-        let native_entry =
-            BinarySymbolName::try_new("_start").ok_or(NativeProductFactError::InvalidSymbolName)?;
-
-        let mut builder = ExecutableHostContractBuilder::new(
-            product.clone(),
-            native_entry,
-            root_execution,
-            requirements,
-        );
-
-        builder.set_entry_result(entry_result);
-
-        if let RootExecution::Asynchronous { frame } = root_execution {
-            builder.set_root_frame_adapter(
-                super::super::realization::generated_frame_symbol_name(
-                    target,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
-                )?,
-            );
-        }
-
-        for role in [
-            RuntimeAbiRole::RootExecution,
-            RuntimeAbiRole::RootCancellationRequest,
-            RuntimeAbiRole::CleanupIncidentReporting,
-            RuntimeAbiRole::RootTerminalObservation,
-            RuntimeAbiRole::StructuredShutdown,
-        ] {
-            if runtime_contract.is_some_and(|runtime| runtime.role_binding(role).is_some()) {
-                continue;
-            }
-
-            let symbol = BinarySymbolName::try_new(format!("bray_host_{}", role.as_str()))
-                .ok_or(NativeProductFactError::InvalidSymbolName)?;
-
-            builder.push_role_binding(RuntimeRoleBinding::new(
-                role,
-                symbol,
-                RuntimeRoleImplementation::CompilerLowering,
-            ));
-        }
-
-        if let Some(runtime) = runtime_contract {
-            builder.select_runtime(runtime.clone());
-        }
-
-        builder
-            .finish()
-            .map(Some)
-            .map_err(NativeProductFactError::InvalidExecutableHost)
-    }
-
-    fn executable_entry_result(
-        &self,
-        root: &ConcreteCodegenInstance,
-        async_result: Option<bray_symbols::TypeId>,
-        cancellation: &CancellationToken,
-    ) -> Result<ExecutableEntryResult, NativeProductFactError> {
-        let ty = match async_result {
-            Some(ty) => ty,
-            None => match self.codegen_instance_signature(root, cancellation)?.result() {
-                bray_codegen::CodegenResultMapping::Void => {
-                    return Ok(ExecutableEntryResult::Unit);
-                }
-                bray_codegen::CodegenResultMapping::Direct { ty, .. } => *ty,
-                bray_codegen::CodegenResultMapping::Indirect { pointee, .. } => *pointee,
-            },
-        };
-
-        let values = self.semantic_value_store()?;
-
-        let data = values
-            .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
-            return Err(NativeProductFactError::InvalidEntryResult);
-        };
-
-        let role =
-            super::super::super::foreign::compiler_known_representation(self, *definition);
-
-        match role {
-            Some(RepresentationRole::ScalarI32) => Ok(ExecutableEntryResult::I32),
-            Some(RepresentationRole::Result) => {
-                let representation = self
-                    .available_compiler_known_symbols()
-                    .result_representation()
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                Ok(ExecutableEntryResult::Fallible {
-                    ty,
-                    success_variant: representation.success_variant(),
-                })
-            }
-            _ => Err(NativeProductFactError::InvalidEntryResult),
-        }
     }
 
     fn product_link_facts(
@@ -794,24 +574,25 @@ mod tests {
 
     use bray_codegen::{
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
-        BackendArtifactRequestEntry, BackendArtifactRequirement,
-        BackendSerializationOptions, CodeGenerator, CodeGeneratorRegistry,
-        CodegenConfiguration, CodegenGenericArgument, CodegenRequest, CodegenResultMapping,
-        CodegenSpecialization, CodegenStatus, DebugInformationOutputMode,
-        LinkableArtifactKind, LinkableArtifactRequirement, partition_codegen_units,
+        BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
+        CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration, CodegenGenericArgument,
+        CodegenRequest, CodegenResultMapping, CodegenSpecialization, CodegenStatus,
+        DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
+        partition_codegen_units,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticBag;
+    use bray_ir::MirHelperReference;
     use bray_linker::{
-        LinkFailure, LinkOutcome, LinkPlan, Linker, LinkerDriver, LinkerDriverIdentity,
-        LinkerDriverKind, LinkedProductKind,
+        LinkFailure, LinkOutcome, LinkPlan, LinkedProductKind, Linker, LinkerDriver,
+        LinkerDriverIdentity, LinkerDriverKind,
     };
     use bray_runtime_interface::{
-        BinarySymbolName, ExecutableEntryResult, ProtectedFrameAbiVersions,
-        ProtectedFrameOperation, RootExecution, RuntimeAbiRole, RuntimeAbiVersion,
-        RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
-        RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
-        RuntimeRoleImplementation,
+        BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
+        ProtectedFrameAbiVersions, ProtectedFrameOperation, RootExecution, RuntimeAbiRole,
+        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactMetadata, RuntimeCapability, RuntimeCompatibilityError, RuntimeContract,
+        RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
     };
     use bray_symbols::{
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
@@ -824,8 +605,7 @@ mod tests {
 
     use super::CODEGEN_PARTITION_REVISION;
     use crate::{
-        CancellationToken, CompilationOptions, CompilationRequest, SelectedTarget,
-        WorkerBudget,
+        CancellationToken, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
     };
 
     const CONCRETE_GENERIC_SOURCE: &str = concat!(
@@ -860,10 +640,9 @@ mod tests {
                 .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
         );
 
-        let registry = CodeGeneratorRegistry::try_new([
-            Arc::clone(&backend) as Arc<dyn CodeGenerator>
-        ])
-        .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+                .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
 
         let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
             .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
@@ -897,11 +676,9 @@ mod tests {
             compilation.check_diagnostics()
         );
 
-        let product = ProductIdentity::try_new(
-            crate::test_support::package_identity(),
-            "application",
-        )
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
+        let product =
+            ProductIdentity::try_new(crate::test_support::package_identity(), "application")
+                .unwrap_or_else(|| panic!("test product identity must be valid"));
 
         let facts = compilation
             .native_product_facts(product, None, [], &test_linker())
@@ -923,71 +700,9 @@ mod tests {
 
     #[test]
     fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
-        let backend = Arc::new(
-            bray_codegen_llvm::LlvmCodeGenerator::try_new()
-                .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
-        );
-
-        let selected = backend.identity().clone();
-
-        let registry = CodeGeneratorRegistry::try_new([
-            Arc::clone(&backend) as Arc<dyn CodeGenerator>
-        ])
-        .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
-
-        let codegen = CodegenConfiguration::try_new(registry, selected)
-            .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
-
-        let request = CompilationRequest::with_options(
-            crate::test_support::package_identity(),
-            vec![crate::test_support::source_input(
-                concat!(
-                    "module app;\n",
-                    "\n",
-                    "async func main() -> i32\n",
-                    "{\n",
-                    "    return 42;\n",
-                    "}\n",
-                ),
-                0,
-            )],
-            CompilationOptions::new(
-                WorkerBudget::serial(),
-                ProductKind::Executable,
-                SelectedTarget::baseline(),
-            ),
-        );
-
-        let compilation = crate::Compilation::load_with_codegen(request, codegen)
-            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
-
-        assert!(
-            compilation.check_diagnostics().is_empty(),
-            "{:#?}",
-            compilation.check_diagnostics()
-        );
-
-        let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
-        let runtime = runtime_artifact(&compilation, archive.path());
-        let linker = test_linker();
-
-        let product = ProductIdentity::try_new(
-            crate::test_support::package_identity(),
-            "application",
-        )
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
-
-        let facts = compilation
-            .native_product_facts(
-                product,
-                Some(runtime),
-                [
-                    RuntimeCapability::CooperativeExecution,
-                    RuntimeCapability::MainThreadLane,
-                ],
-                &linker,
-            )
-            .unwrap_or_else(|error| panic!("async native facts must resolve: {error:?}"));
+        let (backend, facts) = runtime_native_facts(include_str!(
+            "../../../../../../xtask/fixtures/native-execution/async-i32.bray"
+        ));
 
         let host = facts
             .executable_host()
@@ -1013,9 +728,7 @@ mod tests {
             .units()
             .iter()
             .zip(facts.mappings())
-            .find_map(|(unit, mappings)| {
-                (unit.key() == frame_unit.key()).then_some(mappings)
-            })
+            .find_map(|(unit, mappings)| (unit.key() == frame_unit.key()).then_some(mappings))
             .unwrap_or_else(|| panic!("root frame mappings must be retained"));
 
         let adapter = frame_mapping
@@ -1029,6 +742,12 @@ mod tests {
 
         for role in [
             RuntimeAbiRole::RootExecution,
+            RuntimeAbiRole::RootCancellationRequest,
+            RuntimeAbiRole::RootTerminalObservation,
+            RuntimeAbiRole::RootCompletionResolution,
+            RuntimeAbiRole::CleanupIncidentReporting,
+            RuntimeAbiRole::PanicReporting,
+            RuntimeAbiRole::EntryFailureReporting,
             RuntimeAbiRole::StructuredShutdown,
         ] {
             assert_eq!(
@@ -1047,9 +766,140 @@ mod tests {
     }
 
     #[test]
+    fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
+        let cases = [
+            (
+                include_str!("../../../../../../xtask/fixtures/native-execution/async-unit.bray"),
+                false,
+            ),
+            (
+                include_str!(
+                    "../../../../../../xtask/fixtures/native-execution/async-result-error.bray"
+                ),
+                true,
+            ),
+        ];
+
+        for (source, fallible) in cases {
+            let (backend, facts) = runtime_native_facts(source);
+
+            let host = facts
+                .executable_host()
+                .unwrap_or_else(|| panic!("async executable must own a host"));
+
+            assert!(matches!(host.root(), RootExecution::Asynchronous { .. }));
+
+            if fallible {
+                let ExecutableEntryResult::Fallible { error, .. } = host.entry_result() else {
+                    panic!("Result root must retain its concrete error type");
+                };
+
+                let helper_references = facts
+                    .mappings()
+                    .iter()
+                    .flat_map(bray_codegen::CodegenMappings::operations)
+                    .flat_map(bray_codegen::CodegenOperationMapping::helpers)
+                    .map(bray_codegen::CodegenHelperMapping::reference)
+                    .collect::<Vec<_>>();
+
+                assert!(helper_references.contains(&&MirHelperReference::Finalize(error)));
+
+                assert!(helper_references.contains(&&MirHelperReference::Destroy(error)));
+
+                let ir =
+                    generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr)
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>();
+
+                let ir = String::from_utf8(ir)
+                    .unwrap_or_else(|error| panic!("LLVM IR must be UTF-8: {error}"));
+
+                assert!(ir.contains("entry.failure"));
+                assert!(ir.contains("bray_runtime_entry_failure_reporting_v1"));
+            } else {
+                assert_eq!(host.entry_result(), ExecutableEntryResult::Unit);
+            }
+
+            assert!(
+                generated_artifacts(&backend, &facts)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
+    }
+
+    #[test]
+    fn synchronous_panics_emit_a_runtime_owned_host_boundary() {
+        let (backend, facts) = runtime_native_facts(include_str!(
+            "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
+        ));
+
+        let host = facts
+            .executable_host()
+            .unwrap_or_else(|| panic!("executable must own a host"));
+
+        assert_eq!(host.root(), RootExecution::Synchronous);
+
+        for role in [
+            RuntimeAbiRole::SynchronousRootExecution,
+            RuntimeAbiRole::PanicReporting,
+            RuntimeAbiRole::PanicPropagation,
+        ] {
+            assert_eq!(
+                host.role_binding(role)
+                    .map(RuntimeRoleBinding::implementation),
+                Some(RuntimeRoleImplementation::BrayRuntime)
+            );
+        }
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
+        let (_, compilation) = codegen_compilation(include_str!(
+            "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
+        ));
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
+
+        let roles = RuntimeAbiRole::ALL
+            .into_iter()
+            .filter(|role| *role != RuntimeAbiRole::PanicPropagation);
+
+        let runtime = runtime_artifact_with_roles(&compilation, archive.path(), roles);
+
+        let product =
+            ProductIdentity::try_new(crate::test_support::package_identity(), "application")
+                .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let result = compilation.native_product_facts(product, Some(runtime), [], &test_linker());
+
+        let Err(error) = result else {
+            panic!("incomplete runtime must fail product validation");
+        };
+
+        assert!(
+            matches!(
+                error.as_ref(),
+                super::NativeProductFactError::InvalidExecutableHost(
+                    ExecutableHostContractBuildError::IncompatibleRuntime(
+                        RuntimeCompatibilityError::MissingRole(RuntimeAbiRole::PanicPropagation)
+                    )
+                )
+            ),
+            "{error:?}"
+        );
+    }
+
+    #[test]
     fn concrete_generic_instances_realize_signatures_and_layouts() {
-        let compilation =
-            crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
+        let compilation = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -1078,12 +928,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
 
         let reversed_reachability = compilation
-            .codegen_reachability(
-                roots.into_iter().rev(),
-                None,
-                &target,
-                &cancellation,
-            )
+            .codegen_reachability(roots.into_iter().rev(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("reversed reachability must close: {error:?}"));
 
         assert_eq!(reachability.graph(), reversed_reachability.graph());
@@ -1095,11 +940,8 @@ mod tests {
             );
         }
 
-        let units = partition_codegen_units(
-            CODEGEN_PARTITION_REVISION,
-            reachability.graph(),
-        )
-        .unwrap_or_else(|error| panic!("generic units must partition: {error:?}"));
+        let units = partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
+            .unwrap_or_else(|error| panic!("generic units must partition: {error:?}"));
 
         let mut saw_concrete_generic_signature = false;
         let mut saw_const_specialization = false;
@@ -1120,12 +962,7 @@ mod tests {
                     unit,
                     None,
                     &target,
-                    &reachability
-                        .graph()
-                        .roots()
-                        .iter()
-                        .cloned()
-                        .collect(),
+                    &reachability.graph().roots().iter().cloned().collect(),
                     &reachability,
                     &cancellation,
                 )
@@ -1180,15 +1017,17 @@ mod tests {
         assert_eq!(first, second);
 
         assert!(first.iter().any(|specialization| {
-            specialization.arguments().iter().any(|argument| {
-                matches!(argument, CodegenGenericArgument::Type(_))
-            })
+            specialization
+                .arguments()
+                .iter()
+                .any(|argument| matches!(argument, CodegenGenericArgument::Type(_)))
         }));
 
         assert!(first.iter().any(|specialization| {
-            specialization.arguments().iter().any(|argument| {
-                matches!(argument, CodegenGenericArgument::Constant(_))
-            })
+            specialization
+                .arguments()
+                .iter()
+                .any(|argument| matches!(argument, CodegenGenericArgument::Constant(_)))
         }));
     }
 
@@ -1264,9 +1103,7 @@ mod tests {
 
         let boolean_definition = compilation
             .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(
-                RepresentationRole::ScalarBool,
-            )
+            .representation_symbol::<bray_symbols::StructSymbolId>(RepresentationRole::ScalarBool)
             .unwrap_or_else(|| panic!("test bool representation must be available"));
 
         let boolean = named_test_type(values, boolean_definition, [], []);
@@ -1365,9 +1202,87 @@ mod tests {
         assert_eq!(realization.witness_instances(), [witness]);
     }
 
+    fn runtime_native_facts(
+        source: &str,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductFacts>,
+    ) {
+        let (backend, compilation) = codegen_compilation(source);
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
+        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let product =
+            ProductIdentity::try_new(crate::test_support::package_identity(), "application")
+                .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let facts = compilation
+            .native_product_facts(
+                product,
+                Some(runtime),
+                [
+                    RuntimeCapability::CooperativeExecution,
+                    RuntimeCapability::MainThreadLane,
+                ],
+                &test_linker(),
+            )
+            .unwrap_or_else(|error| panic!("runtime native facts must resolve: {error:?}"));
+
+        (backend, facts)
+    }
+
+    fn codegen_compilation(
+        source: &str,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        let backend = Arc::new(
+            bray_codegen_llvm::LlvmCodeGenerator::try_new()
+                .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
+        );
+
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+                .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
+
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
+            .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(source, 0)],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Executable,
+                SelectedTarget::baseline(),
+            ),
+        );
+
+        let compilation = crate::Compilation::load_with_codegen(request, codegen)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        (backend, compilation)
+    }
+
     fn runtime_artifact(
         compilation: &crate::Compilation,
         archive: &std::path::Path,
+    ) -> RuntimeArtifact {
+        runtime_artifact_with_roles(compilation, archive, RuntimeAbiRole::ALL)
+    }
+
+    fn runtime_artifact_with_roles(
+        compilation: &crate::Compilation,
+        archive: &std::path::Path,
+        roles: impl IntoIterator<Item = RuntimeAbiRole>,
     ) -> RuntimeArtifact {
         let target = compilation
             .selected_target()
@@ -1381,18 +1296,11 @@ mod tests {
         let artifact = RuntimeArtifactId::try_new("bray.runtime.test.x86_64")
             .unwrap_or_else(|| panic!("test runtime artifact identity must be valid"));
 
-        let bindings = RuntimeAbiRole::ALL.into_iter().map(|role| {
-            let symbol = BinarySymbolName::try_new(format!(
-                "bray_runtime_{}_v1",
-                role.as_str()
-            ))
-            .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
+        let bindings = roles.into_iter().map(|role| {
+            let symbol = BinarySymbolName::try_new(format!("bray_runtime_{}_v1", role.as_str()))
+                .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
 
-            RuntimeRoleBinding::new(
-                role,
-                symbol,
-                RuntimeRoleImplementation::BrayRuntime,
-            )
+            RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::BrayRuntime)
         });
 
         let version = RuntimeAbiVersion::new(1, 0);
@@ -1415,12 +1323,8 @@ mod tests {
 
         let digest = RuntimeArtifactDigest::new([11; 32]);
 
-        let metadata = RuntimeArtifactMetadata::try_new(
-            contract,
-            "libbray_runtime.a",
-            digest,
-        )
-        .unwrap_or_else(|error| panic!("test runtime metadata must validate: {error:?}"));
+        let metadata = RuntimeArtifactMetadata::try_new(contract, "libbray_runtime.a", digest)
+            .unwrap_or_else(|error| panic!("test runtime metadata must validate: {error:?}"));
 
         RuntimeArtifact::try_new(metadata, archive, digest)
             .unwrap_or_else(|error| panic!("test runtime artifact must validate: {error:?}"))
@@ -1430,16 +1334,20 @@ mod tests {
         backend: &bray_codegen_llvm::LlvmCodeGenerator,
         facts: &super::NativeProductFacts,
     ) -> Vec<Vec<u8>> {
+        generated_artifacts_of_kind(backend, facts, BackendArtifactKind::RelocatableObject)
+    }
+
+    fn generated_artifacts_of_kind(
+        backend: &bray_codegen_llvm::LlvmCodeGenerator,
+        facts: &super::NativeProductFacts,
+        kind: BackendArtifactKind,
+    ) -> Vec<Vec<u8>> {
         facts
             .units()
             .iter()
             .zip(facts.mappings())
             .map(|(unit, mappings)| {
-                let artifact = BackendArtifactId::new(
-                    unit.key().clone(),
-                    BackendArtifactKind::RelocatableObject,
-                    0,
-                );
+                let artifact = BackendArtifactId::new(unit.key().clone(), kind, 0);
 
                 let artifacts = BackendArtifactRequest::try_new(
                     unit.key().clone(),
@@ -1448,10 +1356,12 @@ mod tests {
                         BackendArtifactRequirement::Required,
                     )],
                     DebugInformationOutputMode::Omit,
-                    Some(LinkableArtifactRequirement::new(
-                        LinkableArtifactKind::RelocatableObject,
-                        BackendArtifactRequirement::Required,
-                    )),
+                    (kind == BackendArtifactKind::RelocatableObject).then(|| {
+                        LinkableArtifactRequirement::new(
+                            LinkableArtifactKind::RelocatableObject,
+                            BackendArtifactRequirement::Required,
+                        )
+                    }),
                     BackendSerializationOptions::new(
                         bray_codegen::AssemblySyntaxKind::TargetDefault,
                     ),
@@ -1475,7 +1385,8 @@ mod tests {
 
                 assert!(
                     matches!(outcome.status(), CodegenStatus::Complete(_)),
-                    "{:?}",
+                    "{:?}: {:?}",
+                    unit.key(),
                     outcome.status()
                 );
 
@@ -1503,25 +1414,15 @@ mod tests {
 
     impl LinkerDriver for TestLinkerDriver {
         fn identity(&self) -> &LinkerDriverIdentity {
-            static IDENTITY: std::sync::OnceLock<LinkerDriverIdentity> =
-                std::sync::OnceLock::new();
+            static IDENTITY: std::sync::OnceLock<LinkerDriverIdentity> = std::sync::OnceLock::new();
 
             IDENTITY.get_or_init(|| {
-                LinkerDriverIdentity::try_new(
-                    LinkerDriverKind::EmbeddedLld,
-                    "test-lld",
-                    "1",
-                    "22",
-                )
-                .unwrap_or_else(|| panic!("test linker identity must be valid"))
+                LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "test-lld", "1", "22")
+                    .unwrap_or_else(|| panic!("test linker identity must be valid"))
             })
         }
 
-        fn supports(
-            &self,
-            _target: &bray_linker::LinkTarget,
-            _product: LinkedProductKind,
-        ) -> bool {
+        fn supports(&self, _target: &bray_linker::LinkTarget, _product: LinkedProductKind) -> bool {
             true
         }
 
@@ -1540,12 +1441,7 @@ mod tests {
         parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
         arguments: impl IntoIterator<Item = GenericArgument>,
     ) -> bray_symbols::TypeId {
-        let substitution = test_substitution(
-            values,
-            definition.into(),
-            parameters,
-            arguments,
-        );
+        let substitution = test_substitution(values, definition.into(), parameters, arguments);
 
         values
             .intern_type(TypeData::Named {
@@ -1582,33 +1478,24 @@ mod tests {
             .unwrap_or_else(|error| panic!("noise tuple type must intern: {error:?}"));
 
         let mut value = values
-            .intern_constant_value(ConstantValueData::new(
-                ty,
-                ConstantValueKind::Unit,
-            ))
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Unit))
             .unwrap_or_else(|error| panic!("noise unit value must intern: {error:?}"));
 
         for _ in 0..4 {
             ty = values
                 .intern_type(TypeData::Nullable(ty))
-                .unwrap_or_else(|error| {
-                    panic!("noise nullable type must intern: {error:?}")
-                });
+                .unwrap_or_else(|error| panic!("noise nullable type must intern: {error:?}"));
 
             value = values
                 .intern_constant_value(ConstantValueData::new(
                     ty,
                     ConstantValueKind::NullablePresent(value),
                 ))
-                .unwrap_or_else(|error| {
-                    panic!("noise nullable value must intern: {error:?}")
-                });
+                .unwrap_or_else(|error| panic!("noise nullable value must intern: {error:?}"));
 
             values
                 .intern_constant_term(ConstantTermData::Value(value))
-                .unwrap_or_else(|error| {
-                    panic!("noise constant term must intern: {error:?}")
-                });
+                .unwrap_or_else(|error| panic!("noise constant term must intern: {error:?}"));
         }
     }
 
@@ -1627,36 +1514,24 @@ mod tests {
             .selected_target()
             .target()
             .codegen_target()
-            .unwrap_or_else(|error| {
-                panic!("test codegen target must validate: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
         let semantic = compilation
             .product_semantic_facts()
-            .unwrap_or_else(|error| {
-                panic!("test product facts must resolve: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(
-                semantic.value(),
-                &target,
-                &cancellation,
-            )
+            .product_root_instances(semantic.value(), &target, &cancellation)
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         compilation
             .codegen_reachability(roots, None, &target, &cancellation)
-            .unwrap_or_else(|error| {
-                panic!("generic reachability must close: {error:?}")
-            })
+            .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"))
             .graph()
             .instances()
             .iter()
             .filter_map(|instance| match instance.key().specialization() {
-                CodegenSpecialization::Generic(_) => {
-                    Some(instance.key().specialization().clone())
-                }
+                CodegenSpecialization::Generic(_) => Some(instance.key().specialization().clone()),
                 CodegenSpecialization::NonGeneric => None,
             })
             .collect()

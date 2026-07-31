@@ -951,3 +951,10 @@ impl_defaultable_field!(
     crate::UnionVariantSymbolId,
     crate::UnionPayloadDefaultProviderSymbolId
 );
+
+impl UnionPayloadFieldSymbol {
+    /// Returns whether this payload field accepts positional construction.
+    pub const fn position(&self) -> crate::CallablePosition {
+        self.relationships.position
+    }
+}

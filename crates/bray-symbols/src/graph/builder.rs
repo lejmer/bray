@@ -164,6 +164,10 @@ macro_rules! define_symbol_graph_builder {
                 self.relationship_index.allow_mutation(member);
             }
 
+            pub(crate) fn allow_positional_member(&mut self, member: AnySymbolId) {
+                self.relationship_index.allow_positional(member);
+            }
+
             pub(crate) fn add_overload_arms(
                 &mut self,
                 owner: AnySymbolId,

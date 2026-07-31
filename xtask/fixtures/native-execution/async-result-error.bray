@@ -1,0 +1,11 @@
+module app;
+
+async func main() -> Result<unit, i32>
+{
+    return await child();
+}
+
+async func child() -> Result<unit, i32>
+{
+    return .Error(42);
+}

@@ -226,9 +226,7 @@ fn capabilities() -> BackendCapabilities {
     )
 }
 
-fn runtime_metadata(
-    request: CodegenRequest<'_>,
-) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
+fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
     let frames = request
         .unit()
         .instances()
@@ -238,13 +236,46 @@ fn runtime_metadata(
             let descriptor = instance.mir().frame_descriptor()?;
 
             let operations = bray_runtime_interface::ProtectedFrameOperations::new(
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart)?,
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::Resume)?,
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::CancellationEntry)?,
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast)?,
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::LifecycleResolution)?,
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::CompletionMove)?,
-                frame_symbol(request, frame, bray_runtime_interface::ProtectedFrameOperation::Destruction)?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::StateDescription,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::Resume,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::CancellationEntry,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::LifecycleResolution,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::CompletionMove,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::Destruction,
+                )?,
             );
 
             Some(ProtectedAsyncFrameMetadata::new(
@@ -501,7 +532,8 @@ mod tests {
         let fixture = codegen_request_for_backend(backend.identity().clone());
         let context = inkwell::context::Context::create();
 
-        let Ok(Some((machine, module))) = backend.prepare_module(fixture.request(), &context) else {
+        let Ok(Some((machine, module))) = backend.prepare_module(fixture.request(), &context)
+        else {
             panic!("test mappings must produce a valid LLVM module");
         };
 

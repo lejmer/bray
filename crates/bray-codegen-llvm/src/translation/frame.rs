@@ -1,8 +1,8 @@
 use crate::mapping::LlvmTypeMappings;
 use crate::translation::unit::UnitTranslator;
 use bray_codegen::{
-    CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest,
-    CodegenResultMapping, CodegenSymbolKey,
+    CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
+    CodegenSymbolKey,
 };
 use bray_ir::MirStorageKind;
 use bray_runtime_interface::ProtectedFrameOperation;
@@ -19,10 +19,8 @@ pub(crate) fn translate_protected_instance<'context, 'module, 'request>(
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(), CodegenFailure> {
-    if request.target().machine().architecture()
-        != bray_target::TargetArchitecture::X86_64
-        || request.target().machine().object_format()
-            != bray_target::ObjectFormat::Elf
+    if request.target().machine().architecture() != bray_target::TargetArchitecture::X86_64
+        || request.target().machine().object_format() != bray_target::ObjectFormat::Elf
     {
         return Err(CodegenFailure::UnsupportedTarget);
     }
@@ -37,14 +35,11 @@ pub(crate) fn translate_protected_instance<'context, 'module, 'request>(
     translate_constructor(module, request, instance, context_type, types)?;
     translate_frame_adapter(module, request, instance, context_type, types)?;
     translate_state_callback(context, module, request, instance)?;
+    translate_cancellation_entry(module, request, instance, context_type, types)?;
     translate_action_callbacks(module, request, instance, context_type, types)?;
 
-    let resume = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::Resume,
-    )?;
+    let resume =
+        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
 
     UnitTranslator::for_frame_resume(
         context,
@@ -74,9 +69,10 @@ fn frame_context_type<'context>(
         .frame_descriptor()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let mut fields = Vec::with_capacity(instance.mir().storages().len() + 2);
+    let mut fields = Vec::with_capacity(instance.mir().storages().len() + 3);
     fields.push(context.i32_type().into());
     fields.push(types.map(descriptor.result_type())?);
+    fields.push(context.i8_type().into());
 
     for (_, storage) in instance.mir().storages_with_ids() {
         fields.push(types.map(storage.ty())?);
@@ -100,10 +96,6 @@ fn translate_constructor<'context>(
     let function = module
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-    let CodegenResultMapping::Direct { .. } = symbol.signature().result() else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
-    };
 
     let context = types.context();
     let builder = context.create_builder();
@@ -146,9 +138,65 @@ fn translate_constructor<'context>(
         storage,
     )?;
 
-    builder
-        .build_return(Some(&storage))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    let adapter = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::MoveBeforeStart,
+    )?
+    .as_global_value()
+    .as_pointer_value();
+
+    let result_type = match symbol.signature().result() {
+        CodegenResultMapping::Direct { ty, .. }
+        | CodegenResultMapping::Indirect { pointee: ty, .. } => types.map(*ty)?,
+        CodegenResultMapping::Void => {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+    };
+
+    let result_type = match result_type {
+        inkwell::types::BasicTypeEnum::StructType(ty) => Some(ty),
+        _ => None,
+    }
+    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let inactive = result_type.const_zero();
+
+    let inactive = builder
+        .build_insert_value(inactive, storage, 0, "frame.inactive.context")
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .into_struct_value();
+
+    let inactive = builder
+        .build_insert_value(inactive, adapter, 1, "frame.inactive.adapter")
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .into_struct_value();
+
+    match symbol.signature().result() {
+        CodegenResultMapping::Direct { .. } => {
+            builder
+                .build_return(Some(&inactive))
+                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        }
+        CodegenResultMapping::Indirect { .. } => {
+            let destination = function
+                .get_first_param()
+                .and_then(pointer_value)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            builder
+                .build_store(destination, inactive)
+                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+            builder
+                .build_return(None)
+                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        }
+        CodegenResultMapping::Void => {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+    }
 
     Ok(())
 }
@@ -166,7 +214,8 @@ fn initialize_parameters(
         .storages_with_ids()
         .filter(|(_, storage)| storage.kind() == MirStorageKind::Parameter);
 
-    let mut parameter_index = 0_u32;
+    let mut parameter_index =
+        u32::from(matches!(signature.result(), CodegenResultMapping::Indirect { .. }));
 
     for ((storage, _), mapping) in storages.zip(signature.parameters()) {
         let destination = builder
@@ -175,7 +224,7 @@ fn initialize_parameters(
                 context,
                 storage
                     .slot()
-                    .checked_add(2)
+                    .checked_add(3)
                     .and_then(|index| u32::try_from(index).ok())
                     .ok_or(CodegenFailure::ResourceExhausted)?,
                 "frame.parameter",
@@ -250,8 +299,9 @@ fn translate_frame_adapter<'context>(
     );
 
     let callbacks = [
-        ProtectedFrameOperation::CancellationEntry,
+        ProtectedFrameOperation::StateDescription,
         ProtectedFrameOperation::Resume,
+        ProtectedFrameOperation::CancellationEntry,
         ProtectedFrameOperation::TaskBroadcast,
         ProtectedFrameOperation::LifecycleResolution,
         ProtectedFrameOperation::CompletionMove,
@@ -262,11 +312,19 @@ fn translate_frame_adapter<'context>(
             .map(|function| function.as_global_value().as_pointer_value())
     });
 
-    let [state, resume, broadcast, resolve, move_completion, destroy] = callbacks;
+    let [
+        state,
+        resume,
+        cancel,
+        broadcast,
+        resolve,
+        move_completion,
+        destroy,
+    ] = callbacks;
 
     let usize = crate::native::pointer_integer_type(context, request.target());
 
-    let fields: [BasicValueEnum<'context>; 13] = [
+    let fields: [BasicValueEnum<'context>; 14] = [
         function
             .get_first_param()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
@@ -287,6 +345,7 @@ fn translate_frame_adapter<'context>(
             .into(),
         state?.into(),
         resume?.into(),
+        cancel?.into(),
         broadcast?.into(),
         resolve?.into(),
         move_completion?.into(),
@@ -324,7 +383,7 @@ fn translate_state_callback(
         module,
         request,
         instance,
-        ProtectedFrameOperation::CancellationEntry,
+        ProtectedFrameOperation::StateDescription,
     )?;
 
     let descriptor = instance
@@ -348,26 +407,27 @@ fn translate_state_callback(
     for facts in descriptor.states() {
         let block = context.append_basic_block(function, "frame.state.known");
 
-        let lane_requirements = facts.lane_requirements().iter().fold(
-            0_u64,
-            |requirements, lane| {
-                requirements
-                    | match lane {
-                        bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
-                        bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
-                        bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
-                    }
-            },
-        );
+        let lane_requirements =
+            facts
+                .lane_requirements()
+                .iter()
+                .fold(0_u64, |requirements, lane| {
+                    requirements
+                        | match lane {
+                            bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
+                            bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
+                            bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
+                        }
+                });
 
-        let affinity =
-            if facts.lane_requirements().contains(
-                &bray_runtime_interface::ExecutionLaneRequirement::MainThread,
-            ) {
-                2
-            } else {
-                0
-            };
+        let affinity = if facts
+            .lane_requirements()
+            .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
+        {
+            2
+        } else {
+            0
+        };
 
         builder.position_at_end(block);
 
@@ -400,9 +460,58 @@ fn translate_state_callback(
     builder.position_at_end(invalid);
 
     builder
-        .build_return(Some(
-            &crate::native::frame_state_type(context).const_zero(),
-        ))
+        .build_return(Some(&crate::native::frame_state_type(context).const_zero()))
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    Ok(())
+}
+
+fn translate_cancellation_entry<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    instance: &CodegenInstance,
+    context_type: StructType<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    let function = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::CancellationEntry,
+    )?;
+
+    let resume =
+        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
+
+    let builder = types.context().create_builder();
+
+    let block = types.context().append_basic_block(function, "frame.cancel");
+
+    builder.position_at_end(block);
+
+    let context = integer_pointer(&builder, function, 0, types)?;
+
+    let requested = builder
+        .build_struct_gep(context_type, context, 2, "frame.cancellation.pointer")
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_store(requested, types.context().i8_type().const_int(1, false))
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    let context = function
+        .get_first_param()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let progress = builder
+        .build_call(resume, &[context.into()], "frame.cancel.progress")
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .try_as_basic_value()
+        .basic()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_return(Some(&progress))
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
     Ok(())
@@ -415,26 +524,114 @@ fn translate_action_callbacks<'context>(
     context_type: StructType<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
-    for operation in [
-        ProtectedFrameOperation::TaskBroadcast,
-        ProtectedFrameOperation::LifecycleResolution,
-    ] {
-        let function = frame_operation_function(module, request, instance, operation)?;
-
-        let block = module
-            .get_context()
-            .append_basic_block(function, operation.as_str());
-
-        let builder = module.get_context().create_builder();
-        builder.position_at_end(block);
-
-        builder
-            .build_return(None)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-    }
+    translate_failure_cleanup(module, request, instance, context_type, types)?;
 
     translate_completion_move(module, request, instance, context_type, types)?;
     translate_destruction(module, request, instance)?;
+
+    Ok(())
+}
+
+fn translate_failure_cleanup<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    instance: &CodegenInstance,
+    context_type: StructType<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    let broadcast = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::TaskBroadcast,
+    )?;
+
+    let builder = types.context().create_builder();
+
+    let block = types
+        .context()
+        .append_basic_block(broadcast, "frame.failure.broadcast");
+
+    builder.position_at_end(block);
+
+    let context = integer_pointer(&builder, broadcast, 0, types)?;
+
+    let requested = builder
+        .build_struct_gep(context_type, context, 2, "frame.failure.cancellation")
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_store(requested, types.context().i8_type().const_int(1, false))
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_return(None)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    let resolve = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::LifecycleResolution,
+    )?;
+
+    let block = types
+        .context()
+        .append_basic_block(resolve, "frame.failure.resolve");
+
+    let cleanup = types
+        .context()
+        .append_basic_block(resolve, "frame.failure.cleanup");
+
+    let done = types
+        .context()
+        .append_basic_block(resolve, "frame.failure.done");
+
+    builder.position_at_end(block);
+
+    let exit = resolve
+        .get_nth_param(1)
+        .and_then(|value| match value {
+            BasicValueEnum::IntValue(value) => Some(value),
+            _ => None,
+        })
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let failed = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            exit,
+            exit.get_type().const_int(3, false),
+            "frame.runtime.failed",
+        )
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_conditional_branch(failed, cleanup, done)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder.position_at_end(cleanup);
+
+    let resume =
+        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
+
+    let context = resolve
+        .get_first_param()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_call(resume, &[context.into()], "frame.failure.cleanup")
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_unconditional_branch(done)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder.position_at_end(done);
+
+    builder
+        .build_return(None)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
     Ok(())
 }
@@ -512,15 +709,13 @@ fn translate_destruction(
 
     let pointer = context.ptr_type(AddressSpace::default());
 
-    let free = module
-        .get_function("free")
-        .unwrap_or_else(|| {
-            module.add_function(
-                "free",
-                context.void_type().fn_type(&[pointer.into()], false),
-                None,
-            )
-        });
+    let free = module.get_function("free").unwrap_or_else(|| {
+        module.add_function(
+            "free",
+            context.void_type().fn_type(&[pointer.into()], false),
+            None,
+        )
+    });
 
     let storage = function
         .get_first_param()

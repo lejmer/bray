@@ -4,6 +4,7 @@ use std::sync::Arc;
 use bray_base::NonEmptySharedStr;
 pub use bray_symbols::SymbolRelationshipKind;
 use bray_symbols::{
+    CallablePosition,
     ExternalSymbolKey, ImportedIdentitySurfaceError, ImportedPackageIdentitySurface,
     InterfaceSymbolId, PackageIdentity, SymbolName,
 };
@@ -161,6 +162,7 @@ pub struct SymbolRelationship {
     owner: InterfaceSymbolId,
     member: InterfaceSymbolId,
     ordinal: u32,
+    position: CallablePosition,
     allows_mutation: bool,
 }
 
@@ -177,6 +179,7 @@ impl SymbolRelationship {
             owner,
             member,
             ordinal,
+            position: CallablePosition::NamedOnly,
             allows_mutation: false,
         }
     }
@@ -184,6 +187,13 @@ impl SymbolRelationship {
     /// Marks the related field as permitting mutation after initialization.
     pub const fn with_mutation(mut self) -> Self {
         self.allows_mutation = true;
+
+        self
+    }
+
+    /// Sets the related payload field's call-position permission.
+    pub const fn with_position(mut self, position: CallablePosition) -> Self {
+        self.position = position;
 
         self
     }
@@ -206,6 +216,11 @@ impl SymbolRelationship {
     /// Returns the stable owner-relative position.
     pub const fn ordinal(self) -> u32 {
         self.ordinal
+    }
+
+    /// Returns the related payload field's call-position permission.
+    pub const fn position(self) -> CallablePosition {
+        self.position
     }
 
     /// Returns whether the related field permits mutation after initialization.

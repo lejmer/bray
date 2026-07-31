@@ -131,12 +131,13 @@ impl Compilation {
 
         let selection_kind = selection_kind(expression)?;
 
-        if semantics
-            .result()
-            .value()
-            .1
-            .expression(key.expression())
-            .is_some()
+        if !matches!(expression, BoundExpression::Call(_))
+            && semantics
+                .result()
+                .value()
+                .1
+                .expression(key.expression())
+                .is_some()
         {
             return Ok(DiagnosticResult::new(None, diagnostics));
         }
@@ -267,11 +268,16 @@ impl Compilation {
             );
         }
 
-        Ok(Some(bray_bound_tree::CheckedExpressionTypes::new(
+        let types = bray_bound_tree::CheckedExpressionTypes::new(
             provisional.unit(),
             provisional.kind(),
             entries,
-        )))
+        );
+
+        Ok(Some(match provisional.callable_result_type() {
+            Some(result) => types.with_callable_result_type(result),
+            None => types,
+        }))
     }
 
     #[expect(

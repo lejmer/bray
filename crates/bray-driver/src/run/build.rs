@@ -70,11 +70,7 @@ pub(crate) fn run_build_command(
 
     let compilation = match compilation {
         Some(compilation) => compilation,
-        None => return DriverRunResult::new(
-            ExitCode::FAILURE,
-            DiagnosticBag::new(),
-            output_format,
-        ),
+        None => return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format),
     };
 
     let Some(linker) = native_linker() else {
@@ -108,8 +104,7 @@ pub(crate) fn run_build_command(
         native.executable_host().cloned(),
     );
 
-    let inputs =
-        ProductEmissionInputs::new(&target_outputs).with_native_product(&native, &linker);
+    let inputs = ProductEmissionInputs::new(&target_outputs).with_native_product(&native, &linker);
 
     match compilation.emit_product(request, inputs) {
         Ok(outcome) => {
@@ -120,12 +115,7 @@ pub(crate) fn run_build_command(
                 EmissionStatus::Failed(_) | EmissionStatus::Cancelled => ExitCode::FAILURE,
             };
 
-            driver_result_from_compilation(
-                compilation,
-                diagnostics,
-                output_format,
-                exit_code,
-            )
+            driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
         }
         Err(error) => driver_result_from_compilation(
             compilation,
@@ -207,8 +197,7 @@ fn emission_request(
         ProductKind::Executable | ProductKind::Test => ArtifactKind::Executable,
     };
 
-    let required_product =
-        RequestedArtifact::new(product_artifact, ArtifactRequirement::Required);
+    let required_product = RequestedArtifact::new(product_artifact, ArtifactRequirement::Required);
 
     let interface = (configuration.product_kind() == ProductKind::Library).then(|| {
         RequestedArtifact::new(
@@ -297,12 +286,7 @@ fn unsupported_product_result(
         .check_diagnostics()
         .merged(&DiagnosticBag::single(unsupported));
 
-    driver_result_from_compilation(
-        compilation,
-        diagnostics,
-        output_format,
-        ExitCode::FAILURE,
-    )
+    driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
 }
 
 #[cfg(test)]
@@ -316,8 +300,7 @@ mod tests {
 
     use super::{emission_request, product_identity};
     use crate::command::{
-        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration,
-        DriverTarget,
+        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration, DriverTarget,
     };
     use crate::run::run_result;
     use crate::test_support::TemporaryFile;
@@ -336,10 +319,7 @@ mod tests {
 
         let target = configuration.target().selected_target();
 
-        let product = product_identity(
-            super::command_line_package_identity(),
-            &configuration,
-        );
+        let product = product_identity(super::command_line_package_identity(), &configuration);
 
         let request = emission_request(product, &target, &configuration, None);
 
@@ -492,10 +472,5 @@ fn native_product_failure_result(
 ) -> DriverRunResult {
     let diagnostics = compilation.check_diagnostics().clone();
 
-    driver_result_from_compilation(
-        compilation,
-        diagnostics,
-        output_format,
-        ExitCode::FAILURE,
-    )
+    driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
 }

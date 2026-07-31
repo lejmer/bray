@@ -185,7 +185,7 @@ impl Compilation {
             ConstructionInputSurface::new(
                 ConstructionInputId::UnionPayloadField(field),
                 name,
-                bray_symbols::CallablePosition::NamedOnly,
+                record.position(),
                 ty,
                 default,
                 record.ordinal(),

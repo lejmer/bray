@@ -4,11 +4,10 @@ use std::pin::Pin;
 use std::sync::{Arc, Barrier};
 
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
-    ProtectedFrameAbiVersions, ProtectedFrameAffinity, ProtectedFrameDescriptor,
-    ProtectedFrameDependencyId, ProtectedFrameLayout, ProtectedFrameOperations,
-    ProtectedFrameStateDescriptor, ProtectedFrameStateId, ProtectedFrameStorageId,
-    RuntimeAbiVersion,
+    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
+    ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,
+    ProtectedFrameStateId, ProtectedFrameStorageId, RuntimeAbiVersion,
 };
 
 use crate::{
@@ -42,9 +41,7 @@ impl TestFrame {
     pub(crate) fn suspending_then_completing(value: i32) -> Self {
         Self::sequence(
             [
-                FrameProgress::Suspended(FrameSuspension::new(
-                    ProtectedFrameStateId::new(1),
-                )),
+                FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(1))),
                 FrameProgress::Completed(value),
             ],
             2,
@@ -63,9 +60,7 @@ impl TestFrame {
             ]),
             behavior: TestFrameBehavior::Sequence(
                 [
-                    FrameProgress::Suspended(FrameSuspension::new(
-                        ProtectedFrameStateId::new(1),
-                    )),
+                    FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(1))),
                     FrameProgress::Completed(value),
                 ]
                 .into(),
@@ -88,11 +83,7 @@ impl TestFrame {
         Self::panicking_with_cleanup(true)
     }
 
-    pub(crate) fn blocking(
-        entered: Arc<Barrier>,
-        release: Arc<Barrier>,
-        value: i32,
-    ) -> Self {
+    pub(crate) fn blocking(entered: Arc<Barrier>, release: Arc<Barrier>, value: i32) -> Self {
         Self {
             descriptor: descriptor(1),
             behavior: TestFrameBehavior::Blocking {
@@ -123,9 +114,7 @@ impl TestFrame {
             ),
             behavior: TestFrameBehavior::Sequence(
                 [
-                    FrameProgress::Suspended(FrameSuspension::new(
-                        ProtectedFrameStateId::new(1),
-                    )),
+                    FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(1))),
                     FrameProgress::Completed(value),
                 ]
                 .into(),
@@ -153,14 +142,8 @@ impl TestFrame {
         value: i32,
     ) -> Self {
         Self {
-            descriptor: descriptor_with(
-                1,
-                requirements,
-                ProtectedFrameAffinity::Movable,
-            ),
-            behavior: TestFrameBehavior::Sequence(
-                [FrameProgress::Completed(value)].into(),
-            ),
+            descriptor: descriptor_with(1, requirements, ProtectedFrameAffinity::Movable),
+            behavior: TestFrameBehavior::Sequence([FrameProgress::Completed(value)].into()),
             cleanup_panics: false,
             wake_on_suspension: false,
         }
@@ -191,9 +174,7 @@ impl TestFrame {
             ]),
             behavior: TestFrameBehavior::Sequence(
                 [
-                    FrameProgress::Suspended(FrameSuspension::new(
-                        ProtectedFrameStateId::new(1),
-                    )),
+                    FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(1))),
                     FrameProgress::Completed(value),
                 ]
                 .into(),
@@ -203,10 +184,7 @@ impl TestFrame {
         }
     }
 
-    fn sequence<const N: usize>(
-        progress: [FrameProgress<i32>; N],
-        state_count: u32,
-    ) -> Self {
+    fn sequence<const N: usize>(progress: [FrameProgress<i32>; N], state_count: u32) -> Self {
         Self {
             descriptor: descriptor(state_count),
             behavior: TestFrameBehavior::Sequence(progress.into()),
@@ -223,10 +201,7 @@ impl ProtectedFrame for TestFrame {
         &self.descriptor
     }
 
-    fn resume(
-        self: Pin<&mut Self>,
-        context: FrameContext,
-    ) -> FrameProgress<Self::Output> {
+    fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
         let frame = self.get_mut();
 
         let progress = match &mut frame.behavior {
@@ -237,9 +212,7 @@ impl ProtectedFrame for TestFrame {
                 FrameProgress::Cancelled
             }
             TestFrameBehavior::CancellationAware => {
-                FrameProgress::Suspended(FrameSuspension::new(
-                    ProtectedFrameStateId::new(0),
-                ))
+                FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(0)))
             }
             TestFrameBehavior::Blocking {
                 entered,
@@ -285,8 +258,8 @@ fn descriptor_with(
     requirements: impl IntoIterator<Item = ExecutionLaneRequirement> + Clone,
     affinity: ProtectedFrameAffinity,
 ) -> ProtectedFrameDescriptor {
-    let states = (0..state_count)
-        .map(|state| state_descriptor(state, requirements.clone(), affinity));
+    let states =
+        (0..state_count).map(|state| state_descriptor(state, requirements.clone(), affinity));
 
     descriptor_from_states(states)
 }
@@ -347,6 +320,7 @@ fn descriptor_from_states(
 fn operations() -> ProtectedFrameOperations {
     ProtectedFrameOperations::new(
         symbol("__bray_test_move"),
+        symbol("__bray_test_state"),
         symbol("__bray_test_resume"),
         symbol("__bray_test_cancel"),
         symbol("__bray_test_broadcast"),

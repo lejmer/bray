@@ -131,6 +131,15 @@ pub(super) fn validate_terminator(
             validate_operand(unit, report, block_id, None)?;
             validate_cleanup_start(unit, block_id, cleanup)?;
         }
+        MirTerminatorKind::PropagatePanic { report, runtime } => {
+            validate_operand(unit, report, block_id, None)?;
+
+            validate_runtime_role(
+                unit,
+                *runtime,
+                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+            )?;
+        }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             validate_cleanup_start(unit, block_id, cleanup)?;
         }

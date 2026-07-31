@@ -6,12 +6,13 @@ use bray_symbols::{AnySymbolId, TypeId};
 
 use crate::{
     MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget,
-    MirConstructionInput, MirGeneratorOperation, MirHostOperation, MirOperand, MirOperation,
-    MirOperationId, MirOperationKind, MirPlace, MirProjectionKind, MirStorage, MirStorageId,
-    MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
+    MirConstructionInput, MirGeneratorOperation, MirOperand, MirOperation, MirOperationId,
+    MirOperationKind, MirPlace, MirProjectionKind, MirStorage, MirStorageId, MirStorageKind,
+    MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
+use super::host::validate_host_operation;
 
 pub(super) fn validate_operation(
     unit: &MirUnit,
@@ -552,42 +553,6 @@ fn validate_frame_initializer(
         crate::MirFrameInitializer::Callable(call) => validate_call(unit, block, operation, call),
         crate::MirFrameInitializer::TaskObservation { task, .. } => {
             validate_operand(unit, task, block, Some(operation))
-        }
-    }
-}
-
-fn validate_host_operation(
-    unit: &MirUnit,
-    operation: MirOperationId,
-    host_operation: &MirHostOperation,
-) -> Result<(), MirUnitBuildError> {
-    let crate::MirUnitKind::ExecutableHost(host) = unit.kind() else {
-        return Err(MirUnitBuildError::InvalidHostOperation(operation));
-    };
-
-    match host_operation {
-        MirHostOperation::ExecuteRoot {
-            root,
-            execution,
-            runtime,
-        } => {
-            if root.kind() != BoundUnitKind::CallableBody || *execution != host.root() {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
-            }
-
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootExecution)
-        }
-        MirHostOperation::RequestRootCancellation { runtime } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootCancellationRequest)
-        }
-        MirHostOperation::ObserveRootTerminal { runtime } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootTerminalObservation)
-        }
-        MirHostOperation::ReportCleanupIncidents { runtime } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentReporting)
-        }
-        MirHostOperation::StructuredShutdown { runtime } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::StructuredShutdown)
         }
     }
 }

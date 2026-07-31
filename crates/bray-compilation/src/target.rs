@@ -1,19 +1,19 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use bray_codegen::{
-    CallableAbiMapping, CodegenLinkage, CodegenTarget, CodegenTargetBuildError,
-    TargetAbi, TargetAddressSpace, TargetAddressSpaceKind, TargetCallingConvention,
-    TargetCompatibility, TargetContract, TargetDataLayout, TargetMachineSelection,
-    TargetScalarKind, TargetScalarLayout, TargetSymbolConvention,
+    CallableAbiMapping, CodegenLinkage, CodegenTarget, CodegenTargetBuildError, TargetAbi,
+    TargetAddressSpace, TargetAddressSpaceKind, TargetCallingConvention, TargetCompatibility,
+    TargetContract, TargetDataLayout, TargetMachineSelection, TargetScalarKind, TargetScalarLayout,
+    TargetSymbolConvention,
 };
 use bray_compiler_known::AvailabilityRule;
 use bray_runtime_interface::{PanicAbiIdentity, RuntimeAbiVersion};
 use bray_symbols::AvailableCompilerKnownSymbols;
+use bray_symbols::CallableAbi;
 use bray_target::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
     TargetMachineProperties, TargetProfile,
 };
-use bray_symbols::CallableAbi;
 
 /// The target profile and product ABI selected for one compilation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -129,41 +129,37 @@ impl SelectedTarget {
         let integer_widths = [8_u16, 16, 32, 64, 128];
         let float_widths = [16_u16, 32, 64, 128];
 
-        let scalars = std::iter::once(scalar_layout(
-            TargetScalarKind::Boolean,
-            1,
-            1,
-        ))
-        .chain(integer_widths.into_iter().map(|width| {
-            let bytes = width.div_ceil(8);
+        let scalars = std::iter::once(scalar_layout(TargetScalarKind::Boolean, 1, 1))
+            .chain(integer_widths.into_iter().map(|width| {
+                let bytes = width.div_ceil(8);
 
-            let alignment = if width == 128 {
-                16
-            } else {
-                scalar_alignment(bytes)
-            };
+                let alignment = if width == 128 {
+                    16
+                } else {
+                    scalar_alignment(bytes)
+                };
 
-            scalar_layout(
-                TargetScalarKind::Integer(nonzero_u16(width)),
-                bytes,
-                alignment,
-            )
-        }))
-        .chain(float_widths.into_iter().map(|width| {
-            let bytes = width.div_ceil(8);
+                scalar_layout(
+                    TargetScalarKind::Integer(nonzero_u16(width)),
+                    bytes,
+                    alignment,
+                )
+            }))
+            .chain(float_widths.into_iter().map(|width| {
+                let bytes = width.div_ceil(8);
 
-            let alignment = if width == 128 {
-                16
-            } else {
-                scalar_alignment(bytes)
-            };
+                let alignment = if width == 128 {
+                    16
+                } else {
+                    scalar_alignment(bytes)
+                };
 
-            scalar_layout(
-                TargetScalarKind::Float(nonzero_u16(width)),
-                bytes,
-                alignment,
-            )
-        }));
+                scalar_layout(
+                    TargetScalarKind::Float(nonzero_u16(width)),
+                    bytes,
+                    alignment,
+                )
+            }));
 
         let address_spaces = [
             TargetAddressSpaceKind::Default,
@@ -176,12 +172,8 @@ impl SelectedTarget {
         .into_iter()
         .map(|kind| TargetAddressSpace::new(kind, 0));
 
-        TargetDataLayout::try_new(
-            scalars,
-            machine.pointer_alignment_bytes(),
-            address_spaces,
-        )
-        .unwrap_or_else(|error| panic!("selected target data layout must be valid: {error:?}"))
+        TargetDataLayout::try_new(scalars, machine.pointer_alignment_bytes(), address_spaces)
+            .unwrap_or_else(|error| panic!("selected target data layout must be valid: {error:?}"))
     }
 }
 
@@ -190,25 +182,16 @@ fn scalar_layout(
     size_bytes: u16,
     alignment_bytes: u16,
 ) -> TargetScalarLayout {
-    TargetScalarLayout::try_new(
-        kind,
-        nonzero_u16(size_bytes),
-        nonzero_u16(alignment_bytes),
-    )
-    .unwrap_or_else(|error| panic!("selected scalar layout must be valid: {error:?}"))
+    TargetScalarLayout::try_new(kind, nonzero_u16(size_bytes), nonzero_u16(alignment_bytes))
+        .unwrap_or_else(|error| panic!("selected scalar layout must be valid: {error:?}"))
 }
 
 const fn scalar_alignment(size_bytes: u16) -> u16 {
-    if size_bytes > 8 {
-        8
-    } else {
-        size_bytes
-    }
+    if size_bytes > 8 { 8 } else { size_bytes }
 }
 
 fn nonzero_u16(value: u16) -> NonZeroU16 {
-    NonZeroU16::new(value)
-        .unwrap_or_else(|| panic!("selected target scalar width must be nonzero"))
+    NonZeroU16::new(value).unwrap_or_else(|| panic!("selected target scalar width must be nonzero"))
 }
 
 fn target_abi() -> TargetAbi {

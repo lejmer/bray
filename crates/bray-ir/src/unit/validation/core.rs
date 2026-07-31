@@ -38,15 +38,9 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         operations.as_slice(),
         [
             crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot { .. }),
-            crate::MirOperationKind::Host(
-                crate::MirHostOperation::RequestRootCancellation { .. }
-            ),
-            crate::MirOperationKind::Host(
-                crate::MirHostOperation::ObserveRootTerminal { .. }
-            ),
-            crate::MirOperationKind::Host(
-                crate::MirHostOperation::ReportCleanupIncidents { .. }
-            ),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ObserveRootTerminal { .. }),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ResolveRootTerminal { .. }),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. }),
             crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. }),
         ]
     ) {

@@ -17,9 +17,7 @@ use bray_ir::{
     MirTaskTerminalState, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind,
     MirValueOrigin,
 };
-use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, SymbolGraph, TypeId,
-};
+use bray_symbols::{AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, SymbolGraph, TypeId};
 use serde::Serialize;
 
 use crate::inspection::{
@@ -83,11 +81,7 @@ impl InspectionMirUnit {
                 Ok(InspectionMirStorage {
                     id: compact_id(slot),
                     storage_kind: storage_kind(storage.kind()),
-                    r#type: InspectionType::from_type(
-                        semantic_values,
-                        symbols,
-                        storage.ty(),
-                    )?,
+                    r#type: InspectionType::from_type(semantic_values, symbols, storage.ty())?,
                     source: inspection_source_anchor(storage.source(), sources)?,
                 })
             })
@@ -468,7 +462,11 @@ impl OperationParts {
         }
     }
 
-    fn attribute(&mut self, name: impl Into<String>, value: impl Into<InspectionMirAttributeValue>) {
+    fn attribute(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<InspectionMirAttributeValue>,
+    ) {
         self.attributes.push(InspectionMirAttribute {
             name: name.into(),
             value: value.into(),
@@ -638,7 +636,10 @@ fn operation_parts(
                         ordinal,
                         value,
                     } => {
-                        parts.attribute("input", format!("{}:{ordinal}", construction_input(*input)));
+                        parts.attribute(
+                            "input",
+                            format!("{}:{ordinal}", construction_input(*input)),
+                        );
 
                         parts.symbol(
                             format!("input[{ordinal}]"),
@@ -832,8 +833,17 @@ fn call_parts(
         match contract {
             bray_symbols::CallableContractTemplate::Source(contract) => {
                 parts.attribute("contract_kind", "source");
-                parts.symbol("contract_owner", contract.owner().into_any(), context.symbols);
-                parts.attribute("contract_expression_count", compact_id(contract.expressions().len()));
+
+                parts.symbol(
+                    "contract_owner",
+                    contract.owner().into_any(),
+                    context.symbols,
+                );
+
+                parts.attribute(
+                    "contract_expression_count",
+                    compact_id(contract.expressions().len()),
+                );
 
                 parts.attribute(
                     "contract_capability_count",
@@ -898,11 +908,7 @@ fn callable_reference(
 ) {
     let instance = reference.instance();
 
-    parts.symbol(
-        role,
-        instance.definition().symbol(),
-        context.symbols,
-    );
+    parts.symbol(role, instance.definition().symbol(), context.symbols);
 
     parts.attribute(format!("{role}_abi"), callable_abi(reference.abi()));
 
@@ -979,12 +985,7 @@ fn generator_operation(
             parts.r#type("element_type", *element, context)?;
 
             if let Some(exact_count) = exact_count {
-                parts.semantic_value(
-                    "exact_count",
-                    "constant_term",
-                    exact_count.slot(),
-                    None,
-                );
+                parts.semantic_value("exact_count", "constant_term", exact_count.slot(), None);
             }
 
             parts.place("destination", destination, context)?;
@@ -1188,10 +1189,7 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
     );
 }
 
-fn host_operation(
-    operation: &MirHostOperation,
-    parts: &mut OperationParts,
-) -> &'static str {
+fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
         MirHostOperation::ExecuteRoot {
             root,
@@ -1214,15 +1212,22 @@ fn host_operation(
 
             "execute_root"
         }
-        MirHostOperation::RequestRootCancellation { runtime } => {
-            runtime_reference("runtime", *runtime, parts);
-
-            "request_root_cancellation"
-        }
         MirHostOperation::ObserveRootTerminal { runtime } => {
             runtime_reference("runtime", *runtime, parts);
 
             "observe_root_terminal"
+        }
+        MirHostOperation::ResolveRootTerminal {
+            error: _,
+            completion,
+            panic,
+            entry_failure,
+        } => {
+            runtime_reference("completion", *completion, parts);
+            runtime_reference("panic", *panic, parts);
+            runtime_reference("entry_failure", *entry_failure, parts);
+
+            "resolve_root_terminal"
         }
         MirHostOperation::ReportCleanupIncidents { runtime } => {
             runtime_reference("runtime", *runtime, parts);
@@ -1343,10 +1348,7 @@ fn inspection_terminator(
             parts.attribute("resume_state", resume_state.raw());
             parts.attribute("registration_runtime", registration.role().as_str());
 
-            parts.attribute(
-                "registration_runtime_abi",
-                runtime_abi_text(*registration),
-            );
+            parts.attribute("registration_runtime_abi", runtime_abi_text(*registration));
 
             parts.attribute("wake_runtime", wake.role().as_str());
             parts.attribute("wake_runtime_abi", runtime_abi_text(*wake));
@@ -1378,6 +1380,11 @@ fn inspection_terminator(
             parts.cleanup_edge("cleanup", cleanup, &context)?;
 
             "panic"
+        }
+        MirTerminatorKind::PropagatePanic { report, .. } => {
+            parts.operand("report", report, &context)?;
+
+            "propagate_panic"
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             parts.cleanup_edge("cleanup", cleanup, &context)?;
@@ -1485,7 +1492,11 @@ impl TerminatorParts {
         )
     }
 
-    fn attribute(&mut self, name: impl Into<String>, value: impl Into<InspectionMirAttributeValue>) {
+    fn attribute(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<InspectionMirAttributeValue>,
+    ) {
         self.attributes.push(InspectionMirAttribute {
             name: name.into(),
             value: value.into(),
@@ -1602,11 +1613,7 @@ fn inspection_place(
 
     Ok(InspectionMirPlace {
         storage: place.storage().slot(),
-        r#type: InspectionType::from_type(
-            context.semantic_values,
-            context.symbols,
-            place.ty(),
-        )?,
+        r#type: InspectionType::from_type(context.semantic_values, context.symbols, place.ty())?,
         projections,
     })
 }
@@ -1636,14 +1643,9 @@ fn inspection_unit_key(
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
         }),
-        MirUnitKey::ExternalCallable(definition) => {
-            Ok(InspectionMirUnitKey::ExternalCallable {
-                callable: InspectionSymbolIdentity::from_symbol(
-                    symbols,
-                    definition.symbol(),
-                ),
-            })
-        }
+        MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
+            callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
+        }),
     }
 }
 
@@ -1675,10 +1677,7 @@ fn inspection_source_anchor(
 ) -> Result<InspectionMirSource, MirInspectionModelError> {
     match source {
         MirSourceAnchor::Source(origin) => Ok(InspectionMirSource::Source {
-            syntax: InspectionSyntaxAnchor::from_anchor(
-                sources,
-                origin.source_anchor().syntax(),
-            )?,
+            syntax: InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax())?,
             synthesis: origin
                 .synthesized_origin()
                 .map(|synthesis| InspectionMirSynthesis {
@@ -1910,12 +1909,7 @@ fn conversion_parts(
             requirement,
             witness,
         } => {
-            callable_instance(
-                &format!("{role}_member"),
-                *member,
-                parts,
-                context.symbols,
-            );
+            callable_instance(&format!("{role}_member"), *member, parts, context.symbols);
 
             callable_instance(
                 &format!("{role}_fulfillment"),
@@ -2067,18 +2061,16 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
     }
 }
 
-const fn generated_lifecycle_role(
-    role: bray_ir::MirGeneratedLifecycleRole,
-) -> &'static str {
+const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
         bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(
-            MirCleanupPhase::TaskCancellation,
-        ) => "cleanup_task_cancellation",
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(
-            MirCleanupPhase::LifecycleResolution,
-        ) => "cleanup_lifecycle_resolution",
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
+            "cleanup_task_cancellation"
+        }
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
+            "cleanup_lifecycle_resolution"
+        }
     }
 }
 
