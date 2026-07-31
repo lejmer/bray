@@ -485,13 +485,7 @@ impl Compilation {
             ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
         };
 
-        let link_model = match target.machine().object_format() {
-            bray_target::ObjectFormat::MachO => LinkModel::Dynamic,
-            bray_target::ObjectFormat::Coff
-            | bray_target::ObjectFormat::Elf
-            | bray_target::ObjectFormat::WebAssembly
-            | bray_target::ObjectFormat::Xcoff => LinkModel::Static,
-        };
+        let link_model = product_link_model(target.machine().object_format());
 
         let link_target = LinkTarget::try_new(
             target.identity().clone(),
@@ -567,6 +561,17 @@ impl Compilation {
     }
 }
 
+const fn product_link_model(object_format: bray_target::ObjectFormat) -> LinkModel {
+    match object_format {
+        bray_target::ObjectFormat::Coff
+        | bray_target::ObjectFormat::Elf
+        | bray_target::ObjectFormat::MachO => LinkModel::Dynamic,
+        bray_target::ObjectFormat::WebAssembly | bray_target::ObjectFormat::Xcoff => {
+            LinkModel::Static
+        }
+    }
+}
+
 fn native_link_input(
     requirement: &NativeLinkRequirement,
     provenance: LinkInputProvenance,
@@ -615,7 +620,7 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
     use bray_ir::MirHelperReference;
     use bray_linker::{
-        LinkFailure, LinkOutcome, LinkPlan, LinkedProductKind, Linker, LinkerDriver,
+        LinkFailure, LinkModel, LinkOutcome, LinkPlan, LinkedProductKind, Linker, LinkerDriver,
         LinkerDriverIdentity, LinkerDriverKind,
     };
     use bray_runtime_interface::{
@@ -633,6 +638,7 @@ mod tests {
         TypeData,
     };
     use bray_testing::TemporaryFile;
+    use bray_target::NativeTarget;
 
     use super::CODEGEN_PARTITION_REVISION;
     use crate::{
@@ -663,6 +669,17 @@ mod tests {
         "    let repeated: usize = repeat<2>();\n",
         "}\n",
     );
+
+    #[test]
+    fn native_products_allow_platform_runtime_dependencies() {
+        for target in NativeTarget::ALL {
+            assert_eq!(
+                super::product_link_model(target.object_format()),
+                LinkModel::Dynamic,
+                "{target:?}"
+            );
+        }
+    }
 
     #[test]
     fn synchronous_i32_executable_hosts_emit_native_units() {

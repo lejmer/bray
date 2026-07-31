@@ -17,7 +17,7 @@ use bray_package_interface::{
 };
 use bray_project::{ProjectGraph, ProjectPackage, ProjectProduct};
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::{TargetIdentity, TargetOutputDescription, TargetOutputKind};
+use bray_target::{NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{
     compilation_request_from_file_arguments, load_compilation,
     load_llvm_compilation, native_linker,
@@ -104,6 +104,11 @@ impl<'project> ProjectCompiler<'project> {
         require_interface: bool,
     ) -> Result<ProductBuildOutcome, DiagnosticBag> {
         let key = (product.identity().clone(), target.clone());
+        let selected_target = self.selected_target(target)?;
+
+        let native_target = selected_target
+            .native_target()
+            .ok_or_else(|| unavailable_diagnostics(target.as_str()))?;
 
         if self.built.contains(&key) {
             if require_interface && !self.interfaces.contains_key(&key) {
@@ -115,6 +120,7 @@ impl<'project> ProjectCompiler<'project> {
                 executable: executable_path(
                     self.output_directory(product, target_name),
                     product,
+                    native_target,
                 ),
             });
         }
@@ -148,7 +154,6 @@ impl<'project> ProjectCompiler<'project> {
             }
         }
 
-        let selected_target = self.selected_target(target)?;
         let compilation = self.compile_product(product, selected_target.clone(), true)?;
         diagnostics = diagnostics.merged(compilation.check_diagnostics());
 
@@ -182,7 +187,7 @@ impl<'project> ProjectCompiler<'project> {
 
         Ok(ProductBuildOutcome {
             diagnostics,
-            executable: executable_path(output_directory, product),
+            executable: executable_path(output_directory, product, native_target),
         })
     }
 
@@ -510,9 +515,17 @@ impl<'project> ProjectCompiler<'project> {
 fn executable_path(
     output_directory: PathBuf,
     product: &ProjectProduct,
+    target: NativeTarget,
 ) -> Option<PathBuf> {
-    product
+    if !product
         .outputs()
         .contains(&TargetOutputKind::Executable)
-        .then(|| output_directory.join(product.identity().name()))
+    {
+        return None;
+    }
+
+    TargetOutputDescription::for_native(target, [TargetOutputKind::Executable])
+        .name(TargetOutputKind::Executable)
+        .and_then(|name| name.file_name(product.identity().name()))
+        .map(|name| output_directory.join(name))
 }

@@ -34,6 +34,16 @@ pub(crate) fn indirect_result_type<'context>(
     target: &CodegenTarget,
     key: &CodegenSymbolKey,
 ) -> Option<BasicTypeEnum<'context>> {
+    if matches!(
+        key,
+        CodegenSymbolKey::ProtectedFrame {
+            operation: ProtectedFrameOperation::MoveBeforeStart,
+            ..
+        }
+    ) {
+        return Some(protected_frame_type(context, target).into());
+    }
+
     if !uses_microsoft_x64_abi(target) {
         return None;
     }
@@ -47,11 +57,11 @@ pub(crate) fn indirect_result_type<'context>(
         },
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
             frame_result_is_indirect(target, *operation).then(|| match operation {
-                ProtectedFrameOperation::MoveBeforeStart => {
-                    protected_frame_type(context, target).into()
-                }
                 ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
                     frame_progress_type(context).into()
+                }
+                ProtectedFrameOperation::MoveBeforeStart => {
+                    unreachable!("move-before-start results are handled for every native ABI")
                 }
                 _ => unreachable!("only aggregate frame results use indirect storage"),
             })
@@ -168,13 +178,12 @@ fn frame_result_is_indirect(
     target: &CodegenTarget,
     operation: ProtectedFrameOperation,
 ) -> bool {
-    uses_microsoft_x64_abi(target)
-        && matches!(
-            operation,
-            ProtectedFrameOperation::MoveBeforeStart
-                | ProtectedFrameOperation::Resume
-                | ProtectedFrameOperation::CancellationEntry
-        )
+    operation == ProtectedFrameOperation::MoveBeforeStart
+        || uses_microsoft_x64_abi(target)
+            && matches!(
+                operation,
+                ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry
+            )
 }
 
 pub(crate) fn return_frame_state(
@@ -459,11 +468,17 @@ pub(crate) fn frame_operation_type<'context>(
     let pointer = context.ptr_type(AddressSpace::default());
     let parameters = |types: &[BasicMetadataTypeEnum<'context>]| types.to_vec();
 
+    if operation == ProtectedFrameOperation::MoveBeforeStart {
+        return context
+            .void_type()
+            .fn_type(&parameters(&[pointer.into(), usize.into()]), false);
+    }
+
     if uses_microsoft_x64_abi(target) {
         return match operation {
-            ProtectedFrameOperation::MoveBeforeStart => context
-                .void_type()
-                .fn_type(&parameters(&[pointer.into(), usize.into()]), false),
+            ProtectedFrameOperation::MoveBeforeStart => {
+                unreachable!("move-before-start uses indirect results on every native ABI")
+            }
             ProtectedFrameOperation::StateDescription => context
                 .i64_type()
                 .fn_type(&parameters(&[usize.into(), context.i32_type().into()]), false),
@@ -489,7 +504,7 @@ pub(crate) fn frame_operation_type<'context>(
 
     match operation {
         ProtectedFrameOperation::MoveBeforeStart => {
-            protected_frame_type(context, target).fn_type(&parameters(&[usize.into()]), false)
+            unreachable!("move-before-start uses indirect results on every native ABI")
         }
         ProtectedFrameOperation::StateDescription => frame_state_type(context).fn_type(
             &parameters(&[usize.into(), context.i32_type().into()]),
@@ -569,6 +584,32 @@ mod tests {
             parameters.first().copied(),
             Some(super::protected_frame_type(&context, &target).into())
         );
+    }
+
+    #[test]
+    fn frame_moves_use_indirect_results_on_every_native_target() {
+        let context = Context::create();
+
+        for native_target in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native_target);
+
+            let operation = super::frame_operation_type(
+                &context,
+                &target,
+                ProtectedFrameOperation::MoveBeforeStart,
+            );
+
+            assert_eq!(operation.get_return_type(), None, "{native_target:?}");
+            assert_eq!(operation.count_param_types(), 2, "{native_target:?}");
+
+            assert!(
+                super::frame_result_is_indirect(
+                    &target,
+                    ProtectedFrameOperation::MoveBeforeStart
+                ),
+                "{native_target:?}"
+            );
+        }
     }
 
     #[test]
