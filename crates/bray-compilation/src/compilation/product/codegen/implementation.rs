@@ -19,7 +19,8 @@ use bray_linker::{
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericDeclarationTemplateFact,
-    GenericOwnerId, NativeLinkKind, ProductIdentity, ProductKind, SymbolFactRequest,
+    GenericOwnerId, NativeLinkKind, NativeLinkRequirement, ProductIdentity, ProductKind,
+    SymbolFactRequest,
 };
 
 use super::super::super::Compilation;
@@ -484,6 +485,14 @@ impl Compilation {
             ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
         };
 
+        let link_model = match target.machine().object_format() {
+            bray_target::ObjectFormat::MachO => LinkModel::Dynamic,
+            bray_target::ObjectFormat::Coff
+            | bray_target::ObjectFormat::Elf
+            | bray_target::ObjectFormat::WebAssembly
+            | bray_target::ObjectFormat::Xcoff => LinkModel::Static,
+        };
+
         let link_target = LinkTarget::try_new(
             target.identity().clone(),
             target.triple(),
@@ -491,7 +500,7 @@ impl Compilation {
             target.machine().object_format(),
             target.relocation_model(),
             target.code_model(),
-            LinkModel::Static,
+            link_model,
         )
         .map_err(NativeProductFactError::InvalidLinkTarget)?;
 
@@ -506,7 +515,13 @@ impl Compilation {
                 DebugLinkPolicy::None,
                 None,
             ),
-            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => LinkPolicy::new(
+            LinkedProductKind::Executable => LinkPolicy::new(
+                DeadStripPolicy::RemoveUnreachable,
+                SectionGarbageCollectionPolicy::RemoveUnreferenced,
+                DebugLinkPolicy::None,
+                Some(bray_linker::LinkSubsystem::Console),
+            ),
+            LinkedProductKind::SharedLibrary => LinkPolicy::new(
                 DeadStripPolicy::RemoveUnreachable,
                 SectionGarbageCollectionPolicy::RemoveUnreferenced,
                 DebugLinkPolicy::None,
@@ -514,32 +529,27 @@ impl Compilation {
             ),
         };
 
-        let native_inputs = self
+        let configured_inputs = self
             .options()
             .native_link_inputs()
             .iter()
             .map(|requirement| {
-                let (kind, source) = match requirement.kind() {
-                    NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => (
-                        LinkInputKind::NativeLibrary,
-                        LinkInputSource::try_native_library(requirement.name())
-                            .ok_or(NativeProductFactError::InvalidNativeLinkInput)?,
-                    ),
-                    NativeLinkKind::Framework => (
-                        LinkInputKind::Framework,
-                        LinkInputSource::try_framework(requirement.name())
-                            .ok_or(NativeProductFactError::InvalidNativeLinkInput)?,
-                    ),
-                };
+                native_link_input(requirement, LinkInputProvenance::HostConfiguration)
+            });
 
-                LinkInputSpec::try_new(
-                    kind,
-                    source,
-                    LinkInputProvenance::HostConfiguration,
-                    LinkInputMode::Ordinary,
+        let runtime_inputs = runtime.iter().flat_map(|runtime| {
+            let artifact = runtime.contract().artifact().clone();
+
+            runtime.metadata().native_links().iter().map(move |requirement| {
+                native_link_input(
+                    requirement,
+                    LinkInputProvenance::RuntimeDependency(artifact.clone()),
                 )
-                .map_err(NativeProductFactError::InvalidLinkInput)
             })
+        });
+
+        let native_inputs = configured_inputs
+            .chain(runtime_inputs)
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut facts = ProductLinkFacts::new(link_target, driver.clone(), policy)
@@ -555,6 +565,27 @@ impl Compilation {
 
         Ok(facts)
     }
+}
+
+fn native_link_input(
+    requirement: &NativeLinkRequirement,
+    provenance: LinkInputProvenance,
+) -> Result<LinkInputSpec, NativeProductFactError> {
+    let (kind, source) = match requirement.kind() {
+        NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => (
+            LinkInputKind::NativeLibrary,
+            LinkInputSource::try_native_library(requirement.name())
+                .ok_or(NativeProductFactError::InvalidNativeLinkInput)?,
+        ),
+        NativeLinkKind::Framework => (
+            LinkInputKind::Framework,
+            LinkInputSource::try_framework(requirement.name())
+                .ok_or(NativeProductFactError::InvalidNativeLinkInput)?,
+        ),
+    };
+
+    LinkInputSpec::try_new(kind, source, provenance, LinkInputMode::Ordinary)
+        .map_err(NativeProductFactError::InvalidLinkInput)
 }
 
 fn bound_template(

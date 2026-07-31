@@ -244,13 +244,7 @@ fn directive_link_kind(
         .ok_or(FactQueryError::InfrastructureFailure)?
         .trim();
 
-    Ok(match text {
-        "dynamic" => Some(Some(NativeLinkKind::Dynamic)),
-        "static" => Some(Some(NativeLinkKind::Static)),
-        "system" => Some(Some(NativeLinkKind::System)),
-        "framework" => Some(Some(NativeLinkKind::Framework)),
-        _ => None,
-    })
+    Ok(NativeLinkKind::for_name(text).map(Some))
 }
 
 fn native_link_requirement(

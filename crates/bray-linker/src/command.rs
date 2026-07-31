@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 use bray_target::{RelocationModel, TargetArchitecture};
@@ -21,6 +21,8 @@ pub(super) fn system_arguments_for(
         | SystemLinkerFamily::Apple => arguments_for(plan, family.flavor()),
         SystemLinkerFamily::GnuCompiler => gnu_compiler_arguments(plan, false),
         SystemLinkerFamily::WslGnuCompiler => gnu_compiler_arguments(plan, true),
+        SystemLinkerFamily::MicrosoftCompiler => microsoft_compiler_arguments(plan),
+        SystemLinkerFamily::AppleCompiler => apple_compiler_arguments(plan),
     }
 }
 
@@ -76,6 +78,79 @@ fn wsl_path(argument: &str) -> String {
     let suffix = argument[3..].replace('\\', "/");
 
     format!("/mnt/{drive}/{suffix}")
+}
+
+fn microsoft_compiler_arguments(plan: &LinkPlan) -> Result<Vec<OsString>, LldPlanError> {
+    let raw = arguments_for(plan, LldFlavor::Coff)?;
+    let mut arguments = Vec::with_capacity(raw.len() * 2 + 2);
+
+    arguments.push(format!("--target={}", plan.target().triple()).into());
+    arguments.push("-fuse-ld=lld".into());
+
+    for argument in raw {
+        let Some(text) = argument.to_str() else {
+            return Err(LldPlanError::NonUnicodeArgument);
+        };
+
+        if text.starts_with("/entry:") {
+            continue;
+        }
+
+        if let Some(output) = text.strip_prefix("/out:") {
+            arguments.push("-o".into());
+            arguments.push(output.into());
+        } else if text == "/dll" {
+            arguments.push("-shared".into());
+        } else if is_ordinary_file_input(plan, &argument) {
+            arguments.push(argument);
+        } else {
+            arguments.push("-Xlinker".into());
+            arguments.push(argument);
+        }
+    }
+
+    Ok(arguments)
+}
+
+fn is_ordinary_file_input(plan: &LinkPlan, argument: &OsStr) -> bool {
+    plan.inputs().iter().any(|input| {
+        input.mode() == LinkInputMode::Ordinary
+            && matches!(
+                input.source(),
+                LinkInputSource::File(path) if path.as_os_str() == argument
+            )
+    })
+}
+
+fn apple_compiler_arguments(plan: &LinkPlan) -> Result<Vec<OsString>, LldPlanError> {
+    let raw = arguments_for(plan, LldFlavor::MachO)?;
+    let mut arguments = Vec::with_capacity(raw.len());
+    let mut raw = raw.into_iter();
+
+    while let Some(argument) = raw.next() {
+        let Some(text) = argument.to_str() else {
+            return Err(LldPlanError::NonUnicodeArgument);
+        };
+
+        match text {
+            "-e" => {
+                raw.next().ok_or(LldPlanError::MissingArgumentValue)?;
+            }
+            "-dylib" => arguments.push("-dynamiclib".into()),
+            "-no_uuid" | "-dead_strip" => {
+                arguments.push(OsString::from(format!("-Wl,{text}")));
+            }
+            "-exported_symbol" | "-u" | "-force_load" => {
+                let value = raw.next().ok_or(LldPlanError::MissingArgumentValue)?;
+
+                arguments.push(OsString::from(format!("-Wl,{text}")));
+                arguments.push(prefixed("-Wl,", value));
+            }
+            _ => arguments.push(argument),
+        }
+    }
+
+    Ok(arguments)
 }
 
 pub(super) fn arguments_for(
@@ -142,6 +217,10 @@ fn push_target_arguments(
                 "/machine:",
                 coff_machine(plan.target().architecture())?,
             ));
+
+            if plan.product_kind() == LinkedProductKind::Executable {
+                arguments.push("/noimplib".into());
+            }
         }
         LldFlavor::MachO => {
             arguments.push("-arch".into());
@@ -323,17 +402,21 @@ fn push_symbol(
         }
         (LldFlavor::MachO, SymbolArgument::Entry) => {
             arguments.push("-e".into());
-            arguments.push(symbol.into());
+            arguments.push(macho_symbol(symbol));
         }
         (LldFlavor::MachO, SymbolArgument::Export) => {
             arguments.push("-exported_symbol".into());
-            arguments.push(symbol.into());
+            arguments.push(macho_symbol(symbol));
         }
         (LldFlavor::MachO, SymbolArgument::Retain) => {
             arguments.push("-u".into());
-            arguments.push(symbol.into());
+            arguments.push(macho_symbol(symbol));
         }
     }
+}
+
+fn macho_symbol(symbol: &str) -> OsString {
+    prefixed("_", symbol)
 }
 
 fn push_search_paths(
@@ -456,6 +539,7 @@ pub(super) enum LldPlanError {
     UnsupportedDebugPolicy,
     UnsupportedFramework,
     UnsupportedLinkModel,
+    MissingArgumentValue,
     NonUnicodeArgument,
     UnsupportedProduct,
     UnsupportedSubsystem,
@@ -474,16 +558,17 @@ mod tests {
 
     use bray_runtime_interface::BinarySymbolName;
     use bray_target::{
-        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
+        CodeModel, NativeTarget, ObjectFormat, RelocationModel, TargetArchitecture,
+        TargetIdentity,
     };
 
-    use super::{LldFlavor, arguments_for};
+    use super::{LldFlavor, arguments_for, system_arguments_for};
     use crate::test_support::{link_input, link_plan_builder, planned_output, product};
     use crate::{
         LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
         LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkSearchPath, LinkSearchPathKind,
         LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-        LinkerDriverIdentity, LinkerDriverKind,
+        LinkerDriverIdentity, LinkerDriverKind, SystemLinkerFamily,
     };
 
     #[test]
@@ -579,6 +664,131 @@ mod tests {
         }
     }
 
+    #[test]
+    fn native_compiler_drivers_preserve_typed_link_plans() {
+        let cases = [
+            (
+                SystemLinkerFamily::MicrosoftCompiler,
+                executable_plan(
+                    TargetArchitecture::X86_64,
+                    ObjectFormat::Coff,
+                    "application.exe",
+                    "main.obj",
+                ),
+                vec![
+                    OsString::from("--target=test-target-triple"),
+                    OsString::from("-fuse-ld=lld"),
+                    OsString::from("-Xlinker"),
+                    OsString::from("/brepro"),
+                    OsString::from("-Xlinker"),
+                    OsString::from("/machine:x64"),
+                    OsString::from("-Xlinker"),
+                    OsString::from("/noimplib"),
+                    OsString::from("-o"),
+                    OsString::from("application.exe"),
+                    OsString::from("-Xlinker"),
+                    OsString::from("/opt:noref"),
+                    OsString::from("main.obj"),
+                ],
+            ),
+            (
+                SystemLinkerFamily::AppleCompiler,
+                executable_plan(
+                    TargetArchitecture::Aarch64,
+                    ObjectFormat::MachO,
+                    "application",
+                    "main.o",
+                ),
+                vec![
+                    OsString::from("-Wl,-no_uuid"),
+                    OsString::from("-arch"),
+                    OsString::from("arm64"),
+                    OsString::from("-o"),
+                    OsString::from("application"),
+                    OsString::from("main.o"),
+                ],
+            ),
+        ];
+
+        for (family, plan, expected) in cases {
+            assert_eq!(system_arguments_for(&plan, family), Ok(expected));
+
+            assert_eq!(
+                system_arguments_for(&plan, family),
+                system_arguments_for(&plan, family)
+            );
+        }
+    }
+
+    #[test]
+    fn native_link_plans_cover_every_supported_platform_and_architecture() {
+        for native in NativeTarget::ALL {
+            let plan = native_executable_plan(native);
+
+            let flavor = match native.object_format() {
+                ObjectFormat::Coff => LldFlavor::Coff,
+                ObjectFormat::Elf => LldFlavor::Elf,
+                ObjectFormat::MachO => LldFlavor::MachO,
+                ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                    unreachable!("native target matrix excludes non-native object formats")
+                }
+            };
+
+            let first = arguments_for(&plan, flavor)
+                .unwrap_or_else(|error| panic!("native link plan must be valid: {error:?}"));
+
+            let second = arguments_for(&plan, flavor)
+                .unwrap_or_else(|error| panic!("native link plan must be valid: {error:?}"));
+
+            assert_eq!(first, second, "{}", native.as_str());
+            assert!(!first.is_empty(), "{}", native.as_str());
+        }
+    }
+
+    #[test]
+    fn raw_macho_arguments_use_object_symbol_spelling() {
+        let mut plan = executable_plan(
+            TargetArchitecture::X86_64,
+            ObjectFormat::MachO,
+            "application",
+            "main.o",
+        );
+
+        let mut builder = LinkPlanBuilder::new(
+            plan.product().clone(),
+            plan.product_kind(),
+            plan.target().clone(),
+            plan.driver().clone(),
+            plan.policy(),
+        );
+
+        for input in plan.inputs() {
+            builder.push_input(input.clone());
+        }
+
+        for output in plan.outputs() {
+            builder.push_output(output.clone());
+        }
+
+        builder.set_executable_host(
+            plan.executable_host()
+                .cloned()
+                .unwrap_or_else(|| panic!("test executable plan must retain its host")),
+        );
+
+        builder.push_exported_symbol(symbol("bray_export"));
+
+        plan = builder
+            .finish()
+            .unwrap_or_else(|error| panic!("test Mach-O plan must be valid: {error:?}"));
+
+        let arguments = arguments_for(&plan, LldFlavor::MachO)
+            .unwrap_or_else(|error| panic!("test Mach-O arguments must be valid: {error:?}"));
+
+        assert!(arguments.contains(&OsString::from("__bray_host_start")));
+        assert!(arguments.contains(&OsString::from("_bray_export")));
+    }
+
     fn native_library(ordinal: u32, name: &str) -> LinkInput {
         LinkInput::try_new(
             LinkInputId::new(ordinal),
@@ -653,5 +863,127 @@ mod tests {
         builder
             .finish()
             .unwrap_or_else(|error| panic!("test link plan must be valid: {error:?}"))
+    }
+
+    fn executable_plan(
+        architecture: TargetArchitecture,
+        object_format: ObjectFormat,
+        output: &str,
+        input: &str,
+    ) -> LinkPlan {
+        let identity = TargetIdentity::try_new("test-target")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        let target = LinkTarget::try_new(
+            identity,
+            "test-target-triple",
+            architecture,
+            object_format,
+            RelocationModel::PositionIndependent,
+            CodeModel::Small,
+            LinkModel::Dynamic,
+        )
+        .unwrap_or_else(|error| panic!("test link target must be valid: {error:?}"));
+
+        let driver = LinkerDriverIdentity::try_new(LinkerDriverKind::System, "system", "1", "1")
+            .unwrap_or_else(|| panic!("test linker identity must be valid"));
+
+        let mut builder = LinkPlanBuilder::new(
+            product(),
+            LinkedProductKind::Executable,
+            target.clone(),
+            driver,
+            LinkPolicy::new(
+                crate::DeadStripPolicy::Preserve,
+                crate::SectionGarbageCollectionPolicy::Preserve,
+                crate::DebugLinkPolicy::None,
+                None,
+            ),
+        );
+
+        builder.push_input(link_input(0, input));
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            output,
+        ));
+
+        builder.set_executable_host(bray_testing::test_executable_host_contract_for(
+            product(),
+            target.identity().clone(),
+        ));
+
+        builder
+            .finish()
+            .unwrap_or_else(|error| panic!("test executable plan must be valid: {error:?}"))
+    }
+
+    fn native_executable_plan(native: NativeTarget) -> LinkPlan {
+        let target = LinkTarget::try_new(
+            native.identity(),
+            native.as_str(),
+            native.architecture(),
+            native.object_format(),
+            RelocationModel::PositionIndependent,
+            CodeModel::Small,
+            if native.object_format() == ObjectFormat::MachO {
+                LinkModel::Dynamic
+            } else {
+                LinkModel::Static
+            },
+        )
+        .unwrap_or_else(|error| panic!("native link target must be valid: {error:?}"));
+
+        let driver = LinkerDriverIdentity::try_new(LinkerDriverKind::System, "system", "1", "1")
+            .unwrap_or_else(|| panic!("test linker identity must be valid"));
+
+        let mut builder = LinkPlanBuilder::new(
+            product(),
+            LinkedProductKind::Executable,
+            target.clone(),
+            driver,
+            LinkPolicy::new(
+                crate::DeadStripPolicy::Preserve,
+                crate::SectionGarbageCollectionPolicy::Preserve,
+                crate::DebugLinkPolicy::None,
+                None,
+            ),
+        );
+
+        let object_name =
+            bray_target::TargetOutputName::for_native(
+                native.object_format(),
+                bray_target::TargetOutputKind::RelocatableObject,
+            )
+            .file_name("main")
+            .unwrap_or_else(|| panic!("native object name must be valid"));
+
+        let executable_name =
+            bray_target::TargetOutputName::for_native(
+                native.object_format(),
+                bray_target::TargetOutputKind::Executable,
+            )
+            .file_name("application")
+            .unwrap_or_else(|| panic!("native executable name must be valid"));
+
+        builder.push_input(link_input(0, &object_name));
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            &executable_name,
+        ));
+
+        builder.set_executable_host(bray_testing::test_executable_host_contract_for(
+            product(),
+            target.identity().clone(),
+        ));
+
+        builder
+            .finish()
+            .unwrap_or_else(|error| panic!("native executable plan must be valid: {error:?}"))
     }
 }

@@ -40,7 +40,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Ok(None);
                 }
 
-                if let RootExecution::Asynchronous { .. } = execution {
+                if let RootExecution::Asynchronous { frame } = execution {
                     let (constructor, signature) =
                         self.root_entry(root, RootExecution::Synchronous)?;
 
@@ -86,13 +86,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             )
                         });
 
-                    let frame = llvm(self.builder.build_call(
+                    let adapter_key = bray_codegen::CodegenSymbolKey::ProtectedFrame {
+                        frame: *frame,
+                        operation: ProtectedFrameOperation::MoveBeforeStart,
+                    };
+
+                    let frame = crate::native::invoke_function(
+                        self.types.context(),
+                        &self.builder,
+                        self.request.target(),
+                        &adapter_key,
                         adapter,
                         &[context.into()],
                         "root.frame.adapter",
-                    ))?
-                    .try_as_basic_value()
-                    .basic()
+                    )?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     let frame_storage = llvm(self.builder.build_alloca(
@@ -234,25 +241,44 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         runtime: bray_ir::MirRuntimeReference,
         arguments: &[BasicValueEnum<'context>],
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let key = bray_codegen::CodegenSymbolKey::Runtime(runtime);
+
         let function = self
             .request
             .mappings()
-            .symbol(&bray_codegen::CodegenSymbolKey::Runtime(runtime))
+            .symbol(&key)
             .and_then(|symbol| self.module.get_function(symbol.name().as_str()))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let arguments = arguments
-            .iter()
-            .copied()
-            .map(Into::into)
-            .collect::<Vec<_>>();
+        let mut native_arguments = Vec::with_capacity(arguments.len());
 
-        Ok(llvm(
-            self.builder
-                .build_call(function, &arguments, runtime.role().as_str()),
-        )?
-        .try_as_basic_value()
-        .basic())
+        for (index, argument) in arguments.iter().copied().enumerate() {
+            if crate::native::uses_indirect_argument(
+                self.request.target(),
+                runtime.role(),
+                index,
+            ) {
+                let storage = llvm(self.builder.build_alloca(
+                    argument.get_type(),
+                    &format!("{}.argument", runtime.role().as_str()),
+                ))?;
+
+                llvm(self.builder.build_store(storage, argument))?;
+                native_arguments.push(storage.into());
+            } else {
+                native_arguments.push(argument.into());
+            }
+        }
+
+        crate::native::invoke_function(
+            self.types.context(),
+            &self.builder,
+            self.request.target(),
+            &key,
+            function,
+            &native_arguments,
+            runtime.role().as_str(),
+        )
     }
 
     pub(super) fn translate_frame_terminal_state(
@@ -263,11 +289,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .frame_context
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let context = self
-            .function
-            .get_first_param()
-            .and_then(int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let context = self.frame_context_argument()?;
 
         let pointer = llvm(
             self.builder.build_int_to_ptr(
@@ -355,37 +377,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         status: inkwell::values::IntValue<'context>,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let machine = self.request.target().machine();
-
-        if machine.architecture() != bray_target::TargetArchitecture::X86_64
-            || machine.object_format() != bray_target::ObjectFormat::Elf
-        {
-            return Err(CodegenFailure::UnsupportedTarget);
-        }
-
         let context = self.module.get_context();
-        let integer = context.i64_type();
+        let exit_status = context.i32_type();
+        let function_type = context.void_type().fn_type(&[exit_status.into()], false);
 
-        let function_type = context
-            .void_type()
-            .fn_type(&[integer.into(), integer.into()], false);
+        let function = self
+            .module
+            .get_function("exit")
+            .unwrap_or_else(|| self.module.add_function("exit", function_type, None));
 
-        let function = context.create_inline_asm(
-            function_type,
-            "syscall".to_owned(),
-            "{rax},{rdi},~{rcx},~{r11},~{memory}".to_owned(),
-            true,
-            false,
-            None,
-            false,
-        );
+        let status = llvm(self.builder.build_int_truncate(
+            status,
+            exit_status,
+            "process.exit.status",
+        ))?;
 
-        let arguments = [integer.const_int(60, false).into(), status.into()];
-
-        llvm(self.builder.build_indirect_call(
-            function_type,
+        llvm(self.builder.build_call(
             function,
-            &arguments,
+            &[status.into()],
             "process.exit",
         ))?;
 

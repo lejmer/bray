@@ -355,6 +355,11 @@ feature strings, object-format controls, relocation model, code model, and toolc
 Construction validates agreement between the language-level target profile and backend-private target configuration before any
 unit reaches code generation.
 
+The production native target contract covers 64-bit x86 and AArch64 on Linux with the GNU environment, Windows with the Microsoft
+environment, and macOS with the Darwin environment. These six profiles are explicit toolchain targets with exact triples, object
+formats, layouts, callable ABIs, symbol rules, and output naming contracts. Backend capability declarations may cover additional
+platforms without making them production toolchain targets.
+
 The LLVM backend translates this validated contract into an LLVM target machine and data layout. LLVM must not independently
 override a language-visible target fact.
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_str;
 
-use crate::{TargetIdentity, TargetMachineProperties, TargetProfile};
+use crate::{NativeTarget, ObjectFormat, TargetIdentity, TargetMachineProperties, TargetProfile};
 
 /// Artifact categories whose external names are selected by target policy.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -42,6 +42,14 @@ pub struct TargetOutputName {
 }
 
 impl TargetOutputName {
+    /// Returns the filename rule for one native target output.
+    pub fn for_native(format: ObjectFormat, kind: TargetOutputKind) -> Self {
+        let (prefix, suffix) = native_name_fragments(format, kind);
+
+        Self::try_new(kind, prefix, suffix)
+            .unwrap_or_else(|error| panic!("native output name must be valid: {error:?}"))
+    }
+
     /// Creates a naming rule when both fragments are valid filename components.
     pub fn try_new(
         kind: TargetOutputKind,
@@ -95,6 +103,22 @@ pub struct TargetOutputDescription {
 }
 
 impl TargetOutputDescription {
+    /// Creates output naming facts for one native toolchain target.
+    pub fn for_native(
+        target: NativeTarget,
+        kinds: impl IntoIterator<Item = TargetOutputKind>,
+    ) -> Self {
+        let format = target.object_format();
+
+        Self::try_new(
+            target.profile(),
+            kinds
+                .into_iter()
+                .map(|kind| TargetOutputName::for_native(format, kind)),
+        )
+        .unwrap_or_else(|error| panic!("native output description must be valid: {error:?}"))
+    }
+
     /// Creates target output facts with at most one naming rule per artifact category.
     pub fn try_new(
         profile: TargetProfile,
@@ -178,6 +202,58 @@ fn is_valid_name_stem(stem: &str) -> bool {
     !stem.is_empty() && stem != "." && stem != ".." && is_valid_name_fragment(stem)
 }
 
+const fn native_name_fragments(
+    format: ObjectFormat,
+    kind: TargetOutputKind,
+) -> (&'static str, &'static str) {
+    match kind {
+        TargetOutputKind::Assembly => ("", ".s"),
+        TargetOutputKind::BackendIr => ("", ".ll"),
+        TargetOutputKind::BackendBitcode => ("", ".bc"),
+        TargetOutputKind::RelocatableObject => match format {
+            ObjectFormat::Coff => ("", ".obj"),
+            ObjectFormat::Elf | ObjectFormat::MachO => ("", ".o"),
+            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                panic!("native target must use COFF, ELF, or Mach-O")
+            }
+        },
+        TargetOutputKind::ExecutableModule => ("", ".wasm"),
+        TargetOutputKind::DebugCompanion => match format {
+            ObjectFormat::Coff => ("", ".pdb"),
+            ObjectFormat::Elf => ("", ".debug"),
+            ObjectFormat::MachO => ("", ".dSYM"),
+            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                panic!("native target must use COFF, ELF, or Mach-O")
+            }
+        },
+        TargetOutputKind::PackageInterface => ("", ".brayi"),
+        TargetOutputKind::DependencyMetadata => ("", ".brayd"),
+        TargetOutputKind::Executable => match format {
+            ObjectFormat::Coff => ("", ".exe"),
+            ObjectFormat::Elf | ObjectFormat::MachO => ("", ""),
+            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                panic!("native target must use COFF, ELF, or Mach-O")
+            }
+        },
+        TargetOutputKind::StaticLibrary => match format {
+            ObjectFormat::Coff => ("", ".lib"),
+            ObjectFormat::Elf | ObjectFormat::MachO => ("lib", ".a"),
+            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                panic!("native target must use COFF, ELF, or Mach-O")
+            }
+        },
+        TargetOutputKind::SharedLibrary => match format {
+            ObjectFormat::Coff => ("", ".dll"),
+            ObjectFormat::Elf => ("lib", ".so"),
+            ObjectFormat::MachO => ("lib", ".dylib"),
+            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                panic!("native target must use COFF, ELF, or Mach-O")
+            }
+        },
+        TargetOutputKind::LinkedCompanion => ("", ".companion"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -185,6 +261,7 @@ mod tests {
         TargetOutputName, TargetOutputNameBuildError,
     };
     use crate::test_support::test_target_profile;
+    use crate::{NativeTarget, ObjectFormat};
 
     #[test]
     fn output_names_reject_path_fragments() {
@@ -233,6 +310,61 @@ mod tests {
                 TargetOutputKind::RelocatableObject
             ))
         );
+    }
+
+    #[test]
+    fn native_output_names_follow_each_object_platform() {
+        let cases = [
+            (
+                ObjectFormat::Coff,
+                ["application.obj", "application.exe", "application.lib", "application.dll"],
+            ),
+            (
+                ObjectFormat::Elf,
+                ["application.o", "application", "libapplication.a", "libapplication.so"],
+            ),
+            (
+                ObjectFormat::MachO,
+                [
+                    "application.o",
+                    "application",
+                    "libapplication.a",
+                    "libapplication.dylib",
+                ],
+            ),
+        ];
+
+        for (format, expected) in cases {
+            let actual = [
+                TargetOutputKind::RelocatableObject,
+                TargetOutputKind::Executable,
+                TargetOutputKind::StaticLibrary,
+                TargetOutputKind::SharedLibrary,
+            ]
+            .map(|kind| {
+                TargetOutputName::for_native(format, kind)
+                    .file_name("application")
+                    .unwrap_or_else(|| panic!("native output name must accept a valid stem"))
+            });
+
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn native_output_descriptions_cover_the_supported_matrix() {
+        for target in NativeTarget::ALL {
+            let description = TargetOutputDescription::for_native(
+                target,
+                [
+                    TargetOutputKind::RelocatableObject,
+                    TargetOutputKind::Executable,
+                ],
+            );
+
+            assert_eq!(description.identity().as_str(), target.as_str());
+            assert_eq!(description.machine().object_format(), target.object_format());
+        }
     }
 
     fn output_name(kind: TargetOutputKind, prefix: &str, suffix: &str) -> TargetOutputName {

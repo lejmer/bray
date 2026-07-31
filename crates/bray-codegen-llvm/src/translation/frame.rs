@@ -1,5 +1,6 @@
 use crate::mapping::LlvmTypeMappings;
-use crate::translation::unit::UnitTranslator;
+use crate::native::frame_operation_function;
+use crate::translation::unit::{UnitTranslator, pointer_value};
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
     CodegenSymbolKey,
@@ -19,12 +20,6 @@ pub(crate) fn translate_protected_instance<'context, 'module, 'request>(
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(), CodegenFailure> {
-    if request.target().machine().architecture() != bray_target::TargetArchitecture::X86_64
-        || request.target().machine().object_format() != bray_target::ObjectFormat::Elf
-    {
-        return Err(CodegenFailure::UnsupportedTarget);
-    }
-
     let descriptor = instance
         .mir()
         .frame_descriptor()
@@ -326,7 +321,11 @@ fn translate_frame_adapter<'context>(
 
     let fields: [BasicValueEnum<'context>; 14] = [
         function
-            .get_first_param()
+            .get_nth_param(crate::native::frame_parameter_index(
+                request.target(),
+                ProtectedFrameOperation::MoveBeforeStart,
+                0,
+            ))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
         identity.into(),
         context
@@ -366,9 +365,13 @@ fn translate_frame_adapter<'context>(
             .into_struct_value();
     }
 
-    builder
-        .build_return(Some(&frame))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    crate::native::return_frame_result(
+        &builder,
+        function,
+        request.target(),
+        ProtectedFrameOperation::MoveBeforeStart,
+        frame.into(),
+    )?;
 
     Ok(())
 }
@@ -431,17 +434,13 @@ fn translate_state_callback(
 
         builder.position_at_end(block);
 
-        builder
-            .build_return(Some(
-                &crate::native::frame_state_type(context).const_named_struct(&[
-                    context.i32_type().const_int(affinity, false).into(),
-                    context
-                        .i32_type()
-                        .const_int(lane_requirements, false)
-                        .into(),
-                ]),
-            ))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        crate::native::return_frame_state(
+            context,
+            &builder,
+            request.target(),
+            affinity,
+            lane_requirements,
+        )?;
 
         cases.push((
             context
@@ -459,9 +458,7 @@ fn translate_state_callback(
 
     builder.position_at_end(invalid);
 
-    builder
-        .build_return(Some(&crate::native::frame_state_type(context).const_zero()))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    crate::native::return_frame_state(context, &builder, request.target(), 0, 0)?;
 
     Ok(())
 }
@@ -489,7 +486,13 @@ fn translate_cancellation_entry<'context>(
 
     builder.position_at_end(block);
 
-    let context = integer_pointer(&builder, function, 0, types)?;
+    let parameter = crate::native::frame_parameter_index(
+        request.target(),
+        ProtectedFrameOperation::CancellationEntry,
+        0,
+    );
+
+    let context = integer_pointer(&builder, function, parameter, types)?;
 
     let requested = builder
         .build_struct_gep(context_type, context, 2, "frame.cancellation.pointer")
@@ -500,19 +503,34 @@ fn translate_cancellation_entry<'context>(
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
     let context = function
-        .get_first_param()
+        .get_nth_param(parameter)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let progress = builder
-        .build_call(resume, &[context.into()], "frame.cancel.progress")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
-        .try_as_basic_value()
-        .basic()
+    let frame = instance
+        .protected_frame_identity()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    builder
-        .build_return(Some(&progress))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    let progress = crate::native::invoke_function(
+        types.context(),
+        &builder,
+        request.target(),
+        &CodegenSymbolKey::ProtectedFrame {
+            frame,
+            operation: ProtectedFrameOperation::Resume,
+        },
+        resume,
+        &[context.into()],
+        "frame.cancel.progress",
+    )?
+    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    crate::native::return_frame_result(
+        &builder,
+        function,
+        request.target(),
+        ProtectedFrameOperation::CancellationEntry,
+        progress,
+    )?;
 
     Ok(())
 }
@@ -619,9 +637,22 @@ fn translate_failure_cleanup<'context>(
         .get_first_param()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    builder
-        .build_call(resume, &[context.into()], "frame.failure.cleanup")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    let frame = instance
+        .protected_frame_identity()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    crate::native::invoke_function(
+        types.context(),
+        &builder,
+        request.target(),
+        &CodegenSymbolKey::ProtectedFrame {
+            frame,
+            operation: ProtectedFrameOperation::Resume,
+        },
+        resume,
+        &[context.into()],
+        "frame.failure.cleanup",
+    )?;
 
     builder
         .build_unconditional_branch(done)
@@ -761,31 +792,4 @@ fn integer_pointer<'context>(
             "frame.pointer",
         )
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
-}
-
-fn frame_operation_function<'context>(
-    module: &Module<'context>,
-    request: CodegenRequest<'_>,
-    instance: &CodegenInstance,
-    operation: ProtectedFrameOperation,
-) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let frame = instance
-        .protected_frame_identity()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-    let symbol = request
-        .mappings()
-        .symbol(&CodegenSymbolKey::ProtectedFrame { frame, operation })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-    module
-        .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
-}
-
-fn pointer_value(value: BasicValueEnum<'_>) -> Option<PointerValue<'_>> {
-    match value {
-        BasicValueEnum::PointerValue(value) => Some(value),
-        _ => None,
-    }
 }

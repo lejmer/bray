@@ -226,11 +226,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .frame_descriptor()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let context = self
-            .function
-            .get_first_param()
-            .and_then(super::support::int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let context = self.frame_context_argument()?;
 
         self.builder.position_at_end(dispatch);
 
@@ -346,9 +342,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.types.context().i64_type().const_zero().into(),
             ]);
 
-        llvm(self.builder.build_return(Some(&failure)))?;
+        self.return_frame_progress(failure.into())?;
 
         Ok(())
+    }
+
+    pub(super) fn return_frame_progress(
+        &self,
+        progress: BasicValueEnum<'context>,
+    ) -> Result<(), CodegenFailure> {
+        crate::native::return_frame_result(
+            &self.builder,
+            self.function,
+            self.request.target(),
+            bray_runtime_interface::ProtectedFrameOperation::Resume,
+            progress,
+        )
+    }
+
+    pub(super) fn frame_context_argument(
+        &self,
+    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+        self.function
+            .get_nth_param(crate::native::frame_parameter_index(
+                self.request.target(),
+                bray_runtime_interface::ProtectedFrameOperation::Resume,
+                0,
+            ))
+            .and_then(super::support::int_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
     pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
@@ -381,11 +403,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             self.builder.position_at_end(dispatch);
 
-            let context = self
-                .function
-                .get_first_param()
-                .and_then(super::support::int_value)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            let context = self.frame_context_argument()?;
 
             let pointer = llvm(
                 self.builder.build_int_to_ptr(

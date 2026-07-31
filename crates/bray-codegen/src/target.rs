@@ -2,6 +2,7 @@ mod abi;
 mod compatibility;
 mod layout;
 mod model;
+mod native;
 mod symbol;
 
 pub use abi::{CallableAbiMapping, TargetAbi, TargetAbiBuildError, TargetCallingConvention};

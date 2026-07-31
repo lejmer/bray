@@ -4,8 +4,9 @@ use bray_codegen::{
     CodegenTarget, CodegenValueAttribute,
 };
 use inkwell::DLLStorageClass;
-use inkwell::attributes::AttributeLoc;
+use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::module::{Linkage, Module};
+use inkwell::types::AnyType;
 use inkwell::values::FunctionValue;
 use inkwell::GlobalVisibility;
 
@@ -34,11 +35,40 @@ pub(crate) fn declare_symbols<'context>(
 
         if native_type.is_some() {
             function.set_call_conventions(0);
+            apply_native_attributes(function, mapping, target, types)?;
         } else {
             function.set_call_conventions(call_convention(mapping, target)?);
             apply_signature_attributes(function, mapping, types)?;
         }
     }
+
+    Ok(())
+}
+
+fn apply_native_attributes(
+    function: FunctionValue<'_>,
+    mapping: &CodegenSymbolMapping,
+    target: &CodegenTarget,
+    types: &LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    let Some(result) =
+        crate::native::indirect_result_type(types.context(), target, mapping.key())
+    else {
+        return Ok(());
+    };
+
+    let kind = Attribute::get_named_enum_kind_id("sret");
+
+    if kind == 0 {
+        return Err(CodegenFailure::UnsupportedTarget);
+    }
+
+    function.add_attribute(
+        AttributeLoc::Param(0),
+        types
+            .context()
+            .create_type_attribute(kind, result.as_any_type_enum()),
+    );
 
     Ok(())
 }
@@ -69,15 +99,13 @@ fn apply_linkage(
 
     if target.machine().object_format() == bray_target::ObjectFormat::Coff {
         match mapping.linkage() {
-            CodegenLinkage::Import => function
-                .as_global_value()
-                .set_dll_storage_class(DLLStorageClass::Import),
             CodegenLinkage::Export => function
                 .as_global_value()
                 .set_dll_storage_class(DLLStorageClass::Export),
             CodegenLinkage::Private
             | CodegenLinkage::Internal
             | CodegenLinkage::External
+            | CodegenLinkage::Import
             | CodegenLinkage::Weak
             | CodegenLinkage::LinkOnce
             | CodegenLinkage::Common => {}
@@ -248,12 +276,13 @@ mod tests {
         CodegenCallableSignature, CodegenIndirectParameterKind, CodegenIntegerExtension,
         CodegenLinkage, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
         CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenValueAttribute,
-        TargetAddressSpaceKind,
+        CodegenTarget, TargetAddressSpaceKind,
     };
     use bray_symbols::{CallableAbi, SemanticValueStore, TypeData};
-    use bray_target::{TargetLayoutContract, TargetValueLayout};
+    use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use inkwell::context::Context;
     use inkwell::module::Linkage;
+    use inkwell::DLLStorageClass;
 
     use super::{apply_linkage, declare_symbols};
     use crate::machine::LlvmTargetMachine;
@@ -283,6 +312,37 @@ mod tests {
 
         assert_eq!(apply_linkage(function, &weak, request.target()), Ok(()));
         assert_eq!(function.get_linkage(), Linkage::WeakAny);
+    }
+
+    #[test]
+    fn coff_imports_remain_ordinary_external_references() {
+        let fixture = codegen_request();
+        let mapping = &fixture.request().mappings().symbols()[0];
+
+        let imported = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            CodegenLinkage::Import,
+            mapping.signature().clone(),
+        );
+
+        let context = Context::create();
+        let module = context.create_module("coff-import");
+
+        let function = module.add_function(
+            imported.name().as_str(),
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        assert_eq!(apply_linkage(function, &imported, &target), Ok(()));
+
+        assert_eq!(
+            function.as_global_value().get_dll_storage_class(),
+            DLLStorageClass::Default
+        );
     }
 
     #[test]

@@ -215,7 +215,7 @@ pub(super) fn real_words(bits: RealConstantBits) -> Vec<u64> {
     }
 }
 
-pub(super) const fn pointer_value(value: BasicValueEnum<'_>) -> Option<PointerValue<'_>> {
+pub(crate) const fn pointer_value(value: BasicValueEnum<'_>) -> Option<PointerValue<'_>> {
     match value {
         BasicValueEnum::PointerValue(value) => Some(value),
         BasicValueEnum::ArrayValue(_)

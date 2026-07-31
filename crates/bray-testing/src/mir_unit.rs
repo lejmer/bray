@@ -18,15 +18,28 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
     test_mir_unit_with_declaration(unit, 0)
 }
 
+/// Builds one valid single-block MIR unit for a caller-selected target profile.
+pub fn test_mir_unit_for_target(unit: u32, target: MirTargetFacts) -> MirUnit {
+    test_mir_unit_with_declaration_and_target(unit, 0, target)
+}
+
 /// Builds one valid single-block MIR unit with a caller-selected declaration identity.
 pub fn test_mir_unit_with_declaration(unit: u32, declaration: u32) -> MirUnit {
+    test_mir_unit_with_declaration_and_target(unit, declaration, test_mir_target())
+}
+
+fn test_mir_unit_with_declaration_and_target(
+    unit: u32,
+    declaration: u32,
+    target: MirTargetFacts,
+) -> MirUnit {
     let bound = test_bound_unit_with_declaration(unit, declaration);
     let source = MirSourceAnchor::from(bound.key().source());
 
     let mut builder = MirUnitBuilder::for_bound(
         bound.identity(),
         MirUnitKind::Synchronous,
-        test_mir_target(),
+        target,
     );
 
     let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {

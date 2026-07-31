@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsString;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,7 +10,6 @@ use bray_codegen::{
 use bray_codegen_llvm::LlvmCodeGenerator;
 use bray_compilation::{
     Compilation, CompilationRequest, PackageInterfaceExportRequest,
-    SelectedTarget,
 };
 use bray_linker::{
     ExternalToolHost, ExternalToolProcessBudget, Linker, LinkerDriver,
@@ -22,9 +22,7 @@ use bray_package_interface::{
     InterfaceProductKind, PackageInterfaceIdentity,
 };
 use bray_symbols::ProductIdentity;
-use bray_target::{
-    TargetOutputDescription, TargetOutputKind, TargetOutputName,
-};
+use bray_target::{NativeTarget, ObjectFormat};
 
 /// Loads a compilation without a code-generation backend.
 pub fn load_compilation(request: CompilationRequest) -> Option<Compilation> {
@@ -69,57 +67,13 @@ pub fn package_interface_export_request(
     )
 }
 
-/// Returns the baseline filename contract for one target output kind.
-pub fn baseline_output_name(kind: TargetOutputKind) -> TargetOutputName {
-    let (prefix, suffix) = match kind {
-        TargetOutputKind::Assembly => ("", ".s"),
-        TargetOutputKind::BackendIr => ("", ".ll"),
-        TargetOutputKind::BackendBitcode => ("", ".bc"),
-        TargetOutputKind::RelocatableObject => ("", ".o"),
-        TargetOutputKind::ExecutableModule => ("", ".wasm"),
-        TargetOutputKind::DebugCompanion => ("", ".debug"),
-        TargetOutputKind::PackageInterface => ("", ".brayi"),
-        TargetOutputKind::DependencyMetadata => ("", ".brayd"),
-        TargetOutputKind::Executable => ("", ""),
-        TargetOutputKind::StaticLibrary => ("lib", ".a"),
-        TargetOutputKind::SharedLibrary => ("lib", ".so"),
-        TargetOutputKind::LinkedCompanion => ("", ".companion"),
-    };
-
-    TargetOutputName::try_new(kind, prefix, suffix)
-        .unwrap_or_else(|error| {
-            panic!("baseline target output name must be valid: {error:?}")
-        })
-}
-
-/// Creates deterministic baseline output descriptions for selected artifact kinds.
-pub fn baseline_target_outputs(
-    selected: &SelectedTarget,
-    kinds: impl IntoIterator<Item = TargetOutputKind>,
-) -> TargetOutputDescription {
-    TargetOutputDescription::try_new(
-        selected.profile().clone(),
-        kinds.into_iter().map(baseline_output_name),
-    )
-    .unwrap_or_else(|error| {
-        panic!("baseline target output names must be valid: {error:?}")
-    })
-}
-
-/// Creates the native linker and archiver composition available to command drivers.
-pub fn native_linker() -> Option<Linker> {
+/// Creates the linker composition available for one native toolchain target.
+pub fn native_linker(target: NativeTarget) -> Option<Linker> {
     let archive = llvm_tool("llvm-ar")?;
 
     let host = Arc::new(NativeExternalToolHost::new(
         ExternalToolProcessBudget::new(NonZeroUsize::MIN),
     ));
-
-    let system_identity = LinkerDriverIdentity::try_new(
-        LinkerDriverKind::System,
-        "gnu-compiler",
-        "1",
-        "1",
-    )?;
 
     let archive_identity = LinkerDriverIdentity::try_new(
         LinkerDriverKind::Archiver,
@@ -128,58 +82,123 @@ pub fn native_linker() -> Option<Linker> {
         "22",
     )?;
 
-    let (family, program, environment) = if cfg!(windows) {
-        let root = env::var_os("SystemRoot").map(PathBuf::from)?;
-
-        let environment = [
-            "SystemRoot",
-            "USERPROFILE",
-            "LOCALAPPDATA",
-            "WSLENV",
-            "PATH",
-            "TEMP",
-            "TMP",
-        ]
-        .into_iter()
-        .filter_map(|name| env::var_os(name).map(|value| (name.into(), value)));
-
-        (
-            SystemLinkerFamily::WslGnuCompiler,
-            root.join("System32").join("wsl.exe"),
-            environment.collect::<Vec<_>>(),
-        )
-    } else {
-        (
-            SystemLinkerFamily::GnuCompiler,
-            PathBuf::from("/usr/bin/cc"),
-            Vec::new(),
-        )
-    };
-
-    let configuration =
-        SystemLinkerConfiguration::try_new(family, program, environment, None).ok()?;
-
-    let system = SystemLinkerDriver::try_new(
-        system_identity,
-        configuration,
-        Arc::clone(&host) as Arc<dyn ExternalToolHost>,
-    )
-    .ok()?;
-
     let archive = LlvmArchiveDriver::try_new(
         archive_identity,
         archive,
         [],
         None,
-        host as Arc<dyn ExternalToolHost>,
+        Arc::clone(&host) as Arc<dyn ExternalToolHost>,
     )
     .ok()?;
 
-    Linker::try_new([
-        Arc::new(system) as Arc<dyn LinkerDriver>,
-        Arc::new(archive) as Arc<dyn LinkerDriver>,
-    ])
-    .ok()
+    let mut drivers = vec![Arc::new(archive) as Arc<dyn LinkerDriver>];
+
+    if let Some((family, program, environment)) = system_linker_configuration(target) {
+        let system_identity = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::System,
+            system_linker_name(family),
+            "1",
+            "1",
+        )?;
+
+        let configuration =
+            SystemLinkerConfiguration::try_new(family, program, environment, None).ok()?;
+
+        let system = SystemLinkerDriver::try_new(
+            system_identity,
+            configuration,
+            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
+        )
+        .ok()?;
+
+        drivers.push(Arc::new(system) as Arc<dyn LinkerDriver>);
+    }
+
+    Linker::try_new(drivers).ok()
+}
+
+fn system_linker_configuration(
+    target: NativeTarget,
+) -> Option<(SystemLinkerFamily, PathBuf, Vec<(OsString, OsString)>)> {
+    if NativeTarget::current()
+        .is_none_or(|host| host.architecture() != target.architecture())
+    {
+        return None;
+    }
+
+    match target.object_format() {
+        ObjectFormat::Elf if cfg!(windows) => {
+            let root = env::var_os("SystemRoot").map(PathBuf::from)?;
+
+            Some((
+                SystemLinkerFamily::WslGnuCompiler,
+                root.join("System32").join("wsl.exe"),
+                selected_environment(&[
+                    "SystemRoot",
+                    "USERPROFILE",
+                    "LOCALAPPDATA",
+                    "WSLENV",
+                    "PATH",
+                    "TEMP",
+                    "TMP",
+                ]),
+            ))
+        }
+        ObjectFormat::Elf if cfg!(target_os = "linux") => Some((
+            SystemLinkerFamily::GnuCompiler,
+            PathBuf::from("/usr/bin/cc"),
+            Vec::new(),
+        )),
+        ObjectFormat::Coff if cfg!(windows) => Some((
+            SystemLinkerFamily::MicrosoftCompiler,
+            llvm_tool("clang")?,
+            selected_environment(&[
+                "SystemRoot",
+                "USERPROFILE",
+                "LOCALAPPDATA",
+                "PATH",
+                "LIB",
+                "INCLUDE",
+                "TEMP",
+                "TMP",
+            ]),
+        )),
+        ObjectFormat::MachO if cfg!(target_os = "macos") => Some((
+            SystemLinkerFamily::AppleCompiler,
+            PathBuf::from("/usr/bin/clang"),
+            selected_environment(&[
+                "HOME",
+                "PATH",
+                "SDKROOT",
+                "DEVELOPER_DIR",
+                "TMPDIR",
+            ]),
+        )),
+        ObjectFormat::Coff
+        | ObjectFormat::Elf
+        | ObjectFormat::MachO
+        | ObjectFormat::WebAssembly
+        | ObjectFormat::Xcoff => None,
+    }
+}
+
+fn selected_environment(names: &[&str]) -> Vec<(OsString, OsString)> {
+    names
+        .iter()
+        .filter_map(|name| env::var_os(name).map(|value| ((*name).into(), value)))
+        .collect()
+}
+
+const fn system_linker_name(family: SystemLinkerFamily) -> &'static str {
+    match family {
+        SystemLinkerFamily::GnuCompiler => "gnu-compiler",
+        SystemLinkerFamily::WslGnuCompiler => "wsl-gnu-compiler",
+        SystemLinkerFamily::MicrosoftCompiler => "microsoft-compiler",
+        SystemLinkerFamily::AppleCompiler => "apple-compiler",
+        SystemLinkerFamily::Gnu
+        | SystemLinkerFamily::Microsoft
+        | SystemLinkerFamily::Apple => "system-linker",
+    }
 }
 
 fn llvm_tool(name: &str) -> Option<PathBuf> {

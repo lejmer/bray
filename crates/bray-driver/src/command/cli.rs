@@ -297,11 +297,12 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_runtime_interface::RuntimeCapability;
     use bray_symbols::ProductKind;
+    use bray_target::NativeTarget;
     use bray_tooling::OutputFormat;
 
     use crate::command::{
         DriverBackend, DriverCommandKind, DriverInspectionArtifact, DriverInvocation,
-        DriverRuntimeSelection, DriverTarget,
+        DriverRuntimeSelection,
     };
 
     #[test]
@@ -338,7 +339,7 @@ mod tests {
             .unwrap_or_else(|| panic!("build command must retain product configuration"));
 
         assert_eq!(configuration.product_kind(), ProductKind::Executable);
-        assert_eq!(configuration.target(), DriverTarget::X86_64UnknownLinuxGnu);
+        assert_eq!(configuration.target(), NativeTarget::X86_64LinuxGnu);
         assert_eq!(configuration.backend(), DriverBackend::Llvm);
 
         assert_eq!(
@@ -365,6 +366,31 @@ mod tests {
         );
 
         assert_eq!(configuration.output(), std::path::Path::new("out"));
+    }
+
+    #[test]
+    fn parses_every_supported_native_target() {
+        for target in NativeTarget::ALL {
+            let invocation = DriverInvocation::try_from_arguments([
+                "brayc",
+                "build",
+                "--target",
+                target.as_str(),
+                "--output",
+                "out",
+                "main.bray",
+            ])
+            .unwrap_or_else(|error| {
+                panic!("native target invocation should parse for {target:?}: {error:?}")
+            });
+
+            let configuration = invocation
+                .command()
+                .product_configuration()
+                .unwrap_or_else(|| panic!("build command must retain product configuration"));
+
+            assert_eq!(configuration.target(), target);
+        }
     }
 
     #[test]

@@ -402,11 +402,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
                 if let Some(frame_context) = self.frame_context {
-                    let context = self
-                        .function
-                        .get_first_param()
-                        .and_then(int_value)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    let context = self.frame_context_argument()?;
 
                     let context = llvm(
                         self.builder.build_int_to_ptr(

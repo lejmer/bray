@@ -16,10 +16,9 @@ use bray_runtime_interface::{
     RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata,
 };
 use bray_symbols::{ProductIdentity, ProductKind};
-use bray_target::{TargetOutputDescription, TargetOutputKind};
+use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
 use bray_tooling::{
-    OutputFormat, baseline_output_name, baseline_target_outputs,
-    compilation_request_from_file_arguments, load_llvm_compilation,
+    OutputFormat, compilation_request_from_file_arguments, load_llvm_compilation,
     exit_code_from_diagnostics, native_linker,
     package_interface_export_request,
 };
@@ -39,7 +38,7 @@ pub(crate) fn run_build_command(
     output_format: OutputFormat,
 ) -> DriverRunResult {
     let package = command_line_package_identity();
-    let selected_target = configuration.target().selected_target();
+    let selected_target = bray_compilation::SelectedTarget::for_native(configuration.target());
 
     let options = CompilationOptions::new(
         worker_budget,
@@ -73,7 +72,7 @@ pub(crate) fn run_build_command(
         None => return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format),
     };
 
-    let Some(linker) = native_linker() else {
+    let Some(linker) = native_linker(configuration.target()) else {
         return unsupported_product_result(compilation, output_format);
     };
 
@@ -95,7 +94,7 @@ pub(crate) fn run_build_command(
         Err(_) => return native_product_failure_result(compilation, output_format),
     };
 
-    let target_outputs = target_outputs(&selected_target, &configuration);
+    let target_outputs = target_outputs(&configuration);
 
     let request = emission_request(
         product,
@@ -149,35 +148,45 @@ fn product_identity(
 }
 
 fn target_outputs(
-    selected: &bray_compilation::SelectedTarget,
     configuration: &DriverProductConfiguration,
 ) -> TargetOutputDescription {
+    let format = configuration.target().object_format();
+
     let product = match configuration.product_kind() {
-        ProductKind::Library => baseline_output_name(TargetOutputKind::StaticLibrary),
+        ProductKind::Library => {
+            TargetOutputName::for_native(format, TargetOutputKind::StaticLibrary)
+        }
         ProductKind::Executable | ProductKind::Test => {
-            baseline_output_name(TargetOutputKind::Executable)
+            TargetOutputName::for_native(format, TargetOutputKind::Executable)
         }
     };
 
     let interface = (configuration.product_kind() == ProductKind::Library)
-        .then(|| baseline_output_name(TargetOutputKind::PackageInterface));
+        .then(|| TargetOutputName::for_native(format, TargetOutputKind::PackageInterface));
 
     let inspections = configuration
         .inspections()
         .iter()
         .copied()
         .map(|inspection| match inspection.artifact_kind() {
-            ArtifactKind::Assembly => baseline_output_name(TargetOutputKind::Assembly),
-            ArtifactKind::BackendIr => baseline_output_name(TargetOutputKind::BackendIr),
-            ArtifactKind::BackendBitcode => baseline_output_name(TargetOutputKind::BackendBitcode),
-            ArtifactKind::RelocatableObject => {
-                baseline_output_name(TargetOutputKind::RelocatableObject)
+            ArtifactKind::Assembly => {
+                TargetOutputName::for_native(format, TargetOutputKind::Assembly)
             }
+            ArtifactKind::BackendIr => {
+                TargetOutputName::for_native(format, TargetOutputKind::BackendIr)
+            }
+            ArtifactKind::BackendBitcode => {
+                TargetOutputName::for_native(format, TargetOutputKind::BackendBitcode)
+            }
+            ArtifactKind::RelocatableObject => TargetOutputName::for_native(
+                format,
+                TargetOutputKind::RelocatableObject,
+            ),
             _ => unreachable!("driver inspection selections cover only backend inspection kinds"),
         });
 
-    baseline_target_outputs(
-        selected,
+    TargetOutputDescription::for_native(
+        configuration.target(),
         [Some(product), interface]
             .into_iter()
             .flatten()
@@ -297,10 +306,11 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
+    use bray_target::NativeTarget;
 
     use super::{emission_request, product_identity};
     use crate::command::{
-        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration, DriverTarget,
+        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration,
     };
     use crate::run::run_result;
     use crate::test_support::TemporaryFile;
@@ -309,7 +319,7 @@ mod tests {
     fn emission_request_keeps_required_product_and_optional_inspections_typed() {
         let configuration = DriverProductConfiguration::new(
             ProductKind::Library,
-            DriverTarget::X86_64UnknownLinuxGnu,
+            NativeTarget::X86_64LinuxGnu,
             DriverBackend::Llvm,
             None,
             vec![],
@@ -317,7 +327,7 @@ mod tests {
             vec![DriverInspectionArtifact::BackendIr],
         );
 
-        let target = configuration.target().selected_target();
+        let target = bray_compilation::SelectedTarget::for_native(configuration.target());
 
         let product = product_identity(super::command_line_package_identity(), &configuration);
 
@@ -359,7 +369,12 @@ mod tests {
             source.path().as_os_str().to_os_string(),
         ]);
 
-        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(
+            result.exit_code(),
+            ExitCode::SUCCESS,
+            "{:?}",
+            result.diagnostics()
+        );
 
         assert!(result.diagnostics().is_empty());
         assert!(output.join("library.brayi").is_file());
@@ -453,7 +468,12 @@ mod tests {
             source.path().as_os_str().to_os_string(),
         ]);
 
-        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(
+            result.exit_code(),
+            ExitCode::SUCCESS,
+            "{:?}",
+            result.diagnostics()
+        );
 
         assert!(result.diagnostics().is_empty());
         assert!(output.join("application").is_file());

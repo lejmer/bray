@@ -1,13 +1,15 @@
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use bray_base::Cancellation;
-use bray_runtime_interface::{BinarySymbolName, PanicAbiIdentity};
+use bray_ir::MirTargetFacts;
+use bray_runtime_interface::{BinarySymbolName, PanicAbiIdentity, RuntimeAbiVersion};
 use bray_symbols::CallableAbi;
 use bray_target::test_support::test_target_profile;
 use bray_target::{
-    CodeModel, RelocationModel, TargetLayoutContract, TargetProfile, TargetValueLayout,
+    CodeModel, NativeTarget, RelocationModel, TargetLayoutContract, TargetProfile,
+    TargetValueLayout,
 };
-use bray_testing::{test_mir_type, test_mir_unit};
+use bray_testing::{test_mir_type, test_mir_unit_for_target};
 
 use crate::mapping::{demanded_debug_sources, demanded_types};
 use crate::{
@@ -88,8 +90,25 @@ pub fn codegen_request_for_seed_and_backend(
     seed: u8,
     backend: BackendIdentity,
 ) -> CodegenRequestFixture {
-    let unit = codegen_unit(seed);
     let target = codegen_target();
+
+    codegen_request_for_seed_target_and_backend(seed, target, backend)
+}
+
+/// Creates a complete request fixture for one native target and backend.
+pub fn codegen_request_for_target_and_backend(
+    target: NativeTarget,
+    backend: BackendIdentity,
+) -> CodegenRequestFixture {
+    codegen_request_for_seed_target_and_backend(1, CodegenTarget::for_native(target), backend)
+}
+
+fn codegen_request_for_seed_target_and_backend(
+    seed: u8,
+    target: CodegenTarget,
+    backend: BackendIdentity,
+) -> CodegenRequestFixture {
+    let unit = codegen_unit(seed, &target);
     let mappings = codegen_mappings(&unit, &target);
 
     let required_artifact = BackendArtifactId::new(
@@ -255,7 +274,7 @@ impl Cancellation for NeverCancelled {
 
 /// Creates a deterministic test code generation unit identity.
 pub fn codegen_unit_key(seed: u8) -> CodegenUnitKey {
-    codegen_unit(seed).key().clone()
+    codegen_unit(seed, &codegen_target()).key().clone()
 }
 
 /// Creates non-empty in-memory test artifact content.
@@ -281,8 +300,12 @@ pub fn contribution(
     )
 }
 
-fn codegen_unit(seed: u8) -> CodegenUnit {
-    let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit(u32::from(seed))]) else {
+fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
+    let mir_target = MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+
+    let Ok(unit) =
+        CodegenUnit::try_new(1, [test_mir_unit_for_target(u32::from(seed), mir_target)])
+    else {
         panic!("test codegen unit must be valid");
     };
 

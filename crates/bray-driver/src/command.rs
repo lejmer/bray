@@ -6,7 +6,7 @@ mod model;
 
 pub use build::{
     DriverBackend, DriverInspectionArtifact, DriverProductConfiguration, DriverRuntimeSelection,
-    DriverRuntimeProfile, DriverTarget,
+    DriverRuntimeProfile,
 };
 pub(crate) use build::CliBuildCommand;
 pub use cli::DriverCliError;

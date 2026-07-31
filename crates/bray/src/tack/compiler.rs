@@ -17,10 +17,10 @@ use bray_package_interface::{
 };
 use bray_project::{ProjectGraph, ProjectPackage, ProjectProduct};
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::{TargetIdentity, TargetOutputKind};
+use bray_target::{TargetIdentity, TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{
-    baseline_target_outputs, compilation_request_from_file_arguments,
-    load_compilation, load_llvm_compilation, native_linker,
+    compilation_request_from_file_arguments, load_compilation,
+    load_llvm_compilation, native_linker,
     package_interface_export_request,
 };
 use crate::tack::error::{
@@ -324,10 +324,12 @@ impl<'project> ProjectCompiler<'project> {
         compilation: &Compilation,
         output_directory: PathBuf,
     ) -> Result<DiagnosticBag, DiagnosticBag> {
-        let outputs = baseline_target_outputs(
-            &selected_target,
-            product.outputs().iter().copied(),
-        );
+        let native_target = selected_target
+            .native_target()
+            .ok_or_else(|| unavailable_diagnostics(selected_target.profile().identity().as_str()))?;
+
+        let outputs =
+            TargetOutputDescription::for_native(native_target, product.outputs().iter().copied());
 
         let artifacts = product.outputs().iter().copied().map(|kind| {
             RequestedArtifact::new(
@@ -359,7 +361,7 @@ impl<'project> ProjectCompiler<'project> {
 
         let linker = if requires_generation {
             Some(
-                native_linker()
+                native_linker(native_target)
                     .ok_or_else(|| unavailable_diagnostics("native_linker"))?,
             )
         } else {
@@ -427,13 +429,8 @@ impl<'project> ProjectCompiler<'project> {
         &self,
         identity: &TargetIdentity,
     ) -> Result<SelectedTarget, DiagnosticBag> {
-        let baseline = SelectedTarget::baseline();
-
-        if baseline.profile().identity() != identity {
-            return Err(unavailable_diagnostics(identity.as_str()));
-        }
-
-        Ok(baseline)
+        SelectedTarget::for_identity(identity)
+            .ok_or_else(|| unavailable_diagnostics(identity.as_str()))
     }
 
     fn project_product(

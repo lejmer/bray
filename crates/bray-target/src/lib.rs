@@ -6,6 +6,7 @@ mod facts;
 mod identity;
 mod layout;
 mod machine;
+mod native;
 mod output;
 mod profile;
 
@@ -23,6 +24,7 @@ pub use machine::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture,
     TargetMachineProperties,
 };
+pub use native::NativeTarget;
 pub use output::{
     TargetOutputDescription, TargetOutputDescriptionBuildError, TargetOutputKind, TargetOutputName,
     TargetOutputNameBuildError,

@@ -1,8 +1,9 @@
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
 
+use bray_base::NonEmptySharedStr;
 use crate::{digest, workspace};
 use bray_runtime_interface::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
@@ -18,7 +19,8 @@ use bray_runtime_interface::{
     SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
     TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
 };
-use bray_target::TargetIdentity;
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
+use bray_target::{NativeTarget, ObjectFormat, TargetIdentity};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
     <build --target <triple> --output <directory> [--profile <profile>] | smoke-test>";
@@ -75,7 +77,7 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     let package = build(&options)?;
 
-    smoke_test(&package, &options.target, directory.path())?;
+    smoke_test(&package, options.target, directory.path())?;
 
     Ok(())
 }
@@ -84,9 +86,12 @@ pub(crate) fn smoke_test_host() -> Result<(), String> {
     smoke_test_command(std::iter::empty()).map_err(|error| error.to_string())
 }
 
-pub(crate) fn build_for_readiness(target: &str, output: &Path) -> Result<PathBuf, String> {
+pub(crate) fn build_for_readiness(
+    target: NativeTarget,
+    output: &Path,
+) -> Result<PathBuf, String> {
     let options = BuildOptions {
-        target: target.to_owned(),
+        target,
         output: output.to_path_buf(),
         profile: "release".to_owned(),
     };
@@ -103,29 +108,33 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
     let mut command = Command::new("cargo");
 
     command.current_dir(&root).args([
-        "build",
+        "rustc",
+        "--color",
+        "never",
         "--package",
         "bray-runtime",
         "--target",
-        &options.target,
+        options.target.as_str(),
         "--profile",
         &options.profile,
         "--target-dir",
     ]);
 
     command.arg(&target_directory);
-    configure_cross_c_toolchain(&mut command, &root, &options.target);
+    command.args(["--", "--print", "native-static-libs"]);
+    configure_cross_c_toolchain(&mut command, &root, options.target);
 
-    let status = command.status().map_err(CommandError::Cargo)?;
+    let output = command.output().map_err(CommandError::Cargo)?;
 
-    if !status.success() {
+    if !output.status.success() {
         return Err(CommandError::BuildFailed);
     }
 
-    let archive_file_name = archive_file_name(&options.target);
+    let native_links = native_link_requirements(&output)?;
+    let archive_file_name = archive_file_name(options.target);
 
     let source = target_directory
-        .join(&options.target)
+        .join(options.target.as_str())
         .join(profile_directory(&options.profile))
         .join(archive_file_name);
 
@@ -138,7 +147,7 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
     fs::copy(&source, &archive).map_err(|error| CommandError::copy(&source, &archive, error))?;
 
     let digest = digest_file(&archive)?;
-    let metadata_value = metadata(options, archive_file_name, digest)?;
+    let metadata_value = metadata(options, archive_file_name, digest, &native_links)?;
 
     let bytes = metadata_value
         .encode_json()
@@ -152,8 +161,8 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
     })
 }
 
-fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: &str) {
-    if !cfg!(windows) || target != "x86_64-unknown-linux-gnu" {
+fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: NativeTarget) {
+    if !cfg!(windows) || target != NativeTarget::X86_64LinuxGnu {
         return;
     }
 
@@ -172,15 +181,18 @@ fn metadata(
     options: &BuildOptions,
     archive_file_name: &str,
     digest: RuntimeArtifactDigest,
+    native_links: &[NativeLinkRequirement],
 ) -> Result<RuntimeArtifactMetadata, CommandError> {
     let identity =
         RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
 
-    let artifact = RuntimeArtifactId::try_new(format!("{RUNTIME_IDENTITY}.{}", options.target))
+    let artifact = RuntimeArtifactId::try_new(format!(
+        "{RUNTIME_IDENTITY}.{}",
+        options.target.as_str()
+    ))
         .ok_or(CommandError::MetadataContract)?;
 
-    let target =
-        TargetIdentity::try_new(options.target.clone()).ok_or(CommandError::MetadataContract)?;
+    let target = options.target.identity();
 
     let panic_abi = PanicAbiIdentity::try_new(PANIC_ABI).ok_or(CommandError::MetadataContract)?;
 
@@ -201,7 +213,52 @@ fn metadata(
     .map_err(|_| CommandError::MetadataContract)?;
 
     RuntimeArtifactMetadata::try_new(contract, archive_file_name, digest)
+        .map(|metadata| metadata.with_native_links(native_links.iter().cloned()))
         .map_err(|_| CommandError::MetadataContract)
+}
+
+fn native_link_requirements(output: &Output) -> Result<Vec<NativeLinkRequirement>, CommandError> {
+    let standard_output = String::from_utf8_lossy(&output.stdout);
+    let standard_error = String::from_utf8_lossy(&output.stderr);
+
+    let Some(arguments) = standard_output
+        .lines()
+        .chain(standard_error.lines())
+        .find_map(|line| line.trim().strip_prefix("note: native-static-libs:"))
+    else {
+        return Err(CommandError::MissingNativeLinks);
+    };
+
+    parse_native_link_arguments(arguments.split_whitespace())
+}
+
+fn parse_native_link_arguments<'a>(
+    mut arguments: impl Iterator<Item = &'a str>,
+) -> Result<Vec<NativeLinkRequirement>, CommandError> {
+    let mut requirements = Vec::new();
+
+    while let Some(argument) = arguments.next() {
+        let (name, kind) = if argument == "-framework" {
+            (
+                arguments.next().ok_or(CommandError::InvalidNativeLink)?,
+                NativeLinkKind::Framework,
+            )
+        } else if let Some(name) = argument.strip_prefix("-l") {
+            (name, NativeLinkKind::System)
+        } else if let Some(name) = argument.strip_prefix("/defaultlib:") {
+            (name, NativeLinkKind::System)
+        } else if let Some(name) = argument.strip_suffix(".lib") {
+            (name, NativeLinkKind::System)
+        } else {
+            return Err(CommandError::InvalidNativeLink);
+        };
+
+        let name = NonEmptySharedStr::try_new(name).ok_or(CommandError::InvalidNativeLink)?;
+
+        requirements.push(NativeLinkRequirement::new(name, kind));
+    }
+
+    Ok(requirements)
 }
 
 fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
@@ -302,7 +359,11 @@ fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
     Ok(RuntimeArtifactDigest::new(digest))
 }
 
-fn smoke_test(package: &Package, target: &str, directory: &Path) -> Result<(), CommandError> {
+fn smoke_test(
+    package: &Package,
+    target: NativeTarget,
+    directory: &Path,
+) -> Result<(), CommandError> {
     let source = directory.join("runtime-smoke.rs");
 
     let executable = directory.join(if cfg!(windows) {
@@ -320,7 +381,7 @@ fn smoke_test(package: &Package, target: &str, directory: &Path) -> Result<(), C
             "--edition",
             "2024",
             "--target",
-            target,
+            target.as_str(),
             "-C",
             &format!("link-arg={archive}"),
             "-o",
@@ -351,7 +412,7 @@ fn smoke_test(package: &Package, target: &str, directory: &Path) -> Result<(), C
     Ok(())
 }
 
-fn host_target() -> Result<String, CommandError> {
+fn host_target() -> Result<NativeTarget, CommandError> {
     let output = Command::new("rustc")
         .arg("-vV")
         .output()
@@ -363,18 +424,22 @@ fn host_target() -> Result<String, CommandError> {
 
     let output = String::from_utf8(output.stdout).map_err(|_| CommandError::HostTarget)?;
 
-    output
+    let identity = output
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
-        .map(str::to_owned)
-        .ok_or(CommandError::HostTarget)
+        .and_then(TargetIdentity::try_new)
+        .ok_or(CommandError::HostTarget)?;
+
+    NativeTarget::for_identity(&identity).ok_or(CommandError::HostTarget)
 }
 
-fn archive_file_name(target: &str) -> &'static str {
-    if target.contains("msvc") {
-        "bray_runtime.lib"
-    } else {
-        "libbray_runtime.a"
+const fn archive_file_name(target: NativeTarget) -> &'static str {
+    match target.object_format() {
+        ObjectFormat::Coff => "bray_runtime.lib",
+        ObjectFormat::Elf | ObjectFormat::MachO => "libbray_runtime.a",
+        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+            panic!("native runtime target must use COFF, ELF, or Mach-O")
+        }
     }
 }
 
@@ -383,7 +448,7 @@ fn profile_directory(profile: &str) -> &str {
 }
 
 struct BuildOptions {
-    target: String,
+    target: NativeTarget,
     output: PathBuf,
     profile: String,
 }
@@ -407,10 +472,14 @@ impl BuildOptions {
             }
         }
 
-        let target = target.ok_or(CommandError::Usage)?;
+        let target = target
+            .and_then(TargetIdentity::try_new)
+            .and_then(|identity| NativeTarget::for_identity(&identity))
+            .ok_or(CommandError::Usage)?;
+
         let output = output.ok_or(CommandError::Usage)?;
 
-        if target.is_empty() || output.as_os_str().is_empty() || profile.is_empty() {
+        if output.as_os_str().is_empty() || profile.is_empty() {
             return Err(CommandError::Usage);
         }
 
@@ -435,6 +504,8 @@ enum CommandError {
     Workspace(String),
     Cargo(std::io::Error),
     BuildFailed,
+    MissingNativeLinks,
+    InvalidNativeLink,
     Read {
         path: PathBuf,
         error: std::io::Error,
@@ -500,6 +571,12 @@ impl fmt::Display for CommandError {
             Self::Workspace(error) => formatter.write_str(error),
             Self::Cargo(error) => write!(formatter, "could not run Cargo: {error}"),
             Self::BuildFailed => formatter.write_str("runtime artifact build failed"),
+            Self::MissingNativeLinks => {
+                formatter.write_str("rustc did not report runtime native link requirements")
+            }
+            Self::InvalidNativeLink => {
+                formatter.write_str("rustc reported an unsupported runtime native link argument")
+            }
             Self::Read { path, error } => {
                 write!(formatter, "could not read {}: {error}", path.display())
             }
@@ -553,9 +630,14 @@ const SMOKE_SOURCE: &str = include_str!("../fixtures/runtime-smoke.rs");
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::RuntimeAbiRole;
+    use bray_runtime_interface::{RuntimeAbiRole, RuntimeArtifactDigest};
+    use bray_symbols::NativeLinkKind;
+    use bray_target::NativeTarget;
 
-    use super::{BuildOptions, CommandError, archive_file_name, runtime_role_bindings};
+    use super::{
+        BuildOptions, CommandError, archive_file_name, metadata, parse_native_link_arguments,
+        runtime_role_bindings,
+    };
 
     #[test]
     fn build_options_require_target_and_output() {
@@ -568,19 +650,115 @@ mod tests {
     #[test]
     fn archive_names_follow_native_target_conventions() {
         assert_eq!(
-            archive_file_name("x86_64-pc-windows-msvc"),
+            archive_file_name(NativeTarget::X86_64WindowsMsvc),
             "bray_runtime.lib"
         );
 
         assert_eq!(
-            archive_file_name("x86_64-pc-windows-gnu"),
+            archive_file_name(NativeTarget::Aarch64WindowsMsvc),
+            "bray_runtime.lib"
+        );
+
+        assert_eq!(
+            archive_file_name(NativeTarget::X86_64LinuxGnu),
             "libbray_runtime.a"
         );
 
         assert_eq!(
-            archive_file_name("x86_64-unknown-linux-gnu"),
+            archive_file_name(NativeTarget::Aarch64LinuxGnu),
             "libbray_runtime.a"
         );
+
+        assert_eq!(
+            archive_file_name(NativeTarget::X86_64MacOs),
+            "libbray_runtime.a"
+        );
+
+        assert_eq!(
+            archive_file_name(NativeTarget::Aarch64MacOs),
+            "libbray_runtime.a"
+        );
+    }
+
+    #[test]
+    fn runtime_metadata_covers_every_native_target_reproducibly() {
+        for target in NativeTarget::ALL {
+            let options = BuildOptions {
+                target,
+                output: "out".into(),
+                profile: "release".to_owned(),
+            };
+
+            let archive = archive_file_name(target);
+            let digest = RuntimeArtifactDigest::new([7; 32]);
+
+            let first = metadata(&options, archive, digest, &[])
+                .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
+
+            let second = metadata(&options, archive, digest, &[])
+                .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
+
+            assert_eq!(first, second);
+            assert_eq!(first.contract().target().as_str(), target.as_str());
+            assert_eq!(first.archive_file_name(), archive);
+
+            assert_eq!(
+                first
+                    .encode_json()
+                    .unwrap_or_else(|_| panic!("runtime metadata must encode")),
+                second
+                    .encode_json()
+                    .unwrap_or_else(|_| panic!("runtime metadata must encode"))
+            );
+        }
+    }
+
+    #[test]
+    fn rustc_native_link_arguments_preserve_platform_requirements_in_order() {
+        let cases = [
+            (
+                "-lgcc_s -lutil -lrt -lpthread -lm -ldl -lc",
+                vec![
+                    ("gcc_s", NativeLinkKind::System),
+                    ("util", NativeLinkKind::System),
+                    ("rt", NativeLinkKind::System),
+                    ("pthread", NativeLinkKind::System),
+                    ("m", NativeLinkKind::System),
+                    ("dl", NativeLinkKind::System),
+                    ("c", NativeLinkKind::System),
+                ],
+            ),
+            (
+                "kernel32.lib ntdll.lib userenv.lib /defaultlib:msvcrt",
+                vec![
+                    ("kernel32", NativeLinkKind::System),
+                    ("ntdll", NativeLinkKind::System),
+                    ("userenv", NativeLinkKind::System),
+                    ("msvcrt", NativeLinkKind::System),
+                ],
+            ),
+            (
+                "-framework Security -framework CoreFoundation -lSystem",
+                vec![
+                    ("Security", NativeLinkKind::Framework),
+                    ("CoreFoundation", NativeLinkKind::Framework),
+                    ("System", NativeLinkKind::System),
+                ],
+            ),
+        ];
+
+        for (arguments, expected) in cases {
+            let requirements = parse_native_link_arguments(arguments.split_whitespace())
+                .unwrap_or_else(|error| panic!("native links must parse: {error}"));
+
+            assert_eq!(
+                requirements
+                    .iter()
+                    .map(|requirement| (requirement.name(), requirement.kind()))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[test]

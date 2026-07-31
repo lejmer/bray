@@ -96,6 +96,8 @@ pub enum LinkInputProvenance {
     TargetProfile,
     /// Component of the selected separately linked Bray runtime artifact.
     Runtime(RuntimeArtifactId),
+    /// Native dependency required by the selected Bray runtime artifact.
+    RuntimeDependency(RuntimeArtifactId),
     /// Native dependency supplied by explicit compiler-host configuration.
     HostConfiguration,
 }

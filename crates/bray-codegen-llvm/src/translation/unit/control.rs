@@ -90,7 +90,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .take()
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    llvm(self.builder.build_return(Some(&progress)))?;
+                    self.return_frame_progress(progress)?;
                 } else {
                     self.translate_return(value.as_ref())?;
                 }
@@ -147,11 +147,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ..
             } => {
                 if let Some(frame_context) = self.frame_context {
-                    let context = self
-                        .function
-                        .get_first_param()
-                        .and_then(int_value)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    let context = self.frame_context_argument()?;
 
                     let pointer = llvm(
                         self.builder.build_int_to_ptr(
@@ -185,7 +181,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             self.types.context().i64_type().const_zero().into(),
                         ]);
 
-                    llvm(self.builder.build_return(Some(&progress)))?;
+                    self.return_frame_progress(progress.into())?;
 
                     return Ok(());
                 }

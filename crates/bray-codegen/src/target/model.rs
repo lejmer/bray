@@ -185,6 +185,8 @@ impl CodegenTarget {
 /// A contract violation that prevents creation of a codegen target.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodegenTargetBuildError {
+    /// The selected profile is not a native toolchain target.
+    UnsupportedProfile,
     /// The canonical target triple is empty.
     EmptyTriple,
     /// The canonical target CPU name is empty.

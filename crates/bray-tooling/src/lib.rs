@@ -24,8 +24,8 @@ pub use output::{
     write_diagnostics,
 };
 pub use product::{
-    baseline_output_name, baseline_target_outputs, load_compilation,
-    load_llvm_compilation, native_linker, package_interface_export_request,
+    load_compilation, load_llvm_compilation, native_linker,
+    package_interface_export_request,
 };
 pub use source::{
     SourceInputError, compilation_request_from_file_arguments,

@@ -11,6 +11,6 @@ pub use bray_tooling::{InspectionTarget, OutputFormat};
 pub use command::{
     DriverBackend, DriverCliError, DriverCommand, DriverCommandKind, DriverInspectionArtifact,
     DriverInvocation, DriverOptions, DriverProductConfiguration,
-    DriverRuntimeProfile, DriverRuntimeSelection, DriverTarget,
+    DriverRuntimeProfile, DriverRuntimeSelection,
 };
 pub use run::{DriverRunResult, run, run_result};

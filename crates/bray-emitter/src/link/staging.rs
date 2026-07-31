@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_linker::{LinkedArtifactKind, StagingPathKey};
-use tempfile::{Builder, TempPath};
+use tempfile::{Builder, TempDir, TempPath};
 
 use crate::artifact::content::{open_content, validate_staged_content};
 use crate::{
@@ -20,6 +20,7 @@ const LINK_OUTPUT_PREFIX: &str = ".bray-link-output-";
 /// Transactional emitter-owned storage for one native link operation.
 pub struct LinkStaging {
     _paths: Vec<TempPath>,
+    _output_directories: Vec<TempDir>,
     inputs: Arc<[StagedArtifact]>,
     outputs: Arc<[LinkOutputStaging]>,
 }
@@ -68,6 +69,7 @@ impl LinkStaging {
         }
 
         let mut outputs = Vec::new();
+        let mut output_directories = Vec::new();
 
         for planned in plan
             .artifacts()
@@ -78,7 +80,7 @@ impl LinkStaging {
                 return Err(LinkStagingError::Cancelled);
             }
 
-            let path = reserve_output(planned, cancellation)?;
+            let (directory, path) = reserve_output(planned, cancellation)?;
 
             let kind = linked_kind(planned.id().kind())
                 .ok_or_else(|| LinkStagingError::UnsupportedOutput(planned.id().clone()))?;
@@ -98,12 +100,13 @@ impl LinkStaging {
             )
             .map_err(|_| LinkStagingError::InvalidStagingPath(planned.id().clone()))?;
 
-            paths.push(path);
+            output_directories.push(directory);
             outputs.push(output);
         }
 
         Ok(Self {
             _paths: paths,
+            _output_directories: output_directories,
             inputs: inputs.into(),
             outputs: outputs.into(),
         })
@@ -255,7 +258,7 @@ fn stage_input(
 fn reserve_output(
     planned: &PlannedArtifact,
     cancellation: &dyn Cancellation,
-) -> Result<TempPath, LinkStagingError> {
+) -> Result<(TempDir, PathBuf), LinkStagingError> {
     if cancellation.is_cancelled() {
         return Err(LinkStagingError::Cancelled);
     }
@@ -264,18 +267,18 @@ fn reserve_output(
 
     builder.prefix(LINK_OUTPUT_PREFIX);
 
-    let staging = match planned.destination() {
+    let directory = match planned.destination() {
         PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => {
             let directory = destination
                 .parent()
                 .filter(|path| !path.as_os_str().is_empty())
                 .unwrap_or_else(|| Path::new("."));
 
-            builder.tempfile_in(directory)
+            builder.tempdir_in(directory)
         }
         PlannedArtifactDestination::Publish(
             OutputSink::Memory { .. } | OutputSink::Stream(_),
-        ) => builder.tempfile(),
+        ) => builder.tempdir(),
         PlannedArtifactDestination::Stage => {
             return Err(LinkStagingError::UnsupportedOutput(
                 planned.id().clone(),
@@ -284,7 +287,26 @@ fn reserve_output(
     }
     .map_err(|error| LinkStagingError::Create(error.kind()))?;
 
-    Ok(staging.into_temp_path())
+    let name = match planned.destination() {
+        PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => destination
+            .file_name()
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| LinkStagingError::InvalidStagingPath(planned.id().clone()))?,
+        PlannedArtifactDestination::Publish(
+            OutputSink::Memory { .. } | OutputSink::Stream(_),
+        ) => format!(
+            "{}-{}",
+            planned.id().kind().machine_key(),
+            planned.id().ordinal()
+        )
+        .into(),
+        PlannedArtifactDestination::Stage => unreachable!("staged outputs were rejected above"),
+    };
+
+    let path = directory.path().join(name);
+
+    Ok((directory, path))
 }
 
 const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
@@ -441,6 +463,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
 
         let destination = directory.path().join("application");
+        let destination_name = destination.file_name().map(ToOwned::to_owned);
         let plan = linked_plan(destination);
         let contribution = staged_contribution(&plan, b"object bytes");
 
@@ -457,7 +480,17 @@ mod tests {
             b"object bytes",
         );
 
-        assert_eq!(first.outputs()[0].path().parent(), Some(directory.path()));
+        let output_directory = first.outputs()[0]
+            .path()
+            .parent()
+            .unwrap_or_else(|| panic!("staged output must have a private directory"));
+
+        assert_eq!(output_directory.parent(), Some(directory.path()));
+
+        assert_eq!(
+            first.outputs()[0].path().file_name(),
+            destination_name.as_deref()
+        );
 
         let second = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
             .unwrap_or_else(|error| panic!("second link staging must complete: {error:?}"));
@@ -471,7 +504,14 @@ mod tests {
         assert!(!input_path.exists());
         assert!(!output_path.exists());
         assert!(second.inputs()[0].path().exists());
-        assert!(second.outputs()[0].path().exists());
+        assert!(!second.outputs()[0].path().exists());
+
+        assert!(
+            second.outputs()[0]
+                .path()
+                .parent()
+                .is_some_and(std::path::Path::exists)
+        );
     }
 
     #[test]

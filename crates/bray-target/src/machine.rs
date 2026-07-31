@@ -55,6 +55,19 @@ pub enum ObjectFormat {
     Xcoff,
 }
 
+impl ObjectFormat {
+    /// Returns the stable object-format spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Coff => "coff",
+            Self::Elf => "elf",
+            Self::MachO => "macho",
+            Self::WebAssembly => "webassembly",
+            Self::Xcoff => "xcoff",
+        }
+    }
+}
+
 /// Byte order used by a target machine.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Endianness {

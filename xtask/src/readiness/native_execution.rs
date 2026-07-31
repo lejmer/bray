@@ -2,6 +2,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
 const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
 const ABI_FIXTURE: &str = "xtask/fixtures/native-execution/abi-primitive.bray";
@@ -11,62 +13,60 @@ const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray"
 const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-error.bray";
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 const PRODUCT_NAME: &str = "application";
-const TARGET: &str = "x86_64-unknown-linux-gnu";
-
 pub(super) fn audit(root: &Path) -> Result<(), String> {
-    build_compiler(root)?;
-    let runtime = native_output("bray-native-runtime-")?;
-    let runtime = crate::runtime_artifact::build_for_readiness(TARGET, runtime.path())?;
+    let target = NativeTarget::current()
+        .ok_or_else(|| "native execution readiness requires a supported compiler host".to_owned())?;
 
-    audit_startup(root, &runtime)?;
-    audit_entry_result(root, &runtime)?;
-    audit_primitive_abi(root, &runtime)?;
-    audit_host_behavior(root, &runtime)?;
+    build_compiler(root)?;
+
+    let runtime = native_output("bray-native-runtime-")?;
+    let runtime = crate::runtime_artifact::build_for_readiness(target, runtime.path())?;
+
+    audit_startup(root, target, &runtime)?;
+    audit_entry_result(root, target, &runtime)?;
+
+    if target == NativeTarget::X86_64LinuxGnu {
+        audit_primitive_abi(root, target, &runtime)?;
+    }
+
+    audit_host_behavior(root, target, &runtime)?;
 
     crate::runtime_artifact::smoke_test_host()
 }
 
-fn audit_startup(root: &Path, runtime: &Path) -> Result<(), String> {
+fn audit_startup(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     let first = native_output("bray-native-startup-first-")?;
     let second = native_output("bray-native-startup-second-")?;
 
-    build_fixture(root, runtime, STARTUP_FIXTURE, first.path())?;
-    build_fixture(root, runtime, STARTUP_FIXTURE, second.path())?;
+    build_fixture(root, target, runtime, STARTUP_FIXTURE, first.path())?;
+    build_fixture(root, target, runtime, STARTUP_FIXTURE, second.path())?;
 
-    let first_executable = first.path().join(PRODUCT_NAME);
-    let second_executable = second.path().join(PRODUCT_NAME);
-    let first_objects = object_files(first.path())?;
-    let second_objects = object_files(second.path())?;
+    let first_executable = executable_path(first.path(), target);
+    let second_executable = executable_path(second.path(), target);
+    let first_objects = object_files(first.path(), target)?;
+    let second_objects = object_files(second.path(), target)?;
 
     require_equal_files(&first_executable, &second_executable, "startup executable")?;
     require_equal_artifacts(&first_objects, &second_objects)?;
 
-    let report = inspect_objects(root, &first_objects)?;
-
-    require_evidence(
-        &report,
-        &[
-            "Format: elf64-x86-64",
-            "Name: .text",
-            "Name: main",
-            "R_X86_64_PLT32 bray_instance_",
-        ],
-    )?;
-
     execute_product(&first_executable, 0, "executing generated Bray startup")
 }
 
-fn audit_primitive_abi(root: &Path, runtime: &Path) -> Result<(), String> {
+fn audit_primitive_abi(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+) -> Result<(), String> {
     let first = native_output("bray-native-abi-first-")?;
     let second = native_output("bray-native-abi-second-")?;
 
-    build_fixture(root, runtime, ABI_FIXTURE, first.path())?;
-    build_fixture(root, runtime, ABI_FIXTURE, second.path())?;
+    build_fixture(root, target, runtime, ABI_FIXTURE, first.path())?;
+    build_fixture(root, target, runtime, ABI_FIXTURE, second.path())?;
 
-    let first_executable = first.path().join(PRODUCT_NAME);
-    let second_executable = second.path().join(PRODUCT_NAME);
-    let first_objects = object_files(first.path())?;
-    let second_objects = object_files(second.path())?;
+    let first_executable = executable_path(first.path(), target);
+    let second_executable = executable_path(second.path(), target);
+    let first_objects = object_files(first.path(), target)?;
+    let second_objects = object_files(second.path(), target)?;
 
     require_equal_files(
         &first_executable,
@@ -107,17 +107,17 @@ fn audit_primitive_abi(root: &Path, runtime: &Path) -> Result<(), String> {
     execute_product(&executable, 42, "executing Bray through the C ABI host")
 }
 
-fn audit_entry_result(root: &Path, runtime: &Path) -> Result<(), String> {
+fn audit_entry_result(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     let first = native_output("bray-native-entry-result-first-")?;
     let second = native_output("bray-native-entry-result-second-")?;
 
-    build_fixture(root, runtime, ENTRY_RESULT_FIXTURE, first.path())?;
-    build_fixture(root, runtime, ENTRY_RESULT_FIXTURE, second.path())?;
+    build_fixture(root, target, runtime, ENTRY_RESULT_FIXTURE, first.path())?;
+    build_fixture(root, target, runtime, ENTRY_RESULT_FIXTURE, second.path())?;
 
-    let first_executable = first.path().join(PRODUCT_NAME);
-    let second_executable = second.path().join(PRODUCT_NAME);
-    let first_objects = object_files(first.path())?;
-    let second_objects = object_files(second.path())?;
+    let first_executable = executable_path(first.path(), target);
+    let second_executable = executable_path(second.path(), target);
+    let first_objects = object_files(first.path(), target)?;
+    let second_objects = object_files(second.path(), target)?;
 
     require_equal_files(
         &first_executable,
@@ -127,17 +127,6 @@ fn audit_entry_result(root: &Path, runtime: &Path) -> Result<(), String> {
 
     require_equal_artifacts(&first_objects, &second_objects)?;
 
-    let report = inspect_objects(root, &first_objects)?;
-
-    require_evidence(
-        &report,
-        &[
-            "Format: elf64-x86-64",
-            "Name: main",
-            "R_X86_64_PLT32 bray_instance_",
-        ],
-    )?;
-
     execute_product(
         &first_executable,
         42,
@@ -145,7 +134,7 @@ fn audit_entry_result(root: &Path, runtime: &Path) -> Result<(), String> {
     )
 }
 
-fn audit_host_behavior(root: &Path, runtime: &Path) -> Result<(), String> {
+fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     for (name, fixture, expected, stderr) in [
         ("async unit", ASYNC_UNIT_FIXTURE, 0, None),
         ("async i32", ASYNC_I32_FIXTURE, 42, None),
@@ -165,14 +154,18 @@ fn audit_host_behavior(root: &Path, runtime: &Path) -> Result<(), String> {
         let first = native_output("bray-native-host-first-")?;
         let second = native_output("bray-native-host-second-")?;
 
-        build_fixture(root, runtime, fixture, first.path())?;
-        build_fixture(root, runtime, fixture, second.path())?;
+        build_fixture(root, target, runtime, fixture, first.path())?;
+        build_fixture(root, target, runtime, fixture, second.path())?;
 
-        let first_executable = first.path().join(PRODUCT_NAME);
-        let second_executable = second.path().join(PRODUCT_NAME);
+        let first_executable = executable_path(first.path(), target);
+        let second_executable = executable_path(second.path(), target);
 
         require_equal_files(&first_executable, &second_executable, name)?;
-        require_equal_artifacts(&object_files(first.path())?, &object_files(second.path())?)?;
+
+        require_equal_artifacts(
+            &object_files(first.path(), target)?,
+            &object_files(second.path(), target)?,
+        )?;
 
         let output = product_output(&first_executable, name)?;
 
@@ -207,7 +200,13 @@ fn build_compiler(root: &Path) -> Result<(), String> {
     require_success(command, "building brayc").map(|_| ())
 }
 
-fn build_fixture(root: &Path, runtime: &Path, fixture: &str, output: &Path) -> Result<(), String> {
+fn build_fixture(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+    fixture: &str,
+    output: &Path,
+) -> Result<(), String> {
     let compiler = root
         .join("target")
         .join("debug")
@@ -220,6 +219,8 @@ fn build_fixture(root: &Path, runtime: &Path, fixture: &str, output: &Path) -> R
         "build",
         "--product-kind",
         "executable",
+        "--target",
+        target.as_str(),
         "--inspect",
         "relocatable-object",
         "--runtime-artifact",
@@ -227,9 +228,13 @@ fn build_fixture(root: &Path, runtime: &Path, fixture: &str, output: &Path) -> R
 
     command.arg(runtime).args(["--output"]);
 
-    command.arg(output).arg(fixture);
+    command.arg(output).arg(&fixture);
 
-    require_success(command, "building native execution fixture").map(|_| ())
+    require_success(
+        command,
+        &format!("building native execution fixture {}", fixture.display()),
+    )
+    .map(|_| ())
 }
 
 fn compile_host(root: &Path, output: &Path) -> Result<(), String> {
@@ -276,7 +281,15 @@ fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), 
     Ok(())
 }
 
-fn object_files(directory: &Path) -> Result<Vec<PathBuf>, String> {
+fn object_files(directory: &Path, target: NativeTarget) -> Result<Vec<PathBuf>, String> {
+    let suffix = TargetOutputName::for_native(
+        target.object_format(),
+        TargetOutputKind::RelocatableObject,
+    )
+    .suffix()
+    .trim_start_matches('.')
+    .to_owned();
+
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("could not list native output directory: {error}"))?;
 
@@ -288,7 +301,11 @@ fn object_files(directory: &Path) -> Result<Vec<PathBuf>, String> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    objects.retain(|path| path.extension().is_some_and(|extension| extension == "o"));
+    objects.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == suffix.as_str())
+    });
+
     objects.sort();
 
     if objects.is_empty() {
@@ -382,35 +399,17 @@ fn execute_product(executable: &Path, expected: i32, operation: &str) -> Result<
 }
 
 fn product_output(executable: &Path, operation: &str) -> Result<Output, String> {
-    if cfg!(target_os = "linux") {
-        Ok(Command::new(executable)
-            .output()
-            .map_err(|error| format!("could not start {operation}: {error}"))?)
-    } else if cfg!(windows) {
-        execute_through_wsl(executable, operation)
-    } else {
-        return Err(
-            "native execution readiness supports Linux hosts and Windows hosts with WSL".to_owned(),
-        );
-    }
+    Command::new(executable)
+        .output()
+        .map_err(|error| format!("could not start {operation}: {error}"))
 }
 
-fn execute_through_wsl(executable: &Path, operation: &str) -> Result<Output, String> {
-    let mut translate = Command::new("wsl.exe");
-    let windows_path = executable.to_string_lossy().replace('\\', "/");
+fn executable_path(directory: &Path, target: NativeTarget) -> PathBuf {
+    let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
+        .file_name(PRODUCT_NAME)
+        .unwrap_or_else(|| panic!("native executable name must be valid"));
 
-    translate.args(["wslpath", "-a", "-u"]).arg(windows_path);
-
-    let translated = require_success(translate, "translating the native product path")?;
-
-    let executable = String::from_utf8(translated.stdout)
-        .map_err(|_| "WSL returned a non-UTF-8 product path".to_owned())?;
-
-    Command::new("wsl.exe")
-        .arg("--exec")
-        .arg(executable.trim())
-        .output()
-        .map_err(|error| format!("could not start {operation} through WSL: {error}"))
+    directory.join(name)
 }
 
 fn require_success(mut command: Command, operation: &str) -> Result<Output, String> {

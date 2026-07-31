@@ -1,8 +1,17 @@
-use bray_codegen::{CodegenSymbolKey, CodegenTarget};
+use bray_codegen::{
+    CodegenFailure, CodegenInstance, CodegenRequest, CodegenSymbolKey, CodegenTarget,
+};
 use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole};
+use bray_target::{ObjectFormat, TargetArchitecture};
 use inkwell::AddressSpace;
+use inkwell::attributes::{Attribute, AttributeLoc};
+use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::types::{BasicMetadataTypeEnum, FunctionType, StructType};
+use inkwell::module::Module;
+use inkwell::types::{
+    AnyType, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType,
+};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue};
 
 pub(crate) fn symbol_function_type<'context>(
     context: &'context Context,
@@ -18,6 +27,206 @@ pub(crate) fn symbol_function_type<'context>(
         }
         CodegenSymbolKey::Instance(_) => None,
     }
+}
+
+pub(crate) fn indirect_result_type<'context>(
+    context: &'context Context,
+    target: &CodegenTarget,
+    key: &CodegenSymbolKey,
+) -> Option<BasicTypeEnum<'context>> {
+    if !uses_microsoft_x64_abi(target) {
+        return None;
+    }
+
+    match key {
+        CodegenSymbolKey::Runtime(reference) => match reference.role() {
+            RuntimeAbiRole::RootExecution => Some(root_start_type(context).into()),
+            RuntimeAbiRole::SynchronousRootExecution
+            | RuntimeAbiRole::RootTerminalObservation => Some(run_outcome_type(context).into()),
+            _ => None,
+        },
+        CodegenSymbolKey::ProtectedFrame { operation, .. } => {
+            frame_result_is_indirect(target, *operation).then(|| match operation {
+                ProtectedFrameOperation::MoveBeforeStart => {
+                    protected_frame_type(context, target).into()
+                }
+                ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
+                    frame_progress_type(context).into()
+                }
+                _ => unreachable!("only aggregate frame results use indirect storage"),
+            })
+        }
+        CodegenSymbolKey::Instance(_) => None,
+    }
+}
+
+pub(crate) fn uses_microsoft_x64_abi(target: &CodegenTarget) -> bool {
+    target.machine().architecture() == TargetArchitecture::X86_64
+        && target.machine().object_format() == ObjectFormat::Coff
+}
+
+pub(crate) fn uses_indirect_argument(
+    target: &CodegenTarget,
+    role: RuntimeAbiRole,
+    index: usize,
+) -> bool {
+    uses_microsoft_x64_abi(target)
+        && matches!(
+            (role, index),
+            (RuntimeAbiRole::RootExecution, 1)
+                | (RuntimeAbiRole::PanicReportConstruction, 0)
+                | (RuntimeAbiRole::AwaitedFrameComposition, 0)
+        )
+}
+
+pub(crate) fn invoke_function<'context>(
+    context: &'context Context,
+    builder: &Builder<'context>,
+    target: &CodegenTarget,
+    key: &CodegenSymbolKey,
+    function: FunctionValue<'context>,
+    arguments: &[BasicMetadataValueEnum<'context>],
+    name: &str,
+) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+    let Some(result) = indirect_result_type(context, target, key) else {
+        return builder
+            .build_call(function, arguments, name)
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+            .map(|call| call.try_as_basic_value().basic());
+    };
+
+    let storage = builder
+        .build_alloca(result, &format!("{name}.result"))
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    let arguments = std::iter::once(storage.into())
+        .chain(arguments.iter().copied())
+        .collect::<Vec<_>>();
+
+    let call = builder
+        .build_call(function, &arguments, name)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    let kind = Attribute::get_named_enum_kind_id("sret");
+
+    if kind == 0 {
+        return Err(CodegenFailure::UnsupportedTarget);
+    }
+
+    call.add_attribute(
+        AttributeLoc::Param(0),
+        context.create_type_attribute(kind, result.as_any_type_enum()),
+    );
+
+    builder
+        .build_load(result, storage, name)
+        .map(Some)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+}
+
+pub(crate) fn frame_parameter_index(
+    target: &CodegenTarget,
+    operation: ProtectedFrameOperation,
+    index: u32,
+) -> u32 {
+    index + u32::from(frame_result_is_indirect(target, operation))
+}
+
+pub(crate) fn return_frame_result(
+    builder: &Builder<'_>,
+    function: FunctionValue<'_>,
+    target: &CodegenTarget,
+    operation: ProtectedFrameOperation,
+    result: BasicValueEnum<'_>,
+) -> Result<(), CodegenFailure> {
+    if frame_result_is_indirect(target, operation) {
+        let destination = function
+            .get_first_param()
+            .and_then(|value| match value {
+                BasicValueEnum::PointerValue(value) => Some(value),
+                _ => None,
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        builder
+            .build_store(destination, result)
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        builder
+            .build_return(None)
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    } else {
+        builder
+            .build_return(Some(&result))
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    }
+
+    Ok(())
+}
+
+fn frame_result_is_indirect(
+    target: &CodegenTarget,
+    operation: ProtectedFrameOperation,
+) -> bool {
+    uses_microsoft_x64_abi(target)
+        && matches!(
+            operation,
+            ProtectedFrameOperation::MoveBeforeStart
+                | ProtectedFrameOperation::Resume
+                | ProtectedFrameOperation::CancellationEntry
+        )
+}
+
+pub(crate) fn return_frame_state(
+    context: &Context,
+    builder: &Builder<'_>,
+    target: &CodegenTarget,
+    affinity: u64,
+    lane_requirements: u64,
+) -> Result<(), CodegenFailure> {
+    if uses_microsoft_x64_abi(target) {
+        let state = context
+            .i64_type()
+            .const_int(affinity | (lane_requirements << 32), false);
+
+        builder
+            .build_return(Some(&state))
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    } else {
+        let state = frame_state_type(context).const_named_struct(&[
+            context.i32_type().const_int(affinity, false).into(),
+            context
+                .i32_type()
+                .const_int(lane_requirements, false)
+                .into(),
+        ]);
+
+        builder
+            .build_return(Some(&state))
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    }
+
+    Ok(())
+}
+
+pub(crate) fn frame_operation_function<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    instance: &CodegenInstance,
+    operation: ProtectedFrameOperation,
+) -> Result<FunctionValue<'context>, CodegenFailure> {
+    let frame = instance
+        .protected_frame_identity()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let symbol = request
+        .mappings()
+        .symbol(&CodegenSymbolKey::ProtectedFrame { frame, operation })
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    module
+        .get_function(symbol.name().as_str())
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)
 }
 
 pub(crate) fn protected_frame_type<'context>(
@@ -72,6 +281,13 @@ pub(crate) fn run_outcome_type(context: &Context) -> StructType<'_> {
     )
 }
 
+pub(crate) fn root_start_type(context: &Context) -> StructType<'_> {
+    context.struct_type(
+        &[context.i32_type().into(), context.i64_type().into()],
+        false,
+    )
+}
+
 pub(crate) fn runtime_configuration_type<'context>(
     context: &'context Context,
     target: &CodegenTarget,
@@ -117,13 +333,52 @@ fn runtime_function_type<'context>(
     target: &CodegenTarget,
     role: RuntimeAbiRole,
 ) -> Option<FunctionType<'context>> {
+    if uses_microsoft_x64_abi(target) {
+        let pointer = context.ptr_type(AddressSpace::default());
+
+        match role {
+            RuntimeAbiRole::RootExecution => {
+                return Some(context.void_type().fn_type(
+                    &[
+                        pointer.into(),
+                        pointer_integer_type(context, target).into(),
+                        pointer.into(),
+                    ],
+                    false,
+                ));
+            }
+            RuntimeAbiRole::SynchronousRootExecution => {
+                return Some(context.void_type().fn_type(
+                    &[
+                        pointer.into(),
+                        pointer.into(),
+                        pointer_integer_type(context, target).into(),
+                    ],
+                    false,
+                ));
+            }
+            RuntimeAbiRole::RootTerminalObservation => {
+                return Some(
+                    context
+                        .void_type()
+                        .fn_type(&[pointer.into(), context.i64_type().into()], false),
+                );
+            }
+            RuntimeAbiRole::PanicReportConstruction => {
+                return Some(
+                    pointer_integer_type(context, target).fn_type(&[pointer.into()], false),
+                );
+            }
+            RuntimeAbiRole::AwaitedFrameComposition => {
+                return Some(context.void_type().fn_type(&[pointer.into()], false));
+            }
+            _ => {}
+        }
+    }
+
     match role {
         RuntimeAbiRole::RootExecution => Some(
-            context
-                .struct_type(
-                    &[context.i32_type().into(), context.i64_type().into()],
-                    false,
-                )
+            root_start_type(context)
                 .fn_type(
                     &[
                         pointer_integer_type(context, target).into(),
@@ -201,7 +456,36 @@ pub(crate) fn frame_operation_type<'context>(
     operation: ProtectedFrameOperation,
 ) -> FunctionType<'context> {
     let usize = pointer_integer_type(context, target);
+    let pointer = context.ptr_type(AddressSpace::default());
     let parameters = |types: &[BasicMetadataTypeEnum<'context>]| types.to_vec();
+
+    if uses_microsoft_x64_abi(target) {
+        return match operation {
+            ProtectedFrameOperation::MoveBeforeStart => context
+                .void_type()
+                .fn_type(&parameters(&[pointer.into(), usize.into()]), false),
+            ProtectedFrameOperation::StateDescription => context
+                .i64_type()
+                .fn_type(&parameters(&[usize.into(), context.i32_type().into()]), false),
+            ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
+                context
+                    .void_type()
+                    .fn_type(&parameters(&[pointer.into(), usize.into()]), false)
+            }
+            ProtectedFrameOperation::TaskBroadcast | ProtectedFrameOperation::Destruction => {
+                context
+                    .void_type()
+                    .fn_type(&parameters(&[usize.into()]), false)
+            }
+            ProtectedFrameOperation::LifecycleResolution => context.void_type().fn_type(
+                &parameters(&[usize.into(), context.i32_type().into()]),
+                false,
+            ),
+            ProtectedFrameOperation::CompletionMove => context
+                .void_type()
+                .fn_type(&parameters(&[usize.into(), usize.into()]), false),
+        };
+    }
 
     match operation {
         ProtectedFrameOperation::MoveBeforeStart => {
@@ -229,7 +513,9 @@ pub(crate) fn frame_operation_type<'context>(
 
 #[cfg(test)]
 mod tests {
+    use bray_codegen::CodegenTarget;
     use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole};
+    use bray_target::NativeTarget;
     use inkwell::context::Context;
 
     #[test]
@@ -283,5 +569,58 @@ mod tests {
             parameters.first().copied(),
             Some(super::protected_frame_type(&context, &target).into())
         );
+    }
+
+    #[test]
+    fn microsoft_x64_native_abi_uses_indirect_aggregate_results_and_arguments() {
+        let context = Context::create();
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let root = super::runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
+            .unwrap_or_else(|| panic!("root execution must have a native ABI"));
+
+        assert_eq!(root.get_return_type(), None);
+        assert_eq!(root.count_param_types(), 3);
+
+        let resume =
+            super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
+
+        assert_eq!(resume.get_return_type(), None);
+        assert_eq!(resume.count_param_types(), 2);
+
+        let state = super::frame_operation_type(
+            &context,
+            &target,
+            ProtectedFrameOperation::StateDescription,
+        );
+
+        assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
+        assert_eq!(state.count_param_types(), 2);
+    }
+
+    #[test]
+    fn system_v_x64_native_abi_keeps_register_aggregate_results() {
+        let context = Context::create();
+        let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
+
+        let root = super::runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
+            .unwrap_or_else(|| panic!("root execution must have a native ABI"));
+
+        assert_eq!(
+            root.get_return_type(),
+            Some(super::root_start_type(&context).into())
+        );
+
+        assert_eq!(root.count_param_types(), 2);
+
+        let resume =
+            super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
+
+        assert_eq!(
+            resume.get_return_type(),
+            Some(super::frame_progress_type(&context).into())
+        );
+
+        assert_eq!(resume.count_param_types(), 1);
     }
 }
