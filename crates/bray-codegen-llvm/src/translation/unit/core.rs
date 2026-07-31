@@ -18,9 +18,9 @@ pub(crate) enum TranslationError {
     Failed(CodegenFailure),
 }
 
-pub(crate) fn translate_instances<'context, 'module, 'request>(
+pub(crate) fn translate_instances<'context, 'request>(
     context: &'context Context,
-    module: &'module Module<'context>,
+    module: &Module<'context>,
     request: CodegenRequest<'request>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(), TranslationError> {
@@ -45,9 +45,9 @@ pub(crate) fn translate_instances<'context, 'module, 'request>(
     Ok(())
 }
 
-fn translate_instance<'context, 'module, 'request>(
+fn translate_instance<'context, 'request>(
     context: &'context Context,
-    module: &'module Module<'context>,
+    module: &Module<'context>,
     request: CodegenRequest<'request>,
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,

@@ -482,9 +482,7 @@ fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::testing::{
-        implementation_instance, implementation_requirement, intern_type,
-    };
+    use bray_symbols::testing::{implementation_instance, implementation_requirement, intern_type};
     use bray_symbols::{FunctionSymbolId, SymbolId, TraitSymbolId, TypeData};
 
     use super::{
@@ -763,5 +761,4 @@ mod tests {
 
         name
     }
-
 }

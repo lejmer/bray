@@ -284,20 +284,20 @@ fn run_check_command(
 
     let mut diagnostics = compilation.check_diagnostics().clone();
 
-    if !diagnostics.has_errors() {
-        if let Some(path) = interface_output {
-            let diagnostic_id = DiagnosticId::from_index(diagnostics.len());
+    if !diagnostics.has_errors()
+        && let Some(path) = interface_output
+    {
+        let diagnostic_id = DiagnosticId::from_index(diagnostics.len());
 
-            if let Err(error) = publish_package_interface(&compilation, &path, diagnostic_id) {
-                diagnostics.add(error);
+        if let Err(error) = publish_package_interface(&compilation, &path, diagnostic_id) {
+            diagnostics.add(error);
 
-                return driver_result_from_compilation(
-                    compilation,
-                    diagnostics,
-                    output_format,
-                    ExitCode::FAILURE,
-                );
-            }
+            return driver_result_from_compilation(
+                compilation,
+                diagnostics,
+                output_format,
+                ExitCode::FAILURE,
+            );
         }
     }
 

@@ -3,9 +3,7 @@ use bray_source::{LineIndex, SourceNewlinePolicy, SourceSnapshot};
 use serde::Serialize;
 
 use crate::OutputFormat;
-use crate::inspection::{
-    push_indented_report_value, push_report_value, render_pretty_json,
-};
+use crate::inspection::{push_indented_report_value, push_report_value, render_pretty_json};
 use crate::output::SourceOriginOutput;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

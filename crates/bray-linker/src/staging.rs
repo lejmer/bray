@@ -57,7 +57,8 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
         ));
     }
 
-    LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new()).unwrap_or_else(|error| failed_outcome(link_outcome_failure(error)))
+    LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new())
+        .unwrap_or_else(|error| failed_outcome(link_outcome_failure(error)))
 }
 
 fn link_outcome_failure(error: LinkOutcomeBuildError) -> LinkFailure {

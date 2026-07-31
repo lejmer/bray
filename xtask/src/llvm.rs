@@ -278,7 +278,7 @@ fn prepare_staging(
         .arg("-xJf")
         .arg(archive)
         .arg("--directory")
-        .arg(&staging)
+        .arg(staging)
         .args(["--strip-components", "1"])
         .output()
         .map_err(|error| ToolchainError::ProcessStart {
@@ -293,7 +293,7 @@ fn prepare_staging(
         });
     }
 
-    validate_root(&staging, version)?;
+    validate_root(staging, version)?;
 
     write_marker(staging, version, package)
 }

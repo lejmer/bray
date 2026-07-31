@@ -37,11 +37,7 @@ pub(crate) fn render_pretty_json(value: &impl Serialize) -> Result<String, serde
     Ok(output)
 }
 
-pub(crate) fn push_report_value(
-    output: &mut String,
-    key: &str,
-    value: impl std::fmt::Display,
-) {
+pub(crate) fn push_report_value(output: &mut String, key: &str, value: impl std::fmt::Display) {
     output.push_str(key);
     output.push_str(": ");
     output.push_str(&value.to_string());

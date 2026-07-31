@@ -320,10 +320,10 @@ fn handle_message(
                 }
             }
             "$/cancelRequest" => {
-                if let Ok(params) = serde_json::from_value::<CancellationParams>(params) {
-                    if let Some(request) = requests.get(&request_key(&params.id)) {
-                        request.cancellation.cancel();
-                    }
+                if let Ok(params) = serde_json::from_value::<CancellationParams>(params)
+                    && let Some(request) = requests.get(&request_key(&params.id))
+                {
+                    request.cancellation.cancel();
                 }
             }
             "textDocument/didOpen" => {

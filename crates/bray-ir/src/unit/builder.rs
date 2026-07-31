@@ -384,10 +384,7 @@ mod tests {
             &mut builder,
             entry,
             source.clone(),
-            MirTerminatorKind::Goto(MirEdge::new(
-                continuation,
-                [MirOperand::Value(result)],
-            )),
+            MirTerminatorKind::Goto(MirEdge::new(continuation, [MirOperand::Value(result)])),
         );
 
         set_terminator(

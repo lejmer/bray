@@ -725,9 +725,7 @@ mod tests {
                 .blocks()
                 .last()
                 .map(|block| block.terminator().kind()),
-            Some(MirTerminatorKind::Return(Some(
-                MirOperand::Constant { .. }
-            )))
+            Some(MirTerminatorKind::Return(Some(MirOperand::Constant { .. })))
         ));
     }
 
@@ -801,10 +799,12 @@ mod tests {
             bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
         )));
 
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Suspend { .. }
-        )));
+        assert!(
+            mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend { .. }
+            ))
+        );
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
@@ -996,9 +996,7 @@ mod tests {
 
         assert!(matches!(
             mir.blocks().last().map(|block| block.terminator().kind()),
-            Some(MirTerminatorKind::Return(Some(
-                MirOperand::Value(_)
-            )))
+            Some(MirTerminatorKind::Return(Some(MirOperand::Value(_))))
         ));
     }
 
@@ -1018,15 +1016,18 @@ mod tests {
             MirTerminatorKind::PatternBranch { .. }
         )));
 
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Iterate { .. }
-        )));
+        assert!(
+            mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Iterate { .. }
+            ))
+        );
 
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Branch { .. }
-        )));
+        assert!(
+            mir.blocks()
+                .iter()
+                .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. }))
+        );
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),

@@ -362,6 +362,31 @@ fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
 }
 
 #[cfg(test)]
+fn representative_triple(platform: &BackendTargetPlatform) -> &'static str {
+    match (platform.architecture(), platform.object_format()) {
+        (TargetArchitecture::X86, ObjectFormat::Coff) => "i686-pc-windows-msvc",
+        (TargetArchitecture::X86, ObjectFormat::Elf) => "i686-unknown-linux-gnu",
+        (TargetArchitecture::X86, ObjectFormat::MachO) => "i686-apple-darwin",
+        (TargetArchitecture::X86_64, ObjectFormat::Coff) => "x86_64-pc-windows-msvc",
+        (TargetArchitecture::X86_64, ObjectFormat::Elf) => "x86_64-unknown-linux-gnu",
+        (TargetArchitecture::X86_64, ObjectFormat::MachO) => "x86_64-apple-darwin",
+        (TargetArchitecture::Arm, ObjectFormat::Coff) => "armv7-pc-windows-msvc",
+        (TargetArchitecture::Arm, ObjectFormat::Elf) => "armv7-unknown-linux-gnueabihf",
+        (TargetArchitecture::Arm, ObjectFormat::MachO) => "armv7-apple-darwin",
+        (TargetArchitecture::Aarch64, ObjectFormat::Coff) => "aarch64-pc-windows-msvc",
+        (TargetArchitecture::Aarch64, ObjectFormat::Elf) => "aarch64-unknown-linux-gnu",
+        (TargetArchitecture::Aarch64, ObjectFormat::MachO) => "aarch64-apple-darwin",
+        (TargetArchitecture::Riscv32, ObjectFormat::Elf) => "riscv32-unknown-linux-gnu",
+        (TargetArchitecture::Riscv64, ObjectFormat::Elf) => "riscv64-unknown-linux-gnu",
+        (TargetArchitecture::PowerPc64, ObjectFormat::Elf) => "powerpc64-unknown-linux-gnu",
+        (TargetArchitecture::PowerPc64, ObjectFormat::Xcoff) => "powerpc64-ibm-aix",
+        (TargetArchitecture::Wasm32, ObjectFormat::WebAssembly) => "wasm32-unknown-unknown",
+        (TargetArchitecture::Wasm64, ObjectFormat::WebAssembly) => "wasm64-unknown-unknown",
+        _ => "unknown-unknown-unknown",
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -753,30 +778,5 @@ mod tests {
                 })
                 .is_err()
         }
-    }
-}
-
-#[cfg(test)]
-fn representative_triple(platform: &BackendTargetPlatform) -> &'static str {
-    match (platform.architecture(), platform.object_format()) {
-        (TargetArchitecture::X86, ObjectFormat::Coff) => "i686-pc-windows-msvc",
-        (TargetArchitecture::X86, ObjectFormat::Elf) => "i686-unknown-linux-gnu",
-        (TargetArchitecture::X86, ObjectFormat::MachO) => "i686-apple-darwin",
-        (TargetArchitecture::X86_64, ObjectFormat::Coff) => "x86_64-pc-windows-msvc",
-        (TargetArchitecture::X86_64, ObjectFormat::Elf) => "x86_64-unknown-linux-gnu",
-        (TargetArchitecture::X86_64, ObjectFormat::MachO) => "x86_64-apple-darwin",
-        (TargetArchitecture::Arm, ObjectFormat::Coff) => "armv7-pc-windows-msvc",
-        (TargetArchitecture::Arm, ObjectFormat::Elf) => "armv7-unknown-linux-gnueabihf",
-        (TargetArchitecture::Arm, ObjectFormat::MachO) => "armv7-apple-darwin",
-        (TargetArchitecture::Aarch64, ObjectFormat::Coff) => "aarch64-pc-windows-msvc",
-        (TargetArchitecture::Aarch64, ObjectFormat::Elf) => "aarch64-unknown-linux-gnu",
-        (TargetArchitecture::Aarch64, ObjectFormat::MachO) => "aarch64-apple-darwin",
-        (TargetArchitecture::Riscv32, ObjectFormat::Elf) => "riscv32-unknown-linux-gnu",
-        (TargetArchitecture::Riscv64, ObjectFormat::Elf) => "riscv64-unknown-linux-gnu",
-        (TargetArchitecture::PowerPc64, ObjectFormat::Elf) => "powerpc64-unknown-linux-gnu",
-        (TargetArchitecture::PowerPc64, ObjectFormat::Xcoff) => "powerpc64-ibm-aix",
-        (TargetArchitecture::Wasm32, ObjectFormat::WebAssembly) => "wasm32-unknown-unknown",
-        (TargetArchitecture::Wasm64, ObjectFormat::WebAssembly) => "wasm64-unknown-unknown",
-        _ => "unknown-unknown-unknown",
     }
 }

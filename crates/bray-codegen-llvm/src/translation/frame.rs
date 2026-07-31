@@ -13,9 +13,9 @@ use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
-pub(crate) fn translate_protected_instance<'context, 'module, 'request>(
+pub(crate) fn translate_protected_instance<'context, 'request>(
     context: &'context Context,
-    module: &'module Module<'context>,
+    module: &Module<'context>,
     request: CodegenRequest<'request>,
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,

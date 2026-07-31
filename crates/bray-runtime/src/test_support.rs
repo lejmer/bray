@@ -12,8 +12,8 @@ use bray_runtime_interface::{
 };
 
 use crate::{
-    FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame,
-    Scheduler, TaskControlBlock, TaskRegistration, current_task_execution_context,
+    FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, Scheduler,
+    TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
 
 pub(crate) fn register_task<T: 'static, F>(

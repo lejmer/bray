@@ -313,11 +313,9 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test native library name must be valid"));
 
-        let framework = LinkInputSpec::try_framework(
-            "Foundation",
-            LinkInputProvenance::TargetProfile,
-        )
-        .unwrap_or_else(|| panic!("test framework name must be valid"));
+        let framework =
+            LinkInputSpec::try_framework("Foundation", LinkInputProvenance::TargetProfile)
+                .unwrap_or_else(|| panic!("test framework name must be valid"));
 
         assert_eq!(library.kind(), LinkInputKind::NativeLibrary);
         assert_eq!(framework.kind(), LinkInputKind::Framework);
@@ -331,9 +329,7 @@ mod tests {
             .is_none()
         );
 
-        assert!(
-            LinkInputSpec::try_framework("", LinkInputProvenance::TargetProfile).is_none()
-        );
+        assert!(LinkInputSpec::try_framework("", LinkInputProvenance::TargetProfile).is_none());
     }
 
     #[test]

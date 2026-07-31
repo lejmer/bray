@@ -283,6 +283,15 @@ fn unsupported_product_result(
     driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
 }
 
+fn native_product_failure_result(
+    compilation: bray_compilation::Compilation,
+    output_format: OutputFormat,
+) -> DriverRunResult {
+    let diagnostics = compilation.check_diagnostics().clone();
+
+    driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -555,13 +564,4 @@ mod tests {
             result.diagnostics()
         );
     }
-}
-
-fn native_product_failure_result(
-    compilation: bray_compilation::Compilation,
-    output_format: OutputFormat,
-) -> DriverRunResult {
-    let diagnostics = compilation.check_diagnostics().clone();
-
-    driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
 }

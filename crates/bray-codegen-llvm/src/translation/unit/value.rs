@@ -232,7 +232,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let words = real_words(bits);
-        let width = u32::from(float.get_bit_width());
+        let width = float.get_bit_width();
 
         let integer_type = self
             .types

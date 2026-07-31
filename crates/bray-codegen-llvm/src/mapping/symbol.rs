@@ -443,5 +443,4 @@ mod tests {
     fn layout(size: u64, alignment: NonZeroU64) -> TargetValueLayout {
         TargetValueLayout::new(size, alignment, TargetLayoutContract::Default)
     }
-
 }

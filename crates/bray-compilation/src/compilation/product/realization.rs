@@ -887,9 +887,7 @@ impl Compilation {
                 .iter()
                 .map(|field| {
                     let template = facts
-                        .symbol_fact(SymbolFactRequest::<
-                            UnionPayloadFieldTypeFact,
-                        >::new(*field))
+                        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(*field))
                         .map_err(super::super::binder::binder_fact_error)?;
 
                     let ty =
@@ -1537,9 +1535,9 @@ impl Compilation {
                     .iter()
                     .map(|field| {
                         let template = facts
-                            .symbol_fact(SymbolFactRequest::<
-                                bray_symbols::StructFieldTypeFact,
-                            >::new(*field))
+                            .symbol_fact(
+                                SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(*field),
+                            )
                             .map_err(super::super::binder::binder_fact_error)?;
 
                         let ty = self.resolve_codegen_type(
@@ -2206,12 +2204,11 @@ impl Compilation {
     ) -> Result<CodegenTypeMapping, CodegenFactError> {
         let role = super::super::foreign::compiler_known_representation(self, definition);
 
-        if let Some(role) = role {
-            if let Some(mapping) =
+        if let Some(role) = role
+            && let Some(mapping) =
                 self.codegen_compiler_known_type(ty, role, target, cancellation, mappings, pending)?
-            {
-                return Ok(mapping);
-            }
+        {
+            return Ok(mapping);
         }
 
         let heap_key = CompilerKnownDeclarationKey::try_new("Heap")
@@ -2239,9 +2236,9 @@ impl Compilation {
                     .iter()
                     .map(|field| {
                         let template = facts
-                            .symbol_fact(SymbolFactRequest::<
-                                bray_symbols::StructFieldTypeFact,
-                            >::new(*field))
+                            .symbol_fact(
+                                SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(*field),
+                            )
                             .map_err(super::super::binder::binder_fact_error)?;
 
                         let field_ty = self.resolve_codegen_type(
@@ -4337,9 +4334,8 @@ mod tests {
             .declaration_symbol::<bray_symbols::StructSymbolId>(&heap_key)
             .expect("compiler-known Heap must be available");
 
-        let storage =
-            named_type(values, NamedTypeSymbolId::Struct(heap))
-                .expect("Heap storage type must intern");
+        let storage = named_type(values, NamedTypeSymbolId::Struct(heap))
+            .expect("Heap storage type must intern");
 
         let owned = values
             .intern_type(TypeData::OwnedIndirection {
@@ -4458,8 +4454,7 @@ mod tests {
             .expect("semantic values must resolve");
 
         let substitution =
-            empty_substitution(values, union.id().into())
-                .expect("union substitution must intern");
+            empty_substitution(values, union.id().into()).expect("union substitution must intern");
 
         values
             .intern_type(TypeData::Named {
@@ -4828,5 +4823,4 @@ mod tests {
             .codegen_target()
             .unwrap_or_else(|error| panic!("baseline codegen target must be valid: {error:?}"))
     }
-
 }

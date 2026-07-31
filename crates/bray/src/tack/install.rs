@@ -84,7 +84,10 @@ pub(crate) fn run_project_process(
         return Ok(ExitCode::SUCCESS);
     }
 
-    let code = status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or_else(|| 1);
+    let code = status
+        .code()
+        .and_then(|code| u8::try_from(code).ok())
+        .unwrap_or(1);
 
     Ok(ExitCode::from(code))
 }
