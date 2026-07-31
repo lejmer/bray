@@ -10,7 +10,7 @@ bray-compilation = { path = "../bray-compilation" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-emitter = { path = "../bray-emitter" }
 bray-formatter = { path = "../bray-formatter" }
-bray-language-server = { path = "../bray-language-server" }
+bray-lsp = { path = "../bray-lsp" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-platform = { path = "../bray-platform" }
 bray-project = { path = "../bray-project" }

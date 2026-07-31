@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::process::ExitCode;
 
-use bray_language_server::LanguageServer;
+use bray_lsp::LanguageServer;
 
 use crate::{
     TackLanguageServerRequest, TackLanguageServerService, TackServiceResult,
