@@ -85,11 +85,14 @@ documents.
 - `bray-compilation`
     - The lazy compilation context, compiler fact coordination, phase orchestration, and top-level product emission.
 
+- `bray-tooling`
+    - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command drivers.
+
 - `bray-driver`
-    - User-facing command orchestration that translates tool requests into compilation operations and results.
+    - Loose-file compiler command orchestration used by `brayc`.
 
 - `bray`
-    - Bray Tack executable composition and local adapters that link optional tool services into the project driver.
+    - Bray Tack project and workspace command orchestration and executable composition.
 
 - `brayc`
     - The minimal Bray compiler executable entry point.

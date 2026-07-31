@@ -2,27 +2,27 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
 
-use bray_codegen::{
-    CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
-};
-use bray_codegen_llvm::LlvmCodeGenerator;
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::PackageIdentity;
+use bray_tooling::{
+    InspectionOutput, OutputFormat,
+    compilation_request_from_file_arguments, load_compilation,
+    exit_code_from_diagnostics,
+    render_bound_inspection, render_declaration_inspection,
+    render_lowered_inspection, render_mir_inspection,
+    render_source_inspection, render_symbol_inspection,
+    render_syntax_inspection, render_token_inspection,
+};
 
 use crate::command::{
-    DriverBackend, DriverCommand, DriverCommandKind, DriverInvocation, DriverOutputFormat,
-    compilation_request_from_file_arguments,
+    DriverCommand, DriverCommandKind, DriverInvocation,
 };
-use crate::inspection::{
-    InspectionOutput, render_bound_inspection, render_declaration_inspection,
-    render_lowered_inspection, render_mir_inspection, render_source_inspection,
-    render_symbol_inspection, render_syntax_inspection, render_token_inspection,
+use crate::run::{
+    run_build_command, write_driver_output,
+    write_driver_output_error,
 };
-use crate::output::{write_driver_output, write_driver_output_error};
-use crate::run::{exit_code_from_diagnostics, run_build_command};
 
 /// Structured result from running the Bray compiler driver.
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub struct DriverRunResult {
     exit_code: ExitCode,
     diagnostics: DiagnosticBag,
     compilation: Option<Compilation>,
-    output_format: DriverOutputFormat,
+    output_format: OutputFormat,
     stdout: String,
     stderr: String,
     report_file: Option<PathBuf>,
@@ -40,7 +40,7 @@ impl DriverRunResult {
     pub(super) fn new(
         exit_code: ExitCode,
         diagnostics: DiagnosticBag,
-        output_format: DriverOutputFormat,
+        output_format: OutputFormat,
     ) -> Self {
         Self::with_output(
             exit_code,
@@ -54,7 +54,7 @@ impl DriverRunResult {
     fn with_output(
         exit_code: ExitCode,
         diagnostics: DiagnosticBag,
-        output_format: DriverOutputFormat,
+        output_format: OutputFormat,
         stdout: String,
         stderr: String,
     ) -> Self {
@@ -72,7 +72,7 @@ impl DriverRunResult {
     fn with_compilation(
         exit_code: ExitCode,
         diagnostics: DiagnosticBag,
-        output_format: DriverOutputFormat,
+        output_format: OutputFormat,
         compilation: Compilation,
     ) -> Self {
         Self {
@@ -101,7 +101,7 @@ impl DriverRunResult {
     }
 
     /// Returns the output format selected for driver-produced output.
-    pub const fn output_format(&self) -> DriverOutputFormat {
+    pub const fn output_format(&self) -> OutputFormat {
         self.output_format
     }
 
@@ -286,9 +286,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
 
 fn run_check_command(
     request: CompilationRequest,
-    output_format: DriverOutputFormat,
+    output_format: OutputFormat,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request, None) {
+    let compilation = match load_compilation(request) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -300,9 +300,9 @@ fn run_check_command(
 
 fn run_inspect_source_command(
     request: CompilationRequest,
-    output_format: DriverOutputFormat,
+    output_format: OutputFormat,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request, None) {
+    let compilation = match load_compilation(request) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -329,10 +329,10 @@ fn run_inspect_source_command(
 
 fn run_fact_inspection_command<E>(
     request: CompilationRequest,
-    output_format: DriverOutputFormat,
-    render: impl FnOnce(&Compilation, DriverOutputFormat) -> Result<InspectionOutput, E>,
+    output_format: OutputFormat,
+    render: impl FnOnce(&Compilation, OutputFormat) -> Result<InspectionOutput, E>,
 ) -> DriverRunResult {
-    let compilation = match load_compilation(request, None) {
+    let compilation = match load_compilation(request) {
         Some(compilation) => compilation,
         None => return compilation_load_failure_result(output_format),
     };
@@ -358,7 +358,7 @@ fn run_fact_inspection_command<E>(
 fn diagnostic_result_from_compilation(
     compilation: Compilation,
     diagnostics: DiagnosticBag,
-    output_format: DriverOutputFormat,
+    output_format: OutputFormat,
 ) -> DriverRunResult {
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
@@ -368,36 +368,14 @@ fn diagnostic_result_from_compilation(
 pub(super) fn driver_result_from_compilation(
     compilation: Compilation,
     diagnostics: DiagnosticBag,
-    output_format: DriverOutputFormat,
+    output_format: OutputFormat,
     exit_code: ExitCode,
 ) -> DriverRunResult {
     DriverRunResult::with_compilation(exit_code, diagnostics, output_format, compilation)
 }
 
-fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverRunResult {
+fn compilation_load_failure_result(output_format: OutputFormat) -> DriverRunResult {
     DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
-}
-
-pub(crate) fn load_compilation(
-    request: CompilationRequest,
-    backend: Option<DriverBackend>,
-) -> Option<Compilation> {
-    let Some(backend) = backend else {
-        return Compilation::load(request).ok();
-    };
-
-    let generator = match backend {
-        DriverBackend::Llvm => LlvmCodeGenerator::try_new().ok()?,
-    };
-
-    let identity = generator.identity().clone();
-
-    let registry =
-        CodeGeneratorRegistry::try_new([Arc::new(generator) as Arc<dyn CodeGenerator>]).ok()?;
-
-    let codegen = CodegenConfiguration::try_new(registry, identity).ok()?;
-
-    Compilation::load_with_codegen(request, codegen).ok()
 }
 
 pub(super) fn command_line_package_identity() -> PackageIdentity {
@@ -490,7 +468,7 @@ mod tests {
         ]);
 
         assert_eq!(result.exit_code(), ExitCode::FAILURE);
-        assert_eq!(result.output_format(), crate::DriverOutputFormat::Json);
+        assert_eq!(result.output_format(), crate::OutputFormat::Json);
 
         assert_eq!(
             result

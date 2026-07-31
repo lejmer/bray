@@ -1,30 +1,20 @@
 use std::path::PathBuf;
 
 use bray_compilation::{CompilationOptions, WorkerBudget};
-use bray_source::TextSize;
+use bray_tooling::{InspectionTarget, OutputFormat};
 
 use super::DriverProductConfiguration;
-
-/// Output format selected for driver-produced output.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DriverOutputFormat {
-    /// Plain text output.
-    #[default]
-    Text,
-    /// Structured JSON output.
-    Json,
-}
 
 /// Options shared by all driver commands.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct DriverOptions {
     worker_budget: WorkerBudget,
-    output_format: DriverOutputFormat,
+    output_format: OutputFormat,
 }
 
 impl DriverOptions {
     /// Creates shared driver options.
-    pub const fn new(worker_budget: WorkerBudget, output_format: DriverOutputFormat) -> Self {
+    pub const fn new(worker_budget: WorkerBudget, output_format: OutputFormat) -> Self {
         Self {
             worker_budget,
             output_format,
@@ -37,7 +27,7 @@ impl DriverOptions {
     }
 
     /// Returns the selected driver output format.
-    pub const fn output_format(self) -> DriverOutputFormat {
+    pub const fn output_format(self) -> OutputFormat {
         self.output_format
     }
 
@@ -53,7 +43,7 @@ impl DriverOptions {
 
 impl Default for DriverOptions {
     fn default() -> Self {
-        Self::new(WorkerBudget::default(), DriverOutputFormat::default())
+        Self::new(WorkerBudget::default(), OutputFormat::default())
     }
 }
 
@@ -80,41 +70,6 @@ pub enum DriverCommandKind {
     InspectLowered,
     /// Renders lowered units as MIR notation.
     InspectMir,
-}
-
-/// Selects semantic units from one source, optionally at one position.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct UnitInspectionTarget {
-    source_id: u32,
-    position: Option<TextSize>,
-}
-
-impl UnitInspectionTarget {
-    /// Creates a target covering every independently checked unit in one source.
-    pub const fn source(source_id: u32) -> Self {
-        Self {
-            source_id,
-            position: None,
-        }
-    }
-
-    /// Creates a target for the innermost unit covering one UTF-8 byte offset.
-    pub const fn at(source_id: u32, position: TextSize) -> Self {
-        Self {
-            source_id,
-            position: Some(position),
-        }
-    }
-
-    /// Returns the raw loaded-source identity.
-    pub const fn source_id(self) -> u32 {
-        self.source_id
-    }
-
-    /// Returns the selected UTF-8 byte offset, if inspection is position-filtered.
-    pub const fn position(self) -> Option<TextSize> {
-        self.position
-    }
 }
 
 /// Driver command selected by the CLI.
@@ -160,21 +115,21 @@ pub enum DriverCommand {
     /// Inspects bound semantic units from one source.
     InspectBound {
         /// Source and optional position used to select semantic units.
-        target: UnitInspectionTarget,
+        target: InspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
     /// Inspects lowered units from one source.
     InspectLowered {
         /// Source and optional position used to select semantic units.
-        target: UnitInspectionTarget,
+        target: InspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
     /// Renders lowered units as MIR notation.
     InspectMir {
         /// Source and optional position used to select semantic units.
-        target: UnitInspectionTarget,
+        target: InspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
@@ -220,17 +175,17 @@ impl DriverCommand {
     }
 
     /// Creates an inspect-bound command.
-    pub fn inspect_bound(target: UnitInspectionTarget, files: Vec<PathBuf>) -> Self {
+    pub fn inspect_bound(target: InspectionTarget, files: Vec<PathBuf>) -> Self {
         Self::InspectBound { target, files }
     }
 
     /// Creates an inspect-lowered command.
-    pub fn inspect_lowered(target: UnitInspectionTarget, files: Vec<PathBuf>) -> Self {
+    pub fn inspect_lowered(target: InspectionTarget, files: Vec<PathBuf>) -> Self {
         Self::InspectLowered { target, files }
     }
 
     /// Creates an inspect-MIR command.
-    pub fn inspect_mir(target: UnitInspectionTarget, files: Vec<PathBuf>) -> Self {
+    pub fn inspect_mir(target: InspectionTarget, files: Vec<PathBuf>) -> Self {
         Self::InspectMir { target, files }
     }
 
@@ -267,7 +222,7 @@ impl DriverCommand {
     }
 
     /// Returns the source and optional position selected for semantic-unit inspection.
-    pub const fn unit_inspection_target(&self) -> Option<UnitInspectionTarget> {
+    pub const fn unit_inspection_target(&self) -> Option<InspectionTarget> {
         match self {
             Self::InspectBound { target, .. }
             | Self::InspectLowered { target, .. }

@@ -119,10 +119,21 @@ dependencies = [
 name = "bray"
 version = "0.0.0"
 dependencies = [
+ "bray-compilation",
  "bray-diagnostics",
- "bray-driver",
+ "bray-emitter",
  "bray-formatter",
+ "bray-package-interface",
+ "bray-platform",
+ "bray-project",
+ "bray-source",
+ "bray-symbols",
+ "bray-target",
  "bray-testing",
+ "bray-tooling",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -272,27 +283,15 @@ name = "bray-driver"
 version = "0.0.0"
 dependencies = [
  "bray-base",
- "bray-bound-tree",
- "bray-codegen",
- "bray-codegen-llvm",
  "bray-compilation",
- "bray-declarations",
  "bray-diagnostics",
  "bray-emitter",
- "bray-ir",
- "bray-linker",
- "bray-lowering",
- "bray-messages",
- "bray-package-interface",
- "bray-parser",
- "bray-platform",
- "bray-project",
  "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
- "bray-syntax",
  "bray-target",
  "bray-testing",
+ "bray-tooling",
  "clap",
  "serde",
  "serde_json",
@@ -492,6 +491,33 @@ dependencies = [
  "bray-symbols",
  "bray-syntax",
  "bray-target",
+]
+
+[[package]]
+name = "bray-tooling"
+version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-codegen",
+ "bray-codegen-llvm",
+ "bray-compilation",
+ "bray-declarations",
+ "bray-diagnostics",
+ "bray-ir",
+ "bray-linker",
+ "bray-lowering",
+ "bray-messages",
+ "bray-package-interface",
+ "bray-parser",
+ "bray-runtime-interface",
+ "bray-source",
+ "bray-symbols",
+ "bray-syntax",
+ "bray-target",
+ "bray-testing",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

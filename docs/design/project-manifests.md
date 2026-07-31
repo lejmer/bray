@@ -17,7 +17,7 @@ part of the program, and the build, source, and dependency graphs are visible an
 `bray-target`. It does not own compilation, target realization, artifact naming, emission, linking, command-line policy, or
 user-facing orchestration.
 
-Bray Tack is the eventual user-facing orchestrator over this contract. It is not the owner of project semantics. Compiler,
+Bray Tack is the user-facing orchestrator over this contract. It is not the owner of project semantics. Compiler,
 inspection, and language-tooling entry points consume an already loaded explicit graph and must not perform dependency discovery.
 
 ## Bootstrap Serialization

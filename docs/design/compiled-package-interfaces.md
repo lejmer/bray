@@ -154,7 +154,9 @@ It must not depend on:
 - `bray-lowering`,
 - `bray-codegen`,
 - `bray-emitter`,
-- `bray-driver`.
+- `bray-tooling`,
+- `bray-driver`,
+- `bray`.
 
 The important dependency direction is:
 
