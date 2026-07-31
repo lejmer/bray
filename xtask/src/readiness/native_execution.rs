@@ -12,19 +12,25 @@ const ASYNC_UNIT_FIXTURE: &str = "xtask/fixtures/native-execution/async-unit.bra
 const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray";
 const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-error.bray";
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
+const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
+const INVALID_MEMORY_FIXTURE: &str =
+    "xtask/fixtures/native-execution/memory-invalid-obligation.bray";
 const PRODUCT_NAME: &str = "application";
+
 pub(super) fn audit(root: &Path) -> Result<(), String> {
     let target = NativeTarget::current().ok_or_else(|| {
         "native execution readiness requires a supported compiler host".to_owned()
     })?;
 
     build_compiler(root)?;
+    audit_memory_rejection(root, target)?;
 
     let runtime = native_output("bray-native-runtime-")?;
     let runtime = crate::runtime_artifact::build_for_readiness(target, runtime.path())?;
 
     audit_startup(root, target, &runtime)?;
     audit_entry_result(root, target, &runtime)?;
+    audit_memory_operations(root, target, &runtime)?;
 
     if target == NativeTarget::X86_64LinuxGnu {
         audit_primitive_abi(root, target, &runtime)?;
@@ -35,22 +41,65 @@ pub(super) fn audit(root: &Path) -> Result<(), String> {
     crate::runtime_artifact::smoke_test_host()
 }
 
+fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), String> {
+    let compiler = root
+        .join("target")
+        .join("debug")
+        .join(executable_name("brayc"));
+
+    let fixture = root.join(INVALID_MEMORY_FIXTURE);
+    let mut command = Command::new(compiler);
+
+    command.current_dir(root).args([
+        "check",
+        "--product-kind",
+        "executable",
+        "--target",
+        target.as_str(),
+    ]);
+
+    let output = command
+        .arg(&fixture)
+        .output()
+        .map_err(|error| format!("could not check invalid memory fixture: {error}"))?;
+
+    if output.status.success() {
+        return Err("invalid memory obligations unexpectedly passed checking".to_owned());
+    }
+
+    if output_contains(&output, "E7087") {
+        Ok(())
+    } else {
+        Err(command_failure("checking invalid memory obligations", &output))
+    }
+}
+
+fn audit_memory_operations(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+) -> Result<(), String> {
+    audit_repeatable_fixture(
+        root,
+        target,
+        runtime,
+        "bray-native-memory-",
+        MEMORY_FIXTURE,
+        42,
+        "compiler-provided memory operations",
+    )
+}
+
 fn audit_startup(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let first = native_output("bray-native-startup-first-")?;
-    let second = native_output("bray-native-startup-second-")?;
-
-    build_fixture(root, target, runtime, STARTUP_FIXTURE, first.path())?;
-    build_fixture(root, target, runtime, STARTUP_FIXTURE, second.path())?;
-
-    let first_executable = executable_path(first.path(), target);
-    let second_executable = executable_path(second.path(), target);
-    let first_objects = object_files(first.path(), target)?;
-    let second_objects = object_files(second.path(), target)?;
-
-    require_equal_files(&first_executable, &second_executable, "startup executable")?;
-    require_equal_artifacts(&first_objects, &second_objects)?;
-
-    execute_product(&first_executable, 0, "executing generated Bray startup")
+    audit_repeatable_fixture(
+        root,
+        target,
+        runtime,
+        "bray-native-startup-",
+        STARTUP_FIXTURE,
+        0,
+        "generated Bray startup",
+    )
 }
 
 fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
@@ -105,30 +154,47 @@ fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Res
 }
 
 fn audit_entry_result(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let first = native_output("bray-native-entry-result-first-")?;
-    let second = native_output("bray-native-entry-result-second-")?;
+    audit_repeatable_fixture(
+        root,
+        target,
+        runtime,
+        "bray-native-entry-result-",
+        ENTRY_RESULT_FIXTURE,
+        42,
+        "generated i32 entry result",
+    )
+}
 
-    build_fixture(root, target, runtime, ENTRY_RESULT_FIXTURE, first.path())?;
-    build_fixture(root, target, runtime, ENTRY_RESULT_FIXTURE, second.path())?;
+fn audit_repeatable_fixture(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+    prefix: &str,
+    fixture: &str,
+    expected: i32,
+    name: &str,
+) -> Result<(), String> {
+    let first = native_output(&format!("{prefix}first-"))?;
+    let second = native_output(&format!("{prefix}second-"))?;
+
+    build_fixture(root, target, runtime, fixture, first.path())?;
+    build_fixture(root, target, runtime, fixture, second.path())?;
 
     let first_executable = executable_path(first.path(), target);
     let second_executable = executable_path(second.path(), target);
-    let first_objects = object_files(first.path(), target)?;
-    let second_objects = object_files(second.path(), target)?;
 
     require_equal_files(
         &first_executable,
         &second_executable,
-        "entry-result executable",
+        &format!("{name} executable"),
     )?;
 
-    require_equal_artifacts(&first_objects, &second_objects)?;
+    require_equal_artifacts(
+        &object_files(first.path(), target)?,
+        &object_files(second.path(), target)?,
+    )?;
 
-    execute_product(
-        &first_executable,
-        42,
-        "executing generated i32 entry result",
-    )
+    execute_product(&first_executable, expected, &format!("executing {name}"))
 }
 
 fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
@@ -171,7 +237,7 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         }
 
         if let Some(required) = stderr
-            && !String::from_utf8_lossy(&output.stderr).contains(required)
+            && !output_contains(&output, required)
         {
             return Err(format!("{name} did not report required stderr evidence"));
         }
@@ -439,6 +505,11 @@ fn command_failure(operation: &str, output: &Output) -> String {
     };
 
     format!("{operation} failed with status {}{details}", output.status)
+}
+
+fn output_contains(output: &Output, required: &str) -> bool {
+    String::from_utf8_lossy(&output.stdout).contains(required)
+        || String::from_utf8_lossy(&output.stderr).contains(required)
 }
 
 fn llvm_tool(root: &Path, name: &str) -> PathBuf {

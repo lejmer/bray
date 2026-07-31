@@ -346,11 +346,66 @@ mod tests {
                     },
                 ),
                 (
+                    ImplementationHook::AddressOfMut,
+                    vec![ty],
+                    CheckedMemoryOperationKind::Address {
+                        kind: MemoryAddressKind::Mutable,
+                        pointee: ty,
+                    },
+                ),
+                (
+                    ImplementationHook::RawPointerNull,
+                    vec![ty],
+                    CheckedMemoryOperationKind::Null { pointee: ty },
+                ),
+                (
+                    ImplementationHook::RawPointerIsNull,
+                    vec![ty],
+                    CheckedMemoryOperationKind::IsNull { pointee: ty },
+                ),
+                (
+                    ImplementationHook::RawPointerOffset,
+                    vec![ty],
+                    CheckedMemoryOperationKind::Offset {
+                        unit: MemoryOffsetUnit::Element,
+                        pointee: ty,
+                    },
+                ),
+                (
                     ImplementationHook::RawPointerByteOffset,
                     vec![ty],
                     CheckedMemoryOperationKind::Offset {
                         unit: MemoryOffsetUnit::Byte,
                         pointee: ty,
+                    },
+                ),
+                (
+                    ImplementationHook::RawPointerReinterpret,
+                    vec![ty, ty],
+                    CheckedMemoryOperationKind::Reinterpret {
+                        source: ty,
+                        target: ty,
+                    },
+                ),
+                (
+                    ImplementationHook::RawPointerRead,
+                    vec![ty],
+                    CheckedMemoryOperationKind::Read {
+                        pointee: ty,
+                        kind: MemoryReadKind::Copy,
+                    },
+                ),
+                (
+                    ImplementationHook::RawPointerWrite,
+                    vec![ty],
+                    CheckedMemoryOperationKind::Write { pointee: ty },
+                ),
+                (
+                    ImplementationHook::MemoryCopy,
+                    vec![ty],
+                    CheckedMemoryOperationKind::Copy {
+                        pointee: ty,
+                        kind: MemoryCopyKind::NonOverlapping,
                     },
                 ),
                 (
@@ -362,6 +417,14 @@ mod tests {
                     },
                 ),
                 (
+                    ImplementationHook::MemorySizeOf,
+                    vec![ty],
+                    CheckedMemoryOperationKind::LayoutQuery {
+                        ty,
+                        kind: MemoryLayoutQueryKind::Size,
+                    },
+                ),
+                (
                     ImplementationHook::MemoryAlignOf,
                     vec![ty],
                     CheckedMemoryOperationKind::LayoutQuery {
@@ -370,9 +433,30 @@ mod tests {
                     },
                 ),
                 (
+                    ImplementationHook::MemoryStrideOf,
+                    vec![ty],
+                    CheckedMemoryOperationKind::LayoutQuery {
+                        ty,
+                        kind: MemoryLayoutQueryKind::Stride,
+                    },
+                ),
+                (
+                    ImplementationHook::MemoryLayoutOf,
+                    vec![ty],
+                    CheckedMemoryOperationKind::LayoutQuery {
+                        ty,
+                        kind: MemoryLayoutQueryKind::Layout,
+                    },
+                ),
+                (
                     ImplementationHook::Allocate,
                     vec![],
                     CheckedMemoryOperationKind::Allocate,
+                ),
+                (
+                    ImplementationHook::Deallocate,
+                    vec![],
+                    CheckedMemoryOperationKind::Deallocate,
                 ),
             ];
 

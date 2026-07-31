@@ -13,7 +13,7 @@ use bray_syntax::{
 
 use super::BoundUnitBindingError;
 use super::support::{
-    anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_source_surface,
+    anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_surface,
     map_assembly_error, map_binding_error, map_fact_error, path_context, push_callable_inputs,
 };
 use crate::binder::{Binder, BinderOutput};
@@ -383,7 +383,7 @@ where
     for parameter in signature.value().parameters() {
         let symbol = parameter.parameter().into();
 
-        insert_source_surface(binder, scope, symbol)?;
+        insert_surface(binder, scope, symbol)?;
 
         if let Some(ty) = parameter.ty().resolved_type() {
             binder.record_value_type(bray_bound_tree::BoundReferenceTarget::Surface(symbol), ty);

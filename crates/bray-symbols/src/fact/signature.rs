@@ -243,6 +243,43 @@ impl CallableSignatureTemplate {
         Ok(types)
     }
 
+    /// Returns caller-visible parameter names in declaration order.
+    pub fn parameter_names(
+        &self,
+        semantic_values: &SemanticValueStore,
+    ) -> Result<Vec<crate::CallableParameterName>, CallableSignatureTemplateError> {
+        // Callers own the returned names; canonical spellings remain Arc-shared.
+        let names = match self.callable_type() {
+            TypeExpressionTemplate::Callable(callable) => callable
+                .parameters()
+                .iter()
+                .map(|parameter| parameter.name().clone())
+                .collect::<Vec<_>>(),
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = semantic_values
+                    .type_data(*ty)
+                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(CallableSignatureTemplateError::InvalidCallableType);
+                };
+
+                callable
+                    .parameters()
+                    .iter()
+                    .map(|parameter| parameter.name().clone())
+                    .collect()
+            }
+            _ => return Err(CallableSignatureTemplateError::InvalidCallableType),
+        };
+
+        if names.len() != self.parameters().len() {
+            return Err(CallableSignatureTemplateError::ParameterCountMismatch);
+        }
+
+        Ok(names)
+    }
+
     /// Returns one parameter's type template by exact declaration identity and ordinal.
     pub fn parameter_type_template(
         &self,

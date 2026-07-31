@@ -358,15 +358,23 @@ mod tests {
     fn lowering_replaces_every_checked_memory_family_with_explicit_mir() {
         type Kind = CheckedMemoryOperationKind;
 
-        let cases: [(usize, fn(bray_symbols::TypeId) -> Kind); 12] = [
+        let cases: [(usize, fn(bray_symbols::TypeId) -> Kind); 17] = [
             (1, |ty| Kind::Address {
                 kind: MemoryAddressKind::Shared,
+                pointee: ty,
+            }),
+            (1, |ty| Kind::Address {
+                kind: MemoryAddressKind::Mutable,
                 pointee: ty,
             }),
             (0, |ty| Kind::Null { pointee: ty }),
             (1, |ty| Kind::IsNull { pointee: ty }),
             (2, |ty| Kind::Offset {
                 unit: MemoryOffsetUnit::Element,
+                pointee: ty,
+            }),
+            (2, |ty| Kind::Offset {
+                unit: MemoryOffsetUnit::Byte,
                 pointee: ty,
             }),
             (1, |ty| Kind::Reinterpret {
@@ -382,9 +390,21 @@ mod tests {
                 pointee: ty,
                 kind: MemoryCopyKind::NonOverlapping,
             }),
+            (3, |ty| Kind::Copy {
+                pointee: ty,
+                kind: MemoryCopyKind::Overlapping,
+            }),
             (0, |ty| Kind::LayoutQuery {
                 ty,
                 kind: MemoryLayoutQueryKind::Size,
+            }),
+            (0, |ty| Kind::LayoutQuery {
+                ty,
+                kind: MemoryLayoutQueryKind::Alignment,
+            }),
+            (0, |ty| Kind::LayoutQuery {
+                ty,
+                kind: MemoryLayoutQueryKind::Stride,
             }),
             (1, |ty| Kind::LayoutQuery {
                 ty,

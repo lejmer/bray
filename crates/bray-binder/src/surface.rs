@@ -2,8 +2,8 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractClauseKind, CallableSignatureFact, LocalSymbolRegionId,
-    MemberLookupResult, PredicateSemanticSummary, TrustedCapabilitySymbolId,
+    AnySymbolId, CallableContractClauseKind, CallableSignatureFact, CallableSymbolId,
+    LocalSymbolRegionId, MemberLookupResult, PredicateSemanticSummary, TrustedCapabilitySymbolId,
 };
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
 
@@ -105,6 +105,7 @@ pub fn bind_trusted_capability_clause<C>(
 ) -> BinderFactResult<DiagnosticResult<Box<[TrustedCapabilitySymbolId]>>>
 where
     C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
 {
     bind_surface(
         facts,
@@ -139,6 +140,7 @@ fn bind_surface<C, T>(
 ) -> BinderFactResult<DiagnosticResult<T>>
 where
     C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
 {
     if facts.is_cancelled() {
         return Err(BinderFactError::Cancelled);
@@ -170,6 +172,13 @@ where
 
     let mut binder = Binder::new(facts, builder);
     let scope = binder.unit().root_scope();
+
+    if matches!(unit_kind, SurfaceUnitKind::ContractClause)
+        && let Some(callable) = CallableSymbolId::try_from_any(owner)
+    {
+        crate::entry::push_callable_inputs_for(&mut binder, scope, callable)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+    }
 
     let path = match symbols.containing_module(owner) {
         Some(module) => {

@@ -163,6 +163,14 @@
       }
     },
     {
+      "name": "Memory",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::Memory"
+      }
+    },
+    {
       "name": "Host",
       "disposition": "translated",
       "production": {

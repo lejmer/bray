@@ -24,7 +24,9 @@ use bray_syntax::{
 use super::super::binding::CompilationSymbolFactBinding;
 use super::super::cache::CompilationSymbolFacts;
 use super::super::environment::{generic_parameter_ids, type_binder};
-use super::super::surface::{symbol_ordinal, with_declaration_root};
+use super::super::surface::{
+    declaration_callable_surface, symbol_ordinal, with_declaration_root,
+};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::binder::symbol::imported::{
     imported_callable_contract, imported_callable_parameter_default, imported_generic_declaration,
@@ -435,10 +437,20 @@ fn bind_default_template(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
-    if CallableParameterSymbolId::try_from_any(owner).is_some()
-        && let Some(address) = context.imported_fact_address(owner)?
-    {
-        return imported_callable_parameter_default(context, address);
+    if let Some(parameter) = CallableParameterSymbolId::try_from_any(owner) {
+        if let Some(address) = context.imported_fact_address(owner)? {
+            return imported_callable_parameter_default(context, address);
+        }
+
+        if matches!(
+            context.symbols.symbol_origin(owner),
+            Some(
+                bray_symbols::SymbolOrigin::CompilerKnown
+                    | bray_symbols::SymbolOrigin::CompilerProvided
+            )
+        ) {
+            return bind_compiler_known_callable_parameter_default(context, parameter);
+        }
     }
 
     with_declaration_root(context, owner, |root| {
@@ -455,6 +467,36 @@ fn bind_default_template(
 
         Ok(DiagnosticResult::without_diagnostics(default))
     })
+}
+
+fn bind_compiler_known_callable_parameter_default(
+    context: &CompilationBinderFacts<'_>,
+    parameter: CallableParameterSymbolId,
+) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
+    let parameter_symbol = context
+        .symbols
+        .callable_parameter(parameter)
+        .ok_or(bray_binder::BinderFactError::DependencyUnavailable)?;
+
+    let surface = declaration_callable_surface(context, parameter_symbol.owner().into_any())?;
+
+    let parameter = surface
+        .parameters
+        .parameters()
+        .nth(parameter_symbol.ordinal() as usize)
+        .ok_or(bray_binder::BinderFactError::DependencyUnavailable)?;
+
+    let default = parameter
+        .expression()
+        .map(|expression| {
+            UnevaluatedDefaultTemplate::Present(DeclarationExpressionTemplate::new(
+                parameter_symbol.id().into(),
+                SyntaxAnchor::from_node(&expression),
+            ))
+        })
+        .unwrap_or(UnevaluatedDefaultTemplate::Absent);
+
+    Ok(DiagnosticResult::without_diagnostics(default))
 }
 
 fn overload_template(
