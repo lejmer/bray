@@ -1,0 +1,11 @@
+module app;
+
+async func main() -> i32
+{
+    return await child();
+}
+
+async func child() -> i32
+{
+    return 42;
+}

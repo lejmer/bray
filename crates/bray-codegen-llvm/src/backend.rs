@@ -4,7 +4,7 @@ use bray_codegen::{
     ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
     BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendTargetPlatform,
     CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
-    CodegenTarget, DebugInformationMode,
+    CodegenTarget, DebugInformationMode, ProtectedAsyncFrameMetadata,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_target::{ObjectFormat, TargetArchitecture};
@@ -226,9 +226,66 @@ fn capabilities() -> BackendCapabilities {
     )
 }
 
-fn runtime_metadata(
-    request: CodegenRequest<'_>,
-) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
+fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
+    let frames = request
+        .unit()
+        .instances()
+        .iter()
+        .filter_map(|instance| {
+            let frame = instance.protected_frame_identity()?;
+            let descriptor = instance.mir().frame_descriptor()?;
+
+            let operations = bray_runtime_interface::ProtectedFrameOperations::new(
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::StateDescription,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::Resume,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::CancellationEntry,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::LifecycleResolution,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::CompletionMove,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
+                    bray_runtime_interface::ProtectedFrameOperation::Destruction,
+                )?,
+            );
+
+            Some(ProtectedAsyncFrameMetadata::new(
+                frame,
+                descriptor.frame_abi(),
+                operations,
+            ))
+        })
+        .collect::<Vec<_>>();
+
     let mut hosts = request.unit().mir_units().filter_map(|unit| {
         let bray_ir::MirUnitKind::ExecutableHost(host) = unit.kind() else {
             return None;
@@ -244,8 +301,19 @@ fn runtime_metadata(
         return Err(CodegenFailure::GeneratedModuleInvariant);
     }
 
-    CodegenRuntimeMetadata::try_new(request.unit(), [], host)
+    CodegenRuntimeMetadata::try_new(request.unit(), frames, host)
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+}
+
+fn frame_symbol(
+    request: CodegenRequest<'_>,
+    frame: bray_runtime_interface::ProtectedAsyncFrameId,
+    operation: bray_runtime_interface::ProtectedFrameOperation,
+) -> Option<bray_runtime_interface::BinarySymbolName> {
+    request
+        .mappings()
+        .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
+        .map(|symbol| symbol.name().clone())
 }
 
 fn target_platforms() -> impl Iterator<Item = BackendTargetPlatform> {
@@ -303,10 +371,11 @@ mod tests {
     use bray_codegen::ArtifactContentSource;
     use bray_codegen::test_support::{
         codegen_request_for_backend, codegen_request_for_seed_and_backend, codegen_target,
-        codegen_target_with_profile,
+        codegen_request_for_target_and_backend, codegen_target_with_profile,
     };
     use bray_codegen::{BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus};
     use bray_target::test_support::test_target_profile;
+    use bray_target::{NativeTarget, ObjectFormat, TargetArchitecture};
     use inkwell::OptimizationLevel;
     use inkwell::targets::{CodeModel, RelocMode, Target, TargetTriple};
 
@@ -416,6 +485,32 @@ mod tests {
     }
 
     #[test]
+    fn native_targets_generate_reproducible_objects_with_the_expected_headers() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        for target in NativeTarget::ALL {
+            let fixture =
+                codegen_request_for_target_and_backend(target, backend.identity().clone());
+
+            let first = backend.generate(fixture.request());
+            let second = backend.generate(fixture.request());
+
+            let first = artifact_bytes(&first);
+            let second = artifact_bytes(&second);
+
+            assert_eq!(first, second, "{}", target.as_str());
+
+            let Some(object) = first.first() else {
+                panic!("native generation must produce an object");
+            };
+
+            assert_native_object_header(object, target);
+        }
+    }
+
+    #[test]
     fn serial_and_parallel_reversed_demand_produce_identical_artifacts() {
         let Ok(backend) = LlvmCodeGenerator::try_new() else {
             panic!("LLVM backend constants must be valid");
@@ -464,7 +559,8 @@ mod tests {
         let fixture = codegen_request_for_backend(backend.identity().clone());
         let context = inkwell::context::Context::create();
 
-        let Ok(Some((machine, module))) = backend.prepare_module(fixture.request(), &context) else {
+        let Ok(Some((machine, module))) = backend.prepare_module(fixture.request(), &context)
+        else {
             panic!("test mappings must produce a valid LLVM module");
         };
 
@@ -590,6 +686,51 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    fn assert_native_object_header(object: &[u8], target: NativeTarget) {
+        match target.object_format() {
+            ObjectFormat::Elf => {
+                assert_eq!(&object[..4], b"\x7fELF", "{}", target.as_str());
+
+                let machine = u16::from_le_bytes([object[18], object[19]]);
+
+                let expected = match target.architecture() {
+                    TargetArchitecture::X86_64 => 62,
+                    TargetArchitecture::Aarch64 => 183,
+                    _ => unreachable!("native target matrix contains only 64-bit architectures"),
+                };
+
+                assert_eq!(machine, expected, "{}", target.as_str());
+            }
+            ObjectFormat::Coff => {
+                let machine = u16::from_le_bytes([object[0], object[1]]);
+
+                let expected = match target.architecture() {
+                    TargetArchitecture::X86_64 => 0x8664,
+                    TargetArchitecture::Aarch64 => 0xaa64,
+                    _ => unreachable!("native target matrix contains only 64-bit architectures"),
+                };
+
+                assert_eq!(machine, expected, "{}", target.as_str());
+            }
+            ObjectFormat::MachO => {
+                assert_eq!(&object[..4], b"\xcf\xfa\xed\xfe", "{}", target.as_str());
+
+                let cpu = u32::from_le_bytes([object[4], object[5], object[6], object[7]]);
+
+                let expected = match target.architecture() {
+                    TargetArchitecture::X86_64 => 0x0100_0007,
+                    TargetArchitecture::Aarch64 => 0x0100_000c,
+                    _ => unreachable!("native target matrix contains only 64-bit architectures"),
+                };
+
+                assert_eq!(cpu, expected, "{}", target.as_str());
+            }
+            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+                unreachable!("native target matrix excludes non-native object formats")
+            }
+        }
     }
 
     struct CancelAfter {

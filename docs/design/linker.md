@@ -122,6 +122,21 @@ Driver identity and revision participate in linked-artifact cache or reproducibi
 Arbitrary linker executables found on `PATH` are not silently treated as compatible. Tool discovery and compatibility policy are
 explicit compiler-host inputs.
 
+Native executable and shared-library drivers may invoke a platform compiler driver so the platform startup and C runtime contract
+is supplied without hardcoding SDK objects or libraries into Bray. Linux targets use the GNU compiler-driver contract, Windows
+targets use the Microsoft-compatible compiler-driver contract, and macOS targets use the Apple compiler-driver contract. Raw GNU,
+Microsoft, and Apple linker command languages remain separate driver families for plans that explicitly provide their complete
+startup contract.
+
+Native runtime artifacts declare their ordered system-library and framework requirements as typed metadata. Link planning preserves
+that order and any intentional duplicates while keeping the runtime archive itself distinct from its platform dependencies. The
+runtime artifact builder derives these requirements from the selected Rust target so compiler logic does not rediscover platform
+libraries or encode host-specific guesses.
+
+Runnable native conformance uses a compiler host matching the selected target platform and architecture. Other supported targets
+remain valid codegen, artifact, runtime-metadata, and link-plan targets and are checked structurally without pretending their
+products can execute on the current host.
+
 ---
 
 ## Invocation Boundary

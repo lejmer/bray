@@ -222,12 +222,15 @@ bray-linker ---------------> bray-emitter
 bray-codegen --------------> bray-compilation
 bray-emitter --------------> bray-compilation
 bray-linker ---------------> bray-compilation
-bray-compilation ----------> bray-driver
-bray-codegen-llvm ---------> bray-driver
+bray-compilation ----------> bray-tooling
+bray-codegen-llvm ---------> bray-tooling
+bray-tooling --------------> bray-driver
+bray-tooling --------------> bray
 ```
 
-`bray-driver` or another compiler host is the composition root. It constructs the available backend implementations and supplies
-backend-neutral service handles and the requested backend identity to `Compilation`. `bray-codegen` validates the selection.
+The `bray-driver` and `bray` command drivers are composition roots. Shared in-tree backend construction belongs to
+`bray-tooling`; each driver decides whether its command requires code generation and supplies the resulting backend-neutral
+service handles and requested backend identity to `Compilation`. `bray-codegen` validates the selection.
 
 `Compilation` treats available backend identities and capabilities as immutable request inputs. Its lazy codegen facts use the
 selection made through `bray-codegen`, accept emitter-derived artifact requests, and do not downcast a service or inspect LLVM state.
@@ -351,6 +354,11 @@ feature strings, object-format controls, relocation model, code model, and toolc
 
 Construction validates agreement between the language-level target profile and backend-private target configuration before any
 unit reaches code generation.
+
+The production native target contract covers 64-bit x86 and AArch64 on Linux with the GNU environment, Windows with the Microsoft
+environment, and macOS with the Darwin environment. These six profiles are explicit toolchain targets with exact triples, object
+formats, layouts, callable ABIs, symbol rules, and output naming contracts. Backend capability declarations may cover additional
+platforms without making them production toolchain targets.
 
 The LLVM backend translates this validated contract into an LLVM target machine and data layout. LLVM must not independently
 override a language-visible target fact.

@@ -1,12 +1,11 @@
 use bray_emitter::{
-    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan,
-    OutputSinkResolver,
+    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan, OutputSinkResolver,
 };
 use bray_linker::{LinkOutcome, LinkPlan, Linker};
 
 use super::Compilation;
-use crate::fact::{CancellationToken, FactQueryError};
 use crate::QueryPriority;
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     /// Links and publishes one native product through its immutable emission plan.
@@ -44,12 +43,7 @@ impl Compilation {
             None => ArtifactPublisher::new(cancellation),
         };
 
-        Ok(publisher.publish_linked(
-            emission,
-            contributions,
-            link,
-            &link_outcome,
-        ))
+        Ok(publisher.publish_linked(emission, contributions, link, &link_outcome))
     }
 
     /// Links one validated native product plan into staging without publishing final outputs.
@@ -101,34 +95,29 @@ mod tests {
         RequestedArtifactDestination,
     };
     use bray_linker::{
-        BinarySymbolName, DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId,
-        LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
-        LinkModel, LinkOutcome, LinkPlan, LinkPlanBuilder, LinkPolicy,
-        LinkStatus, LinkTarget, LinkedArtifact, LinkedArtifactKind,
-        LinkedArtifactRequirement, LinkedProductKind, Linker, LinkerDriver,
-        LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
-        SectionGarbageCollectionPolicy, StagingDestination,
-        StagingDestinationId, StagingPathKey,
+        BinarySymbolName, DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId, LinkInputKind,
+        LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome, LinkPlan,
+        LinkPlanBuilder, LinkPolicy, LinkStatus, LinkTarget, LinkedArtifact, LinkedArtifactKind,
+        LinkedArtifactRequirement, LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity,
+        LinkerDriverKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
+        StagingDestination, StagingDestinationId, StagingPathKey,
     };
     use bray_runtime_interface::{
-        ProtectedAsyncFrameId, RootExecution, RuntimeAbiRole, RuntimeAbiVersion,
-        RuntimeArtifactId, RuntimeCapability, RuntimeRoleImplementation,
+        ProtectedAsyncFrameId, RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId,
+        RuntimeCapability, RuntimeRoleImplementation,
     };
     use bray_symbols::{ProductIdentity, ProductKind};
-    use bray_target::{
-        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture,
-        TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
-    };
     use bray_target::test_support::test_target_profile;
-    use bray_testing::{
-        TemporaryFile, test_async_executable_host_contract_for,
+    use bray_target::{
+        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
+        TargetOutputDescription, TargetOutputKind, TargetOutputName,
     };
+    use bray_testing::{TemporaryFile, test_async_executable_host_contract_for};
 
     use super::Compilation;
     use crate::test_support::{package_identity, source_input};
     use crate::{
-        CancellationToken, CompilationOptions, CompilationRequest,
-        SelectedTarget, WorkerBudget,
+        CancellationToken, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
     };
 
     #[test]
@@ -219,10 +208,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut builder = plan_builder(
-            LinkedProductKind::Executable,
-            DebugLinkPolicy::Companion,
-        );
+        let mut builder = plan_builder(LinkedProductKind::Executable, DebugLinkPolicy::Companion);
 
         builder.push_input(file_input(
             0,
@@ -338,10 +324,7 @@ mod tests {
             }
         );
 
-        assert_eq!(
-            executable_host.abi_version(),
-            RuntimeAbiVersion::new(1, 0)
-        );
+        assert_eq!(executable_host.abi_version(), RuntimeAbiVersion::new(1, 0));
 
         assert_eq!(executable_host.runtime_artifact(), Some(&runtime));
 
@@ -398,11 +381,7 @@ mod tests {
 
         std::thread::scope(|scope| {
             let operation = scope.spawn(|| {
-                compilation.link_product_with_cancellation(
-                    &linker,
-                    &plan,
-                    &cancellation,
-                )
+                compilation.link_product_with_cancellation(&linker, &plan, &cancellation)
             });
 
             rendezvous.wait();
@@ -412,9 +391,7 @@ mod tests {
             let outcome = operation
                 .join()
                 .unwrap_or_else(|_| panic!("cancelled test link must not terminate"))
-                .unwrap_or_else(|error| {
-                    panic!("cancelled test link must return: {error:?}")
-                });
+                .unwrap_or_else(|error| panic!("cancelled test link must return: {error:?}"));
 
             assert_eq!(outcome.status(), &LinkStatus::Cancelled);
             assert_eq!(outcome.artifacts(), None);
@@ -481,16 +458,14 @@ mod tests {
             let first_compilation = compilation.clone();
             let first_linker = Arc::clone(&linker);
 
-            let first = scope.spawn(move || {
-                first_compilation.link_product(&first_linker, &first_plan)
-            });
+            let first =
+                scope.spawn(move || first_compilation.link_product(&first_linker, &first_plan));
 
             let second_compilation = compilation.clone();
             let second_linker = Arc::clone(&linker);
 
-            let second = scope.spawn(move || {
-                second_compilation.link_product(&second_linker, &second_plan)
-            });
+            let second =
+                scope.spawn(move || second_compilation.link_product(&second_linker, &second_plan));
 
             for result in [first.join(), second.join()] {
                 let outcome = result
@@ -535,10 +510,7 @@ mod tests {
     }
 
     fn executable_plan_for(input: &Path, output: &Path) -> LinkPlan {
-        let mut builder = plan_builder(
-            LinkedProductKind::Executable,
-            DebugLinkPolicy::None,
-        );
+        let mut builder = plan_builder(LinkedProductKind::Executable, DebugLinkPolicy::None);
 
         builder.push_input(
             LinkInput::try_new(
@@ -585,28 +557,20 @@ mod tests {
             BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         );
 
-        let backend = EmissionBackend::try_new(
-            backend,
-            capabilities,
-            [codegen_unit_key(1)],
-            policy,
-        )
-        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+        let backend =
+            EmissionBackend::try_new(backend, capabilities, [codegen_unit_key(1)], policy)
+                .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
 
         let output_names = [
             TargetOutputName::try_new(TargetOutputKind::RelocatableObject, "", ".o")
                 .unwrap_or_else(|error| panic!("test object output name must be valid: {error:?}")),
-            TargetOutputName::try_new(TargetOutputKind::Executable, "", "")
-                .unwrap_or_else(|error| {
-                    panic!("test executable output name must be valid: {error:?}")
-                }),
+            TargetOutputName::try_new(TargetOutputKind::Executable, "", "").unwrap_or_else(
+                |error| panic!("test executable output name must be valid: {error:?}"),
+            ),
         ];
 
-        let target = TargetOutputDescription::try_new(
-            test_target_profile(),
-            output_names,
-        )
-        .unwrap_or_else(|error| panic!("test target outputs must be valid: {error:?}"));
+        let target = TargetOutputDescription::try_new(test_target_profile(), output_names)
+            .unwrap_or_else(|error| panic!("test target outputs must be valid: {error:?}"));
 
         let request = EmissionRequest::try_new(
             product(),
@@ -628,10 +592,7 @@ mod tests {
     }
 
     fn shared_library_plan() -> LinkPlan {
-        let mut builder = plan_builder(
-            LinkedProductKind::SharedLibrary,
-            DebugLinkPolicy::None,
-        );
+        let mut builder = plan_builder(LinkedProductKind::SharedLibrary, DebugLinkPolicy::None);
 
         builder.push_input(file_input(
             0,
@@ -683,10 +644,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test link plan must be valid: {error:?}"))
     }
 
-    fn plan_builder(
-        product_kind: LinkedProductKind,
-        debug: DebugLinkPolicy,
-    ) -> LinkPlanBuilder {
+    fn plan_builder(product_kind: LinkedProductKind, debug: DebugLinkPolicy) -> LinkPlanBuilder {
         LinkPlanBuilder::new(
             product(),
             product_kind,
@@ -729,11 +687,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("test native library input must be valid: {error:?}"))
     }
 
-    fn planned_output(
-        ordinal: u32,
-        kind: LinkedArtifactKind,
-        path: &str,
-    ) -> PlannedLinkedArtifact {
+    fn planned_output(ordinal: u32, kind: LinkedArtifactKind, path: &str) -> PlannedLinkedArtifact {
         planned_output_for(ordinal, kind, Path::new(path))
     }
 
@@ -751,18 +705,11 @@ mod tests {
                     panic!("test staging destination must be valid: {error:?}")
                 });
 
-        PlannedLinkedArtifact::new(
-            kind,
-            LinkedArtifactRequirement::Required,
-            destination,
-        )
+        PlannedLinkedArtifact::new(kind, LinkedArtifactRequirement::Required, destination)
     }
 
     fn synchronous_host() -> bray_runtime_interface::ExecutableHostContract {
-        bray_testing::test_executable_host_contract_for(
-            product(),
-            link_target().identity().clone(),
-        )
+        bray_testing::test_executable_host_contract_for(product(), link_target().identity().clone())
     }
 
     fn product() -> ProductIdentity {
@@ -787,13 +734,8 @@ mod tests {
     }
 
     fn driver_identity() -> LinkerDriverIdentity {
-        LinkerDriverIdentity::try_new(
-            LinkerDriverKind::EmbeddedLld,
-            "lld",
-            "1",
-            "20",
-        )
-        .unwrap_or_else(|| panic!("test linker identity must be valid"))
+        LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "lld", "1", "20")
+            .unwrap_or_else(|| panic!("test linker identity must be valid"))
     }
 
     fn runtime_artifact_id() -> RuntimeArtifactId {
@@ -858,21 +800,14 @@ mod tests {
             true
         }
 
-        fn link(
-            &self,
-            plan: &LinkPlan,
-            _cancellation: &dyn Cancellation,
-        ) -> LinkOutcome {
+        fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
             self.plans
                 .lock()
                 .unwrap_or_else(|_| panic!("test plan log must remain available"))
                 .push(plan.clone());
 
             if !self.completes {
-                return LinkOutcome::failed(
-                    LinkFailure::Invocation,
-                    DiagnosticBag::new(),
-                );
+                return LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new());
             }
 
             if let Some(bytes) = self.published_bytes {
@@ -903,11 +838,7 @@ mod tests {
             true
         }
 
-        fn link(
-            &self,
-            plan: &LinkPlan,
-            _cancellation: &dyn Cancellation,
-        ) -> LinkOutcome {
+        fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
             self.rendezvous.wait();
             self.rendezvous.wait();
 
@@ -929,11 +860,7 @@ mod tests {
             true
         }
 
-        fn link(
-            &self,
-            plan: &LinkPlan,
-            _cancellation: &dyn Cancellation,
-        ) -> LinkOutcome {
+        fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
             let active = self.observation.active.fetch_add(1, Ordering::SeqCst) + 1;
 
             self.observation.maximum.fetch_max(active, Ordering::SeqCst);
@@ -973,13 +900,10 @@ mod tests {
             .and_then(NonZeroU64::new)
             .unwrap_or_else(|| panic!("test linked artifact length must be nonzero"));
 
-        let artifacts = plan.outputs().iter().map(|output| {
-            LinkedArtifact::new(
-                output.kind(),
-                output.destination().id(),
-                byte_len,
-            )
-        });
+        let artifacts = plan
+            .outputs()
+            .iter()
+            .map(|output| LinkedArtifact::new(output.kind(), output.destination().id(), byte_len));
 
         LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new())
             .unwrap_or_else(|error| panic!("test link must complete: {error:?}"))

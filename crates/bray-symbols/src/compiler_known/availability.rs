@@ -14,6 +14,7 @@ use super::{
     CompilerKnownSymbolProvider,
 };
 use crate::availability::resolve_owned_availability;
+use crate::provider::SymbolProvider;
 use crate::{AnySymbolId, ExactSymbolId};
 
 /// An immutable target-filtered view over one complete compiler-known symbol provider.
@@ -135,6 +136,73 @@ impl AvailableCompilerKnownSymbols {
         };
 
         I::try_from_any(symbol)
+    }
+
+    /// Instantiates an available unary generic representation with one type argument.
+    pub fn unary_representation_type(
+        &self,
+        values: &crate::SemanticValueStore,
+        role: RepresentationRole,
+        argument: crate::TypeId,
+    ) -> Option<crate::TypeId> {
+        let definition = self.representation_symbol::<crate::StructSymbolId>(role)?;
+        let symbol = self.provider().symbol(definition)?;
+
+        let [parameter] = symbol.generic_type_parameters() else {
+            return None;
+        };
+
+        let owner = crate::GenericOwnerId::try_new(definition.into())?;
+
+        let substitution = crate::GenericSubstitutionData::try_new(
+            owner,
+            [crate::GenericParameterSymbolId::Type(*parameter)],
+            [crate::GenericArgument::Type(argument)],
+        )
+        .ok()?;
+
+        let substitution = values.intern_generic_substitution(substitution).ok()?;
+
+        values
+            .intern_type(crate::TypeData::Named {
+                definition: crate::NamedTypeSymbolId::Struct(definition),
+                substitution,
+            })
+            .ok()
+    }
+
+    /// Decomposes an available unary generic representation into its type argument.
+    pub fn unary_representation_argument(
+        &self,
+        values: &crate::SemanticValueStore,
+        role: RepresentationRole,
+        ty: crate::TypeId,
+    ) -> Option<crate::TypeId> {
+        let definition = self.representation_symbol::<crate::StructSymbolId>(role)?;
+        let data = values.type_data(ty).ok()?;
+
+        let crate::TypeData::Named {
+            definition: crate::NamedTypeSymbolId::Struct(candidate),
+            substitution,
+        } = data.as_ref()
+        else {
+            return None;
+        };
+
+        if *candidate != definition {
+            return None;
+        }
+
+        let substitution = values.generic_substitution_data(*substitution).ok()?;
+
+        let [binding] = substitution.bindings() else {
+            return None;
+        };
+
+        match binding.argument() {
+            crate::GenericArgument::Type(argument) => Some(argument),
+            crate::GenericArgument::Constant(_) => None,
+        }
     }
 
     /// Returns an available special value carrying a representation role.
@@ -311,7 +379,7 @@ mod tests {
 
     use super::resolve_availability;
     use crate::compiler_known::test_support::{build_provider, declaration_key};
-    use crate::{FunctionSymbolId, StructSymbolId};
+    use crate::{FunctionSymbolId, SemanticValueStore, StructSymbolId, TypeData};
 
     #[test]
     fn views_filter_declarations_without_mutating_the_complete_provider() {
@@ -416,6 +484,41 @@ mod tests {
 
         assert_eq!(
             unavailable_copy.and_then(|symbol| view.symbol_implementation(symbol)),
+            None
+        );
+    }
+
+    #[test]
+    fn unary_representation_construction_and_decomposition_are_inverse() {
+        let provider = Arc::new(build_provider());
+        let view = Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
+
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic values must initialize: {error:?}"));
+
+        let completion = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("completion type must intern: {error:?}"));
+
+        let future = view
+            .unary_representation_type(&values, RepresentationRole::Future, completion)
+            .unwrap_or_else(|| panic!("Future must be available"));
+
+        assert_eq!(
+            view.unary_representation_argument(
+                &values,
+                RepresentationRole::Future,
+                future,
+            ),
+            Some(completion)
+        );
+
+        assert_eq!(
+            view.unary_representation_argument(
+                &values,
+                RepresentationRole::Task,
+                future,
+            ),
             None
         );
     }

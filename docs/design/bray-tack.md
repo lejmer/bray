@@ -41,7 +41,7 @@ workspace-local manifest names rather than host inference.
 ## Tool Integration
 
 Formatter and language-server implementations are linked through the narrow `TackFormatService`
-and `TackLanguageServerService` contracts in `bray-driver`. A binary without the owning service
+and `TackLanguageServerService` contracts in the `bray` package. A binary without the owning service
 reports that capability as unavailable. Bray Tack does not contain substitute formatting or
 language-server logic.
 

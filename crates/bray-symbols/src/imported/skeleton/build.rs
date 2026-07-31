@@ -226,6 +226,18 @@ fn build_relationships(
             index.allow_mutation(member);
         }
 
+        if relationship.position() == crate::CallablePosition::PositionalOrNamed {
+            if !matches!(member, AnySymbolId::UnionPayloadField(_)) {
+                return Err(ImportedSymbolSkeletonBuildError::InvalidRelationshipKinds {
+                    relationship: relationship.kind(),
+                    owner: owner.kind(),
+                    member: member.kind(),
+                });
+            }
+
+            index.allow_positional(member);
+        }
+
         if relationship.kind() != SymbolRelationshipKind::OverloadArm {
             if containers.get(&member).copied().flatten() != Some(owner) {
                 return Err(

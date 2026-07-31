@@ -353,8 +353,12 @@ fn require_backend_neutral_boundaries(workspace: &RustWorkspace) -> Result<(), S
     ] {
         let contents = workspace.read_text(manifest)?;
 
+        let production_dependencies = contents
+            .split_once("[dev-dependencies]")
+            .map_or(contents.as_str(), |(production, _)| production);
+
         for forbidden in ["bray-codegen-llvm", "inkwell"] {
-            if contents.contains(forbidden) {
+            if production_dependencies.contains(forbidden) {
                 return Err(format!("{manifest} must not depend on {forbidden}"));
             }
         }

@@ -9,11 +9,13 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+bray-base = { path = "../crates/bray-base" }
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-diagnostics = { path = "../crates/bray-diagnostics" }
 bray-package-interface = { path = "../crates/bray-package-interface" }
 bray-runtime-interface = { path = "../crates/bray-runtime-interface" }
+bray-symbols = { path = "../crates/bray-symbols" }
 bray-target = { path = "../crates/bray-target" }
 rust-style = { path = "../tools/rust-style" }
 quote = "1"

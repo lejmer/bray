@@ -677,6 +677,10 @@ fn build_declarations(
             relationships.allow_mutation(symbol);
         }
 
+        if surface.signature().is_positional() {
+            relationships.allow_positional(symbol);
+        }
+
         add_member_entry(&mut member_entries, surface, symbol, owner);
 
         identities.push((
@@ -776,8 +780,8 @@ mod tests {
         build_provider, declaration_key, scope_key, struct_id,
     };
     use crate::{
-        CompilerKnownScopeSymbolId, FunctionSymbolId, StructSymbolId, SymbolKind, SymbolOrigin,
-        SymbolProvider, TrustedCapabilitySymbolId,
+        CallablePosition, CompilerKnownScopeSymbolId, FunctionSymbolId, StructSymbolId, SymbolKind,
+        SymbolOrigin, SymbolProvider, TrustedCapabilitySymbolId, UnionPayloadFieldSymbolId,
     };
 
     #[test]
@@ -892,6 +896,25 @@ mod tests {
         };
 
         assert_eq!(memory_copy.origin(), SymbolOrigin::CompilerProvided);
+
+        let error_field_key = declaration_key("ResultVariant1ErrorError");
+
+        let Some(error_field_id) =
+            provider.declaration_symbol::<UnionPayloadFieldSymbolId>(&error_field_key)
+        else {
+            panic!("Result.Error payload field must have a symbol");
+        };
+
+        let Some(error_field) =
+            SymbolProvider::<UnionPayloadFieldSymbolId>::symbol(&provider, error_field_id)
+        else {
+            panic!("Result.Error payload field record must resolve");
+        };
+
+        assert_eq!(
+            error_field.position(),
+            CallablePosition::PositionalOrNamed
+        );
     }
 
     #[test]

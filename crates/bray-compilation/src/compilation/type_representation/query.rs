@@ -100,7 +100,7 @@ impl Compilation {
 
                 DeclaredTypeDefinition::structure(
                     subject,
-                    symbol_span(record.syntax_anchor())?,
+                    symbol_span(facts.symbols(), subject.into_any(), record.syntax_anchor())?,
                     fields,
                     directives.value().clone(),
                     !surface.value().lifecycle_members().is_empty(),
@@ -114,6 +114,9 @@ impl Compilation {
                     .union(id)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
+                let span =
+                    symbol_span(facts.symbols(), subject.into_any(), record.syntax_anchor())?;
+
                 let variants = record
                     .variants()
                     .iter()
@@ -124,7 +127,7 @@ impl Compilation {
 
                 DeclaredTypeDefinition::union(
                     subject,
-                    symbol_span(record.syntax_anchor())?,
+                    span,
                     variants,
                     directives.value().clone(),
                     !surface.value().lifecycle_members().is_empty(),
@@ -156,7 +159,7 @@ impl Compilation {
 
         Ok(DeclaredStorageMember::new(
             ty.value().clone(),
-            symbol_span(record.syntax_anchor())?,
+            symbol_span(facts.symbols(), field.into(), record.syntax_anchor())?,
             record.is_recovered(),
         ))
     }
@@ -172,6 +175,8 @@ impl Compilation {
             .union_variant(variant)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
+        let span = symbol_span(facts.symbols(), variant.into(), record.syntax_anchor())?;
+
         let directives = self.declaration_directives(variant.into())?;
 
         diagnostics.add_range(directives.diagnostics().iter().cloned());
@@ -184,7 +189,7 @@ impl Compilation {
 
         Ok(DeclaredUnionVariant::new(
             variant,
-            symbol_span(record.syntax_anchor())?,
+            span,
             payload,
             directives.value().clone(),
             record.is_recovered(),
@@ -210,7 +215,7 @@ impl Compilation {
 
         Ok(DeclaredStorageMember::new(
             ty.value().clone(),
-            symbol_span(record.syntax_anchor())?,
+            symbol_span(facts.symbols(), field.into(), record.syntax_anchor())?,
             record.is_recovered(),
         ))
     }

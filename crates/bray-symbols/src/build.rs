@@ -259,6 +259,15 @@ fn push_source_symbols(
             graph.allow_member_mutation(id);
         }
 
+        if declaration.kind() == DeclarationKind::UnionPayloadField
+            && declaration
+                .surface()
+                .modifiers()
+                .contains(&SyntaxKind::PosKeyword)
+        {
+            graph.allow_positional_member(id);
+        }
+
         if let Some(owner) = receiver_owner(id, declaration.surface().has_static_modifier()) {
             let receiver_id = ReceiverParameterSymbolId::from_symbol_id(allocator.next()?);
 
@@ -599,9 +608,10 @@ mod tests {
     use crate::surface_kind::{DeclarationSurfaceKind, declaration_symbol_kind};
     use crate::test_support::{declaration_chunk, declaration_table};
     use crate::{
-        AnySymbolId, CallableSymbolId, CompilerKnownEnvironmentSymbolId, FunctionSymbolId,
-        MemberLookupResult, ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence,
-        SymbolGraph, SymbolId, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRecordId,
+        AnySymbolId, CallablePosition, CallableSymbolId, CompilerKnownEnvironmentSymbolId,
+        FunctionSymbolId, MemberLookupResult, ModuleOwnerId, ModulePathKey, PackageIdentity,
+        RuntimeDefaultPresence, SymbolGraph, SymbolId, SymbolKind, SymbolOrigin, SymbolProvider,
+        SymbolRecordId,
     };
 
     #[test]
@@ -761,7 +771,7 @@ mod tests {
         let table = declaration_table(&[concat!(
             "module app; ",
             "struct Point<T> { mut x: T; } ",
-            "union Maybe { Some(mut value: Int); } ",
+            "union Maybe { Some(pos mut value: Int); } ",
             "func make(value: Int) {}",
         )]);
 
@@ -811,6 +821,7 @@ mod tests {
 
         assert_eq!(variant.containing_symbol(), union.id().into());
         assert_eq!(payload.containing_symbol(), variant.id().into());
+        assert_eq!(payload.position(), CallablePosition::PositionalOrNamed);
         assert!(payload.allows_mutation());
 
         let function = source_function(&graph);

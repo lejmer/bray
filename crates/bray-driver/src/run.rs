@@ -2,12 +2,8 @@
 
 mod build;
 mod execute;
-mod status;
+mod output;
 
-pub(crate) use build::{
-    baseline_target_outputs, native_linker,
-    package_interface_export_request, run_build_command,
-};
+pub(crate) use build::run_build_command;
 pub use execute::{DriverRunResult, run, run_result};
-pub(crate) use execute::load_compilation;
-pub(crate) use status::exit_code_from_diagnostics;
+pub(crate) use output::{write_driver_output, write_driver_output_error};

@@ -329,7 +329,6 @@ fn at_generic_argument_expression_only_start(kind: SyntaxKind) -> bool {
                 | SyntaxKind::TildeToken
                 | SyntaxKind::TrueKeyword
                 | SyntaxKind::TupleElementIndexToken
-                | SyntaxKind::UnitKeyword
         )
 }
 
@@ -450,6 +449,26 @@ mod tests {
         assert_eq!(list.separator_tokens().count(), 2);
         assert_eq!(type_argument.type_expressions().count(), 1);
         assert_eq!(constant_argument.expressions().count(), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_treats_unit_as_a_type_generic_argument() {
+        let sources = source_store(["<unit>"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+
+        let list = parser.parse_generic_argument_list();
+        let diagnostics = parser.finish();
+        let arguments = list.generic_arguments().collect::<Vec<_>>();
+
+        let [argument] = arguments.as_slice() else {
+            panic!("expected one generic argument");
+        };
+
+        assert_eq!(argument.type_expressions().count(), 1);
+        assert_eq!(argument.expressions().count(), 0);
         assert!(diagnostics.is_empty());
     }
 

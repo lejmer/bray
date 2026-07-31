@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_symbols::{
-    ImportedPackageIdentitySurface, ImportedSymbolIdentityInput, InterfaceSymbolId, SymbolKind,
-    SymbolName,
+    CallablePosition, ImportedPackageIdentitySurface, ImportedSymbolIdentityInput,
+    InterfaceSymbolId, SymbolKind, SymbolName,
 };
 
 use super::{
@@ -145,6 +145,14 @@ fn canonical_relationships(
                 member.kind(),
                 SymbolKind::StructField | SymbolKind::UnionPayloadField
             )
+        {
+            return Err(PackageInterfaceSurfaceBuildError::InvalidRelationship(
+                *relationship,
+            ));
+        }
+
+        if relationship.position() == CallablePosition::PositionalOrNamed
+            && member.kind() != SymbolKind::UnionPayloadField
         {
             return Err(PackageInterfaceSurfaceBuildError::InvalidRelationship(
                 *relationship,

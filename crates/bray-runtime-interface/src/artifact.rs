@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::NonEmptySharedStr;
+use bray_base::{NonEmptySharedStr, shared_slice};
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +74,7 @@ pub struct RuntimeArtifactMetadata {
     contract: RuntimeContract,
     archive_file_name: NonEmptySharedStr,
     archive_digest: RuntimeArtifactDigest,
+    native_links: Arc<[NativeLinkRequirement]>,
 }
 
 impl RuntimeArtifactMetadata {
@@ -96,7 +98,18 @@ impl RuntimeArtifactMetadata {
             contract,
             archive_file_name,
             archive_digest,
+            native_links: Arc::from([]),
         })
+    }
+
+    /// Returns metadata with the native link requirements needed by the runtime archive.
+    pub fn with_native_links(
+        mut self,
+        native_links: impl IntoIterator<Item = NativeLinkRequirement>,
+    ) -> Self {
+        self.native_links = shared_slice(native_links);
+
+        self
     }
 
     /// Decodes and validates one bounded JSON metadata document.
@@ -144,6 +157,11 @@ impl RuntimeArtifactMetadata {
         self.archive_digest
     }
 
+    /// Returns native libraries and frameworks required by the runtime archive.
+    pub fn native_links(&self) -> &[NativeLinkRequirement] {
+        &self.native_links
+    }
+
     fn from_wire(
         wire: ArtifactWire,
     ) -> Result<Self, RuntimeArtifactMetadataDecodeError> {
@@ -179,6 +197,12 @@ impl RuntimeArtifactMetadata {
             .map(RoleWire::into_binding)
             .collect::<Result<Vec<_>, _>>()?;
 
+        let native_links = wire
+            .native_links
+            .into_iter()
+            .map(NativeLinkWire::into_requirement)
+            .collect::<Result<Vec<_>, _>>()?;
+
         let contract = RuntimeContract::try_new(
             identity,
             artifact,
@@ -195,6 +219,7 @@ impl RuntimeArtifactMetadata {
             .ok_or(RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest)?;
 
         Self::try_new(contract, wire.archive.file, digest)
+            .map(|metadata| metadata.with_native_links(native_links))
             .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
 }
@@ -285,6 +310,10 @@ pub enum RuntimeArtifactMetadataDecodeError {
     InvalidRoleSymbol,
     /// A role implementation boundary is unknown.
     UnknownRoleImplementation,
+    /// A native link requirement has an empty name.
+    InvalidNativeLinkName,
+    /// A native link requirement has an unknown category.
+    UnknownNativeLinkKind,
     /// The archive digest is not a 32-byte lowercase hexadecimal value.
     InvalidArchiveDigest,
     /// The runtime contract is internally inconsistent.
@@ -315,6 +344,7 @@ struct ArtifactWire {
     panic_abi: String,
     capabilities: Vec<String>,
     roles: Vec<RoleWire>,
+    native_links: Vec<NativeLinkWire>,
     archive: ArchiveWire,
 }
 
@@ -340,6 +370,11 @@ impl ArtifactWire {
                 .role_bindings()
                 .iter()
                 .map(RoleWire::from_binding)
+                .collect(),
+            native_links: metadata
+                .native_links()
+                .iter()
+                .map(NativeLinkWire::from_requirement)
                 .collect(),
             archive: ArchiveWire {
                 file: metadata.archive_file_name().to_owned(),
@@ -450,6 +485,34 @@ impl RoleWire {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct NativeLinkWire {
+    name: String,
+    kind: String,
+}
+
+impl NativeLinkWire {
+    fn from_requirement(requirement: &NativeLinkRequirement) -> Self {
+        Self {
+            name: requirement.name().to_owned(),
+            kind: requirement.kind().as_str().to_owned(),
+        }
+    }
+
+    fn into_requirement(
+        self,
+    ) -> Result<NativeLinkRequirement, RuntimeArtifactMetadataDecodeError> {
+        let name = NonEmptySharedStr::try_new(self.name)
+            .ok_or(RuntimeArtifactMetadataDecodeError::InvalidNativeLinkName)?;
+
+        let kind = NativeLinkKind::for_name(&self.kind)
+            .ok_or(RuntimeArtifactMetadataDecodeError::UnknownNativeLinkKind)?;
+
+        Ok(NativeLinkRequirement::new(name, kind))
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ArchiveWire {
     file: String,
     digest: String,
@@ -471,6 +534,8 @@ fn is_file_name(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use bray_base::NonEmptySharedStr;
+    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
 
     use super::{
@@ -592,6 +657,13 @@ mod tests {
             "bray_runtime.lib",
             RuntimeArtifactDigest::new([7; 32]),
         )
+        .map(|metadata| {
+            metadata.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("userenv")
+                    .unwrap_or_else(|| panic!("test native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
         .unwrap_or_else(|error| panic!("test metadata must be valid: {error:?}"))
     }
 

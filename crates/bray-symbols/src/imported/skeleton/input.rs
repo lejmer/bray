@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    ExternalSymbolKey, ImportedInterfaceId, ImportedPackageIdentitySurface, InterfaceSymbolId,
-    SymbolName, SymbolRelationshipKind,
+    CallablePosition, ExternalSymbolKey, ImportedInterfaceId, ImportedPackageIdentitySurface,
+    InterfaceSymbolId, SymbolName, SymbolRelationshipKind,
 };
 
 /// One owner-relative relationship in an imported interface surface.
@@ -14,6 +14,7 @@ pub struct ImportedSymbolRelationship {
     owner: InterfaceSymbolId,
     member: InterfaceSymbolId,
     ordinal: u32,
+    position: CallablePosition,
     allows_mutation: bool,
 }
 
@@ -30,6 +31,7 @@ impl ImportedSymbolRelationship {
             owner,
             member,
             ordinal,
+            position: CallablePosition::NamedOnly,
             allows_mutation: false,
         }
     }
@@ -37,6 +39,13 @@ impl ImportedSymbolRelationship {
     /// Marks the related field as permitting mutation after initialization.
     pub const fn with_mutation(mut self) -> Self {
         self.allows_mutation = true;
+
+        self
+    }
+
+    /// Sets the related payload field's call-position permission.
+    pub const fn with_position(mut self, position: CallablePosition) -> Self {
+        self.position = position;
 
         self
     }
@@ -59,6 +68,11 @@ impl ImportedSymbolRelationship {
     /// Returns the owner-relative position.
     pub const fn ordinal(self) -> u32 {
         self.ordinal
+    }
+
+    /// Returns the related payload field's call-position permission.
+    pub const fn position(self) -> CallablePosition {
+        self.position
     }
 
     /// Returns whether the related field permits mutation after initialization.

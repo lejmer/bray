@@ -1,18 +1,45 @@
+/// Stable symbol executing one compiler-generated root frame.
+pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
+
+/// Stable symbol executing one synchronous root behind a panic boundary.
+pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_root_execution_v1";
+
+/// Stable symbol requesting cancellation of the host-owned root run.
+pub const ROOT_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_root_cancellation_request_v1";
+
+/// Stable symbol observing the host-owned root terminal record.
+pub const ROOT_TERMINAL_OBSERVATION_SYMBOL: &str = "bray_runtime_root_terminal_observation_v1";
+
+/// Stable symbol releasing runtime-owned root completion storage.
+pub const ROOT_COMPLETION_RESOLUTION_SYMBOL: &str = "bray_runtime_root_completion_resolution_v1";
+
+/// Stable symbol reporting and resolving one root panic payload.
+pub const PANIC_REPORTING_SYMBOL: &str = "bray_runtime_panic_reporting_v1";
+
+/// Stable symbol constructing one runtime-owned panic report.
+pub const PANIC_REPORT_CONSTRUCTION_SYMBOL: &str = "bray_runtime_panic_report_construction_v1";
+
+/// Stable symbol propagating one owned panic report to a native run boundary.
+pub const PANIC_PROPAGATION_SYMBOL: &str = "bray_runtime_panic_propagation_v1";
+
+/// Stable symbol reporting one recoverable entrypoint failure.
+pub const ENTRY_FAILURE_REPORTING_SYMBOL: &str = "bray_runtime_entry_failure_reporting_v1";
+
+/// Stable symbol draining and reporting host-owned cleanup incidents.
+pub const CLEANUP_INCIDENT_REPORTING_SYMBOL: &str = "bray_runtime_cleanup_incident_reporting_v1";
+
 /// Stable symbol initializing the distinguished main-thread runtime lane.
-pub const MAIN_THREAD_LANE_STARTUP_SYMBOL: &str =
-    "bray_runtime_main_thread_lane_startup_v1";
+pub const MAIN_THREAD_LANE_STARTUP_SYMBOL: &str = "bray_runtime_main_thread_lane_startup_v1";
 
 /// Stable symbol driving one callback on the distinguished main-thread runtime lane.
-pub const MAIN_THREAD_LANE_DRIVE_SYMBOL: &str =
-    "bray_runtime_main_thread_lane_drive_v1";
+pub const MAIN_THREAD_LANE_DRIVE_SYMBOL: &str = "bray_runtime_main_thread_lane_drive_v1";
 
 /// Stable symbol observing cancellation for the current run.
 pub const CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL: &str =
     "bray_runtime_current_run_cancellation_observation_v1";
 
 /// Stable symbol shutting down the initialized runtime infrastructure.
-pub const STRUCTURED_SHUTDOWN_SYMBOL: &str =
-    "bray_runtime_structured_shutdown_v1";
+pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown_v1";
 
 /// Stable symbol allocating runtime-owned task storage.
 pub const TASK_ALLOCATION_SYMBOL: &str = "bray_runtime_task_allocation_v1";
@@ -20,31 +47,32 @@ pub const TASK_ALLOCATION_SYMBOL: &str = "bray_runtime_task_allocation_v1";
 /// Stable symbol publishing an allocated task for execution.
 pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v1";
 
+/// Stable symbol transferring one inactive frame into the current task.
+pub const AWAITED_FRAME_COMPOSITION_SYMBOL: &str = "bray_runtime_awaited_frame_composition_v1";
+
+/// Stable symbol acquiring one completed directly awaited value.
+pub const FRAME_COMPLETION_MOVE_SYMBOL: &str = "bray_runtime_frame_completion_move_v1";
+
 /// Stable symbol constructing a suspended frame result.
-pub const SUSPENSION_REGISTRATION_SYMBOL: &str =
-    "bray_runtime_suspension_registration_v1";
+pub const SUSPENSION_REGISTRATION_SYMBOL: &str = "bray_runtime_suspension_registration_v1";
 
 /// Stable symbol waking one suspended task state.
 pub const WAKE_SYMBOL: &str = "bray_runtime_wake_v1";
 
 /// Stable symbol requesting cancellation of one task.
-pub const TASK_CANCELLATION_REQUEST_SYMBOL: &str =
-    "bray_runtime_task_cancellation_request_v1";
+pub const TASK_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_task_cancellation_request_v1";
 
 /// Stable symbol registering an observer for one task terminal state.
-pub const JOIN_REGISTRATION_SYMBOL: &str =
-    "bray_runtime_join_registration_v1";
+pub const JOIN_REGISTRATION_SYMBOL: &str = "bray_runtime_join_registration_v1";
 
 /// Stable symbol constructing a terminal frame result.
-pub const TERMINAL_PUBLICATION_SYMBOL: &str =
-    "bray_runtime_terminal_publication_v1";
+pub const TERMINAL_PUBLICATION_SYMBOL: &str = "bray_runtime_terminal_publication_v1";
 
 /// Stable symbol entering one runtime callback root.
 pub const RUNTIME_EVENT_SYMBOL: &str = "bray_runtime_event_v1";
 
 /// Stable symbol selecting the lane for one task state.
-pub const COMPATIBLE_LANE_SELECTION_SYMBOL: &str =
-    "bray_runtime_compatible_lane_selection_v1";
+pub const COMPATIBLE_LANE_SELECTION_SYMBOL: &str = "bray_runtime_compatible_lane_selection_v1";
 
 /// Status returned by native runtime operations.
 #[repr(transparent)]
@@ -137,6 +165,88 @@ impl NativeRunState {
 pub struct NativeRunOutcome {
     state: NativeRunState,
     payload: usize,
+}
+
+/// Borrowed UTF-8 message accepted by the panic-report construction ABI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativeStringView {
+    data: *const u8,
+    length: usize,
+}
+
+impl NativeStringView {
+    /// Creates one borrowed byte view.
+    pub const fn new(data: *const u8, length: usize) -> Self {
+        Self { data, length }
+    }
+
+    /// Returns the borrowed byte address.
+    pub const fn data(self) -> *const u8 {
+        self.data
+    }
+
+    /// Returns the borrowed byte length.
+    pub const fn length(self) -> usize {
+        self.length
+    }
+}
+
+/// Callback invoking one synchronous source root and writing its normal result.
+pub type NativeSynchronousRootCallback = extern "C-unwind" fn(destination: usize);
+
+/// Stable process-local handle for one host-owned executable root.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NativeRootHandle(u64);
+
+impl NativeRootHandle {
+    /// Creates one nonzero native root handle.
+    pub const fn new(value: u64) -> Option<Self> {
+        if value == 0 {
+            return None;
+        }
+
+        Some(Self(value))
+    }
+
+    /// Returns the process-local handle value.
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+/// Result of transferring one generated frame into a host-owned root run.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativeRootStart {
+    status: NativeRuntimeStatus,
+    root: u64,
+}
+
+impl NativeRootStart {
+    /// Creates one successful root transfer.
+    pub const fn success(root: NativeRootHandle) -> Self {
+        Self {
+            status: NativeRuntimeStatus::SUCCESS,
+            root: root.raw(),
+        }
+    }
+
+    /// Creates one failed root transfer without a usable handle.
+    pub const fn failure(status: NativeRuntimeStatus) -> Self {
+        Self { status, root: 0 }
+    }
+
+    /// Returns the root-transfer status.
+    pub const fn status(self) -> NativeRuntimeStatus {
+        self.status
+    }
+
+    /// Returns the root handle after success.
+    pub const fn root(self) -> Option<NativeRootHandle> {
+        NativeRootHandle::new(self.root)
+    }
 }
 
 impl NativeRunOutcome {
@@ -325,11 +435,7 @@ pub struct NativeFrameProgress {
 
 impl NativeFrameProgress {
     /// Creates one frame progress record.
-    pub const fn new(
-        kind: NativeFrameProgressKind,
-        state: u32,
-        payload: usize,
-    ) -> Self {
+    pub const fn new(kind: NativeFrameProgressKind, state: u32, payload: usize) -> Self {
         Self {
             kind,
             state,
@@ -370,21 +476,27 @@ impl NativeFrameExit {
 }
 
 /// Callback returning runtime-visible facts for one frame-state ordinal.
-pub type NativeFrameStateCallback =
-    extern "C" fn(context: usize, state: u32) -> NativeFrameState;
+pub type NativeFrameStateCallback = extern "C" fn(context: usize, state: u32) -> NativeFrameState;
 
 /// Callback entering or resuming one compiler-generated frame.
-pub type NativeFrameResumeCallback = extern "C" fn(
-    context: usize,
-    cancellation_requested: u8,
-) -> NativeFrameProgress;
+pub type NativeFrameResumeCallback = extern "C-unwind" fn(context: usize) -> NativeFrameProgress;
+
+/// Callback entering generated cancellation cleanup for one frame.
+pub type NativeFrameCancellationCallback =
+    extern "C-unwind" fn(context: usize) -> NativeFrameProgress;
 
 /// Callback performing one infallible generated frame action.
-pub type NativeFrameActionCallback = extern "C" fn(context: usize);
+pub type NativeFrameActionCallback = extern "C-unwind" fn(context: usize);
+
+/// Callback moving a generated completion value into runtime-owned storage.
+pub type NativeFrameCompletionMoveCallback =
+    extern "C-unwind" fn(context: usize, destination: usize);
+
+/// Callback consuming an inactive context into a protected-frame adapter.
+pub type NativeFrameMoveBeforeStartCallback = extern "C" fn(context: usize) -> NativeProtectedFrame;
 
 /// Callback resolving generated frame lifecycle state for one terminal exit.
-pub type NativeFrameResolveCallback =
-    extern "C" fn(context: usize, exit: NativeFrameExit);
+pub type NativeFrameResolveCallback = extern "C-unwind" fn(context: usize, exit: NativeFrameExit);
 
 /// Complete ABI-safe adapter for one compiler-generated protected frame.
 #[repr(C)]
@@ -399,8 +511,10 @@ pub struct NativeProtectedFrame {
     completion_alignment: usize,
     state: NativeFrameStateCallback,
     resume: NativeFrameResumeCallback,
+    cancel: NativeFrameCancellationCallback,
     broadcast_tasks: NativeFrameActionCallback,
     resolve_lifecycle: NativeFrameResolveCallback,
+    move_completion: NativeFrameCompletionMoveCallback,
     destroy: NativeFrameActionCallback,
 }
 
@@ -420,8 +534,10 @@ impl NativeProtectedFrame {
         completion_alignment: usize,
         state: NativeFrameStateCallback,
         resume: NativeFrameResumeCallback,
+        cancel: NativeFrameCancellationCallback,
         broadcast_tasks: NativeFrameActionCallback,
         resolve_lifecycle: NativeFrameResolveCallback,
+        move_completion: NativeFrameCompletionMoveCallback,
         destroy: NativeFrameActionCallback,
     ) -> Self {
         Self {
@@ -434,8 +550,10 @@ impl NativeProtectedFrame {
             completion_alignment,
             state,
             resume,
+            cancel,
             broadcast_tasks,
             resolve_lifecycle,
+            move_completion,
             destroy,
         }
     }
@@ -485,6 +603,11 @@ impl NativeProtectedFrame {
         self.resume
     }
 
+    /// Returns the cancellation-entry callback.
+    pub const fn cancel(&self) -> NativeFrameCancellationCallback {
+        self.cancel
+    }
+
     /// Returns the task-broadcast callback.
     pub const fn broadcast_tasks(&self) -> NativeFrameActionCallback {
         self.broadcast_tasks
@@ -495,9 +618,62 @@ impl NativeProtectedFrame {
         self.resolve_lifecycle
     }
 
+    /// Returns the completion-move callback.
+    pub const fn move_completion(&self) -> NativeFrameCompletionMoveCallback {
+        self.move_completion
+    }
+
     /// Returns the frame-destruction callback.
     pub const fn destroy(&self) -> NativeFrameActionCallback {
         self.destroy
+    }
+}
+
+/// One-shot address transferring a protected frame into the native runtime.
+///
+/// The caller must keep the referenced descriptor alive until the runtime call
+/// returns and must not use its generated-frame context after the call. The
+/// runtime copies the descriptor immediately and owns destruction from that
+/// point, including when validation or task publication fails.
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct NativeProtectedFrameTransfer(usize);
+
+impl NativeProtectedFrameTransfer {
+    /// Creates a transfer for a descriptor that remains live during the call.
+    pub fn new(frame: &NativeProtectedFrame) -> Self {
+        Self(frame as *const NativeProtectedFrame as usize)
+    }
+
+    /// Returns the address of the transferred descriptor.
+    pub const fn address(&self) -> usize {
+        self.0
+    }
+}
+
+/// One inactive compiler-generated frame whose ownership has not entered the runtime.
+#[repr(C)]
+#[derive(Debug)]
+pub struct NativeInactiveFrame {
+    context: usize,
+    move_before_start: NativeFrameMoveBeforeStartCallback,
+}
+
+impl NativeInactiveFrame {
+    /// Creates an inactive frame ownership transfer.
+    pub const fn new(
+        context: usize,
+        move_before_start: NativeFrameMoveBeforeStartCallback,
+    ) -> Self {
+        Self {
+            context,
+            move_before_start,
+        }
+    }
+
+    /// Consumes the inactive frame and transfers its context into the adapter.
+    pub fn into_protected(self) -> NativeProtectedFrame {
+        (self.move_before_start)(self.context)
     }
 }
 
@@ -559,5 +735,4 @@ impl NativeExecutionLaneResult {
 }
 
 /// Runtime event callback accepted by the native artifact.
-pub type NativeRuntimeEventCallback =
-    extern "C" fn(context: usize) -> NativeRuntimeStatus;
+pub type NativeRuntimeEventCallback = extern "C" fn(context: usize) -> NativeRuntimeStatus;

@@ -5,7 +5,7 @@ use bray_diagnostics::DiagnosticBag;
 
 use super::response::{SystemLinkerInvocationBuildError, invocation};
 use super::{SystemLinkerConfiguration, SystemLinkerFamily};
-use crate::command::arguments_for;
+use crate::command::system_arguments_for;
 use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
@@ -66,7 +66,7 @@ impl LinkerDriver for SystemLinkerDriver {
             return failed_outcome(failure);
         }
 
-        let arguments = match arguments_for(plan, self.family().flavor()) {
+        let arguments = match system_arguments_for(plan, self.family()) {
             Ok(arguments) => arguments,
             Err(_) => {
                 return failed_outcome(LinkFailure::DriverIncompatible);
@@ -108,9 +108,7 @@ fn outcome_from_invocation_error(error: SystemLinkerInvocationBuildError) -> Lin
         | SystemLinkerInvocationBuildError::MissingPrimaryOutput => {
             failed_outcome(LinkFailure::ResponseFile)
         }
-        SystemLinkerInvocationBuildError::Invocation(_) => {
-            failed_outcome(LinkFailure::Invocation)
-        }
+        SystemLinkerInvocationBuildError::Invocation(_) => failed_outcome(LinkFailure::Invocation),
         SystemLinkerInvocationBuildError::NonUnicodeArgument
         | SystemLinkerInvocationBuildError::UnsupportedArgument => {
             failed_outcome(LinkFailure::DriverIncompatible)
@@ -130,9 +128,7 @@ mod tests {
     use bray_testing::TemporaryFile;
 
     use super::{SystemLinkerDriver, SystemLinkerDriverBuildError};
-    use crate::test_support::{
-        RecordingExternalToolHost, TestOutput, planned_output, product,
-    };
+    use crate::test_support::{RecordingExternalToolHost, TestOutput, planned_output, product};
     use crate::{
         ExternalToolFailure, ExternalToolHost, ExternalToolOutput, LinkFailure, LinkInput,
         LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel,
@@ -210,10 +206,7 @@ mod tests {
             ]
         );
 
-        assert_eq!(
-            invocation.current_directory(),
-            Some(Path::new("toolchain"))
-        );
+        assert_eq!(invocation.current_directory(), Some(Path::new("toolchain")));
 
         assert_eq!(invocation.response_files().len(), 1);
 
@@ -348,10 +341,10 @@ mod tests {
             SystemLinkerFamily::Gnu,
             Arc::new(RecordingExternalToolHost::reporting(
                 ExternalToolOutput::new(
-                false,
-                Some(1),
-                b"tool stdout".as_slice(),
-                b"tool stderr".as_slice(),
+                    false,
+                    Some(1),
+                    b"tool stdout".as_slice(),
+                    b"tool stderr".as_slice(),
                 ),
             )),
         );
@@ -377,7 +370,11 @@ mod tests {
             Arc::clone(&host) as Arc<dyn ExternalToolHost>,
         );
 
-        assert_eq!(driver.link(&plan, &|| true).status(), &LinkStatus::Cancelled);
+        assert_eq!(
+            driver.link(&plan, &|| true).status(),
+            &LinkStatus::Cancelled
+        );
+
         assert!(host.invocations().is_empty());
     }
 
@@ -471,5 +468,4 @@ mod tests {
         LinkerDriverIdentity::try_new(kind, "configured-system-linker", "1", "toolchain-1")
             .unwrap_or_else(|| panic!("test linker identity must be valid"))
     }
-
 }

@@ -7,8 +7,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableExecution, CallableInstanceData, CallableSignature, CallableSignatureTemplate,
-    CallableTypeData, GenericArgument, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericSubstitutionId, NamedTypeSymbolId, StructSymbolId, SymbolProvider, TypeData,
+    CallableTypeData, GenericArgument, GenericSubstitutionData, GenericSubstitutionId, TypeData,
     TypeExpressionTemplate, TypeId,
 };
 
@@ -252,52 +251,18 @@ fn future_type<C>(
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
-    let Some(definition) = request
+    request
         .available_compiler_known_symbols()
-        .representation_symbol::<StructSymbolId>(RepresentationRole::Future)
-    else {
-        return Err(
+        .unary_representation_type(
+            request.semantic_values(),
+            RepresentationRole::Future,
+            completion,
+        )
+        .ok_or(
             CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
                 role: RepresentationRole::Future,
             },
-        );
-    };
-
-    let Some(symbol) = request
-        .available_compiler_known_symbols()
-        .provider()
-        .symbol(definition)
-    else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let [parameter] = symbol.generic_type_parameters() else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let Some(owner) = bray_symbols::GenericOwnerId::try_new(definition.into()) else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let substitution = GenericSubstitutionData::try_new(
-        owner,
-        [GenericParameterSymbolId::Type(*parameter)],
-        [GenericArgument::Type(completion)],
-    )
-    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    let substitution = request
-        .semantic_values()
-        .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    request
-        .semantic_values()
-        .intern_type(TypeData::Named {
-            definition: NamedTypeSymbolId::Struct(definition),
-            substitution,
-        })
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        )
 }
 
 pub(super) const fn candidate_state(

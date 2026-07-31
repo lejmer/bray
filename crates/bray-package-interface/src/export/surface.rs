@@ -89,13 +89,15 @@ fn resolve_relationships(
         .into_iter()
         .map(|relationship| {
             let allows_mutation = relationship.allows_mutation();
+            let position = relationship.position();
 
             let resolved = SymbolRelationship::new(
                 relationship.kind(),
                 resolve_symbol(symbols, relationship.owner())?,
                 resolve_symbol(symbols, relationship.member())?,
                 relationship.ordinal(),
-            );
+            )
+            .with_position(position);
 
             Ok(if allows_mutation {
                 resolved.with_mutation()

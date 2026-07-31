@@ -26,6 +26,29 @@ pub enum NativeLinkKind {
     Framework,
 }
 
+impl NativeLinkKind {
+    /// Returns the canonical language spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dynamic => "dynamic",
+            Self::Static => "static",
+            Self::System => "system",
+            Self::Framework => "framework",
+        }
+    }
+
+    /// Returns the link kind with the supplied canonical language spelling.
+    pub fn for_name(name: &str) -> Option<Self> {
+        match name {
+            "dynamic" => Some(Self::Dynamic),
+            "static" => Some(Self::Static),
+            "system" => Some(Self::System),
+            "framework" => Some(Self::Framework),
+            _ => None,
+        }
+    }
+}
+
 /// One validated native artifact requirement selected by `@link(...)`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct NativeLinkRequirement {

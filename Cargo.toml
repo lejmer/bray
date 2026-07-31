@@ -28,6 +28,7 @@ members = [
     "crates/bray-syntax",
     "crates/bray-target",
     "crates/bray-testing",
+    "crates/bray-tooling",
     "crates/bray",
     "crates/brayc",
     "tools/rust-style",

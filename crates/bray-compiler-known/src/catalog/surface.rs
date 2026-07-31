@@ -136,6 +136,7 @@ pub struct CatalogDeclarationSignature {
     predicate_parameters: u32,
     is_static: bool,
     is_mutable: bool,
+    is_positional: bool,
 }
 
 impl CatalogDeclarationSignature {
@@ -167,6 +168,11 @@ impl CatalogDeclarationSignature {
     /// Returns whether the declaration carries a direct `mut` modifier.
     pub const fn is_mutable(&self) -> bool {
         self.is_mutable
+    }
+
+    /// Returns whether the declaration carries a direct `pos` modifier.
+    pub const fn is_positional(&self) -> bool {
+        self.is_positional
     }
 }
 
@@ -242,6 +248,7 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
     let mut mutable_modifier_depth = None;
     let mut is_static = false;
     let mut is_mutable = false;
+    let mut is_positional = false;
 
     for element in elements {
         match element {
@@ -296,6 +303,9 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
 
                 is_mutable |=
                     mutable_modifier_depth == Some(depth) && token.kind() == SyntaxKind::MutKeyword;
+
+                is_positional |=
+                    mutable_modifier_depth == Some(depth) && token.kind() == SyntaxKind::PosKeyword;
 
                 if token.is_identifier()
                     && let Some((kind, _)) = generic_parameter.take()
@@ -370,6 +380,7 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
         predicate_parameters,
         is_static,
         is_mutable,
+        is_positional,
     }
 }
 

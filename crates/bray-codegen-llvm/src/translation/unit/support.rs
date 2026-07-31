@@ -137,8 +137,7 @@ fn physical_aggregate_element(
             .checked_add(1)
             .ok_or(CodegenFailure::ResourceExhausted)?;
 
-        let field_size = field_size(field)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let field_size = field_size(field).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         previous_end = field
             .offset_bytes()
@@ -159,14 +158,20 @@ pub(super) fn aggregate_value_element(
 }
 
 pub(super) fn integer_words(magnitude: &[u8]) -> Vec<u64> {
-    magnitude
+    let mut words: Vec<_> = magnitude
         .rchunks(8)
         .map(|chunk| {
             chunk
                 .iter()
                 .fold(0_u64, |word, byte| (word << 8) | u64::from(*byte))
         })
-        .collect()
+        .collect();
+
+    if words.is_empty() {
+        words.push(0);
+    }
+
+    words
 }
 
 pub(super) fn integer_constant<'context>(
@@ -210,7 +215,7 @@ pub(super) fn real_words(bits: RealConstantBits) -> Vec<u64> {
     }
 }
 
-pub(super) const fn pointer_value(value: BasicValueEnum<'_>) -> Option<PointerValue<'_>> {
+pub(crate) const fn pointer_value(value: BasicValueEnum<'_>) -> Option<PointerValue<'_>> {
     match value {
         BasicValueEnum::PointerValue(value) => Some(value),
         BasicValueEnum::ArrayValue(_)
@@ -285,7 +290,12 @@ mod tests {
     use bray_codegen::{CodegenFailure, CodegenFieldLayout};
     use bray_symbols::{SemanticValueStore, TypeData};
 
-    use super::physical_aggregate_element;
+    use super::{integer_words, physical_aggregate_element};
+
+    #[test]
+    fn zero_integer_constants_supply_one_llvm_word() {
+        assert_eq!(integer_words(&[]), [0]);
+    }
 
     #[test]
     fn aggregate_elements_account_for_field_size_before_padding() {
@@ -307,15 +317,9 @@ mod tests {
             CodegenFieldLayout::new(None, ty, 8),
         ];
 
-        assert_eq!(
-            physical_aggregate_element(&adjacent, 1, |_| Some(4)),
-            Ok(1)
-        );
+        assert_eq!(physical_aggregate_element(&adjacent, 1, |_| Some(4)), Ok(1));
 
-        assert_eq!(
-            physical_aggregate_element(&padded, 1, |_| Some(4)),
-            Ok(2)
-        );
+        assert_eq!(physical_aggregate_element(&padded, 1, |_| Some(4)), Ok(2));
 
         assert_eq!(
             physical_aggregate_element(&adjacent, 2, |_| Some(4)),

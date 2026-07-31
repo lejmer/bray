@@ -1,0 +1,83 @@
+use bray_codegen::{
+    CodegenInstanceBuildError, CodegenReachabilityBuildError,
+    CodegenTargetBuildError, CodegenUnitBuildError,
+};
+use bray_emitter::EmissionBackendBuildError;
+use bray_linker::{LinkInputBuildError, LinkTargetBuildError};
+use bray_runtime_interface::ExecutableHostContractBuildError;
+use bray_symbols::ProductKind;
+
+use crate::fact::FactQueryError;
+
+/// A failure to derive complete native product facts.
+#[derive(Debug)]
+pub enum NativeProductFactError {
+    /// The compilation has no selected code generation backend.
+    CodegenUnavailable,
+    /// The selected product has no executable code root.
+    MissingProductRoot,
+    /// Native test-product hosting is not available.
+    UnsupportedProductKind(ProductKind),
+    /// The checked executable entry result is inconsistent with product semantics.
+    InvalidEntryResult,
+    /// An asynchronous root has no protected-frame identity.
+    MissingProtectedRootFrame,
+    /// An asynchronous product has no selected runtime artifact.
+    MissingRuntime,
+    /// A generated binary symbol name is invalid.
+    InvalidSymbolName,
+    /// A configured native link input is invalid.
+    InvalidNativeLinkInput,
+    /// A lazy compilation fact could not be evaluated.
+    Query(FactQueryError),
+    /// The selected code generation target is invalid.
+    InvalidCodegenTarget(CodegenTargetBuildError),
+    /// Code generation reachability is inconsistent.
+    InvalidReachability(CodegenReachabilityBuildError),
+    /// One concrete code generation instance is invalid.
+    InvalidCodegenInstance(CodegenInstanceBuildError),
+    /// One code generation unit is invalid.
+    InvalidCodegenUnit(CodegenUnitBuildError),
+    /// The compiler-generated executable host MIR is invalid.
+    InvalidHostMir(bray_ir::MirUnitBuildError),
+    /// The compiler-generated executable host contract is invalid.
+    InvalidExecutableHost(ExecutableHostContractBuildError),
+    /// The selected emitter backend description is invalid.
+    InvalidEmissionBackend(EmissionBackendBuildError),
+    /// The selected linker target is invalid.
+    InvalidLinkTarget(LinkTargetBuildError),
+    /// A native link input is invalid.
+    InvalidLinkInput(LinkInputBuildError),
+    /// No configured linker driver supports the selected product.
+    Linker(bray_linker::LinkFailure),
+    /// One code generation fact is unavailable.
+    Codegen(super::super::super::CodegenFactError),
+}
+
+impl NativeProductFactError {
+    /// Returns whether the selected target cannot realize a demanded native representation.
+    pub const fn is_unsupported(&self) -> bool {
+        matches!(
+            self,
+            Self::CodegenUnavailable
+                | Self::UnsupportedProductKind(_)
+                | Self::MissingProtectedRootFrame
+                | Self::MissingRuntime
+                | Self::Codegen(
+                    super::super::super::CodegenFactError::UnsupportedType(_)
+                )
+        )
+    }
+}
+
+impl From<FactQueryError> for NativeProductFactError {
+    fn from(error: FactQueryError) -> Self {
+        Self::Query(error)
+    }
+}
+
+impl From<super::super::super::CodegenFactError> for NativeProductFactError {
+    fn from(error: super::super::super::CodegenFactError) -> Self {
+        Self::Codegen(error)
+    }
+}

@@ -17,7 +17,7 @@ pub enum CodegenLinkage {
     LinkOnce,
     /// Common zero-initialized storage.
     Common,
-    /// Imported definition supplied by another binary.
+    /// Definition supplied outside the current codegen unit.
     Import,
     /// Exported definition visible outside the product.
     Export,

@@ -1,7 +1,9 @@
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_source::SourceSpan;
-use bray_symbols::{ConstantTermData, ConstantValueKind, IntegerConstant};
+use bray_symbols::{
+    AnySymbolId, ConstantTermData, ConstantValueKind, IntegerConstant, SymbolGraph,
+};
 
 use crate::fact::FactQueryError;
 
@@ -71,8 +73,27 @@ pub(super) fn integer_role(text: &str) -> Option<RepresentationRole> {
     }
 }
 
-pub(super) fn symbol_span(syntax: Option<SyntaxAnchor>) -> Result<SourceSpan, FactQueryError> {
-    let syntax = syntax.ok_or(FactQueryError::InfrastructureFailure)?;
+pub(super) fn symbol_span(
+    symbols: &SymbolGraph,
+    symbol: AnySymbolId,
+    syntax: Option<SyntaxAnchor>,
+) -> Result<SourceSpan, FactQueryError> {
+    if let Some(syntax) = syntax {
+        return Ok(SourceSpan::new(syntax.source_id(), syntax.full_range()));
+    }
 
-    Ok(SourceSpan::new(syntax.source_id(), syntax.full_range()))
+    let fact = symbols
+        .compiler_known_provider()
+        .declaration_fact_for_symbol(symbol)
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    let fragment = fact
+        .surface()
+        .syntax_fragment()
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    Ok(SourceSpan::new(
+        fragment.source().source_id(),
+        fragment.root().full_range(),
+    ))
 }

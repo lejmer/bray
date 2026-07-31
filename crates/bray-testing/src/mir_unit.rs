@@ -3,10 +3,10 @@ use bray_ir::{
     MirUnitKind,
 };
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, PanicAbiIdentity,
-    ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution, RuntimeAbiRole,
-    RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity,
-    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
+    PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract,
+    RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, TypeData, TypeId};
 use bray_target::TargetIdentity;
@@ -18,15 +18,28 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
     test_mir_unit_with_declaration(unit, 0)
 }
 
+/// Builds one valid single-block MIR unit for a caller-selected target profile.
+pub fn test_mir_unit_for_target(unit: u32, target: MirTargetFacts) -> MirUnit {
+    test_mir_unit_with_declaration_and_target(unit, 0, target)
+}
+
 /// Builds one valid single-block MIR unit with a caller-selected declaration identity.
 pub fn test_mir_unit_with_declaration(unit: u32, declaration: u32) -> MirUnit {
+    test_mir_unit_with_declaration_and_target(unit, declaration, test_mir_target())
+}
+
+fn test_mir_unit_with_declaration_and_target(
+    unit: u32,
+    declaration: u32,
+    target: MirTargetFacts,
+) -> MirUnit {
     let bound = test_bound_unit_with_declaration(unit, declaration);
     let source = MirSourceAnchor::from(bound.key().source());
 
     let mut builder = MirUnitBuilder::for_bound(
         bound.identity(),
         MirUnitKind::Synchronous,
-        test_mir_target(),
+        target,
     );
 
     let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
@@ -62,7 +75,26 @@ pub fn test_executable_host_contract_for(
     product: ProductIdentity,
     target: TargetIdentity,
 ) -> ExecutableHostContract {
-    test_host_contract(product, target, RootExecution::Synchronous, None)
+    test_host_contract(
+        product,
+        target,
+        RootExecution::Synchronous,
+        ExecutableEntryResult::Unit,
+        None,
+    )
+}
+
+/// Builds one valid deterministic synchronous host with a caller-selected result contract.
+pub fn test_executable_host_contract_with_result(
+    result: ExecutableEntryResult,
+) -> ExecutableHostContract {
+    test_host_contract(
+        test_product(),
+        test_mir_target().identity().clone(),
+        RootExecution::Synchronous,
+        result,
+        None,
+    )
 }
 
 /// Builds one valid deterministic asynchronous executable-host contract.
@@ -84,12 +116,26 @@ pub fn test_async_executable_host_contract_for(
     target: TargetIdentity,
     runtime: RuntimeArtifactId,
 ) -> ExecutableHostContract {
+    test_async_executable_host_contract_for_frame(
+        product,
+        target,
+        runtime,
+        ProtectedAsyncFrameId::new([7; 32]),
+    )
+}
+
+/// Builds one valid deterministic asynchronous host contract for a supplied frame.
+pub fn test_async_executable_host_contract_for_frame(
+    product: ProductIdentity,
+    target: TargetIdentity,
+    runtime: RuntimeArtifactId,
+    frame: ProtectedAsyncFrameId,
+) -> ExecutableHostContract {
     test_host_contract(
         product,
         target,
-        RootExecution::Asynchronous {
-            frame: ProtectedAsyncFrameId::new([7; 32]),
-        },
+        RootExecution::Asynchronous { frame },
+        ExecutableEntryResult::Unit,
         Some(runtime),
     )
 }
@@ -98,6 +144,7 @@ fn test_host_contract(
     product: ProductIdentity,
     target: TargetIdentity,
     root: RootExecution,
+    entry_result: ExecutableEntryResult,
     runtime: Option<RuntimeArtifactId>,
 ) -> ExecutableHostContract {
     let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
@@ -109,6 +156,9 @@ fn test_host_contract(
         RuntimeAbiRole::RootCancellationRequest,
         RuntimeAbiRole::CleanupIncidentReporting,
         RuntimeAbiRole::RootTerminalObservation,
+        RuntimeAbiRole::RootCompletionResolution,
+        RuntimeAbiRole::PanicReporting,
+        RuntimeAbiRole::EntryFailureReporting,
         RuntimeAbiRole::StructuredShutdown,
     ];
 
@@ -118,6 +168,15 @@ fn test_host_contract(
         root,
         test_runtime_requirements(target.clone(), runtime.is_some()),
     );
+
+    builder.set_entry_result(entry_result);
+
+    if matches!(root, RootExecution::Asynchronous { .. }) {
+        builder.set_root_frame_adapter(
+            BinarySymbolName::try_new("__bray_test_root_frame_adapter")
+                .unwrap_or_else(|| panic!("test frame adapter symbol must be valid")),
+        );
+    }
 
     for role in roles {
         builder.push_role_binding(test_role_binding(
@@ -167,8 +226,8 @@ fn test_runtime_requirements(target: TargetIdentity, is_async: bool) -> RuntimeR
 
     let runtime = is_async.then(test_runtime_identity);
 
-    let frame_abi = is_async
-        .then(|| ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)));
+    let frame_abi =
+        is_async.then(|| ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)));
 
     let roles = is_async
         .then_some([
@@ -198,10 +257,7 @@ fn test_runtime_requirements(target: TargetIdentity, is_async: bool) -> RuntimeR
     )
 }
 
-fn test_runtime_contract(
-    target: TargetIdentity,
-    artifact: RuntimeArtifactId,
-) -> RuntimeContract {
+fn test_runtime_contract(target: TargetIdentity, artifact: RuntimeArtifactId) -> RuntimeContract {
     let Some(panic_abi) = PanicAbiIdentity::try_new("bray.panic.test") else {
         panic!("test panic ABI identity must be valid");
     };

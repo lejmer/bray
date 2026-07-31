@@ -49,6 +49,24 @@ pub fn lower_executable_host(
     let source = MirSourceAnchor::executable_host(contract.product().clone());
     let execution = contract.root();
     let runtime_abi = target.runtime_abi();
+
+    let root_role = if execution == bray_runtime_interface::RootExecution::Synchronous
+        && contract
+            .requirements()
+            .roles()
+            .contains(&RuntimeAbiRole::SynchronousRootExecution)
+    {
+        RuntimeAbiRole::SynchronousRootExecution
+    } else {
+        RuntimeAbiRole::RootExecution
+    };
+
+    let entry_error = match contract.entry_result() {
+        bray_runtime_interface::ExecutableEntryResult::Fallible { error, .. } => Some(error),
+        bray_runtime_interface::ExecutableEntryResult::Unit
+        | bray_runtime_interface::ExecutableEntryResult::I32 => None,
+    };
+
     let mut builder = MirUnitBuilder::for_executable_host(unit, contract, target);
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
@@ -57,13 +75,16 @@ pub fn lower_executable_host(
         MirHostOperation::ExecuteRoot {
             root,
             execution,
-            runtime: runtime_reference(RuntimeAbiRole::RootExecution, runtime_abi),
-        },
-        MirHostOperation::RequestRootCancellation {
-            runtime: runtime_reference(RuntimeAbiRole::RootCancellationRequest, runtime_abi),
+            runtime: runtime_reference(root_role, runtime_abi),
         },
         MirHostOperation::ObserveRootTerminal {
             runtime: runtime_reference(RuntimeAbiRole::RootTerminalObservation, runtime_abi),
+        },
+        MirHostOperation::ResolveRootTerminal {
+            error: entry_error,
+            completion: runtime_reference(RuntimeAbiRole::RootCompletionResolution, runtime_abi),
+            panic: runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
+            entry_failure: runtime_reference(RuntimeAbiRole::EntryFailureReporting, runtime_abi),
         },
         MirHostOperation::ReportCleanupIncidents {
             runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
@@ -102,8 +123,9 @@ mod tests {
         MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
-        RootExecution, RuntimeAbiRole, RuntimeRoleImplementation,
+        ExecutableEntryResult, RootExecution, RuntimeAbiRole, RuntimeRoleImplementation,
     };
+    use bray_symbols::{SymbolId, UnionVariantSymbolId};
     use bray_testing::{
         test_async_executable_host_contract, test_executable_host_contract, test_mir_target,
     };
@@ -151,8 +173,8 @@ mod tests {
             host_operations.as_slice(),
             [
                 MirOperationKind::Host(MirHostOperation::ExecuteRoot { .. }),
-                MirOperationKind::Host(MirHostOperation::RequestRootCancellation { .. }),
                 MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
                 MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
                 MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
             ]
@@ -199,14 +221,42 @@ mod tests {
     }
 
     #[test]
+    fn fallible_host_contract_types_are_reachable_from_finished_mir() {
+        let result = bray_testing::test_mir_type();
+        let error = bray_testing::test_mir_type();
+
+        let success_variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(17));
+
+        let host = bray_testing::test_executable_host_contract_with_result(
+            ExecutableEntryResult::Fallible {
+                ty: result,
+                error,
+                success_variant,
+            },
+        );
+
+        let input = ExecutableHostLoweringInput::new(
+            MirUnitId::new(93),
+            bray_testing::test_bound_unit(93).key().clone(),
+            host,
+            test_mir_target(),
+        );
+
+        let unit = super::lower_executable_host(input)
+            .unwrap_or_else(|error| panic!("fallible host MIR must validate: {error:?}"));
+
+        assert!(unit.referenced_types().contains(&result));
+        assert!(unit.referenced_types().contains(&error));
+    }
+
+    #[test]
     fn executable_host_validation_rejects_reordered_shutdown_operations() {
         let host = test_executable_host_contract();
         let source = MirSourceAnchor::executable_host(host.product().clone());
         let target = test_mir_target();
         let runtime_abi = target.runtime_abi();
 
-        let mut builder =
-            MirUnitBuilder::for_executable_host(MirUnitId::new(91), host, target);
+        let mut builder = MirUnitBuilder::for_executable_host(MirUnitId::new(91), host, target);
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
@@ -224,23 +274,26 @@ mod tests {
                     runtime_abi,
                 ),
             },
-            MirHostOperation::RequestRootCancellation {
-                runtime: super::runtime_reference(
-                    RuntimeAbiRole::RootCancellationRequest,
-                    runtime_abi,
-                ),
-            },
             MirHostOperation::ReportCleanupIncidents {
                 runtime: super::runtime_reference(
                     RuntimeAbiRole::CleanupIncidentReporting,
                     runtime_abi,
                 ),
             },
-            MirHostOperation::StructuredShutdown {
-                runtime: super::runtime_reference(
-                    RuntimeAbiRole::StructuredShutdown,
+            MirHostOperation::ResolveRootTerminal {
+                error: None,
+                completion: super::runtime_reference(
+                    RuntimeAbiRole::RootCompletionResolution,
                     runtime_abi,
                 ),
+                panic: super::runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
+                entry_failure: super::runtime_reference(
+                    RuntimeAbiRole::EntryFailureReporting,
+                    runtime_abi,
+                ),
+            },
+            MirHostOperation::StructuredShutdown {
+                runtime: super::runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
             },
         ] {
             builder
@@ -262,5 +315,4 @@ mod tests {
             Err(MirUnitBuildError::InvalidHostSequence)
         );
     }
-
 }

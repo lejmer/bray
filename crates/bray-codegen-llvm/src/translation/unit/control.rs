@@ -80,7 +80,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))?;
             }
             MirTerminatorKind::Return(value) => {
-                self.translate_return(value.as_ref())?;
+                if self.frame_context.is_some() {
+                    if value.is_some() {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
+
+                    let progress = self
+                        .frame_progress
+                        .take()
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    self.return_frame_progress(progress)?;
+                } else {
+                    self.translate_return(value.as_ref())?;
+                }
             }
             MirTerminatorKind::Unreachable => {
                 llvm(self.builder.build_unreachable())?;
@@ -93,6 +106,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     self.builder
                         .build_unconditional_branch(self.block(cleanup.edge().target())?),
                 )?;
+            }
+            MirTerminatorKind::PropagatePanic { report, runtime } => {
+                self.translate_panic_propagation(report, *runtime)?;
             }
             MirTerminatorKind::PatternBranch {
                 subject,
@@ -130,13 +146,50 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 wake,
                 ..
             } => {
+                if let Some(frame_context) = self.frame_context {
+                    let context = self.frame_context_argument()?;
+
+                    let pointer = llvm(
+                        self.builder.build_int_to_ptr(
+                            context,
+                            self.types
+                                .context()
+                                .ptr_type(inkwell::AddressSpace::default()),
+                            "frame.context",
+                        ),
+                    )?;
+
+                    let state_pointer = llvm(self.builder.build_struct_gep(
+                        frame_context,
+                        pointer,
+                        0,
+                        "frame.state.pointer",
+                    ))?;
+
+                    let state = self
+                        .types
+                        .context()
+                        .i32_type()
+                        .const_int(u64::from(resume_state.raw()), false);
+
+                    llvm(self.builder.build_store(state_pointer, state))?;
+
+                    let progress = crate::native::frame_progress_type(self.types.context())
+                        .const_named_struct(&[
+                            self.types.context().i32_type().const_zero().into(),
+                            state.into(),
+                            self.types.context().i64_type().const_zero().into(),
+                        ]);
+
+                    self.return_frame_progress(progress.into())?;
+
+                    return Ok(());
+                }
+
                 self.runtime_function_pointer(*wake)?;
 
-                let state = self.runtime_integer_argument(
-                    *registration,
-                    0,
-                    u64::from(resume_state.raw()),
-                )?;
+                let state =
+                    self.runtime_integer_argument(*registration, 0, u64::from(resume_state.raw()))?;
 
                 let outcome = self
                     .invoke_runtime(*registration, &[state])?
@@ -153,23 +206,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.add_edge_arguments(edges.panicked().edge())?;
                 self.add_edge_arguments(edges.cancelled().edge())?;
 
-                let completed = self.union_variant_tag(
-                    result_type,
-                    edges.completed_variant(),
-                    tag.get_type(),
-                )?;
+                let completed =
+                    self.union_variant_tag(result_type, edges.completed_variant(), tag.get_type())?;
 
-                let panicked = self.union_variant_tag(
-                    result_type,
-                    edges.panicked_variant(),
-                    tag.get_type(),
-                )?;
+                let panicked =
+                    self.union_variant_tag(result_type, edges.panicked_variant(), tag.get_type())?;
 
-                let cancelled = self.union_variant_tag(
-                    result_type,
-                    edges.cancelled_variant(),
-                    tag.get_type(),
-                )?;
+                let cancelled =
+                    self.union_variant_tag(result_type, edges.cancelled_variant(), tag.get_type())?;
 
                 let cases = [
                     (completed, self.block(edges.completed().target())?),
@@ -184,6 +228,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))?;
             }
         }
+
+        Ok(())
+    }
+
+    fn translate_panic_propagation(
+        &mut self,
+        report: &MirOperand,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        let report = match self.operand(report)? {
+            BasicValueEnum::PointerValue(value) => llvm(self.builder.build_ptr_to_int(
+                value,
+                crate::native::pointer_integer_type(self.types.context(), self.request.target()),
+                "panic.report",
+            ))?,
+            BasicValueEnum::IntValue(value) => value,
+            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+        };
+
+        self.invoke_runtime(runtime, &[report.into()])?;
+        llvm(self.builder.build_unreachable())?;
 
         Ok(())
     }
@@ -460,11 +525,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(self.builder.build_store(storage, subject))?;
 
-        let tag = llvm(self.builder.build_load(
-            self.types.map(tag_type)?,
-            storage,
-            "pattern.union.tag",
-        ))?;
+        let mapped_tag = self.types.map(tag_type)?;
+
+        let tag = llvm(
+            self.builder
+                .build_load(mapped_tag, storage, "pattern.union.tag"),
+        )?;
 
         let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

@@ -1,27 +1,16 @@
-//! User-facing command orchestration for the Bray compiler.
+//! Loose-file compiler command orchestration used by `brayc`.
 
 #![forbid(unsafe_code)]
 
 mod command;
-mod inspection;
-mod output;
 mod run;
-mod tack;
 #[cfg(test)]
 mod test_support;
 
+pub use bray_tooling::{InspectionTarget, OutputFormat};
 pub use command::{
     DriverBackend, DriverCliError, DriverCommand, DriverCommandKind, DriverInspectionArtifact,
-    DriverInvocation, DriverOptions, DriverOutputFormat, DriverProductConfiguration,
-    DriverRuntimeProfile, DriverRuntimeSelection, DriverSourceInputError, DriverTarget,
-    UnitInspectionTarget, compilation_request_from_file_arguments,
-    source_inputs_from_file_arguments,
+    DriverInvocation, DriverOptions, DriverProductConfiguration,
+    DriverRuntimeProfile, DriverRuntimeSelection,
 };
 pub use run::{DriverRunResult, run, run_result};
-pub use tack::{
-    TackCliError, TackCommandKind, TackFormatInput, TackFormatMode, TackFormatRequest,
-    TackFormatService, TackInvocation, TackLanguageServerRequest,
-    TackLanguageServerService, TackDiagnostics, TackRunResult,
-    TackServiceResult, TackServices, run_tack, run_tack_result,
-    run_tack_with_services,
-};

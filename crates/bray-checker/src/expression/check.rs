@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedIterationSource,
-    SemanticSelection, SemanticSelectionEntry,
+    BoundExpression, CheckedSemanticSelections, DeclaredValueTypeTemplates,
+    SelectedIterationSource, SemanticSelection, SemanticSelectionEntry,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
@@ -232,14 +233,58 @@ where
 
     built_in_operator::apply_evidence(request, prepared.built_in_operators(), &mut session)?;
 
-    if converge(request, &prepared, &mut session)?.is_cancelled()
-        || session.apply_literal_defaults().is_cancelled()
+    if converge(request, &prepared, &mut session)?.is_cancelled() {
+        return Ok(SessionProgress::Cancelled);
+    }
+
+    apply_await_completion_evidence(request, &mut session)?;
+
+    if session.apply_literal_defaults().is_cancelled()
         || converge(request, &prepared, &mut session)?.is_cancelled()
     {
         return Ok(SessionProgress::Cancelled);
     }
 
     Ok(SessionProgress::Complete((session, prepared)))
+}
+
+fn apply_await_completion_evidence<C>(
+    request: CheckerUnitView<'_, C>,
+    session: &mut ExpressionTypeSession<'_, C>,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let awaits = request
+        .unit()
+        .tree()
+        .expressions()
+        .filter_map(|(expression, node)| match node {
+            BoundExpression::Await(awaited) => Some((expression, awaited.operand())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for (expression, operand) in awaits {
+        let Some(future) = session.expression_type(operand) else {
+            continue;
+        };
+
+        let Some(completion) = request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                request.semantic_values(),
+                RepresentationRole::Future,
+                future.ty(),
+            )
+        else {
+            continue;
+        };
+
+        session.add_evidence(expression, completion)?;
+    }
+
+    Ok(())
 }
 
 fn finish_expression_check<C>(
@@ -288,6 +333,13 @@ where
 
     entries.append(&mut propagation_entries);
     entries.append(&mut supplemental_selections);
+
+    entries.retain(|entry| {
+        !operation_selections
+            .iter()
+            .any(|operation| operation.expression() == entry.expression())
+    });
+
     entries.extend(operation_selections.iter().cloned());
 
     // Iteration discovery retains its cached selections while this table owns its entries.

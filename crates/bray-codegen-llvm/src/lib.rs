@@ -6,6 +6,7 @@ mod backend;
 mod initialization;
 mod machine;
 mod mapping;
+mod native;
 mod optimization;
 mod serialization;
 mod translation;

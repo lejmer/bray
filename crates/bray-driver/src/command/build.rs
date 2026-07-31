@@ -4,6 +4,7 @@ use std::sync::Arc;
 use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::RuntimeCapability;
 use bray_symbols::ProductKind;
+use bray_target::NativeTarget;
 use clap::{Args, ValueEnum};
 
 use crate::command::DriverCommand;
@@ -13,22 +14,6 @@ use crate::command::DriverCommand;
 pub enum DriverBackend {
     /// The production LLVM backend.
     Llvm,
-}
-
-/// Compilation target selected for a build.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DriverTarget {
-    /// Bray's deterministic x86-64 Linux baseline.
-    X86_64UnknownLinuxGnu,
-}
-
-impl DriverTarget {
-    /// Returns the compiler target represented by this driver selection.
-    pub fn selected_target(self) -> bray_compilation::SelectedTarget {
-        match self {
-            Self::X86_64UnknownLinuxGnu => bray_compilation::SelectedTarget::baseline(),
-        }
-    }
 }
 
 /// Product runtime selected at the build boundary.
@@ -84,7 +69,7 @@ impl DriverInspectionArtifact {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverProductConfiguration {
     product_kind: ProductKind,
-    target: DriverTarget,
+    target: NativeTarget,
     backend: DriverBackend,
     runtime: Option<DriverRuntimeSelection>,
     required_capabilities: Vec<RuntimeCapability>,
@@ -96,7 +81,7 @@ impl DriverProductConfiguration {
     /// Creates product configuration and canonicalizes repeated capabilities and inspections.
     pub fn new(
         product_kind: ProductKind,
-        target: DriverTarget,
+        target: NativeTarget,
         backend: DriverBackend,
         runtime: Option<DriverRuntimeSelection>,
         mut required_capabilities: Vec<RuntimeCapability>,
@@ -125,7 +110,7 @@ impl DriverProductConfiguration {
     }
 
     /// Returns the selected compilation target.
-    pub const fn target(&self) -> DriverTarget {
+    pub const fn target(&self) -> NativeTarget {
         self.target
     }
 
@@ -254,12 +239,27 @@ impl From<CliProductKind> for ProductKind {
 enum CliTarget {
     #[value(name = "x86_64-unknown-linux-gnu")]
     X86_64UnknownLinuxGnu,
+    #[value(name = "aarch64-unknown-linux-gnu")]
+    Aarch64UnknownLinuxGnu,
+    #[value(name = "x86_64-pc-windows-msvc")]
+    X86_64PcWindowsMsvc,
+    #[value(name = "aarch64-pc-windows-msvc")]
+    Aarch64PcWindowsMsvc,
+    #[value(name = "x86_64-apple-darwin")]
+    X86_64AppleDarwin,
+    #[value(name = "aarch64-apple-darwin")]
+    Aarch64AppleDarwin,
 }
 
-impl From<CliTarget> for DriverTarget {
+impl From<CliTarget> for NativeTarget {
     fn from(target: CliTarget) -> Self {
         match target {
-            CliTarget::X86_64UnknownLinuxGnu => Self::X86_64UnknownLinuxGnu,
+            CliTarget::X86_64UnknownLinuxGnu => Self::X86_64LinuxGnu,
+            CliTarget::Aarch64UnknownLinuxGnu => Self::Aarch64LinuxGnu,
+            CliTarget::X86_64PcWindowsMsvc => Self::X86_64WindowsMsvc,
+            CliTarget::Aarch64PcWindowsMsvc => Self::Aarch64WindowsMsvc,
+            CliTarget::X86_64AppleDarwin => Self::X86_64MacOs,
+            CliTarget::Aarch64AppleDarwin => Self::Aarch64MacOs,
         }
     }
 }
@@ -325,10 +325,11 @@ impl From<CliInspectionArtifact> for DriverInspectionArtifact {
 mod tests {
     use bray_runtime_interface::RuntimeCapability;
     use bray_symbols::ProductKind;
+    use bray_target::NativeTarget;
 
     use super::{
         DriverBackend, DriverInspectionArtifact, DriverProductConfiguration,
-        DriverRuntimeProfile, DriverTarget,
+        DriverRuntimeProfile,
     };
 
     #[test]
@@ -345,7 +346,7 @@ mod tests {
     fn product_configuration_canonicalizes_repeated_selections() {
         let configuration = DriverProductConfiguration::new(
             ProductKind::Library,
-            DriverTarget::X86_64UnknownLinuxGnu,
+            NativeTarget::X86_64LinuxGnu,
             DriverBackend::Llvm,
             None,
             [

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use bray_symbols::{ExternalSymbolKey, InterfaceSymbolId, SymbolKind, SymbolName};
+use bray_symbols::{
+    CallablePosition, ExternalSymbolKey, InterfaceSymbolId, SymbolKind, SymbolName,
+};
 
 use crate::{
     DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision,
@@ -43,6 +45,7 @@ pub struct ExportRelationshipInput {
     owner: ExternalSymbolKey,
     member: ExternalSymbolKey,
     ordinal: u32,
+    position: CallablePosition,
     allows_mutation: bool,
 }
 
@@ -59,6 +62,7 @@ impl ExportRelationshipInput {
             owner,
             member,
             ordinal,
+            position: CallablePosition::NamedOnly,
             allows_mutation: false,
         }
     }
@@ -66,6 +70,13 @@ impl ExportRelationshipInput {
     /// Marks the related field as permitting mutation after initialization.
     pub const fn with_mutation(mut self) -> Self {
         self.allows_mutation = true;
+
+        self
+    }
+
+    /// Sets the related payload field's call-position permission.
+    pub const fn with_position(mut self, position: CallablePosition) -> Self {
+        self.position = position;
 
         self
     }
@@ -84,6 +95,10 @@ impl ExportRelationshipInput {
 
     pub(super) const fn ordinal(&self) -> u32 {
         self.ordinal
+    }
+
+    pub(super) const fn position(&self) -> CallablePosition {
+        self.position
     }
 
     pub(super) const fn allows_mutation(&self) -> bool {

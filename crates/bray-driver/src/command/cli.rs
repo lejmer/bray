@@ -4,15 +4,16 @@ use std::process::ExitCode;
 
 use bray_compilation::WorkerBudget;
 use bray_diagnostics::DiagnosticBag;
+use bray_tooling::{
+    InspectionTarget, OutputFormat, clap_styles,
+    exit_code_from_diagnostics, render_styled_text,
+};
 use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::command::{
-    CliBuildCommand, DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat,
-    UnitInspectionTarget,
+    CliBuildCommand, DriverCommand, DriverInvocation, DriverOptions,
 };
-use crate::output::{clap_styles, render_styled_text};
-use crate::run::exit_code_from_diagnostics;
 
 /// Error returned when parsing driver command-line arguments.
 #[derive(Debug)]
@@ -25,7 +26,7 @@ enum DriverCliErrorKind {
     Clap(clap::Error),
     Diagnostics {
         diagnostics: DiagnosticBag,
-        output_format: DriverOutputFormat,
+        output_format: OutputFormat,
     },
 }
 
@@ -46,9 +47,9 @@ impl DriverCliError {
     }
 
     /// Returns the output format selected before this parse failure, when known.
-    pub const fn output_format(&self) -> DriverOutputFormat {
+    pub const fn output_format(&self) -> OutputFormat {
         match &self.kind {
-            DriverCliErrorKind::Clap(_) => DriverOutputFormat::Text,
+            DriverCliErrorKind::Clap(_) => OutputFormat::Text,
             DriverCliErrorKind::Diagnostics { output_format, .. } => *output_format,
         }
     }
@@ -160,10 +161,10 @@ struct CliOptions {
 }
 
 impl CliOptions {
-    const fn output_format(&self) -> DriverOutputFormat {
+    const fn output_format(&self) -> OutputFormat {
         match self.format {
-            CliOutputFormat::Text => DriverOutputFormat::Text,
-            CliOutputFormat::Json => DriverOutputFormat::Json,
+            CliOutputFormat::Text => OutputFormat::Text,
+            CliOutputFormat::Json => OutputFormat::Json,
         }
     }
 
@@ -259,10 +260,10 @@ struct CliUnitInspection {
 }
 
 impl CliUnitInspection {
-    fn target(&self) -> UnitInspectionTarget {
+    fn target(&self) -> InspectionTarget {
         self.offset.map_or_else(
-            || UnitInspectionTarget::source(self.source_id),
-            |offset| UnitInspectionTarget::at(self.source_id, offset.into()),
+            || InspectionTarget::source(self.source_id),
+            |offset| InspectionTarget::at(self.source_id, offset.into()),
         )
     }
 }
@@ -279,7 +280,7 @@ enum CliOutputFormat {
     Json,
 }
 
-impl From<CliOutputFormat> for DriverOutputFormat {
+impl From<CliOutputFormat> for OutputFormat {
     fn from(format: CliOutputFormat) -> Self {
         match format {
             CliOutputFormat::Text => Self::Text,
@@ -296,10 +297,12 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_runtime_interface::RuntimeCapability;
     use bray_symbols::ProductKind;
+    use bray_target::NativeTarget;
+    use bray_tooling::OutputFormat;
 
     use crate::command::{
         DriverBackend, DriverCommandKind, DriverInspectionArtifact, DriverInvocation,
-        DriverOutputFormat, DriverRuntimeSelection, DriverTarget,
+        DriverRuntimeSelection,
     };
 
     #[test]
@@ -336,7 +339,7 @@ mod tests {
             .unwrap_or_else(|| panic!("build command must retain product configuration"));
 
         assert_eq!(configuration.product_kind(), ProductKind::Executable);
-        assert_eq!(configuration.target(), DriverTarget::X86_64UnknownLinuxGnu);
+        assert_eq!(configuration.target(), NativeTarget::X86_64LinuxGnu);
         assert_eq!(configuration.backend(), DriverBackend::Llvm);
 
         assert_eq!(
@@ -363,6 +366,31 @@ mod tests {
         );
 
         assert_eq!(configuration.output(), std::path::Path::new("out"));
+    }
+
+    #[test]
+    fn parses_every_supported_native_target() {
+        for target in NativeTarget::ALL {
+            let invocation = DriverInvocation::try_from_arguments([
+                "brayc",
+                "build",
+                "--target",
+                target.as_str(),
+                "--output",
+                "out",
+                "main.bray",
+            ])
+            .unwrap_or_else(|error| {
+                panic!("native target invocation should parse for {target:?}: {error:?}")
+            });
+
+            let configuration = invocation
+                .command()
+                .product_configuration()
+                .unwrap_or_else(|| panic!("build command must retain product configuration"));
+
+            assert_eq!(configuration.target(), target);
+        }
     }
 
     #[test]
@@ -418,7 +446,7 @@ mod tests {
 
         assert_eq!(
             invocation.options().output_format(),
-            DriverOutputFormat::Json
+            OutputFormat::Json
         );
 
         assert_eq!(invocation.command().kind(), DriverCommandKind::Check);
@@ -449,7 +477,7 @@ mod tests {
 
         assert_eq!(
             invocation.options().output_format(),
-            DriverOutputFormat::Text
+            OutputFormat::Text
         );
 
         assert_eq!(
@@ -483,7 +511,7 @@ mod tests {
 
         assert_eq!(
             invocation.options().output_format(),
-            DriverOutputFormat::Json
+            OutputFormat::Json
         );
 
         assert_eq!(
@@ -517,7 +545,7 @@ mod tests {
 
         assert_eq!(
             invocation.options().output_format(),
-            DriverOutputFormat::Json
+            OutputFormat::Json
         );
 
         assert_eq!(
@@ -551,7 +579,7 @@ mod tests {
 
         assert_eq!(
             invocation.options().output_format(),
-            DriverOutputFormat::Json
+            OutputFormat::Json
         );
 
         assert_eq!(
@@ -585,7 +613,7 @@ mod tests {
 
         assert_eq!(
             invocation.options().output_format(),
-            DriverOutputFormat::Json
+            OutputFormat::Json
         );
 
         assert_eq!(invocation.command().kind(), DriverCommandKind::InspectSymbols);

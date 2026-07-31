@@ -12,6 +12,7 @@ use super::lowerer::Lowerer;
 enum CleanupDestination {
     Goto(MirBlockId),
     Return,
+    PropagatePanic,
     Unreachable,
 }
 
@@ -173,7 +174,7 @@ impl Lowerer<'_> {
             (None, Some(_)) => CleanupDestination::Goto(
                 self.terminal_state_block(source, TerminalState::Panicked(report_type))?,
             ),
-            (None, None) => CleanupDestination::Unreachable,
+            (None, None) => CleanupDestination::PropagatePanic,
         };
 
         self.finish_cleanup(
@@ -519,6 +520,10 @@ impl Lowerer<'_> {
                 MirTerminatorKind::Goto(MirEdge::new(target, value))
             }
             CleanupDestination::Return => MirTerminatorKind::Return(value),
+            CleanupDestination::PropagatePanic => MirTerminatorKind::PropagatePanic {
+                report: value.ok_or(LoweringError::SemanticValueUnavailable)?,
+                runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
+            },
             CleanupDestination::Unreachable => MirTerminatorKind::Unreachable,
         };
 

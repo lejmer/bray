@@ -5,12 +5,14 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
-use bray_driver::{
-    TackFormatInput, TackFormatMode, TackFormatRequest, TackFormatService, TackServiceResult,
-};
 use bray_formatter::{
     FormatBytesError, FormatBytesErrorKind, FormatFileError, FormatFileErrorKind,
     FormatFileOutcome, FormatMode, format_bytes, format_file,
+};
+
+use crate::{
+    TackFormatInput, TackFormatMode, TackFormatRequest,
+    TackFormatService, TackServiceResult,
 };
 
 const STANDARD_INPUT_PATH: &str = "-";
