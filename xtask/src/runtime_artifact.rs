@@ -605,6 +605,8 @@ mod tests {
                 RuntimeAbiRole::EntryFailureReporting,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,
+                RuntimeAbiRole::AwaitedFrameComposition,
+                RuntimeAbiRole::FrameCompletionMove,
                 RuntimeAbiRole::SuspensionRegistration,
                 RuntimeAbiRole::Wake,
                 RuntimeAbiRole::TaskCancellationRequest,
