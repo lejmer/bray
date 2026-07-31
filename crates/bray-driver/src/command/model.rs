@@ -3,47 +3,52 @@ use std::path::PathBuf;
 use bray_compilation::{CompilationOptions, WorkerBudget};
 use bray_tooling::{InspectionTarget, OutputFormat};
 
-use super::DriverProductConfiguration;
+use super::{DriverCompilationConfiguration, DriverProductConfiguration};
 
 /// Options shared by all driver commands.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverOptions {
     worker_budget: WorkerBudget,
     output_format: OutputFormat,
+    compilation: DriverCompilationConfiguration,
 }
 
 impl DriverOptions {
     /// Creates shared driver options.
-    pub const fn new(worker_budget: WorkerBudget, output_format: OutputFormat) -> Self {
+    pub const fn new(
+        worker_budget: WorkerBudget,
+        output_format: OutputFormat,
+        compilation: DriverCompilationConfiguration,
+    ) -> Self {
         Self {
             worker_budget,
             output_format,
+            compilation,
         }
     }
 
     /// Returns the compiler-owned CPU worker budget.
-    pub const fn worker_budget(self) -> WorkerBudget {
+    pub const fn worker_budget(&self) -> WorkerBudget {
         self.worker_budget
     }
 
     /// Returns the selected driver output format.
-    pub const fn output_format(self) -> OutputFormat {
+    pub const fn output_format(&self) -> OutputFormat {
         self.output_format
     }
 
     /// Returns compilation options derived from driver options.
-    pub fn compilation_options(self) -> CompilationOptions {
+    pub fn compilation_options(&self) -> CompilationOptions {
         CompilationOptions::new(
             self.worker_budget,
-            bray_symbols::ProductKind::Library,
-            bray_compilation::SelectedTarget::baseline(),
+            self.compilation.product_kind(),
+            self.compilation.target().selected_target(),
         )
     }
-}
 
-impl Default for DriverOptions {
-    fn default() -> Self {
-        Self::new(WorkerBudget::default(), OutputFormat::default())
+    /// Returns the exact package-product compilation context.
+    pub const fn compilation(&self) -> &DriverCompilationConfiguration {
+        &self.compilation
     }
 }
 
@@ -86,6 +91,8 @@ pub enum DriverCommand {
     Check {
         /// Source files to check.
         files: Vec<PathBuf>,
+        /// Destination for the compiled package interface, when requested.
+        interface_output: Option<PathBuf>,
     },
     /// Inspects loaded source snapshots.
     InspectSource {
@@ -145,8 +152,11 @@ impl DriverCommand {
     }
 
     /// Creates a check command.
-    pub fn check(files: Vec<PathBuf>) -> Self {
-        Self::Check { files }
+    pub fn check(files: Vec<PathBuf>, interface_output: Option<PathBuf>) -> Self {
+        Self::Check {
+            files,
+            interface_output,
+        }
     }
 
     /// Creates an inspect-source command.
@@ -209,7 +219,7 @@ impl DriverCommand {
     pub fn files(&self) -> &[PathBuf] {
         match self {
             Self::Build { files, .. }
-            | Self::Check { files }
+            | Self::Check { files, .. }
             | Self::InspectSource { files }
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
@@ -242,7 +252,7 @@ impl DriverCommand {
     pub(crate) fn into_files(self) -> Vec<PathBuf> {
         match self {
             Self::Build { files, .. }
-            | Self::Check { files }
+            | Self::Check { files, .. }
             | Self::InspectSource { files }
             | Self::InspectTokens { files }
             | Self::InspectSyntax { files }
@@ -251,6 +261,16 @@ impl DriverCommand {
             | Self::InspectBound { files, .. }
             | Self::InspectLowered { files, .. }
             | Self::InspectMir { files, .. } => files,
+        }
+    }
+
+    /// Returns the package-interface destination requested by a check command.
+    pub fn interface_output(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Check {
+                interface_output, ..
+            } => interface_output.as_deref(),
+            _ => None,
         }
     }
 }
@@ -278,8 +298,8 @@ impl DriverInvocation {
     }
 
     /// Returns shared driver options.
-    pub const fn options(&self) -> DriverOptions {
-        self.options
+    pub const fn options(&self) -> &DriverOptions {
+        &self.options
     }
 
     /// Returns the selected driver command.

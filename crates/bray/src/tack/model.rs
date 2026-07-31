@@ -1,8 +1,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use bray_compilation::WorkerBudget;
-use bray_source::TextSize;
 use bray_tooling::OutputFormat;
 
 /// Stable category for one Bray Tack command.
@@ -20,7 +18,7 @@ pub enum TackCommandKind {
     Format,
     /// Inspects the project graph or one compiler fact.
     Inspect,
-    /// Runs the linked language server.
+    /// Runs the Bray language-server tool.
     LanguageServer,
     /// Explicitly installs one Git repository in the vendored tree.
     VendorInstall,
@@ -46,6 +44,22 @@ pub(crate) enum TackInspection {
     Mir,
 }
 
+impl TackInspection {
+    pub(crate) const fn command_text(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Source => "source",
+            Self::Tokens => "tokens",
+            Self::Syntax => "syntax",
+            Self::Declarations => "declarations",
+            Self::Symbols => "symbols",
+            Self::Bound => "bound",
+            Self::Lowered => "lowered",
+            Self::Mir => "mir",
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum TackCommand {
     Check(TackSelection),
@@ -66,7 +80,7 @@ pub(crate) enum TackCommand {
         selection: TackSelection,
         inspection: TackInspection,
         source_id: u32,
-        position: Option<TextSize>,
+        position: Option<u32>,
     },
     LanguageServer {
         target: Option<String>,
@@ -96,7 +110,7 @@ impl TackCommand {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TackInvocation {
     workspace_root: PathBuf,
-    worker_budget: WorkerBudget,
+    worker_count: usize,
     output_format: OutputFormat,
     command: TackCommand,
 }
@@ -104,13 +118,13 @@ pub struct TackInvocation {
 impl TackInvocation {
     pub(crate) const fn new(
         workspace_root: PathBuf,
-        worker_budget: WorkerBudget,
+        worker_count: usize,
         output_format: OutputFormat,
         command: TackCommand,
     ) -> Self {
         Self {
             workspace_root,
-            worker_budget,
+            worker_count,
             output_format,
             command,
         }
@@ -121,9 +135,9 @@ impl TackInvocation {
         &self.workspace_root
     }
 
-    /// Returns the compiler-owned CPU worker budget.
-    pub const fn worker_budget(&self) -> WorkerBudget {
-        self.worker_budget
+    /// Returns the maximum compiler worker count supplied to child tools.
+    pub const fn worker_count(&self) -> usize {
+        self.worker_count
     }
 
     /// Returns the selected output format.
@@ -140,13 +154,13 @@ impl TackInvocation {
         self,
     ) -> (
         PathBuf,
-        WorkerBudget,
+        usize,
         OutputFormat,
         TackCommand,
     ) {
         (
             self.workspace_root,
-            self.worker_budget,
+            self.worker_count,
             self.output_format,
             self.command,
         )

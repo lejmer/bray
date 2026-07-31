@@ -30,10 +30,12 @@ impl SourceOriginOutput {
         }
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn kind(&self) -> &'static str {
         self.kind
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) fn display_name(&self) -> &str {
         self.file_path()
             .or_else(|| self.virtual_name())
@@ -43,22 +45,27 @@ impl SourceOriginOutput {
             .unwrap_or(self.kind)
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) fn file_path(&self) -> Option<&str> {
         self.file_path.as_deref()
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) fn virtual_name(&self) -> Option<&str> {
         self.virtual_name.as_deref()
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) fn generated_name(&self) -> Option<&str> {
         self.generated_name.as_deref()
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) fn lsp_uri(&self) -> Option<&str> {
         self.lsp_uri.as_deref()
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) fn test_fixture_name(&self) -> Option<&str> {
         self.test_fixture_name.as_deref()
     }

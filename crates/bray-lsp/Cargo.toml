@@ -17,9 +17,10 @@ bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
 bray-target = { path = "../bray-target" }
-bray-tooling = { path = "../bray-tooling" }
+bray-tooling = { path = "../bray-tooling", default-features = false, features = ["analysis"] }
 
 crossbeam-channel = "0.5"
+clap = { version = "4", default-features = false, features = ["color", "derive", "help", "std", "usage"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -28,3 +29,7 @@ bray-testing = { path = "../bray-testing" }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "bray-lsp"
+path = "src/main.rs"

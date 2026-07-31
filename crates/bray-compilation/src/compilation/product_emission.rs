@@ -151,10 +151,10 @@ impl<'operation> ProductGenerationInputs<'operation> {
         match self {
             Self::None => None,
             Self::Custom { linking, .. } => linking,
-            Self::Native { facts, linker } => Some(ProductLinkingInputs {
-                linker,
-                facts: facts.link(),
-            }),
+            Self::Native { facts, linker } => match facts.link() {
+                Some(facts) => Some(ProductLinkingInputs { linker, facts }),
+                None => None,
+            },
         }
     }
 

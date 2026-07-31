@@ -51,7 +51,7 @@ pub struct NativeProductFacts {
     target: CodegenTarget,
     options: CodegenOptions,
     host: Option<ExecutableHostContract>,
-    link: ProductLinkFacts,
+    link: Option<ProductLinkFacts>,
     units: Arc<[CodegenUnit]>,
     mappings: Arc<[CodegenMappings]>,
 }
@@ -77,9 +77,9 @@ impl NativeProductFacts {
         self.host.as_ref()
     }
 
-    /// Returns the native link facts.
-    pub const fn link(&self) -> &ProductLinkFacts {
-        &self.link
+    /// Returns native link facts when link planning was requested.
+    pub const fn link(&self) -> Option<&ProductLinkFacts> {
+        self.link.as_ref()
     }
 
     pub(in crate::compilation) fn units(&self) -> &[CodegenUnit] {
@@ -98,7 +98,7 @@ impl Compilation {
         product: ProductIdentity,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        linker: &Linker,
+        linker: Option<&Linker>,
     ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         self.native_product_facts_with_cancellation(
             product,
@@ -114,7 +114,7 @@ impl Compilation {
         product: ProductIdentity,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        linker: &Linker,
+        linker: Option<&Linker>,
         cancellation: &CancellationToken,
     ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         let mut required_capabilities: Vec<_> = required_capabilities.into_iter().collect();
@@ -133,7 +133,8 @@ impl Compilation {
             Arc::from(required_capabilities.clone()),
             Arc::from(
                 linker
-                    .driver_identities()
+                    .into_iter()
+                    .flat_map(Linker::driver_identities)
                     .cloned()
                     .collect::<Vec<_>>(),
             ),
@@ -173,7 +174,7 @@ impl Compilation {
         product: ProductIdentity,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        linker: &Linker,
+        linker: Option<&Linker>,
         cancellation: &CancellationToken,
     ) -> Result<NativeProductFacts, NativeProductFactError> {
         let target = self
@@ -183,8 +184,9 @@ impl Compilation {
             .map_err(NativeProductFactError::InvalidCodegenTarget)?;
 
         let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
+        let product_kind = semantic.value().kind();
 
-        if semantic.value().kind() == ProductKind::Test {
+        if product_kind == ProductKind::Test {
             return Err(NativeProductFactError::UnsupportedProductKind(
                 ProductKind::Test,
             ));
@@ -205,7 +207,7 @@ impl Compilation {
 
             let host = self.executable_host(
                 &product,
-                semantic.value().kind(),
+                product_kind,
                 semantic.value().requires_async_runtime(),
                 &source_roots,
                 source_reachability.graph(),
@@ -296,13 +298,11 @@ impl Compilation {
         )
         .map_err(NativeProductFactError::InvalidEmissionBackend)?;
 
-        let link = self.product_link_facts(
-            semantic.value().kind(),
-            host.as_ref(),
-            runtime,
-            linker,
-            &target,
-        )?;
+        let link = linker
+            .map(|linker| {
+                self.product_link_facts(product_kind, host.as_ref(), runtime, linker, &target)
+            })
+            .transpose()?;
 
         Ok(NativeProductFacts {
             backend,

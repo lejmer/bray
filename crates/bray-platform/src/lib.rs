@@ -26,7 +26,7 @@ pub use network::{
 };
 pub use process::{
     NativeChildProcess, NativeExitStatus, NativePipeReader, NativePipeWriter,
-    NativeProcessCommand, NativeStdio,
+    NativeProcessCommand, NativeProcessOutput, NativeStdio,
 };
 pub use thread::{
     NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadId,

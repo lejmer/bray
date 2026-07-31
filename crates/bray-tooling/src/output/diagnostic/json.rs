@@ -109,18 +109,22 @@ impl DiagnosticJson {
         }
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn code(&self) -> u32 {
         self.code
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn kind(&self) -> &'static str {
         self.kind
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn severity(&self) -> &'static str {
         self.severity
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn primary_span(&self) -> Option<&SourceSpanJson> {
         self.primary_span.as_ref()
     }
@@ -403,14 +407,17 @@ impl SourceSpanJson {
         }
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn start(&self) -> u32 {
         self.start
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn end(&self) -> u32 {
         self.end
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn location(&self) -> Option<SourceLocationOutput> {
         self.location
     }

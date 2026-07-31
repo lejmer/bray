@@ -1,12 +1,16 @@
-use bray_source::{LineColumn, LspPosition, SourceLocation, TextRange};
+use bray_source::{LineColumn, LspPosition, SourceLocation};
+#[cfg(feature = "analysis")]
+use bray_source::TextRange;
 use serde::Serialize;
 
+#[cfg(feature = "analysis")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct TextRangeOutput {
     start: u32,
     end: u32,
 }
 
+#[cfg(feature = "analysis")]
 impl TextRangeOutput {
     pub(crate) const fn from_range(range: TextRange) -> Self {
         Self {
@@ -42,10 +46,12 @@ impl SourceLocationOutput {
         }
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn start(self) -> LineColumnOutput {
         self.start
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn end(self) -> LineColumnOutput {
         self.end
     }
@@ -65,10 +71,12 @@ impl LineColumnOutput {
         }
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn line(self) -> u32 {
         self.line
     }
 
+    #[cfg(feature = "analysis")]
     pub(crate) const fn column(self) -> u32 {
         self.column
     }
