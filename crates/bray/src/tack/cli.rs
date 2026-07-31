@@ -2,8 +2,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compilation::WorkerBudget;
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+};
 use bray_tooling::{
     OutputFormat, clap_styles, exit_code_from_diagnostics,
     render_styled_text,
@@ -110,6 +111,17 @@ fn clap_error_uses_stdout(error: &clap::Error) -> bool {
     )
 }
 
+fn invalid_worker_count() -> DiagnosticBag {
+    DiagnosticBag::single(
+        Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("cpu_count")),
+    )
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "bray",
@@ -124,28 +136,31 @@ struct Cli {
     #[arg(long = "cpu-count", global = true, value_name = "N")]
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
-    output_format: CliOutputFormat,
+    output_format: OutputFormat,
     #[command(subcommand)]
     command: CliCommand,
 }
 
 impl Cli {
     fn into_invocation(self) -> Result<TackInvocation, TackCliError> {
-        let output_format = OutputFormat::from(self.output_format);
+        let output_format = self.output_format;
 
-        let worker_budget = match self.cpu_count {
-            Some(cpu_count) => WorkerBudget::new(cpu_count).map_err(|error| TackCliError {
-                kind: TackCliErrorKind::Diagnostics {
-                    diagnostics: error.into_diagnostic_bag(),
-                    output_format,
-                },
-            })?,
-            None => WorkerBudget::default(),
+        let worker_count = match self.cpu_count {
+            Some(0) => {
+                return Err(TackCliError {
+                    kind: TackCliErrorKind::Diagnostics {
+                        diagnostics: invalid_worker_count(),
+                        output_format,
+                    },
+                });
+            }
+            Some(worker_count) => worker_count,
+            None => std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
         };
 
         Ok(TackInvocation::new(
             self.workspace,
-            worker_budget,
+            worker_count,
             output_format,
             self.command.into_command(),
         ))
@@ -162,7 +177,7 @@ enum CliCommand {
     Format(CliFormat),
     Inspect(CliInspect),
     #[command(name = "language-server")]
-    LanguageServer,
+    LanguageServer(CliLanguageServer),
     Vendor(CliVendor),
 }
 
@@ -187,12 +202,20 @@ impl CliCommand {
                 selection: inspect.selection.into(),
                 inspection: inspect.inspection.into(),
                 source_id: inspect.source_id,
-                position: inspect.offset.map(Into::into),
+                position: inspect.offset,
             },
-            Self::LanguageServer => TackCommand::LanguageServer,
+            Self::LanguageServer(server) => TackCommand::LanguageServer {
+                target: server.target,
+            },
             Self::Vendor(vendor) => vendor.into_command(),
         }
     }
+}
+
+#[derive(Args, Debug)]
+struct CliLanguageServer {
+    #[arg(long, value_name = "NAME")]
+    target: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -301,21 +324,6 @@ struct CliVendorInstall {
     name: String,
     #[arg(value_name = "GIT_REPOSITORY")]
     repository: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum CliOutputFormat {
-    Text,
-    Json,
-}
-
-impl From<CliOutputFormat> for OutputFormat {
-    fn from(format: CliOutputFormat) -> Self {
-        match format {
-            CliOutputFormat::Text => Self::Text,
-            CliOutputFormat::Json => Self::Json,
-        }
-    }
 }
 
 #[cfg(test)]

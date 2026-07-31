@@ -2,33 +2,36 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "analysis")]
 mod inspection;
 mod model;
 mod output;
+#[cfg(feature = "analysis")]
 mod product;
+#[cfg(feature = "analysis")]
 mod source;
 mod status;
 #[cfg(test)]
 mod test_support;
 
+#[cfg(feature = "analysis")]
 pub use inspection::{
-    InspectionError, InspectionOutput, render_bound_inspection,
-    render_declaration_inspection, render_lowered_inspection,
-    render_mir_inspection, render_source_inspection,
-    render_symbol_inspection, render_syntax_inspection,
+    InspectionError, InspectionOutput, format_semantic_type, render_bound_inspection,
+    render_declaration_inspection, render_lowered_inspection, render_mir_inspection,
+    render_source_inspection, render_symbol_inspection, render_syntax_inspection,
     render_token_inspection,
 };
 pub use model::{InspectionTarget, OutputFormat};
-pub use output::{
-    clap_styles, render_styled_text, write_diagnostic_groups,
-    write_diagnostics,
-};
+pub use output::{clap_styles, render_styled_text, write_diagnostic_groups, write_diagnostics};
+#[cfg(feature = "analysis")]
 pub use product::{
-    load_compilation, load_llvm_compilation, native_linker,
-    package_interface_export_request,
+    load_compilation, package_interface_export_request, project_interface_path,
+    project_output_directory, selected_target,
 };
+#[cfg(feature = "compiler")]
+pub use product::{load_llvm_compilation, native_linker};
+#[cfg(feature = "analysis")]
 pub use source::{
-    SourceInputError, compilation_request_from_file_arguments,
-    source_inputs_from_file_arguments,
+    SourceInputError, compilation_request_from_file_arguments, source_inputs_from_file_arguments,
 };
 pub use status::exit_code_from_diagnostics;

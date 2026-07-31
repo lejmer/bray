@@ -47,8 +47,7 @@ does not render or add user-facing English diagnostics.
 
 ## Command integration
 
-The `bray` executable must link a local `TackFormatService` adapter to the
-reusable formatter operations:
+The standalone `brayfmt` executable exposes the reusable formatter operations:
 
 - Standard input calls `format_text` and writes formatted text to standard
   output in write mode.
@@ -58,6 +57,8 @@ reusable formatter operations:
 - Typed formatter failures are converted to path, I/O category, size, and
   formatting-status diagnostic arguments rendered through `bray-messages`.
 
-`bray-driver` owns argument selection, manifest source discovery, terminal I/O,
-and process exit status. The executable adapter converts typed formatter
-failures into locale-neutral diagnostics, and `bray-messages` renders them.
+`brayfmt` owns formatter argument selection, terminal I/O, and process exit
+status. Bray Tack owns manifest source discovery and invokes `brayfmt` with the
+explicit selected files or standard-input stream. The formatter command
+converts typed failures into locale-neutral diagnostics, and `bray-messages`
+renders them.

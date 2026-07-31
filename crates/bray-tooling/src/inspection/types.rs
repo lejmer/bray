@@ -11,6 +11,15 @@ use crate::inspection::InspectionSymbolIdentity;
 
 const MAXIMUM_TYPE_DEPTH: usize = 256;
 
+/// Formats one canonical semantic type as Bray source-like text.
+pub fn format_semantic_type(
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    ty: TypeId,
+) -> Option<String> {
+    TypeFormatter::new(semantic_values, symbols).ty(ty, 0).ok()
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TypeInspectionError {
     Depth,

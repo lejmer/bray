@@ -1,275 +1,165 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use bray_compilation::{
-    Compilation, CompilationOptions, DependencyInterfaceInput,
-    ProductEmissionInputs, SelectedTarget, WorkerBudget,
-};
 use bray_diagnostics::DiagnosticBag;
-use bray_emitter::{
-    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
-    RequestedArtifact, RequestedArtifactDestination,
-};
-use bray_package_interface::{
-    InterfaceLanguageRevision, InterfaceProductIdentity,
-    InterfaceValidationPolicy, encode_package_interface,
-};
 use bray_project::{ProjectGraph, ProjectPackage, ProjectProduct};
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::{NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind};
-use bray_tooling::{
-    compilation_request_from_file_arguments, load_compilation,
-    load_llvm_compilation, native_linker,
-    package_interface_export_request,
-};
-use crate::tack::error::{
-    operation_diagnostics, selection_diagnostics, unavailable_diagnostics,
-};
+use bray_target::{NativeTarget, TargetIdentity, TargetOutputKind, TargetOutputName};
+use bray_tooling::OutputFormat;
+
+use crate::tack::error::{operation_diagnostics, selection_diagnostics};
+use crate::tack::model::TackInspection;
 use crate::tack::project::PlannedProduct;
-
-#[derive(Debug)]
-pub(crate) struct ProductBuildOutcome {
-    diagnostics: DiagnosticBag,
-    executable: Option<PathBuf>,
-}
-
-impl ProductBuildOutcome {
-    pub(crate) const fn diagnostics(&self) -> &DiagnosticBag {
-        &self.diagnostics
-    }
-
-    pub(crate) fn executable(&self) -> Option<&Path> {
-        self.executable.as_deref()
-    }
-}
+use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
 
 pub(crate) struct ProjectCompiler<'project> {
     workspace_root: &'project Path,
     graph: &'project ProjectGraph,
-    worker_budget: WorkerBudget,
-    interfaces: BTreeMap<(ProductIdentity, TargetIdentity), Arc<[u8]>>,
-    built: BTreeSet<(ProductIdentity, TargetIdentity)>,
+    worker_count: usize,
+    output_format: OutputFormat,
+    executor: &'project dyn ToolExecutor,
+    interfaces: BTreeMap<(ProductIdentity, TargetIdentity), PathBuf>,
+    checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
 }
 
 impl<'project> ProjectCompiler<'project> {
     pub(crate) fn new(
         workspace_root: &'project Path,
         graph: &'project ProjectGraph,
-        worker_budget: WorkerBudget,
+        worker_count: usize,
+        output_format: OutputFormat,
+        executor: &'project dyn ToolExecutor,
     ) -> Self {
         Self {
             workspace_root,
             graph,
-            worker_budget,
+            worker_count,
+            output_format,
+            executor,
             interfaces: BTreeMap::new(),
-            built: BTreeSet::new(),
+            checked: BTreeSet::new(),
         }
     }
 
     pub(crate) fn check(
         &mut self,
         planned: &PlannedProduct,
-    ) -> Result<Compilation, DiagnosticBag> {
-        let product = self.project_product(planned)?;
-        let selected_target = self.selected_target(planned.target())?;
+    ) -> Result<Vec<ToolOutput>, DiagnosticBag> {
+        let product = self.project_product(planned)?.clone();
+        let mut outputs = Vec::new();
 
-        self.compile_product(&product, selected_target, false)
+        if !self.check_dependencies(&product, planned.target(), &mut outputs)? {
+            return Ok(outputs);
+        }
+
+        let output = self.run_compiler(
+            &product,
+            planned.target(),
+            CompilerAction::Check { interface: None },
+        )?;
+
+        outputs.push(output);
+
+        Ok(outputs)
     }
 
     pub(crate) fn build(
         &mut self,
         planned: &PlannedProduct,
-    ) -> Result<ProductBuildOutcome, DiagnosticBag> {
-        let product = self.project_product(planned)?;
+    ) -> Result<(Vec<ToolOutput>, Option<PathBuf>), DiagnosticBag> {
+        let product = self.project_product(planned)?.clone();
+        let mut outputs = Vec::new();
 
-        self.build_product(&product, planned.target(), planned.target_name(), false)
+        if !self.check_dependencies(&product, planned.target(), &mut outputs)? {
+            return Ok((outputs, None));
+        }
+
+        let output_directory = self.output_directory(product.identity(), planned.target_name());
+
+        std::fs::create_dir_all(&output_directory)
+            .map_err(|_| operation_diagnostics("product_output_directory"))?;
+
+        let output = self.run_compiler(
+            &product,
+            planned.target(),
+            CompilerAction::Build {
+                output: output_directory.clone(),
+            },
+        )?;
+
+        outputs.push(output);
+
+        let executable = self.executable_path(&output_directory, &product, planned.target())?;
+
+        Ok((outputs, executable))
     }
 
-    pub(crate) fn compilation_for_inspection(
+    pub(crate) fn inspect(
         &mut self,
         planned: &PlannedProduct,
-    ) -> Result<Compilation, DiagnosticBag> {
-        let product = self.project_product(planned)?;
-        let selected_target = self.selected_target(planned.target())?;
+        inspection: TackInspection,
+        source_id: u32,
+        offset: Option<u32>,
+    ) -> Result<Vec<ToolOutput>, DiagnosticBag> {
+        let product = self.project_product(planned)?.clone();
+        let mut outputs = Vec::new();
 
-        self.compile_product(&product, selected_target, false)
+        if !self.check_dependencies(&product, planned.target(), &mut outputs)? {
+            return Ok(outputs);
+        }
+
+        let output = self.run_compiler(
+            &product,
+            planned.target(),
+            CompilerAction::Inspect {
+                inspection,
+                source_id,
+                offset,
+            },
+        )?;
+
+        outputs.push(output);
+
+        Ok(outputs)
     }
 
-    fn build_product(
+    fn check_dependencies(
         &mut self,
         product: &ProjectProduct,
         target: &TargetIdentity,
-        target_name: &str,
-        require_interface: bool,
-    ) -> Result<ProductBuildOutcome, DiagnosticBag> {
-        let key = (product.identity().clone(), target.clone());
-        let selected_target = self.selected_target(target)?;
-
-        let native_target = selected_target
-            .native_target()
-            .ok_or_else(|| unavailable_diagnostics(target.as_str()))?;
-
-        if self.built.contains(&key) {
-            if require_interface && !self.interfaces.contains_key(&key) {
-                self.interface_for(product.identity(), target)?;
-            }
-
-            return Ok(ProductBuildOutcome {
-                diagnostics: DiagnosticBag::new(),
-                executable: executable_path(
-                    self.output_directory(product, target_name),
-                    product,
-                    native_target,
-                ),
-            });
-        }
-
-        let package = self.project_package(product.identity().package())?;
-
-        let dependencies: Vec<_> = package
+        outputs: &mut Vec<ToolOutput>,
+    ) -> Result<bool, DiagnosticBag> {
+        let dependencies = self
+            .project_package(product.identity().package())?
             .dependencies()
             .iter()
             .map(|dependency| dependency.product().clone())
-            .collect();
-
-        let mut diagnostics = DiagnosticBag::new();
+            .collect::<Vec<_>>();
 
         for dependency in dependencies {
-            let dependency_product = self.project_product_by_identity(&dependency)?;
-
-            if !dependency_product.targets().contains(target) {
-                return Err(selection_diagnostics(format!(
-                    "{}/{}",
-                    dependency_product.identity().name(),
-                    target.as_str()
-                )));
-            }
-
-            match self.build_product(&dependency_product, target, target_name, true) {
-                Ok(outcome) => {
-                    diagnostics = diagnostics.merged(outcome.diagnostics());
-                }
-                Err(error) => return Err(diagnostics.merged(&error)),
+            if !self.ensure_dependency(&dependency, target, outputs)? {
+                return Ok(false);
             }
         }
 
-        let compilation = self.compile_product(product, selected_target.clone(), true)?;
-        diagnostics = diagnostics.merged(compilation.check_diagnostics());
-
-        if diagnostics.has_errors() {
-            return Err(diagnostics);
-        }
-
-        if require_interface
-            || product
-                .outputs()
-                .contains(&TargetOutputKind::PackageInterface)
-        {
-            self.retain_interface(product, target, &compilation)?;
-        }
-
-        let output_directory = self.output_directory(product, target_name);
-
-        std::fs::create_dir_all(&output_directory)
-            .map_err(|_| operation_diagnostics("create_output_directory"))?;
-
-        let emission_diagnostics = self.emit_product(
-            product,
-            selected_target,
-            &compilation,
-            output_directory.clone(),
-        )?;
-
-        diagnostics = diagnostics.merged(&emission_diagnostics);
-
-        self.built.insert(key);
-
-        Ok(ProductBuildOutcome {
-            diagnostics,
-            executable: executable_path(output_directory, product, native_target),
-        })
+        Ok(true)
     }
 
-    fn compile_product(
-        &mut self,
-        product: &ProjectProduct,
-        selected_target: SelectedTarget,
-        codegen: bool,
-    ) -> Result<Compilation, DiagnosticBag> {
-        let package = self.project_package(product.identity().package())?;
-
-        let dependencies: Vec<_> = package
-            .dependencies()
-            .iter()
-            .map(|dependency| dependency.product().clone())
-            .collect();
-
-        let mut dependency_inputs = Vec::with_capacity(dependencies.len());
-
-        for dependency in dependencies {
-            let bytes = self.interface_for(&dependency, selected_target.profile().identity())?;
-
-            let interface_product = InterfaceProductIdentity::try_new(dependency.name())
-                .ok_or_else(|| operation_diagnostics("dependency_product_identity"))?;
-
-            dependency_inputs.push(DependencyInterfaceInput::new(
-                dependency.package().clone(),
-                interface_product,
-                self.interface_path(&dependency, selected_target.profile().identity())?,
-                bytes,
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-            ));
-        }
-
-        let options = CompilationOptions::new(
-            self.worker_budget,
-            product.kind(),
-            selected_target,
-        );
-
-        let files: Vec<PathBuf> = product
-            .sources()
-            .iter()
-            .map(|source| source.beneath(self.workspace_root))
-            .collect();
-
-        let mut request = compilation_request_from_file_arguments(
-            product.identity().package().clone(),
-            files,
-            options,
-        )?
-        .with_dependency_interfaces(dependency_inputs);
-
-        if product.kind() == ProductKind::Library {
-            request = request.with_package_interface_export(
-                package_interface_export_request(product.identity().clone()),
-            );
-        }
-
-        let compilation = if codegen {
-            load_llvm_compilation(request)
-        } else {
-            load_compilation(request)
-        };
-
-        compilation.ok_or_else(|| operation_diagnostics("load_compilation"))
-    }
-
-    fn interface_for(
+    fn ensure_dependency(
         &mut self,
         identity: &ProductIdentity,
         target: &TargetIdentity,
-    ) -> Result<Arc<[u8]>, DiagnosticBag> {
+        outputs: &mut Vec<ToolOutput>,
+    ) -> Result<bool, DiagnosticBag> {
         let key = (identity.clone(), target.clone());
 
-        if let Some(bytes) = self.interfaces.get(&key) {
-            return Ok(Arc::clone(bytes));
+        if self.checked.contains(&key) {
+            return Ok(true);
         }
 
-        let product = self.project_product_by_identity(identity)?;
+        let product = self.project_product_by_identity(identity)?.clone();
 
-        if product.kind() != ProductKind::Library || !product.targets().contains(target) {
+        if !product.targets().contains(target) {
             return Err(selection_diagnostics(format!(
                 "{}/{}",
                 identity.name(),
@@ -277,192 +167,134 @@ impl<'project> ProjectCompiler<'project> {
             )));
         }
 
-        let selected_target = self.selected_target(target)?;
-        let compilation = self.compile_product(&product, selected_target, false)?;
-        let diagnostics = compilation.check_diagnostics().clone();
-
-        if diagnostics.has_errors() {
-            return Err(diagnostics);
+        if !self.check_dependencies(&product, target, outputs)? {
+            return Ok(false);
         }
 
-        self.retain_interface(&product, target, &compilation)?;
+        let interface = self.cache_interface_path(identity, target);
 
-        self.interfaces
-            .get(&key)
-            .map(Arc::clone)
-            .ok_or_else(|| operation_diagnostics("retain_dependency_interface"))
+        let Some(parent) = interface.parent() else {
+            return Err(operation_diagnostics("interface_cache_path"));
+        };
+
+        std::fs::create_dir_all(parent)
+            .map_err(|_| operation_diagnostics("interface_cache_directory"))?;
+
+        let output = self.run_compiler(
+            &product,
+            target,
+            CompilerAction::Check {
+                interface: Some(interface.clone()),
+            },
+        )?;
+
+        let success = output.success();
+
+        outputs.push(output);
+
+        if success {
+            self.interfaces.insert(key.clone(), interface);
+            self.checked.insert(key);
+        }
+
+        Ok(success)
     }
 
-    fn retain_interface(
-        &mut self,
+    fn run_compiler(
+        &self,
         product: &ProjectProduct,
         target: &TargetIdentity,
-        compilation: &Compilation,
-    ) -> Result<(), DiagnosticBag> {
-        if product.kind() != ProductKind::Library {
-            return Ok(());
+        action: CompilerAction,
+    ) -> Result<ToolOutput, DiagnosticBag> {
+        let mut request = ToolRequest::new(Tool::Compiler, self.workspace_root);
+
+        request
+            .arg("--cpu-count")
+            .arg(self.worker_count.to_string())
+            .arg("--format")
+            .arg(self.output_format.as_str())
+            .arg("--package")
+            .arg(product.identity().package().as_str())
+            .arg("--product")
+            .arg(product.identity().name())
+            .arg("--product-kind")
+            .arg(product_kind_text(product.kind()))
+            .arg("--target")
+            .arg(target.as_str());
+
+        for dependency in self.dependencies(product, target)? {
+            request
+                .arg("--dependency-product")
+                .arg(format!(
+                    "{}/{}",
+                    dependency.identity.package().as_str(),
+                    dependency.identity.name()
+                ))
+                .arg("--dependency-interface")
+                .arg(dependency.path.into_os_string());
         }
 
-        let Some(bundle) = compilation.package_interface_export_bundle() else {
-            return Err(operation_diagnostics("package_interface_export"));
-        };
+        action.add_arguments(&mut request, product);
 
-        let bundle = bundle
-            .as_ref()
-            .map_err(|_| operation_diagnostics("package_interface_export"))?;
-
-        let artifact = encode_package_interface(bundle)
-            .map_err(|_| operation_diagnostics("package_interface_encoding"))?;
-
-        self.interfaces.insert(
-            (product.identity().clone(), target.clone()),
-            artifact.shared_bytes(),
+        request.args(
+            product
+                .sources()
+                .iter()
+                .map(|source| source.beneath(self.workspace_root).into_os_string()),
         );
 
-        Ok(())
+        self.executor
+            .capture(request)
+            .map_err(|_| operation_diagnostics("compiler_process"))
     }
 
-    fn emit_product(
+    fn dependencies(
         &self,
         product: &ProjectProduct,
-        selected_target: SelectedTarget,
-        compilation: &Compilation,
-        output_directory: PathBuf,
-    ) -> Result<DiagnosticBag, DiagnosticBag> {
-        let native_target = selected_target
-            .native_target()
-            .ok_or_else(|| unavailable_diagnostics(selected_target.profile().identity().as_str()))?;
+        target: &TargetIdentity,
+    ) -> Result<Vec<DependencyArtifact>, DiagnosticBag> {
+        let package = self.project_package(product.identity().package())?;
 
-        let outputs =
-            TargetOutputDescription::for_native(native_target, product.outputs().iter().copied());
-
-        let artifacts = product.outputs().iter().copied().map(|kind| {
-            RequestedArtifact::new(
-                ArtifactKind::from(kind),
-                ArtifactRequirement::Required,
-            )
-        });
-
-        let linked = product.outputs().iter().any(|output| {
-            matches!(
-                output,
-                TargetOutputKind::Executable
-                    | TargetOutputKind::StaticLibrary
-                    | TargetOutputKind::SharedLibrary
-                    | TargetOutputKind::LinkedCompanion
-            )
-        });
-
-        let requires_codegen = product
-            .outputs()
+        package
+            .dependencies()
             .iter()
-            .copied()
-            .map(ArtifactKind::from)
-            .any(|artifact| artifact.backend_kind().is_some());
+            .map(|dependency| {
+                let identity = dependency.product();
+                let key = (identity.clone(), target.clone());
 
-        let requires_generation = linked
-            || requires_codegen
-            || matches!(product.kind(), ProductKind::Executable | ProductKind::Test);
+                let path = self
+                    .interfaces
+                    .get(&key)
+                    .ok_or_else(|| operation_diagnostics("dependency_interface"))?;
 
-        let linker = if requires_generation {
-            Some(
-                native_linker(native_target)
-                    .ok_or_else(|| unavailable_diagnostics("native_linker"))?,
-            )
-        } else {
-            None
-        };
-
-        let product_identity = product.identity().clone();
-
-        let native = match &linker {
-            Some(linker) => Some(
-                compilation
-                    .native_product_facts(
-                        product_identity.clone(),
-                        None,
-                        [],
-                        linker,
-                    )
-                    .map_err(|_| operation_diagnostics("native_product_facts"))?,
-            ),
-            _ => None,
-        };
-
-        let request = EmissionRequest::try_new(
-            product_identity,
-            product.kind(),
-            native
-                .as_ref()
-                .and_then(|facts| facts.executable_host().cloned()),
-            selected_target.profile().identity().clone(),
-            RequestedArtifactDestination::FilesystemDirectory(output_directory),
-            artifacts,
-            ReplacementPolicy::ReplaceExisting,
-        )
-        .map_err(|_| operation_diagnostics("emission_request"))?;
-
-        let mut inputs = ProductEmissionInputs::new(&outputs);
-
-        if let (Some(native), Some(linker)) = (native.as_ref(), linker.as_ref()) {
-            inputs = if linked {
-                inputs.with_native_product(native, linker)
-            } else {
-                inputs.with_native_codegen(native)
-            };
-        }
-
-        let outcome = compilation
-            .emit_product(request, inputs)
-            .map_err(|error| error.diagnostics().clone())?;
-
-        match outcome.status() {
-            EmissionStatus::Complete => Ok(outcome.diagnostics().clone()),
-            EmissionStatus::Failed(_) | EmissionStatus::Cancelled => {
-                let diagnostics = outcome.diagnostics().clone();
-
-                if diagnostics.is_empty() {
-                    Err(operation_diagnostics("product_emission"))
-                } else {
-                    Err(diagnostics)
-                }
-            }
-        }
+                Ok(DependencyArtifact {
+                    identity: identity.clone(),
+                    path: path.clone(),
+                })
+            })
+            .collect()
     }
 
-    fn selected_target(
-        &self,
-        identity: &TargetIdentity,
-    ) -> Result<SelectedTarget, DiagnosticBag> {
-        SelectedTarget::for_identity(identity)
-            .ok_or_else(|| unavailable_diagnostics(identity.as_str()))
-    }
-
-    fn project_product(
-        &self,
-        planned: &PlannedProduct,
-    ) -> Result<ProjectProduct, DiagnosticBag> {
+    fn project_product(&self, planned: &PlannedProduct) -> Result<&ProjectProduct, DiagnosticBag> {
         let package = self.project_package(planned.package())?;
 
         package
             .products()
             .iter()
             .find(|product| product.identity().name() == planned.product_name())
-            .cloned()
             .ok_or_else(|| selection_diagnostics(planned.product_name()))
     }
 
     fn project_product_by_identity(
         &self,
         identity: &ProductIdentity,
-    ) -> Result<ProjectProduct, DiagnosticBag> {
+    ) -> Result<&ProjectProduct, DiagnosticBag> {
         let package = self.project_package(identity.package())?;
 
         package
             .products()
             .iter()
             .find(|product| product.identity() == identity)
-            .cloned()
             .ok_or_else(|| selection_diagnostics(identity.name()))
     }
 
@@ -475,57 +307,129 @@ impl<'project> ProjectCompiler<'project> {
             .ok_or_else(|| selection_diagnostics(identity.as_str()))
     }
 
-    fn output_directory(
-        &self,
-        product: &ProjectProduct,
-        target_name: &str,
-    ) -> PathBuf {
+    fn output_directory(&self, product: &ProductIdentity, target_name: &str) -> PathBuf {
         self.graph
-            .output_root()
-            .beneath(self.workspace_root)
-            .join(target_name)
-            .join(product.identity().package().as_str())
-            .join(product.identity().name())
-    }
-
-    fn interface_path(
-        &self,
-        product: &ProductIdentity,
-        target: &TargetIdentity,
-    ) -> Result<PathBuf, DiagnosticBag> {
-        let target_name = self
-            .graph
-            .targets()
-            .iter()
-            .find(|candidate| candidate.identity() == target)
-            .map(bray_project::ProjectTarget::name)
-            .ok_or_else(|| selection_diagnostics(target.as_str()))?;
-
-        Ok(self
-            .graph
             .output_root()
             .beneath(self.workspace_root)
             .join(target_name)
             .join(product.package().as_str())
             .join(product.name())
-            .join(format!("{}.brayi", product.name())))
+    }
+
+    fn cache_interface_path(&self, product: &ProductIdentity, target: &TargetIdentity) -> PathBuf {
+        self.graph
+            .output_root()
+            .beneath(self.workspace_root)
+            .join("cache")
+            .join("interfaces")
+            .join(target.as_str())
+            .join(product.package().as_str())
+            .join(format!("{}.brayi", product.name()))
+    }
+
+    fn executable_path(
+        &self,
+        output_directory: &Path,
+        product: &ProjectProduct,
+        target: &TargetIdentity,
+    ) -> Result<Option<PathBuf>, DiagnosticBag> {
+        if !product.outputs().contains(&TargetOutputKind::Executable) {
+            return Ok(None);
+        }
+
+        let native = NativeTarget::for_identity(target)
+            .ok_or_else(|| selection_diagnostics(target.as_str()))?;
+
+        let name =
+            TargetOutputName::for_native(native.object_format(), TargetOutputKind::Executable)
+                .file_name(product.identity().name())
+                .ok_or_else(|| operation_diagnostics("executable_output_name"))?;
+
+        Ok(Some(output_directory.join(name)))
     }
 }
 
-fn executable_path(
-    output_directory: PathBuf,
-    product: &ProjectProduct,
-    target: NativeTarget,
-) -> Option<PathBuf> {
-    if !product
-        .outputs()
-        .contains(&TargetOutputKind::Executable)
-    {
-        return None;
-    }
+struct DependencyArtifact {
+    identity: ProductIdentity,
+    path: PathBuf,
+}
 
-    TargetOutputDescription::for_native(target, [TargetOutputKind::Executable])
-        .name(TargetOutputKind::Executable)
-        .and_then(|name| name.file_name(product.identity().name()))
-        .map(|name| output_directory.join(name))
+enum CompilerAction {
+    Check {
+        interface: Option<PathBuf>,
+    },
+    Build {
+        output: PathBuf,
+    },
+    Inspect {
+        inspection: TackInspection,
+        source_id: u32,
+        offset: Option<u32>,
+    },
+}
+
+impl CompilerAction {
+    fn add_arguments(self, request: &mut ToolRequest, product: &ProjectProduct) {
+        match self {
+            Self::Check { interface } => {
+                request.arg("check");
+
+                if let Some(interface) = interface {
+                    request
+                        .arg("--emit-interface")
+                        .arg(interface.into_os_string());
+                }
+            }
+            Self::Build { output } => {
+                request
+                    .arg("build")
+                    .arg("--output")
+                    .arg(output.into_os_string());
+
+                for kind in product.outputs() {
+                    request.arg("--artifact").arg(artifact_text(*kind));
+                }
+            }
+            Self::Inspect {
+                inspection,
+                source_id,
+                offset,
+            } => {
+                request
+                    .arg("inspect")
+                    .arg(inspection.command_text())
+                    .arg("--source-id")
+                    .arg(source_id.to_string());
+
+                if let Some(offset) = offset {
+                    request.arg("--offset").arg(offset.to_string());
+                }
+            }
+        }
+    }
+}
+
+fn product_kind_text(kind: ProductKind) -> &'static str {
+    match kind {
+        ProductKind::Executable => "executable",
+        ProductKind::Library => "library",
+        ProductKind::Test => "test",
+    }
+}
+
+fn artifact_text(kind: TargetOutputKind) -> &'static str {
+    match kind {
+        TargetOutputKind::Assembly => "assembly",
+        TargetOutputKind::BackendIr => "backend-ir",
+        TargetOutputKind::BackendBitcode => "backend-bitcode",
+        TargetOutputKind::RelocatableObject => "relocatable-object",
+        TargetOutputKind::ExecutableModule => "executable-module",
+        TargetOutputKind::DebugCompanion => "debug-companion",
+        TargetOutputKind::PackageInterface => "package-interface",
+        TargetOutputKind::DependencyMetadata => "dependency-metadata",
+        TargetOutputKind::Executable => "executable",
+        TargetOutputKind::StaticLibrary => "static-library",
+        TargetOutputKind::SharedLibrary => "shared-library",
+        TargetOutputKind::LinkedCompanion => "linked-companion",
+    }
 }

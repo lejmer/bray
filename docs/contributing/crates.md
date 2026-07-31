@@ -88,14 +88,20 @@ documents.
 - `bray-tooling`
     - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command drivers.
 
+- `bray-lsp`
+    - The Bray language-server executable and incremental editor protocol handling over immutable compilation snapshots.
+
 - `bray-driver`
     - Loose-file compiler command orchestration used by `brayc`.
 
 - `bray`
-    - Bray Tack project and workspace command orchestration and executable composition.
+    - Bray Tack project and workspace command orchestration across independently installed toolchain executables.
 
 - `brayc`
     - The minimal Bray compiler executable entry point.
+
+- `brayfmt`
+    - The Bray formatter executable and its command boundary over `bray-formatter`.
 
 - `bray-testing`
     - Shared test fixtures, builders, harnesses, and assertions used across compiler crates.

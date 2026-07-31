@@ -4,6 +4,7 @@ use bray_diagnostics::{
 
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
+use crate::LanguageServerMessage;
 
 use super::english::{
     diagnostic_template as english_diagnostic_template, label_style as english_label_style,
@@ -21,6 +22,15 @@ pub(crate) struct MessageCatalog {
 impl MessageCatalog {
     pub(crate) const fn new(locale: DiagnosticLocale) -> Self {
         Self { locale }
+    }
+
+    pub(crate) const fn language_server_message(
+        self,
+        message: LanguageServerMessage,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => super::english::language_server_message(message),
+        }
     }
 
     pub(crate) const fn diagnostic_template(self, kind: DiagnosticKind) -> MessageTemplate {

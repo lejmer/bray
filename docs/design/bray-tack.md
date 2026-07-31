@@ -17,8 +17,8 @@ deterministic before compiler work begins.
 ## Commands
 
 - `bray check` requests diagnostics for selected manifest products. Required dependency interfaces
-  are produced through the lazy compilation export fact and retained in memory. Check does not
-  publish build outputs.
+  are produced through `brayc` and retained in a deterministic workspace cache. Check does not
+  publish product build outputs.
 - `bray build` traverses selected products and their declared dependency products in dependency
   order, then emits only the artifact categories selected by each manifest.
 - `bray run` selects exactly one executable product and target, builds it, and runs the published
@@ -27,11 +27,11 @@ deterministic before compiler work begins.
   graph order. Rich test discovery, scheduling, capture, and reports remain owned by the test
   runner.
 - `bray fmt` routes explicit files, standard input (`-`), or the sorted root-package source graph
-  to the linked formatter service.
+  to `brayfmt`.
 - `bray inspect project` renders the immutable graph. Other inspection kinds select exactly one
   manifest product and delegate to existing compiler fact inspection.
-- `bray language-server` supplies the validated graph and worker budget to the linked language
-  server service.
+- `bray language-server` runs `bray-lsp` for the selected workspace and target and forwards the
+  protocol streams without interpreting framed messages.
 - `bray vendor install <name> <git-repository>` explicitly clones one repository beneath
   `vendor/<name>` with recursive submodule acquisition disabled.
 
@@ -40,14 +40,21 @@ workspace-local manifest names rather than host inference.
 
 ## Tool Integration
 
-Formatter and language-server implementations are linked through the narrow `TackFormatService`
-and `TackLanguageServerService` contracts in the `bray` package. A binary without the owning service
-reports that capability as unavailable. Bray Tack does not contain substitute formatting or
-language-server logic.
+Bray Tack orchestrates independently installable toolchain executables rather than linking their
+implementations. It invokes `brayc` for compilation and compiler inspection, `brayfmt` for source
+formatting, and `bray-lsp` for editor protocol service. This boundary lets each executable depend
+only on the implementation it owns and allows the tools to move into separate repositories without
+changing project orchestration.
 
-The formatter request distinguishes check and write modes and distinguishes file inputs from
-standard-input bytes. The language-server request receives shared ownership of the immutable
-project graph and the selected compiler worker budget.
+Tool discovery first honors the explicit `BRAYC`, `BRAYFMT`, or `BRAY_LSP` environment override,
+then checks for a sibling executable beside `bray`, and finally delegates to the host executable
+search path. Compiler requests carry exact package, product, target, source, dependency-interface,
+and artifact selections. Paths remain native process arguments rather than being embedded in
+delimiter-based strings.
+
+Machine-oriented compiler and formatter requests use structured JSON output. Bray Tack may combine
+multiple child reports for one project command, but it does not recreate compiler diagnostics or
+interpret language-server protocol messages.
 
 ## Dependency Acquisition
 

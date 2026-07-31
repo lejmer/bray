@@ -1,0 +1,35 @@
+[package]
+name = "bray-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-bound-tree = { path = "../bray-bound-tree" }
+bray-compilation = { path = "../bray-compilation" }
+bray-declarations = { path = "../bray-declarations" }
+bray-diagnostics = { path = "../bray-diagnostics" }
+bray-messages = { path = "../bray-messages" }
+bray-package-interface = { path = "../bray-package-interface" }
+bray-project = { path = "../bray-project" }
+bray-source = { path = "../bray-source" }
+bray-symbols = { path = "../bray-symbols" }
+bray-syntax = { path = "../bray-syntax" }
+bray-target = { path = "../bray-target" }
+bray-tooling = { path = "../bray-tooling", default-features = false, features = ["analysis"] }
+
+crossbeam-channel = "0.5"
+clap = { version = "4", default-features = false, features = ["color", "derive", "help", "std", "usage"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+bray-testing = { path = "../bray-testing" }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "bray-lsp"
+path = "src/main.rs"

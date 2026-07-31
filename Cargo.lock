@@ -119,11 +119,7 @@ dependencies = [
 name = "bray"
 version = "0.0.0"
 dependencies = [
- "bray-compilation",
  "bray-diagnostics",
- "bray-emitter",
- "bray-formatter",
- "bray-package-interface",
  "bray-platform",
  "bray-project",
  "bray-source",
@@ -287,6 +283,7 @@ dependencies = [
  "bray-compilation",
  "bray-diagnostics",
  "bray-emitter",
+ "bray-package-interface",
  "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
@@ -367,6 +364,29 @@ dependencies = [
  "bray-symbols",
  "bray-target",
  "bray-testing",
+]
+
+[[package]]
+name = "bray-lsp"
+version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-compilation",
+ "bray-declarations",
+ "bray-diagnostics",
+ "bray-messages",
+ "bray-package-interface",
+ "bray-project",
+ "bray-source",
+ "bray-symbols",
+ "bray-syntax",
+ "bray-target",
+ "bray-testing",
+ "bray-tooling",
+ "clap",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -510,6 +530,7 @@ dependencies = [
  "bray-messages",
  "bray-package-interface",
  "bray-parser",
+ "bray-project",
  "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
@@ -526,6 +547,17 @@ name = "brayc"
 version = "0.0.0"
 dependencies = [
  "bray-driver",
+]
+
+[[package]]
+name = "brayfmt"
+version = "0.0.0"
+dependencies = [
+ "bray-diagnostics",
+ "bray-formatter",
+ "bray-testing",
+ "bray-tooling",
+ "clap",
 ]
 
 [[package]]

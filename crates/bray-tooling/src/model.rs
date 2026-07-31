@@ -1,4 +1,6 @@
 use bray_source::TextSize;
+use clap::ValueEnum;
+use clap::builder::PossibleValue;
 
 /// Output format selected for command-produced output.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -8,6 +10,26 @@ pub enum OutputFormat {
     Text,
     /// Structured JSON output.
     Json,
+}
+
+impl OutputFormat {
+    /// Returns the stable command-line spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Json => "json",
+        }
+    }
+}
+
+impl ValueEnum for OutputFormat {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Text, Self::Json]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(PossibleValue::new(self.as_str()))
+    }
 }
 
 /// Selects semantic units from one source, optionally at one position.

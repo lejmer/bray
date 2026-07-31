@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::RuntimeCapability;
-use bray_symbols::ProductKind;
-use bray_target::NativeTarget;
+use bray_target::TargetOutputKind;
 use clap::{Args, ValueEnum};
 
 use crate::command::DriverCommand;
@@ -68,50 +67,39 @@ impl DriverInspectionArtifact {
 /// Typed package-product configuration selected by `brayc build`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverProductConfiguration {
-    product_kind: ProductKind,
-    target: NativeTarget,
     backend: DriverBackend,
     runtime: Option<DriverRuntimeSelection>,
     required_capabilities: Vec<RuntimeCapability>,
     output: PathBuf,
+    artifacts: Vec<TargetOutputKind>,
     inspections: Vec<DriverInspectionArtifact>,
 }
 
 impl DriverProductConfiguration {
-    /// Creates product configuration and canonicalizes repeated capabilities and inspections.
+    /// Creates product configuration and canonicalizes repeated artifact selections.
     pub fn new(
-        product_kind: ProductKind,
-        target: NativeTarget,
         backend: DriverBackend,
         runtime: Option<DriverRuntimeSelection>,
         mut required_capabilities: Vec<RuntimeCapability>,
         output: PathBuf,
+        mut artifacts: Vec<TargetOutputKind>,
         mut inspections: Vec<DriverInspectionArtifact>,
     ) -> Self {
         required_capabilities.sort_unstable();
         required_capabilities.dedup();
+        artifacts.sort_unstable();
+        artifacts.dedup();
         inspections.sort_unstable();
         inspections.dedup();
 
         Self {
-            product_kind,
-            target,
             backend,
             runtime,
             required_capabilities,
             output,
+            artifacts,
             inspections,
         }
-    }
-
-    /// Returns the selected language product kind.
-    pub const fn product_kind(&self) -> ProductKind {
-        self.product_kind
-    }
-
-    /// Returns the selected compilation target.
-    pub const fn target(&self) -> NativeTarget {
-        self.target
     }
 
     /// Returns the selected code generation backend.
@@ -134,31 +122,19 @@ impl DriverProductConfiguration {
         &self.output
     }
 
+    /// Returns required artifacts in canonical order.
+    pub fn artifacts(&self) -> &[TargetOutputKind] {
+        &self.artifacts
+    }
+
     /// Returns optional inspection artifacts in canonical order.
     pub fn inspections(&self) -> &[DriverInspectionArtifact] {
         &self.inspections
-    }
-
-    pub(crate) const fn product_name(&self) -> &'static str {
-        match self.product_kind {
-            ProductKind::Library => "library",
-            ProductKind::Executable => "application",
-            ProductKind::Test => "tests",
-        }
     }
 }
 
 #[derive(Args, Debug)]
 pub(crate) struct CliBuildCommand {
-    #[arg(long = "product-kind", value_enum, default_value = "library")]
-    product_kind: CliProductKind,
-    #[arg(
-        long,
-        value_enum,
-        default_value = "x86_64-unknown-linux-gnu",
-        value_name = "TRIPLE"
-    )]
-    target: CliTarget,
     #[arg(long, value_enum, default_value = "llvm")]
     backend: CliBackend,
     #[arg(
@@ -178,6 +154,8 @@ pub(crate) struct CliBuildCommand {
     required_capabilities: Vec<CliRuntimeCapability>,
     #[arg(long, value_name = "DIRECTORY")]
     output: PathBuf,
+    #[arg(long = "artifact", value_enum, value_name = "ARTIFACT")]
+    artifacts: Vec<CliArtifact>,
     #[arg(long = "inspect", value_enum, value_name = "ARTIFACT")]
     inspections: Vec<CliInspectionArtifact>,
     #[arg(value_name = "FILE", num_args = 0..)]
@@ -199,8 +177,6 @@ impl CliBuildCommand {
             });
 
         let configuration = DriverProductConfiguration::new(
-            self.product_kind.into(),
-            self.target.into(),
             self.backend.into(),
             runtime,
             self.required_capabilities
@@ -208,6 +184,10 @@ impl CliBuildCommand {
                 .map(RuntimeCapability::from)
                 .collect(),
             self.output,
+            self.artifacts
+                .into_iter()
+                .map(TargetOutputKind::from)
+                .collect(),
             self.inspections
                 .into_iter()
                 .map(DriverInspectionArtifact::from)
@@ -219,47 +199,36 @@ impl CliBuildCommand {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum CliProductKind {
-    Library,
+enum CliArtifact {
+    Assembly,
+    BackendIr,
+    BackendBitcode,
+    RelocatableObject,
+    ExecutableModule,
+    DebugCompanion,
+    PackageInterface,
+    DependencyMetadata,
     Executable,
-    Test,
+    StaticLibrary,
+    SharedLibrary,
+    LinkedCompanion,
 }
 
-impl From<CliProductKind> for ProductKind {
-    fn from(kind: CliProductKind) -> Self {
-        match kind {
-            CliProductKind::Library => Self::Library,
-            CliProductKind::Executable => Self::Executable,
-            CliProductKind::Test => Self::Test,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum CliTarget {
-    #[value(name = "x86_64-unknown-linux-gnu")]
-    X86_64UnknownLinuxGnu,
-    #[value(name = "aarch64-unknown-linux-gnu")]
-    Aarch64UnknownLinuxGnu,
-    #[value(name = "x86_64-pc-windows-msvc")]
-    X86_64PcWindowsMsvc,
-    #[value(name = "aarch64-pc-windows-msvc")]
-    Aarch64PcWindowsMsvc,
-    #[value(name = "x86_64-apple-darwin")]
-    X86_64AppleDarwin,
-    #[value(name = "aarch64-apple-darwin")]
-    Aarch64AppleDarwin,
-}
-
-impl From<CliTarget> for NativeTarget {
-    fn from(target: CliTarget) -> Self {
-        match target {
-            CliTarget::X86_64UnknownLinuxGnu => Self::X86_64LinuxGnu,
-            CliTarget::Aarch64UnknownLinuxGnu => Self::Aarch64LinuxGnu,
-            CliTarget::X86_64PcWindowsMsvc => Self::X86_64WindowsMsvc,
-            CliTarget::Aarch64PcWindowsMsvc => Self::Aarch64WindowsMsvc,
-            CliTarget::X86_64AppleDarwin => Self::X86_64MacOs,
-            CliTarget::Aarch64AppleDarwin => Self::Aarch64MacOs,
+impl From<CliArtifact> for TargetOutputKind {
+    fn from(artifact: CliArtifact) -> Self {
+        match artifact {
+            CliArtifact::Assembly => Self::Assembly,
+            CliArtifact::BackendIr => Self::BackendIr,
+            CliArtifact::BackendBitcode => Self::BackendBitcode,
+            CliArtifact::RelocatableObject => Self::RelocatableObject,
+            CliArtifact::ExecutableModule => Self::ExecutableModule,
+            CliArtifact::DebugCompanion => Self::DebugCompanion,
+            CliArtifact::PackageInterface => Self::PackageInterface,
+            CliArtifact::DependencyMetadata => Self::DependencyMetadata,
+            CliArtifact::Executable => Self::Executable,
+            CliArtifact::StaticLibrary => Self::StaticLibrary,
+            CliArtifact::SharedLibrary => Self::SharedLibrary,
+            CliArtifact::LinkedCompanion => Self::LinkedCompanion,
         }
     }
 }
@@ -324,12 +293,10 @@ impl From<CliInspectionArtifact> for DriverInspectionArtifact {
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::RuntimeCapability;
-    use bray_symbols::ProductKind;
-    use bray_target::NativeTarget;
+    use bray_target::TargetOutputKind;
 
     use super::{
-        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration,
-        DriverRuntimeProfile,
+        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration, DriverRuntimeProfile,
     };
 
     #[test]
@@ -345,8 +312,6 @@ mod tests {
     #[test]
     fn product_configuration_canonicalizes_repeated_selections() {
         let configuration = DriverProductConfiguration::new(
-            ProductKind::Library,
-            NativeTarget::X86_64LinuxGnu,
             DriverBackend::Llvm,
             None,
             [
@@ -356,6 +321,11 @@ mod tests {
             ]
             .into(),
             "out".into(),
+            [
+                TargetOutputKind::StaticLibrary,
+                TargetOutputKind::StaticLibrary,
+            ]
+            .into(),
             [
                 DriverInspectionArtifact::BackendIr,
                 DriverInspectionArtifact::BackendIr,
@@ -369,6 +339,11 @@ mod tests {
                 RuntimeCapability::CooperativeExecution,
                 RuntimeCapability::Reactor,
             ]
+        );
+
+        assert_eq!(
+            configuration.artifacts(),
+            &[TargetOutputKind::StaticLibrary]
         );
 
         assert_eq!(

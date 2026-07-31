@@ -39,7 +39,7 @@ pub struct NativeProductFacts {
     target: CodegenTarget,
     options: CodegenOptions,
     host: Option<ExecutableHostContract>,
-    link: ProductLinkFacts,
+    link: Option<ProductLinkFacts>,
     units: Arc<[CodegenUnit]>,
     mappings: Arc<[CodegenMappings]>,
 }
@@ -65,9 +65,9 @@ impl NativeProductFacts {
         self.host.as_ref()
     }
 
-    /// Returns the native link facts.
-    pub const fn link(&self) -> &ProductLinkFacts {
-        &self.link
+    /// Returns native link facts when link planning was requested.
+    pub const fn link(&self) -> Option<&ProductLinkFacts> {
+        self.link.as_ref()
     }
 
     pub(in crate::compilation) fn units(&self) -> &[CodegenUnit] {
@@ -86,7 +86,7 @@ impl Compilation {
         product: ProductIdentity,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        linker: &Linker,
+        linker: Option<&Linker>,
     ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         self.native_product_facts_with_cancellation(
             product,
@@ -102,7 +102,7 @@ impl Compilation {
         product: ProductIdentity,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        linker: &Linker,
+        linker: Option<&Linker>,
         cancellation: &CancellationToken,
     ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         let mut required_capabilities: Vec<_> = required_capabilities.into_iter().collect();
@@ -119,7 +119,13 @@ impl Compilation {
                 )
             }),
             Arc::from(required_capabilities.clone()),
-            Arc::from(linker.driver_identities().cloned().collect::<Vec<_>>()),
+            Arc::from(
+                linker
+                    .into_iter()
+                    .flat_map(Linker::driver_identities)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            ),
         );
 
         let cell = self
@@ -156,7 +162,7 @@ impl Compilation {
         product: ProductIdentity,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        linker: &Linker,
+        linker: Option<&Linker>,
         cancellation: &CancellationToken,
     ) -> Result<NativeProductFacts, NativeProductFactError> {
         let target = self
@@ -266,13 +272,17 @@ impl Compilation {
         )
         .map_err(NativeProductFactError::InvalidEmissionBackend)?;
 
-        let link = self.product_link_facts(
-            semantic.value().kind(),
-            host.as_ref(),
-            runtime,
-            linker,
-            &target,
-        )?;
+        let link = linker
+            .map(|linker| {
+                self.product_link_facts(
+                    semantic.value().kind(),
+                    host.as_ref(),
+                    runtime,
+                    linker,
+                    &target,
+                )
+            })
+            .transpose()?;
 
         Ok(NativeProductFacts {
             backend,
@@ -534,12 +544,16 @@ impl Compilation {
         let runtime_inputs = runtime.iter().flat_map(|runtime| {
             let artifact = runtime.contract().artifact().clone();
 
-            runtime.metadata().native_links().iter().map(move |requirement| {
-                native_link_input(
-                    requirement,
-                    LinkInputProvenance::RuntimeDependency(artifact.clone()),
-                )
-            })
+            runtime
+                .metadata()
+                .native_links()
+                .iter()
+                .map(move |requirement| {
+                    native_link_input(
+                        requirement,
+                        LinkInputProvenance::RuntimeDependency(artifact.clone()),
+                    )
+                })
         });
 
         let native_inputs = configured_inputs
@@ -637,8 +651,8 @@ mod tests {
         NamedTypeSymbolId, ProductIdentity, ProductKind, SymbolOrigin, TraitApplicationData,
         TypeData,
     };
-    use bray_testing::TemporaryFile;
     use bray_target::NativeTarget;
+    use bray_testing::TemporaryFile;
 
     use super::CODEGEN_PARTITION_REVISION;
     use crate::{
@@ -729,7 +743,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("test product identity must be valid"));
 
         let facts = compilation
-            .native_product_facts(product, None, [], &test_linker())
+            .native_product_facts(product, None, [], Some(&test_linker()))
             .unwrap_or_else(|error| panic!("native facts must resolve: {error:?}"));
 
         let host = facts
@@ -926,7 +940,8 @@ mod tests {
             ProductIdentity::try_new(crate::test_support::package_identity(), "application")
                 .unwrap_or_else(|| panic!("test product identity must be valid"));
 
-        let result = compilation.native_product_facts(product, Some(runtime), [], &test_linker());
+        let result =
+            compilation.native_product_facts(product, Some(runtime), [], Some(&test_linker()));
 
         let Err(error) = result else {
             panic!("incomplete runtime must fail product validation");
@@ -1273,7 +1288,7 @@ mod tests {
                     RuntimeCapability::CooperativeExecution,
                     RuntimeCapability::MainThreadLane,
                 ],
-                &test_linker(),
+                Some(&test_linker()),
             )
             .unwrap_or_else(|error| panic!("runtime native facts must resolve: {error:?}"));
 

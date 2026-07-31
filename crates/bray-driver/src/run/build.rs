@@ -2,51 +2,40 @@ use std::env;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compilation::{
-    CompilationOptions, CompilationRequest, ProductEmissionInputs,
-};
-use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
-};
+use bray_compilation::ProductEmissionInputs;
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
     RequestedArtifact, RequestedArtifactDestination,
 };
-use bray_runtime_interface::{
-    RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata,
-};
+use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata};
 use bray_symbols::{ProductIdentity, ProductKind};
-use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
+use bray_target::{TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{
-    OutputFormat, compilation_request_from_file_arguments, load_llvm_compilation,
-    exit_code_from_diagnostics, native_linker,
-    package_interface_export_request,
+    OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
 };
 use sha2::{Digest, Sha256};
 
-use super::execute::{
-    DriverRunResult, command_line_package_identity, driver_result_from_compilation,
-};
+use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use crate::command::{
-    DriverBackend, DriverProductConfiguration, DriverRuntimeSelection,
+    DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
 
 pub(crate) fn run_build_command(
-    worker_budget: bray_compilation::WorkerBudget,
+    options: &DriverOptions,
     configuration: DriverProductConfiguration,
     files: Vec<PathBuf>,
     output_format: OutputFormat,
 ) -> DriverRunResult {
-    let package = command_line_package_identity();
-    let selected_target = bray_compilation::SelectedTarget::for_native(configuration.target());
+    let compilation_configuration = options.compilation();
+    let native_target = compilation_configuration.target();
+    let selected_target = bray_compilation::SelectedTarget::for_native(native_target);
+    let product = compilation_configuration.product().clone();
+    let product_kind = compilation_configuration.product_kind();
+    let artifacts = required_artifacts(product_kind, &configuration);
+    let export_interface = artifacts.contains(&TargetOutputKind::PackageInterface);
 
-    let options = CompilationOptions::new(
-        worker_budget,
-        configuration.product_kind(),
-        selected_target.clone(),
-    );
-
-    let request = match compilation_request_from_file_arguments(package.clone(), files, options) {
+    let request = match compilation_request(options, files, export_interface) {
         Ok(request) => request,
         Err(diagnostics) => {
             let exit_code = exit_code_from_diagnostics(&diagnostics);
@@ -55,55 +44,82 @@ pub(crate) fn run_build_command(
         }
     };
 
-    let product = product_identity(package, &configuration);
-
-    let request = configure_package_interface_export(
-        request,
-        &configuration,
-        product.clone(),
-    );
-
     let compilation = match configuration.backend() {
         DriverBackend::Llvm => load_llvm_compilation(request),
     };
 
     let compilation = match compilation {
         Some(compilation) => compilation,
-        None => return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format),
-    };
-
-    let Some(linker) = native_linker(configuration.target()) else {
-        return unsupported_product_result(compilation, output_format);
-    };
-
-    let runtime = match resolve_runtime(configuration.runtime(), &selected_target) {
-        Ok(runtime) => runtime,
-        Err(()) => return unsupported_product_result(compilation, output_format),
-    };
-
-    let native = match compilation.native_product_facts(
-        product.clone(),
-        runtime,
-        configuration.required_capabilities().iter().copied(),
-        &linker,
-    ) {
-        Ok(native) => native,
-        Err(error) if error.is_unsupported() => {
-            return unsupported_product_result(compilation, output_format);
+        None => {
+            return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format);
         }
-        Err(_) => return native_product_failure_result(compilation, output_format),
     };
 
-    let target_outputs = target_outputs(&configuration);
+    let linked = artifacts.iter().any(|artifact| is_linked(*artifact));
+
+    let requires_codegen = artifacts
+        .iter()
+        .copied()
+        .map(ArtifactKind::from)
+        .any(|artifact| artifact.backend_kind().is_some());
+
+    let requires_generation = linked || requires_codegen;
+
+    let linker = if linked {
+        match native_linker(native_target) {
+            Some(linker) => Some(linker),
+            None => return unsupported_product_result(compilation, output_format),
+        }
+    } else {
+        None
+    };
+
+    let native = if requires_generation {
+        let runtime = match resolve_runtime(configuration.runtime(), &selected_target) {
+            Ok(runtime) => runtime,
+            Err(()) => return unsupported_product_result(compilation, output_format),
+        };
+
+        match compilation.native_product_facts(
+            product.clone(),
+            runtime,
+            configuration.required_capabilities().iter().copied(),
+            linker.as_ref(),
+        ) {
+            Ok(native) => Some(native),
+            Err(error) if error.is_unsupported() => {
+                return unsupported_product_result(compilation, output_format);
+            }
+            Err(_) => return native_product_failure_result(compilation, output_format),
+        }
+    } else {
+        None
+    };
+
+    let target_outputs = target_outputs(native_target, &artifacts, &configuration);
 
     let request = emission_request(
         product,
+        product_kind,
         &selected_target,
+        &artifacts,
         &configuration,
-        native.executable_host().cloned(),
+        native
+            .as_ref()
+            .and_then(|native| native.executable_host().cloned()),
     );
 
-    let inputs = ProductEmissionInputs::new(&target_outputs).with_native_product(&native, &linker);
+    let mut inputs = ProductEmissionInputs::new(&target_outputs);
+
+    match (native.as_ref(), linker.as_ref()) {
+        (Some(native), Some(linker)) => {
+            inputs = inputs.with_native_product(native, linker);
+        }
+        (Some(native), None) => {
+            inputs = inputs.with_native_codegen(native);
+        }
+        (None, _) => {}
+    }
 
     match compilation.emit_product(request, inputs) {
         Ok(outcome) => {
@@ -125,94 +141,66 @@ pub(crate) fn run_build_command(
     }
 }
 
-fn configure_package_interface_export(
-    request: CompilationRequest,
+fn required_artifacts(
+    product_kind: ProductKind,
     configuration: &DriverProductConfiguration,
-    product: ProductIdentity,
-) -> CompilationRequest {
-    if configuration.product_kind() != ProductKind::Library {
-        return request;
+) -> Vec<TargetOutputKind> {
+    if !configuration.artifacts().is_empty() {
+        return configuration.artifacts().to_vec();
     }
 
-    request.with_package_interface_export(
-        package_interface_export_request(product),
-    )
+    match product_kind {
+        ProductKind::Library => vec![
+            TargetOutputKind::PackageInterface,
+            TargetOutputKind::StaticLibrary,
+        ],
+        ProductKind::Executable | ProductKind::Test => vec![TargetOutputKind::Executable],
+    }
 }
 
-fn product_identity(
-    package: bray_symbols::PackageIdentity,
-    configuration: &DriverProductConfiguration,
-) -> ProductIdentity {
-    ProductIdentity::try_new(package, configuration.product_name())
-        .unwrap_or_else(|| panic!("the command-line product identity must be valid"))
+const fn is_linked(artifact: TargetOutputKind) -> bool {
+    matches!(
+        artifact,
+        TargetOutputKind::Executable
+            | TargetOutputKind::StaticLibrary
+            | TargetOutputKind::SharedLibrary
+            | TargetOutputKind::LinkedCompanion
+    )
 }
 
 fn target_outputs(
+    target: bray_target::NativeTarget,
+    artifacts: &[TargetOutputKind],
     configuration: &DriverProductConfiguration,
 ) -> TargetOutputDescription {
-    let format = configuration.target().object_format();
+    let inspections =
+        configuration
+            .inspections()
+            .iter()
+            .copied()
+            .map(|inspection| match inspection.artifact_kind() {
+                ArtifactKind::Assembly => TargetOutputKind::Assembly,
+                ArtifactKind::BackendIr => TargetOutputKind::BackendIr,
+                ArtifactKind::BackendBitcode => TargetOutputKind::BackendBitcode,
+                ArtifactKind::RelocatableObject => TargetOutputKind::RelocatableObject,
+                _ => {
+                    unreachable!("driver inspection selections cover only backend inspection kinds")
+                }
+            });
 
-    let product = match configuration.product_kind() {
-        ProductKind::Library => {
-            TargetOutputName::for_native(format, TargetOutputKind::StaticLibrary)
-        }
-        ProductKind::Executable | ProductKind::Test => {
-            TargetOutputName::for_native(format, TargetOutputKind::Executable)
-        }
-    };
-
-    let interface = (configuration.product_kind() == ProductKind::Library)
-        .then(|| TargetOutputName::for_native(format, TargetOutputKind::PackageInterface));
-
-    let inspections = configuration
-        .inspections()
-        .iter()
-        .copied()
-        .map(|inspection| match inspection.artifact_kind() {
-            ArtifactKind::Assembly => {
-                TargetOutputName::for_native(format, TargetOutputKind::Assembly)
-            }
-            ArtifactKind::BackendIr => {
-                TargetOutputName::for_native(format, TargetOutputKind::BackendIr)
-            }
-            ArtifactKind::BackendBitcode => {
-                TargetOutputName::for_native(format, TargetOutputKind::BackendBitcode)
-            }
-            ArtifactKind::RelocatableObject => TargetOutputName::for_native(
-                format,
-                TargetOutputKind::RelocatableObject,
-            ),
-            _ => unreachable!("driver inspection selections cover only backend inspection kinds"),
-        });
-
-    TargetOutputDescription::for_native(
-        configuration.target(),
-        [Some(product), interface]
-            .into_iter()
-            .flatten()
-            .chain(inspections)
-            .map(|output| output.kind()),
-    )
+    TargetOutputDescription::for_native(target, artifacts.iter().copied().chain(inspections))
 }
 
 fn emission_request(
     product: ProductIdentity,
+    product_kind: ProductKind,
     selected: &bray_compilation::SelectedTarget,
+    artifacts: &[TargetOutputKind],
     configuration: &DriverProductConfiguration,
     executable_host: Option<bray_runtime_interface::ExecutableHostContract>,
 ) -> EmissionRequest {
-    let product_artifact = match configuration.product_kind() {
-        ProductKind::Library => ArtifactKind::StaticLibrary,
-        ProductKind::Executable | ProductKind::Test => ArtifactKind::Executable,
-    };
-
-    let required_product = RequestedArtifact::new(product_artifact, ArtifactRequirement::Required);
-
-    let interface = (configuration.product_kind() == ProductKind::Library).then(|| {
-        RequestedArtifact::new(
-            ArtifactKind::PackageInterface,
-            ArtifactRequirement::Required,
-        )
+    let required = artifacts.iter().copied().map(|artifact| {
+        RequestedArtifact::new(ArtifactKind::from(artifact), ArtifactRequirement::Required)
     });
 
     let inspections = configuration.inspections().iter().copied().map(|artifact| {
@@ -221,14 +209,11 @@ fn emission_request(
 
     EmissionRequest::try_new(
         product,
-        configuration.product_kind(),
+        product_kind,
         executable_host,
         selected.profile().identity().clone(),
         RequestedArtifactDestination::FilesystemDirectory(configuration.output().to_path_buf()),
-        [Some(required_product), interface]
-            .into_iter()
-            .flatten()
-            .chain(inspections),
+        required.chain(inspections),
         ReplacementPolicy::ReplaceExisting,
     )
     .unwrap_or_else(|error| panic!("validated build emission request must be valid: {error:?}"))
@@ -306,32 +291,42 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
-    use bray_target::NativeTarget;
 
-    use super::{emission_request, product_identity};
-    use crate::command::{
-        DriverBackend, DriverInspectionArtifact, DriverProductConfiguration,
-    };
+    use super::emission_request;
+    use crate::command::{DriverBackend, DriverInspectionArtifact, DriverProductConfiguration};
     use crate::run::run_result;
     use crate::test_support::TemporaryFile;
 
     #[test]
     fn emission_request_keeps_required_product_and_optional_inspections_typed() {
         let configuration = DriverProductConfiguration::new(
-            ProductKind::Library,
-            NativeTarget::X86_64LinuxGnu,
             DriverBackend::Llvm,
             None,
             vec![],
             "out".into(),
+            vec![],
             vec![DriverInspectionArtifact::BackendIr],
         );
 
-        let target = bray_compilation::SelectedTarget::for_native(configuration.target());
+        let target = bray_compilation::SelectedTarget::baseline();
 
-        let product = product_identity(super::command_line_package_identity(), &configuration);
+        let package = bray_symbols::PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        let request = emission_request(product, &target, &configuration, None);
+        let product = bray_symbols::ProductIdentity::try_new(package, "library")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let request = emission_request(
+            product,
+            ProductKind::Library,
+            &target,
+            &[
+                bray_target::TargetOutputKind::PackageInterface,
+                bray_target::TargetOutputKind::StaticLibrary,
+            ],
+            &configuration,
+            None,
+        );
 
         assert_eq!(
             request
@@ -384,6 +379,47 @@ mod tests {
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
 
         std::fs::remove_file(output.join("liblibrary.a"))
+            .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
+
+        std::fs::remove_dir(&output)
+            .unwrap_or_else(|error| panic!("build output directory must be removed: {error:?}"));
+    }
+
+    #[test]
+    fn explicit_interface_only_build_does_not_require_native_linking() {
+        let source = TemporaryFile::write("library.bray", b"module app;");
+
+        let output = source
+            .path()
+            .parent()
+            .unwrap_or_else(|| panic!("temporary source must have a parent"))
+            .join("out");
+
+        std::fs::create_dir(&output)
+            .unwrap_or_else(|error| panic!("build output directory must be created: {error:?}"));
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("build"),
+            OsString::from("--artifact"),
+            OsString::from("package-interface"),
+            OsString::from("--output"),
+            output.as_os_str().to_os_string(),
+            source.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(
+            result.exit_code(),
+            ExitCode::SUCCESS,
+            "{:#?}",
+            result.diagnostics()
+        );
+
+        assert!(result.diagnostics().is_empty());
+        assert!(output.join("library.brayi").is_file());
+        assert!(!output.join("liblibrary.a").exists());
+
+        std::fs::remove_file(output.join("library.brayi"))
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
 
         std::fs::remove_dir(&output)

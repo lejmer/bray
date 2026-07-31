@@ -2,14 +2,15 @@
 
 mod build;
 mod cli;
+mod compilation;
 mod model;
 
-pub use build::{
-    DriverBackend, DriverInspectionArtifact, DriverProductConfiguration, DriverRuntimeSelection,
-    DriverRuntimeProfile,
-};
 pub(crate) use build::CliBuildCommand;
-pub use cli::DriverCliError;
-pub use model::{
-    DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
+pub use build::{
+    DriverBackend, DriverInspectionArtifact, DriverProductConfiguration, DriverRuntimeProfile,
+    DriverRuntimeSelection,
 };
+pub use cli::DriverCliError;
+pub(crate) use compilation::CliCompilationOptions;
+pub use compilation::{DriverCompilationConfiguration, DriverDependencyInterface};
+pub use model::{DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions};

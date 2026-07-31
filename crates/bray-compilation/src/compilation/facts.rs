@@ -77,6 +77,8 @@ pub(super) struct CompilationState {
     pub(super) source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
     pub(super) syntax_tree_result: FactCell<SyntaxTreeResult>,
     pub(super) declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
+    pub(super) source_reference_indexes:
+        Vec<FactCell<super::tooling::SourceReferenceIndex>>,
     pub(super) declaration_table_result: FactCell<DeclarationTableResult>,
     pub(super) product_source_graph: FactCell<Result<ProductSourceGraph, FactQueryError>>,
     pub(super) product_semantics: FactCell<DiagnosticResult<ProductSemanticFacts>>,
@@ -285,6 +287,7 @@ impl Compilation {
                 source_unit_syntax: empty_fact_caches(source_count),
                 syntax_tree_result: FactCell::new(),
                 declaration_chunks: empty_fact_caches(source_count),
+                source_reference_indexes: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
                 product_source_graph: FactCell::new(),
                 product_semantics: FactCell::new(),

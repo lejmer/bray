@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
@@ -10,83 +9,48 @@ use bray_formatter::{
     FormatFileOutcome, FormatMode, format_bytes, format_file,
 };
 
-use crate::{
-    TackFormatInput, TackFormatMode, TackFormatRequest,
-    TackFormatService, TackServiceResult,
-};
-
-const STANDARD_INPUT_PATH: &str = "-";
-
-pub(crate) struct BrayFormatService;
-
-impl TackFormatService for BrayFormatService {
-    fn format(&self, request: TackFormatRequest) -> TackServiceResult {
-        match request.input() {
-            TackFormatInput::Files(paths) => format_files(paths, request.mode()),
-            TackFormatInput::StandardInput(bytes) => format_standard_input(bytes, request.mode()),
-        }
-    }
-}
-
-fn format_files(paths: &[PathBuf], mode: TackFormatMode) -> TackServiceResult {
+pub(crate) fn format_files(paths: &[PathBuf], mode: FormatMode) -> DiagnosticBag {
     let mut diagnostics = DiagnosticBag::with_capacity(paths.len());
-    let format_mode = file_mode(mode);
 
     for path in paths {
-        match format_file(path, format_mode) {
-            Ok(FormatFileOutcome::WouldChange) => {
-                diagnostics.add(path_diagnostic(
-                    DiagnosticId::from_index(diagnostics.len()),
-                    DiagnosticKind::FormatterSourceNotFormatted,
-                    path,
-                ));
-            }
+        match format_file(path, mode) {
+            Ok(FormatFileOutcome::WouldChange) => diagnostics.add(path_diagnostic(
+                DiagnosticId::from_index(diagnostics.len()),
+                DiagnosticKind::FormatterSourceNotFormatted,
+                path,
+            )),
             Ok(FormatFileOutcome::Unchanged | FormatFileOutcome::Written) => {}
-            Err(error) => {
-                diagnostics.add(file_error_diagnostic(
-                    DiagnosticId::from_index(diagnostics.len()),
-                    error,
-                ));
-            }
+            Err(error) => diagnostics.add(file_error_diagnostic(
+                DiagnosticId::from_index(diagnostics.len()),
+                error,
+            )),
         }
     }
 
-    service_result(diagnostics, String::new())
+    diagnostics
 }
 
-fn format_standard_input(bytes: &[u8], mode: TackFormatMode) -> TackServiceResult {
-    let formatted = match format_bytes(bytes) {
-        Ok(formatted) => formatted,
-        Err(error) => {
-            return service_result(
-                DiagnosticBag::single(bytes_error_diagnostic(DiagnosticId::new(0), error)),
-                String::new(),
-            );
-        }
-    };
+pub(crate) fn format_standard_input(
+    bytes: &[u8],
+    mode: FormatMode,
+) -> Result<String, DiagnosticBag> {
+    let formatted = format_bytes(bytes).map_err(|error| {
+        DiagnosticBag::single(bytes_error_diagnostic(DiagnosticId::new(0), error))
+    })?;
 
-    if mode == TackFormatMode::Check {
-        let diagnostics = if formatted.changed() {
-            DiagnosticBag::single(path_diagnostic(
+    if mode == FormatMode::Check {
+        return if formatted.changed() {
+            Err(DiagnosticBag::single(path_diagnostic(
                 DiagnosticId::new(0),
                 DiagnosticKind::FormatterSourceNotFormatted,
-                Path::new(STANDARD_INPUT_PATH),
-            ))
+                Path::new("-"),
+            )))
         } else {
-            DiagnosticBag::new()
+            Ok(String::new())
         };
-
-        return service_result(diagnostics, String::new());
     }
 
-    service_result(DiagnosticBag::new(), formatted.into_text())
-}
-
-fn file_mode(mode: TackFormatMode) -> FormatMode {
-    match mode {
-        TackFormatMode::Check => FormatMode::Check,
-        TackFormatMode::Write => FormatMode::Write,
-    }
+    Ok(formatted.into_text())
 }
 
 fn file_error_diagnostic(id: DiagnosticId, error: FormatFileError) -> Diagnostic {
@@ -123,7 +87,7 @@ fn file_io_kind(error: &FormatFileError) -> DiagnosticIoErrorKind {
 }
 
 fn bytes_error_diagnostic(id: DiagnosticId, error: FormatBytesError) -> Diagnostic {
-    let path = Path::new(STANDARD_INPUT_PATH);
+    let path = Path::new("-");
 
     match error.kind() {
         FormatBytesErrorKind::InvalidUtf8 => {
@@ -149,14 +113,4 @@ fn size_diagnostic(id: DiagnosticId, path: &Path, byte_count: Option<usize>) -> 
 
 fn path_diagnostic(id: DiagnosticId, kind: DiagnosticKind, path: &Path) -> Diagnostic {
     Diagnostic::new(id, kind, SeverityKind::Error).with_arg(DiagnosticArg::file_path(path))
-}
-
-fn service_result(diagnostics: DiagnosticBag, stdout: String) -> TackServiceResult {
-    let exit_code = if diagnostics.has_errors() {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    };
-
-    TackServiceResult::new(exit_code, diagnostics, stdout, String::new())
 }

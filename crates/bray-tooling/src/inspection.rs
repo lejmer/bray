@@ -20,6 +20,7 @@ pub use api::{
     render_token_inspection,
 };
 pub use support::InspectionOutput;
+pub use types::format_semantic_type;
 pub(crate) use support::{
     InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
     InspectionSyntaxAnchor, InspectionTrivia, InspectionTriviaError,

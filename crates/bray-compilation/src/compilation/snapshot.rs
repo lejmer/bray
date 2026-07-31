@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_source::SourceStore;
+use bray_source::SourceInput;
 use bray_symbols::ImportedInterfaceId;
 
 use super::{Compilation, CompilationLoadError};
@@ -26,6 +27,28 @@ impl Compilation {
         reuse_published_facts(&self.state, updated_state);
 
         Ok(updated)
+    }
+
+    /// Creates a revised snapshot with replacement source inputs.
+    ///
+    /// Package, target, dependency-interface, and export inputs remain unchanged.
+    /// The current snapshot remains independently usable.
+    pub fn updated_sources(
+        &self,
+        sources: Vec<SourceInput>,
+    ) -> Result<Self, CompilationLoadError> {
+        let mut request = CompilationRequest::with_options(
+            self.state.package_identity.clone(),
+            sources,
+            self.state.options.clone(),
+        )
+        .with_dependency_interfaces(self.state.dependency_interfaces.iter().cloned());
+
+        if let Some(export) = self.state.package_interface_export.clone() {
+            request = request.with_package_interface_export(export);
+        }
+
+        self.updated(request)
     }
 }
 
@@ -58,6 +81,13 @@ fn reuse_published_facts(
         &mut updated.declaration_chunks,
         &reusable,
         |index| CompilationFactKey::DeclarationChunk(bray_source::SourceId::new(index)),
+    );
+
+    reuse_indexed_cells(
+        &previous.source_reference_indexes,
+        &mut updated.source_reference_indexes,
+        &reusable,
+        |index| CompilationFactKey::SourceReferenceIndex(bray_source::SourceId::new(index)),
     );
 
     reuse_indexed_cells(
@@ -134,6 +164,7 @@ fn invalidation_roots(
             if updated.sources.get(source.source_id()) != Some(source) {
                 roots.insert(CompilationFactKey::SourceUnitSyntax(source.source_id()));
                 roots.insert(CompilationFactKey::DeclarationChunk(source.source_id()));
+                roots.insert(CompilationFactKey::SourceReferenceIndex(source.source_id()));
             }
         }
     }

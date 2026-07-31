@@ -5,24 +5,48 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["compiler"]
+analysis = [
+    "dep:bray-bound-tree",
+    "dep:bray-compilation",
+    "dep:bray-declarations",
+    "dep:bray-ir",
+    "dep:bray-lowering",
+    "dep:bray-package-interface",
+    "dep:bray-parser",
+    "dep:bray-project",
+    "dep:bray-runtime-interface",
+    "dep:bray-symbols",
+    "dep:bray-syntax",
+    "dep:bray-target",
+]
+compiler = [
+    "analysis",
+    "dep:bray-codegen",
+    "dep:bray-codegen-llvm",
+    "dep:bray-linker",
+]
+
 [dependencies]
-bray-bound-tree = { path = "../bray-bound-tree" }
-bray-codegen = { path = "../bray-codegen" }
-bray-codegen-llvm = { path = "../bray-codegen-llvm" }
-bray-compilation = { path = "../bray-compilation" }
-bray-declarations = { path = "../bray-declarations" }
+bray-bound-tree = { path = "../bray-bound-tree", optional = true }
+bray-codegen = { path = "../bray-codegen", optional = true }
+bray-codegen-llvm = { path = "../bray-codegen-llvm", optional = true }
+bray-compilation = { path = "../bray-compilation", optional = true }
+bray-declarations = { path = "../bray-declarations", optional = true }
 bray-diagnostics = { path = "../bray-diagnostics" }
-bray-ir = { path = "../bray-ir" }
-bray-linker = { path = "../bray-linker" }
-bray-lowering = { path = "../bray-lowering" }
+bray-ir = { path = "../bray-ir", optional = true }
+bray-linker = { path = "../bray-linker", optional = true }
+bray-lowering = { path = "../bray-lowering", optional = true }
 bray-messages = { path = "../bray-messages" }
-bray-package-interface = { path = "../bray-package-interface" }
-bray-parser = { path = "../bray-parser" }
-bray-runtime-interface = { path = "../bray-runtime-interface" }
+bray-package-interface = { path = "../bray-package-interface", optional = true }
+bray-parser = { path = "../bray-parser", optional = true }
+bray-project = { path = "../bray-project", optional = true }
+bray-runtime-interface = { path = "../bray-runtime-interface", optional = true }
 bray-source = { path = "../bray-source" }
-bray-symbols = { path = "../bray-symbols" }
-bray-syntax = { path = "../bray-syntax" }
-bray-target = { path = "../bray-target" }
+bray-symbols = { path = "../bray-symbols", optional = true }
+bray-syntax = { path = "../bray-syntax", optional = true }
+bray-target = { path = "../bray-target", optional = true }
 
 # Shared command surfaces use the same terminal palette and typed output mode.
 clap = { version = "4", default-features = false, features = ["color", "std"] }

@@ -68,42 +68,6 @@ impl ProjectWorkspace {
         workspace
     }
 
-    pub(crate) fn with_missing_vendor() -> Self {
-        let workspace = Self::basic();
-
-        workspace.write(
-            "app/bray-package.json",
-            r#"{
-                "format": 1,
-                "identity": "example.application",
-                "features": [],
-                "source_roots": [
-                    {
-                        "name": "main",
-                        "path": "src"
-                    }
-                ],
-                "dependencies": [
-                    {
-                        "package": "example.math",
-                        "product": "math"
-                    }
-                ],
-                "products": [
-                    {
-                        "name": "application",
-                        "kind": "executable",
-                        "source_roots": ["main"],
-                        "targets": ["native"],
-                        "outputs": ["executable"]
-                    }
-                ]
-            }"#,
-        );
-
-        workspace
-    }
-
     pub(crate) fn with_vendor() -> Self {
         let workspace = Self::basic();
 
@@ -205,6 +169,24 @@ impl ProjectWorkspace {
 
     pub(crate) fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub(crate) fn set_product_outputs(&self, outputs: &[&str]) {
+        let path = self.path.join("app/bray-package.json");
+
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("test package manifest should be readable: {error:?}"));
+
+        let mut manifest: serde_json::Value = serde_json::from_str(&source)
+            .unwrap_or_else(|error| panic!("test package manifest should be valid: {error:?}"));
+
+        manifest["products"][0]["outputs"] = serde_json::json!(outputs);
+
+        let source = serde_json::to_string_pretty(&manifest)
+            .unwrap_or_else(|error| panic!("test package manifest should serialize: {error:?}"));
+
+        std::fs::write(path, source)
+            .unwrap_or_else(|error| panic!("test package manifest should be writable: {error:?}"));
     }
 
     pub(crate) fn write(&self, relative_path: &str, contents: &str) {

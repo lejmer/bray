@@ -1,0 +1,23 @@
+[package]
+name = "brayfmt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-diagnostics = { path = "../bray-diagnostics" }
+bray-formatter = { path = "../bray-formatter" }
+bray-tooling = { path = "../bray-tooling", default-features = false }
+
+clap = { version = "4", default-features = false, features = ["color", "derive", "help", "std", "usage"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+bray-testing = { path = "../bray-testing" }
+
+[[bin]]
+name = "brayfmt"
+path = "src/main.rs"

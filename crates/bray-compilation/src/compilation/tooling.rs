@@ -1,14 +1,18 @@
+// rust-style: allow(module-too-large, reason = "source-correlated semantic queries share one syntax-to-bound lookup implementation")
+
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundSourceAnchor, BoundUnit,
-    BoundUnitKey, ExpressionTypeResult, SemanticSelection,
+    BoundUnitKey, ExpressionTypeResult, SelectedCall, SemanticSelection,
 };
 use bray_declarations::{DeclarationId, DeclarationRecord, DeclarationTable, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::{SourceId, TextRange, TextSize};
 use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
+use bray_symbols::{AnySymbolId, SymbolKind, SymbolOrigin};
 
 use super::facts::Compilation;
 use crate::fact::{CancellationToken, FactQueryError, QueryPriority};
@@ -16,6 +20,11 @@ use crate::fact::{CancellationToken, FactQueryError, QueryPriority};
 type BoundUnitFact = Arc<DiagnosticResult<BoundUnit>>;
 type SyntaxBoundExpression = (BoundUnitFact, BoundExpressionId);
 type SyntaxBoundUnit = (BoundUnitKey, BoundUnitFact);
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct SourceReferenceIndex {
+    references: BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
+}
 
 /// Availability of one source-correlated semantic answer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,6 +35,25 @@ pub enum SemanticAvailability<T> {
     Recovered(Option<T>),
     /// The requested semantic provider has no answer for this syntax.
     Unavailable,
+}
+
+/// One ordinary name visible to completion lookup at a source position.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompletionCandidate {
+    name: String,
+    kind: SymbolKind,
+}
+
+impl CompletionCandidate {
+    /// Returns the visible ordinary name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the semantic category of the visible symbol.
+    pub const fn kind(&self) -> SymbolKind {
+        self.kind
+    }
 }
 
 impl Compilation {
@@ -191,6 +219,33 @@ impl Compilation {
                 SemanticAvailability::Unavailable => SemanticAvailability::Unavailable,
             })
         })
+    }
+
+    /// Returns every source occurrence that resolves to the symbol at a position.
+    pub fn references_at(
+        &self,
+        source_id: SourceId,
+        position: TextSize,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<SemanticAvailability<Vec<BoundSourceAnchor>>, FactQueryError> {
+        let target = match self.symbol_at(source_id, position, cancellation, priority)? {
+            SemanticAvailability::Available(target) => target,
+            SemanticAvailability::Recovered(Some(target)) => {
+                return self
+                    .references_to(target, cancellation, priority)
+                    .map(|references| SemanticAvailability::Recovered(Some(references)));
+            }
+            SemanticAvailability::Recovered(None) => {
+                return Ok(SemanticAvailability::Recovered(None));
+            }
+            SemanticAvailability::Unavailable => {
+                return Ok(SemanticAvailability::Unavailable);
+            }
+        };
+
+        self.references_to(target, cancellation, priority)
+            .map(SemanticAvailability::Available)
     }
 
     /// Returns the checked expression type at a source position.
@@ -379,6 +434,344 @@ impl Compilation {
 
             Ok(result)
         })
+    }
+
+    /// Returns declaration-backed names visible from one source position.
+    pub fn completion_candidates_at(
+        &self,
+        source_id: SourceId,
+        position: TextSize,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Vec<CompletionCandidate>, FactQueryError> {
+        self.run_semantic_query(cancellation, priority, || {
+            let declaration = match self.declaration_at(
+                source_id,
+                position,
+                cancellation,
+                priority,
+            )? {
+                SemanticAvailability::Available(declaration)
+                | SemanticAvailability::Recovered(Some(declaration)) => Some(declaration),
+                SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => None,
+            };
+
+            let graph = self.symbol_graph()?;
+            let mut owners = Vec::new();
+
+            if let Some(symbol) = declaration
+                .and_then(|declaration| graph.symbol_for_declaration(declaration))
+            {
+                let mut current = Some(symbol);
+
+                while let Some(symbol) = current {
+                    owners.push(symbol);
+                    current = graph.containing_symbol(symbol);
+                }
+            }
+
+            let mut candidates = BTreeMap::<String, SymbolKind>::new();
+
+            for symbol in graph.symbols() {
+                cancellation.check()?;
+
+                let origin = graph.symbol_origin(symbol);
+
+                let is_visible_member = graph
+                    .containing_symbol(symbol)
+                    .is_some_and(|owner| owners.contains(&owner))
+                    && is_accessible_completion_symbol(graph, symbol, origin);
+
+                let is_global_module = matches!(symbol, AnySymbolId::Module(_))
+                    && matches!(
+                        origin,
+                        Some(SymbolOrigin::Imported | SymbolOrigin::CompilerKnown)
+                    )
+                    && graph
+                        .symbol_visibility(symbol)
+                        .is_none_or(|visibility| visibility.is_public());
+
+                if !is_visible_member && !is_global_module {
+                    continue;
+                }
+
+                let Some(name) = graph.member_name(symbol) else {
+                    continue;
+                };
+
+                candidates
+                    .entry(name.as_str().to_owned())
+                    .or_insert(symbol.kind());
+            }
+
+            Ok(candidates
+                .into_iter()
+                .map(|(name, kind)| CompletionCandidate { name, kind })
+                .collect())
+        })
+    }
+
+    /// Returns the checked call selected for one call-operation syntax identity.
+    pub fn selected_call_for_syntax(
+        &self,
+        source: BoundSourceAnchor,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<SemanticAvailability<SelectedCall>, FactQueryError> {
+        self.run_semantic_query(cancellation, priority, || {
+            let Some(syntax) = self.current_syntax(source, cancellation)? else {
+                return Ok(SemanticAvailability::Unavailable);
+            };
+
+            let Some((_, bound)) =
+                self.bound_unit_for_syntax(syntax, cancellation)?
+            else {
+                return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
+            };
+
+            let selections = self.semantic_selections_with_cancellation(
+                bound.value().key().clone(),
+                cancellation,
+            )?;
+
+            let selected = bound
+                .value()
+                .tree()
+                .expressions()
+                .filter(|(_, expression)| {
+                    syntax_contains(
+                        expression.origin().source_anchor().syntax(),
+                        syntax,
+                    )
+                })
+                .filter_map(|(expression, node)| {
+                    let SemanticSelection::Call(call) =
+                        selections.result().value().expression(expression)?
+                    else {
+                        return None;
+                    };
+
+                    Some((
+                        expression,
+                        node,
+                        node.origin().source_anchor().syntax(),
+                        call,
+                    ))
+                })
+                .min_by(|left, right| compare_syntax_ranges(left.2, right.2));
+
+            let Some((_, expression, _, call)) = selected
+            else {
+                return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
+            };
+
+            let recovered = syntax.is_recovered() || expression.is_recovered();
+
+            Ok(availability(recovered, call.clone()))
+        })
+    }
+
+    fn references_to(
+        &self,
+        target: BoundReferenceTarget,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Vec<BoundSourceAnchor>, FactQueryError> {
+        self.run_semantic_query(cancellation, priority, || {
+            let mut references = Vec::new();
+
+            for source in self.sources() {
+                cancellation.check()?;
+
+                if let Some(index) =
+                    self.source_reference_index(source.source_id(), cancellation, priority)?
+                {
+                    references.extend(
+                        index
+                            .references
+                            .get(&target)
+                            .into_iter()
+                            .flatten()
+                            .copied(),
+                    );
+                }
+            }
+
+            references.sort_by_key(|reference| {
+                let syntax = reference.syntax();
+
+                (
+                    syntax.source_id(),
+                    syntax.full_range().start(),
+                    syntax.full_range().end(),
+                    syntax.syntax_kind(),
+                )
+            });
+
+            references.dedup_by(|left, right| {
+                left.syntax().source_id() == right.syntax().source_id()
+                    && left.syntax().full_range() == right.syntax().full_range()
+            });
+
+            Ok(references)
+        })
+    }
+
+    fn source_reference_index(
+        &self,
+        source_id: SourceId,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Option<&SourceReferenceIndex>, FactQueryError> {
+        let Some(index) = source_id.to_index() else {
+            return Ok(None);
+        };
+
+        let Some(cell) = self.state.source_reference_indexes.get(index) else {
+            return Ok(None);
+        };
+
+        cell.get_or_compute_with_priority(
+            &self.state.fact_runtime,
+            crate::fact::CompilationFactKey::SourceReferenceIndex(source_id),
+            cancellation,
+            priority,
+            || self.build_source_reference_index(source_id, cancellation, priority),
+        )
+        .map(Some)
+    }
+
+    fn build_source_reference_index(
+        &self,
+        source_id: SourceId,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<SourceReferenceIndex, FactQueryError> {
+        let source = self
+            .source(source_id)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let graph = self.symbol_graph()?;
+        let declarations = self.product_source_graph()?.declarations();
+        let mut references = BTreeMap::<BoundReferenceTarget, Vec<BoundSourceAnchor>>::new();
+
+        for declaration in declarations
+            .declarations()
+            .iter()
+            .filter(|declaration| declaration.source_id() == source_id)
+        {
+            cancellation.check()?;
+
+            let Some(symbol) = graph.symbol_for_declaration(declaration.id()) else {
+                continue;
+            };
+
+            push_reference(
+                &mut references,
+                BoundReferenceTarget::Surface(symbol),
+                BoundSourceAnchor::new(declaration.syntax_anchor(), source.version()),
+            );
+        }
+
+        for bound in self.bound_units_for_source(
+            source_id,
+            cancellation,
+            priority,
+        )? {
+            cancellation.check()?;
+
+            let unit = bound.value();
+
+            for symbol in unit
+                .local_symbols()
+                .bindings()
+                .iter()
+                .map(|symbol| symbol.id().into())
+                .chain(
+                    unit.local_symbols()
+                        .constants()
+                        .iter()
+                        .map(|symbol| symbol.id().into()),
+                )
+                .chain(
+                    unit.local_symbols()
+                        .anonymous_callables()
+                        .iter()
+                        .map(|symbol| symbol.id().into()),
+                )
+                .chain(
+                    unit.local_symbols()
+                        .anonymous_parameters()
+                        .iter()
+                        .map(|symbol| symbol.id().into()),
+                )
+                .chain(
+                    unit.local_symbols()
+                        .postcondition_results()
+                        .iter()
+                        .map(|symbol| symbol.id().into()),
+                )
+            {
+                let Some(syntax) = unit.local_symbols().syntax_anchor(symbol) else {
+                    continue;
+                };
+
+                push_reference(
+                    &mut references,
+                    BoundReferenceTarget::Local(symbol),
+                    BoundSourceAnchor::new(syntax, source.version()),
+                );
+            }
+
+            let has_pattern_references = unit
+                .tree()
+                .expressions()
+                .any(|(_, expression)| matches!(expression, BoundExpression::PatternReference(_)));
+
+            let selections = if has_pattern_references {
+                Some(
+                    self.semantic_selections_with_cancellation(
+                        unit.key().clone(),
+                        cancellation,
+                    )?,
+                )
+            } else {
+                None
+            };
+
+            for (expression_id, expression) in unit.tree().expressions() {
+                cancellation.check()?;
+
+                let target = match expression {
+                    BoundExpression::Name(reference) => Some(reference.target()),
+                    BoundExpression::PatternReference(_) => selections
+                        .as_ref()
+                        .and_then(|selections| {
+                            selections.result().value().expression(expression_id)
+                        })
+                        .and_then(|selection| match selection {
+                            SemanticSelection::Reference(target) => Some(*target),
+                            _ => None,
+                        }),
+                    _ => None,
+                };
+
+                if let Some(target) = target {
+                    push_reference(
+                        &mut references,
+                        target,
+                        expression.origin().source_anchor(),
+                    );
+                }
+            }
+        }
+
+        for anchors in references.values_mut() {
+            anchors.sort_by_key(reference_sort_key);
+            anchors.dedup();
+        }
+
+        Ok(SourceReferenceIndex { references })
     }
 
     fn bound_expression_for_syntax(
@@ -599,6 +992,38 @@ impl Compilation {
     }
 }
 
+fn push_reference(
+    references: &mut BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
+    target: BoundReferenceTarget,
+    anchor: BoundSourceAnchor,
+) {
+    references.entry(target).or_default().push(anchor);
+}
+
+fn is_accessible_completion_symbol(
+    graph: &bray_symbols::SymbolGraph,
+    symbol: AnySymbolId,
+    origin: Option<SymbolOrigin>,
+) -> bool {
+    matches!(origin, Some(SymbolOrigin::Source))
+        || graph
+            .symbol_visibility(symbol)
+            .is_none_or(|visibility| visibility.is_public())
+}
+
+fn reference_sort_key(
+    reference: &BoundSourceAnchor,
+) -> (SourceId, TextSize, TextSize, bray_syntax::SyntaxKind) {
+    let syntax = reference.syntax();
+
+    (
+        syntax.source_id(),
+        syntax.full_range().start(),
+        syntax.full_range().end(),
+        syntax.syntax_kind(),
+    )
+}
+
 fn declaration_for_syntax(
     declarations: &DeclarationTable,
     syntax: SyntaxAnchor,
@@ -784,6 +1209,41 @@ mod tests {
             symbol,
             SemanticAvailability::Available(BoundReferenceTarget::Surface(_))
         ));
+
+        let references = compilation
+            .references_at(
+                source_id,
+                call_position,
+                &cancellation,
+                QueryPriority::Interactive,
+            )
+            .unwrap_or_else(|error| panic!("reference query must complete: {error:?}"));
+
+        assert!(matches!(
+            references,
+            SemanticAvailability::Available(references) if references.len() == 2
+        ));
+
+        let first_index = compilation.state.source_reference_indexes[0]
+            .get()
+            .map(std::ptr::from_ref)
+            .unwrap_or_else(|| panic!("source reference index must be published"));
+
+        let _ = compilation
+            .references_at(
+                source_id,
+                call_position,
+                &cancellation,
+                QueryPriority::Interactive,
+            )
+            .unwrap_or_else(|error| panic!("repeated reference query must complete: {error:?}"));
+
+        let repeated_index = compilation.state.source_reference_indexes[0]
+            .get()
+            .map(std::ptr::from_ref)
+            .unwrap_or_else(|| panic!("source reference index must remain published"));
+
+        assert_eq!(first_index, repeated_index);
 
         let definition = compilation
             .definition_for_syntax(syntax, &cancellation, QueryPriority::Interactive)

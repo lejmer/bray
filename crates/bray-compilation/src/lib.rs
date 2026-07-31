@@ -16,7 +16,7 @@ pub use compilation::{
     CodegenFactError, Compilation, CompilationLoadError, EmissionCodegenError,
     EmissionCodegenErrorKind, PackageInterfaceExportError, ProductEmissionError,
     NativeProductFactError, NativeProductFacts, ProductEmissionErrorKind,
-    ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
+    CompletionCandidate, ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

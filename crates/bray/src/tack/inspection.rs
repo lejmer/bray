@@ -1,17 +1,9 @@
-use bray_compilation::Compilation;
 use bray_diagnostics::DiagnosticBag;
 use bray_project::{PackageRole, ProjectGraph};
-use bray_tooling::{
-    InspectionTarget, OutputFormat, render_bound_inspection,
-    render_declaration_inspection, render_lowered_inspection,
-    render_mir_inspection, render_source_inspection,
-    render_symbol_inspection, render_syntax_inspection,
-    render_token_inspection,
-};
+use bray_tooling::OutputFormat;
 use serde::Serialize;
 
 use crate::tack::error::operation_diagnostics;
-use crate::tack::model::TackInspection;
 
 pub(crate) fn render_project_inspection(
     graph: &ProjectGraph,
@@ -25,52 +17,6 @@ pub(crate) fn render_project_inspection(
             .map(|json| format!("{json}\n"))
             .map_err(|_| operation_diagnostics("project_inspection_json")),
     }
-}
-
-pub(crate) fn render_compiler_inspection(
-    compilation: &Compilation,
-    inspection: TackInspection,
-    source_id: u32,
-    position: Option<bray_source::TextSize>,
-    output_format: OutputFormat,
-) -> Result<(String, DiagnosticBag), DiagnosticBag> {
-    if inspection == TackInspection::Source {
-        let stdout = render_source_inspection(compilation, output_format)
-            .map_err(|_| operation_diagnostics("source_inspection"))?;
-
-        return Ok((stdout, DiagnosticBag::new()));
-    }
-
-    let target = position.map_or_else(
-        || InspectionTarget::source(source_id),
-        |position| InspectionTarget::at(source_id, position),
-    );
-
-    let output = match inspection {
-        TackInspection::Tokens => render_token_inspection(compilation, output_format)
-            .map_err(|_| operation_diagnostics("token_inspection"))?,
-        TackInspection::Syntax => render_syntax_inspection(compilation, output_format)
-            .map_err(|_| operation_diagnostics("syntax_inspection"))?,
-        TackInspection::Declarations => {
-            render_declaration_inspection(compilation, output_format)
-                .map_err(|_| operation_diagnostics("declaration_inspection"))?
-        }
-        TackInspection::Symbols => render_symbol_inspection(compilation, output_format)
-            .map_err(|_| operation_diagnostics("symbol_inspection"))?,
-        TackInspection::Bound => render_bound_inspection(compilation, target, output_format)
-            .map_err(|_| operation_diagnostics("bound_inspection"))?,
-        TackInspection::Lowered => {
-            render_lowered_inspection(compilation, target, output_format)
-                .map_err(|_| operation_diagnostics("lowered_inspection"))?
-        }
-        TackInspection::Mir => render_mir_inspection(compilation, target, output_format)
-            .map_err(|_| operation_diagnostics("mir_inspection"))?,
-        TackInspection::Project | TackInspection::Source => {
-            return Err(operation_diagnostics("inspection_routing"));
-        }
-    };
-
-    Ok(output.into_parts())
 }
 
 #[derive(Serialize)]
