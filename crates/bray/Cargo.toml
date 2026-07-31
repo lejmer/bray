@@ -6,18 +6,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-bray-compilation = { path = "../bray-compilation" }
 bray-diagnostics = { path = "../bray-diagnostics" }
-bray-emitter = { path = "../bray-emitter" }
-bray-formatter = { path = "../bray-formatter" }
-bray-lsp = { path = "../bray-lsp" }
-bray-package-interface = { path = "../bray-package-interface" }
 bray-platform = { path = "../bray-platform" }
 bray-project = { path = "../bray-project" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
-bray-tooling = { path = "../bray-tooling" }
+bray-tooling = { path = "../bray-tooling", default-features = false }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI
 # shape colocated with the Tack boundary, and help/color features render the

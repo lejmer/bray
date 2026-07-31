@@ -9,14 +9,9 @@ mod inspection;
 mod model;
 mod project;
 mod result;
-mod service;
+mod tool;
 
 pub use cli::TackCliError;
-pub use execute::{run_tack, run_tack_result, run_tack_with_services};
+pub use execute::{run_tack, run_tack_result};
 pub use model::{TackCommandKind, TackInvocation};
 pub use result::{TackDiagnostics, TackRunResult};
-pub use service::{
-    TackFormatInput, TackFormatMode, TackFormatRequest, TackFormatService,
-    TackLanguageServerRequest, TackLanguageServerService, TackServiceResult,
-    TackServices,
-};

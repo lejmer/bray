@@ -1,16 +1,18 @@
-use std::env;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+#[cfg(feature = "compiler")]
+use std::{env, num::NonZeroUsize, sync::Arc};
 
+#[cfg(feature = "compiler")]
 use bray_codegen::{
     CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
 };
+#[cfg(feature = "compiler")]
 use bray_codegen_llvm::LlvmCodeGenerator;
 use bray_compilation::{
     Compilation, CompilationRequest, PackageInterfaceExportRequest,
     SelectedTarget,
 };
+#[cfg(feature = "compiler")]
 use bray_linker::{
     ExternalToolHost, ExternalToolProcessBudget, Linker, LinkerDriver,
     LinkerDriverIdentity, LinkerDriverKind, LldDriver,
@@ -32,6 +34,7 @@ pub fn load_compilation(request: CompilationRequest) -> Option<Compilation> {
 }
 
 /// Loads a compilation configured with the LLVM code-generation backend.
+#[cfg(feature = "compiler")]
 pub fn load_llvm_compilation(
     request: CompilationRequest,
 ) -> Option<Compilation> {
@@ -148,6 +151,7 @@ pub fn baseline_target_outputs(
 }
 
 /// Creates the native linker and archiver composition available to command drivers.
+#[cfg(feature = "compiler")]
 pub fn native_linker() -> Option<Linker> {
     let lld = llvm_tool("lld")?;
     let archive = llvm_tool("llvm-ar")?;
@@ -193,6 +197,7 @@ pub fn native_linker() -> Option<Linker> {
     .ok()
 }
 
+#[cfg(feature = "compiler")]
 fn llvm_tool(name: &str) -> Option<PathBuf> {
     let executable_name = if cfg!(windows) {
         format!("{name}.exe")

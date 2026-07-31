@@ -120,6 +120,85 @@ impl NativeProcessCommand {
 
         Ok(NativeChildProcess { child })
     }
+
+    /// Runs the child to completion and captures both output streams.
+    pub fn capture(
+        mut self,
+        input: Option<Vec<u8>>,
+    ) -> Result<NativeProcessOutput, PlatformError> {
+        self.command.stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+
+        self.command.stdout(Stdio::piped());
+        self.command.stderr(Stdio::piped());
+
+        let mut child = self.command.spawn().map_err(|error| {
+            PlatformError::from_io(PlatformOperation::ProcessSpawn, &error)
+        })?;
+
+        let input_writer = input.and_then(|input| {
+            child.stdin.take().map(|mut stdin| {
+                std::thread::spawn(move || stdin.write_all(&input))
+            })
+        });
+
+        let output = child.wait_with_output().map_err(|error| {
+            PlatformError::from_io(PlatformOperation::ProcessWait, &error)
+        })?;
+
+        if let Some(writer) = input_writer {
+            writer
+                .join()
+                .map_err(|_| {
+                    PlatformError::new(
+                        PlatformOperation::ProcessWait,
+                        PlatformErrorKind::Io(std::io::ErrorKind::Other),
+                    )
+                })?
+                .map_err(|error| {
+                    PlatformError::from_io(PlatformOperation::ProcessWait, &error)
+                })?;
+        }
+
+        Ok(NativeProcessOutput {
+            status: NativeExitStatus(output.status),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    }
+}
+
+/// Captured native child-process outcome.
+#[derive(Debug)]
+pub struct NativeProcessOutput {
+    status: NativeExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl NativeProcessOutput {
+    /// Returns the child termination status.
+    pub const fn status(&self) -> NativeExitStatus {
+        self.status
+    }
+
+    /// Returns bytes captured from child standard output.
+    pub fn stdout(&self) -> &[u8] {
+        &self.stdout
+    }
+
+    /// Returns bytes captured from child standard error.
+    pub fn stderr(&self) -> &[u8] {
+        &self.stderr
+    }
+
+    /// Consumes the outcome into its status and output bytes.
+    pub fn into_parts(self) -> (NativeExitStatus, Vec<u8>, Vec<u8>) {
+        (self.status, self.stdout, self.stderr)
+    }
 }
 
 /// Owned native child-process handle.
@@ -274,5 +353,31 @@ mod tests {
 
         assert!(status.success());
         assert!(String::from_utf8_lossy(&bytes).contains("bray"));
+    }
+
+    #[test]
+    fn completed_processes_capture_output_and_supplied_input() {
+        let command = if cfg!(target_os = "windows") {
+            let mut command = NativeProcessCommand::new("cmd")
+                .unwrap_or_else(|error| panic!("test command must be valid: {error:?}"));
+
+            command
+                .arg("/V:ON")
+                .arg("/C")
+                .arg("set /p input=& echo !input!");
+
+            command
+        } else {
+            NativeProcessCommand::new("cat")
+                .unwrap_or_else(|error| panic!("test command must be valid: {error:?}"))
+        };
+
+        let output = command
+            .capture(Some(b"bray\n".to_vec()))
+            .unwrap_or_else(|error| panic!("test child must complete: {error:?}"));
+
+        assert!(output.status().success());
+        assert!(String::from_utf8_lossy(output.stdout()).contains("bray"));
+        assert!(output.stderr().is_empty());
     }
 }

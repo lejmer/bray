@@ -7,8 +7,11 @@ mod path;
 mod style;
 
 pub use diagnostic::{write_diagnostic_groups, write_diagnostics};
+#[cfg(feature = "analysis")]
 pub(crate) use diagnostic::{DiagnosticJson, diagnostic_jsons};
-pub(crate) use location::{SourceLocationOutput, TextRangeOutput};
+pub(crate) use location::SourceLocationOutput;
+#[cfg(feature = "analysis")]
+pub(crate) use location::TextRangeOutput;
 pub(crate) use origin::SourceOriginOutput;
 pub(crate) use path::path_to_output_string;
 pub use style::{clap_styles, render_styled_text};

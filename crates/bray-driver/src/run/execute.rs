@@ -1,11 +1,14 @@
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::{Compilation, CompilationRequest};
-use bray_diagnostics::DiagnosticBag;
-use bray_symbols::PackageIdentity;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    SeverityKind,
+};
 use bray_tooling::{
     InspectionOutput, OutputFormat,
     compilation_request_from_file_arguments, load_compilation,
@@ -17,7 +20,7 @@ use bray_tooling::{
 };
 
 use crate::command::{
-    DriverCommand, DriverCommandKind, DriverInvocation,
+    DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
 };
 use crate::run::{
     run_build_command, write_driver_output,
@@ -170,7 +173,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             files,
         } => {
             return run_build_command(
-                options.worker_budget(),
+                &options,
                 configuration,
                 files,
                 output_format,
@@ -181,11 +184,12 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
 
     let command_kind = command.kind();
     let unit_inspection_target = command.unit_inspection_target();
+    let interface_output = command.interface_output().map(Path::to_path_buf);
 
-    let request = match compilation_request_from_file_arguments(
-        command_line_package_identity(),
+    let request = match compilation_request(
+        &options,
         command.into_files(),
-        options.compilation_options(),
+        interface_output.is_some(),
     ) {
         Ok(request) => request,
         Err(diagnostics) => {
@@ -196,7 +200,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     };
 
     if command_kind == DriverCommandKind::Check {
-        return run_check_command(request, output_format);
+        return run_check_command(request, interface_output, output_format);
     }
 
     if command_kind == DriverCommandKind::InspectSource {
@@ -286,6 +290,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
 
 fn run_check_command(
     request: CompilationRequest,
+    interface_output: Option<PathBuf>,
     output_format: OutputFormat,
 ) -> DriverRunResult {
     let compilation = match load_compilation(request) {
@@ -294,6 +299,19 @@ fn run_check_command(
     };
 
     let diagnostics = compilation.check_diagnostics().clone();
+
+    if !diagnostics.has_errors() {
+        if let Some(path) = interface_output {
+            if let Err(error) = publish_package_interface(&compilation, &path) {
+                return driver_result_from_compilation(
+                    compilation,
+                    DiagnosticBag::single(error),
+                    output_format,
+                    ExitCode::FAILURE,
+                );
+            }
+        }
+    }
 
     diagnostic_result_from_compilation(compilation, diagnostics, output_format)
 }
@@ -378,12 +396,73 @@ fn compilation_load_failure_result(output_format: OutputFormat) -> DriverRunResu
     DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
 }
 
-pub(super) fn command_line_package_identity() -> PackageIdentity {
-    // Loose-file commands compile as one explicitly named command-line package.
-    match PackageIdentity::try_new("command.line") {
-        Some(identity) => identity,
-        None => panic!("the compiler's command-line package identity must be valid"),
+pub(super) fn compilation_request(
+    options: &DriverOptions,
+    files: Vec<PathBuf>,
+    export_interface: bool,
+) -> Result<CompilationRequest, DiagnosticBag> {
+    let configuration = options.compilation();
+
+    let mut request = compilation_request_from_file_arguments(
+        configuration.product().package().clone(),
+        files,
+        options.compilation_options(),
+    )?;
+
+    let dependencies = configuration
+        .dependencies()
+        .iter()
+        .map(crate::command::DriverDependencyInterface::load)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    request = request.with_dependency_interfaces(dependencies);
+
+    if export_interface {
+        request = request.with_package_interface_export(
+            bray_tooling::package_interface_export_request(configuration.product().clone()),
+        );
     }
+
+    Ok(request)
+}
+
+fn publish_package_interface(
+    compilation: &Compilation,
+    destination: &Path,
+) -> Result<(), Diagnostic> {
+    let bundle = compilation
+        .package_interface_export_bundle()
+        .and_then(|result| result.as_ref().ok())
+        .ok_or_else(|| publication_diagnostic(destination, io::ErrorKind::Other))?;
+
+    let artifact = bray_package_interface::encode_package_interface(bundle)
+        .map_err(|_| publication_diagnostic(destination, io::ErrorKind::InvalidData))?;
+
+    let mut staging = StagedFile::create(
+        destination,
+        FileReplacementMode::ReplaceExisting,
+        None,
+    )
+    .map_err(|error| publication_diagnostic(destination, error.kind()))?;
+
+    staging
+        .write_all(artifact.bytes())
+        .map_err(|error| publication_diagnostic(destination, error.kind()))?;
+
+    staging
+        .finish()
+        .and_then(|staged| staged.promote(destination))
+        .map_err(|error| publication_diagnostic(destination, error.kind()))
+}
+
+fn publication_diagnostic(path: &Path, kind: io::ErrorKind) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionArtifactWriteFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::file_path(path))
+    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(kind)))
 }
 
 fn run_with_writers(

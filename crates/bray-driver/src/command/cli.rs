@@ -9,10 +9,11 @@ use bray_tooling::{
     exit_code_from_diagnostics, render_styled_text,
 };
 use clap::error::ErrorKind as ClapErrorKind;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 
 use crate::command::{
-    CliBuildCommand, DriverCommand, DriverInvocation, DriverOptions,
+    CliBuildCommand, CliCompilationOptions, DriverCommand, DriverInvocation,
+    DriverOptions,
 };
 
 /// Error returned when parsing driver command-line arguments.
@@ -157,15 +158,14 @@ struct CliOptions {
     #[arg(long = "cpu-count", global = true, value_name = "N")]
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
-    format: CliOutputFormat,
+    format: OutputFormat,
+    #[command(flatten)]
+    compilation: CliCompilationOptions,
 }
 
 impl CliOptions {
     const fn output_format(&self) -> OutputFormat {
-        match self.format {
-            CliOutputFormat::Text => OutputFormat::Text,
-            CliOutputFormat::Json => OutputFormat::Json,
-        }
+        self.format
     }
 
     fn into_driver_options(self) -> Result<DriverOptions, DiagnosticBag> {
@@ -177,14 +177,20 @@ impl CliOptions {
             None => WorkerBudget::default(),
         };
 
-        Ok(DriverOptions::new(worker_budget, self.format.into()))
+        let compilation = self.compilation.into_configuration()?;
+
+        Ok(DriverOptions::new(
+            worker_budget,
+            self.format.into(),
+            compilation,
+        ))
     }
 }
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
     Build(CliBuildCommand),
-    Check(CliSourceFiles),
+    Check(CliCheckCommand),
     Inspect(CliInspectCommand),
 }
 
@@ -192,7 +198,10 @@ impl CliCommand {
     fn into_driver_parts(self) -> (DriverCommand, Option<PathBuf>) {
         match self {
             Self::Build(command) => (command.into_driver_command(), None),
-            Self::Check(files) => (DriverCommand::check(files.files), None),
+            Self::Check(check) => (
+                DriverCommand::check(check.files, check.emit_interface),
+                None,
+            ),
             Self::Inspect(command) => command.into_driver_parts(),
         }
     }
@@ -274,29 +283,24 @@ struct CliSourceFiles {
     files: Vec<PathBuf>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum CliOutputFormat {
-    Text,
-    Json,
-}
-
-impl From<CliOutputFormat> for OutputFormat {
-    fn from(format: CliOutputFormat) -> Self {
-        match format {
-            CliOutputFormat::Text => Self::Text,
-            CliOutputFormat::Json => Self::Json,
-        }
-    }
+#[derive(Args, Debug)]
+struct CliCheckCommand {
+    #[arg(long = "emit-interface", value_name = "PATH")]
+    emit_interface: Option<PathBuf>,
+    #[arg(value_name = "FILE", num_args = 0..)]
+    files: Vec<PathBuf>,
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::path::PathBuf;
 
     use bray_compilation::WorkerBudget;
     use bray_diagnostics::DiagnosticKind;
     use bray_runtime_interface::RuntimeCapability;
     use bray_symbols::ProductKind;
+    use bray_target::TargetOutputKind;
     use bray_tooling::OutputFormat;
 
     use crate::command::{
@@ -323,6 +327,8 @@ mod tests {
             "cooperative-execution",
             "--inspect",
             "backend-ir",
+            "--artifact",
+            "executable",
             "--output",
             "out",
             "main.bray",
@@ -337,9 +343,18 @@ mod tests {
             .product_configuration()
             .unwrap_or_else(|| panic!("build command must retain product configuration"));
 
-        assert_eq!(configuration.product_kind(), ProductKind::Executable);
-        assert_eq!(configuration.target(), DriverTarget::X86_64UnknownLinuxGnu);
+        assert_eq!(
+            invocation.options().compilation().product_kind(),
+            ProductKind::Executable
+        );
+
+        assert_eq!(
+            invocation.options().compilation().target(),
+            DriverTarget::X86_64UnknownLinuxGnu
+        );
+
         assert_eq!(configuration.backend(), DriverBackend::Llvm);
+        assert_eq!(configuration.artifacts(), &[TargetOutputKind::Executable]);
 
         assert_eq!(
             configuration
@@ -365,6 +380,44 @@ mod tests {
         );
 
         assert_eq!(configuration.output(), std::path::Path::new("out"));
+    }
+
+    #[test]
+    fn parses_dependency_identities_and_paths_without_combining_path_text() {
+        let invocation = DriverInvocation::try_from_arguments([
+            OsString::from("brayc"),
+            OsString::from("--dependency-product"),
+            OsString::from("example.math/math"),
+            OsString::from("--dependency-interface"),
+            PathBuf::from("interfaces/math.brayi").into_os_string(),
+            OsString::from("check"),
+            OsString::from("main.bray"),
+        ])
+        .unwrap_or_else(|error| panic!("dependency invocation should parse: {error:?}"));
+
+        let dependencies = invocation.options().compilation().dependencies();
+
+        let [dependency] = dependencies else {
+            panic!("one dependency interface should be retained: {dependencies:#?}");
+        };
+
+        assert_eq!(dependency.package().as_str(), "example.math");
+        assert_eq!(dependency.product().as_str(), "math");
+        assert_eq!(dependency.path(), std::path::Path::new("interfaces/math.brayi"));
+    }
+
+    #[test]
+    fn rejects_unpaired_dependency_inputs() {
+        assert!(
+            DriverInvocation::try_from_arguments([
+                "brayc",
+                "--dependency-product",
+                "example.math/math",
+                "check",
+                "main.bray",
+            ])
+            .is_err()
+        );
     }
 
     #[test]

@@ -84,6 +84,13 @@ they do not search for packages or consult ambient dependency state.
 The user-facing command boundary and its explicit acquisition non-goals are defined in
 [Bray Tack project driver](bray-tack.md).
 
+Bray Tack remains a project orchestrator rather than a container for compiler, formatter, or
+language-server implementations. It communicates with the independently installable `brayc`,
+`brayfmt`, and `bray-lsp` executables through explicit process arguments, structured command output,
+compiled package interfaces, and protocol streams. Shared crates may define narrow presentation or
+project contracts, but `bray` must not acquire direct dependencies on compiler phases, formatter
+implementation, or language-server implementation.
+
 The compiler pipeline is a logical dependency order:
 
 ```text

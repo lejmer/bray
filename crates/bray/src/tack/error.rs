@@ -10,10 +10,6 @@ pub(crate) fn selection_diagnostics(selection: impl Into<String>) -> DiagnosticB
     )
 }
 
-pub(crate) fn unavailable_diagnostics(capability: impl Into<String>) -> DiagnosticBag {
-    diagnostic(DiagnosticKind::ProjectCommandUnavailable, capability)
-}
-
 pub(crate) fn operation_diagnostics(operation: impl Into<String>) -> DiagnosticBag {
     diagnostic(DiagnosticKind::ProjectCommandFailed, operation)
 }
@@ -30,7 +26,7 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     use super::{
-        operation_diagnostics, selection_diagnostics, unavailable_diagnostics,
+        operation_diagnostics, selection_diagnostics,
     };
 
     #[test]
@@ -39,10 +35,6 @@ mod tests {
             (
                 selection_diagnostics("package"),
                 DiagnosticKind::ProjectCommandSelectionInvalid,
-            ),
-            (
-                unavailable_diagnostics("formatter"),
-                DiagnosticKind::ProjectCommandUnavailable,
             ),
             (
                 operation_diagnostics("git_clone"),
