@@ -88,6 +88,9 @@ documents.
 - `bray-tooling`
     - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command drivers.
 
+- `bray-language-server`
+    - Incremental editor protocol handling over immutable compilation snapshots and narrow compiler tooling queries.
+
 - `bray-driver`
     - Loose-file compiler command orchestration used by `brayc`.
 

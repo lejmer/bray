@@ -47,7 +47,9 @@ language-server logic.
 
 The formatter request distinguishes check and write modes and distinguishes file inputs from
 standard-input bytes. The language-server request receives shared ownership of the immutable
-project graph and the selected compiler worker budget.
+project graph and the selected compiler worker budget. The language-server service receives the
+process input and output streams as its protocol transport without routing framed messages through
+ordinary command output.
 
 ## Dependency Acquisition
 

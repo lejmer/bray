@@ -42,7 +42,7 @@ pub fn run_tack_with_services(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
 ) -> ExitCode {
-    let mut stdin = io::stdin().lock();
+    let mut stdin = io::stdin();
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
@@ -65,11 +65,16 @@ pub fn run_tack_result(
 fn run_tack_with_io(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
-    stdin: &mut impl Read,
+    stdin: &mut (impl Read + Send),
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> ExitCode {
-    let result = run_tack_result_with_input(arguments, services, stdin);
+    let result = run_tack_result_with_input_and_output(
+        arguments,
+        services,
+        stdin,
+        stdout,
+    );
 
     if stdout.write_all(result.stdout().as_bytes()).is_err()
         || stderr.write_all(result.stderr().as_bytes()).is_err()
@@ -95,7 +100,29 @@ fn run_tack_with_io(
 fn run_tack_result_with_input(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
-    stdin: &mut impl Read,
+    stdin: &mut (impl Read + Send),
+) -> TackRunResult {
+    let mut protocol_output = Vec::new();
+
+    let mut result = run_tack_result_with_input_and_output(
+        arguments,
+        services,
+        stdin,
+        &mut protocol_output,
+    );
+
+    if let Ok(protocol_output) = String::from_utf8(protocol_output) {
+        result.prepend_stdout(protocol_output);
+    }
+
+    result
+}
+
+fn run_tack_result_with_input_and_output(
+    arguments: impl IntoIterator<Item = OsString>,
+    services: TackServices<'_>,
+    stdin: &mut (impl Read + Send),
+    protocol_output: &mut impl Write,
 ) -> TackRunResult {
     let invocation = match TackInvocation::try_from_arguments(arguments) {
         Ok(invocation) => invocation,
@@ -115,13 +142,14 @@ fn run_tack_result_with_input(
         }
     };
 
-    execute_invocation(invocation, services, stdin)
+    execute_invocation(invocation, services, stdin, protocol_output)
 }
 
 fn execute_invocation(
     invocation: TackInvocation,
     services: TackServices<'_>,
-    stdin: &mut impl Read,
+    stdin: &mut (impl Read + Send),
+    protocol_output: &mut impl Write,
 ) -> TackRunResult {
     let (workspace_root, worker_budget, output_format, command) =
         invocation.into_parts();
@@ -236,7 +264,7 @@ fn execute_invocation(
             );
 
             let (exit_code, diagnostics, stdout, stderr) =
-                service.run(request).into_parts();
+                service.run(request, stdin, protocol_output).into_parts();
 
             TackRunResult::with_output(
                 exit_code,
@@ -580,7 +608,7 @@ fn run_format(
     files: Vec<PathBuf>,
     output_format: OutputFormat,
     services: TackServices<'_>,
-    stdin: &mut impl Read,
+    stdin: &mut (impl Read + Send),
 ) -> TackRunResult {
     let Some(formatter) = services.formatter() else {
         return TackRunResult::new(
@@ -685,7 +713,7 @@ fn result_from_operation(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::io::{Cursor, Read, Write};
     use std::path::PathBuf;
     use std::process::ExitCode;
     use std::sync::Mutex;
@@ -734,12 +762,18 @@ mod tests {
         fn run(
             &self,
             request: TackLanguageServerRequest,
+            _input: &mut (dyn Read + Send),
+            output: &mut dyn Write,
         ) -> TackServiceResult {
             *self
                 .package_count
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) =
                 Some(request.graph().packages().len());
+
+            output
+                .write_all(b"language-server-protocol")
+                .unwrap_or_else(|error| panic!("test protocol output should write: {error}"));
 
             TackServiceResult::new(
                 ExitCode::SUCCESS,
@@ -1309,6 +1343,7 @@ mod tests {
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+        assert_eq!(result.stdout(), "language-server-protocol");
 
         assert_eq!(
             *language_server

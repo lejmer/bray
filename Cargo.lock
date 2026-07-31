@@ -123,6 +123,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-emitter",
  "bray-formatter",
+ "bray-language-server",
  "bray-package-interface",
  "bray-platform",
  "bray-project",
@@ -341,6 +342,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-language-server"
+version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-compilation",
+ "bray-declarations",
+ "bray-diagnostics",
+ "bray-messages",
+ "bray-package-interface",
+ "bray-project",
+ "bray-source",
+ "bray-symbols",
+ "bray-syntax",
+ "bray-target",
+ "bray-testing",
+ "bray-tooling",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bray-linker"
 version = "0.0.0"
 dependencies = [
@@ -509,6 +532,7 @@ dependencies = [
  "bray-messages",
  "bray-package-interface",
  "bray-parser",
+ "bray-project",
  "bray-runtime-interface",
  "bray-source",
  "bray-symbols",

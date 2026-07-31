@@ -21,7 +21,8 @@ use bray_target::{TargetIdentity, TargetOutputKind};
 use bray_tooling::{
     baseline_target_outputs, compilation_request_from_file_arguments,
     load_compilation, load_llvm_compilation, native_linker,
-    package_interface_export_request,
+    package_interface_export_request, project_interface_path,
+    project_output_directory,
 };
 use crate::tack::error::{
     operation_diagnostics, selection_diagnostics, unavailable_diagnostics,
@@ -478,12 +479,12 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target_name: &str,
     ) -> PathBuf {
-        self.graph
-            .output_root()
-            .beneath(self.workspace_root)
-            .join(target_name)
-            .join(product.identity().package().as_str())
-            .join(product.identity().name())
+        project_output_directory(
+            self.graph,
+            self.workspace_root,
+            product.identity(),
+            target_name,
+        )
     }
 
     fn interface_path(
@@ -491,22 +492,13 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProductIdentity,
         target: &TargetIdentity,
     ) -> Result<PathBuf, DiagnosticBag> {
-        let target_name = self
-            .graph
-            .targets()
-            .iter()
-            .find(|candidate| candidate.identity() == target)
-            .map(bray_project::ProjectTarget::name)
-            .ok_or_else(|| selection_diagnostics(target.as_str()))?;
-
-        Ok(self
-            .graph
-            .output_root()
-            .beneath(self.workspace_root)
-            .join(target_name)
-            .join(product.package().as_str())
-            .join(product.name())
-            .join(format!("{}.brayi", product.name())))
+        project_interface_path(
+            self.graph,
+            self.workspace_root,
+            product,
+            target,
+        )
+        .ok_or_else(|| selection_diagnostics(target.as_str()))
     }
 }
 

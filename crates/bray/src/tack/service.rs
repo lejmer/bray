@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::io::{Read, Write};
 
 use bray_compilation::WorkerBudget;
 use bray_diagnostics::DiagnosticBag;
@@ -96,6 +97,12 @@ impl TackLanguageServerRequest {
     pub const fn worker_budget(&self) -> WorkerBudget {
         self.worker_budget
     }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (PathBuf, Arc<ProjectGraph>, WorkerBudget) {
+        (self.workspace_root, self.graph, self.worker_budget)
+    }
 }
 
 /// Structured result returned by a linked Bray Tack service.
@@ -142,7 +149,12 @@ pub trait TackFormatService {
 /// Language-server implementation linked into Bray Tack.
 pub trait TackLanguageServerService {
     /// Runs language tooling over the supplied immutable project graph.
-    fn run(&self, request: TackLanguageServerRequest) -> TackServiceResult;
+    fn run(
+        &self,
+        request: TackLanguageServerRequest,
+        input: &mut (dyn Read + Send),
+        output: &mut dyn Write,
+    ) -> TackServiceResult;
 }
 
 /// Optional tool implementations linked into the Bray Tack executable.

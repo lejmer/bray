@@ -4,6 +4,7 @@
 
 mod driver;
 mod formatter;
+mod language_server;
 mod tack;
 #[cfg(test)]
 mod test_support;

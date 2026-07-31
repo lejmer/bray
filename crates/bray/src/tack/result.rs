@@ -151,6 +151,14 @@ impl TackRunResult {
         };
     }
 
+    pub(crate) fn prepend_stdout(&mut self, output: String) {
+        if output.is_empty() {
+            return;
+        }
+
+        self.stdout.insert_str(0, &output);
+    }
+
     pub(crate) fn diagnostic_groups(
         &self,
     ) -> impl Iterator<

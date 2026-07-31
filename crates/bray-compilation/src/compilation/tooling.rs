@@ -193,6 +193,33 @@ impl Compilation {
         })
     }
 
+    /// Returns every source occurrence that resolves to the symbol at a position.
+    pub fn references_at(
+        &self,
+        source_id: SourceId,
+        position: TextSize,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<SemanticAvailability<Vec<BoundSourceAnchor>>, FactQueryError> {
+        let target = match self.symbol_at(source_id, position, cancellation, priority)? {
+            SemanticAvailability::Available(target) => target,
+            SemanticAvailability::Recovered(Some(target)) => {
+                return self
+                    .references_to(target, cancellation, priority)
+                    .map(|references| SemanticAvailability::Recovered(Some(references)));
+            }
+            SemanticAvailability::Recovered(None) => {
+                return Ok(SemanticAvailability::Recovered(None));
+            }
+            SemanticAvailability::Unavailable => {
+                return Ok(SemanticAvailability::Unavailable);
+            }
+        };
+
+        self.references_to(target, cancellation, priority)
+            .map(SemanticAvailability::Available)
+    }
+
     /// Returns the checked expression type at a source position.
     pub fn expression_type_at(
         &self,
@@ -378,6 +405,74 @@ impl Compilation {
             cancellation.check()?;
 
             Ok(result)
+        })
+    }
+
+    fn references_to(
+        &self,
+        target: BoundReferenceTarget,
+        cancellation: &CancellationToken,
+        priority: QueryPriority,
+    ) -> Result<Vec<BoundSourceAnchor>, FactQueryError> {
+        self.run_semantic_query(cancellation, priority, || {
+            let mut candidates = Vec::new();
+
+            for source in self.sources() {
+                cancellation.check()?;
+
+                let Some(syntax) = self.source_unit_syntax(source.source_id()) else {
+                    continue;
+                };
+
+                walk_syntax_node(syntax.source_unit(), |event| {
+                    let SyntaxWalkEvent::EnterNode(node) = event else {
+                        return SyntaxWalkControl::Continue;
+                    };
+
+                    candidates.push(SyntaxAnchor::from_node(&node));
+
+                    SyntaxWalkControl::Continue
+                });
+            }
+
+            let mut references = Vec::new();
+
+            for syntax in candidates {
+                cancellation.check()?;
+
+                let matches = match self.symbol_for_current_syntax(syntax, cancellation)? {
+                    SemanticAvailability::Available(candidate)
+                    | SemanticAvailability::Recovered(Some(candidate)) => candidate == target,
+                    SemanticAvailability::Recovered(None)
+                    | SemanticAvailability::Unavailable => false,
+                };
+
+                if matches {
+                    let source = self
+                        .source(syntax.source_id())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    references.push(BoundSourceAnchor::new(syntax, source.version()));
+                }
+            }
+
+            references.sort_by_key(|reference| {
+                let syntax = reference.syntax();
+
+                (
+                    syntax.source_id(),
+                    syntax.full_range().start(),
+                    syntax.full_range().end(),
+                    syntax.syntax_kind(),
+                )
+            });
+
+            references.dedup_by(|left, right| {
+                left.syntax().source_id() == right.syntax().source_id()
+                    && left.syntax().full_range() == right.syntax().full_range()
+            });
+
+            Ok(references)
         })
     }
 

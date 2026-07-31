@@ -1,30 +1,25 @@
 [package]
-name = "bray"
+name = "bray-language-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-bound-tree = { path = "../bray-bound-tree" }
 bray-compilation = { path = "../bray-compilation" }
+bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
-bray-emitter = { path = "../bray-emitter" }
-bray-formatter = { path = "../bray-formatter" }
-bray-language-server = { path = "../bray-language-server" }
+bray-messages = { path = "../bray-messages" }
 bray-package-interface = { path = "../bray-package-interface" }
-bray-platform = { path = "../bray-platform" }
 bray-project = { path = "../bray-project" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
+bray-syntax = { path = "../bray-syntax" }
 bray-target = { path = "../bray-target" }
 bray-tooling = { path = "../bray-tooling" }
 
-# `std` supports process arguments and paths, `derive` keeps the typed CLI
-# shape colocated with the Tack boundary, and help/color features render the
-# user-facing command surface.
-clap = { version = "4", default-features = false, features = ["color", "derive", "help", "std", "usage"] }
-
-# Project inspection and diagnostic output use explicit serialization DTOs.
+crossbeam-channel = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -33,7 +28,3 @@ bray-testing = { path = "../bray-testing" }
 
 [lints]
 workspace = true
-
-[[bin]]
-name = "bray"
-path = "src/main.rs"

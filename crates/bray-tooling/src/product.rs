@@ -1,6 +1,6 @@
 use std::env;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_codegen::{
@@ -20,9 +20,10 @@ use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity,
     InterfaceProductKind, PackageInterfaceIdentity,
 };
+use bray_project::ProjectGraph;
 use bray_symbols::ProductIdentity;
 use bray_target::{
-    TargetOutputDescription, TargetOutputKind, TargetOutputName,
+    TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
 };
 
 /// Loads a compilation without a code-generation backend.
@@ -65,6 +66,40 @@ pub fn package_interface_export_request(
     PackageInterfaceExportRequest::new(
         identity,
         InterfaceLanguageRevision::new(0),
+    )
+}
+
+/// Returns one product's deterministic output directory.
+pub fn project_output_directory(
+    graph: &ProjectGraph,
+    workspace_root: &Path,
+    product: &ProductIdentity,
+    target_name: &str,
+) -> PathBuf {
+    graph
+        .output_root()
+        .beneath(workspace_root)
+        .join(target_name)
+        .join(product.package().as_str())
+        .join(product.name())
+}
+
+/// Returns the package-interface path for one product and selected target.
+pub fn project_interface_path(
+    graph: &ProjectGraph,
+    workspace_root: &Path,
+    product: &ProductIdentity,
+    target: &TargetIdentity,
+) -> Option<PathBuf> {
+    let target_name = graph
+        .targets()
+        .iter()
+        .find(|candidate| candidate.identity() == target)
+        .map(bray_project::ProjectTarget::name)?;
+
+    Some(
+        project_output_directory(graph, workspace_root, product, target_name)
+            .join(format!("{}.brayi", product.name())),
     )
 }
 
