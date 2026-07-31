@@ -505,20 +505,12 @@ mod tests {
             .unwrap_or_else(|| panic!("Future must be available"));
 
         assert_eq!(
-            view.unary_representation_argument(
-                &values,
-                RepresentationRole::Future,
-                future,
-            ),
+            view.unary_representation_argument(&values, RepresentationRole::Future, future,),
             Some(completion)
         );
 
         assert_eq!(
-            view.unary_representation_argument(
-                &values,
-                RepresentationRole::Task,
-                future,
-            ),
+            view.unary_representation_argument(&values, RepresentationRole::Task, future,),
             None
         );
     }

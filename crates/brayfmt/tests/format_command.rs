@@ -55,13 +55,7 @@ fn file_write_and_check_modes_publish_only_when_requested() {
     std::fs::write(file.path(), UNFORMATTED)
         .unwrap_or_else(|error| panic!("test source should be reset: {error:?}"));
 
-    let check = run(
-        [
-            "--check".into(),
-            file.path().as_os_str().to_owned(),
-        ],
-        &[],
-    );
+    let check = run(["--check".into(), file.path().as_os_str().to_owned()], &[]);
 
     assert!(!check.status.success(), "{check:?}");
     assert_eq!(read(file.path()), UNFORMATTED);

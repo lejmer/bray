@@ -3,6 +3,9 @@ use bray_source::{LineIndex, SourceNewlinePolicy, SourceSnapshot};
 use serde::Serialize;
 
 use crate::OutputFormat;
+use crate::inspection::{
+    push_indented_report_value, push_report_value, render_pretty_json,
+};
 use crate::output::SourceOriginOutput;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,7 +22,9 @@ pub(crate) fn render_source_inspection(
 
     match output_format {
         OutputFormat::Text => Ok(render_text_report(&report)),
-        OutputFormat::Json => render_json_report(&report),
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| SourceInspectionRenderError::Json)
+        }
     }
 }
 
@@ -103,12 +108,8 @@ fn line_start_offsets(index: &LineIndex) -> Result<Vec<u32>, SourceInspectionRen
 fn render_text_report(report: &SourceInspectionReport<'_>) -> String {
     let mut output = String::new();
 
-    output.push_str("kind: ");
-    output.push_str(report.kind);
-    output.push('\n');
-    output.push_str("source_count: ");
-    output.push_str(&report.source_count.to_string());
-    output.push('\n');
+    push_report_value(&mut output, "kind", report.kind);
+    push_report_value(&mut output, "source_count", report.source_count);
 
     for source in &report.sources {
         output.push('\n');
@@ -119,25 +120,23 @@ fn render_text_report(report: &SourceInspectionReport<'_>) -> String {
 }
 
 fn push_text_source(output: &mut String, source: &SourceInspection) {
-    output.push_str("source_id: ");
-    output.push_str(&source.source_id.to_string());
-    output.push('\n');
+    push_report_value(output, "source_id", source.source_id);
 
-    push_indented_value(output, "identity", source.identity);
-    push_indented_value(output, "version", source.version);
-    push_indented_str(output, "origin_kind", source.origin.kind());
+    push_indented_report_value(output, "identity", source.identity);
+    push_indented_report_value(output, "version", source.version);
+    push_indented_report_value(output, "origin_kind", source.origin.kind());
     push_text_origin_detail(output, &source.origin);
-    push_indented_str(output, "checksum", &format!("0x{:016x}", source.checksum));
-    push_indented_value(output, "byte_len", source.byte_len);
-    push_indented_value(output, "line_count", source.line_count);
+    push_indented_report_value(output, "checksum", format!("0x{:016x}", source.checksum));
+    push_indented_report_value(output, "byte_len", source.byte_len);
+    push_indented_report_value(output, "line_count", source.line_count);
 
-    push_indented_str(
+    push_indented_report_value(
         output,
         "line_starts",
-        &format_line_starts(&source.line_starts),
+        format_line_starts(&source.line_starts),
     );
 
-    push_indented_str(output, "newline_policy", source.newline_policy);
+    push_indented_report_value(output, "newline_policy", source.newline_policy);
 
     output.push_str("  text:\n");
     output.push_str(source.text);
@@ -149,36 +148,24 @@ fn push_text_source(output: &mut String, source: &SourceInspection) {
 
 fn push_text_origin_detail(output: &mut String, origin: &SourceOriginOutput) {
     if let Some(path) = origin.file_path() {
-        push_indented_str(output, "file_path", path);
+        push_indented_report_value(output, "file_path", path);
     }
 
     if let Some(name) = origin.virtual_name() {
-        push_indented_str(output, "virtual_name", name);
+        push_indented_report_value(output, "virtual_name", name);
     }
 
     if let Some(name) = origin.generated_name() {
-        push_indented_str(output, "generated_name", name);
+        push_indented_report_value(output, "generated_name", name);
     }
 
     if let Some(uri) = origin.lsp_uri() {
-        push_indented_str(output, "lsp_uri", uri);
+        push_indented_report_value(output, "lsp_uri", uri);
     }
 
     if let Some(name) = origin.test_fixture_name() {
-        push_indented_str(output, "test_fixture_name", name);
+        push_indented_report_value(output, "test_fixture_name", name);
     }
-}
-
-fn push_indented_value<T: ToString>(output: &mut String, key: &str, value: T) {
-    push_indented_str(output, key, &value.to_string());
-}
-
-fn push_indented_str(output: &mut String, key: &str, value: &str) {
-    output.push_str("  ");
-    output.push_str(key);
-    output.push_str(": ");
-    output.push_str(value);
-    output.push('\n');
 }
 
 fn format_line_starts(starts: &[u32]) -> String {
@@ -195,17 +182,6 @@ fn format_line_starts(starts: &[u32]) -> String {
     output.push(']');
 
     output
-}
-
-fn render_json_report(
-    report: &SourceInspectionReport<'_>,
-) -> Result<String, SourceInspectionRenderError> {
-    let mut output =
-        serde_json::to_string_pretty(report).map_err(|_| SourceInspectionRenderError::Json)?;
-
-    output.push('\n');
-
-    Ok(output)
 }
 
 #[cfg(test)]

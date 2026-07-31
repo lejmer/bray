@@ -2,18 +2,15 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId,
-    DiagnosticIoErrorKind, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    SeverityKind,
 };
 use bray_tooling::{OutputFormat, write_diagnostics};
 
 use super::DriverRunResult;
 
 pub(crate) enum DriverOutputError {
-    InspectionReport {
-        path: PathBuf,
-        kind: io::ErrorKind,
-    },
+    InspectionReport { path: PathBuf, kind: io::ErrorKind },
     Terminal,
 }
 

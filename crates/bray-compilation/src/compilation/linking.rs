@@ -231,7 +231,14 @@ mod tests {
             LinkInputProvenance::Runtime(runtime.clone()),
         ));
 
-        builder.push_input(native_library(3, "pthread"));
+        builder.push_input(
+            LinkInput::try_native_library(
+                LinkInputId::new(3),
+                "pthread",
+                LinkInputProvenance::HostConfiguration,
+            )
+            .unwrap_or_else(|| panic!("test native library name must be valid")),
+        );
 
         builder.push_input(file_input(
             4,
@@ -291,7 +298,12 @@ mod tests {
                     "runtime.a",
                     LinkInputProvenance::Runtime(runtime.clone()),
                 ),
-                native_library(3, "pthread"),
+                LinkInput::try_native_library(
+                    LinkInputId::new(3),
+                    "pthread",
+                    LinkInputProvenance::HostConfiguration,
+                )
+                .unwrap_or_else(|| panic!("test native library name must be valid")),
                 file_input(
                     4,
                     LinkInputKind::TerminationObject,
@@ -673,18 +685,6 @@ mod tests {
             LinkInputMode::Ordinary,
         )
         .unwrap_or_else(|error| panic!("test file input must be valid: {error:?}"))
-    }
-
-    fn native_library(ordinal: u32, name: &str) -> LinkInput {
-        LinkInput::try_new(
-            LinkInputId::new(ordinal),
-            LinkInputKind::NativeLibrary,
-            LinkInputSource::try_native_library(name)
-                .unwrap_or_else(|| panic!("test native library name must be valid")),
-            LinkInputProvenance::HostConfiguration,
-            LinkInputMode::Ordinary,
-        )
-        .unwrap_or_else(|error| panic!("test native library input must be valid: {error:?}"))
     }
 
     fn planned_output(ordinal: u32, kind: LinkedArtifactKind, path: &str) -> PlannedLinkedArtifact {

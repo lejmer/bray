@@ -274,11 +274,7 @@ fn require_closed_categories(
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        let actual = category
-            .variants
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let actual = category.variants.iter().cloned().collect::<BTreeSet<_>>();
 
         if actual != expected {
             return Err(format!(
@@ -300,10 +296,7 @@ fn require_closed_categories(
     Ok(())
 }
 
-fn require_runtime_roles(
-    rows: &[RuntimeRoleRow],
-    workspace: &RustWorkspace,
-) -> Result<(), String> {
+fn require_runtime_roles(rows: &[RuntimeRoleRow], workspace: &RustWorkspace) -> Result<(), String> {
     require_unique_names(
         rows.iter().map(|row| row.name.as_str()),
         CODEGEN_RUNTIME_ROLES,

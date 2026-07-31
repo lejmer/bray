@@ -147,10 +147,7 @@ fn push_terminator(output: &mut String, terminator: &InspectionMirTerminator) {
     let _ = writeln!(output, "; // {}", source_text(&terminator.source));
 }
 
-fn push_attributes(
-    output: &mut String,
-    attributes: &[super::model::InspectionMirAttribute],
-) {
+fn push_attributes(output: &mut String, attributes: &[super::model::InspectionMirAttribute]) {
     for attribute in attributes {
         let _ = write!(output, " {}={}", attribute.name, attribute.value.text());
     }
@@ -185,10 +182,7 @@ fn push_types(output: &mut String, types: &[super::model::InspectionMirNamedType
     }
 }
 
-fn push_semantic_values(
-    output: &mut String,
-    values: &[super::model::InspectionMirSemanticValue],
-) {
+fn push_semantic_values(output: &mut String, values: &[super::model::InspectionMirSemanticValue]) {
     for value in values {
         let text = value
             .text

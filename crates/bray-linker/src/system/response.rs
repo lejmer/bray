@@ -3,9 +3,8 @@ use std::path::{Path, PathBuf};
 
 use super::SystemLinkerConfiguration;
 use crate::external_tool::{
-    ResponseFileEncoding, ResponseFileEncodingError,
-    encode_response_arguments, response_file_materialization_path,
-    response_file_path, response_file_reference,
+    ResponseFileEncoding, ResponseFileEncodingError, encode_response_arguments,
+    response_file_materialization_path, response_file_path, response_file_reference,
 };
 use crate::{
     ExternalToolInvocation, ExternalToolInvocationBuildError, ExternalToolResponseFile,
@@ -60,23 +59,19 @@ fn response_file(
         return Err(SystemLinkerInvocationBuildError::MissingPrimaryOutput);
     };
 
-    let reference_path = response_file_path(
-        primary_output.destination().path(),
-        ".bray-link.rsp",
-    );
+    let reference_path = response_file_path(primary_output.destination().path(), ".bray-link.rsp");
 
     let materialization_path =
         response_file_materialization_path(&reference_path, current_directory);
 
-    let contents = encode_response_arguments(arguments, encoding)
-        .map_err(|error| match error {
-            ResponseFileEncodingError::NonUnicodeArgument => {
-                SystemLinkerInvocationBuildError::NonUnicodeArgument
-            }
-            ResponseFileEncodingError::UnsupportedArgument => {
-                SystemLinkerInvocationBuildError::UnsupportedArgument
-            }
-        })?;
+    let contents = encode_response_arguments(arguments, encoding).map_err(|error| match error {
+        ResponseFileEncodingError::NonUnicodeArgument => {
+            SystemLinkerInvocationBuildError::NonUnicodeArgument
+        }
+        ResponseFileEncodingError::UnsupportedArgument => {
+            SystemLinkerInvocationBuildError::UnsupportedArgument
+        }
+    })?;
 
     let response_file = ExternalToolResponseFile::try_new(materialization_path, contents)
         .map_err(SystemLinkerInvocationBuildError::ResponseFile)?;
@@ -142,9 +137,7 @@ mod tests {
     fn response_file_references_are_single_native_arguments() {
         let path = OsStr::new("stage/output with spaces.bray-link.rsp");
 
-        let reference = crate::external_tool::response_file_reference(
-            std::path::Path::new(path),
-        );
+        let reference = crate::external_tool::response_file_reference(std::path::Path::new(path));
 
         assert_eq!(
             reference,

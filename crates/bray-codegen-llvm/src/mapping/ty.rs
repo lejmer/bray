@@ -259,11 +259,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        push_padding(
-            self.context,
-            &mut elements,
-            layout.size() - current_offset,
-        )?;
+        push_padding(self.context, &mut elements, layout.size() - current_offset)?;
 
         push_alignment_carrier(self.context, &mut elements, mapping)?;
         structure.set_body(&elements, false);
@@ -358,6 +354,7 @@ mod tests {
         CodegenFieldLayout, CodegenMappings, CodegenResultMapping, CodegenTypeKind,
         CodegenTypeMapping, TargetAddressSpaceKind,
     };
+    use bray_symbols::testing::intern_type;
     use bray_symbols::{SemanticValueStore, TypeData};
     use bray_target::{TargetLayoutContract, TargetValueLayout};
     use inkwell::context::Context;
@@ -563,10 +560,7 @@ mod tests {
                 unsized_slice,
                 CodegenTypeKind::UnsizedSlice { element: byte },
             ),
-            CodegenTypeMapping::new_unsized(
-                unsized_trait_view,
-                CodegenTypeKind::UnsizedTraitView,
-            ),
+            CodegenTypeMapping::new_unsized(unsized_trait_view, CodegenTypeKind::UnsizedTraitView),
             CodegenTypeMapping::new(
                 intern_type(&store, TypeData::tuple([])),
                 layout(0, one),
@@ -588,10 +582,4 @@ mod tests {
         TargetValueLayout::new(size, alignment, TargetLayoutContract::Default)
     }
 
-    fn intern_type(store: &SemanticValueStore, data: TypeData) -> bray_symbols::TypeId {
-        match store.intern_type(data) {
-            Ok(ty) => ty,
-            Err(error) => panic!("test type must intern: {error:?}"),
-        }
-    }
 }

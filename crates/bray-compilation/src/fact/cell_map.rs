@@ -211,9 +211,7 @@ fn reclaim_entries<K, V>(
 #[cfg(test)]
 mod tests {
     use super::FactCellMap;
-    use crate::fact::{
-        CancellationToken, CompilationFactKey, FactQueryError, FactRuntime,
-    };
+    use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
 
     #[test]
     fn completed_entries_are_reclaimed_by_recent_use() {

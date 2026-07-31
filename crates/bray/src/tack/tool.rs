@@ -57,8 +57,7 @@ impl ToolRequest {
         &mut self,
         arguments: impl IntoIterator<Item = impl Into<OsString>>,
     ) -> &mut Self {
-        self.arguments
-            .extend(arguments.into_iter().map(Into::into));
+        self.arguments.extend(arguments.into_iter().map(Into::into));
 
         self
     }
@@ -132,9 +131,7 @@ impl ToolExecutor for NativeToolExecutor {
     fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
         let command = native_command(&request)?;
 
-        let output = command
-            .capture(request.input)
-            .map_err(|_| ())?;
+        let output = command.capture(request.input).map_err(|_| ())?;
 
         let (status, stdout, stderr) = output.into_parts();
 

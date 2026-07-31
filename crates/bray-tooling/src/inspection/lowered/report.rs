@@ -3,7 +3,6 @@ use bray_diagnostics::DiagnosticBag;
 use bray_lowering::LoweredUnit;
 use serde::Serialize;
 
-use crate::{InspectionTarget, OutputFormat};
 use crate::inspection::lowered::model::{
     InspectionMirOperation, InspectionMirSource, InspectionMirTerminator, InspectionMirUnit,
     MirInspectionModelError,
@@ -11,10 +10,11 @@ use crate::inspection::lowered::model::{
 use crate::inspection::lowered::notation;
 use crate::inspection::unit::{UnitInspectionSelectionError, select_units};
 use crate::inspection::{
-    InspectionOutput, InspectionSourceError, InspectionSources, InspectionSyntaxAnchor,
-    TreeWriter, push_text_diagnostic,
+    InspectionOutput, InspectionSourceError, InspectionSources, InspectionSyntaxAnchor, TreeWriter,
+    push_text_diagnostic, render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
+use crate::{InspectionTarget, OutputFormat};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LoweredInspectionRenderError {
@@ -58,9 +58,9 @@ pub(crate) fn render_lowered_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => serde_json::to_string_pretty(&report)
-            .map(|json| format!("{json}\n"))
-            .map_err(|_| LoweredInspectionRenderError::Json)?,
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| LoweredInspectionRenderError::Json)?
+        }
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -90,9 +90,7 @@ pub(crate) fn render_mir_inspection(
                 diagnostics: diagnostic_jsons(&diagnostics, Some(compilation.sources())),
             };
 
-            serde_json::to_string_pretty(&report)
-                .map(|json| format!("{json}\n"))
-                .map_err(|_| LoweredInspectionRenderError::Json)?
+            render_pretty_json(&report).map_err(|_| LoweredInspectionRenderError::Json)?
         }
     };
 
@@ -131,16 +129,11 @@ fn inspect_units(
             .lowered_unit(key)
             .map_err(|_| LoweredInspectionRenderError::LoweringFact)?;
 
-        diagnostics = DiagnosticBag::merged_all([
-            &diagnostics,
-            bound.diagnostics(),
-            lowered.diagnostics(),
-        ]);
+        diagnostics =
+            DiagnosticBag::merged_all([&diagnostics, bound.diagnostics(), lowered.diagnostics()]);
 
-        let source = InspectionSyntaxAnchor::from_anchor(
-            &sources,
-            bound.value().key().source().syntax(),
-        )?;
+        let source =
+            InspectionSyntaxAnchor::from_anchor(&sources, bound.value().key().source().syntax())?;
 
         let unit_kind = bound.value().key().kind().as_str();
 
@@ -153,10 +146,9 @@ fn inspect_units(
                     &sources,
                 )?),
             },
-            Some(LoweredUnit::CompileTime(_)) => InspectionLoweredUnit::CompileTime {
-                unit_kind,
-                source,
-            },
+            Some(LoweredUnit::CompileTime(_)) => {
+                InspectionLoweredUnit::CompileTime { unit_kind, source }
+            }
             None => InspectionLoweredUnit::Unavailable { unit_kind, source },
         };
 
@@ -390,11 +382,7 @@ fn push_text_mir(output: &mut String, mir: &InspectionMirUnit) {
     output.push_str(&writer.into_string());
 }
 
-fn push_text_operation(
-    writer: &mut TreeWriter,
-    operation: &InspectionMirOperation,
-    is_last: bool,
-) {
+fn push_text_operation(writer: &mut TreeWriter, operation: &InspectionMirOperation, is_last: bool) {
     let result = operation
         .result
         .map(|value| format!(" -> value:{value}"))
@@ -476,10 +464,7 @@ fn push_text_operation(
     writer.leave_children();
 }
 
-fn push_text_terminator(
-    writer: &mut TreeWriter,
-    terminator: &InspectionMirTerminator,
-) {
+fn push_text_terminator(writer: &mut TreeWriter, terminator: &InspectionMirTerminator) {
     writer.push_line(true, &format!("{} terminator", terminator.terminator_kind));
 
     let detail_count = terminator.attributes.len()
@@ -628,9 +613,7 @@ fn source_text(source: &InspectionMirSource) -> String {
         InspectionMirSource::Source { syntax, synthesis } => {
             let synthesis = synthesis
                 .as_ref()
-                .map(|synthesis| {
-                    format!(" synthesized {}:{}", synthesis.role, synthesis.ordinal)
-                })
+                .map(|synthesis| format!(" synthesized {}:{}", synthesis.role, synthesis.ordinal))
                 .unwrap_or_default();
 
             format!("{}{}", syntax.location_text(), synthesis)
@@ -672,8 +655,8 @@ mod tests {
     use serde_json::Value;
 
     use super::{InspectionMirUnit, render_lowered_inspection, render_mir_inspection};
-    use crate::{InspectionTarget, OutputFormat};
     use crate::inspection::InspectionSources;
+    use crate::{InspectionTarget, OutputFormat};
 
     const SOURCE: &str = concat!(
         "module app;\n",
@@ -722,13 +705,16 @@ mod tests {
 
         let (text, diagnostics) = output.into_parts();
 
-        assert!(text.lines().any(|line| {
-            line.trim_start() == "└─ return terminator"
-        }));
+        assert!(
+            text.lines()
+                .any(|line| { line.trim_start() == "└─ return terminator" })
+        );
 
-        assert!(!text.lines().any(|line| {
-            line.trim_start() == "├─ return terminator"
-        }));
+        assert!(
+            !text
+                .lines()
+                .any(|line| { line.trim_start() == "├─ return terminator" })
+        );
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
@@ -774,9 +760,11 @@ mod tests {
 
         assert_eq!(value["kind"], "mir_inspection");
 
-        assert!(value["units"][0]["notation"]
-            .as_str()
-            .is_some_and(|notation| notation.contains("mir unit")));
+        assert!(
+            value["units"][0]["notation"]
+                .as_str()
+                .is_some_and(|notation| notation.contains("mir unit"))
+        );
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
@@ -846,7 +834,12 @@ mod tests {
             .as_array()
             .unwrap_or_else(|| panic!("lowered inspection must contain units"));
 
-        assert!(units.iter().any(|unit| unit["representation"] == "compile_time"));
+        assert!(
+            units
+                .iter()
+                .any(|unit| unit["representation"] == "compile_time")
+        );
+
         assert!(units.iter().any(|unit| unit["representation"] == "mir"));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
@@ -855,12 +848,10 @@ mod tests {
     fn generated_executable_host_mir_has_a_complete_structural_projection() {
         let compilation = compilation(SOURCE);
 
-        let (_, units) = crate::inspection::unit::select_units(
-            &compilation,
-            InspectionTarget::source(0),
-        )
-        .unwrap_or_else(|error| panic!("source units must be available: {error:?}"))
-        .into_parts();
+        let (_, units) =
+            crate::inspection::unit::select_units(&compilation, InspectionTarget::source(0))
+                .unwrap_or_else(|error| panic!("source units must be available: {error:?}"))
+                .into_parts();
 
         let root = units
             .into_iter()
@@ -980,12 +971,7 @@ mod tests {
         let value: Value = serde_json::from_str(&json)
             .unwrap_or_else(|error| panic!("narrow lowered JSON must parse: {error}"));
 
-        assert_eq!(
-            value["units"]
-                .as_array()
-                .map_or(0, std::vec::Vec::len),
-            1
-        );
+        assert_eq!(value["units"].as_array().map_or(0, std::vec::Vec::len), 1);
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }

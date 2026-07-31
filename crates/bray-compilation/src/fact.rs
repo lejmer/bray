@@ -30,9 +30,9 @@ pub(crate) use key::{
     IterationSourceFactKey, NativeProductFactKey, OperationSelectionFactKey, SymbolFactKey,
 };
 pub(crate) use priority::QueryPriorityDemand;
-pub(crate) use runtime::{EvaluationCommit, FactRuntime};
 #[cfg(test)]
 pub(crate) use runtime::FactEvaluationTestObserver;
+pub(crate) use runtime::{EvaluationCommit, FactRuntime};
 pub(crate) use symbol::SymbolFactCache;
 pub(crate) use task::FactTaskIdentity;
 pub(crate) use unit::{PublishedUnitFact, UnitFactCache};

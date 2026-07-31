@@ -1,6 +1,5 @@
 use super::facts::section;
 use super::model::EncodedSemanticSection;
-use bray_runtime_interface::{ProtectedFrameAbiOperation, RuntimeAbiVersion};
 use crate::semantic::codec::coherence::coherence_record_indexes;
 use crate::semantic::codec::common::{
     write_count, write_optional_u32, write_string, write_symbol_reference,
@@ -9,6 +8,7 @@ use crate::semantic::codec::record::encode_record_table;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
+use bray_runtime_interface::{ProtectedFrameAbiOperation, RuntimeAbiVersion};
 
 pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let Some(coherence_by_implementation) = coherence_record_indexes(&facts.coherence) else {

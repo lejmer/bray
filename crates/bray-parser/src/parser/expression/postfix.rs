@@ -157,9 +157,8 @@ impl Parser {
 
         match self.peek().kind() {
             SyntaxKind::DecimalIntegerLiteralToken => {
-                builder.push_tuple_element_index_token(
-                    self.consume_tuple_element_index_after_dot(),
-                );
+                builder
+                    .push_tuple_element_index_token(self.consume_tuple_element_index_after_dot());
             }
             _ => builder.push_identifier_token(self.parse_identifier()),
         }

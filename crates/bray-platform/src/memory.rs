@@ -22,10 +22,7 @@ pub struct NativeMemoryRegion {
 
 impl NativeMemoryRegion {
     /// Acquires a zero-initialized anonymous mapping from the host.
-    pub fn acquire(
-        length: NonZeroUsize,
-        kind: NativeMemoryKind,
-    ) -> Result<Self, PlatformError> {
+    pub fn acquire(length: NonZeroUsize, kind: NativeMemoryKind) -> Result<Self, PlatformError> {
         let mut options = MmapOptions::new();
 
         options.len(length.get());
@@ -34,9 +31,9 @@ impl NativeMemoryRegion {
             options.stack();
         }
 
-        let mapping = options.map_anon().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::VirtualMemory, &error)
-        })?;
+        let mapping = options
+            .map_anon()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::VirtualMemory, &error))?;
 
         Ok(Self { mapping, kind })
     }
@@ -68,9 +65,10 @@ impl NativeMemoryRegion {
 
     /// Removes write access and returns an immutable mapping.
     pub fn make_read_only(self) -> Result<NativeReadOnlyMemory, PlatformError> {
-        let mapping = self.mapping.make_read_only().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::VirtualMemory, &error)
-        })?;
+        let mapping = self
+            .mapping
+            .make_read_only()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::VirtualMemory, &error))?;
 
         Ok(NativeReadOnlyMemory {
             mapping,
@@ -110,9 +108,8 @@ mod tests {
             panic!("test mapping length must be nonzero");
         };
 
-        let mut mapping =
-            NativeMemoryRegion::acquire(length, NativeMemoryKind::Data)
-                .unwrap_or_else(|error| panic!("mapping must succeed: {error:?}"));
+        let mut mapping = NativeMemoryRegion::acquire(length, NativeMemoryKind::Data)
+            .unwrap_or_else(|error| panic!("mapping must succeed: {error:?}"));
 
         assert!(mapping.bytes().iter().all(|byte| *byte == 0));
 

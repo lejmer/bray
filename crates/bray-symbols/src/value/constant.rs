@@ -512,13 +512,13 @@ mod tests {
     #[test]
     fn integer_constants_convert_to_u64_only_when_representable() {
         let maximum = IntegerConstant::new(IntegerSign::NonNegative, [0xff; 8]);
-
         let overflow = IntegerConstant::new(IntegerSign::NonNegative, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
-
         let maximum_u128 = IntegerConstant::new(IntegerSign::NonNegative, [0xff; 16]);
 
-        let overflow_u128 =
-            IntegerConstant::new(IntegerSign::NonNegative, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let overflow_u128 = IntegerConstant::new(
+            IntegerSign::NonNegative,
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        );
 
         let negative = IntegerConstant::new(IntegerSign::Negative, [1]);
 

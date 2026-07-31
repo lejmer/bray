@@ -3,8 +3,8 @@ use bray_runtime_interface::ExecutableHostContract;
 use bray_symbols::TypeId;
 
 use crate::{
-    MirBlock, MirBlockId, MirBlockKind, MirFrameDescriptor, MirOperation, MirOperationCommit,
-    MirHelperReference, MirOperationId, MirOperationKind, MirSourceAnchor, MirSourceOrigin,
+    MirBlock, MirBlockId, MirBlockKind, MirFrameDescriptor, MirHelperReference, MirOperation,
+    MirOperationCommit, MirOperationId, MirOperationKind, MirSourceAnchor, MirSourceOrigin,
     MirStorage, MirStorageId, MirStorageKind, MirTargetFacts, MirTerminator, MirTerminatorKind,
     MirUnit, MirUnitId, MirUnitKey, MirUnitKind, MirValue, MirValueId, MirValueOrigin,
 };
@@ -386,7 +386,7 @@ mod tests {
             source.clone(),
             MirTerminatorKind::Goto(MirEdge::new(
                 continuation,
-                [crate::MirOperand::Value(result)],
+                [MirOperand::Value(result)],
             )),
         );
 
@@ -394,7 +394,7 @@ mod tests {
             &mut builder,
             continuation,
             source,
-            MirTerminatorKind::Return(Some(crate::MirOperand::Value(parameter))),
+            MirTerminatorKind::Return(Some(MirOperand::Value(parameter))),
         );
 
         let unit = finish(builder, entry);
@@ -556,7 +556,7 @@ mod tests {
             &mut builder,
             entry,
             source.clone(),
-            MirTerminatorKind::Return(Some(crate::MirOperand::Value(foreign))),
+            MirTerminatorKind::Return(Some(MirOperand::Value(foreign))),
         );
 
         set_terminator(&mut builder, other, source, MirTerminatorKind::Return(None));
@@ -725,7 +725,7 @@ mod tests {
             Err(error) => panic!("test task storage must be valid: {error:?}"),
         };
 
-        let task = crate::MirOperand::Move(crate::MirPlace::new(storage, [], ty));
+        let task = MirOperand::Move(MirPlace::new(storage, [], ty));
 
         let runtime =
             MirRuntimeReference::new(RuntimeAbiRole::TaskStart, RuntimeAbiVersion::new(1, 0));

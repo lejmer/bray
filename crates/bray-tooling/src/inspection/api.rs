@@ -13,8 +13,7 @@ pub fn render_source_inspection(
     compilation: &Compilation,
     output_format: OutputFormat,
 ) -> Result<String, InspectionError> {
-    super::source::render_source_inspection(compilation, output_format)
-        .map_err(|_| InspectionError)
+    super::source::render_source_inspection(compilation, output_format).map_err(|_| InspectionError)
 }
 
 /// Renders lexical tokens for loaded source snapshots.
@@ -22,8 +21,7 @@ pub fn render_token_inspection(
     compilation: &Compilation,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::token::render_token_inspection(compilation, output_format)
-        .map_err(|_| InspectionError)
+    super::token::render_token_inspection(compilation, output_format).map_err(|_| InspectionError)
 }
 
 /// Renders parsed syntax trees for loaded source snapshots.
@@ -31,8 +29,7 @@ pub fn render_syntax_inspection(
     compilation: &Compilation,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::syntax::render_syntax_inspection(compilation, output_format)
-        .map_err(|_| InspectionError)
+    super::syntax::render_syntax_inspection(compilation, output_format).map_err(|_| InspectionError)
 }
 
 /// Renders discovered declarations for loaded source snapshots.
@@ -40,11 +37,8 @@ pub fn render_declaration_inspection(
     compilation: &Compilation,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::declaration::render_declaration_inspection(
-        compilation,
-        output_format,
-    )
-    .map_err(|_| InspectionError)
+    super::declaration::render_declaration_inspection(compilation, output_format)
+        .map_err(|_| InspectionError)
 }
 
 /// Renders the compilation-wide symbol graph.
@@ -52,8 +46,7 @@ pub fn render_symbol_inspection(
     compilation: &Compilation,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::symbol::render_symbol_inspection(compilation, output_format)
-        .map_err(|_| InspectionError)
+    super::symbol::render_symbol_inspection(compilation, output_format).map_err(|_| InspectionError)
 }
 
 /// Renders selected source-correlated bound units.
@@ -62,12 +55,8 @@ pub fn render_bound_inspection(
     target: InspectionTarget,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::bound::render_bound_inspection(
-        compilation,
-        target,
-        output_format,
-    )
-    .map_err(|_| InspectionError)
+    super::bound::render_bound_inspection(compilation, target, output_format)
+        .map_err(|_| InspectionError)
 }
 
 /// Renders selected lowered units.
@@ -76,12 +65,8 @@ pub fn render_lowered_inspection(
     target: InspectionTarget,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::lowered::render_lowered_inspection(
-        compilation,
-        target,
-        output_format,
-    )
-    .map_err(|_| InspectionError)
+    super::lowered::render_lowered_inspection(compilation, target, output_format)
+        .map_err(|_| InspectionError)
 }
 
 /// Renders selected lowered units as MIR notation.
@@ -90,10 +75,6 @@ pub fn render_mir_inspection(
     target: InspectionTarget,
     output_format: OutputFormat,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::lowered::render_mir_inspection(
-        compilation,
-        target,
-        output_format,
-    )
-    .map_err(|_| InspectionError)
+    super::lowered::render_mir_inspection(compilation, target, output_format)
+        .map_err(|_| InspectionError)
 }

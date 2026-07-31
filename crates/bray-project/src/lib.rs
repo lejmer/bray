@@ -13,7 +13,7 @@ pub use contract::{PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME};
 pub use error::{ProjectLoadError, ProjectManifestProblem};
 pub use loader::load_project_graph;
 pub use model::{
-    FeatureName, PackageRole, ProjectDependency, ProjectGraph, ProjectPackage,
-    ProjectProduct, ProjectSourceRoot, ProjectTarget,
+    FeatureName, PackageRole, ProjectDependency, ProjectGraph, ProjectPackage, ProjectProduct,
+    ProjectSourceRoot, ProjectTarget,
 };
 pub use path::ProjectPath;

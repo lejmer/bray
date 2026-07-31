@@ -6,9 +6,7 @@ use bray_codegen::{
     CodegenTarget, CodegenUnit, CodegenUnitKey,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_emitter::{
-    BackendContributionMergeError, BackendContributionSet, EmissionPlan,
-};
+use bray_emitter::{BackendContributionMergeError, BackendContributionSet, EmissionPlan};
 
 use super::{CodegenFactError, Compilation};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -45,9 +43,8 @@ impl Compilation {
     ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
         let requests = plan.backend_requests();
 
-        let facts = CodegenFactLookup::try_new(units, mappings).map_err(|kind| {
-            EmissionCodegenError::new(kind, DiagnosticBag::new())
-        })?;
+        let facts = CodegenFactLookup::try_new(units, mappings)
+            .map_err(|kind| EmissionCodegenError::new(kind, DiagnosticBag::new()))?;
 
         let outcomes = self
             .state
@@ -159,13 +156,13 @@ impl<'facts> CodegenFactLookup<'facts> {
         let mut entries = BTreeMap::new();
 
         for unit in units {
-            let entry = entries.entry(unit.key()).or_insert_with(CodegenFactEntry::default);
+            let entry = entries
+                .entry(unit.key())
+                .or_insert_with(CodegenFactEntry::default);
 
             if entry.unit.is_some() {
                 // The error must retain the structural unit identity after the lookup is discarded.
-                return Err(EmissionCodegenErrorKind::DuplicateUnit(
-                    unit.key().clone(),
-                ));
+                return Err(EmissionCodegenErrorKind::DuplicateUnit(unit.key().clone()));
             }
 
             entry.unit = Some(unit);
@@ -222,9 +219,7 @@ fn complete_sets<'outcome>(
                 });
             }
             CodegenStatus::Cancelled => {
-                return Err(EmissionCodegenErrorKind::Cancelled(
-                    request.unit().clone(),
-                ));
+                return Err(EmissionCodegenErrorKind::Cancelled(request.unit().clone()));
             }
         }
     }
@@ -250,11 +245,7 @@ fn finish_backend_contributions(
         Err(kind) => return Err(EmissionCodegenError::new(kind, diagnostics)),
     };
 
-    let contributions = match BackendContributionSet::try_from_backend(
-        plan,
-        sets,
-        cancellation,
-    ) {
+    let contributions = match BackendContributionSet::try_from_backend(plan, sets, cancellation) {
         Ok(contributions) => contributions,
         Err(error) => {
             return Err(EmissionCodegenError::new(
@@ -271,14 +262,12 @@ fn finish_backend_contributions(
 mod tests {
     use std::sync::{Arc, Barrier, Condvar, Mutex};
 
-    use bray_codegen::test_support::{
-        CodegenRequestFixture, codegen_request_for_seed_and_backend,
-    };
+    use bray_codegen::test_support::{CodegenRequestFixture, codegen_request_for_seed_and_backend};
     use bray_codegen::{
-        ArtifactContent, BackendArtifactContribution, BackendArtifactKind,
-        BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator,
-        CodeGeneratorRegistry, CodegenConfiguration, CodegenFailure, CodegenOutcome,
-        CodegenRequest, CodegenRuntimeMetadata,
+        ArtifactContent, BackendArtifactContribution, BackendArtifactKind, BackendCapabilities,
+        BackendIdentity, BackendTargetPlatform, CodeGenerator, CodeGeneratorRegistry,
+        CodegenConfiguration, CodegenFailure, CodegenOutcome, CodegenRequest,
+        CodegenRuntimeMetadata,
     };
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
@@ -289,15 +278,11 @@ mod tests {
         ReplacementPolicy, RequestedArtifact, RequestedArtifactDestination,
     };
     use bray_symbols::{ProductIdentity, ProductKind};
-    use bray_target::{
-        TargetOutputDescription, TargetOutputKind, TargetOutputName,
-    };
+    use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
 
     use super::{CodegenFactLookup, Compilation, EmissionCodegenErrorKind};
     use crate::test_support::{package_identity, source_input};
-    use crate::{
-        CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
-    };
+    use crate::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 
     #[test]
     fn planned_codegen_demand_is_parallel_but_merges_in_plan_order() {
@@ -308,8 +293,7 @@ mod tests {
         let slow_unit = plan.backend_requests()[0].unit().clone();
         let observer = Arc::new(GenerationObserver::new(slow_unit.clone()));
 
-        let compilation =
-            compilation_with_backend(&first, Arc::clone(&observer));
+        let compilation = compilation_with_backend(&first, Arc::clone(&observer));
 
         let units = vec![
             second.request().unit().clone(),
@@ -364,12 +348,19 @@ mod tests {
 
         let observed = observer.snapshot();
 
-        assert_eq!(observed.completed, expected_units.into_iter().rev().collect::<Vec<_>>());
+        assert_eq!(
+            observed.completed,
+            expected_units.into_iter().rev().collect::<Vec<_>>()
+        );
+
         assert_eq!(observed.requested.len(), 2);
 
-        assert!(observed.requested.iter().all(|kinds| {
-            kinds.as_slice() == [BackendArtifactKind::RelocatableObject]
-        }));
+        assert!(
+            observed
+                .requested
+                .iter()
+                .all(|kinds| { kinds.as_slice() == [BackendArtifactKind::RelocatableObject] })
+        );
     }
 
     #[test]
@@ -422,12 +413,8 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
 
-        let name = TargetOutputName::try_new(
-            TargetOutputKind::RelocatableObject,
-            "",
-            ".o",
-        )
-        .unwrap_or_else(|error| panic!("test output name must be valid: {error:?}"));
+        let name = TargetOutputName::try_new(TargetOutputKind::RelocatableObject, "", ".o")
+            .unwrap_or_else(|error| panic!("test output name must be valid: {error:?}"));
 
         let target = TargetOutputDescription::try_new(target.profile().clone(), [name])
             .unwrap_or_else(|error| panic!("test target outputs must be valid: {error:?}"));
@@ -469,10 +456,8 @@ mod tests {
 
         let selected = generator.identity().clone();
 
-        let registry = CodeGeneratorRegistry::try_new([
-            generator as Arc<dyn CodeGenerator>
-        ])
-        .unwrap_or_else(|error| panic!("test backend must register: {error:?}"));
+        let registry = CodeGeneratorRegistry::try_new([generator as Arc<dyn CodeGenerator>])
+            .unwrap_or_else(|error| panic!("test backend must register: {error:?}"));
 
         let codegen = CodegenConfiguration::try_new(registry, selected)
             .unwrap_or_else(|error| panic!("test backend must select: {error:?}"));
@@ -483,11 +468,7 @@ mod tests {
         let request = CompilationRequest::with_options(
             package_identity(),
             vec![source_input("module app;", 0)],
-            CompilationOptions::new(
-                workers,
-                ProductKind::Library,
-                SelectedTarget::baseline(),
-            ),
+            CompilationOptions::new(workers, ProductKind::Library, SelectedTarget::baseline()),
         );
 
         Compilation::load_with_codegen(request, codegen)

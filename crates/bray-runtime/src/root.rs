@@ -3,15 +3,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use bray_platform::RuntimeThread;
 use bray_runtime_interface::ProtectedFrameStateId;
 
+use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
-    CancellationContext, CleanupIncidentOrigin, CleanupIncidentProducer,
-    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-    ProtectedFrame, ReadyTask, RunOutcome, Scheduler, SchedulerError,
-    TaskControlBlock, TaskExecutionContext, TaskId,
+    CancellationContext, CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
+    ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask,
+    RunOutcome, Scheduler, SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId,
     TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError,
-};
-use crate::context::{
-    with_run_cancellation_context, with_task_execution_context,
 };
 
 /// Product-host authority to request cancellation of the executable root run.
@@ -191,16 +188,13 @@ mod tests {
     use bray_platform::RuntimeThreadScope;
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
-    use super::{
-        RootExecutionError, execute_async_root, execute_synchronous_root,
-    };
-    use crate::test_support::TestFrame;
-    use crate::{
-        CleanupReportSink, RunOutcome, Scheduler, SchedulerLimits,
-        TaskControlBlock, TaskExecutionContext, TaskResumeStatus,
-        current_run_cancellation_observable,
-    };
+    use super::{RootExecutionError, execute_async_root, execute_synchronous_root};
     use crate::context::with_task_execution_context;
+    use crate::test_support::{TestFrame, register_task};
+    use crate::{
+        CleanupReportSink, RunOutcome, Scheduler, SchedulerLimits, TaskControlBlock,
+        TaskExecutionContext, TaskResumeStatus, current_run_cancellation_observable,
+    };
 
     #[test]
     fn synchronous_roots_execute_directly_and_capture_panics() {
@@ -209,8 +203,7 @@ mod tests {
             RunOutcome::Completed(17)
         ));
 
-        let panicked =
-            execute_synchronous_root(|| -> i32 { panic!("root panic") }, |_| {});
+        let panicked = execute_synchronous_root(|| -> i32 { panic!("root panic") }, |_| {});
 
         assert!(matches!(panicked, RunOutcome::Panicked(_)));
     }
@@ -372,15 +365,7 @@ mod tests {
         let child = TaskControlBlock::start_local(TestFrame::main_thread_self_waking(11))
             .unwrap_or_else(|error| panic!("child task must start: {error:?}"));
 
-        let child_registration = scheduler
-            .register_task(
-                child.id(),
-                child.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                child.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("child task must register: {error:?}"));
+        let child_registration = register_task(&scheduler, &child, runtime.runtime().id());
 
         let child_wake = child_registration.wake_handle();
 

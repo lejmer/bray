@@ -27,43 +27,29 @@ const fn optimization_pipeline(options: CodegenOptions) -> Option<&'static str> 
 
 #[cfg(test)]
 mod tests {
-    use bray_codegen::{
-        CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference,
-    };
+    use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 
     use super::optimization_pipeline;
 
     #[test]
     fn optimization_intent_selects_canonical_llvm_pipelines() {
         assert_eq!(
-            optimization_pipeline(options(
-                OptimizationLevel::None,
-                SizePreference::None
-            )),
+            optimization_pipeline(options(OptimizationLevel::None, SizePreference::None)),
             None
         );
 
         assert_eq!(
-            optimization_pipeline(options(
-                OptimizationLevel::Basic,
-                SizePreference::None
-            )),
+            optimization_pipeline(options(OptimizationLevel::Basic, SizePreference::None)),
             Some("default<O1>")
         );
 
         assert_eq!(
-            optimization_pipeline(options(
-                OptimizationLevel::Full,
-                SizePreference::None
-            )),
+            optimization_pipeline(options(OptimizationLevel::Full, SizePreference::None)),
             Some("default<O2>")
         );
 
         assert_eq!(
-            optimization_pipeline(options(
-                OptimizationLevel::Full,
-                SizePreference::Size
-            )),
+            optimization_pipeline(options(OptimizationLevel::Full, SizePreference::Size)),
             Some("default<Os>")
         );
 
@@ -80,10 +66,6 @@ mod tests {
         optimization: OptimizationLevel,
         size_preference: SizePreference,
     ) -> CodegenOptions {
-        CodegenOptions::new(
-            optimization,
-            size_preference,
-            DebugInformationMode::None,
-        )
+        CodegenOptions::new(optimization, size_preference, DebugInformationMode::None)
     }
 }

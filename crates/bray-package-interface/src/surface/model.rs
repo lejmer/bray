@@ -4,9 +4,8 @@ use std::sync::Arc;
 use bray_base::NonEmptySharedStr;
 pub use bray_symbols::SymbolRelationshipKind;
 use bray_symbols::{
-    CallablePosition,
-    ExternalSymbolKey, ImportedIdentitySurfaceError, ImportedPackageIdentitySurface,
-    InterfaceSymbolId, PackageIdentity, SymbolName,
+    CallablePosition, ExternalSymbolKey, ImportedIdentitySurfaceError,
+    ImportedPackageIdentitySurface, InterfaceSymbolId, PackageIdentity, SymbolName,
 };
 
 use crate::InterfaceContentHash;

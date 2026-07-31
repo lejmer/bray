@@ -127,8 +127,7 @@ impl BackendCapabilities {
 
     /// Returns whether the backend declares support for these target machine properties.
     pub fn supports_target_machine(&self, machine: &TargetMachineProperties) -> bool {
-        let platform =
-            BackendTargetPlatform::new(machine.architecture(), machine.object_format());
+        let platform = BackendTargetPlatform::new(machine.architecture(), machine.object_format());
 
         self.target_platforms.binary_search(&platform).is_ok()
     }

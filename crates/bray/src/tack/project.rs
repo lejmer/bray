@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 
 use bray_diagnostics::{DiagnosticBag, DiagnosticId};
 use bray_project::{
-    PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, ProjectTarget,
-    load_project_graph,
+    PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, ProjectTarget, load_project_graph,
 };
 use bray_symbols::{PackageIdentity, ProductKind};
 use bray_target::TargetIdentity;
@@ -46,11 +45,8 @@ impl PlannedProduct {
 }
 
 pub(crate) fn load_graph(workspace_root: &Path) -> Result<ProjectGraph, DiagnosticBag> {
-    load_project_graph(workspace_root).map_err(|error| {
-        DiagnosticBag::single(
-            error.into_diagnostic(DiagnosticId::new(0)),
-        )
-    })
+    load_project_graph(workspace_root)
+        .map_err(|error| DiagnosticBag::single(error.into_diagnostic(DiagnosticId::new(0))))
 }
 
 pub(crate) fn select_products(

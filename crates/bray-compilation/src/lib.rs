@@ -13,10 +13,10 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
-    CodegenFactError, Compilation, CompilationLoadError, EmissionCodegenError,
-    EmissionCodegenErrorKind, PackageInterfaceExportError, ProductEmissionError,
-    NativeProductFactError, NativeProductFacts, ProductEmissionErrorKind,
-    CompletionCandidate, ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
+    CodegenFactError, Compilation, CompilationLoadError, CompletionCandidate, EmissionCodegenError,
+    EmissionCodegenErrorKind, NativeProductFactError, NativeProductFacts,
+    PackageInterfaceExportError, ProductEmissionError, ProductEmissionErrorKind,
+    ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

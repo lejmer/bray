@@ -7,8 +7,8 @@ use bray_syntax::SyntaxTree;
 use crate::collection::TypedSymbolRecords;
 use crate::provider::symbol_key_from_provider;
 use crate::record::{
-    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol,
-    ModuleSymbol, PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
+    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol, ModuleSymbol,
+    PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
     UnionPayloadDefaultProviderSymbol, for_each_declaration_symbol,
 };
 use crate::{
@@ -634,7 +634,7 @@ mod tests {
         let Some(function) = graph
             .functions()
             .iter()
-            .find(|function| function.origin() == crate::SymbolOrigin::Source)
+            .find(|function| function.origin() == SymbolOrigin::Source)
         else {
             panic!("test source must declare one function");
         };
@@ -642,7 +642,7 @@ mod tests {
         let Some(parameter) = graph
             .callable_parameters()
             .iter()
-            .find(|parameter| parameter.origin() == crate::SymbolOrigin::Source)
+            .find(|parameter| parameter.origin() == SymbolOrigin::Source)
         else {
             panic!("test source must declare one callable parameter");
         };

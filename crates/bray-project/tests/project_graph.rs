@@ -348,9 +348,7 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
     );
 
     write_file(
-        root.join("vendor")
-            .join("math")
-            .join("bray-package.json"),
+        root.join("vendor").join("math").join("bray-package.json"),
         r#"{
             "format": 1,
             "identity": "example.math",
@@ -406,10 +404,12 @@ fn replace(path: PathBuf, from: &str, to: &str) {
 
     let updated = contents.replace(from, to);
 
-    assert_ne!(contents, updated, "test replacement must change the fixture");
+    assert_ne!(
+        contents, updated,
+        "test replacement must change the fixture"
+    );
 
-    fs::write(path, updated)
-        .unwrap_or_else(|error| panic!("test file must be replaced: {error}"));
+    fs::write(path, updated).unwrap_or_else(|error| panic!("test file must be replaced: {error}"));
 }
 
 struct TestWorkspace {
@@ -420,10 +420,8 @@ impl TestWorkspace {
     fn new() -> Self {
         let ordinal = TEST_DIRECTORY_ORDINAL.fetch_add(1, Ordering::Relaxed);
 
-        let path = std::env::temp_dir().join(format!(
-            "bray-project-{}-{ordinal}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("bray-project-{}-{ordinal}", std::process::id()));
 
         if path.exists() {
             fs::remove_dir_all(&path)

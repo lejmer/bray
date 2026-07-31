@@ -317,11 +317,21 @@ mod tests {
         let cases = [
             (
                 ObjectFormat::Coff,
-                ["application.obj", "application.exe", "application.lib", "application.dll"],
+                [
+                    "application.obj",
+                    "application.exe",
+                    "application.lib",
+                    "application.dll",
+                ],
             ),
             (
                 ObjectFormat::Elf,
-                ["application.o", "application", "libapplication.a", "libapplication.so"],
+                [
+                    "application.o",
+                    "application",
+                    "libapplication.a",
+                    "libapplication.so",
+                ],
             ),
             (
                 ObjectFormat::MachO,
@@ -363,7 +373,11 @@ mod tests {
             );
 
             assert_eq!(description.identity().as_str(), target.as_str());
-            assert_eq!(description.machine().object_format(), target.object_format());
+
+            assert_eq!(
+                description.machine().object_format(),
+                target.object_format()
+            );
         }
     }
 

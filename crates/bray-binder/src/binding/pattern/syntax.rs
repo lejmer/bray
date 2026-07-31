@@ -3,9 +3,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::SymbolName;
-use bray_syntax::{
-    CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken,
-};
+use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken};
 
 use crate::binder::PatternBindingMode;
 use crate::binding::expression::literal_kind;

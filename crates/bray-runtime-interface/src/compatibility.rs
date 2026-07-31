@@ -78,13 +78,14 @@ impl ProtectedFrameAbiVersions {
         }
     }
 
-    pub(crate) fn first_incompatible(
-        self,
-        required: Self,
-    ) -> Option<ProtectedFrameAbiOperation> {
+    pub(crate) fn first_incompatible(self, required: Self) -> Option<ProtectedFrameAbiOperation> {
         ProtectedFrameAbiOperation::ALL
-        .into_iter()
-        .find(|operation| !self.operation(*operation).supports(required.operation(*operation)))
+            .into_iter()
+            .find(|operation| {
+                !self
+                    .operation(*operation)
+                    .supports(required.operation(*operation))
+            })
     }
 
     fn merge(self, other: Self) -> Result<Self, ProtectedFrameAbiOperation> {
@@ -430,9 +431,9 @@ mod tests {
         RuntimeRequirements::new(
             Some(runtime),
             version,
-            Some(ProtectedFrameAbiVersions::uniform(
-                RuntimeAbiVersion::new(1, 0),
-            )),
+            Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                1, 0,
+            ))),
             target,
             panic_abi,
             roles,

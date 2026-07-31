@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
+use crate::context::current_task_start_site;
 use crate::frame::suspension_state;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
     FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
-    RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite,
-    erase_protected_frame, erase_sendable_protected_frame,
+    RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite, erase_protected_frame,
+    erase_sendable_protected_frame,
 };
-use crate::context::current_task_start_site;
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -529,7 +529,7 @@ impl Drop for ResumeGuard<'_> {
 
 fn next_task_id() -> Result<TaskId, TaskStartError> {
     let id = NEXT_TASK_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             current.checked_add(1)
         })
         .map_err(|_| TaskStartError::IdentityExhausted)?;
@@ -612,10 +612,7 @@ where
     panic
 }
 
-fn fail_task<T, F>(
-    data: &mut TaskData<T, F>,
-    failure: TaskFailureKind,
-) -> Vec<Arc<dyn JoinWake>>
+fn fail_task<T, F>(data: &mut TaskData<T, F>, failure: TaskFailureKind) -> Vec<Arc<dyn JoinWake>>
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
@@ -635,10 +632,7 @@ fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + 
     }
 }
 
-fn merge_cleanup_panic(
-    panic: &mut Option<RuntimePanic>,
-    payload: Box<dyn std::any::Any + Send>,
-) {
+fn merge_cleanup_panic(panic: &mut Option<RuntimePanic>, payload: Box<dyn std::any::Any + Send>) {
     if let Some(panic) = panic {
         panic.push_suppressed(payload);
     } else {
@@ -676,13 +670,13 @@ mod tests {
         TaskControlBlock, TaskFailureKind, TaskObservationError, TaskResumeError, TaskResumeStatus,
         TaskState,
     };
-    use crate::test_support::TestFrame;
+    use crate::context::with_task_execution_context;
+    use crate::test_support::{TestFrame, register_task};
     use crate::{
         ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameContext, FrameExit,
         FrameProgress, ProtectedFrame, RunOutcome, Scheduler, SchedulerLimits,
         TaskExecutionContext, erase_sendable_protected_frame,
     };
-    use crate::context::with_task_execution_context;
 
     #[test]
     fn task_snapshots_retain_creation_and_cleanup_context() {
@@ -698,15 +692,7 @@ mod tests {
         let parent = TaskControlBlock::start(TestFrame::completing(1))
             .unwrap_or_else(|error| panic!("parent task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                parent.id(),
-                parent.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                parent.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("parent task must register: {error:?}"));
+        let registration = register_task(&scheduler, &parent, runtime.runtime().id());
 
         let context = TaskExecutionContext::new(
             parent.id(),
@@ -739,7 +725,12 @@ mod tests {
         assert_eq!(start_site.parent(), parent.id());
         assert_eq!(start_site.state(), ProtectedFrameStateId::new(0));
         assert_eq!(snapshot.frame_state(), ProtectedFrameStateId::new(1));
-        assert_eq!(snapshot.state(), TaskState::Suspended(ProtectedFrameStateId::new(1)));
+
+        assert_eq!(
+            snapshot.state(),
+            TaskState::Suspended(ProtectedFrameStateId::new(1))
+        );
+
         assert_eq!(snapshot.join_waiters(), 0);
         assert_eq!(snapshot.unobserved_outcome(), None);
 
@@ -806,10 +797,7 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("tracked task must start: {error:?}"));
 
-        assert!(matches!(
-            task.resume(),
-            Ok(TaskResumeStatus::Suspended(_))
-        ));
+        assert!(matches!(task.resume(), Ok(TaskResumeStatus::Suspended(_))));
 
         drop(task);
 
@@ -1044,10 +1032,7 @@ mod tests {
             self.frame.descriptor()
         }
 
-        fn resume(
-            self: Pin<&mut Self>,
-            context: FrameContext,
-        ) -> FrameProgress<Self::Output> {
+        fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
             Pin::new(&mut self.get_mut().frame).resume(context)
         }
 

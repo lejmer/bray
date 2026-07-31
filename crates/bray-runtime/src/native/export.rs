@@ -391,12 +391,10 @@ fn contain_status(callback: impl FnOnce() -> NativeRuntimeStatus) -> NativeRunti
     unsafe_code,
     reason = "the native ownership-transfer ABI exposes a validated descriptor address"
 )]
-fn take_transferred_frame(
-    transfer: NativeProtectedFrameTransfer,
-) -> Option<NativeProtectedFrame> {
+fn take_transferred_frame(transfer: NativeProtectedFrameTransfer) -> Option<NativeProtectedFrame> {
     let address = transfer.address();
 
-    if address == 0 || address % align_of::<NativeProtectedFrame>() != 0 {
+    if address == 0 || !address.is_multiple_of(align_of::<NativeProtectedFrame>()) {
         return None;
     }
 
@@ -742,10 +740,7 @@ mod tests {
             panic!("native frame must allocate");
         };
 
-        assert_eq!(
-            start_test_task(task, frame()),
-            NativeRuntimeStatus::SUCCESS
-        );
+        assert_eq!(start_test_task(task, frame()), NativeRuntimeStatus::SUCCESS);
 
         assert_eq!(
             bray_runtime_main_thread_lane_drive_v1(),

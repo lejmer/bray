@@ -6,14 +6,12 @@ use bray_declarations::{DeclarationId, SyntaxAnchor};
 use super::{SymbolGraph, SymbolGraphRoots};
 use crate::collection::TypedSymbolRecords;
 use crate::record::{
-    CallableParameterDefaultProviderSymbol, DeclarationSymbolIdentity, ModuleSymbol,
-    PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
-    UnionPayloadDefaultProviderSymbol, for_each_declaration_symbol,
+    CallableParameterDefaultProviderSymbol, DeclarationSymbolIdentity, ModuleSymbol, PackageSymbol,
+    ReceiverParameterSymbol, StructFieldDefaultProviderSymbol, UnionPayloadDefaultProviderSymbol,
+    for_each_declaration_symbol,
 };
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
-use crate::{
-    AnySymbolId, CompilerKnownSymbolProvider, MemberEntry, MemberLookupIndex, SymbolKind,
-};
+use crate::{AnySymbolId, CompilerKnownSymbolProvider, MemberEntry, MemberLookupIndex, SymbolKind};
 
 macro_rules! define_symbol_graph_builder {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {

@@ -2,9 +2,9 @@ use bray_diagnostics::{
     DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticNoteKind, SeverityKind,
 };
 
+use crate::LanguageServerMessage;
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
-use crate::LanguageServerMessage;
 
 use super::english::{
     diagnostic_template as english_diagnostic_template, label_style as english_label_style,

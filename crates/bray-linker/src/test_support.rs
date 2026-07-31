@@ -9,12 +9,12 @@ use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, 
 use bray_testing::unique_temporary_directory;
 
 use crate::{
-    DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
-    LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkTarget,
-    LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-    LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
-    StagingDestination, StagingDestinationId, StagingPathKey, ExternalToolFailure,
-    ExternalToolHost, ExternalToolInvocation, ExternalToolOutput,
+    DeadStripPolicy, DebugLinkPolicy, ExternalToolFailure, ExternalToolHost,
+    ExternalToolInvocation, ExternalToolOutput, LinkInput, LinkInputId, LinkInputKind,
+    LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder,
+    LinkPolicy, LinkTarget, LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement,
+    LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
+    SectionGarbageCollectionPolicy, StagingDestination, StagingDestinationId, StagingPathKey,
 };
 
 #[derive(Default)]
@@ -128,9 +128,7 @@ pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
     link_plan_builder_with_driver(driver())
 }
 
-pub(crate) fn link_plan_builder_with_driver(
-    driver: LinkerDriverIdentity,
-) -> LinkPlanBuilder {
+pub(crate) fn link_plan_builder_with_driver(driver: LinkerDriverIdentity) -> LinkPlanBuilder {
     LinkPlanBuilder::new(
         product(),
         LinkedProductKind::Executable,
@@ -149,9 +147,7 @@ pub(crate) fn link_plan() -> LinkPlan {
     link_plan_with_driver(driver())
 }
 
-pub(crate) fn link_plan_with_driver(
-    driver: LinkerDriverIdentity,
-) -> LinkPlan {
+pub(crate) fn link_plan_with_driver(driver: LinkerDriverIdentity) -> LinkPlan {
     let mut builder = link_plan_builder_with_driver(driver);
 
     builder.push_input(link_input(0, "main.o"));
@@ -236,10 +232,7 @@ pub(crate) fn linked_artifact(plan: &LinkPlan) -> LinkedArtifact {
 }
 
 pub(crate) fn executable_host_contract() -> ExecutableHostContract {
-    bray_testing::test_executable_host_contract_for(
-        product(),
-        link_target().identity().clone(),
-    )
+    bray_testing::test_executable_host_contract_for(product(), link_target().identity().clone())
 }
 
 pub(crate) fn async_executable_host_contract(runtime: RuntimeArtifactId) -> ExecutableHostContract {
@@ -262,24 +255,60 @@ pub(crate) fn product() -> ProductIdentity {
     product
 }
 
-fn link_target() -> LinkTarget {
-    let Some(identity) = TargetIdentity::try_new("linux-x86_64") else {
+pub(crate) fn target(architecture: TargetArchitecture, object_format: ObjectFormat) -> LinkTarget {
+    target_with_identity(
+        "test-target",
+        "test-target-triple",
+        architecture,
+        object_format,
+        LinkModel::Dynamic,
+    )
+}
+
+pub(crate) fn archive_target(
+    architecture: TargetArchitecture,
+    object_format: ObjectFormat,
+) -> LinkTarget {
+    target_with_identity(
+        "test-target",
+        "test-target-triple",
+        architecture,
+        object_format,
+        LinkModel::Static,
+    )
+}
+
+fn target_with_identity(
+    identity: &str,
+    triple: &str,
+    architecture: TargetArchitecture,
+    object_format: ObjectFormat,
+    link_model: LinkModel,
+) -> LinkTarget {
+    let Some(identity) = TargetIdentity::try_new(identity) else {
         panic!("test target identity must be valid");
     };
 
-    let Ok(target) = LinkTarget::try_new(
+    LinkTarget::try_new(
         identity,
+        triple,
+        architecture,
+        object_format,
+        RelocationModel::PositionIndependent,
+        CodeModel::Small,
+        link_model,
+    )
+    .unwrap_or_else(|error| panic!("test link target must be valid: {error:?}"))
+}
+
+fn link_target() -> LinkTarget {
+    target_with_identity(
+        "linux-x86_64",
         "x86_64-unknown-linux-gnu",
         TargetArchitecture::X86_64,
         ObjectFormat::Elf,
-        RelocationModel::PositionIndependent,
-        CodeModel::Small,
         LinkModel::Dynamic,
-    ) else {
-        panic!("test link target must be valid");
-    };
-
-    target
+    )
 }
 
 fn driver() -> LinkerDriverIdentity {

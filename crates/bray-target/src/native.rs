@@ -138,15 +138,9 @@ impl NativeTarget {
 
     const fn identity_facts(self) -> (&'static str, &'static str, &'static str, &'static str) {
         match self {
-            Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu => {
-                ("unknown", "linux", "gnu", "gnu")
-            }
-            Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc => {
-                ("pc", "windows", "msvc", "msvc")
-            }
-            Self::X86_64MacOs | Self::Aarch64MacOs => {
-                ("apple", "darwin", "none", "darwin")
-            }
+            Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu => ("unknown", "linux", "gnu", "gnu"),
+            Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc => ("pc", "windows", "msvc", "msvc"),
+            Self::X86_64MacOs | Self::Aarch64MacOs => ("apple", "darwin", "none", "darwin"),
         }
     }
 }

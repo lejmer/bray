@@ -209,8 +209,10 @@ fn initialize_parameters(
         .storages_with_ids()
         .filter(|(_, storage)| storage.kind() == MirStorageKind::Parameter);
 
-    let mut parameter_index =
-        u32::from(matches!(signature.result(), CodegenResultMapping::Indirect { .. }));
+    let mut parameter_index = u32::from(matches!(
+        signature.result(),
+        CodegenResultMapping::Indirect { .. }
+    ));
 
     for ((storage, _), mapping) in storages.zip(signature.parameters()) {
         let destination = builder

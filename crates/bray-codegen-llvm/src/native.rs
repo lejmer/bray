@@ -8,9 +8,7 @@ use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{
-    AnyType, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType,
-};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue};
 
 pub(crate) fn symbol_function_type<'context>(
@@ -51,8 +49,9 @@ pub(crate) fn indirect_result_type<'context>(
     match key {
         CodegenSymbolKey::Runtime(reference) => match reference.role() {
             RuntimeAbiRole::RootExecution => Some(root_start_type(context).into()),
-            RuntimeAbiRole::SynchronousRootExecution
-            | RuntimeAbiRole::RootTerminalObservation => Some(run_outcome_type(context).into()),
+            RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::RootTerminalObservation => {
+                Some(run_outcome_type(context).into())
+            }
             _ => None,
         },
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
@@ -174,10 +173,7 @@ pub(crate) fn return_frame_result(
     Ok(())
 }
 
-fn frame_result_is_indirect(
-    target: &CodegenTarget,
-    operation: ProtectedFrameOperation,
-) -> bool {
+fn frame_result_is_indirect(target: &CodegenTarget, operation: ProtectedFrameOperation) -> bool {
     operation == ProtectedFrameOperation::MoveBeforeStart
         || uses_microsoft_x64_abi(target)
             && matches!(
@@ -386,16 +382,13 @@ fn runtime_function_type<'context>(
     }
 
     match role {
-        RuntimeAbiRole::RootExecution => Some(
-            root_start_type(context)
-                .fn_type(
-                    &[
-                        pointer_integer_type(context, target).into(),
-                        runtime_configuration_type(context, target).into(),
-                    ],
-                    false,
-                ),
-        ),
+        RuntimeAbiRole::RootExecution => Some(root_start_type(context).fn_type(
+            &[
+                pointer_integer_type(context, target).into(),
+                runtime_configuration_type(context, target).into(),
+            ],
+            false,
+        )),
         RuntimeAbiRole::TaskStart => Some(context.i32_type().fn_type(
             &[
                 context.i64_type().into(),
@@ -479,14 +472,13 @@ pub(crate) fn frame_operation_type<'context>(
             ProtectedFrameOperation::MoveBeforeStart => {
                 unreachable!("move-before-start uses indirect results on every native ABI")
             }
-            ProtectedFrameOperation::StateDescription => context
-                .i64_type()
-                .fn_type(&parameters(&[usize.into(), context.i32_type().into()]), false),
-            ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
-                context
-                    .void_type()
-                    .fn_type(&parameters(&[pointer.into(), usize.into()]), false)
-            }
+            ProtectedFrameOperation::StateDescription => context.i64_type().fn_type(
+                &parameters(&[usize.into(), context.i32_type().into()]),
+                false,
+            ),
+            ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => context
+                .void_type()
+                .fn_type(&parameters(&[pointer.into(), usize.into()]), false),
             ProtectedFrameOperation::TaskBroadcast | ProtectedFrameOperation::Destruction => {
                 context
                     .void_type()
@@ -603,10 +595,7 @@ mod tests {
             assert_eq!(operation.count_param_types(), 2, "{native_target:?}");
 
             assert!(
-                super::frame_result_is_indirect(
-                    &target,
-                    ProtectedFrameOperation::MoveBeforeStart
-                ),
+                super::frame_result_is_indirect(&target, ProtectedFrameOperation::MoveBeforeStart),
                 "{native_target:?}"
             );
         }

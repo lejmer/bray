@@ -122,9 +122,7 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
         ProjectManifestProblem::DependencyCycle => DiagnosticKind::ProjectDependencyCycle,
         ProjectManifestProblem::InvalidSourceRoot
         | ProjectManifestProblem::SourceSymlink
-        | ProjectManifestProblem::NonUtf8SourcePath => {
-            DiagnosticKind::ProjectSourceRootInvalid
-        }
+        | ProjectManifestProblem::NonUtf8SourcePath => DiagnosticKind::ProjectSourceRootInvalid,
         ProjectManifestProblem::DuplicateSelection => {
             DiagnosticKind::ProjectManifestDuplicateSelection
         }
@@ -136,5 +134,78 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
         | ProjectManifestProblem::UndeclaredFeature
         | ProjectManifestProblem::UnknownSourceRoot
         | ProjectManifestProblem::UnknownTarget => DiagnosticKind::ProjectManifestInvalid,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::ErrorKind;
+    use std::path::PathBuf;
+
+    use bray_diagnostics::{DiagnosticId, DiagnosticKind};
+
+    use super::{ProjectLoadError, ProjectManifestProblem};
+
+    #[test]
+    fn project_load_errors_preserve_their_diagnostic_categories() {
+        let manifest = PathBuf::from("bray-workspace.json");
+
+        let cases = [
+            (
+                ProjectLoadError::ReadManifest {
+                    path: manifest.clone(),
+                    kind: ErrorKind::NotFound,
+                },
+                DiagnosticKind::ProjectManifestReadFailed,
+            ),
+            (
+                ProjectLoadError::ParseManifest {
+                    path: manifest.clone(),
+                },
+                DiagnosticKind::ProjectManifestParseFailed,
+            ),
+            (
+                ProjectLoadError::invalid(
+                    manifest.clone(),
+                    ProjectManifestProblem::UnsupportedFormat,
+                    "2",
+                ),
+                DiagnosticKind::ProjectManifestInvalid,
+            ),
+            (
+                ProjectLoadError::invalid(
+                    manifest.clone(),
+                    ProjectManifestProblem::DuplicateSelection,
+                    "app",
+                ),
+                DiagnosticKind::ProjectManifestDuplicateSelection,
+            ),
+            (
+                ProjectLoadError::invalid(
+                    manifest.clone(),
+                    ProjectManifestProblem::InvalidSourceRoot,
+                    "src",
+                ),
+                DiagnosticKind::ProjectSourceRootInvalid,
+            ),
+            (
+                ProjectLoadError::invalid(
+                    manifest.clone(),
+                    ProjectManifestProblem::UnknownDependencyPackage,
+                    "vendor.math",
+                ),
+                DiagnosticKind::ProjectDependencyPackageUnknown,
+            ),
+            (
+                ProjectLoadError::invalid(manifest, ProjectManifestProblem::DependencyCycle, "app"),
+                DiagnosticKind::ProjectDependencyCycle,
+            ),
+        ];
+
+        for (index, (error, expected)) in cases.into_iter().enumerate() {
+            let diagnostic = error.into_diagnostic(DiagnosticId::from_index(index));
+
+            assert_eq!(diagnostic.kind(), expected);
+        }
     }
 }

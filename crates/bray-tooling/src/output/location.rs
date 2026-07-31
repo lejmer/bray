@@ -1,6 +1,6 @@
-use bray_source::{LineColumn, LspPosition, SourceLocation};
 #[cfg(feature = "analysis")]
 use bray_source::TextRange;
+use bray_source::{LineColumn, LspPosition, SourceLocation};
 use serde::Serialize;
 
 #[cfg(feature = "analysis")]

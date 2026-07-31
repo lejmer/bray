@@ -224,13 +224,7 @@ mod tests {
             MirFrameStateFacts::new(MirFrameStateId::new(1), entry, [], None, [], []);
 
         assert_eq!(
-            MirFrameDescriptor::try_new(
-                frame,
-                abi,
-                frame_abi,
-                result_type,
-                [non_contiguous]
-            ),
+            MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [non_contiguous]),
             Err(MirFrameDescriptorBuildError::NonContiguousState)
         );
     }

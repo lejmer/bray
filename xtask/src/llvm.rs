@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{digest, workspace};
 
-const USAGE: &str =
-    "usage: cargo xtask llvm <fetch | validate [--root <directory>] | host>";
+const USAGE: &str = "usage: cargo xtask llvm <fetch | validate [--root <directory>] | host>";
 const MANIFEST: &str = include_str!("../../toolchains/llvm.json");
 const TOOLCHAIN_DIRECTORY: &str = "toolchains/llvm";
 const ACTIVE_DIRECTORY: &str = "active";
@@ -125,13 +124,12 @@ pub(crate) fn tool_path(root: &Path, name: &str) -> PathBuf {
 }
 
 fn rustc_host() -> Result<String, ToolchainError> {
-    let output = Command::new("rustc")
-        .arg("-vV")
-        .output()
-        .map_err(|error| ToolchainError::ProcessStart {
+    let output = Command::new("rustc").arg("-vV").output().map_err(|error| {
+        ToolchainError::ProcessStart {
             program: "rustc",
             error,
-        })?;
+        }
+    })?;
 
     if !output.status.success() {
         return Err(ToolchainError::ProcessFailed {
@@ -144,17 +142,13 @@ fn rustc_host() -> Result<String, ToolchainError> {
         .ok_or(ToolchainError::MissingRustcHost)
 }
 
-fn acquire_archive(
-    package: &ToolchainPackage,
-    archive: &Path,
-) -> Result<(), ToolchainError> {
+fn acquire_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), ToolchainError> {
     if archive.is_file() && verify_archive(package, archive).is_ok() {
         return Ok(());
     }
 
     if archive.exists() {
-        fs::remove_file(archive)
-            .map_err(|error| ToolchainError::io("remove", archive, error))?;
+        fs::remove_file(archive).map_err(|error| ToolchainError::io("remove", archive, error))?;
     }
 
     let Some(file_name) = archive.file_name() else {
@@ -164,8 +158,7 @@ fn acquire_archive(
     let partial = archive.with_file_name(format!("{}.partial", file_name.to_string_lossy()));
 
     if partial.exists() {
-        fs::remove_file(&partial)
-            .map_err(|error| ToolchainError::io("remove", &partial, error))?;
+        fs::remove_file(&partial).map_err(|error| ToolchainError::io("remove", &partial, error))?;
     }
 
     let output = Command::new("curl")
@@ -195,14 +188,10 @@ fn acquire_archive(
 
     verify_archive(package, &partial)?;
 
-    fs::rename(&partial, archive)
-        .map_err(|error| ToolchainError::rename(&partial, archive, error))
+    fs::rename(&partial, archive).map_err(|error| ToolchainError::rename(&partial, archive, error))
 }
 
-fn verify_archive(
-    package: &ToolchainPackage,
-    archive: &Path,
-) -> Result<(), ToolchainError> {
+fn verify_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), ToolchainError> {
     let metadata =
         fs::metadata(archive).map_err(|error| ToolchainError::io("read", archive, error))?;
 
@@ -214,8 +203,7 @@ fn verify_archive(
     }
 
     let actual = digest::hex(
-        &digest::sha256(archive)
-            .map_err(|error| ToolchainError::io("read", archive, error))?,
+        &digest::sha256(archive).map_err(|error| ToolchainError::io("read", archive, error))?,
     );
 
     if actual != package.sha256 {
@@ -240,8 +228,7 @@ fn install_archive(
 
     remove_owned_directory(root, &staging)?;
 
-    fs::create_dir_all(&staging)
-        .map_err(|error| ToolchainError::io("create", &staging, error))?;
+    fs::create_dir_all(&staging).map_err(|error| ToolchainError::io("create", &staging, error))?;
 
     if let Err(error) = prepare_staging(&staging, archive, version, package) {
         return cleanup_after_failure(root, &staging, error);
@@ -419,8 +406,7 @@ fn validate_marker(
     let path = root.join(MARKER_FILE);
     let bytes = fs::read(&path).map_err(|error| ToolchainError::io("read", &path, error))?;
 
-    let marker: ToolchainMarker =
-        serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)?;
+    let marker: ToolchainMarker = serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)?;
 
     if marker.version != version
         || marker.host != package.host
@@ -619,19 +605,33 @@ impl fmt::Display for ToolchainError {
                 write!(formatter, "{program} failed: {detail}")
             }
             Self::MissingLlvmConfig(path) => {
-                write!(formatter, "LLVM development tool is missing: {}", path.display())
+                write!(
+                    formatter,
+                    "LLVM development tool is missing: {}",
+                    path.display()
+                )
             }
             Self::MissingDevelopmentFile(path) => {
-                write!(formatter, "LLVM development file is missing: {}", path.display())
+                write!(
+                    formatter,
+                    "LLVM development file is missing: {}",
+                    path.display()
+                )
             }
             Self::Version { expected, actual } => {
                 write!(formatter, "expected LLVM {expected}, found {actual}")
             }
             Self::ArchiveSize { expected, actual } => {
-                write!(formatter, "expected LLVM archive size {expected}, found {actual}")
+                write!(
+                    formatter,
+                    "expected LLVM archive size {expected}, found {actual}"
+                )
             }
             Self::ArchiveDigest { expected, actual } => {
-                write!(formatter, "expected LLVM SHA-256 {expected}, found {actual}")
+                write!(
+                    formatter,
+                    "expected LLVM SHA-256 {expected}, found {actual}"
+                )
             }
             Self::Io {
                 action,
@@ -649,7 +649,11 @@ impl fmt::Display for ToolchainError {
                 destination.display()
             ),
             Self::UnsafeCleanup(path) => {
-                write!(formatter, "refusing to remove unowned path {}", path.display())
+                write!(
+                    formatter,
+                    "refusing to remove unowned path {}",
+                    path.display()
+                )
             }
             Self::CleanupAfterFailure {
                 installation,
@@ -762,11 +766,8 @@ mod tests {
             panic!("test staging directory must be created: {error}");
         }
 
-        let result = cleanup_after_failure(
-            directory.path(),
-            &staging,
-            ToolchainError::InvalidManifest,
-        );
+        let result =
+            cleanup_after_failure(directory.path(), &staging, ToolchainError::InvalidManifest);
 
         assert!(matches!(result, Err(ToolchainError::InvalidManifest)));
         assert!(!staging.exists());

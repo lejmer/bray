@@ -1,9 +1,7 @@
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::codec::decoding::{contract, declaration, facts, surface, value};
-use crate::semantic::model::{InterfaceSemanticFactKind};
-use crate::{
-    InterfaceSectionTag, InterfaceValidationError, ValidatedInterfaceSection,
-};
+use crate::semantic::model::InterfaceSemanticFactKind;
+use crate::{InterfaceSectionTag, InterfaceValidationError, ValidatedInterfaceSection};
 
 pub(super) struct SelectedTables<'bytes> {
     pub(super) types: value::TypeRecordTables<'bytes>,

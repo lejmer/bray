@@ -77,8 +77,7 @@ pub(super) struct CompilationState {
     pub(super) source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
     pub(super) syntax_tree_result: FactCell<SyntaxTreeResult>,
     pub(super) declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
-    pub(super) source_reference_indexes:
-        Vec<FactCell<super::tooling::SourceReferenceIndex>>,
+    pub(super) source_reference_indexes: Vec<FactCell<super::tooling::SourceReferenceIndex>>,
     pub(super) declaration_table_result: FactCell<DeclarationTableResult>,
     pub(super) product_source_graph: FactCell<Result<ProductSourceGraph, FactQueryError>>,
     pub(super) product_semantics: FactCell<DiagnosticResult<ProductSemanticFacts>>,

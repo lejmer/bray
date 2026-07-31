@@ -158,10 +158,7 @@ fn external_invocation(
     ExternalToolInvocation::try_new(program, arguments, [], None, [])
 }
 
-fn external_arguments(
-    plan: &LinkPlan,
-    flavor: LldFlavor,
-) -> Result<Vec<OsString>, LldPlanError> {
+fn external_arguments(plan: &LinkPlan, flavor: LldFlavor) -> Result<Vec<OsString>, LldPlanError> {
     let mut arguments = vec![
         OsString::from("-flavor"),
         OsString::from(flavor.external_selector()),
@@ -176,9 +173,7 @@ fn outcome_from_run_error(error: LldRunError) -> LinkOutcome {
     match error {
         LldRunError::ExternalTool(error) => LinkOutcome::from_external_tool_failure(error),
         LldRunError::Invocation => failed_outcome(LinkFailure::Invocation),
-        LldRunError::Plan => {
-            failed_outcome(LinkFailure::DriverIncompatible)
-        }
+        LldRunError::Plan => failed_outcome(LinkFailure::DriverIncompatible),
     }
 }
 

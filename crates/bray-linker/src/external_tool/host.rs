@@ -6,14 +6,12 @@ use std::time::Duration;
 
 use bray_base::Cancellation;
 use bray_platform::{
-    NativeChildProcess, NativeExitStatus, NativePipeReader,
-    NativeProcessCommand, NativeStdio,
+    NativeChildProcess, NativeExitStatus, NativePipeReader, NativeProcessCommand, NativeStdio,
 };
 
 use super::{
-    ExternalToolFailure, ExternalToolInvocation, ExternalToolOutput,
-    ExternalToolProcessBudget, ExternalToolResponseFile,
-    ExternalToolResponseFileOperation, ExternalToolStream,
+    ExternalToolFailure, ExternalToolInvocation, ExternalToolOutput, ExternalToolProcessBudget,
+    ExternalToolResponseFile, ExternalToolResponseFileOperation, ExternalToolStream,
 };
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -49,8 +47,8 @@ impl NativeExternalToolHost {
         invocation: &ExternalToolInvocation,
         cancellation: &dyn Cancellation,
     ) -> Result<ExternalToolOutput, ExternalToolFailure> {
-        let mut command =
-            NativeProcessCommand::new(invocation.program()).map_err(ExternalToolFailure::Process)?;
+        let mut command = NativeProcessCommand::new(invocation.program())
+            .map_err(ExternalToolFailure::Process)?;
 
         command.env_clear();
 
@@ -133,13 +131,11 @@ fn capture_output(
     };
 
     thread::scope(|scope| {
-        let stdout_reader = scope.spawn(move || {
-            read_output(stdout, ExternalToolStream::StandardOutput)
-        });
+        let stdout_reader =
+            scope.spawn(move || read_output(stdout, ExternalToolStream::StandardOutput));
 
-        let stderr_reader = scope.spawn(move || {
-            read_output(stderr, ExternalToolStream::StandardError)
-        });
+        let stderr_reader =
+            scope.spawn(move || read_output(stderr, ExternalToolStream::StandardError));
 
         let status = wait_for_process(child, cancellation);
         let stdout = join_output(stdout_reader, ExternalToolStream::StandardOutput);
@@ -216,9 +212,7 @@ fn terminate_and_reap(child: &mut NativeChildProcess) -> Result<(), ExternalTool
 
     match (termination, reaping) {
         (_, Ok(_)) => Ok(()),
-        (Err(error), Err(_)) | (Ok(()), Err(error)) => {
-            Err(ExternalToolFailure::Process(error))
-        }
+        (Err(error), Err(_)) | (Ok(()), Err(error)) => Err(ExternalToolFailure::Process(error)),
     }
 }
 
@@ -255,11 +249,13 @@ impl MaterializedResponseFiles {
 
         file.write_all(response_file.contents())
             .and_then(|_| file.flush())
-            .map_err(|error| response_file_error(
-                response_file.path().to_path_buf(),
-                ExternalToolResponseFileOperation::Write,
-                error,
-            ))
+            .map_err(|error| {
+                response_file_error(
+                    response_file.path().to_path_buf(),
+                    ExternalToolResponseFileOperation::Write,
+                    error,
+                )
+            })
     }
 
     fn remove_all(&mut self) -> Result<(), ExternalToolFailure> {
@@ -330,13 +326,12 @@ mod tests {
 
     use super::{ExternalToolHost, NativeExternalToolHost};
     use crate::{
-        ExternalToolFailure, ExternalToolInvocation,
-        ExternalToolProcessBudget, ExternalToolResponseFile,
+        ExternalToolFailure, ExternalToolInvocation, ExternalToolProcessBudget,
+        ExternalToolResponseFile,
     };
 
     const CHILD_MARKER_VARIABLE: &str = "BRAY_EXTERNAL_TOOL_CHILD_MARKER";
-    const CHILD_RESPONSE_FILE_VARIABLE: &str =
-        "BRAY_EXTERNAL_TOOL_CHILD_RESPONSE_FILE";
+    const CHILD_RESPONSE_FILE_VARIABLE: &str = "BRAY_EXTERNAL_TOOL_CHILD_RESPONSE_FILE";
     const CHILD_VALUE_VARIABLE: &str = "BRAY_EXTERNAL_TOOL_CHILD_VALUE";
 
     #[test]
@@ -395,8 +390,7 @@ mod tests {
         );
 
         assert!(
-            String::from_utf8_lossy(output.standard_output())
-                .contains("response=first\nsecond\n")
+            String::from_utf8_lossy(output.standard_output()).contains("response=first\nsecond\n")
         );
 
         assert!(!response_path.exists());
@@ -407,16 +401,9 @@ mod tests {
 
     #[test]
     fn native_host_does_not_spawn_after_prior_cancellation() {
-        let invocation = ExternalToolInvocation::try_new(
-            "bray-test-tool-that-does-not-exist",
-            [],
-            [],
-            None,
-            [],
-        )
-        .unwrap_or_else(|error| {
-            panic!("test invocation should be valid: {error:?}")
-        });
+        let invocation =
+            ExternalToolInvocation::try_new("bray-test-tool-that-does-not-exist", [], [], None, [])
+                .unwrap_or_else(|error| panic!("test invocation should be valid: {error:?}"));
 
         assert_eq!(
             native_host().run(&invocation, &|| true),
@@ -441,8 +428,7 @@ mod tests {
             let cancellation = Arc::clone(&cancelled);
 
             let running = scope.spawn(move || {
-                let observe_cancellation =
-                    || cancellation.load(Ordering::Acquire);
+                let observe_cancellation = || cancellation.load(Ordering::Acquire);
 
                 host.run(&invocation, &observe_cancellation)
             });
@@ -479,20 +465,17 @@ mod tests {
             return;
         };
 
-        let value = std::env::var_os(CHILD_VALUE_VARIABLE)
-            .unwrap_or_else(|| OsString::from("missing"));
+        let value =
+            std::env::var_os(CHILD_VALUE_VARIABLE).unwrap_or_else(|| OsString::from("missing"));
 
         println!("value={}", value.to_string_lossy());
         println!("path={}", std::env::var_os("PATH").is_some());
         eprintln!("external-tool-stderr");
 
-        if let Some(response_file) =
-            std::env::var_os(CHILD_RESPONSE_FILE_VARIABLE)
-        {
-            let contents = std::fs::read_to_string(response_file)
-                .unwrap_or_else(|error| {
-                    panic!("child response file should be readable: {error:?}")
-                });
+        if let Some(response_file) = std::env::var_os(CHILD_RESPONSE_FILE_VARIABLE) {
+            let contents = std::fs::read_to_string(response_file).unwrap_or_else(|error| {
+                panic!("child response file should be readable: {error:?}")
+            });
 
             println!("response={contents}");
         }
@@ -506,9 +489,7 @@ mod tests {
     }
 
     fn native_host() -> NativeExternalToolHost {
-        NativeExternalToolHost::new(ExternalToolProcessBudget::new(
-            NonZeroUsize::MIN,
-        ))
+        NativeExternalToolHost::new(ExternalToolProcessBudget::new(NonZeroUsize::MIN))
     }
 
     fn child_invocation(
@@ -517,10 +498,7 @@ mod tests {
     ) -> ExternalToolInvocation {
         let mut environment = vec![
             (OsString::from(CHILD_MARKER_VARIABLE), OsString::new()),
-            (
-                OsString::from(CHILD_VALUE_VARIABLE),
-                OsString::from(value),
-            ),
+            (OsString::from(CHILD_VALUE_VARIABLE), OsString::from(value)),
         ];
 
         if let Some(response_file) = &response_file {

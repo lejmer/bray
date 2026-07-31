@@ -1,12 +1,9 @@
-// rust-style: allow(module-too-large, reason = "document snapshots and product rebuilds share one workspace consistency invariant")
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_compilation::{
-    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-    WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, WorkerBudget,
 };
 use bray_messages::LanguageServerMessage;
 use bray_package_interface::{
@@ -215,9 +212,7 @@ impl Workspace {
 
         let affected = self.rebuild_products_from(&owner.product)?;
 
-        let current = self
-            .document(uri)
-            .ok_or(WorkspaceError::DocumentNotFound)?;
+        let current = self.document(uri).ok_or(WorkspaceError::DocumentNotFound)?;
 
         Ok(WorkspaceUpdate {
             current,
@@ -328,10 +323,7 @@ impl Workspace {
             .ok_or(WorkspaceError::ProductNotFound)
     }
 
-    fn ensure_product_loaded(
-        &mut self,
-        identity: &ProductIdentity,
-    ) -> Result<(), WorkspaceError> {
+    fn ensure_product_loaded(&mut self, identity: &ProductIdentity) -> Result<(), WorkspaceError> {
         if self.products.contains_key(identity) {
             return Ok(());
         }
@@ -352,10 +344,7 @@ impl Workspace {
         Ok(())
     }
 
-    fn load_product(
-        &mut self,
-        product: ProjectProduct,
-    ) -> Result<ProductState, WorkspaceError> {
+    fn load_product(&mut self, product: ProjectProduct) -> Result<ProductState, WorkspaceError> {
         let selected_target =
             selected_target(&self.target).ok_or(WorkspaceError::UnsupportedTarget)?;
 
@@ -369,11 +358,8 @@ impl Workspace {
             .map(|source| source.beneath(&self.root))
             .collect::<Vec<_>>();
 
-        let options = CompilationOptions::new(
-            self.worker_budget,
-            product.kind(),
-            selected_target.clone(),
-        );
+        let options =
+            CompilationOptions::new(self.worker_budget, product.kind(), selected_target.clone());
 
         let mut request = compilation_request_from_file_arguments(
             product.identity().package().clone(),
@@ -473,10 +459,7 @@ impl Workspace {
         Ok(affected)
     }
 
-    fn rebuild_product(
-        &mut self,
-        product: &ProjectProduct,
-    ) -> Result<(), WorkspaceError> {
+    fn rebuild_product(&mut self, product: &ProjectProduct) -> Result<(), WorkspaceError> {
         let identity = product.identity().clone();
 
         let state = self
@@ -496,11 +479,8 @@ impl Workspace {
             selected_target(&self.target).ok_or(WorkspaceError::UnsupportedTarget)?,
         );
 
-        let request = CompilationRequest::with_options(
-            identity.package().clone(),
-            sources,
-            options,
-        );
+        let request =
+            CompilationRequest::with_options(identity.package().clone(), sources, options);
 
         let request = self.configure_request(request, product)?;
 
@@ -536,9 +516,9 @@ impl Workspace {
         request = request.with_dependency_interfaces(self.dependency_interfaces(product)?);
 
         if product.kind() == bray_symbols::ProductKind::Library {
-            request = request.with_package_interface_export(
-                package_interface_export_request(product.identity().clone()),
-            );
+            request = request.with_package_interface_export(package_interface_export_request(
+                product.identity().clone(),
+            ));
         }
 
         Ok(request)
@@ -561,13 +541,8 @@ impl Workspace {
                 let interface_product = InterfaceProductIdentity::try_new(identity.name())
                     .ok_or(WorkspaceError::DependencyUnavailable)?;
 
-                let path = project_interface_path(
-                    &self.graph,
-                    &self.root,
-                    identity,
-                    &self.target,
-                )
-                .ok_or(WorkspaceError::DependencyUnavailable)?;
+                let path = project_interface_path(&self.graph, &self.root, identity, &self.target)
+                    .ok_or(WorkspaceError::DependencyUnavailable)?;
 
                 let dependency = self
                     .products
@@ -686,10 +661,7 @@ fn workspace_source(source: &SourceSnapshot) -> Result<WorkspaceSource, Workspac
     })
 }
 
-fn source_index_for_uri(
-    sources: &[WorkspaceSource],
-    uri: &str,
-) -> Option<usize> {
+fn source_index_for_uri(sources: &[WorkspaceSource], uri: &str) -> Option<usize> {
     let path = SourceOrigin::path_from_document_uri(uri).ok().flatten();
 
     sources.iter().position(|source| {
@@ -697,16 +669,11 @@ fn source_index_for_uri(
             || path
                 .as_ref()
                 .zip(source.path.as_ref())
-                .is_some_and(|(left, right)| {
-                    absolute_path(left).ok() == absolute_path(right).ok()
-                })
+                .is_some_and(|(left, right)| absolute_path(left).ok() == absolute_path(right).ok())
     })
 }
 
-fn append_open_source<'source>(
-    sources: &mut Vec<WorkspaceSource>,
-    uri: &str,
-) -> Option<usize> {
+fn append_open_source<'source>(sources: &mut Vec<WorkspaceSource>, uri: &str) -> Option<usize> {
     let next_identity = sources
         .iter()
         .map(|source| source.identity.raw())
@@ -796,12 +763,9 @@ impl WorkspaceSource {
         }
 
         match &self.path {
-            Some(path) => SourceInput::file(
-                self.identity,
-                path.clone(),
-                self.version,
-                self.text.clone(),
-            ),
+            Some(path) => {
+                SourceInput::file(self.identity, path.clone(), self.version, self.text.clone())
+            }
             None => SourceInput::lsp_open_document(
                 self.identity,
                 self.uri.clone(),
@@ -953,7 +917,9 @@ mod tests {
                 2,
                 &[ContentChange {
                     range: None,
-                    text: fixture.source_text.replace("module app;", "module changed;"),
+                    text: fixture
+                        .source_text
+                        .replace("module app;", "module changed;"),
                 }],
             )
             .unwrap_or_else(|error| panic!("main document should change: {error:?}"));

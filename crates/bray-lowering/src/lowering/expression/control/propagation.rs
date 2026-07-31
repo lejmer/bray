@@ -136,13 +136,9 @@ impl Lowerer<'_> {
         let operand_type = self.expression_type(*operand_id)?;
 
         match self.type_representation(operand_type)? {
-            Some(RepresentationRole::Result) => self.lower_result_propagation(
-                id,
-                expression,
-                *operand_id,
-                operand_type,
-                current,
-            ),
+            Some(RepresentationRole::Result) => {
+                self.lower_result_propagation(id, expression, *operand_id, operand_type, current)
+            }
             Some(RepresentationRole::RunResult) => self.lower_run_result_propagation(
                 id,
                 expression,

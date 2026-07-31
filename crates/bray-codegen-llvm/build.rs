@@ -69,7 +69,11 @@ fn configure_linkage(prefix: &Path) -> io::Result<()> {
     let library_directory = prefix.join("lib");
     let dynamic_library = prefix.join("bin").join("LLVM-C.dll");
 
-    println!("cargo:rustc-link-search=native={}", library_directory.display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        library_directory.display()
+    );
+
     println!("cargo:rustc-link-lib=dylib=LLVM-C");
     println!("cargo:rerun-if-changed={}", dynamic_library.display());
 

@@ -17,9 +17,7 @@ pub(crate) fn serialize_artifact(
             .serialize(module, FileType::Assembly)
             .map_err(|_| CodegenFailure::ArtifactConstruction(kind))?,
         BackendArtifactKind::BackendIr => module.print_to_string().to_bytes().to_vec(),
-        BackendArtifactKind::BackendBitcode => {
-            module.write_bitcode_to_memory().as_slice().to_vec()
-        }
+        BackendArtifactKind::BackendBitcode => module.write_bitcode_to_memory().as_slice().to_vec(),
         BackendArtifactKind::ExecutableModule | BackendArtifactKind::DebugCompanion => {
             return Err(CodegenFailure::UnsupportedArtifact(kind));
         }

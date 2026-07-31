@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use bray_codegen::{ArtifactContent, ArtifactDigest};
 
-use crate::{
-    ArtifactId, ArtifactProducer, EmissionPlan, PlannedArtifactDestination,
-};
+use crate::{ArtifactId, ArtifactProducer, EmissionPlan, PlannedArtifactDestination};
 
 /// Immutable completed content for one planned artifact identity.
 #[derive(Clone, Debug, Eq, PartialEq)]

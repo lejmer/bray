@@ -171,21 +171,15 @@ pub enum LinkerBuildError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use bray_base::Cancellation;
     use bray_diagnostics::DiagnosticBag;
 
-    use super::{
-        Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
-        LinkerBuildError,
-    };
+    use super::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
     use crate::test_support::{link_plan, link_plan_with_driver};
-    use crate::{
-        LinkFailure, LinkOutcome, LinkPlan, LinkStatus, LinkTarget,
-        LinkedProductKind,
-    };
+    use crate::{LinkFailure, LinkOutcome, LinkPlan, LinkStatus, LinkTarget, LinkedProductKind};
 
     #[test]
     fn driver_identities_require_complete_revision_metadata() {
@@ -218,33 +212,17 @@ mod tests {
 
     #[test]
     fn linker_selects_exact_embedded_and_configured_drivers() {
-        for kind in [
-            LinkerDriverKind::EmbeddedLld,
-            LinkerDriverKind::System,
-        ] {
-            let identity =
-                LinkerDriverIdentity::try_new(kind, "test", "1", "1")
-                    .unwrap_or_else(|| {
-                        panic!("test driver identity should be valid")
-                    });
+        for kind in [LinkerDriverKind::EmbeddedLld, LinkerDriverKind::System] {
+            let identity = LinkerDriverIdentity::try_new(kind, "test", "1", "1")
+                .unwrap_or_else(|| panic!("test driver identity should be valid"));
 
             let plan = link_plan_with_driver(identity.clone());
             let calls = Arc::new(AtomicUsize::new(0));
 
-            let driver = Arc::new(TestDriver::new(
-                identity,
-                true,
-                Arc::clone(&calls),
-                None,
-            ));
+            let driver = Arc::new(TestDriver::new(identity, true, Arc::clone(&calls), None));
 
-            let linker =
-                Linker::try_new([driver as Arc<dyn LinkerDriver>])
-                    .unwrap_or_else(|error| {
-                        panic!(
-                            "test driver set should be valid: {error:?}"
-                        )
-                    });
+            let linker = Linker::try_new([driver as Arc<dyn LinkerDriver>])
+                .unwrap_or_else(|error| panic!("test driver set should be valid: {error:?}"));
 
             let outcome = linker.link(&plan, &|| false);
 
@@ -312,10 +290,7 @@ mod tests {
         let linker = Linker::try_new([driver as Arc<dyn LinkerDriver>])
             .unwrap_or_else(|error| panic!("test driver set should be valid: {error:?}"));
 
-        let outcome = linker.link(
-            &plan,
-            &TestCancellation(Arc::clone(&cancellation)),
-        );
+        let outcome = linker.link(&plan, &TestCancellation(Arc::clone(&cancellation)));
 
         assert_eq!(outcome.status(), &LinkStatus::Cancelled);
     }

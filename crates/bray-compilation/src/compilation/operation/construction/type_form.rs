@@ -6,9 +6,7 @@ use bray_checker::{
 };
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{
-    ImplementationSelection, RuntimeDefaultPresence, SymbolName, TypeData, TypeId,
-};
+use bray_symbols::{ImplementationSelection, RuntimeDefaultPresence, SymbolName, TypeData, TypeId};
 
 use super::super::super::Compilation;
 use super::super::super::binder::{CompilationBinderFacts, binder_fact_error};
@@ -35,19 +33,12 @@ impl Compilation {
         let member_key = CompilerKnownDeclarationKey::try_new("StorageCreate")
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let selected = selected_storage_callable(
-            self,
-            facts,
-            *storage,
-            *target,
-            &member_key,
-            cancellation,
-        )?;
+        let selected =
+            selected_storage_callable(self, facts, *storage, *target, &member_key, cancellation)?;
 
         *diagnostics = diagnostics.merged(selected.diagnostics());
 
-        let Some((requirement, witness, callable, resolved_signature)) = selected.value()
-        else {
+        let Some((requirement, witness, callable, resolved_signature)) = selected.value() else {
             return Ok(None);
         };
 

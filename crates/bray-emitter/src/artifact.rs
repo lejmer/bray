@@ -1,7 +1,7 @@
 //! Immutable artifact identities, contributions, and publication records.
 
-mod contribution;
 pub(crate) mod content;
+mod contribution;
 mod identity;
 mod kind;
 mod merge;

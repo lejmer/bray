@@ -14,8 +14,9 @@ const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 const PRODUCT_NAME: &str = "application";
 pub(super) fn audit(root: &Path) -> Result<(), String> {
-    let target = NativeTarget::current()
-        .ok_or_else(|| "native execution readiness requires a supported compiler host".to_owned())?;
+    let target = NativeTarget::current().ok_or_else(|| {
+        "native execution readiness requires a supported compiler host".to_owned()
+    })?;
 
     build_compiler(root)?;
 
@@ -52,11 +53,7 @@ fn audit_startup(root: &Path, target: NativeTarget, runtime: &Path) -> Result<()
     execute_product(&first_executable, 0, "executing generated Bray startup")
 }
 
-fn audit_primitive_abi(
-    root: &Path,
-    target: NativeTarget,
-    runtime: &Path,
-) -> Result<(), String> {
+fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     let first = native_output("bray-native-abi-first-")?;
     let second = native_output("bray-native-abi-second-")?;
 
@@ -282,13 +279,11 @@ fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), 
 }
 
 fn object_files(directory: &Path, target: NativeTarget) -> Result<Vec<PathBuf>, String> {
-    let suffix = TargetOutputName::for_native(
-        target.object_format(),
-        TargetOutputKind::RelocatableObject,
-    )
-    .suffix()
-    .trim_start_matches('.')
-    .to_owned();
+    let suffix =
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::RelocatableObject)
+            .suffix()
+            .trim_start_matches('.')
+            .to_owned();
 
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("could not list native output directory: {error}"))?;

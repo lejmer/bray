@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_symbols::{
-    DependencyContractTemplateId, GenericSubstitutionId, SemanticValueStore,
-    TraitApplicationId, TraitTypeMemberSymbolId, TypeExpressionTemplate, TypeId,
+    DependencyContractTemplateId, GenericSubstitutionId, SemanticValueStore, TraitApplicationId,
+    TraitTypeMemberSymbolId, TypeExpressionTemplate, TypeId,
 };
 
 use crate::fact::FactQueryError;

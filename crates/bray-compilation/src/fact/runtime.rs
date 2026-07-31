@@ -27,15 +27,11 @@ pub(crate) struct FactRuntime {
 
 #[cfg(test)]
 #[derive(Clone)]
-pub(crate) struct FactEvaluationTestObserver(
-    Arc<dyn Fn(&CompilationFactKey) + Send + Sync>,
-);
+pub(crate) struct FactEvaluationTestObserver(Arc<dyn Fn(&CompilationFactKey) + Send + Sync>);
 
 #[cfg(test)]
 impl FactEvaluationTestObserver {
-    pub(crate) fn new(
-        observe: impl Fn(&CompilationFactKey) + Send + Sync + 'static,
-    ) -> Self {
+    pub(crate) fn new(observe: impl Fn(&CompilationFactKey) + Send + Sync + 'static) -> Self {
         Self(Arc::new(observe))
     }
 
@@ -615,8 +611,8 @@ mod tests {
     use bray_source::SourceId;
 
     use super::{FactEvaluationTestObserver, FactRuntime};
-    use crate::fact::{CancellationToken, CompilationFactKey, FactCell};
     use crate::WorkerBudget;
+    use crate::fact::{CancellationToken, CompilationFactKey, FactCell};
 
     #[test]
     fn evaluation_observation_records_only_started_computations() {

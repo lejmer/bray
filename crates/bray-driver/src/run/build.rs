@@ -520,6 +520,41 @@ mod tests {
         std::fs::remove_dir(&output)
             .unwrap_or_else(|error| panic!("build output directory must be removed: {error:?}"));
     }
+
+    #[test]
+    fn unavailable_runtime_profile_reports_unsupported_product_emission() {
+        let source = TemporaryFile::write("application.bray", b"module app;");
+
+        let output = source
+            .path()
+            .parent()
+            .unwrap_or_else(|| panic!("temporary source must have a parent"))
+            .join("out");
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("build"),
+            OsString::from("--product-kind"),
+            OsString::from("executable"),
+            OsString::from("--runtime-profile"),
+            OsString::from("unavailable"),
+            OsString::from("--output"),
+            output.into_os_string(),
+            source.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::RequestUnsupportedProductEmission)
+                .count(),
+            1,
+            "{:#?}",
+            result.diagnostics()
+        );
+    }
 }
 
 fn native_product_failure_result(

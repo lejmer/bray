@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::OutputFormat;
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSyntaxAnchor, TreeWriter,
-    push_text_diagnostic,
+    push_report_value, push_text_diagnostic, render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 
@@ -48,7 +48,9 @@ pub(crate) fn render_declaration_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => render_json_report(&report)?,
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| DeclarationInspectionRenderError::Json)?
+        }
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -116,13 +118,7 @@ impl InspectionContainer {
                 table
                     .module_part(*id)
                     .ok_or(DeclarationInspectionRenderError::ModulePart)
-                    .and_then(|part| {
-                        InspectionModulePart::from_record(
-                            sources,
-                            table,
-                            part,
-                        )
-                    })
+                    .and_then(|part| InspectionModulePart::from_record(sources, table, part))
             })
             .collect::<Result<_, _>>()?;
 
@@ -140,11 +136,7 @@ impl InspectionContainer {
                         .declaration(*id)
                         .ok_or(DeclarationInspectionRenderError::Declaration)
                         .and_then(|declaration| {
-                            InspectionDeclaration::from_record(
-                                sources,
-                                table,
-                                declaration,
-                            )
+                            InspectionDeclaration::from_record(sources, table, declaration)
                         })
                 })
                 .collect::<Result<_, _>>()?
@@ -173,8 +165,7 @@ impl InspectionContainer {
         writer.push_line(is_last, &self.text_line());
         writer.enter_children(is_last);
 
-        let child_count =
-            self.contributions.len() + self.declarations.len() + self.modules.len();
+        let child_count = self.contributions.len() + self.declarations.len() + self.modules.len();
 
         let mut child_index = 0;
 
@@ -198,10 +189,7 @@ impl InspectionContainer {
 
     fn text_line(&self) -> String {
         match &self.module_path {
-            Some(path) => format!(
-                "{} {path} [container:{}]",
-                self.container_kind, self.id
-            ),
+            Some(path) => format!("{} {path} [container:{}]", self.container_kind, self.id),
             None => format!("{} [container:{}]", self.container_kind, self.id),
         }
     }
@@ -231,11 +219,7 @@ impl InspectionModulePart {
                     .declaration(*id)
                     .ok_or(DeclarationInspectionRenderError::Declaration)
                     .and_then(|declaration| {
-                        InspectionDeclaration::from_record(
-                            sources,
-                            table,
-                            declaration,
-                        )
+                        InspectionDeclaration::from_record(sources, table, declaration)
                     })
             })
             .collect::<Result<_, _>>()?;
@@ -312,10 +296,7 @@ impl InspectionDeclaration {
             id: declaration.id().raw(),
             name: declaration.name().map(InspectionDeclarationName::from_name),
             owning_container: declaration.owning_container().raw(),
-            anchor: InspectionSyntaxAnchor::from_anchor(
-                sources,
-                declaration.syntax_anchor(),
-            )?,
+            anchor: InspectionSyntaxAnchor::from_anchor(sources, declaration.syntax_anchor())?,
             surface: InspectionSurface::from_surface(sources, declaration.surface())?,
             child_container,
         })
@@ -485,11 +466,7 @@ fn inspection_anchors(
         .collect::<Result<_, _>>()
 }
 
-fn push_anchor_entries(
-    entries: &mut Vec<String>,
-    label: &str,
-    anchors: &[InspectionSyntaxAnchor],
-) {
+fn push_anchor_entries(entries: &mut Vec<String>, label: &str, anchors: &[InspectionSyntaxAnchor]) {
     entries.extend(anchors.iter().map(|anchor| anchor_text(label, anchor)));
 }
 
@@ -500,21 +477,11 @@ fn anchor_text(label: &str, anchor: &InspectionSyntaxAnchor) -> String {
 fn render_text_report(report: &DeclarationInspectionReport) -> String {
     let mut output = String::new();
 
-    output.push_str("kind: ");
-    output.push_str(report.kind);
-    output.push('\n');
-    output.push_str("declaration_count: ");
-    output.push_str(&report.declaration_count.to_string());
-    output.push('\n');
-    output.push_str("container_count: ");
-    output.push_str(&report.container_count.to_string());
-    output.push('\n');
-    output.push_str("module_part_count: ");
-    output.push_str(&report.module_part_count.to_string());
-    output.push('\n');
-    output.push_str("has_errors: ");
-    output.push_str(&report.has_errors.to_string());
-    output.push('\n');
+    push_report_value(&mut output, "kind", report.kind);
+    push_report_value(&mut output, "declaration_count", report.declaration_count);
+    push_report_value(&mut output, "container_count", report.container_count);
+    push_report_value(&mut output, "module_part_count", report.module_part_count);
+    push_report_value(&mut output, "has_errors", report.has_errors);
     output.push_str("tree:\n");
 
     let mut writer = TreeWriter::new("  ");
@@ -532,17 +499,6 @@ fn render_text_report(report: &DeclarationInspectionReport) -> String {
     }
 
     output
-}
-
-fn render_json_report(
-    report: &DeclarationInspectionReport,
-) -> Result<String, DeclarationInspectionRenderError> {
-    let mut output =
-        serde_json::to_string_pretty(report).map_err(|_| DeclarationInspectionRenderError::Json)?;
-
-    output.push('\n');
-
-    Ok(output)
 }
 
 #[cfg(test)]
@@ -576,11 +532,10 @@ mod tests {
             ),
         ]);
 
-        let output =
-            match render_declaration_inspection(&compilation, OutputFormat::Text) {
-                Ok(output) => output,
-                Err(error) => panic!("declaration inspection should render: {error:?}"),
-            };
+        let output = match render_declaration_inspection(&compilation, OutputFormat::Text) {
+            Ok(output) => output,
+            Err(error) => panic!("declaration inspection should render: {error:?}"),
+        };
 
         let (text, diagnostics) = output.into_parts();
 
@@ -603,11 +558,10 @@ mod tests {
             "    }\n",
         )]);
 
-        let output =
-            match render_declaration_inspection(&compilation, OutputFormat::Json) {
-                Ok(output) => output,
-                Err(error) => panic!("declaration inspection should render: {error:?}"),
-            };
+        let output = match render_declaration_inspection(&compilation, OutputFormat::Json) {
+            Ok(output) => output,
+            Err(error) => panic!("declaration inspection should render: {error:?}"),
+        };
 
         let (json, diagnostics) = output.into_parts();
 

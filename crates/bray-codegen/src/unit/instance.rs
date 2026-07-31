@@ -66,10 +66,7 @@ pub struct CodegenImplementationWitness {
 
 impl CodegenImplementationWitness {
     /// Creates a witness for an implementation definition.
-    pub fn try_new(
-        definition: SymbolKey,
-        specialization: CodegenSpecialization,
-    ) -> Option<Self> {
+    pub fn try_new(definition: SymbolKey, specialization: CodegenSpecialization) -> Option<Self> {
         if !definition.kind().is_implementation() {
             return None;
         }
@@ -172,10 +169,7 @@ impl CodegenInstanceDependency {
     }
 
     /// Creates one dependency with its reachability role.
-    pub const fn new(
-        kind: CodegenInstanceDependencyKind,
-        instance: CodegenInstanceKey,
-    ) -> Self {
+    pub const fn new(kind: CodegenInstanceDependencyKind, instance: CodegenInstanceKey) -> Self {
         Self { kind, instance }
     }
 
@@ -295,8 +289,8 @@ mod tests {
         ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
     };
     use bray_symbols::{SemanticValueStore, TypeData};
-    use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
     use bray_target::{TargetIdentity, TargetProfile};
+    use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
 
     use super::{
         CodegenGenericArgument, CodegenInstance, CodegenInstanceBuildError,
@@ -323,9 +317,8 @@ mod tests {
 
         let key = CodegenInstanceKey::non_generic(&mir);
 
-        let dependency = CodegenInstanceDependency::definition(
-            CodegenInstanceKey::non_generic(&other),
-        );
+        let dependency =
+            CodegenInstanceDependency::definition(CodegenInstanceKey::non_generic(&other));
 
         assert!(CodegenInstance::try_new(key, mir, [dependency]).is_ok());
     }
@@ -334,9 +327,9 @@ mod tests {
     fn witnesses_and_dependencies_are_canonical_sets() {
         let mir = test_mir_unit(4);
 
-        let dependency = CodegenInstanceDependency::definition(
-            CodegenInstanceKey::non_generic(&test_mir_unit_with_declaration(8, 1)),
-        );
+        let dependency = CodegenInstanceDependency::definition(CodegenInstanceKey::non_generic(
+            &test_mir_unit_with_declaration(8, 1),
+        ));
 
         let key = CodegenInstanceKey::non_generic(&mir);
 
@@ -359,10 +352,8 @@ mod tests {
             dependency.clone(),
         );
 
-        let started = CodegenInstanceDependency::new(
-            CodegenInstanceDependencyKind::StartedTask,
-            dependency,
-        );
+        let started =
+            CodegenInstanceDependency::new(CodegenInstanceDependencyKind::StartedTask, dependency);
 
         let Ok(instance) = CodegenInstance::try_new(
             CodegenInstanceKey::non_generic(&mir),
@@ -392,8 +383,7 @@ mod tests {
             panic!("alternate target profile must be valid");
         };
 
-        let alternate_target =
-            MirTargetFacts::new(profile, mir.target().runtime_abi());
+        let alternate_target = MirTargetFacts::new(profile, mir.target().runtime_abi());
 
         let alternate = CodegenInstanceKey::new(
             mir.key().clone(),

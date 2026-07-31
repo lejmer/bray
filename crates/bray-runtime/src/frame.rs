@@ -128,10 +128,7 @@ pub trait ProtectedFrame: 'static {
     fn descriptor(&self) -> &ProtectedFrameDescriptor;
 
     /// Enters or resumes the pinned frame.
-    fn resume(
-        self: Pin<&mut Self>,
-        context: FrameContext,
-    ) -> FrameProgress<Self::Output>;
+    fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output>;
 
     /// Broadcasts cancellation to unresolved tasks owned by initialized state.
     fn broadcast_tasks(self: Pin<&mut Self>);
@@ -146,8 +143,7 @@ pub trait SendableProtectedFrame: ProtectedFrame + Send {}
 impl<F> SendableProtectedFrame for F where F: ProtectedFrame + Send {}
 
 /// Type-erased pinned protected frame with one known completion type.
-pub type ErasedProtectedFrame<T> =
-    Pin<Box<dyn ProtectedFrame<Output = T> + 'static>>;
+pub type ErasedProtectedFrame<T> = Pin<Box<dyn ProtectedFrame<Output = T> + 'static>>;
 
 /// Type-erased pinned frame whose retained state may cross threads.
 pub type ErasedSendableProtectedFrame<T> =
@@ -162,9 +158,7 @@ where
 }
 
 /// Moves a sendable inactive frame into stable erased storage.
-pub fn erase_sendable_protected_frame<F>(
-    frame: F,
-) -> ErasedSendableProtectedFrame<F::Output>
+pub fn erase_sendable_protected_frame<F>(frame: F) -> ErasedSendableProtectedFrame<F::Output>
 where
     F: SendableProtectedFrame,
 {
@@ -172,10 +166,7 @@ where
 }
 
 /// Resumes a directly awaited frame without creating a task-control block.
-pub fn resume_direct<F>(
-    frame: Pin<&mut F>,
-    context: FrameContext,
-) -> FrameProgress<F::Output>
+pub fn resume_direct<F>(frame: Pin<&mut F>, context: FrameContext) -> FrameProgress<F::Output>
 where
     F: ?Sized + ProtectedFrame,
 {
@@ -249,10 +240,7 @@ mod tests {
             self.child.as_mut().broadcast_tasks();
         }
 
-        fn resolve_lifecycle(
-            mut self: std::pin::Pin<&mut Self>,
-            exit: FrameExit,
-        ) {
+        fn resolve_lifecycle(mut self: std::pin::Pin<&mut Self>, exit: FrameExit) {
             self.child.as_mut().resolve_lifecycle(exit);
         }
     }

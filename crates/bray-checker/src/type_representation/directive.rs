@@ -171,9 +171,7 @@ where
                 .iter()
                 .find(|directive| directive.kind() == DirectiveKind::Tag);
 
-            if !explicitly_laid_out
-                && let Some(directive) = declared
-            {
+            if !explicitly_laid_out && let Some(directive) = declared {
                 self.add_diagnostic(
                     DiagnosticKind::CheckingInvalidUnionTag,
                     directive_span(directive.syntax()),

@@ -1,13 +1,9 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };
 
 pub(crate) fn selection_diagnostics(selection: impl Into<String>) -> DiagnosticBag {
-    diagnostic(
-        DiagnosticKind::ProjectCommandSelectionInvalid,
-        selection,
-    )
+    diagnostic(DiagnosticKind::ProjectCommandSelectionInvalid, selection)
 }
 
 pub(crate) fn operation_diagnostics(operation: impl Into<String>) -> DiagnosticBag {
@@ -25,9 +21,7 @@ fn diagnostic(kind: DiagnosticKind, value: impl Into<String>) -> DiagnosticBag {
 mod tests {
     use bray_diagnostics::DiagnosticKind;
 
-    use super::{
-        operation_diagnostics, selection_diagnostics,
-    };
+    use super::{operation_diagnostics, selection_diagnostics};
 
     #[test]
     fn project_command_failures_keep_structured_operation_categories() {

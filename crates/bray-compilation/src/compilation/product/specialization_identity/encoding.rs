@@ -3,13 +3,12 @@ use std::hash::{Hash, Hasher};
 use bray_base::StableDigestHasher;
 use bray_codegen::{CodegenGenericArgument, CodegenValueKey};
 use bray_symbols::{
-    AnySymbolId, CallableInstanceId, CallablePhaseBehavior,
-    ConstantProjection, ConstantProjectionKind, ConstantTermData,
-    ConstantTermId, ConstantValueId, ConstantValueKind,
-    DependencyContractTemplateId, DependencyGuard, DependencyProjection,
-    DependencyRequirement, DependencySubject, DependencySubjectRoot,
-    GenericArgument, GenericSubstitutionId, ImplementationInstanceId,
-    SemanticValueStore, SymbolGraph, TraitApplicationId, TypeData, TypeId,
+    AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantProjection,
+    ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
+    DependencyContractTemplateId, DependencyGuard, DependencyProjection, DependencyRequirement,
+    DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionId,
+    ImplementationInstanceId, SemanticValueStore, SymbolGraph, TraitApplicationId, TypeData,
+    TypeId,
 };
 
 use crate::fact::FactQueryError;
@@ -76,9 +75,7 @@ impl<'a> StructuralValueEncoder<'a> {
 
         Ok(match kind {
             CodegenArgumentKind::Type => CodegenGenericArgument::Type(key),
-            CodegenArgumentKind::Constant => {
-                CodegenGenericArgument::Constant(key)
-            }
+            CodegenArgumentKind::Constant => CodegenGenericArgument::Constant(key),
         })
     }
 
@@ -176,9 +173,7 @@ impl<'a> StructuralValueEncoder<'a> {
                 self.callable_trust(callable.trust());
                 self.callable_abi(callable.abi());
 
-                self.callable_phase_behavior(
-                    callable.phase_behaviors().invocation(),
-                )?;
+                self.callable_phase_behavior(callable.phase_behaviors().invocation())?;
 
                 match callable.phase_behaviors().deferred_execution() {
                     Some(behavior) => {
@@ -193,10 +188,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn constant_term(
-        &mut self,
-        id: ConstantTermId,
-    ) -> Result<(), FactQueryError> {
+    fn constant_term(&mut self, id: ConstantTermId) -> Result<(), FactQueryError> {
         let data = self
             .values
             .constant_term_data(id)
@@ -300,10 +292,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn constant_value(
-        &mut self,
-        id: ConstantValueId,
-    ) -> Result<(), FactQueryError> {
+    fn constant_value(&mut self, id: ConstantValueId) -> Result<(), FactQueryError> {
         let data = self
             .values
             .constant_value_data(id)
@@ -376,10 +365,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn substitution(
-        &mut self,
-        id: GenericSubstitutionId,
-    ) -> Result<(), FactQueryError> {
+    fn substitution(&mut self, id: GenericSubstitutionId) -> Result<(), FactQueryError> {
         let data = self
             .values
             .generic_substitution_data(id)
@@ -406,10 +392,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn trait_application(
-        &mut self,
-        id: TraitApplicationId,
-    ) -> Result<(), FactQueryError> {
+    fn trait_application(&mut self, id: TraitApplicationId) -> Result<(), FactQueryError> {
         let data = self
             .values
             .trait_application_data(id)
@@ -420,10 +403,7 @@ impl<'a> StructuralValueEncoder<'a> {
         self.substitution(data.substitution())
     }
 
-    fn callable_instance(
-        &mut self,
-        id: CallableInstanceId,
-    ) -> Result<(), FactQueryError> {
+    fn callable_instance(&mut self, id: CallableInstanceId) -> Result<(), FactQueryError> {
         let data = self
             .values
             .callable_instance_data(id)
@@ -549,10 +529,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn dependency_guard(
-        &mut self,
-        guard: &DependencyGuard,
-    ) -> Result<(), FactQueryError> {
+    fn dependency_guard(&mut self, guard: &DependencyGuard) -> Result<(), FactQueryError> {
         match guard {
             DependencyGuard::NullablePresent(subject) => {
                 self.tag(0);
@@ -568,10 +545,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn dependency_subject(
-        &mut self,
-        subject: &DependencySubject,
-    ) -> Result<(), FactQueryError> {
+    fn dependency_subject(&mut self, subject: &DependencySubject) -> Result<(), FactQueryError> {
         match subject.subject_root() {
             DependencySubjectRoot::Receiver => self.tag(0),
             DependencySubjectRoot::Parameter(ordinal) => {
@@ -646,10 +620,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn constant_terms(
-        &mut self,
-        terms: &[ConstantTermId],
-    ) -> Result<(), FactQueryError> {
+    fn constant_terms(&mut self, terms: &[ConstantTermId]) -> Result<(), FactQueryError> {
         self.length(terms.len());
 
         for term in terms.iter().copied() {
@@ -659,10 +630,7 @@ impl<'a> StructuralValueEncoder<'a> {
         Ok(())
     }
 
-    fn constant_values(
-        &mut self,
-        values: &[ConstantValueId],
-    ) -> Result<(), FactQueryError> {
+    fn constant_values(&mut self, values: &[ConstantValueId]) -> Result<(), FactQueryError> {
         self.length(values.len());
 
         for value in values.iter().copied() {
@@ -682,7 +650,6 @@ impl<'a> StructuralValueEncoder<'a> {
 
         Ok(())
     }
-
 }
 
 enum CodegenArgumentKind {

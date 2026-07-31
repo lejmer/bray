@@ -10,20 +10,18 @@ use bray_codegen::{
     CodegenCallableSignature, CodegenLinkage, CodegenResultMapping, CodegenSymbolKey,
     CodegenSymbolMapping, demanded_runtime_references,
 };
-use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
 #[cfg(test)]
 use bray_ir::MirUnitKind;
+use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
 use bray_runtime_interface::ExecutableHostContract;
 #[cfg(test)]
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
-use bray_symbols::CallableDefinitionId;
 #[cfg(test)]
 use bray_symbols::CallableAbi;
+use bray_symbols::CallableDefinitionId;
 
 use super::Compilation;
-use crate::fact::{
-    CancellationToken, CodegenArtifactFactKey, CompilationFactKey, FactQueryError,
-};
+use crate::fact::{CancellationToken, CodegenArtifactFactKey, CompilationFactKey, FactQueryError};
 
 impl Compilation {
     pub(super) fn codegen_units_for_plan(
@@ -45,12 +43,7 @@ impl Compilation {
                 self.codegen_unit_for_plan(request.unit(), executable_host, cancellation)
                     .map_err(|error| (request.unit().clone(), error))
             })
-            .map_err(|error| {
-                (
-                    first.unit().clone(),
-                    CodegenFactError::Query(error),
-                )
-            })?
+            .map_err(|error| (first.unit().clone(), CodegenFactError::Query(error)))?
             .into_iter()
             .collect()
     }
@@ -74,12 +67,8 @@ impl Compilation {
                     return Err(CodegenFactError::UnitMismatch(key.clone()));
                 };
 
-                let mir = self.codegen_mir_for_plan(
-                    instance,
-                    mir_unit,
-                    executable_host,
-                    cancellation,
-                )?;
+                let mir =
+                    self.codegen_mir_for_plan(instance, mir_unit, executable_host, cancellation)?;
 
                 let Some(dependencies) = key.dependencies(instance) else {
                     return Err(CodegenFactError::UnitMismatch(key.clone()));
@@ -121,9 +110,9 @@ impl Compilation {
                     .as_ref()
                     .and_then(bray_lowering::LoweredUnit::mir)
                 else {
-                    return Err(CodegenFactError::MirUnavailable(
-                        MirUnitKey::Bound(key.clone()),
-                    ));
+                    return Err(CodegenFactError::MirUnavailable(MirUnitKey::Bound(
+                        key.clone(),
+                    )));
                 };
 
                 // The reconstructed unit owns the immutable MIR independently of the fact borrow.
@@ -338,19 +327,8 @@ fn codegen_mappings(
         }
     }
 
-    CodegenMappings::try_new(
-        unit,
-        target,
-        [],
-        symbols,
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-    )
-    .map_err(CodegenFactError::InvalidMappings)
+    CodegenMappings::try_new(unit, target, [], symbols, [], [], [], [], [], [])
+        .map_err(CodegenFactError::InvalidMappings)
 }
 
 #[cfg(test)]
@@ -363,12 +341,7 @@ fn symbol_mapping(
         key,
         name,
         linkage,
-        CodegenCallableSignature::new(
-            [],
-            CodegenResultMapping::Void,
-            CallableAbi::Bray,
-            false,
-        ),
+        CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false),
     )
 }
 
@@ -429,8 +402,8 @@ impl From<FactQueryError> for CodegenFactError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Condvar, Mutex};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
 
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
@@ -441,11 +414,10 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
 
     use super::{Compilation, codegen_mappings};
-    use crate::test_support::{
-        compilation as source_compilation, package_identity, source_callable_body_key,
-        source_input,
-    };
     use crate::CompilationRequest;
+    use crate::test_support::{
+        compilation as source_compilation, package_identity, source_callable_body_key, source_input,
+    };
 
     #[test]
     fn plan_named_units_are_reconstructed_from_lazy_mir_facts() {
@@ -467,11 +439,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 
         let actual = compilation
-            .codegen_unit_for_plan(
-                expected.key(),
-                None,
-                &crate::CancellationToken::new(),
-            )
+            .codegen_unit_for_plan(expected.key(), None, &crate::CancellationToken::new())
             .unwrap_or_else(|error| panic!("plan-named unit must resolve: {error:?}"));
 
         assert_eq!(actual, expected);
@@ -560,9 +528,8 @@ mod tests {
         let first_compilation = compilation.clone();
         let first_fixture = Arc::clone(&fixture);
 
-        let first = std::thread::spawn(move || {
-            generate(&first_compilation, first_fixture.request())
-        });
+        let first =
+            std::thread::spawn(move || generate(&first_compilation, first_fixture.request()));
 
         gate.wait_until_entered();
 
@@ -622,16 +589,10 @@ mod tests {
     }
 
     fn compilation_request() -> CompilationRequest {
-        CompilationRequest::new(
-            package_identity(),
-            vec![source_input("module app;", 0)],
-        )
+        CompilationRequest::new(package_identity(), vec![source_input("module app;", 0)])
     }
 
-    fn generate(
-        compilation: &Compilation,
-        request: CodegenRequest<'_>,
-    ) -> Arc<CodegenOutcome> {
+    fn generate(compilation: &Compilation, request: CodegenRequest<'_>) -> Arc<CodegenOutcome> {
         compilation
             .codegen_artifact(
                 request.unit(),
@@ -651,7 +612,11 @@ mod tests {
                 machine.architecture(),
                 machine.object_format(),
             )],
-            request.artifacts().entries().iter().map(|entry| entry.id().kind()),
+            request
+                .artifacts()
+                .entries()
+                .iter()
+                .map(|entry| entry.id().kind()),
             [request.options().debug_information()],
             [AssemblySyntaxKind::TargetDefault],
         )
@@ -687,10 +652,7 @@ mod tests {
                 gate.enter_and_wait();
             }
 
-            CodegenOutcome::failed(
-                CodegenFailure::BackendLibrary,
-                DiagnosticBag::new(),
-            )
+            CodegenOutcome::failed(CodegenFailure::BackendLibrary, DiagnosticBag::new())
         }
     }
 

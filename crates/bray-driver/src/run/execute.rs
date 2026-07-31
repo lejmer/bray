@@ -10,22 +10,15 @@ use bray_diagnostics::{
     SeverityKind,
 };
 use bray_tooling::{
-    InspectionOutput, OutputFormat,
-    compilation_request_from_file_arguments, load_compilation,
-    exit_code_from_diagnostics,
-    render_bound_inspection, render_declaration_inspection,
-    render_lowered_inspection, render_mir_inspection,
-    render_source_inspection, render_symbol_inspection,
-    render_syntax_inspection, render_token_inspection,
+    InspectionOutput, OutputFormat, compilation_request_from_file_arguments,
+    exit_code_from_diagnostics, load_compilation, render_bound_inspection,
+    render_declaration_inspection, render_lowered_inspection, render_mir_inspection,
+    render_source_inspection, render_symbol_inspection, render_syntax_inspection,
+    render_token_inspection,
 };
 
-use crate::command::{
-    DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions,
-};
-use crate::run::{
-    run_build_command, write_driver_output,
-    write_driver_output_error,
-};
+use crate::command::{DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions};
+use crate::run::{run_build_command, write_driver_output, write_driver_output_error};
 
 /// Structured result from running the Bray compiler driver.
 #[derive(Debug)]
@@ -137,10 +130,11 @@ impl DriverRunResult {
 
 /// Runs the Bray compiler driver for the provided process arguments.
 pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
+    let result = run_result(arguments);
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
-    run_with_writers(arguments, &mut stdout, &mut stderr)
+    write_run_result(&result, &mut stdout, &mut stderr)
 }
 
 /// Runs the Bray compiler driver and returns its structured outcome.
@@ -172,12 +166,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             configuration,
             files,
         } => {
-            return run_build_command(
-                &options,
-                configuration,
-                files,
-                output_format,
-            );
+            return run_build_command(&options, configuration, files, output_format);
         }
         command => command,
     };
@@ -186,18 +175,15 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     let unit_inspection_target = command.unit_inspection_target();
     let interface_output = command.interface_output().map(Path::to_path_buf);
 
-    let request = match compilation_request(
-        &options,
-        command.into_files(),
-        interface_output.is_some(),
-    ) {
-        Ok(request) => request,
-        Err(diagnostics) => {
-            let exit_code = exit_code_from_diagnostics(&diagnostics);
+    let request =
+        match compilation_request(&options, command.into_files(), interface_output.is_some()) {
+            Ok(request) => request,
+            Err(diagnostics) => {
+                let exit_code = exit_code_from_diagnostics(&diagnostics);
 
-            return DriverRunResult::new(exit_code, diagnostics, output_format);
-        }
-    };
+                return DriverRunResult::new(exit_code, diagnostics, output_format);
+            }
+        };
 
     if command_kind == DriverCommandKind::Check {
         return run_check_command(request, interface_output, output_format);
@@ -265,9 +251,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         return run_fact_inspection_command(
             request,
             output_format,
-            |compilation, output_format| {
-                render_mir_inspection(compilation, target, output_format)
-            },
+            |compilation, output_format| render_mir_inspection(compilation, target, output_format),
         )
         .with_report_file(report_file);
     }
@@ -440,17 +424,13 @@ fn publish_package_interface(
         .and_then(|result| result.as_ref().ok())
         .ok_or_else(|| publication_diagnostic(diagnostic_id, destination, io::ErrorKind::Other))?;
 
-    let artifact = bray_package_interface::encode_package_interface(bundle)
-        .map_err(|_| {
-            publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
-        })?;
+    let artifact = bray_package_interface::encode_package_interface(bundle).map_err(|_| {
+        publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
+    })?;
 
-    let mut staging = StagedFile::create(
-        destination,
-        FileReplacementMode::ReplaceExisting,
-        None,
-    )
-    .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
+    let mut staging =
+        StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
+            .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
 
     staging
         .write_all(artifact.bytes())
@@ -462,28 +442,35 @@ fn publish_package_interface(
         .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))
 }
 
-fn publication_diagnostic(
-    id: DiagnosticId,
-    path: &Path,
-    kind: io::ErrorKind,
-) -> Diagnostic {
+fn publication_diagnostic(id: DiagnosticId, path: &Path, kind: io::ErrorKind) -> Diagnostic {
     Diagnostic::new(
         id,
         DiagnosticKind::EmissionArtifactWriteFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::file_path(path))
-    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(kind)))
+    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+        kind,
+    )))
 }
 
+#[cfg(test)]
 fn run_with_writers(
     arguments: impl IntoIterator<Item = OsString>,
-    stdout: &mut impl io::Write,
-    stderr: &mut impl io::Write,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
 ) -> ExitCode {
     let result = run_result(arguments);
 
-    match write_driver_output(&result, stdout, stderr) {
+    write_run_result(&result, stdout, stderr)
+}
+
+fn write_run_result(
+    result: &DriverRunResult,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> ExitCode {
+    match write_driver_output(result, stdout, stderr) {
         Ok(()) => result.exit_code(),
         Err(error) => {
             let _ = write_driver_output_error(error, result.output_format(), stdout, stderr);
@@ -1335,10 +1322,7 @@ mod tests {
 
         assert_eq!(output_json["kind"], "bound_inspection");
 
-        assert_eq!(
-            output_json["units"][0]["unit_kind"],
-            "callable_body"
-        );
+        assert_eq!(output_json["units"][0]["unit_kind"], "callable_body");
 
         assert_eq!(
             output_json["units"][0]["root"]["node_kind"],
@@ -1415,7 +1399,13 @@ mod tests {
         ]);
 
         assert_eq!(lowered.exit_code(), ExitCode::SUCCESS);
-        assert!(lowered.stdout().contains("\"kind\": \"lowered_inspection\""));
+
+        assert!(
+            lowered
+                .stdout()
+                .contains("\"kind\": \"lowered_inspection\"")
+        );
+
         assert!(lowered.stdout().contains("\"blocks\""));
 
         assert_eq!(mir.exit_code(), ExitCode::SUCCESS);
@@ -1494,7 +1484,10 @@ mod tests {
     #[test]
     fn inspection_report_file_failures_fail_without_publishing_stdout() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");
-        let report = unique_temporary_directory().join("missing").join("report.txt");
+
+        let report = unique_temporary_directory()
+            .join("missing")
+            .join("report.txt");
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -1515,8 +1508,7 @@ mod tests {
         assert_eq!(exit_code, ExitCode::FAILURE);
         assert!(stdout.is_empty());
 
-        assert!(String::from_utf8_lossy(&stderr)
-            .contains("could not write inspection report"));
+        assert!(String::from_utf8_lossy(&stderr).contains("could not write inspection report"));
 
         assert!(!report.exists());
     }
@@ -1524,7 +1516,10 @@ mod tests {
     #[test]
     fn inspection_report_file_failures_publish_structured_json_diagnostics() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");
-        let report = unique_temporary_directory().join("missing").join("report.json");
+
+        let report = unique_temporary_directory()
+            .join("missing")
+            .join("report.json");
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();

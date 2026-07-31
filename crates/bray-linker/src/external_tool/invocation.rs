@@ -125,20 +125,13 @@ fn canonical_environment(
     let mut environment: Vec<_> = environment.into_iter().collect();
 
     if environment.iter().any(|(name, _)| name.is_empty()) {
-        return Err(
-            ExternalToolInvocationBuildError::EmptyEnvironmentVariableName,
-        );
+        return Err(ExternalToolInvocationBuildError::EmptyEnvironmentVariableName);
     }
 
     environment.sort_unstable_by(|left, right| left.0.cmp(&right.0));
 
-    if environment
-        .windows(2)
-        .any(|pair| pair[0].0 == pair[1].0)
-    {
-        return Err(
-            ExternalToolInvocationBuildError::DuplicateEnvironmentVariableName,
-        );
+    if environment.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(ExternalToolInvocationBuildError::DuplicateEnvironmentVariableName);
     }
 
     Ok(environment.into())
@@ -228,8 +221,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        ExternalToolInvocation, ExternalToolInvocationBuildError,
-        ExternalToolResponseFile,
+        ExternalToolInvocation, ExternalToolInvocationBuildError, ExternalToolResponseFile,
     };
 
     #[test]
@@ -273,13 +265,7 @@ mod tests {
     #[test]
     fn invocations_reject_ambiguous_host_inputs() {
         assert_eq!(
-            ExternalToolInvocation::try_new(
-                "",
-                [],
-                [],
-                None,
-                [],
-            ),
+            ExternalToolInvocation::try_new("", [], [], None, [],),
             Err(ExternalToolInvocationBuildError::EmptyProgram)
         );
 
@@ -294,9 +280,7 @@ mod tests {
                 None,
                 [],
             ),
-            Err(
-                ExternalToolInvocationBuildError::DuplicateEnvironmentVariableName
-            )
+            Err(ExternalToolInvocationBuildError::DuplicateEnvironmentVariableName)
         );
 
         assert_eq!(
@@ -312,10 +296,7 @@ mod tests {
     }
 
     fn response_file(path: &str) -> ExternalToolResponseFile {
-        ExternalToolResponseFile::try_new(
-            path,
-            Arc::<[u8]>::from(&b"contents"[..]),
-        )
+        ExternalToolResponseFile::try_new(path, Arc::<[u8]>::from(&b"contents"[..]))
             .unwrap_or_else(|error| panic!("test response file should be valid: {error:?}"))
     }
 }

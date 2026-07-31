@@ -2,9 +2,7 @@ use std::fs::Permissions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use bray_base::{
-    CompletedStagedFile, FileReplacementMode, StagedFile,
-};
+use bray_base::{CompletedStagedFile, FileReplacementMode, StagedFile};
 
 use crate::{ArtifactKind, ReplacementPolicy};
 
@@ -63,9 +61,7 @@ impl CompletedFilesystemStaging {
     }
 }
 
-fn replacement_mode(
-    replacement: ReplacementPolicy,
-) -> FileReplacementMode {
+fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
     match replacement {
         ReplacementPolicy::RequireAbsent => FileReplacementMode::RequireAbsent,
         ReplacementPolicy::ReplaceExisting => FileReplacementMode::ReplaceExisting,

@@ -43,12 +43,11 @@ impl RuntimeContract {
         let role_bindings = canonical_role_bindings(role_bindings)
             .map_err(RuntimeContractBuildError::DuplicateRole)?;
 
-        if let Some(binding) = role_bindings.iter().find(|binding| {
-            binding.implementation() == RuntimeRoleImplementation::CompilerLowering
-        }) {
-            return Err(RuntimeContractBuildError::CompilerOwnedRole(
-                binding.role(),
-            ));
+        if let Some(binding) = role_bindings
+            .iter()
+            .find(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering)
+        {
+            return Err(RuntimeContractBuildError::CompilerOwnedRole(binding.role()));
         }
 
         let capabilities = sorted_unique_shared_slice(capabilities);
@@ -319,9 +318,7 @@ mod tests {
                     [],
                     [],
                 ),
-                RuntimeCompatibilityError::FrameAbi(
-                    crate::ProtectedFrameAbiOperation::Resume,
-                ),
+                RuntimeCompatibilityError::FrameAbi(crate::ProtectedFrameAbiOperation::Resume),
             ),
             (
                 requirements(

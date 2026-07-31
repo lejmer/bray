@@ -1,9 +1,9 @@
 use bray_codegen::{
-    CodegenInstanceBuildError, CodegenReachabilityBuildError,
-    CodegenTargetBuildError, CodegenUnitBuildError,
+    CodegenInstanceBuildError, CodegenReachabilityBuildError, CodegenTargetBuildError,
+    CodegenUnitBuildError,
 };
 use bray_emitter::EmissionBackendBuildError;
-use bray_linker::{LinkInputBuildError, LinkTargetBuildError};
+use bray_linker::LinkTargetBuildError;
 use bray_runtime_interface::ExecutableHostContractBuildError;
 use bray_symbols::ProductKind;
 
@@ -46,8 +46,6 @@ pub enum NativeProductFactError {
     InvalidEmissionBackend(EmissionBackendBuildError),
     /// The selected linker target is invalid.
     InvalidLinkTarget(LinkTargetBuildError),
-    /// A native link input is invalid.
-    InvalidLinkInput(LinkInputBuildError),
     /// No configured linker driver supports the selected product.
     Linker(bray_linker::LinkFailure),
     /// One code generation fact is unavailable.
@@ -63,9 +61,7 @@ impl NativeProductFactError {
                 | Self::UnsupportedProductKind(_)
                 | Self::MissingProtectedRootFrame
                 | Self::MissingRuntime
-                | Self::Codegen(
-                    super::super::super::CodegenFactError::UnsupportedType(_)
-                )
+                | Self::Codegen(super::super::super::CodegenFactError::UnsupportedType(_))
         )
     }
 }

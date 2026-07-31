@@ -5,16 +5,11 @@ use std::process::ExitCode;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };
-use bray_tooling::{
-    OutputFormat, clap_styles, exit_code_from_diagnostics,
-    render_styled_text,
-};
+use bray_tooling::{OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text};
 use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::tack::model::{
-    TackCommand, TackInspection, TackInvocation, TackSelection,
-};
+use crate::tack::model::{TackCommand, TackInspection, TackInvocation, TackSelection};
 
 /// Error returned when parsing Bray Tack command-line arguments.
 #[derive(Debug)]
@@ -341,21 +336,22 @@ mod tests {
             (vec!["test"], TackCommandKind::Test),
             (vec!["fmt"], TackCommandKind::Format),
             (vec!["inspect", "project"], TackCommandKind::Inspect),
+            (vec!["language-server"], TackCommandKind::LanguageServer),
             (
-                vec!["language-server"],
-                TackCommandKind::LanguageServer,
-            ),
-            (
-                vec!["vendor", "install", "math", "https://example.invalid/math.git"],
+                vec![
+                    "vendor",
+                    "install",
+                    "math",
+                    "https://example.invalid/math.git",
+                ],
                 TackCommandKind::VendorInstall,
             ),
         ];
 
         for (arguments, expected) in cases {
-            let invocation = TackInvocation::try_from_arguments(
-                std::iter::once("bray").chain(arguments),
-            )
-            .unwrap_or_else(|error| panic!("command should parse: {error:?}"));
+            let invocation =
+                TackInvocation::try_from_arguments(std::iter::once("bray").chain(arguments))
+                    .unwrap_or_else(|error| panic!("command should parse: {error:?}"));
 
             assert_eq!(invocation.command_kind(), expected);
         }

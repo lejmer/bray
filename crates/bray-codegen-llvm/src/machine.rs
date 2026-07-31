@@ -25,9 +25,7 @@ pub(crate) struct LlvmTargetMachine {
 }
 
 impl LlvmTargetMachine {
-    pub(crate) fn create(
-        target: &CodegenTarget,
-    ) -> Result<Self, CodegenFailure> {
+    pub(crate) fn create(target: &CodegenTarget) -> Result<Self, CodegenFailure> {
         Self::create_for_codegen(target, BrayOptimizationLevel::None)
     }
 

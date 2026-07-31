@@ -115,7 +115,11 @@ fn collect_directory(
 
         if metadata.is_dir() {
             collect_directory(&entry_path, &relative_path, manifest_path, sources)?;
-        } else if metadata.is_file() && entry_path.extension().is_some_and(|extension| extension == "bray") {
+        } else if metadata.is_file()
+            && entry_path
+                .extension()
+                .is_some_and(|extension| extension == "bray")
+        {
             sources.push(relative_path);
         } else if !metadata.is_file() {
             return Err(invalid_source_root(

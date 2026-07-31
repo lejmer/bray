@@ -148,9 +148,7 @@ impl FactScheduler {
                     let _active = ActiveSchedulerGuard::enter(self.identity(), priority)
                         .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
 
-                    ((lane + 1)..len)
-                        .step_by(lane_count)
-                        .for_each(evaluate);
+                    ((lane + 1)..len).step_by(lane_count).for_each(evaluate);
                 });
             }
 

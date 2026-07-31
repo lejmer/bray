@@ -8,8 +8,8 @@ use bray_formatter::FormatMode;
 use bray_tooling::{
     OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text, write_diagnostics,
 };
-use clap::error::ErrorKind;
 use clap::Parser;
+use clap::error::ErrorKind;
 
 use crate::diagnostic::{format_files, format_standard_input};
 

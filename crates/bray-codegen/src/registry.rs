@@ -193,9 +193,7 @@ mod tests {
 
     use bray_diagnostics::DiagnosticBag;
 
-    use super::{
-        CodeGeneratorRegistry, CodeGeneratorRegistryBuildError, CodegenConfiguration,
-    };
+    use super::{CodeGeneratorRegistry, CodeGeneratorRegistryBuildError, CodegenConfiguration};
     use crate::{
         BackendCapabilities, BackendIdentity, CodeGenerator, CodegenFailure, CodegenOutcome,
         CodegenRequest, CodegenStatus,
@@ -206,10 +204,9 @@ mod tests {
         let generator = Arc::new(TestCodeGenerator::new("one"));
         let identity = generator.identity().clone();
 
-        let registry = CodeGeneratorRegistry::try_new([
-            Arc::clone(&generator) as Arc<dyn CodeGenerator>
-        ])
-        .unwrap_or_else(|error| panic!("unique backend must register: {error:?}"));
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&generator) as Arc<dyn CodeGenerator>])
+                .unwrap_or_else(|error| panic!("unique backend must register: {error:?}"));
 
         assert!(registry.contains(&identity));
         assert_eq!(registry.identities().collect::<Vec<_>>(), [&identity]);
@@ -240,10 +237,9 @@ mod tests {
         let fixture =
             crate::test_support::codegen_request_for_backend(generator.identity().clone());
 
-        let registry = CodeGeneratorRegistry::try_new([
-            Arc::clone(&generator) as Arc<dyn CodeGenerator>
-        ])
-        .unwrap_or_else(|error| panic!("unique backend must register: {error:?}"));
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&generator) as Arc<dyn CodeGenerator>])
+                .unwrap_or_else(|error| panic!("unique backend must register: {error:?}"));
 
         let outcome = registry
             .generate(fixture.request())
@@ -269,9 +265,8 @@ mod tests {
         ])
         .unwrap_or_else(|error| panic!("unique backends must register: {error:?}"));
 
-        let configuration =
-            CodegenConfiguration::try_new(registry, selected.identity().clone())
-                .unwrap_or_else(|error| panic!("available backend must select: {error:?}"));
+        let configuration = CodegenConfiguration::try_new(registry, selected.identity().clone())
+            .unwrap_or_else(|error| panic!("available backend must select: {error:?}"));
 
         assert!(matches!(
             configuration.generate(fixture.request()),
@@ -308,18 +303,13 @@ mod tests {
             &self.capabilities
         }
 
-        fn validate_target(
-            &self,
-            _target: &crate::CodegenTarget,
-        ) -> Result<(), CodegenFailure> {
+        fn validate_target(&self, _target: &crate::CodegenTarget) -> Result<(), CodegenFailure> {
             Ok(())
         }
 
         fn generate(&self, _request: CodegenRequest<'_>) -> CodegenOutcome {
-            let outcome = CodegenOutcome::failed(
-                CodegenFailure::InvalidConfiguration,
-                DiagnosticBag::new(),
-            );
+            let outcome =
+                CodegenOutcome::failed(CodegenFailure::InvalidConfiguration, DiagnosticBag::new());
 
             assert!(matches!(
                 outcome.status(),

@@ -11,8 +11,8 @@ use bray_bound_tree::{
 use bray_declarations::{DeclarationId, DeclarationRecord, DeclarationTable, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::{SourceId, TextRange, TextSize};
-use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
 use bray_symbols::{AnySymbolId, SymbolKind, SymbolOrigin};
+use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
 
 use super::facts::Compilation;
 use crate::fact::{CancellationToken, FactQueryError, QueryPriority};
@@ -331,7 +331,11 @@ impl Compilation {
             keys.sort_by_key(|key| {
                 let source = key.source().syntax();
 
-                (source.full_range().start(), source.full_range().end(), key.kind())
+                (
+                    source.full_range().start(),
+                    source.full_range().end(),
+                    key.kind(),
+                )
             });
 
             let mut pending = keys.into_iter().rev().collect::<Vec<_>>();
@@ -445,22 +449,20 @@ impl Compilation {
         priority: QueryPriority,
     ) -> Result<Vec<CompletionCandidate>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
-            let declaration = match self.declaration_at(
-                source_id,
-                position,
-                cancellation,
-                priority,
-            )? {
-                SemanticAvailability::Available(declaration)
-                | SemanticAvailability::Recovered(Some(declaration)) => Some(declaration),
-                SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => None,
-            };
+            let declaration =
+                match self.declaration_at(source_id, position, cancellation, priority)? {
+                    SemanticAvailability::Available(declaration)
+                    | SemanticAvailability::Recovered(Some(declaration)) => Some(declaration),
+                    SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => {
+                        None
+                    }
+                };
 
             let graph = self.symbol_graph()?;
             let mut owners = Vec::new();
 
-            if let Some(symbol) = declaration
-                .and_then(|declaration| graph.symbol_for_declaration(declaration))
+            if let Some(symbol) =
+                declaration.and_then(|declaration| graph.symbol_for_declaration(declaration))
             {
                 let mut current = Some(symbol);
 
@@ -523,26 +525,19 @@ impl Compilation {
                 return Ok(SemanticAvailability::Unavailable);
             };
 
-            let Some((_, bound)) =
-                self.bound_unit_for_syntax(syntax, cancellation)?
-            else {
+            let Some((_, bound)) = self.bound_unit_for_syntax(syntax, cancellation)? else {
                 return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
             };
 
-            let selections = self.semantic_selections_with_cancellation(
-                bound.value().key().clone(),
-                cancellation,
-            )?;
+            let selections = self
+                .semantic_selections_with_cancellation(bound.value().key().clone(), cancellation)?;
 
             let selected = bound
                 .value()
                 .tree()
                 .expressions()
                 .filter(|(_, expression)| {
-                    syntax_contains(
-                        expression.origin().source_anchor().syntax(),
-                        syntax,
-                    )
+                    syntax_contains(expression.origin().source_anchor().syntax(), syntax)
                 })
                 .filter_map(|(expression, node)| {
                     let SemanticSelection::Call(call) =
@@ -560,8 +555,7 @@ impl Compilation {
                 })
                 .min_by(|left, right| compare_syntax_ranges(left.2, right.2));
 
-            let Some((_, expression, _, call)) = selected
-            else {
+            let Some((_, expression, _, call)) = selected else {
                 return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
             };
 
@@ -586,14 +580,7 @@ impl Compilation {
                 if let Some(index) =
                     self.source_reference_index(source.source_id(), cancellation, priority)?
                 {
-                    references.extend(
-                        index
-                            .references
-                            .get(&target)
-                            .into_iter()
-                            .flatten()
-                            .copied(),
-                    );
+                    references.extend(index.references.get(&target).into_iter().flatten().copied());
                 }
             }
 
@@ -673,11 +660,7 @@ impl Compilation {
             );
         }
 
-        for bound in self.bound_units_for_source(
-            source_id,
-            cancellation,
-            priority,
-        )? {
+        for bound in self.bound_units_for_source(source_id, cancellation, priority)? {
             cancellation.check()?;
 
             let unit = bound.value();
@@ -729,12 +712,7 @@ impl Compilation {
                 .any(|(_, expression)| matches!(expression, BoundExpression::PatternReference(_)));
 
             let selections = if has_pattern_references {
-                Some(
-                    self.semantic_selections_with_cancellation(
-                        unit.key().clone(),
-                        cancellation,
-                    )?,
-                )
+                Some(self.semantic_selections_with_cancellation(unit.key().clone(), cancellation)?)
             } else {
                 None
             };
@@ -757,11 +735,7 @@ impl Compilation {
                 };
 
                 if let Some(target) = target {
-                    push_reference(
-                        &mut references,
-                        target,
-                        expression.origin().source_anchor(),
-                    );
+                    push_reference(&mut references, target, expression.origin().source_anchor());
                 }
             }
         }
@@ -1115,9 +1089,7 @@ mod tests {
         FactEvaluationLog, FactTestGate, compilation, compilation_with_options,
         compilation_with_sources_and_worker_budget,
     };
-    use crate::{
-        CompilationOptions, SemanticAnalysisLimits, SelectedTarget, WorkerBudget,
-    };
+    use crate::{CompilationOptions, SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
 
     const SOURCE: &str = concat!(
         "module app;\n",
@@ -1137,10 +1109,8 @@ mod tests {
         let first = concat!("module app;\n", "func first()\n", "{\n", "}\n");
         let second = concat!("module app;\n", "func second()\n", "{\n", "}\n");
 
-        let compilation = compilation_with_sources_and_worker_budget(
-            &[first, second],
-            WorkerBudget::serial(),
-        );
+        let compilation =
+            compilation_with_sources_and_worker_budget(&[first, second], WorkerBudget::serial());
 
         let units = compilation
             .bound_units_for_source(
@@ -1152,17 +1122,19 @@ mod tests {
 
         assert_eq!(units.len(), 1);
 
-        assert!(units.iter().all(|unit| {
-            unit.value().key().source().syntax().source_id() == SourceId::new(0)
-        }));
+        assert!(
+            units.iter().all(|unit| {
+                unit.value().key().source().syntax().source_id() == SourceId::new(0)
+            })
+        );
 
         let keys = compilation
             .declared_unit_keys()
             .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"));
 
-        let second_source_keys = keys.iter().filter(|key| {
-            key.source().syntax().source_id() == SourceId::new(1)
-        });
+        let second_source_keys = keys
+            .iter()
+            .filter(|key| key.source().syntax().source_id() == SourceId::new(1));
 
         assert!(second_source_keys.into_iter().all(|key| {
             compilation
@@ -1368,15 +1340,19 @@ mod tests {
 
         assert!(evaluated.contains(&crate::fact::CompilationFactKey::BoundUnit(main.clone())));
 
-        assert!(!evaluated.contains(&crate::fact::CompilationFactKey::BoundUnit(
-            identity.clone()
-        )));
+        assert!(
+            !evaluated.contains(&crate::fact::CompilationFactKey::BoundUnit(
+                identity.clone()
+            ))
+        );
 
         assert!(!evaluated.contains(&crate::fact::CompilationFactKey::CheckDiagnostics));
 
-        assert!(!evaluated.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
-            main.clone()
-        )));
+        assert!(
+            !evaluated.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
+                main.clone()
+            ))
+        );
     }
 
     #[test]
@@ -1542,10 +1518,7 @@ mod tests {
         );
 
         let serial_diagnostics = serial
-            .diagnostics_for_package(
-                &CancellationToken::new(),
-                QueryPriority::Interactive,
-            )
+            .diagnostics_for_package(&CancellationToken::new(), QueryPriority::Interactive)
             .unwrap_or_else(|error| panic!("serial limited query must complete: {error:?}"));
 
         let parallel_budget = WorkerBudget::new(2)
@@ -1575,19 +1548,15 @@ mod tests {
             let interactive_cancellation = CancellationToken::new();
 
             let background = scope.spawn(move || {
-                parallel.diagnostics_for_package(
-                    &background_cancellation,
-                    QueryPriority::Background,
-                )
+                parallel
+                    .diagnostics_for_package(&background_cancellation, QueryPriority::Background)
             });
 
             gate.wait_until_observed(FactCellTestEvent::Computing, 1);
 
             let interactive = scope.spawn(move || {
-                parallel.diagnostics_for_package(
-                    &interactive_cancellation,
-                    QueryPriority::Interactive,
-                )
+                parallel
+                    .diagnostics_for_package(&interactive_cancellation, QueryPriority::Interactive)
             });
 
             gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
@@ -1604,20 +1573,12 @@ mod tests {
         assert_eq!(parallel_diagnostics[0], serial_diagnostics);
         assert_eq!(parallel_diagnostics[1], serial_diagnostics);
 
-        assert!(
-            serial_diagnostics
-                .iter()
-                .any(|diagnostic| {
-                    diagnostic.kind()
-                        == DiagnosticKind::CheckingCallableOverloadLimitExceeded
-                })
-        );
+        assert!(serial_diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingCallableOverloadLimitExceeded
+        }));
 
         let repeated = parallel
-            .diagnostics_for_package(
-                &CancellationToken::new(),
-                QueryPriority::Normal,
-            )
+            .diagnostics_for_package(&CancellationToken::new(), QueryPriority::Normal)
             .unwrap_or_else(|error| panic!("repeated limited query must complete: {error:?}"));
 
         assert_eq!(repeated, serial_diagnostics);

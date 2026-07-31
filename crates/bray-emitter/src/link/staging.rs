@@ -42,9 +42,7 @@ impl LinkStaging {
             }
 
             let Some(contribution) = contributions.get(planned.id()) else {
-                return Err(LinkStagingError::MissingContribution(
-                    planned.id().clone(),
-                ));
+                return Err(LinkStagingError::MissingContribution(planned.id().clone()));
             };
 
             validate_contribution(planned, contribution)?;
@@ -59,12 +57,10 @@ impl LinkStaging {
             inputs.push(staged);
         }
 
-        if let Some((artifact, _)) = contributions
-            .into_iter()
-            .find(|(artifact, _)| plan.artifact(artifact).is_none_or(|planned| {
-                planned.destination() != &PlannedArtifactDestination::Stage
-            }))
-        {
+        if let Some((artifact, _)) = contributions.into_iter().find(|(artifact, _)| {
+            plan.artifact(artifact)
+                .is_none_or(|planned| planned.destination() != &PlannedArtifactDestination::Stage)
+        }) {
             return Err(LinkStagingError::UnexpectedContribution(artifact));
         }
 
@@ -86,9 +82,7 @@ impl LinkStaging {
                 .ok_or_else(|| LinkStagingError::UnsupportedOutput(planned.id().clone()))?;
 
             let Some(path_key) = StagingPathKey::try_new(staging_key(planned.id())) else {
-                return Err(LinkStagingError::InvalidStagingPath(
-                    planned.id().clone(),
-                ));
+                return Err(LinkStagingError::InvalidStagingPath(planned.id().clone()));
             };
 
             // The typed output record outlives this borrow from the immutable plan.
@@ -184,9 +178,7 @@ fn validate_contribution(
     contribution: &ArtifactContribution,
 ) -> Result<(), LinkStagingError> {
     if contribution.producer() != planned.producer() {
-        return Err(LinkStagingError::InvalidContribution(
-            planned.id().clone(),
-        ));
+        return Err(LinkStagingError::InvalidContribution(planned.id().clone()));
     }
 
     Ok(())
@@ -276,13 +268,11 @@ fn reserve_output(
 
             builder.tempdir_in(directory)
         }
-        PlannedArtifactDestination::Publish(
-            OutputSink::Memory { .. } | OutputSink::Stream(_),
-        ) => builder.tempdir(),
+        PlannedArtifactDestination::Publish(OutputSink::Memory { .. } | OutputSink::Stream(_)) => {
+            builder.tempdir()
+        }
         PlannedArtifactDestination::Stage => {
-            return Err(LinkStagingError::UnsupportedOutput(
-                planned.id().clone(),
-            ));
+            return Err(LinkStagingError::UnsupportedOutput(planned.id().clone()));
         }
     }
     .map_err(|error| LinkStagingError::Create(error.kind()))?;
@@ -293,14 +283,14 @@ fn reserve_output(
             .filter(|name| !name.is_empty())
             .map(ToOwned::to_owned)
             .ok_or_else(|| LinkStagingError::InvalidStagingPath(planned.id().clone()))?,
-        PlannedArtifactDestination::Publish(
-            OutputSink::Memory { .. } | OutputSink::Stream(_),
-        ) => format!(
-            "{}-{}",
-            planned.id().kind().machine_key(),
-            planned.id().ordinal()
-        )
-        .into(),
+        PlannedArtifactDestination::Publish(OutputSink::Memory { .. } | OutputSink::Stream(_)) => {
+            format!(
+                "{}-{}",
+                planned.id().kind().machine_key(),
+                planned.id().ordinal()
+            )
+            .into()
+        }
         PlannedArtifactDestination::Stage => unreachable!("staged outputs were rejected above"),
     };
 
@@ -441,20 +431,19 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_codegen::{
-        ArtifactContent, AssemblySyntaxKind, BackendSerializationOptions,
-        DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
+        ArtifactContent, AssemblySyntaxKind, BackendSerializationOptions, DebugInformationMode,
+        DebugInformationOutputMode, LinkableArtifactKind,
     };
 
     use super::LinkStaging;
     use crate::test_support::{
-        backend_capabilities, backend_identity, codegen_unit_key,
-        executable_host_contract, product_identity, target_identity,
-        target_output_description,
+        backend_capabilities, backend_identity, codegen_unit_key, executable_host_contract,
+        product_identity, target_identity, target_output_description,
     };
     use crate::{
         ArtifactContribution, ArtifactKind, ArtifactRequirement, BackendEmissionPolicy,
-        EmissionBackend, EmissionPlanner, EmissionRequest, ReplacementPolicy,
-        RequestedArtifact, RequestedArtifactDestination,
+        EmissionBackend, EmissionPlanner, EmissionRequest, ReplacementPolicy, RequestedArtifact,
+        RequestedArtifactDestination,
     };
 
     #[test]
@@ -496,7 +485,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("second link staging must complete: {error:?}"));
 
         assert_ne!(first.outputs()[0].path(), second.outputs()[0].path());
-        assert_eq!(first.outputs()[0].path_key(), second.outputs()[0].path_key());
+
+        assert_eq!(
+            first.outputs()[0].path_key(),
+            second.outputs()[0].path_key()
+        );
+
         assert_eq!(first.outputs()[0].path_key(), &output_key);
 
         drop(first);
@@ -584,10 +578,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test emission plan must be valid: {error:?}"))
     }
 
-    fn staged_contribution(
-        plan: &crate::EmissionPlan,
-        bytes: &[u8],
-    ) -> ArtifactContribution {
+    fn staged_contribution(plan: &crate::EmissionPlan, bytes: &[u8]) -> ArtifactContribution {
         let planned = plan
             .staged_artifacts()
             .next()

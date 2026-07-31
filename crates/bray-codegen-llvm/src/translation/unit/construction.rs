@@ -39,12 +39,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 for (index, operand) in aggregate.operands().iter().enumerate() {
                     let operand = self.operand(operand)?;
 
-                    let element =
-                        super::support::aggregate_value_element(
-                            self.request.mappings(),
-                            fields,
-                            index,
-                        )?;
+                    let element = super::support::aggregate_value_element(
+                        self.request.mappings(),
+                        fields,
+                        index,
+                    )?;
 
                     value = insert_value(&self.builder, value, operand, element)?;
                 }
@@ -178,11 +177,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 value,
                 *input_value,
-                usize::try_from(aggregate_element(
-                    self.request.mappings(),
-                    &fields,
-                    index,
-                )?)
+                usize::try_from(aggregate_element(self.request.mappings(), &fields, index)?)
                     .map_err(|_| CodegenFailure::ResourceExhausted)?,
             )?;
         }

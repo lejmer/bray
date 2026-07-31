@@ -1,6 +1,7 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_value_element, insert_value, integer_constant, llvm, real_width, real_words,
+    aggregate_value_element, insert_value, integer_constant, llvm, pointer_field_index, real_width,
+    real_words,
 };
 use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{MirImmediateValue, MirOperand};
@@ -268,9 +269,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let child = self.constant(child)?;
 
             let element = match &fields {
-                Some(fields) => {
-                    aggregate_value_element(self.request.mappings(), fields, index)?
-                }
+                Some(fields) => aggregate_value_element(self.request.mappings(), fields, index)?,
                 None => index,
             };
 
@@ -310,17 +309,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => {
                 let mut value = self.types.map(ty)?.const_zero();
 
-                let pointer_index = fields
-                    .iter()
-                    .position(|field| {
-                        self.request
-                            .mappings()
-                            .ty(field.ty())
-                            .is_some_and(|mapping| {
-                                matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
-                            })
-                    })
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let pointer_index = pointer_field_index(self.request.mappings(), fields)?;
 
                 let length_index = 1_usize
                     .checked_sub(pointer_index)
@@ -336,11 +325,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     &self.builder,
                     value,
                     pointer,
-                    aggregate_value_element(
-                        self.request.mappings(),
-                        fields,
-                        pointer_index,
-                    )?,
+                    aggregate_value_element(self.request.mappings(), fields, pointer_index)?,
                 )?;
 
                 insert_value(
@@ -353,11 +338,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             false,
                         )
                         .into(),
-                    aggregate_value_element(
-                        self.request.mappings(),
-                        fields,
-                        length_index,
-                    )?,
+                    aggregate_value_element(self.request.mappings(), fields, length_index)?,
                 )
             }
             CodegenTypeKind::Unit

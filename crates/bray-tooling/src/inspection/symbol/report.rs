@@ -11,8 +11,8 @@ use serde::Serialize;
 use crate::OutputFormat;
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
-    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError,
-    push_text_diagnostic,
+    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError, push_report_value,
+    push_text_diagnostic, render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 
@@ -74,7 +74,9 @@ pub(crate) fn render_symbol_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => render_json_report(&report)?,
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| SymbolInspectionRenderError::Json)?
+        }
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -638,18 +640,10 @@ fn push_declaration_origins(
 fn render_text_report(report: &SymbolInspectionReport) -> String {
     let mut output = String::new();
 
-    output.push_str("kind: ");
-    output.push_str(report.kind);
-    output.push('\n');
-    output.push_str("symbol_count: ");
-    output.push_str(&report.symbol_count.to_string());
-    output.push('\n');
-    output.push_str("root_count: ");
-    output.push_str(&report.root_count.to_string());
-    output.push('\n');
-    output.push_str("has_errors: ");
-    output.push_str(&report.has_errors.to_string());
-    output.push('\n');
+    push_report_value(&mut output, "kind", report.kind);
+    push_report_value(&mut output, "symbol_count", report.symbol_count);
+    push_report_value(&mut output, "root_count", report.root_count);
+    push_report_value(&mut output, "has_errors", report.has_errors);
     output.push_str("tree:\n");
 
     let mut writer = TreeWriter::new("  ");
@@ -671,17 +665,6 @@ fn render_text_report(report: &SymbolInspectionReport) -> String {
     }
 
     output
-}
-
-fn render_json_report(
-    report: &SymbolInspectionReport,
-) -> Result<String, SymbolInspectionRenderError> {
-    let mut output =
-        serde_json::to_string_pretty(report).map_err(|_| SymbolInspectionRenderError::Json)?;
-
-    output.push('\n');
-
-    Ok(output)
 }
 
 #[cfg(test)]

@@ -14,8 +14,8 @@ use bray_symbols::{
     AnySymbolId, CallableAbi, CallableConstness, CallableDependencyContracts,
     CallableSignatureFact, CallableSignatureTemplate, CallableTrust, CallableTypeData,
     ConstantDeclaredTypeFact, ConstantSymbolId, DependencyContractTemplateData,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageIdentity, SemanticValueStore,
-    SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageIdentity,
+    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;

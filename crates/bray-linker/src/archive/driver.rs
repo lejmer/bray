@@ -11,9 +11,8 @@ use crate::external_tool::is_explicit_program_path;
 use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
-    ExternalToolHost, ExternalToolInvocation,
-    ExternalToolInvocationBuildError, LinkFailure, LinkOutcome, LinkPlan,
-    LinkedProductKind, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+    ExternalToolHost, ExternalToolInvocation, ExternalToolInvocationBuildError, LinkFailure,
+    LinkOutcome, LinkPlan, LinkedProductKind, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
 };
 
 /// Linker-domain driver for deterministic LLVM static-library archives.
@@ -33,27 +32,18 @@ impl LlvmArchiveDriver {
         host: Arc<dyn ExternalToolHost>,
     ) -> Result<Self, LlvmArchiveDriverBuildError> {
         if identity.kind() != LinkerDriverKind::Archiver {
-            return Err(
-                LlvmArchiveDriverBuildError::DriverKindMismatch,
-            );
+            return Err(LlvmArchiveDriverBuildError::DriverKindMismatch);
         }
 
         let program = program.into();
 
         if !is_explicit_program_path(&program) {
-            return Err(
-                LlvmArchiveDriverBuildError::ProgramPathNotExplicit,
-            );
+            return Err(LlvmArchiveDriverBuildError::ProgramPathNotExplicit);
         }
 
-        let invocation_template = ExternalToolInvocation::try_new(
-            program,
-            [],
-            environment,
-            current_directory,
-            [],
-        )
-        .map_err(LlvmArchiveDriverBuildError::Invocation)?;
+        let invocation_template =
+            ExternalToolInvocation::try_new(program, [], environment, current_directory, [])
+                .map_err(LlvmArchiveDriverBuildError::Invocation)?;
 
         Ok(Self {
             identity,
@@ -68,27 +58,16 @@ impl LinkerDriver for LlvmArchiveDriver {
         &self.identity
     }
 
-    fn supports(
-        &self,
-        target: &crate::LinkTarget,
-        product: LinkedProductKind,
-    ) -> bool {
-        product == LinkedProductKind::StaticLibrary
-            && ArchiveFormat::for_target(target).is_some()
+    fn supports(&self, target: &crate::LinkTarget, product: LinkedProductKind) -> bool {
+        product == LinkedProductKind::StaticLibrary && ArchiveFormat::for_target(target).is_some()
     }
 
-    fn link(
-        &self,
-        plan: &LinkPlan,
-        cancellation: &dyn Cancellation,
-    ) -> LinkOutcome {
+    fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome {
         if cancellation.is_cancelled() {
             return LinkOutcome::cancelled(DiagnosticBag::new());
         }
 
-        if plan.driver() != &self.identity
-            || !self.supports(plan.target(), plan.product_kind())
-        {
+        if plan.driver() != &self.identity || !self.supports(plan.target(), plan.product_kind()) {
             return failed_outcome(LinkFailure::DriverIncompatible);
         }
 
@@ -100,13 +79,12 @@ impl LinkerDriver for LlvmArchiveDriver {
             return failed_outcome(LinkFailure::DriverIncompatible);
         };
 
-        let invocation =
-            match invocation(&self.invocation_template, plan, format) {
-                Ok(invocation) => invocation,
-                Err(error) => {
-                    return outcome_from_invocation_error(error);
-                }
-            };
+        let invocation = match invocation(&self.invocation_template, plan, format) {
+            Ok(invocation) => invocation,
+            Err(error) => {
+                return outcome_from_invocation_error(error);
+            }
+        };
 
         if let Err(failure) = clear_staging_output(plan) {
             return failed_outcome(failure);
@@ -154,20 +132,14 @@ fn clear_staging_output(plan: &LinkPlan) -> Result<(), LinkFailure> {
     }
 }
 
-fn outcome_from_invocation_error(
-    error: ArchiveInvocationBuildError,
-) -> LinkOutcome {
+fn outcome_from_invocation_error(error: ArchiveInvocationBuildError) -> LinkOutcome {
     match error {
         ArchiveInvocationBuildError::InvalidPlan
         | ArchiveInvocationBuildError::ResponseEncoding(_) => {
             failed_outcome(LinkFailure::DriverIncompatible)
         }
-        ArchiveInvocationBuildError::Invocation(_) => {
-            failed_outcome(LinkFailure::Invocation)
-        }
-        ArchiveInvocationBuildError::ResponseFile(_) => {
-            failed_outcome(LinkFailure::ResponseFile)
-        }
+        ArchiveInvocationBuildError::Invocation(_) => failed_outcome(LinkFailure::Invocation),
+        ArchiveInvocationBuildError::ResponseFile(_) => failed_outcome(LinkFailure::ResponseFile),
     }
 }
 
@@ -178,28 +150,20 @@ mod tests {
     use std::sync::Arc;
 
     use bray_base::Cancellation;
-    use bray_target::{
-        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture,
-        TargetIdentity,
-    };
+    use bray_target::{ObjectFormat, TargetArchitecture};
     use bray_testing::TemporaryFile;
 
-    use super::{
-        LlvmArchiveDriver, LlvmArchiveDriverBuildError,
-    };
+    use super::{LlvmArchiveDriver, LlvmArchiveDriverBuildError};
     use crate::test_support::{
-        RecordingExternalToolHost, TestOutput, planned_output, product,
+        RecordingExternalToolHost, TestOutput, archive_target as target, planned_output, product,
     };
     use crate::{
-        BinarySymbolName, DeadStripPolicy, DebugLinkPolicy,
-        ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
-        ExternalToolOutput, LinkFailure, LinkInput, LinkInputId,
-        LinkInputKind, LinkInputMode, LinkInputProvenance,
-        LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy,
-        LinkSearchPath, LinkSearchPathKind, LinkStatus, LinkSubsystem,
-        LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement,
-        LinkedProductKind, LinkerDriver, LinkerDriverIdentity,
-        LinkerDriverKind, SectionGarbageCollectionPolicy,
+        BinarySymbolName, DeadStripPolicy, DebugLinkPolicy, ExternalToolFailure, ExternalToolHost,
+        ExternalToolInvocation, ExternalToolOutput, LinkFailure, LinkInput, LinkInputId,
+        LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource, LinkPlan,
+        LinkPlanBuilder, LinkPolicy, LinkSearchPath, LinkSearchPathKind, LinkStatus, LinkSubsystem,
+        LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind, LinkerDriver,
+        LinkerDriverIdentity, LinkerDriverKind, SectionGarbageCollectionPolicy,
     };
 
     #[test]
@@ -223,9 +187,7 @@ mod tests {
                 None,
                 Arc::new(RecordingExternalToolHost::default()),
             ),
-            Err(
-                LlvmArchiveDriverBuildError::ProgramPathNotExplicit
-            )
+            Err(LlvmArchiveDriverBuildError::ProgramPathNotExplicit)
         ));
     }
 
@@ -235,18 +197,13 @@ mod tests {
         let second = TemporaryFile::write("second.o", b"second");
         let output = TestOutput::new("library.stage");
 
-        let host = Arc::new(RecordingExternalToolHost::writing(
-            output.path(),
-        ));
+        let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
 
         let identity = driver_identity(LinkerDriverKind::Archiver);
 
         let plan = archive_plan(
             &identity,
-            target(
-                TargetArchitecture::X86_64,
-                ObjectFormat::Elf,
-            ),
+            target(TargetArchitecture::X86_64, ObjectFormat::Elf),
             [
                 (second.path(), LinkInputKind::RelocatableObject),
                 (first.path(), LinkInputKind::RelocatableObject),
@@ -254,10 +211,7 @@ mod tests {
             output.path(),
         );
 
-        let driver = driver(
-            identity,
-            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
-        );
+        let driver = driver(identity, Arc::clone(&host) as Arc<dyn ExternalToolHost>);
 
         assert!(matches!(
             driver.link(&plan, &|| false).status(),
@@ -276,10 +230,7 @@ mod tests {
 
         let invocation = &invocations[0];
 
-        assert_eq!(
-            invocation.program(),
-            Path::new("toolchain/llvm-ar")
-        );
+        assert_eq!(invocation.program(), Path::new("toolchain/llvm-ar"));
 
         assert_eq!(
             invocation.arguments(),
@@ -288,10 +239,7 @@ mod tests {
                 OsString::from("--format=gnu"),
                 OsString::from("qcsD"),
                 output.path().as_os_str().to_os_string(),
-                OsString::from(format!(
-                    "@{}.bray-archive.rsp",
-                    output.path().display()
-                )),
+                OsString::from(format!("@{}.bray-archive.rsp", output.path().display())),
             ]
         );
 
@@ -310,10 +258,7 @@ mod tests {
 
         assert_eq!(
             invocation.response_files()[0].contents(),
-            format!(
-                "\"{escaped_second}\"\n\"{escaped_first}\"\n"
-            )
-            .as_bytes()
+            format!("\"{escaped_second}\"\n\"{escaped_first}\"\n").as_bytes()
         );
     }
 
@@ -346,9 +291,7 @@ mod tests {
             let input = TemporaryFile::write("input.o", b"object");
             let output = TestOutput::new("library.stage");
 
-            let host = Arc::new(RecordingExternalToolHost::writing(
-                output.path(),
-            ));
+            let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
 
             let identity = driver_identity(LinkerDriverKind::Archiver);
 
@@ -359,10 +302,7 @@ mod tests {
                 output.path(),
             );
 
-            let driver = driver(
-                identity,
-                Arc::clone(&host) as Arc<dyn ExternalToolHost>,
-            );
+            let driver = driver(identity, Arc::clone(&host) as Arc<dyn ExternalToolHost>);
 
             assert!(matches!(
                 driver.link(&plan, &|| false).status(),
@@ -383,10 +323,7 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::default());
         let identity = driver_identity(LinkerDriverKind::Archiver);
 
-        let unsupported_target = target(
-            TargetArchitecture::Arm,
-            ObjectFormat::MachO,
-        );
+        let unsupported_target = target(TargetArchitecture::Arm, ObjectFormat::MachO);
 
         let unsupported_plan = archive_plan(
             &identity,
@@ -436,13 +373,10 @@ mod tests {
             },
             |builder| {
                 builder.push_search_path(
-                    LinkSearchPath::try_new(
-                        LinkSearchPathKind::Library,
-                        "native-libraries",
-                    )
-                    .unwrap_or_else(|error| {
-                        panic!("test search path must be valid: {error:?}")
-                    }),
+                    LinkSearchPath::try_new(LinkSearchPathKind::Library, "native-libraries")
+                        .unwrap_or_else(|error| {
+                            panic!("test search path must be valid: {error:?}")
+                        }),
                 );
             },
             |builder| {
@@ -476,10 +410,7 @@ mod tests {
         for configure in cases {
             let plan = archive_plan_with(
                 &identity,
-                target(
-                    TargetArchitecture::X86_64,
-                    ObjectFormat::Elf,
-                ),
+                target(TargetArchitecture::X86_64, ObjectFormat::Elf),
                 [(input.path(), LinkInputKind::RelocatableObject)],
                 output.path(),
                 configure,
@@ -510,16 +441,11 @@ mod tests {
             output.path(),
         );
 
-        let driver = driver(
-            identity,
-            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
-        );
+        let driver = driver(identity, Arc::clone(&host) as Arc<dyn ExternalToolHost>);
 
         assert_eq!(
             driver.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::MissingInput(
-                LinkInputId::new(0)
-            ))
+            &LinkStatus::Failed(LinkFailure::MissingInput(LinkInputId::new(0)))
         );
 
         assert!(host.invocations().is_empty());
@@ -531,9 +457,7 @@ mod tests {
         let output = TestOutput::new("library.stage");
 
         std::fs::write(output.path(), b"stale archive")
-            .unwrap_or_else(|error| {
-                panic!("stale test output must be written: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("stale test output must be written: {error:?}"));
 
         let identity = driver_identity(LinkerDriverKind::Archiver);
 
@@ -570,8 +494,7 @@ mod tests {
             output.path(),
         );
 
-        let cancelled_host =
-            Arc::new(RecordingExternalToolHost::default());
+        let cancelled_host = Arc::new(RecordingExternalToolHost::default());
 
         let cancelled = driver(
             identity.clone(),
@@ -629,9 +552,7 @@ mod tests {
             None,
             host,
         )
-        .unwrap_or_else(|error| {
-            panic!("test archive driver must be valid: {error:?}")
-        })
+        .unwrap_or_else(|error| panic!("test archive driver must be valid: {error:?}"))
     }
 
     fn archive_plan<'a>(
@@ -665,17 +586,13 @@ mod tests {
         for (ordinal, (path, kind)) in inputs.into_iter().enumerate() {
             builder.push_input(
                 LinkInput::try_new(
-                    LinkInputId::new(
-                        u32::try_from(ordinal).unwrap_or(u32::MAX),
-                    ),
+                    LinkInputId::new(u32::try_from(ordinal).unwrap_or(u32::MAX)),
                     kind,
                     LinkInputSource::file(path),
                     LinkInputProvenance::Product,
                     LinkInputMode::Ordinary,
                 )
-                .unwrap_or_else(|error| {
-                    panic!("test link input must be valid: {error:?}")
-                }),
+                .unwrap_or_else(|error| panic!("test link input must be valid: {error:?}")),
             );
         }
 
@@ -688,9 +605,9 @@ mod tests {
 
         configure(&mut builder);
 
-        builder.finish().unwrap_or_else(|error| {
-            panic!("test archive plan must be valid: {error:?}")
-        })
+        builder
+            .finish()
+            .unwrap_or_else(|error| panic!("test archive plan must be valid: {error:?}"))
     }
 
     fn archive_policy(
@@ -707,45 +624,13 @@ mod tests {
     }
 
     fn binary_symbol_name(name: &str) -> BinarySymbolName {
-        BinarySymbolName::try_new(name).unwrap_or_else(|| {
-            panic!("test binary symbol name must be valid")
-        })
+        BinarySymbolName::try_new(name)
+            .unwrap_or_else(|| panic!("test binary symbol name must be valid"))
     }
 
-    fn target(
-        architecture: TargetArchitecture,
-        object_format: ObjectFormat,
-    ) -> LinkTarget {
-        let Some(identity) = TargetIdentity::try_new("test-target") else {
-            panic!("test target identity must be valid");
-        };
-
-        LinkTarget::try_new(
-            identity,
-            "test-target-triple",
-            architecture,
-            object_format,
-            RelocationModel::PositionIndependent,
-            CodeModel::Small,
-            LinkModel::Static,
-        )
-        .unwrap_or_else(|error| {
-            panic!("test link target must be valid: {error:?}")
-        })
-    }
-
-    fn driver_identity(
-        kind: LinkerDriverKind,
-    ) -> LinkerDriverIdentity {
-        LinkerDriverIdentity::try_new(
-            kind,
-            "llvm-archive",
-            "1",
-            "22.1.8",
-        )
-        .unwrap_or_else(|| {
-            panic!("test archive identity must be valid")
-        })
+    fn driver_identity(kind: LinkerDriverKind) -> LinkerDriverIdentity {
+        LinkerDriverIdentity::try_new(kind, "llvm-archive", "1", "22.1.8")
+            .unwrap_or_else(|| panic!("test archive identity must be valid"))
     }
 
     fn escaped_response_path(path: &Path) -> String {
@@ -765,9 +650,7 @@ mod tests {
             assert!(!self.output.exists());
 
             std::fs::write(&self.output, b"archive")
-                .unwrap_or_else(|error| {
-                    panic!("test archive must be written: {error:?}")
-                });
+                .unwrap_or_else(|error| panic!("test archive must be written: {error:?}"));
 
             Ok(ExternalToolOutput::new(true, Some(0), [], []))
         }

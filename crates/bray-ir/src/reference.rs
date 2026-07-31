@@ -166,17 +166,9 @@ impl MirCall {
         Self {
             target,
             result,
-            arguments: shared_slice(
-                arguments
-                    .into_iter()
-                    .enumerate()
-                    .map(|(ordinal, value)| {
-                        MirCallArgument::positional(
-                            u32::try_from(ordinal).unwrap_or(u32::MAX),
-                            value,
-                        )
-                    }),
-            ),
+            arguments: shared_slice(arguments.into_iter().enumerate().map(|(ordinal, value)| {
+                MirCallArgument::positional(u32::try_from(ordinal).unwrap_or(u32::MAX), value)
+            })),
             phase_behaviors: None,
             contract: None,
             dispatch_witnesses: Arc::from([]),

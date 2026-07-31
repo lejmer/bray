@@ -104,8 +104,7 @@ impl CancellationContext {
     pub fn observation(&self) -> CancellationObservation {
         let requested = self.state.requested.load(Ordering::Acquire);
 
-        let observable =
-            requested && self.state.shields.load(Ordering::Acquire) == 0;
+        let observable = requested && self.state.shields.load(Ordering::Acquire) == 0;
 
         CancellationObservation::new(requested, observable)
     }

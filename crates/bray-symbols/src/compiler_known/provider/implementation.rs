@@ -14,6 +14,7 @@ use super::lookup::{add_member_entry, build_member_indexes};
 use super::signature::{
     CompilerKnownSignatureSymbols, allocate_signature_symbols, order_completion_children,
 };
+use super::support::required_declaration_value;
 use super::validation::{resolve_declaration_symbol_kinds, validate_scope_id};
 use crate::allocator::SymbolIdAllocator;
 use crate::build::declaration_symbol_id;
@@ -566,11 +567,7 @@ fn allocate_declarations(
     let mut descriptor_symbols = BTreeMap::new();
 
     for descriptor in catalog.compiler_known_declarations() {
-        let Some(kind) = declaration_kinds.get(&descriptor.id()).copied() else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
-                declaration: descriptor.id(),
-            });
-        };
+        let kind = required_declaration_value(declaration_kinds, descriptor.id()).copied()?;
 
         let raw_id = allocator.next()?;
 
@@ -594,11 +591,7 @@ fn declaration_keys(
     let mut keys = BTreeMap::new();
 
     for descriptor in catalog.compiler_known_declarations() {
-        let Some(symbol) = descriptor_symbols.get(&descriptor.id()) else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
-                declaration: descriptor.id(),
-            });
-        };
+        let symbol = required_declaration_value(descriptor_symbols, descriptor.id())?;
 
         let Some(key) =
             SymbolKey::compiler_known_declaration(descriptor.key().clone(), symbol.kind())
@@ -633,11 +626,7 @@ fn build_declarations(
     let mut identities = Vec::new();
 
     for descriptor in catalog.compiler_known_declarations() {
-        let Some(symbol) = descriptor_symbols.get(&descriptor.id()).copied() else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
-                declaration: descriptor.id(),
-            });
-        };
+        let symbol = required_declaration_value(descriptor_symbols, descriptor.id()).copied()?;
 
         let owner = declaration_owner(catalog, descriptor, scopes, descriptor_symbols)?;
 
@@ -719,9 +708,7 @@ fn build_declarations(
     let mut signature_completion_children = BTreeMap::new();
 
     for (declaration, children) in completion_children {
-        let Some(owner) = descriptor_symbols.get(&declaration).copied() else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface { declaration });
-        };
+        let owner = required_declaration_value(descriptor_symbols, declaration).copied()?;
 
         signature_completion_children.insert(owner, children);
     }
@@ -911,10 +898,7 @@ mod tests {
             panic!("Result.Error payload field record must resolve");
         };
 
-        assert_eq!(
-            error_field.position(),
-            CallablePosition::PositionalOrNamed
-        );
+        assert_eq!(error_field.position(), CallablePosition::PositionalOrNamed);
     }
 
     #[test]

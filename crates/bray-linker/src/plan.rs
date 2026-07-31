@@ -392,9 +392,7 @@ fn validate_entry_contract(
         (LinkedProductKind::Executable, None, Some(host)) if host.product() != product => {
             Err(LinkPlanBuildError::ExecutableHostProductMismatch)
         }
-        (LinkedProductKind::Executable, None, Some(host))
-            if host.target() != target.identity() =>
-        {
+        (LinkedProductKind::Executable, None, Some(host)) if host.target() != target.identity() => {
             Err(LinkPlanBuildError::ExecutableHostTargetMismatch)
         }
         (LinkedProductKind::SharedLibrary | LinkedProductKind::StaticLibrary, _, Some(_)) => {

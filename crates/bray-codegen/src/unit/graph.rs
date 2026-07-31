@@ -163,23 +163,19 @@ mod tests {
         let first_key = CodegenInstanceKey::non_generic(&first_mir);
         let second_key = CodegenInstanceKey::non_generic(&second_mir);
 
-        let Ok(first) =
-            CodegenInstance::try_new(
-                first_key.clone(),
-                first_mir,
-                [CodegenInstanceDependency::definition(second_key.clone())],
-            )
-        else {
+        let Ok(first) = CodegenInstance::try_new(
+            first_key.clone(),
+            first_mir,
+            [CodegenInstanceDependency::definition(second_key.clone())],
+        ) else {
             panic!("first test instance must validate");
         };
 
-        let Ok(second) =
-            CodegenInstance::try_new(
-                second_key.clone(),
-                second_mir,
-                [CodegenInstanceDependency::definition(first_key.clone())],
-            )
-        else {
+        let Ok(second) = CodegenInstance::try_new(
+            second_key.clone(),
+            second_mir,
+            [CodegenInstanceDependency::definition(first_key.clone())],
+        ) else {
             panic!("second test instance must validate");
         };
 
@@ -258,10 +254,9 @@ mod tests {
             panic!("second test instance must validate");
         };
 
-        let Ok(mut builder) = CodegenReachabilityBuilder::try_new([
-            first.key().clone(),
-            second.key().clone(),
-        ]) else {
+        let Ok(mut builder) =
+            CodegenReachabilityBuilder::try_new([first.key().clone(), second.key().clone()])
+        else {
             panic!("test roots must validate");
         };
 

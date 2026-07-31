@@ -3,9 +3,7 @@ use std::process::ExitCode;
 use bray_diagnostics::DiagnosticBag;
 
 /// Selects a successful exit unless the diagnostics contain an error.
-pub fn exit_code_from_diagnostics(
-    diagnostics: &DiagnosticBag,
-) -> ExitCode {
+pub fn exit_code_from_diagnostics(diagnostics: &DiagnosticBag) -> ExitCode {
     if diagnostics.has_errors() {
         ExitCode::FAILURE
     } else {

@@ -9,15 +9,13 @@ use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::{LocalBindingSymbolId, LocalScopeId, SymbolName, SymbolOrdinal, TypeId};
 use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken};
 
-use super::syntax::{
-    BindingOccurrence, PatternSyntax, bound_mode, pattern_kind,
-};
+use super::syntax::{BindingOccurrence, PatternSyntax, bound_mode, pattern_kind};
+use crate::BinderFactContext;
+use crate::binder::{Binder, PatternBindingMode};
 use crate::binding::name::{
     name_is_available, name_text_is_available, report_name_already_defined, symbol_name,
 };
 use crate::binding::{BindingError, BindingResult};
-use crate::BinderFactContext;
-use crate::binder::{Binder, PatternBindingMode};
 use crate::lookup::PathBindingContext;
 
 #[derive(Debug, Eq, PartialEq)]

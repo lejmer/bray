@@ -1,5 +1,5 @@
-use crate::catalog::MessageCatalog;
 use crate::DiagnosticLocale;
+use crate::catalog::MessageCatalog;
 
 /// Structured user-facing messages emitted by the language-server protocol boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -66,8 +66,7 @@ mod tests {
     #[test]
     fn protocol_messages_render_through_the_selected_catalog() {
         assert_eq!(
-            LanguageServerMessageRenderer::english()
-                .render(LanguageServerMessage::ContentModified),
+            LanguageServerMessageRenderer::english().render(LanguageServerMessage::ContentModified),
             "The document changed before the request completed."
         );
     }

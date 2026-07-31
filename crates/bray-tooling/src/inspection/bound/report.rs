@@ -10,14 +10,14 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
 
-use crate::{InspectionTarget, OutputFormat};
+use crate::inspection::unit::{UnitInspectionSelectionError, select_units};
 use crate::inspection::{
     InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
-    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError,
-    push_text_diagnostic,
+    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError, push_text_diagnostic,
+    render_pretty_json,
 };
-use crate::inspection::unit::{UnitInspectionSelectionError, select_units};
 use crate::output::{DiagnosticJson, diagnostic_jsons};
+use crate::{InspectionTarget, OutputFormat};
 
 use super::locals::InspectionLocals;
 use super::selection::{
@@ -156,9 +156,9 @@ fn render_report(
 ) -> Result<InspectionOutput, BoundInspectionRenderError> {
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => serde_json::to_string_pretty(&report)
-            .map(|json| format!("{json}\n"))
-            .map_err(|_| BoundInspectionRenderError::Json)?,
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| BoundInspectionRenderError::Json)?
+        }
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -883,7 +883,12 @@ mod tests {
             .unwrap_or_else(|| panic!("bound units must be an array"));
 
         assert_eq!(units.len(), 2);
-        assert_eq!(units[0]["nested_units"][0]["unit_kind"], "anonymous_callable");
+
+        assert_eq!(
+            units[0]["nested_units"][0]["unit_kind"],
+            "anonymous_callable"
+        );
+
         assert_eq!(units[1]["unit_kind"], "anonymous_callable");
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }

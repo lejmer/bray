@@ -205,13 +205,14 @@ impl<'source> Formatter<'source> {
         if kind == SyntaxKind::CloseBraceToken {
             self.writer.decrease_indent();
             self.writer.set_newlines(1);
-        } else if kind == SyntaxKind::OpenBraceToken {
-            self.writer.request_newlines(1);
-        } else if matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken))
-            && !matches!(
-                kind,
-                SyntaxKind::SemicolonToken | SyntaxKind::CommaToken | SyntaxKind::CloseBraceToken
-            )
+        } else if kind == SyntaxKind::OpenBraceToken
+            || matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken))
+                && !matches!(
+                    kind,
+                    SyntaxKind::SemicolonToken
+                        | SyntaxKind::CommaToken
+                        | SyntaxKind::CloseBraceToken
+                )
         {
             self.writer.request_newlines(1);
         }

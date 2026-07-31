@@ -62,11 +62,7 @@ impl Lowerer<'_> {
                 let (target, result_type, scope_depth) = {
                     let target = self.loop_target(id, expression)?;
 
-                    (
-                        target.break_block,
-                        target.result_type,
-                        target.scope_depth,
-                    )
+                    (target.break_block, target.result_type, target.scope_depth)
                 };
 
                 let value = value.unwrap_or_else(|| self.unit_operand(result_type));
@@ -145,20 +141,13 @@ impl Lowerer<'_> {
                 self.builder.push_operation(
                     current,
                     Self::retained_source(&source),
-                    MirOperationKind::Generator(MirGeneratorOperation::Push {
-                        destination,
-                        value,
-                    }),
+                    MirOperationKind::Generator(MirGeneratorOperation::Push { destination, value }),
                     None,
                 )?;
 
                 let result = self.unit_operand(self.expression_type(id)?);
 
-                Ok(LoweredExpression::continuing(
-                    current,
-                    Some(result),
-                    source,
-                ))
+                Ok(LoweredExpression::continuing(current, Some(result), source))
             }
         }
     }

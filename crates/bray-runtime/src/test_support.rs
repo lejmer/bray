@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::{Arc, Barrier};
 
+use bray_platform::RuntimeThreadId;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
     ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
@@ -12,8 +13,28 @@ use bray_runtime_interface::{
 
 use crate::{
     FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame,
-    current_task_execution_context,
+    Scheduler, TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
+
+pub(crate) fn register_task<T: 'static, F>(
+    scheduler: &Scheduler,
+    task: &TaskControlBlock<T, F>,
+    origin: RuntimeThreadId,
+) -> TaskRegistration
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    scheduler
+        .register_task(
+            task.id(),
+            // Registration retains immutable frame metadata after this task borrow ends.
+            task.descriptor().clone(),
+            origin,
+            ProtectedFrameStateId::new(0),
+            task.cancellation_context(),
+        )
+        .unwrap_or_else(|error| panic!("test task must register: {error:?}"))
+}
 
 pub(crate) struct TestFrame {
     descriptor: ProtectedFrameDescriptor,

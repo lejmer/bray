@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_compilation::{CancellationToken, WorkerBudget};
-use bray_messages::{
-    DiagnosticLocale, LanguageServerMessage, LanguageServerMessageRenderer,
-};
+use bray_messages::{DiagnosticLocale, LanguageServerMessage, LanguageServerMessageRenderer};
 use bray_project::ProjectGraph;
 use bray_target::TargetIdentity;
 use crossbeam_channel::Sender;
@@ -54,11 +52,7 @@ impl LanguageServer {
     }
 
     /// Serves Language Server Protocol messages until the peer exits or closes input.
-    pub fn run(
-        self,
-        input: Box<dyn Read + Send>,
-        output: &mut dyn Write,
-    ) -> io::Result<()> {
+    pub fn run(self, input: Box<dyn Read + Send>, output: &mut dyn Write) -> io::Result<()> {
         let mut workspace = Workspace::new(
             self.workspace_root,
             Arc::clone(&self.graph),
@@ -66,12 +60,7 @@ impl LanguageServer {
             self.worker_budget,
         );
 
-        run_event_loop(
-            input,
-            output,
-            &mut workspace,
-            self.worker_budget.get(),
-        )
+        run_event_loop(input, output, &mut workspace, self.worker_budget.get())
     }
 }
 
@@ -161,7 +150,10 @@ fn run_event_loop(
         }
 
         let event = receiver.recv().map_err(|_| {
-            io::Error::new(io::ErrorKind::BrokenPipe, "language_server_event_channel_closed")
+            io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "language_server_event_channel_closed",
+            )
         })?;
 
         match event {
@@ -203,10 +195,7 @@ fn run_event_loop(
     Ok(())
 }
 
-fn spawn_reader(
-    mut input: Box<dyn Read + Send>,
-    sender: Sender<Event>,
-) {
+fn spawn_reader(mut input: Box<dyn Read + Send>, sender: Sender<Event>) {
     std::thread::spawn(move || {
         let result = read_messages(input.as_mut(), |message| {
             let exits = matches!(
@@ -226,10 +215,7 @@ fn spawn_reader(
     });
 }
 
-fn spawn_task(
-    task: PendingTask,
-    sender: Sender<Event>,
-) {
+fn spawn_task(task: PendingTask, sender: Sender<Event>) {
     std::thread::spawn(move || {
         let result = execute(&task.document, task.query, &task.cancellation);
 
@@ -261,8 +247,7 @@ fn handle_message(
     match message {
         IncomingMessage::Request { id, method, params } => {
             if method == "initialize" {
-                let params = serde_json::from_value::<InitializeParams>(params)
-                    .unwrap_or_default();
+                let params = serde_json::from_value::<InitializeParams>(params).unwrap_or_default();
 
                 *client = client_configuration(&params);
 
@@ -402,12 +387,7 @@ fn handle_message(
                         cancel_stale_work(workspace, requests, diagnostics);
 
                         for document in affected {
-                            queue_diagnostics(
-                                document,
-                                pending,
-                                diagnostics,
-                                next_diagnostic_id,
-                            );
+                            queue_diagnostics(document, pending, diagnostics, next_diagnostic_id);
                         }
                     }
                     Err(error) => publish_workspace_error(output, error, client.renderer)?,
@@ -556,20 +536,15 @@ fn publish_completed(
 
     match (task.id, task.result) {
         (Some(id), Ok(result)) => write_result(output, id, result),
-        (Some(id), Err(_)) => {
-            write_error(
-                output,
-                id,
-                INTERNAL_ERROR,
-                LanguageServerMessage::QueryFailed,
-                renderer,
-            )
-        }
+        (Some(id), Err(_)) => write_error(
+            output,
+            id,
+            INTERNAL_ERROR,
+            LanguageServerMessage::QueryFailed,
+            renderer,
+        ),
         (None, Ok(report)) => {
-            let diagnostics = report
-                .get("items")
-                .cloned()
-                .unwrap_or_else(|| json!([]));
+            let diagnostics = report.get("items").cloned().unwrap_or_else(|| json!([]));
 
             write_notification(
                 output,
@@ -605,19 +580,13 @@ fn cancel_stale_work(
     }
 }
 
-fn cancel_document_requests(
-    requests: &BTreeMap<String, InFlightRequest>,
-    uri: &str,
-) {
+fn cancel_document_requests(requests: &BTreeMap<String, InFlightRequest>, uri: &str) {
     for request in requests.values().filter(|request| request.uri == uri) {
         request.cancellation.cancel();
     }
 }
 
-fn cancel_document_diagnostics(
-    diagnostics: &mut BTreeMap<String, InFlightDiagnostics>,
-    uri: &str,
-) {
+fn cancel_document_diagnostics(diagnostics: &mut BTreeMap<String, InFlightDiagnostics>, uri: &str) {
     if let Some(diagnostic) = diagnostics.remove(uri) {
         diagnostic.cancellation.cancel();
     }
@@ -791,9 +760,7 @@ mod tests {
     use bray_project::load_project_graph;
     use serde_json::{Value, json};
 
-    use super::{
-        InFlightDiagnostics, LanguageServer, PendingTask, queue_diagnostics,
-    };
+    use super::{InFlightDiagnostics, LanguageServer, PendingTask, queue_diagnostics};
     use crate::protocol::read_messages;
     use crate::test_support::ProjectFixture;
     use crate::workspace::Workspace;
@@ -829,16 +796,8 @@ mod tests {
                     }
                 }),
             ),
-            request(
-                2,
-                "textDocument/hover",
-                position_params(&uri, 9, 23),
-            ),
-            request(
-                3,
-                "textDocument/definition",
-                position_params(&uri, 9, 23),
-            ),
+            request(2, "textDocument/hover", position_params(&uri, 9, 23)),
+            request(3, "textDocument/definition", position_params(&uri, 9, 23)),
             request(
                 4,
                 "textDocument/references",
@@ -848,11 +807,7 @@ mod tests {
                     "context": { "includeDeclaration": true },
                 }),
             ),
-            request(
-                5,
-                "textDocument/completion",
-                position_params(&uri, 9, 4),
-            ),
+            request(5, "textDocument/completion", position_params(&uri, 9, 4)),
             request(
                 6,
                 "textDocument/signatureHelp",
@@ -884,9 +839,8 @@ mod tests {
             fixture.path(),
             Arc::new(graph),
             target,
-            WorkerBudget::new(2).unwrap_or_else(|error| {
-                panic!("test worker budget should form: {error:?}")
-            }),
+            WorkerBudget::new(2)
+                .unwrap_or_else(|error| panic!("test worker budget should form: {error:?}")),
         )
         .run(Box::new(Cursor::new(input)), &mut output)
         .unwrap_or_else(|error| panic!("test server should run: {error:?}"));
@@ -941,13 +895,8 @@ mod tests {
         std::thread::spawn(move || {
             let mut output = Vec::new();
 
-            let result = LanguageServer::new(
-                root,
-                Arc::new(graph),
-                target,
-                WorkerBudget::serial(),
-            )
-            .run(Box::new(reader), &mut output);
+            let result = LanguageServer::new(root, Arc::new(graph), target, WorkerBudget::serial())
+                .run(Box::new(reader), &mut output);
 
             let _ = sender.send(result);
         });
@@ -963,7 +912,11 @@ mod tests {
             changed.notify_all();
         }
 
-        assert!(result.is_ok(), "exit should not wait for another transport read");
+        assert!(
+            result.is_ok(),
+            "exit should not wait for another transport read"
+        );
+
         assert!(!read_after_exit.load(Ordering::Acquire));
     }
 
@@ -1000,12 +953,7 @@ mod tests {
         let mut diagnostics = BTreeMap::<String, InFlightDiagnostics>::new();
         let mut next = 0_u64;
 
-        queue_diagnostics(
-            document.clone(),
-            &mut pending,
-            &mut diagnostics,
-            &mut next,
-        );
+        queue_diagnostics(document.clone(), &mut pending, &mut diagnostics, &mut next);
 
         let first = diagnostics
             .get(&document.uri)
@@ -1084,9 +1032,8 @@ mod tests {
             let content = serde_json::to_vec(&message)
                 .unwrap_or_else(|error| panic!("test message should serialize: {error}"));
 
-            output.extend_from_slice(
-                format!("Content-Length: {}\r\n\r\n", content.len()).as_bytes(),
-            );
+            output
+                .extend_from_slice(format!("Content-Length: {}\r\n\r\n", content.len()).as_bytes());
 
             output.extend_from_slice(&content);
         }

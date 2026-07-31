@@ -1,9 +1,7 @@
 use super::core::UnitTranslator;
 use super::support::llvm;
 use bray_codegen::{CodegenFailure, CodegenHelperMapping};
-use bray_ir::{
-    MirGeneratorKind, MirGeneratorOperation, MirHelperReference, MirPlace,
-};
+use bray_ir::{MirGeneratorKind, MirGeneratorOperation, MirHelperReference, MirPlace};
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -20,13 +18,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 destination,
                 element,
                 exact_count,
-            } => self.translate_generator_begin(
-                &helpers,
-                *kind,
-                destination,
-                *element,
-                *exact_count,
-            ),
+            } => {
+                self.translate_generator_begin(&helpers, *kind, destination, *element, *exact_count)
+            }
             MirGeneratorOperation::Push { destination, value } => {
                 self.translate_generator_push(&helpers, destination, value)
             }
@@ -37,22 +31,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 destination,
                 element,
                 runtime,
-            } => self.translate_generator_cleanup(
-                &helpers,
-                destination,
-                *element,
-                *runtime,
-            ),
+            } => self.translate_generator_cleanup(&helpers, destination, *element, *runtime),
             MirGeneratorOperation::Destroy {
                 destination,
                 element,
                 runtime,
-            } => self.translate_generator_destroy(
-                &helpers,
-                destination,
-                *element,
-                *runtime,
-            ),
+            } => self.translate_generator_destroy(&helpers, destination, *element, *runtime),
         }
     }
 
@@ -257,10 +241,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         runtime: bray_ir::MirRuntimeReference,
         parameter: usize,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        self.helper_address(helper)?
-            .map_or_else(
-                || self.runtime_null_pointer_argument(runtime, parameter),
-                Ok,
-            )
+        self.helper_address(helper)?.map_or_else(
+            || self.runtime_null_pointer_argument(runtime, parameter),
+            Ok,
+        )
     }
 }

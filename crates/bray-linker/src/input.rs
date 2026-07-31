@@ -145,6 +145,32 @@ impl LinkInputSpec {
         })
     }
 
+    /// Creates an ordinary native-library input unless its canonical name is empty.
+    pub fn try_native_library(
+        name: impl Into<Arc<str>>,
+        provenance: LinkInputProvenance,
+    ) -> Option<Self> {
+        Some(Self {
+            kind: LinkInputKind::NativeLibrary,
+            source: LinkInputSource::try_native_library(name)?,
+            provenance,
+            mode: LinkInputMode::Ordinary,
+        })
+    }
+
+    /// Creates an ordinary platform-framework input unless its canonical name is empty.
+    pub fn try_framework(
+        name: impl Into<Arc<str>>,
+        provenance: LinkInputProvenance,
+    ) -> Option<Self> {
+        Some(Self {
+            kind: LinkInputKind::Framework,
+            source: LinkInputSource::try_framework(name)?,
+            provenance,
+            mode: LinkInputMode::Ordinary,
+        })
+    }
+
     /// Returns the native input category.
     pub const fn kind(&self) -> LinkInputKind {
         self.kind
@@ -181,6 +207,15 @@ impl LinkInput {
         mode: LinkInputMode,
     ) -> Result<Self, LinkInputBuildError> {
         LinkInputSpec::try_new(kind, source, provenance, mode).map(|spec| spec.with_id(id))
+    }
+
+    /// Creates an ordinary native-library input unless its canonical name is empty.
+    pub fn try_native_library(
+        id: LinkInputId,
+        name: impl Into<Arc<str>>,
+        provenance: LinkInputProvenance,
+    ) -> Option<Self> {
+        LinkInputSpec::try_native_library(name, provenance).map(|spec| spec.with_id(id))
     }
 
     /// Creates the runtime component selected from validated artifact metadata.
@@ -257,18 +292,49 @@ pub enum LinkInputBuildError {
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{
-        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions,
-        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact,
-        RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
-        RuntimeCapability, RuntimeContract, RuntimeIdentity,
+        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
+        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactMetadata, RuntimeCapability, RuntimeContract, RuntimeIdentity,
         RuntimeRoleBinding, RuntimeRoleImplementation,
     };
     use bray_target::TargetIdentity;
 
     use super::{
         LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource,
+        LinkInputProvenance, LinkInputSource, LinkInputSpec,
     };
+
+    #[test]
+    fn named_inputs_select_their_source_kinds_and_reject_empty_names() {
+        let library = LinkInput::try_native_library(
+            LinkInputId::new(4),
+            "pthread",
+            LinkInputProvenance::HostConfiguration,
+        )
+        .unwrap_or_else(|| panic!("test native library name must be valid"));
+
+        let framework = LinkInputSpec::try_framework(
+            "Foundation",
+            LinkInputProvenance::TargetProfile,
+        )
+        .unwrap_or_else(|| panic!("test framework name must be valid"));
+
+        assert_eq!(library.kind(), LinkInputKind::NativeLibrary);
+        assert_eq!(framework.kind(), LinkInputKind::Framework);
+
+        assert!(
+            LinkInput::try_native_library(
+                LinkInputId::new(5),
+                "",
+                LinkInputProvenance::HostConfiguration,
+            )
+            .is_none()
+        );
+
+        assert!(
+            LinkInputSpec::try_framework("", LinkInputProvenance::TargetProfile).is_none()
+        );
+    }
 
     #[test]
     fn inputs_reject_mismatched_sources_and_archive_modes() {
@@ -347,10 +413,8 @@ mod tests {
             [RuntimeCapability::CooperativeExecution],
             [RuntimeRoleBinding::new(
                 RuntimeAbiRole::MainThreadLaneStartup,
-                BinarySymbolName::try_new(
-                    bray_runtime_interface::MAIN_THREAD_LANE_STARTUP_SYMBOL,
-                )
-                .unwrap_or_else(|| panic!("runtime symbol must be valid")),
+                BinarySymbolName::try_new(bray_runtime_interface::MAIN_THREAD_LANE_STARTUP_SYMBOL)
+                    .unwrap_or_else(|| panic!("runtime symbol must be valid")),
                 RuntimeRoleImplementation::BrayRuntime,
             )],
         )
@@ -368,6 +432,6 @@ mod tests {
             "runtime/bray_runtime.lib",
             RuntimeArtifactDigest::new([1; 32]),
         )
-            .unwrap_or_else(|error| panic!("runtime artifact must be valid: {error:?}"))
+        .unwrap_or_else(|error| panic!("runtime artifact must be valid: {error:?}"))
     }
 }

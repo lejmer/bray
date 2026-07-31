@@ -10,7 +10,7 @@ use crate::{
     GenericTypeParameterSymbolId, ImplementationInstanceData, ImplementationInstanceId,
     ImplementationRequirementKey, ImportedSymbolSkeleton, ModulePathKey,
     NamedTraitImplementationSymbolId, PackageIdentity, SemanticValueStore, SymbolId, SymbolKey,
-    SymbolKind, SymbolRootKey, TraitApplicationData, TraitSymbolId, TypeId,
+    SymbolKind, SymbolRootKey, TraitApplicationData, TraitSymbolId, TypeData, TypeId,
 };
 
 /// Imported package, module, and declaration identities used by cross-crate lookup tests.
@@ -167,6 +167,14 @@ pub fn source_function_key() -> SymbolKey {
     };
 
     function
+}
+
+/// Interns one valid semantic type for tests.
+pub fn intern_type(values: &SemanticValueStore, data: TypeData) -> TypeId {
+    match values.intern_type(data) {
+        Ok(ty) => ty,
+        Err(error) => panic!("test type must be valid: {error:?}"),
+    }
 }
 
 /// Creates and interns one implementation-selection requirement for tests.

@@ -552,7 +552,12 @@ mod tests {
         assert_eq!(serial_mir.target(), parallel_mir.target());
         assert_eq!(serial_mir.kind(), parallel_mir.kind());
         assert_eq!(serial_mir.entry(), parallel_mir.entry());
-        assert_eq!(serial_mir.frame_descriptor(), parallel_mir.frame_descriptor());
+
+        assert_eq!(
+            serial_mir.frame_descriptor(),
+            parallel_mir.frame_descriptor()
+        );
+
         assert_eq!(serial_mir.storages(), parallel_mir.storages());
         assert_eq!(serial_mir.values(), parallel_mir.values());
         assert_eq!(serial_mir.operations(), parallel_mir.operations());
@@ -720,8 +725,8 @@ mod tests {
                 .blocks()
                 .last()
                 .map(|block| block.terminator().kind()),
-            Some(bray_ir::MirTerminatorKind::Return(Some(
-                bray_ir::MirOperand::Constant { .. }
+            Some(MirTerminatorKind::Return(Some(
+                MirOperand::Constant { .. }
             )))
         ));
     }
@@ -798,17 +803,15 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::Suspend { .. }
+            MirTerminatorKind::Suspend { .. }
         )));
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Async(
-                bray_ir::MirAsyncOperation::PublishTerminalState {
-                    state: bray_ir::MirTaskTerminalState::Cancelled,
-                    ..
-                }
-            )
+            bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
+                state: bray_ir::MirTaskTerminalState::Cancelled,
+                ..
+            })
         )));
     }
 
@@ -961,7 +964,7 @@ mod tests {
                 matches!(
                     input,
                     bray_ir::MirConstructionInput::Explicit {
-                        value: bray_ir::MirOperand::Copy(place),
+                        value: MirOperand::Copy(place),
                         ..
                     } if !place.projections().is_empty()
                 )
@@ -971,7 +974,7 @@ mod tests {
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
             bray_ir::MirOperationKind::Store {
-                value: bray_ir::MirOperand::Move(place),
+                value: MirOperand::Move(place),
                 ..
             } if !place.projections().is_empty()
         )));
@@ -993,8 +996,8 @@ mod tests {
 
         assert!(matches!(
             mir.blocks().last().map(|block| block.terminator().kind()),
-            Some(bray_ir::MirTerminatorKind::Return(Some(
-                bray_ir::MirOperand::Value(_)
+            Some(MirTerminatorKind::Return(Some(
+                MirOperand::Value(_)
             )))
         ));
     }
@@ -1012,17 +1015,17 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::PatternBranch { .. }
+            MirTerminatorKind::PatternBranch { .. }
         )));
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::Iterate { .. }
+            MirTerminatorKind::Iterate { .. }
         )));
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::Branch { .. }
+            MirTerminatorKind::Branch { .. }
         )));
 
         assert!(mir.operations().iter().any(|operation| matches!(
@@ -1108,7 +1111,7 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::BeginCleanup(_) | bray_ir::MirTerminatorKind::Panic { .. }
+            MirTerminatorKind::BeginCleanup(_) | MirTerminatorKind::Panic { .. }
         )));
     }
 
@@ -1141,7 +1144,7 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            bray_ir::MirTerminatorKind::PatternBranch {
+            MirTerminatorKind::PatternBranch {
                 predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(_),
                 ..
             }

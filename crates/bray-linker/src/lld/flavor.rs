@@ -62,12 +62,11 @@ impl LldFlavor {
 
 #[cfg(test)]
 mod tests {
-    use bray_target::{
-        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
-    };
+    use bray_target::{ObjectFormat, TargetArchitecture};
 
     use super::LldFlavor;
-    use crate::{LinkModel, LinkTarget, LinkedProductKind};
+    use crate::LinkedProductKind;
+    use crate::test_support::target;
 
     #[test]
     fn target_object_formats_select_compatible_lld_flavors() {
@@ -109,22 +108,5 @@ mod tests {
             LldFlavor::for_target(&target, LinkedProductKind::StaticLibrary),
             None
         );
-    }
-
-    fn target(architecture: TargetArchitecture, object_format: ObjectFormat) -> LinkTarget {
-        let Some(identity) = TargetIdentity::try_new("test-target") else {
-            panic!("test target identity must be valid");
-        };
-
-        LinkTarget::try_new(
-            identity,
-            "test-target-triple",
-            architecture,
-            object_format,
-            RelocationModel::PositionIndependent,
-            CodeModel::Small,
-            LinkModel::Dynamic,
-        )
-        .unwrap_or_else(|error| panic!("test link target must be valid: {error:?}"))
     }
 }

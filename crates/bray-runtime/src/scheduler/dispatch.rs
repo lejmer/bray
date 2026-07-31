@@ -2,21 +2,17 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bray_platform::{
-    MonotonicClock, MonotonicDeadline, MonotonicInstant,
-};
+use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant};
 use bray_runtime_interface::ProtectedFrameStateId;
 
 use crate::lane::select_execution_lane;
 use crate::{
-    ExecutionLane, ScheduledTaskSnapshot, ScheduledTaskState, SchedulerSnapshot,
-    TaskId, TaskWakeCause,
+    ExecutionLane, ScheduledTaskSnapshot, ScheduledTaskState, SchedulerSnapshot, TaskId,
+    TaskWakeCause,
 };
 
 use super::contract::SchedulerError;
-use super::engine::{
-    DispatchState, ReadyTask, RegisteredTask, SchedulerData, SchedulerState,
-};
+use super::engine::{DispatchState, ReadyTask, RegisteredTask, SchedulerData, SchedulerState};
 
 pub(super) fn select_task_lane(
     scheduler: &SchedulerData,
@@ -120,9 +116,9 @@ fn queued_observations(
         .values()
         .flatten()
         .map(|queued| {
-            let age = now.zip(queued.queued_at).map(|(now, queued_at)| {
-                now.elapsed_since(queued_at)
-            });
+            let age = now
+                .zip(queued.queued_at)
+                .map(|(now, queued_at)| now.elapsed_since(queued_at));
 
             (
                 queued.task,

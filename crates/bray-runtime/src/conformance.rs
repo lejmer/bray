@@ -4,23 +4,17 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bray_platform::{
-    PlatformError, PlatformErrorKind, PlatformOperation, RuntimeThreadScope,
-};
-use bray_runtime_interface::{
-    ExecutionLaneRequirement, ProtectedFrameStateId, RuntimeCapability,
-};
+use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation, RuntimeThreadScope};
+use bray_runtime_interface::{ExecutionLaneRequirement, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::context::with_task_execution_context;
-use crate::test_support::TestFrame;
+use crate::test_support::{TestFrame, register_task};
 use crate::{
-    CancellationContext, CancellationObservation, CleanupIncidentOrigin,
-    CleanupIncidentProducer, CleanupReportSink, ExecutionLane,
-    ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
-    FrameContext, FrameProgress, RunOutcome, RunOutcomeKind, Scheduler,
-    SchedulerError, SchedulerLimits, TaskControlBlock, TaskExecutionContext,
-    TaskStartSite, TaskWakeCause,
-    erase_protected_frame, finish_product_shutdown, resume_direct,
+    CancellationContext, CancellationObservation, CleanupIncidentOrigin, CleanupIncidentProducer,
+    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionLaneSelectionError,
+    ExecutionWorkload, FrameContext, FrameProgress, RunOutcome, RunOutcomeKind, Scheduler,
+    SchedulerError, SchedulerLimits, TaskControlBlock, TaskExecutionContext, TaskStartSite,
+    TaskWakeCause, erase_protected_frame, finish_product_shutdown, resume_direct,
 };
 
 trait RuntimeConformance {
@@ -185,10 +179,7 @@ fn assert_runtime_conformance(runtime: &impl RuntimeConformance) {
 
     assert_eq!(
         runtime.translate_platform_failure(),
-        Some((
-            PlatformOperation::Event,
-            PlatformErrorKind::Unsupported,
-        ))
+        Some((PlatformOperation::Event, PlatformErrorKind::Unsupported,))
     );
 }
 
@@ -312,15 +303,7 @@ impl RuntimeConformance for BrayRuntime {
         let task = TaskControlBlock::start(TestFrame::cancellation_aware())
             .unwrap_or_else(|error| panic!("task must start: {error:?}"));
 
-        let _registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let _registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         let shield = task.cancellation_context().shield();
 
@@ -372,27 +355,11 @@ impl RuntimeConformance for BrayRuntime {
 
         self.record_cost(|costs| costs.scheduler_registrations += 1);
 
-        let first_registration = scheduler
-            .register_task(
-                first.id(),
-                first.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                first.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("first task must register: {error:?}"));
+        let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
 
         self.record_cost(|costs| costs.scheduler_registrations += 1);
 
-        let second_registration = scheduler
-            .register_task(
-                second.id(),
-                second.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                second.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("second task must register: {error:?}"));
+        let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
 
         let first_wake = first_registration.wake_handle();
 
@@ -466,15 +433,7 @@ impl RuntimeConformance for BrayRuntime {
         let parent = TaskControlBlock::start(TestFrame::completing(1))
             .unwrap_or_else(|error| panic!("parent task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                parent.id(),
-                parent.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                parent.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("parent task must register: {error:?}"));
+        let registration = register_task(&scheduler, &parent, runtime.runtime().id());
 
         let context = TaskExecutionContext::new(
             parent.id(),
@@ -533,15 +492,7 @@ impl RuntimeConformance for BrayRuntime {
         let second = TaskControlBlock::start(TestFrame::completing(2))
             .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
 
-        let _first_registration = scheduler
-            .register_task(
-                first.id(),
-                first.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                first.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("first task must register: {error:?}"));
+        let _first_registration = register_task(&scheduler, &first, runtime.runtime().id());
 
         matches!(
             scheduler.register_task(
@@ -563,17 +514,9 @@ impl RuntimeConformance for BrayRuntime {
             ProtectedFrameStateId::new(0),
         );
 
-        reports.transfer(
-            CleanupIncidentProducer::SynchronousRoot,
-            origin,
-            "first",
-        );
+        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "first");
 
-        reports.transfer(
-            CleanupIncidentProducer::SynchronousRoot,
-            origin,
-            "second",
-        );
+        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "second");
 
         let cleanup_ordinals = RefCell::new(Vec::new());
         let events = RefCell::new(Vec::new());
@@ -640,10 +583,7 @@ fn runtime_thread() -> RuntimeThreadScope {
         .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"))
 }
 
-fn scheduler(
-    main_thread: bray_platform::RuntimeThreadId,
-    task_limit: usize,
-) -> Scheduler {
+fn scheduler(main_thread: bray_platform::RuntimeThreadId, task_limit: usize) -> Scheduler {
     Scheduler::new(
         [RuntimeCapability::CooperativeExecution],
         main_thread,
@@ -659,8 +599,7 @@ fn cooperative_lane() -> ExecutionLane {
 }
 
 fn nonzero(value: usize) -> NonZeroUsize {
-    NonZeroUsize::new(value)
-        .unwrap_or_else(|| panic!("test scheduler capacity must be nonzero"))
+    NonZeroUsize::new(value).unwrap_or_else(|| panic!("test scheduler capacity must be nonzero"))
 }
 
 #[test]

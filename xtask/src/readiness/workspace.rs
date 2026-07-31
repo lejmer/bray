@@ -62,14 +62,11 @@ impl RustWorkspace {
                     continue;
                 };
 
-                enums
-                    .entry(item.ident.to_string())
-                    .or_default()
-                    .extend(
-                        item.variants
-                            .iter()
-                            .map(|variant| variant.ident.to_string()),
-                    );
+                enums.entry(item.ident.to_string()).or_default().extend(
+                    item.variants
+                        .iter()
+                        .map(|variant| variant.ident.to_string()),
+                );
             }
 
             TestCollector {
@@ -101,10 +98,7 @@ impl RustWorkspace {
         &self.tests
     }
 
-    pub(super) fn executable_test_names(
-        &self,
-        category: &str,
-    ) -> Result<BTreeSet<&str>, String> {
+    pub(super) fn executable_test_names(&self, category: &str) -> Result<BTreeSet<&str>, String> {
         self.tests
             .iter()
             .map(|test| {
@@ -128,7 +122,9 @@ impl RustWorkspace {
     }
 
     pub(super) fn contains_source(&self, anchor: &str) -> bool {
-        self.files.values().any(|contents| contents.contains(anchor))
+        self.files
+            .values()
+            .any(|contents| contents.contains(anchor))
     }
 
     pub(super) fn read_fixture<T: DeserializeOwned>(&self, name: &str) -> Result<T, String> {

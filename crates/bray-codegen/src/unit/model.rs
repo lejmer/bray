@@ -205,12 +205,12 @@ pub enum CodegenUnitBuildError {
 #[cfg(test)]
 mod tests {
     use bray_ir::{
-        MirBlockKind, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit,
-        MirUnitBuilder, MirUnitKind,
+        MirBlockKind, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
+        MirUnitKind,
     };
     use bray_testing::{
-        test_bound_unit_with_declaration, test_mir_target, test_mir_type,
-        test_mir_unit, test_mir_unit_with_declaration,
+        test_bound_unit_with_declaration, test_mir_target, test_mir_type, test_mir_unit,
+        test_mir_unit_with_declaration,
     };
 
     use super::{CodegenUnit, CodegenUnitBuildError};
@@ -272,16 +272,14 @@ mod tests {
         let first_key = CodegenInstanceKey::non_generic(&first_mir);
         let second_key = CodegenInstanceKey::non_generic(&second_mir);
 
-        let Ok(first) =
-            CodegenInstance::try_new(
-                first_key.clone(),
-                first_mir,
-                [
-                    CodegenInstanceDependency::definition(second_key.clone()),
-                    CodegenInstanceDependency::definition(external.clone()),
-                ],
-            )
-        else {
+        let Ok(first) = CodegenInstance::try_new(
+            first_key.clone(),
+            first_mir,
+            [
+                CodegenInstanceDependency::definition(second_key.clone()),
+                CodegenInstanceDependency::definition(external.clone()),
+            ],
+        ) else {
             panic!("first test instance must validate");
         };
 
@@ -297,10 +295,7 @@ mod tests {
             panic!("test unit must validate");
         };
 
-        assert_eq!(
-            unit.external_instances(),
-            std::slice::from_ref(&external),
-        );
+        assert_eq!(unit.external_instances(), std::slice::from_ref(&external),);
 
         assert_eq!(
             unit.key().dependencies(&first_key),
@@ -318,8 +313,11 @@ mod tests {
         let bound = test_bound_unit_with_declaration(4, 0);
         let source = MirSourceAnchor::from(bound.key().source());
 
-        let mut builder =
-            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, test_mir_target());
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            test_mir_target(),
+        );
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)

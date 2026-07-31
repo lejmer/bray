@@ -34,10 +34,7 @@ pub(crate) fn product_identity() -> ProductIdentity {
 }
 
 pub(crate) fn executable_host_contract() -> ExecutableHostContract {
-    bray_testing::test_executable_host_contract_for(
-        product_identity(),
-        target_identity(),
-    )
+    bray_testing::test_executable_host_contract_for(product_identity(), target_identity())
 }
 
 pub(crate) fn interface_artifact() -> bray_package_interface::InterfaceArtifact {

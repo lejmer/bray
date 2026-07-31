@@ -24,9 +24,7 @@ impl Read for ContentReader<'_> {
     }
 }
 
-pub(crate) fn open_content(
-    content: &ArtifactContent,
-) -> Result<ContentReader<'_>, io::ErrorKind> {
+pub(crate) fn open_content(content: &ArtifactContent) -> Result<ContentReader<'_>, io::ErrorKind> {
     match content.source() {
         ArtifactContentSource::Memory(bytes) => Ok(ContentReader::Memory(Cursor::new(bytes))),
         ArtifactContentSource::CompilerSpool(spool) => spool

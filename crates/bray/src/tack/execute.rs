@@ -16,9 +16,7 @@ use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
 };
 use crate::tack::result::TackRunResult;
-use crate::tack::tool::{
-    NativeToolExecutor, Tool, ToolExecutor, ToolOutput, ToolRequest,
-};
+use crate::tack::tool::{NativeToolExecutor, Tool, ToolExecutor, ToolOutput, ToolRequest};
 
 /// Runs Bray Tack using independently installed toolchain executables.
 pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -35,9 +33,7 @@ pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
 }
 
 /// Runs Bray Tack and returns its structured outcome.
-pub fn run_tack_result(
-    arguments: impl IntoIterator<Item = OsString>,
-) -> TackRunResult {
+pub fn run_tack_result(arguments: impl IntoIterator<Item = OsString>) -> TackRunResult {
     run_tack_result_with_input(arguments, &NativeToolExecutor, io::empty())
 }
 
@@ -48,12 +44,8 @@ fn run_tack_with_io(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> ExitCode {
-    let result = run_tack_result_with_input_and_output(
-        arguments,
-        executor,
-        Box::new(stdin),
-        stdout,
-    );
+    let result =
+        run_tack_result_with_input_and_output(arguments, executor, Box::new(stdin), stdout);
 
     if stdout.write_all(result.stdout().as_bytes()).is_err()
         || stderr.write_all(result.stderr().as_bytes()).is_err()
@@ -243,23 +235,13 @@ fn run_check(
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
-    let products = match select_products(
-        graph,
-        selection,
-        ProductSelectionKind::Any,
-        false,
-    ) {
+    let products = match select_products(graph, selection, ProductSelectionKind::Any, false) {
         Ok(products) => products,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let mut compiler = ProjectCompiler::new(
-        workspace_root,
-        graph,
-        worker_count,
-        output_format,
-        executor,
-    );
+    let mut compiler =
+        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
 
     let mut outputs = Vec::new();
 
@@ -281,23 +263,13 @@ fn run_build(
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
-    let products = match select_products(
-        graph,
-        selection,
-        ProductSelectionKind::Any,
-        false,
-    ) {
+    let products = match select_products(graph, selection, ProductSelectionKind::Any, false) {
         Ok(products) => products,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let mut compiler = ProjectCompiler::new(
-        workspace_root,
-        graph,
-        worker_count,
-        output_format,
-        executor,
-    );
+    let mut compiler =
+        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
 
     let mut outputs = Vec::new();
 
@@ -324,12 +296,7 @@ fn run_one(
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
-    let products = match select_products(
-        graph,
-        selection,
-        ProductSelectionKind::Executable,
-        true,
-    ) {
+    let products = match select_products(graph, selection, ProductSelectionKind::Executable, true) {
         Ok(products) => products,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
@@ -338,13 +305,8 @@ fn run_one(
         return failure(selection_diagnostics("executable"), output_format);
     };
 
-    let mut compiler = ProjectCompiler::new(
-        workspace_root,
-        graph,
-        worker_count,
-        output_format,
-        executor,
-    );
+    let mut compiler =
+        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
 
     let (outputs, executable) = match compiler.build(product) {
         Ok(result) => result,
@@ -383,23 +345,13 @@ fn run_tests(
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
-    let products = match select_products(
-        graph,
-        selection,
-        ProductSelectionKind::Test,
-        false,
-    ) {
+    let products = match select_products(graph, selection, ProductSelectionKind::Test, false) {
         Ok(products) => products,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let mut compiler = ProjectCompiler::new(
-        workspace_root,
-        graph,
-        worker_count,
-        output_format,
-        executor,
-    );
+    let mut compiler =
+        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
 
     let mut outputs = Vec::new();
     let mut tests_succeeded = true;
@@ -416,7 +368,10 @@ fn run_tests(
 
         if compilation_succeeded {
             let Some(executable) = executable else {
-                return failure(selection_diagnostics("test_executable_output"), output_format);
+                return failure(
+                    selection_diagnostics("test_executable_output"),
+                    output_format,
+                );
             };
 
             match run_project_process(&executable, &arguments, workspace_root) {
@@ -465,12 +420,7 @@ fn run_inspect(
         };
     }
 
-    let products = match select_products(
-        graph,
-        selection,
-        ProductSelectionKind::Any,
-        true,
-    ) {
+    let products = match select_products(graph, selection, ProductSelectionKind::Any, true) {
         Ok(products) => products,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
@@ -479,13 +429,8 @@ fn run_inspect(
         return failure(selection_diagnostics("inspection_product"), output_format);
     };
 
-    let mut compiler = ProjectCompiler::new(
-        workspace_root,
-        graph,
-        worker_count,
-        output_format,
-        executor,
-    );
+    let mut compiler =
+        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
 
     let outputs = match compiler.inspect(product, inspection, source_id, position) {
         Ok(outputs) => outputs,
@@ -540,7 +485,10 @@ fn run_language_server(
 
     match executor.serve(request, input, protocol_output) {
         Ok(output) => result_from_output(output, output_format),
-        Err(()) => failure(operation_diagnostics("language_server_process"), output_format),
+        Err(()) => failure(
+            operation_diagnostics("language_server_process"),
+            output_format,
+        ),
     }
 }
 
@@ -585,9 +533,7 @@ fn run_format(
 
     let mut request = ToolRequest::new(Tool::Formatter, workspace_root);
 
-    request
-        .arg("--format")
-        .arg(output_format.as_str());
+    request.arg("--format").arg(output_format.as_str());
 
     if check {
         request.arg("--check");
@@ -658,10 +604,7 @@ fn result_from_output(output: ToolOutput, output_format: OutputFormat) -> TackRu
     )
 }
 
-fn aggregate_json_outputs(
-    outputs: Vec<ToolOutput>,
-    output_format: OutputFormat,
-) -> TackRunResult {
+fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat) -> TackRunResult {
     let success = outputs.iter().all(ToolOutput::success);
     let mut diagnostics = Vec::new();
     let mut stderr = String::new();
@@ -812,7 +755,7 @@ mod tests {
             Cursor::new(Vec::new()),
         );
 
-        assert!(result.exit_code() == ExitCode::SUCCESS, "{result:#?}");
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
 
         let requests = executor.requests();
 
@@ -822,8 +765,19 @@ mod tests {
 
         assert_eq!(request.tool, Tool::Compiler);
         assert_eq!(request.working_directory, workspace.path());
-        assert!(has_argument_pair(&request.arguments, "--package", "example.application"));
-        assert!(has_argument_pair(&request.arguments, "--product", "application"));
+
+        assert!(has_argument_pair(
+            &request.arguments,
+            "--package",
+            "example.application"
+        ));
+
+        assert!(has_argument_pair(
+            &request.arguments,
+            "--product",
+            "application"
+        ));
+
         assert!(request.arguments.iter().any(|argument| argument == "check"));
 
         assert!(
@@ -859,7 +813,12 @@ mod tests {
             panic!("dependency and root compiler requests should be recorded: {requests:#?}");
         };
 
-        assert!(dependency.arguments.iter().any(|argument| argument == "--emit-interface"));
+        assert!(
+            dependency
+                .arguments
+                .iter()
+                .any(|argument| argument == "--emit-interface")
+        );
 
         assert!(has_argument_pair(
             &product.arguments,
@@ -867,7 +826,12 @@ mod tests {
             "example.math/math"
         ));
 
-        assert!(product.arguments.iter().any(|argument| argument == "--dependency-interface"));
+        assert!(
+            product
+                .arguments
+                .iter()
+                .any(|argument| argument == "--dependency-interface")
+        );
     }
 
     #[test]

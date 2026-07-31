@@ -8,8 +8,7 @@ use bray_linker::{LinkOutcome, LinkPlan, LinkStatus};
 
 use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
 use super::link::{
-    LinkStagingCleanup, LinkedPreparationError, PreparedLinkedArtifact,
-    prepare_linked_artifacts,
+    LinkStagingCleanup, LinkedPreparationError, PreparedLinkedArtifact, prepare_linked_artifacts,
 };
 use super::staging::FilesystemStaging;
 use crate::artifact::content::{
@@ -161,15 +160,14 @@ impl<'host> ArtifactPublisher<'host> {
 
         let mut diagnostics = PublicationDiagnostics::new();
 
-        let prepared =
-            match prepare_contributions(plan, contributions, linked, &mut diagnostics) {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    let outcome = diagnostics.failed(publication_set(plan, []), error);
+        let prepared = match prepare_contributions(plan, contributions, linked, &mut diagnostics) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let outcome = diagnostics.failed(publication_set(plan, []), error);
 
-                    return merge_link_diagnostics(outcome, link_diagnostics);
-                }
-            };
+                return merge_link_diagnostics(outcome, link_diagnostics);
+            }
+        };
 
         let outcome = self.publish_prepared(plan, prepared, diagnostics);
 
@@ -224,12 +222,9 @@ impl<'host> ArtifactPublisher<'host> {
         };
 
         let digest = match sink {
-            OutputSink::Filesystem(path) => self.publish_filesystem(
-                planned,
-                &artifact.content,
-                path,
-                replacement,
-            )?,
+            OutputSink::Filesystem(path) => {
+                self.publish_filesystem(planned, &artifact.content, path, replacement)?
+            }
             OutputSink::Memory {
                 collector,
                 artifact: artifact_id,
@@ -739,16 +734,12 @@ mod tests {
     use bray_diagnostics::{DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, SeverityKind};
     use bray_linker::{
         DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome, LinkPlan,
-        LinkPlanBuilder, LinkPolicy, LinkTarget, LinkedArtifact,
-        LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-        LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
-        SectionGarbageCollectionPolicy, StagingDestination,
-        StagingDestinationId, StagingPathKey,
+        LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome, LinkPlan, LinkPlanBuilder,
+        LinkPolicy, LinkTarget, LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement,
+        LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
+        SectionGarbageCollectionPolicy, StagingDestination, StagingDestinationId, StagingPathKey,
     };
-    use bray_target::{
-        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture,
-    };
+    use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture};
     use bray_testing::TemporaryFile;
 
     use super::ArtifactPublisher;
@@ -1316,16 +1307,11 @@ mod tests {
             .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
 
         let linked = fixture.link.outputs().iter().map(|output| {
-            LinkedArtifact::new(
-                output.kind(),
-                output.destination().id(),
-                NonZeroU64::MIN,
-            )
+            LinkedArtifact::new(output.kind(), output.destination().id(), NonZeroU64::MIN)
         });
 
-        fixture.outcome =
-            LinkOutcome::try_complete(&fixture.link, linked, DiagnosticBag::new())
-                .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
+        fixture.outcome = LinkOutcome::try_complete(&fixture.link, linked, DiagnosticBag::new())
+            .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
 
         let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
             &fixture.emission,
@@ -1469,8 +1455,8 @@ mod tests {
             }
         };
 
-        let executable_host =
-            (product_kind == ProductKind::Executable).then(crate::test_support::executable_host_contract);
+        let executable_host = (product_kind == ProductKind::Executable)
+            .then(crate::test_support::executable_host_contract);
 
         let mut requested = vec![RequestedArtifact::new(
             case.artifact,
@@ -1558,11 +1544,7 @@ mod tests {
 
         builder.push_input(linked_input(&input_path));
 
-        builder.push_output(linked_output(
-            0,
-            case.linked,
-            &primary_staging,
-        ));
+        builder.push_output(linked_output(0, case.linked, &primary_staging));
 
         if let Some(companion) = case.companion {
             builder.push_output(linked_output(
@@ -1585,8 +1567,11 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test linked staging must be written: {error}"));
         }
 
-        let artifacts = link.outputs().iter().zip(&final_artifacts).map(
-            |(output, artifact)| {
+        let artifacts = link
+            .outputs()
+            .iter()
+            .zip(&final_artifacts)
+            .map(|(output, artifact)| {
                 let Some(byte_len) = NonZeroU64::new(
                     u64::try_from(artifact.bytes.len())
                         .unwrap_or_else(|_| panic!("test linked length must be representable")),
@@ -1594,13 +1579,8 @@ mod tests {
                     panic!("test linked staging must be nonempty");
                 };
 
-                LinkedArtifact::new(
-                    output.kind(),
-                    output.destination().id(),
-                    byte_len,
-                )
-            },
-        );
+                LinkedArtifact::new(output.kind(), output.destination().id(), byte_len)
+            });
 
         let outcome = LinkOutcome::try_complete(&link, artifacts, DiagnosticBag::new())
             .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
@@ -1640,27 +1620,18 @@ mod tests {
         .unwrap_or_else(|error| panic!("test link input must be valid: {error:?}"))
     }
 
-    fn linked_output(
-        ordinal: u32,
-        kind: LinkedArtifactKind,
-        path: &Path,
-    ) -> PlannedLinkedArtifact {
+    fn linked_output(ordinal: u32, kind: LinkedArtifactKind, path: &Path) -> PlannedLinkedArtifact {
         let Some(path_key) = StagingPathKey::try_new(path.to_string_lossy().into_owned()) else {
             panic!("test staging path identity must be valid");
         };
 
-        let destination = StagingDestination::try_new(
-            StagingDestinationId::new(ordinal),
-            path,
-            path_key,
-        )
-        .unwrap_or_else(|error| panic!("test staging destination must be valid: {error:?}"));
+        let destination =
+            StagingDestination::try_new(StagingDestinationId::new(ordinal), path, path_key)
+                .unwrap_or_else(|error| {
+                    panic!("test staging destination must be valid: {error:?}")
+                });
 
-        PlannedLinkedArtifact::new(
-            kind,
-            LinkedArtifactRequirement::Required,
-            destination,
-        )
+        PlannedLinkedArtifact::new(kind, LinkedArtifactRequirement::Required, destination)
     }
 
     fn linked_target(product: LinkedProductKind) -> LinkTarget {
@@ -1681,13 +1652,8 @@ mod tests {
     }
 
     fn linked_driver_identity() -> LinkerDriverIdentity {
-        LinkerDriverIdentity::try_new(
-            LinkerDriverKind::EmbeddedLld,
-            "lld",
-            "1",
-            "20",
-        )
-        .unwrap_or_else(|| panic!("test linker identity must be valid"))
+        LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "lld", "1", "20")
+            .unwrap_or_else(|| panic!("test linker identity must be valid"))
     }
 
     fn memory_plan(collector: OutputSinkId) -> EmissionPlan {

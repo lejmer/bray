@@ -10,14 +10,12 @@ use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId, Ru
 use crate::cancellation::CancellationWakeRegistration;
 use crate::lane::select_execution_lane;
 use crate::{
-    CancellationContext, ExecutionLane, FrameSuspension, SchedulerSnapshot, TaskId,
-    TaskWakeCause,
+    CancellationContext, ExecutionLane, FrameSuspension, SchedulerSnapshot, TaskId, TaskWakeCause,
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
 use super::dispatch::{
-    earliest_deadline, pop_ready, queue_instant, scheduler_snapshot,
-    select_task_lane,
+    earliest_deadline, pop_ready, queue_instant, scheduler_snapshot, select_task_lane,
 };
 
 /// Target-independent scheduler policy and ready-queue storage.
@@ -173,16 +171,16 @@ impl Scheduler {
 
         let scheduler = Arc::downgrade(&self.data);
 
-        let cancellation_wake =
-            match cancellation.register_wake(Arc::new(move || wake_cancelled_task(&scheduler, task)))
-            {
-                Ok(registration) => registration,
-                Err(error) => {
-                    self.lock_state()?.tasks.remove(&task);
+        let cancellation_wake = match cancellation
+            .register_wake(Arc::new(move || wake_cancelled_task(&scheduler, task)))
+        {
+            Ok(registration) => registration,
+            Err(error) => {
+                self.lock_state()?.tasks.remove(&task);
 
-                    return Err(error.into());
-                }
-            };
+                return Err(error.into());
+            }
+        };
 
         Ok(TaskRegistration {
             task,
@@ -358,10 +356,7 @@ impl TaskRegistration {
     }
 
     /// Returns the compatible execution lane for one registered frame state.
-    pub fn lane(
-        &self,
-        state_id: ProtectedFrameStateId,
-    ) -> Result<ExecutionLane, SchedulerError> {
+    pub fn lane(&self, state_id: ProtectedFrameStateId) -> Result<ExecutionLane, SchedulerError> {
         let Some(scheduler) = self.scheduler.upgrade() else {
             return Err(SchedulerError::UnknownTask(self.task));
         };
@@ -458,8 +453,7 @@ fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
         return;
     };
 
-    let Some(DispatchState::Idle(state_id)) =
-        state.tasks.get(&task_id).map(|task| task.dispatch)
+    let Some(DispatchState::Idle(state_id)) = state.tasks.get(&task_id).map(|task| task.dispatch)
     else {
         return;
     };
@@ -566,12 +560,7 @@ impl Drop for ReadyTask {
         };
 
         let Ok(changed) = release_dispatch(
-            &scheduler,
-            &mut state,
-            self.task,
-            self.state,
-            self.state,
-            false,
+            &scheduler, &mut state, self.task, self.state, self.state, false,
         ) else {
             return;
         };
@@ -747,7 +736,7 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{Scheduler, SchedulerError, SchedulerLimits};
-    use crate::test_support::TestFrame;
+    use crate::test_support::{TestFrame, register_task};
     use crate::{
         ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ScheduledTaskState,
         TaskControlBlock, TaskWakeCause,
@@ -770,15 +759,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::completing(1))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         registration
             .wake_handle()
@@ -821,25 +802,9 @@ mod tests {
         let second_task = TaskControlBlock::start(TestFrame::completing(2))
             .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
 
-        let first = scheduler
-            .register_task(
-                first_task.id(),
-                first_task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                first_task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("first task must register: {error:?}"));
+        let first = register_task(&scheduler, &first_task, runtime.runtime().id());
 
-        let second = scheduler
-            .register_task(
-                second_task.id(),
-                second_task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                second_task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("second task must register: {error:?}"));
+        let second = register_task(&scheduler, &second_task, runtime.runtime().id());
 
         first
             .wake_handle()
@@ -880,15 +845,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::completing(1))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         let wake = registration.wake_handle();
 
@@ -936,15 +893,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::suspending_then_completing(1))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         let wake = registration.wake_handle();
 
@@ -984,15 +933,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::cancellation_aware())
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let _registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let _registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         assert!(task.request_cancellation());
 
@@ -1014,15 +955,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::completing(1))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         let deadline = MonotonicClock
             .deadline_after(Duration::ZERO)
@@ -1056,15 +989,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::suspending_then_completing(1))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         registration
             .wake_handle()
@@ -1115,15 +1040,7 @@ mod tests {
         let second = TaskControlBlock::start(TestFrame::completing(2))
             .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
 
-        let _registration = scheduler
-            .register_task(
-                first.id(),
-                first.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                first.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("first task must register: {error:?}"));
+        let _registration = register_task(&scheduler, &first, runtime.runtime().id());
 
         assert!(matches!(
             scheduler.register_task(
@@ -1158,15 +1075,7 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::completing(1))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        let registration = scheduler
-            .register_task(
-                task.id(),
-                task.descriptor().clone(),
-                runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
-                task.cancellation_context(),
-            )
-            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         registration
             .wake_handle()

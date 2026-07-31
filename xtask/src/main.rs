@@ -10,8 +10,7 @@ mod runtime_artifact;
 mod style;
 mod workspace;
 
-const USAGE: &str =
-    "usage: cargo xtask <compiler-known | llvm | package-interface | readiness | runtime-artifact | style> ...";
+const USAGE: &str = "usage: cargo xtask <compiler-known | llvm | package-interface | readiness | runtime-artifact | style> ...";
 
 fn main() -> std::process::ExitCode {
     let mut arguments = std::env::args().skip(1);

@@ -4,11 +4,9 @@ use bray_diagnostics::DiagnosticBag;
 use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticNote};
 use bray_source::SourceStore;
 
-use super::frame::write_source_frame;
 use super::super::source_map::DiagnosticSourceMap;
-use crate::output::{
-    color_bright_text, color_note_heading, color_severity_label,
-};
+use super::frame::write_source_frame;
+use crate::output::{color_bright_text, color_note_heading, color_severity_label};
 
 pub(crate) fn write_text_diagnostics(
     diagnostics: &DiagnosticBag,

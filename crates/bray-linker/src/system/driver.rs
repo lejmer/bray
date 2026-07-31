@@ -122,17 +122,17 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    use bray_target::{
-        CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
-    };
+    use bray_target::{ObjectFormat, TargetArchitecture};
     use bray_testing::TemporaryFile;
 
     use super::{SystemLinkerDriver, SystemLinkerDriverBuildError};
-    use crate::test_support::{RecordingExternalToolHost, TestOutput, planned_output, product};
+    use crate::test_support::{
+        RecordingExternalToolHost, TestOutput, planned_output, product, target,
+    };
     use crate::{
         ExternalToolFailure, ExternalToolHost, ExternalToolOutput, LinkFailure, LinkInput,
-        LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel,
-        LinkPlan, LinkPlanBuilder, LinkPolicy, LinkStatus, LinkTarget, LinkedArtifactKind,
+        LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource, LinkPlan,
+        LinkPlanBuilder, LinkPolicy, LinkStatus, LinkTarget, LinkedArtifactKind,
         LinkedArtifactRequirement, LinkedProductKind, LinkerDriver, LinkerDriverIdentity,
         LinkerDriverKind, SystemLinkerConfiguration, SystemLinkerFamily,
     };
@@ -423,23 +423,6 @@ mod tests {
         builder
             .finish()
             .unwrap_or_else(|error| panic!("test link plan must be valid: {error:?}"))
-    }
-
-    fn target(architecture: TargetArchitecture, object_format: ObjectFormat) -> LinkTarget {
-        let Some(identity) = TargetIdentity::try_new("test-target") else {
-            panic!("test target identity must be valid");
-        };
-
-        LinkTarget::try_new(
-            identity,
-            "test-target-triple",
-            architecture,
-            object_format,
-            RelocationModel::PositionIndependent,
-            CodeModel::Small,
-            LinkModel::Dynamic,
-        )
-        .unwrap_or_else(|error| panic!("test link target must be valid: {error:?}"))
     }
 
     fn configuration(

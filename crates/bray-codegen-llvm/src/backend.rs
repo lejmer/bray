@@ -370,8 +370,8 @@ mod tests {
     use bray_base::Cancellation;
     use bray_codegen::ArtifactContentSource;
     use bray_codegen::test_support::{
-        codegen_request_for_backend, codegen_request_for_seed_and_backend, codegen_target,
-        codegen_request_for_target_and_backend, codegen_target_with_profile,
+        codegen_request_for_backend, codegen_request_for_seed_and_backend,
+        codegen_request_for_target_and_backend, codegen_target, codegen_target_with_profile,
     };
     use bray_codegen::{BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus};
     use bray_target::test_support::test_target_profile;
@@ -748,7 +748,7 @@ mod tests {
     impl Cancellation for CancelAfter {
         fn is_cancelled(&self) -> bool {
             self.remaining_checks
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
                     remaining.checked_sub(1)
                 })
                 .is_err()

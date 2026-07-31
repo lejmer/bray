@@ -95,11 +95,6 @@ const PROJECT_COMMAND_SELECTION_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
-const PROJECT_COMMAND_UNAVAILABLE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("project command capability is unavailable in this toolchain: "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
-];
-
 const PROJECT_COMMAND_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("project command operation failed: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -1007,9 +1002,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::ProjectDependencyCycle => MessageTemplate::new(PROJECT_DEPENDENCY_CYCLE),
         DiagnosticKind::ProjectCommandSelectionInvalid => {
             MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
-        }
-        DiagnosticKind::ProjectCommandUnavailable => {
-            MessageTemplate::new(PROJECT_COMMAND_UNAVAILABLE)
         }
         DiagnosticKind::ProjectCommandFailed => MessageTemplate::new(PROJECT_COMMAND_FAILED),
         DiagnosticKind::FormatterSourceNotFormatted => {

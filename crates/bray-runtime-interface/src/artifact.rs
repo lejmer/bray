@@ -7,11 +7,9 @@ use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiOperation,
-    ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion,
-    RuntimeArtifactId, RuntimeCapability, RuntimeContract,
-    RuntimeContractBuildError, RuntimeIdentity, RuntimeRoleBinding,
-    RuntimeRoleImplementation,
+    BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiOperation, ProtectedFrameAbiVersions,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract,
+    RuntimeContractBuildError, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 
 const FORMAT: &str = "bray_native_runtime";
@@ -84,9 +82,7 @@ impl RuntimeArtifactMetadata {
         archive_file_name: impl Into<Arc<str>>,
         archive_digest: RuntimeArtifactDigest,
     ) -> Result<Self, RuntimeArtifactMetadataBuildError> {
-        let Some(archive_file_name) =
-            NonEmptySharedStr::try_new(archive_file_name)
-        else {
+        let Some(archive_file_name) = NonEmptySharedStr::try_new(archive_file_name) else {
             return Err(RuntimeArtifactMetadataBuildError::InvalidArchiveFileName);
         };
 
@@ -113,9 +109,7 @@ impl RuntimeArtifactMetadata {
     }
 
     /// Decodes and validates one bounded JSON metadata document.
-    pub fn decode_json(
-        bytes: &[u8],
-    ) -> Result<Self, RuntimeArtifactMetadataDecodeError> {
+    pub fn decode_json(bytes: &[u8]) -> Result<Self, RuntimeArtifactMetadataDecodeError> {
         if bytes.len() > MAXIMUM_METADATA_BYTES {
             return Err(RuntimeArtifactMetadataDecodeError::SizeLimitExceeded);
         }
@@ -127,9 +121,7 @@ impl RuntimeArtifactMetadata {
     }
 
     /// Encodes this metadata as a deterministic JSON document.
-    pub fn encode_json(
-        &self,
-    ) -> Result<Vec<u8>, RuntimeArtifactMetadataEncodeError> {
+    pub fn encode_json(&self) -> Result<Vec<u8>, RuntimeArtifactMetadataEncodeError> {
         let mut bytes = serde_json::to_vec_pretty(&ArtifactWire::from_metadata(self))
             .map_err(|_| RuntimeArtifactMetadataEncodeError::Serialization)?;
 
@@ -162,9 +154,7 @@ impl RuntimeArtifactMetadata {
         &self.native_links
     }
 
-    fn from_wire(
-        wire: ArtifactWire,
-    ) -> Result<Self, RuntimeArtifactMetadataDecodeError> {
+    fn from_wire(wire: ArtifactWire) -> Result<Self, RuntimeArtifactMetadataDecodeError> {
         if wire.format != FORMAT || wire.format_version != FORMAT_VERSION {
             return Err(RuntimeArtifactMetadataDecodeError::UnsupportedFormat);
         }
@@ -185,9 +175,8 @@ impl RuntimeArtifactMetadata {
             .capabilities
             .iter()
             .map(|name| {
-                RuntimeCapability::from_name(name).ok_or(
-                    RuntimeArtifactMetadataDecodeError::UnknownCapability,
-                )
+                RuntimeCapability::from_name(name)
+                    .ok_or(RuntimeArtifactMetadataDecodeError::UnknownCapability)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -240,8 +229,7 @@ impl RuntimeArtifact {
     ) -> Result<Self, RuntimeArtifactBuildError> {
         let archive = archive.into();
 
-        if archive.file_name().and_then(|name| name.to_str())
-            != Some(metadata.archive_file_name())
+        if archive.file_name().and_then(|name| name.to_str()) != Some(metadata.archive_file_name())
         {
             return Err(RuntimeArtifactBuildError::ArchiveFileNameMismatch);
         }
@@ -418,22 +406,13 @@ impl FrameAbiWire {
     fn from_versions(versions: ProtectedFrameAbiVersions) -> Self {
         Self {
             resume: version_for(versions, ProtectedFrameAbiOperation::Resume),
-            task_broadcast: version_for(
-                versions,
-                ProtectedFrameAbiOperation::TaskBroadcast,
-            ),
+            task_broadcast: version_for(versions, ProtectedFrameAbiOperation::TaskBroadcast),
             lifecycle_resolution: version_for(
                 versions,
                 ProtectedFrameAbiOperation::LifecycleResolution,
             ),
-            completion_move: version_for(
-                versions,
-                ProtectedFrameAbiOperation::CompletionMove,
-            ),
-            destruction: version_for(
-                versions,
-                ProtectedFrameAbiOperation::Destruction,
-            ),
+            completion_move: version_for(versions, ProtectedFrameAbiOperation::CompletionMove),
+            destruction: version_for(versions, ProtectedFrameAbiOperation::Destruction),
         }
     }
 
@@ -465,19 +444,15 @@ impl RoleWire {
         }
     }
 
-    fn into_binding(
-        self,
-    ) -> Result<RuntimeRoleBinding, RuntimeArtifactMetadataDecodeError> {
+    fn into_binding(self) -> Result<RuntimeRoleBinding, RuntimeArtifactMetadataDecodeError> {
         let role = RuntimeAbiRole::from_name(&self.role)
             .ok_or(RuntimeArtifactMetadataDecodeError::UnknownRole)?;
 
         let symbol = BinarySymbolName::try_new(self.symbol)
             .ok_or(RuntimeArtifactMetadataDecodeError::InvalidRoleSymbol)?;
 
-        let implementation =
-            RuntimeRoleImplementation::from_name(&self.implementation).ok_or(
-                RuntimeArtifactMetadataDecodeError::UnknownRoleImplementation,
-            )?;
+        let implementation = RuntimeRoleImplementation::from_name(&self.implementation)
+            .ok_or(RuntimeArtifactMetadataDecodeError::UnknownRoleImplementation)?;
 
         Ok(RuntimeRoleBinding::new(role, symbol, implementation))
     }
@@ -498,9 +473,7 @@ impl NativeLinkWire {
         }
     }
 
-    fn into_requirement(
-        self,
-    ) -> Result<NativeLinkRequirement, RuntimeArtifactMetadataDecodeError> {
+    fn into_requirement(self) -> Result<NativeLinkRequirement, RuntimeArtifactMetadataDecodeError> {
         let name = NonEmptySharedStr::try_new(self.name)
             .ok_or(RuntimeArtifactMetadataDecodeError::InvalidNativeLinkName)?;
 
@@ -529,7 +502,9 @@ fn is_file_name(value: &str) -> bool {
     let path = Path::new(value);
 
     path.file_name().and_then(|name| name.to_str()) == Some(value)
-        && path.parent().is_some_and(|parent| parent.as_os_str().is_empty())
+        && path
+            .parent()
+            .is_some_and(|parent| parent.as_os_str().is_empty())
 }
 
 #[cfg(test)]
@@ -539,15 +514,13 @@ mod tests {
     use bray_target::TargetIdentity;
 
     use super::{
-        MAXIMUM_METADATA_BYTES, RuntimeArtifact, RuntimeArtifactBuildError,
-        RuntimeArtifactDigest, RuntimeArtifactMetadata,
-        RuntimeArtifactMetadataDecodeError,
+        MAXIMUM_METADATA_BYTES, RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactDigest,
+        RuntimeArtifactMetadata, RuntimeArtifactMetadataDecodeError,
         RuntimeArtifactMetadataEncodeError,
     };
     use crate::{
-        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions,
-        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId,
-        RuntimeCapability, RuntimeContract, RuntimeIdentity,
+        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
+        RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity,
         RuntimeRoleBinding, RuntimeRoleImplementation,
     };
 
@@ -582,11 +555,7 @@ mod tests {
         );
 
         assert_eq!(
-            RuntimeArtifact::try_new(
-                metadata(),
-                "other.lib",
-                RuntimeArtifactDigest::new([7; 32]),
-            ),
+            RuntimeArtifact::try_new(metadata(), "other.lib", RuntimeArtifactDigest::new([7; 32]),),
             Err(RuntimeArtifactBuildError::ArchiveFileNameMismatch)
         );
 
@@ -685,10 +654,8 @@ mod tests {
             ],
             [RuntimeRoleBinding::new(
                 RuntimeAbiRole::MainThreadLaneStartup,
-                BinarySymbolName::try_new(
-                    crate::MAIN_THREAD_LANE_STARTUP_SYMBOL,
-                )
-                .unwrap_or_else(|| panic!("runtime symbol must be valid")),
+                BinarySymbolName::try_new(crate::MAIN_THREAD_LANE_STARTUP_SYMBOL)
+                    .unwrap_or_else(|| panic!("runtime symbol must be valid")),
                 RuntimeRoleImplementation::BrayRuntime,
             )],
         )

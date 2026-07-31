@@ -1,6 +1,4 @@
-use bray_formatter::{
-    FormatFileErrorKind, FormatFileOutcome, FormatMode, format_file,
-};
+use bray_formatter::{FormatFileErrorKind, FormatFileOutcome, FormatMode, format_file};
 use bray_testing::TemporaryFile;
 
 #[test]
@@ -57,7 +55,7 @@ fn write_mode_preserves_utf8_byte_order_mark_and_crlf() {
     assert_eq!(outcome, FormatFileOutcome::Written);
     assert!(bytes.starts_with(b"\xef\xbb\xbf"));
     assert!(source.contains("\r\n"));
-    assert_eq!(source.replace("\r\n", "").contains('\n'), false);
+    assert!(!source.replace("\r\n", "").contains('\n'));
 }
 
 #[test]

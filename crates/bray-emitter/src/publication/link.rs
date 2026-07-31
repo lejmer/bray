@@ -2,16 +2,10 @@ use std::path::Path;
 
 use bray_base::Cancellation;
 use bray_codegen::ArtifactDigest;
-use bray_linker::{
-    LinkInputProvenance, LinkInputSource, LinkPlan, LinkedArtifactSet,
-};
+use bray_linker::{LinkInputProvenance, LinkInputSource, LinkPlan, LinkedArtifactSet};
 
-use crate::artifact::content::{
-    ContentValidationError, validate_staged_content,
-};
-use crate::{
-    ArtifactId, ArtifactProducer, EmissionPlan, PlannedArtifact,
-};
+use crate::artifact::content::{ContentValidationError, validate_staged_content};
+use crate::{ArtifactId, ArtifactProducer, EmissionPlan, PlannedArtifact};
 
 pub(super) struct PreparedLinkedArtifact<'plan, 'link> {
     planned: &'plan PlannedArtifact,
@@ -88,13 +82,9 @@ pub(super) fn prepare_linked_artifacts<'plan, 'link>(
 
         let byte_len = artifact.byte_len().get();
 
-        let digest = validate_staged_content(
-            output.destination().path(),
-            byte_len,
-            None,
-            cancellation,
-        )
-        .map_err(|error| content_error(planned, error))?;
+        let digest =
+            validate_staged_content(output.destination().path(), byte_len, None, cancellation)
+                .map_err(|error| content_error(planned, error))?;
 
         prepared.push(PreparedLinkedArtifact {
             planned,

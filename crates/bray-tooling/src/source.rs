@@ -163,9 +163,7 @@ fn source_input_from_file_argument(
     ))
 }
 
-fn source_identity_for_input_index(
-    input_index: usize,
-) -> Result<SourceIdentity, SourceInputError> {
+fn source_identity_for_input_index(input_index: usize) -> Result<SourceIdentity, SourceInputError> {
     let raw = match u32::try_from(input_index) {
         Ok(raw) => raw,
         Err(_) => return Err(SourceInputError::SourceIdentityOverflow { input_index }),
@@ -186,8 +184,8 @@ mod tests {
     use bray_source::{SourceId, SourceIdentity, SourceVersion};
 
     use super::{
-        SourceInputError, compilation_request_from_file_arguments,
-        source_identity_for_input_index, source_inputs_from_file_arguments,
+        SourceInputError, compilation_request_from_file_arguments, source_identity_for_input_index,
+        source_inputs_from_file_arguments,
     };
     use crate::test_support::{TemporaryFile, package_identity, unique_temporary_directory};
 

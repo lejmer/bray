@@ -251,9 +251,10 @@ impl Lowerer<'_> {
         let iteration = self.begin_iteration(id, expression.source(), current)?;
         let iteration_type = self.expression_type(id)?;
 
-        let break_block = self
-            .builder
-            .push_block(Self::retained_source(&iteration.source), MirBlockKind::Ordinary)?;
+        let break_block = self.builder.push_block(
+            Self::retained_source(&iteration.source),
+            MirBlockKind::Ordinary,
+        )?;
 
         self.builder.push_block_parameter(
             break_block,
@@ -496,7 +497,7 @@ impl Lowerer<'_> {
             .unit()
             .view()
             .expression(expression)
-            .map(bray_bound_tree::BoundExpression::origin)
+            .map(BoundExpression::origin)
             .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
 
         self.place_for_identity(id, ty, origin)

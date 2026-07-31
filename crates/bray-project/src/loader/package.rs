@@ -6,8 +6,8 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
 
 use crate::manifest::{
-    DependencyManifest, OutputKindManifest, PackageManifest, PackageRoleManifest, ProductKindManifest,
-    ProductManifest, SourceRootManifest, WorkspacePackageManifest,
+    DependencyManifest, OutputKindManifest, PackageManifest, PackageRoleManifest,
+    ProductKindManifest, ProductManifest, SourceRootManifest, WorkspacePackageManifest,
 };
 use crate::{
     FeatureName, PackageRole, ProjectLoadError, ProjectManifestProblem, ProjectPackage,
@@ -159,8 +159,12 @@ fn load_source_roots(
                 ));
             }
 
-            let sources =
-                Arc::from(collect_sources(workspace_root, package_path, &path, manifest_path)?);
+            let sources = Arc::from(collect_sources(
+                workspace_root,
+                package_path,
+                &path,
+                manifest_path,
+            )?);
 
             Ok(ProjectSourceRoot::new(name, path, sources))
         })
@@ -169,7 +173,9 @@ fn load_source_roots(
     roots.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
     reject_duplicate(
-        roots.windows(2).find(|pair| pair[0].name() == pair[1].name()),
+        roots
+            .windows(2)
+            .find(|pair| pair[0].name() == pair[1].name()),
         manifest_path,
         |pair| pair[0].name(),
     )?;
@@ -331,11 +337,7 @@ fn load_dependencies(
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
             ProjectManifestProblem::DuplicateSelection,
-            format!(
-                "{}/{}",
-                pair[0].package.as_str(),
-                pair[0].product
-            ),
+            format!("{}/{}", pair[0].package.as_str(), pair[0].product),
         ));
     }
 

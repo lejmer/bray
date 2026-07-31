@@ -22,9 +22,7 @@ pub(crate) fn encode_response_arguments(
 
     match encoding {
         ResponseFileEncoding::Utf8 => encode_utf8(&arguments),
-        ResponseFileEncoding::Utf16LittleEndian => {
-            encode_utf16_little_endian(&arguments)
-        }
+        ResponseFileEncoding::Utf16LittleEndian => encode_utf16_little_endian(&arguments),
     }
 }
 
@@ -33,17 +31,12 @@ pub(crate) fn response_file_materialization_path(
     current_directory: Option<&Path>,
 ) -> PathBuf {
     match current_directory {
-        Some(directory) if reference.is_relative() => {
-            directory.join(reference)
-        }
+        Some(directory) if reference.is_relative() => directory.join(reference),
         _ => reference.to_path_buf(),
     }
 }
 
-pub(crate) fn response_file_path(
-    output: &Path,
-    suffix: &str,
-) -> PathBuf {
+pub(crate) fn response_file_path(output: &Path, suffix: &str) -> PathBuf {
     let mut path = output.as_os_str().to_os_string();
 
     path.push(suffix);
@@ -59,9 +52,7 @@ pub(crate) fn response_file_reference(path: &Path) -> OsString {
     argument
 }
 
-fn encode_utf8(
-    arguments: &[&str],
-) -> Result<Vec<u8>, ResponseFileEncodingError> {
+fn encode_utf8(arguments: &[&str]) -> Result<Vec<u8>, ResponseFileEncodingError> {
     let mut contents = Vec::new();
 
     for argument in arguments {
@@ -94,9 +85,7 @@ fn quote_gnu(argument: &str) -> Result<String, ResponseFileEncodingError> {
     Ok(quoted)
 }
 
-fn encode_utf16_little_endian(
-    arguments: &[&str],
-) -> Result<Vec<u8>, ResponseFileEncodingError> {
+fn encode_utf16_little_endian(arguments: &[&str]) -> Result<Vec<u8>, ResponseFileEncodingError> {
     let mut text = String::new();
 
     for argument in arguments {
@@ -125,10 +114,7 @@ fn quote_microsoft(argument: &str) -> String {
         match character {
             '\\' => backslashes += 1,
             '"' => {
-                quoted.extend(std::iter::repeat_n(
-                    '\\',
-                    backslashes * 2 + 1,
-                ));
+                quoted.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
 
                 quoted.push('"');
                 backslashes = 0;
@@ -147,9 +133,7 @@ fn quote_microsoft(argument: &str) -> String {
     quoted
 }
 
-fn validate_argument(
-    argument: &str,
-) -> Result<(), ResponseFileEncodingError> {
+fn validate_argument(argument: &str) -> Result<(), ResponseFileEncodingError> {
     if argument.contains(['\0', '\n', '\r']) {
         return Err(ResponseFileEncodingError::UnsupportedArgument);
     }
@@ -167,9 +151,7 @@ pub(crate) enum ResponseFileEncodingError {
 mod tests {
     use std::ffi::OsString;
 
-    use super::{
-        ResponseFileEncoding, encode_response_arguments, quote_microsoft,
-    };
+    use super::{ResponseFileEncoding, encode_response_arguments, quote_microsoft};
 
     #[test]
     fn gnu_response_files_quote_whitespace_quotes_and_backslashes() {
@@ -181,31 +163,19 @@ mod tests {
         ];
 
         assert_eq!(
-            encode_response_arguments(
-                &arguments,
-                ResponseFileEncoding::Utf8
-            )
-            .unwrap_or_else(|error| {
-                panic!("test arguments must encode: {error:?}")
-            }),
+            encode_response_arguments(&arguments, ResponseFileEncoding::Utf8)
+                .unwrap_or_else(|error| { panic!("test arguments must encode: {error:?}") }),
             b"\"plain\"\n\"space name.o\"\n\"quote\\\"name\"\n\"path\\\\name\"\n"
         );
     }
 
     #[test]
     fn microsoft_response_files_use_utf16_little_endian_with_a_bom() {
-        let arguments = [
-            OsString::from("plain"),
-            OsString::from(r#"space \"name\""#),
-        ];
+        let arguments = [OsString::from("plain"), OsString::from(r#"space \"name\""#)];
 
-        let encoded = encode_response_arguments(
-            &arguments,
-            ResponseFileEncoding::Utf16LittleEndian,
-        )
-        .unwrap_or_else(|error| {
-            panic!("test arguments must encode: {error:?}")
-        });
+        let encoded =
+            encode_response_arguments(&arguments, ResponseFileEncoding::Utf16LittleEndian)
+                .unwrap_or_else(|error| panic!("test arguments must encode: {error:?}"));
 
         assert_eq!(&encoded[..2], &[0xff, 0xfe]);
 
@@ -215,9 +185,7 @@ mod tests {
                 .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
                 .collect::<Vec<_>>(),
         )
-        .unwrap_or_else(|error| {
-            panic!("test response must decode: {error:?}")
-        });
+        .unwrap_or_else(|error| panic!("test response must decode: {error:?}"));
 
         assert_eq!(
             decoded,

@@ -1,26 +1,26 @@
 use super::common::{decode_tag, validate_record_count};
-use bray_runtime_interface::{
-    ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
-    ProtectedFrameAbiVersions, RuntimeAbiVersion, RuntimeCapability, RuntimeRequirements,
-};
-use bray_target::TargetIdentity;
 use crate::semantic::codec::coherence::coherence_record_indexes;
 use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_string,
     read_symbol_reference, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
-use crate::tag::WireTag;
 use crate::semantic::model::{
     InterfaceAbiDependency, InterfaceCoherenceRecord, InterfaceConstantValueId,
     InterfaceImplementationRecord, InterfaceRuntimeRequirement, InterfaceSemanticFacts,
     InterfaceSourceProvenance, InterfaceTargetFactDependency, InterfaceTraitApplicationId,
     InterfaceTypeId,
 };
+use crate::tag::WireTag;
 use crate::wire::WireReader;
 use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
+use bray_runtime_interface::{
+    ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    RuntimeAbiVersion, RuntimeCapability, RuntimeRequirements,
+};
+use bray_target::TargetIdentity;
 
 pub(super) struct ImplementationRecordTables<'bytes> {
     pub(super) implementations: RecordTable<'bytes>,

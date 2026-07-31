@@ -1,7 +1,5 @@
 use bray_bound_tree::BoundReferenceTarget;
-use bray_compilation::{
-    CancellationToken, QueryPriority, SemanticAvailability,
-};
+use bray_compilation::{CancellationToken, QueryPriority, SemanticAvailability};
 use bray_declarations::DeclarationKind;
 use bray_diagnostics::{DiagnosticBag, SeverityKind};
 use bray_messages::DiagnosticRenderer;

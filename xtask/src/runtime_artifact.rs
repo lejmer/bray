@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
-use bray_base::NonEmptySharedStr;
 use crate::{digest, workspace};
+use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
     COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
@@ -86,10 +86,7 @@ pub(crate) fn smoke_test_host() -> Result<(), String> {
     smoke_test_command(std::iter::empty()).map_err(|error| error.to_string())
 }
 
-pub(crate) fn build_for_readiness(
-    target: NativeTarget,
-    output: &Path,
-) -> Result<PathBuf, String> {
+pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
     let options = BuildOptions {
         target,
         output: output.to_path_buf(),
@@ -186,11 +183,9 @@ fn metadata(
     let identity =
         RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
 
-    let artifact = RuntimeArtifactId::try_new(format!(
-        "{RUNTIME_IDENTITY}.{}",
-        options.target.as_str()
-    ))
-        .ok_or(CommandError::MetadataContract)?;
+    let artifact =
+        RuntimeArtifactId::try_new(format!("{RUNTIME_IDENTITY}.{}", options.target.as_str()))
+            .ok_or(CommandError::MetadataContract)?;
 
     let target = options.target.identity();
 

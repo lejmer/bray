@@ -1,8 +1,6 @@
 use serde::Deserialize;
 
-use super::workspace::{
-    RustWorkspace, require_executable_source_contracts, require_ordered_names,
-};
+use super::workspace::{RustWorkspace, require_executable_source_contracts, require_ordered_names};
 
 const REQUIRED_CONTRACTS: &[&str] = &[
     "typed plan validation",
@@ -66,10 +64,7 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
     require_typed_fact_boundary(workspace)
 }
 
-fn require_executable_rows(
-    rows: &[CoverageRow],
-    workspace: &RustWorkspace,
-) -> Result<(), String> {
+fn require_executable_rows(rows: &[CoverageRow], workspace: &RustWorkspace) -> Result<(), String> {
     require_executable_source_contracts(
         rows.iter().map(|row| {
             (

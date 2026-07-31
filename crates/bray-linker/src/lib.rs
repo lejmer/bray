@@ -20,10 +20,8 @@ mod target;
 #[cfg(test)]
 mod test_support;
 
+pub use archive::{LlvmArchiveDriver, LlvmArchiveDriverBuildError};
 pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
-pub use archive::{
-    LlvmArchiveDriver, LlvmArchiveDriverBuildError,
-};
 pub use driver::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
 pub use external_tool::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,

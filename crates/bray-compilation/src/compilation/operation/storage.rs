@@ -11,8 +11,7 @@ use bray_symbols::{
 use super::super::Compilation;
 use super::super::binder::{CompilationBinderFacts, binder_fact_error};
 use super::super::implementation::{
-    callable_instance, implementation_fulfillments, implementation_requirement,
-    selected_callable,
+    callable_instance, implementation_fulfillments, implementation_requirement, selected_callable,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -89,7 +88,10 @@ pub(in crate::compilation) fn selected_storage_callable(
     diagnostics = diagnostics.merged(signature.diagnostics());
 
     let checked = compilation.checked_constant_terms_for_templates_with_cancellation(
-        [signature.value().callable_type(), signature.value().result()],
+        [
+            signature.value().callable_type(),
+            signature.value().result(),
+        ],
         cancellation,
     )?;
 

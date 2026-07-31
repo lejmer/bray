@@ -48,8 +48,6 @@ define_diagnostic_kinds! {
     ProjectDependencyCycle,
     /// A Bray Tack command selection is absent from the explicit project graph.
     ProjectCommandSelectionInvalid,
-    /// A Bray Tack command capability is unavailable in this toolchain.
-    ProjectCommandUnavailable,
     /// A Bray Tack project operation failed.
     ProjectCommandFailed,
     /// Selected Bray source does not match deterministic formatter output.
@@ -389,7 +387,6 @@ impl DiagnosticKind {
             Self::ProjectDependencyProductInvalid => 1207,
             Self::ProjectDependencyCycle => 1208,
             Self::ProjectCommandSelectionInvalid => 1209,
-            Self::ProjectCommandUnavailable => 1210,
             Self::ProjectCommandFailed => 1211,
             Self::FormatterSourceNotFormatted => 1301,
             Self::FormatterSourceInvalidUtf8 => 1302,
@@ -574,7 +571,6 @@ impl DiagnosticKind {
             Self::ProjectDependencyProductInvalid => "project_dependency_product_invalid",
             Self::ProjectDependencyCycle => "project_dependency_cycle",
             Self::ProjectCommandSelectionInvalid => "project_command_selection_invalid",
-            Self::ProjectCommandUnavailable => "project_command_unavailable",
             Self::ProjectCommandFailed => "project_command_failed",
             Self::FormatterSourceNotFormatted => "formatter_source_not_formatted",
             Self::FormatterSourceInvalidUtf8 => "formatter_source_invalid_utf8",

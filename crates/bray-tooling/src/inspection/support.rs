@@ -7,9 +7,7 @@ use bray_symbols::{AnySymbolId, SymbolGraph};
 use bray_syntax::SyntaxTrivia;
 use serde::Serialize;
 
-use crate::output::{
-    DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput,
-};
+use crate::output::{DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput};
 
 /// Rendered report text and diagnostics produced by one inspection request.
 pub struct InspectionOutput {
@@ -18,10 +16,7 @@ pub struct InspectionOutput {
 }
 
 impl InspectionOutput {
-    pub(crate) const fn new(
-        stdout: String,
-        diagnostics: DiagnosticBag,
-    ) -> Self {
+    pub(crate) const fn new(stdout: String, diagnostics: DiagnosticBag) -> Self {
         Self {
             stdout,
             diagnostics,
@@ -32,6 +27,34 @@ impl InspectionOutput {
     pub fn into_parts(self) -> (String, DiagnosticBag) {
         (self.stdout, self.diagnostics)
     }
+}
+
+pub(crate) fn render_pretty_json(value: &impl Serialize) -> Result<String, serde_json::Error> {
+    let mut output = serde_json::to_string_pretty(value)?;
+
+    output.push('\n');
+
+    Ok(output)
+}
+
+pub(crate) fn push_report_value(
+    output: &mut String,
+    key: &str,
+    value: impl std::fmt::Display,
+) {
+    output.push_str(key);
+    output.push_str(": ");
+    output.push_str(&value.to_string());
+    output.push('\n');
+}
+
+pub(crate) fn push_indented_report_value(
+    output: &mut String,
+    key: &str,
+    value: impl std::fmt::Display,
+) {
+    output.push_str("  ");
+    push_report_value(output, key, value);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

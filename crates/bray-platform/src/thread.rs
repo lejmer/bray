@@ -134,9 +134,7 @@ impl<T: Send + 'static> NativeThread<T> {
 
         let join = builder
             .spawn(move || run_initialized_thread(id, callback))
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::ThreadSpawn, &error)
-            })?;
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ThreadSpawn, &error))?;
 
         // The wake authority must remain available after the join handle is moved.
         let thread = join.thread().clone();
@@ -162,7 +160,7 @@ impl<T: Send + 'static> NativeThread<T> {
 
 fn next_runtime_thread_id() -> Result<RuntimeThreadId, PlatformError> {
     let id = NEXT_RUNTIME_THREAD_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             current.checked_add(1)
         })
         .map_err(|_| {
@@ -188,8 +186,10 @@ fn run_initialized_thread<T>(
         return NativeThreadOutcome::Panicked;
     };
 
-    catch_unwind(AssertUnwindSafe(|| callback(RuntimeThread::new(id))))
-        .map_or(NativeThreadOutcome::Panicked, NativeThreadOutcome::Completed)
+    catch_unwind(AssertUnwindSafe(|| callback(RuntimeThread::new(id)))).map_or(
+        NativeThreadOutcome::Panicked,
+        NativeThreadOutcome::Completed,
+    )
 }
 
 #[cfg(test)]

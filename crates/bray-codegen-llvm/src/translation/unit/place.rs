@@ -1,6 +1,7 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_element, extract_value, insert_value, int_value, llvm, pointer_value,
+    aggregate_element, extract_value, insert_value, int_value, llvm, mapped_type_size,
+    pointer_field_index, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{
@@ -71,14 +72,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             {
                 Ok(pointer)
             }
-            MirProjectionKind::Dereference => {
-                pointer_value(llvm(self.builder.build_load(
-                    self.types.map(source_type)?,
-                    pointer,
-                    "dereference",
-                ))?)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)
-            }
+            MirProjectionKind::Dereference => pointer_value(llvm(self.builder.build_load(
+                self.types.map(source_type)?,
+                pointer,
+                "dereference",
+            ))?)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant),
             MirProjectionKind::Field(_)
             | MirProjectionKind::TupleField(_)
             | MirProjectionKind::ElementFromStart(_)
@@ -160,12 +159,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let stride = self
-            .request
-            .mappings()
-            .ty(*element)
-            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let stride = mapped_type_size(self.request.mappings(), *element)?;
 
         let offset = stride
             .checked_mul(index)
@@ -185,24 +179,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match kind {
             CodegenTypeKind::Array { element, .. } => {
-                let stride = self
-                    .request
-                    .mappings()
-                    .ty(*element)
-                    .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let stride = mapped_type_size(self.request.mappings(), *element)?;
 
                 self.dynamic_offset_pointer(pointer, index, stride)
             }
             CodegenTypeKind::UnsizedSlice { element } => {
                 let (data, _) = self.unsized_slice_parts(pointer, source_type)?;
 
-                let stride = self
-                    .request
-                    .mappings()
-                    .ty(*element)
-                    .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let stride = mapped_type_size(self.request.mappings(), *element)?;
 
                 self.dynamic_offset_pointer(data, index, stride)
             }
@@ -274,12 +258,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let length = llvm(self.builder.build_int_sub(end, start, "slice.length"))?;
 
-        let stride = self
-            .request
-            .mappings()
-            .ty(element)
-            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let stride = mapped_type_size(self.request.mappings(), element)?;
 
         let data = self.dynamic_offset_pointer(data, start, stride)?;
 
@@ -295,12 +274,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mut result = self.types.map(result_type)?.const_zero();
 
-        result = insert_value(
-            &self.builder,
-            result,
-            data.into(),
-            0,
-        )?;
+        result = insert_value(&self.builder, result, data.into(), 0)?;
 
         result = insert_value(&self.builder, result, length.into(), 1)?;
 
@@ -323,10 +297,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .build_struct_gep(source, pointer, 0, "slice.data.address"),
         )?;
 
-        let length = llvm(
-            self.builder
-                .build_struct_gep(source, pointer, 1, "slice.length.address"),
-        )?;
+        let length =
+            llvm(
+                self.builder
+                    .build_struct_gep(source, pointer, 1, "slice.length.address"),
+            )?;
 
         let data = llvm(self.builder.build_load(
             self.types.default_pointer_type()?,
@@ -334,13 +309,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "slice.data",
         ))?;
 
-        let length = llvm(self.builder.build_load(
-            self.types
-                .context()
-                .ptr_sized_int_type(self.types.target_data(), None),
-            length,
-            "slice.length",
-        ))?;
+        let length = llvm(
+            self.builder.build_load(
+                self.types
+                    .context()
+                    .ptr_sized_int_type(self.types.target_data(), None),
+                length,
+                "slice.length",
+            ),
+        )?;
 
         Ok((
             pointer_value(data).ok_or(CodegenFailure::GeneratedModuleInvariant)?,
@@ -354,17 +331,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         source_type: bray_symbols::TypeId,
         fields: &[bray_codegen::CodegenFieldLayout],
     ) -> Result<(PointerValue<'context>, inkwell::values::IntValue<'context>), CodegenFailure> {
-        let pointer_index = fields
-            .iter()
-            .position(|field| {
-                self.request
-                    .mappings()
-                    .ty(field.ty())
-                    .is_some_and(|mapping| {
-                        matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
-                    })
-            })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let pointer_index = pointer_field_index(self.request.mappings(), fields)?;
 
         let length_index = 1_usize
             .checked_sub(pointer_index)

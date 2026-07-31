@@ -1,6 +1,6 @@
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenHelperMapping, CodegenParameterMapping,
-    CodegenResultMapping,
+    CodegenCallableSignature, CodegenFailure, CodegenFieldLayout, CodegenHelperMapping,
+    CodegenMappings, CodegenParameterMapping, CodegenResultMapping, CodegenTypeKind,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
 use bray_symbols::{IntegerConstant, IntegerSign, RealConstantBits};
@@ -104,16 +104,38 @@ pub(super) fn aggregate_element(
     semantic_index: usize,
 ) -> Result<u32, CodegenFailure> {
     physical_aggregate_element(fields, semantic_index, |field| {
-        mappings
-            .ty(field.ty())
-            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
+        mapped_type_size(mappings, field.ty())
     })
+}
+
+pub(super) fn mapped_type_size(
+    mappings: &CodegenMappings,
+    ty: bray_symbols::TypeId,
+) -> Result<u64, CodegenFailure> {
+    mappings
+        .ty(ty)
+        .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+}
+
+pub(super) fn pointer_field_index(
+    mappings: &CodegenMappings,
+    fields: &[CodegenFieldLayout],
+) -> Result<usize, CodegenFailure> {
+    fields
+        .iter()
+        .position(|field| {
+            mappings
+                .ty(field.ty())
+                .is_some_and(|mapping| matches!(mapping.kind(), CodegenTypeKind::Pointer { .. }))
+        })
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)
 }
 
 fn physical_aggregate_element(
     fields: &[bray_codegen::CodegenFieldLayout],
     semantic_index: usize,
-    field_size: impl Fn(&bray_codegen::CodegenFieldLayout) -> Option<u64>,
+    field_size: impl Fn(&bray_codegen::CodegenFieldLayout) -> Result<u64, CodegenFailure>,
 ) -> Result<u32, CodegenFailure> {
     if semantic_index >= fields.len() {
         return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -137,7 +159,7 @@ fn physical_aggregate_element(
             .checked_add(1)
             .ok_or(CodegenFailure::ResourceExhausted)?;
 
-        let field_size = field_size(field).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let field_size = field_size(field)?;
 
         previous_end = field
             .offset_bytes()
@@ -227,7 +249,7 @@ pub(crate) const fn pointer_value(value: BasicValueEnum<'_>) -> Option<PointerVa
     }
 }
 
-pub(super) const fn int_value(value: BasicValueEnum<'_>) -> Option<inkwell::values::IntValue<'_>> {
+pub(super) const fn int_value(value: BasicValueEnum<'_>) -> Option<IntValue<'_>> {
     match value {
         BasicValueEnum::IntValue(value) => Some(value),
         BasicValueEnum::ArrayValue(_)
@@ -317,12 +339,12 @@ mod tests {
             CodegenFieldLayout::new(None, ty, 8),
         ];
 
-        assert_eq!(physical_aggregate_element(&adjacent, 1, |_| Some(4)), Ok(1));
+        assert_eq!(physical_aggregate_element(&adjacent, 1, |_| Ok(4)), Ok(1));
 
-        assert_eq!(physical_aggregate_element(&padded, 1, |_| Some(4)), Ok(2));
+        assert_eq!(physical_aggregate_element(&padded, 1, |_| Ok(4)), Ok(2));
 
         assert_eq!(
-            physical_aggregate_element(&adjacent, 2, |_| Some(4)),
+            physical_aggregate_element(&adjacent, 2, |_| Ok(4)),
             Err(CodegenFailure::GeneratedModuleInvariant)
         );
     }

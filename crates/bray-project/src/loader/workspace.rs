@@ -11,9 +11,7 @@ use crate::{
 };
 
 use super::package::{PendingPackage, load_package};
-use super::validation::{
-    local_name, paths_overlap, project_path, read_manifest, require_format,
-};
+use super::validation::{local_name, paths_overlap, project_path, read_manifest, require_format};
 
 /// Loads one explicit Bray workspace into an immutable dependency-first graph.
 ///
@@ -26,11 +24,7 @@ pub fn load_project_graph(workspace_root: &Path) -> Result<ProjectGraph, Project
 
     require_format(manifest.format, &workspace_manifest_path)?;
 
-    let output_root = project_path(
-        manifest.output_root,
-        false,
-        &workspace_manifest_path,
-    )?;
+    let output_root = project_path(manifest.output_root, false, &workspace_manifest_path)?;
 
     let targets = load_targets(manifest.targets, &workspace_manifest_path)?;
 
@@ -62,7 +56,8 @@ fn load_targets(
         .map(|target| {
             let name = local_name(target.name, workspace_manifest_path)?;
 
-            let Some(identity) = TargetIdentity::try_new(Arc::<str>::from(target.identity.as_str()))
+            let Some(identity) =
+                TargetIdentity::try_new(Arc::<str>::from(target.identity.as_str()))
             else {
                 return Err(invalid_workspace(
                     workspace_manifest_path,
@@ -77,7 +72,10 @@ fn load_targets(
 
     targets.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
-    if let Some(pair) = targets.windows(2).find(|pair| pair[0].name() == pair[1].name()) {
+    if let Some(pair) = targets
+        .windows(2)
+        .find(|pair| pair[0].name() == pair[1].name())
+    {
         return Err(invalid_workspace(
             workspace_manifest_path,
             ProjectManifestProblem::DuplicateSelection,
@@ -129,7 +127,10 @@ fn load_packages(
 
     selections.sort_unstable_by(|left, right| left.path.cmp(&right.path));
 
-    if let Some(pair) = selections.windows(2).find(|pair| pair[0].path == pair[1].path) {
+    if let Some(pair) = selections
+        .windows(2)
+        .find(|pair| pair[0].path == pair[1].path)
+    {
         return Err(invalid_workspace(
             workspace_manifest_path,
             ProjectManifestProblem::DuplicateSelection,
@@ -219,7 +220,9 @@ fn validate_source_ownership(packages: &[PendingPackage]) -> Result<(), ProjectL
     Ok(())
 }
 
-fn resolve_dependencies(packages: &[PendingPackage]) -> Result<Vec<Box<[usize]>>, ProjectLoadError> {
+fn resolve_dependencies(
+    packages: &[PendingPackage],
+) -> Result<Vec<Box<[usize]>>, ProjectLoadError> {
     packages
         .iter()
         .map(|package| {
@@ -266,11 +269,7 @@ fn materialize_dependencies(
                         return Err(ProjectLoadError::invalid(
                             package.manifest_path.to_path_buf(),
                             ProjectManifestProblem::UnknownDependencyProduct,
-                            format!(
-                                "{}/{}",
-                                dependency.package.as_str(),
-                                dependency.product
-                            ),
+                            format!("{}/{}", dependency.package.as_str(), dependency.product),
                         ));
                     };
 
@@ -278,11 +277,7 @@ fn materialize_dependencies(
                         return Err(ProjectLoadError::invalid(
                             package.manifest_path.to_path_buf(),
                             ProjectManifestProblem::DependencyProductNotLibrary,
-                            format!(
-                                "{}/{}",
-                                dependency.package.as_str(),
-                                dependency.product
-                            ),
+                            format!("{}/{}", dependency.package.as_str(), dependency.product),
                         ));
                     }
 

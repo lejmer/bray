@@ -2,9 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::Deserialize;
 
-use super::workspace::{
-    RustWorkspace, require_executable_source_contracts, require_ordered_names,
-};
+use super::workspace::{RustWorkspace, require_executable_source_contracts, require_ordered_names};
 
 const REQUIRED_CONTRACTS: &[&str] = &[
     "mir-validation",
@@ -83,10 +81,7 @@ fn require_enum_coverage(
     require_executable_rows(rows, workspace)
 }
 
-fn require_executable_rows(
-    rows: &[CoverageRow],
-    workspace: &RustWorkspace,
-) -> Result<(), String> {
+fn require_executable_rows(rows: &[CoverageRow], workspace: &RustWorkspace) -> Result<(), String> {
     require_executable_source_contracts(
         rows.iter().map(|row| {
             (

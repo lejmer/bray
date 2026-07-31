@@ -1,6 +1,7 @@
 use super::super::core::UnitTranslator;
 use super::super::support::{
     aggregate_value_element, extract_value, insert_value, int_value, llvm, next_helper,
+    pointer_field_index,
 };
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
@@ -206,17 +207,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let pointer = fields
-            .iter()
-            .position(|field| {
-                self.request
-                    .mappings()
-                    .ty(field.ty())
-                    .is_some_and(|mapping| {
-                        matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
-                    })
-            })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let pointer = pointer_field_index(self.request.mappings(), &fields)?;
 
         let length = 1_usize
             .checked_sub(pointer)
@@ -487,8 +478,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let mut native =
-            crate::native::inactive_frame_type(self.types.context()).const_zero().into();
+        let mut native = crate::native::inactive_frame_type(self.types.context())
+            .const_zero()
+            .into();
 
         for (index, _) in fields.iter().enumerate() {
             let element = u32::try_from(aggregate_value_element(

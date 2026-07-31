@@ -303,8 +303,7 @@ pub fn contribution(
 fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
     let mir_target = MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
 
-    let Ok(unit) =
-        CodegenUnit::try_new(1, [test_mir_unit_for_target(u32::from(seed), mir_target)])
+    let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit_for_target(u32::from(seed), mir_target)])
     else {
         panic!("test codegen unit must be valid");
     };

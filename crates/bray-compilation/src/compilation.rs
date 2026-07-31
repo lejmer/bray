@@ -15,8 +15,8 @@ mod generic_constraint;
 mod implementation;
 mod imported;
 mod iteration;
-mod linking;
 mod limits;
+mod linking;
 mod load;
 mod lowering;
 mod operation;
@@ -41,9 +41,7 @@ pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub use facts::Compilation;
 pub use load::CompilationLoadError;
-pub use product_emission::{
-    ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs,
-};
 pub use product::{NativeProductFactError, NativeProductFacts};
+pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
 pub use source_graph::ProductSourceGraph;
 pub use tooling::{CompletionCandidate, SemanticAvailability};

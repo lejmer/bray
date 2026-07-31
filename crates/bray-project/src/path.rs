@@ -46,7 +46,9 @@ impl ProjectPath {
             || value.ends_with('/')
             || value.contains('\\')
             || value.contains('\0')
-            || value.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+            || value
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
         {
             return None;
         }
@@ -95,8 +97,7 @@ mod tests {
         };
 
         assert_eq!(
-            ProjectPath::try_relative("vendor/math")
-                .map(|path| path.as_str().to_owned()),
+            ProjectPath::try_relative("vendor/math").map(|path| path.as_str().to_owned()),
             Some(String::from("vendor/math"))
         );
 

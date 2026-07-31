@@ -2,11 +2,11 @@ use std::num::NonZeroU64;
 
 use bray_diagnostics::DiagnosticBag;
 
+use crate::outcome::failed_outcome;
 use crate::{
     LinkFailure, LinkInputSource, LinkOutcome, LinkOutcomeBuildError, LinkPlan, LinkedArtifact,
     LinkedArtifactRequirement, LinkedArtifactSetBuildError,
 };
-use crate::outcome::failed_outcome;
 
 pub(crate) fn validate_file_inputs(plan: &LinkPlan) -> Result<(), LinkFailure> {
     for input in plan.inputs() {
@@ -38,22 +38,16 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
                 continue;
             }
             Err(_) => {
-                return failed_outcome(LinkFailure::MissingOutput(
-                    destination.id(),
-                ));
+                return failed_outcome(LinkFailure::MissingOutput(destination.id()));
             }
         };
 
         let Some(byte_len) = NonZeroU64::new(metadata.len()) else {
-            return failed_outcome(LinkFailure::InvalidOutput(
-                destination.id(),
-            ));
+            return failed_outcome(LinkFailure::InvalidOutput(destination.id()));
         };
 
         if !metadata.is_file() {
-            return failed_outcome(LinkFailure::InvalidOutput(
-                destination.id(),
-            ));
+            return failed_outcome(LinkFailure::InvalidOutput(destination.id()));
         }
 
         artifacts.push(LinkedArtifact::new(
@@ -63,10 +57,7 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
         ));
     }
 
-    match LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new()) {
-        Ok(outcome) => outcome,
-        Err(error) => failed_outcome(link_outcome_failure(error)),
-    }
+    LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new()).unwrap_or_else(|error| failed_outcome(link_outcome_failure(error)))
 }
 
 fn link_outcome_failure(error: LinkOutcomeBuildError) -> LinkFailure {

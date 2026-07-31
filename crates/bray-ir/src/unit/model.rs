@@ -61,33 +61,25 @@ mod tests {
     fn generated_lifecycle_identity_uses_role_and_structural_type_identity() {
         let identity = [7; 32];
 
-        let finalize =
-            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, identity);
+        let finalize = MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, identity);
 
-        let destroy =
-            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Destroy, identity);
+        let destroy = MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Destroy, identity);
 
         let cleanup = MirGeneratedLifecycleKey::new(
-            MirGeneratedLifecycleRole::Cleanup(
-                MirCleanupPhase::LifecycleResolution,
-            ),
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution),
             identity,
         );
 
         assert_ne!(finalize, destroy);
         assert_ne!(destroy, cleanup);
 
-        let equivalent_type = MirGeneratedLifecycleKey::new(
-            MirGeneratedLifecycleRole::Finalize,
-            identity,
-        );
+        let equivalent_type =
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, identity);
 
         assert_eq!(finalize, equivalent_type);
 
-        let other_type_identity = MirGeneratedLifecycleKey::new(
-            MirGeneratedLifecycleRole::Finalize,
-            [8; 32],
-        );
+        let other_type_identity =
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, [8; 32]);
 
         assert_ne!(finalize, other_type_identity);
     }
@@ -95,10 +87,7 @@ mod tests {
 
 impl MirGeneratedLifecycleKey {
     /// Creates a stable generated lifecycle identity.
-    pub const fn new(
-        role: MirGeneratedLifecycleRole,
-        type_identity: [u8; 32],
-    ) -> Self {
+    pub const fn new(role: MirGeneratedLifecycleRole, type_identity: [u8; 32]) -> Self {
         Self {
             role,
             type_identity,

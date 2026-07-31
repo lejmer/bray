@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use bray_source::SourceStore;
 use bray_source::SourceInput;
+use bray_source::SourceStore;
 use bray_symbols::ImportedInterfaceId;
 
 use super::{Compilation, CompilationLoadError};
@@ -33,10 +33,7 @@ impl Compilation {
     ///
     /// Package, target, dependency-interface, and export inputs remain unchanged.
     /// The current snapshot remains independently usable.
-    pub fn updated_sources(
-        &self,
-        sources: Vec<SourceInput>,
-    ) -> Result<Self, CompilationLoadError> {
+    pub fn updated_sources(&self, sources: Vec<SourceInput>) -> Result<Self, CompilationLoadError> {
         let mut request = CompilationRequest::with_options(
             self.state.package_identity.clone(),
             sources,

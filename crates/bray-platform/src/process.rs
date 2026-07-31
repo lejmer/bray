@@ -1,9 +1,7 @@
 use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{
-    Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio,
-};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 
 use crate::{PlatformError, PlatformErrorKind, PlatformOperation};
 
@@ -63,11 +61,7 @@ impl NativeProcessCommand {
     }
 
     /// Sets one child environment variable.
-    pub fn env(
-        &mut self,
-        name: impl AsRef<OsStr>,
-        value: impl AsRef<OsStr>,
-    ) -> &mut Self {
+    pub fn env(&mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> &mut Self {
         self.command.env(name, value);
 
         self
@@ -114,18 +108,16 @@ impl NativeProcessCommand {
         self.command.stdout(self.stdout.into_stdio());
         self.command.stderr(self.stderr.into_stdio());
 
-        let child = self.command.spawn().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::ProcessSpawn, &error)
-        })?;
+        let child = self
+            .command
+            .spawn()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessSpawn, &error))?;
 
         Ok(NativeChildProcess { child })
     }
 
     /// Runs the child to completion and captures both output streams.
-    pub fn capture(
-        mut self,
-        input: Option<Vec<u8>>,
-    ) -> Result<NativeProcessOutput, PlatformError> {
+    pub fn capture(mut self, input: Option<Vec<u8>>) -> Result<NativeProcessOutput, PlatformError> {
         self.command.stdin(if input.is_some() {
             Stdio::piped()
         } else {
@@ -135,19 +127,21 @@ impl NativeProcessCommand {
         self.command.stdout(Stdio::piped());
         self.command.stderr(Stdio::piped());
 
-        let mut child = self.command.spawn().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::ProcessSpawn, &error)
-        })?;
+        let mut child = self
+            .command
+            .spawn()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessSpawn, &error))?;
 
         let input_writer = input.and_then(|input| {
-            child.stdin.take().map(|mut stdin| {
-                std::thread::spawn(move || stdin.write_all(&input))
-            })
+            child
+                .stdin
+                .take()
+                .map(|mut stdin| std::thread::spawn(move || stdin.write_all(&input)))
         });
 
-        let output = child.wait_with_output().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::ProcessWait, &error)
-        })?;
+        let output = child
+            .wait_with_output()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessWait, &error))?;
 
         if let Some(writer) = input_writer {
             writer
@@ -158,9 +152,7 @@ impl NativeProcessCommand {
                         PlatformErrorKind::Io(std::io::ErrorKind::Other),
                     )
                 })?
-                .map_err(|error| {
-                    PlatformError::from_io(PlatformOperation::ProcessWait, &error)
-                })?;
+                .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessWait, &error))?;
         }
 
         Ok(NativeProcessOutput {
@@ -233,9 +225,9 @@ impl NativeChildProcess {
 
     /// Requests forceful host termination.
     pub fn terminate(&mut self) -> Result<(), PlatformError> {
-        self.child.kill().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::ProcessSignal, &error)
-        })
+        self.child
+            .kill()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessSignal, &error))
     }
 
     /// Reaps the child after it terminates.
@@ -243,9 +235,7 @@ impl NativeChildProcess {
         self.child
             .wait()
             .map(NativeExitStatus)
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::ProcessWait, &error)
-            })
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessWait, &error))
     }
 
     /// Observes termination without blocking and reaps a completed child.
@@ -253,9 +243,7 @@ impl NativeChildProcess {
         self.child
             .try_wait()
             .map(|status| status.map(NativeExitStatus))
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::ProcessWait, &error)
-            })
+            .map_err(|error| PlatformError::from_io(PlatformOperation::ProcessWait, &error))
     }
 }
 

@@ -7,6 +7,6 @@ mod staging;
 pub use construction::{LinkPlanConstructionError, construct_link_plan};
 pub use facts::ProductLinkFacts;
 pub use staging::{
-    LinkOutputStaging, LinkOutputStagingBuildError, LinkStaging, LinkStagingError,
-    StagedArtifact, StagedArtifactBuildError,
+    LinkOutputStaging, LinkOutputStagingBuildError, LinkStaging, LinkStagingError, StagedArtifact,
+    StagedArtifactBuildError,
 };

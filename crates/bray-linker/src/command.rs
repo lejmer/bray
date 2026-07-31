@@ -4,21 +4,21 @@ use std::path::Path;
 use bray_target::{RelocationModel, TargetArchitecture};
 
 use crate::LldFlavor;
+use crate::SystemLinkerFamily;
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputMode, LinkInputSource, LinkModel,
     LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkedArtifactKind, LinkedProductKind,
     PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
 };
-use crate::SystemLinkerFamily;
 
 pub(super) fn system_arguments_for(
     plan: &LinkPlan,
     family: SystemLinkerFamily,
 ) -> Result<Vec<OsString>, LldPlanError> {
     match family {
-        SystemLinkerFamily::Gnu
-        | SystemLinkerFamily::Microsoft
-        | SystemLinkerFamily::Apple => arguments_for(plan, family.flavor()),
+        SystemLinkerFamily::Gnu | SystemLinkerFamily::Microsoft | SystemLinkerFamily::Apple => {
+            arguments_for(plan, family.flavor())
+        }
         SystemLinkerFamily::GnuCompiler => gnu_compiler_arguments(plan, false),
         SystemLinkerFamily::WslGnuCompiler => gnu_compiler_arguments(plan, true),
         SystemLinkerFamily::MicrosoftCompiler => microsoft_compiler_arguments(plan),
@@ -523,7 +523,7 @@ fn macho_architecture(architecture: TargetArchitecture) -> Result<&'static str, 
     }
 }
 
-fn prefixed(prefix: &str, value: impl AsRef<std::ffi::OsStr>) -> OsString {
+fn prefixed(prefix: &str, value: impl AsRef<OsStr>) -> OsString {
     let mut argument = OsString::from(prefix);
 
     argument.push(value);
@@ -558,17 +558,16 @@ mod tests {
 
     use bray_runtime_interface::BinarySymbolName;
     use bray_target::{
-        CodeModel, NativeTarget, ObjectFormat, RelocationModel, TargetArchitecture,
-        TargetIdentity,
+        CodeModel, NativeTarget, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
     };
 
     use super::{LldFlavor, arguments_for, system_arguments_for};
     use crate::test_support::{link_input, link_plan_builder, planned_output, product};
     use crate::{
-        LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
-        LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkSearchPath, LinkSearchPathKind,
-        LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-        LinkerDriverIdentity, LinkerDriverKind, SystemLinkerFamily,
+        LinkInput, LinkInputId, LinkInputProvenance, LinkModel, LinkPlan, LinkPlanBuilder,
+        LinkPolicy, LinkSearchPath, LinkSearchPathKind, LinkTarget, LinkedArtifactKind,
+        LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind,
+        SystemLinkerFamily,
     };
 
     #[test]
@@ -577,7 +576,15 @@ mod tests {
 
         builder.push_input(link_input(0, "first.o"));
         builder.push_input(link_input(1, "second.o"));
-        builder.push_input(native_library(2, "pthread"));
+
+        builder.push_input(
+            LinkInput::try_native_library(
+                LinkInputId::new(2),
+                "pthread",
+                LinkInputProvenance::HostConfiguration,
+            )
+            .unwrap_or_else(|| panic!("test native library name must be valid")),
+        );
 
         builder.push_output(planned_output(
             0,
@@ -789,18 +796,6 @@ mod tests {
         assert!(arguments.contains(&OsString::from("_bray_export")));
     }
 
-    fn native_library(ordinal: u32, name: &str) -> LinkInput {
-        LinkInput::try_new(
-            LinkInputId::new(ordinal),
-            LinkInputKind::NativeLibrary,
-            LinkInputSource::try_native_library(name)
-                .unwrap_or_else(|| panic!("test native library name must be valid")),
-            LinkInputProvenance::HostConfiguration,
-            LinkInputMode::Ordinary,
-        )
-        .unwrap_or_else(|error| panic!("test native library input must be valid: {error:?}"))
-    }
-
     fn symbol(name: &str) -> BinarySymbolName {
         BinarySymbolName::try_new(name)
             .unwrap_or_else(|| panic!("test binary symbol name must be valid"))
@@ -952,21 +947,19 @@ mod tests {
             ),
         );
 
-        let object_name =
-            bray_target::TargetOutputName::for_native(
-                native.object_format(),
-                bray_target::TargetOutputKind::RelocatableObject,
-            )
-            .file_name("main")
-            .unwrap_or_else(|| panic!("native object name must be valid"));
+        let object_name = bray_target::TargetOutputName::for_native(
+            native.object_format(),
+            bray_target::TargetOutputKind::RelocatableObject,
+        )
+        .file_name("main")
+        .unwrap_or_else(|| panic!("native object name must be valid"));
 
-        let executable_name =
-            bray_target::TargetOutputName::for_native(
-                native.object_format(),
-                bray_target::TargetOutputKind::Executable,
-            )
-            .file_name("application")
-            .unwrap_or_else(|| panic!("native executable name must be valid"));
+        let executable_name = bray_target::TargetOutputName::for_native(
+            native.object_format(),
+            bray_target::TargetOutputKind::Executable,
+        )
+        .file_name("application")
+        .unwrap_or_else(|| panic!("native executable name must be valid"));
 
         builder.push_input(link_input(0, &object_name));
 

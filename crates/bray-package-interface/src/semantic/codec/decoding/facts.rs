@@ -222,8 +222,8 @@ mod tests {
         InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceDependencyRequirement,
         InterfaceDependencyRequirementKind, InterfaceDependencySubject,
         InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
-        InterfacePredicateDefinitionState, InterfaceSectionTag, InterfaceSemanticFactKind,
-        InterfaceRuntimeRequirement, InterfaceSemanticFacts, InterfaceSymbolReference,
+        InterfacePredicateDefinitionState, InterfaceRuntimeRequirement, InterfaceSectionTag,
+        InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference,
         InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
         PackageInterfaceSurface,
     };

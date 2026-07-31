@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use bray_linker::{
-    BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget,
-    LinkerDriverIdentity,
+    BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget, LinkerDriverIdentity,
 };
 use bray_runtime_interface::RuntimeArtifact;
 
@@ -41,20 +40,14 @@ impl ProductLinkFacts {
     }
 
     /// Supplies target startup inputs in driver-visible order.
-    pub fn with_startup_inputs(
-        mut self,
-        inputs: impl IntoIterator<Item = LinkInputSpec>,
-    ) -> Self {
+    pub fn with_startup_inputs(mut self, inputs: impl IntoIterator<Item = LinkInputSpec>) -> Self {
         self.startup_inputs = inputs.into_iter().collect::<Vec<_>>().into();
 
         self
     }
 
     /// Supplies native archives, libraries, and frameworks in resolved order.
-    pub fn with_native_inputs(
-        mut self,
-        inputs: impl IntoIterator<Item = LinkInputSpec>,
-    ) -> Self {
+    pub fn with_native_inputs(mut self, inputs: impl IntoIterator<Item = LinkInputSpec>) -> Self {
         self.native_inputs = inputs.into_iter().collect::<Vec<_>>().into();
 
         self

@@ -102,10 +102,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     )?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    let frame_storage = llvm(self.builder.build_alloca(
-                        frame.get_type(),
-                        "root.frame.transfer.storage",
-                    ))?;
+                    let frame_storage = llvm(
+                        self.builder
+                            .build_alloca(frame.get_type(), "root.frame.transfer.storage"),
+                    )?;
 
                     llvm(self.builder.build_store(frame_storage, frame))?;
 
@@ -253,11 +253,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut native_arguments = Vec::with_capacity(arguments.len());
 
         for (index, argument) in arguments.iter().copied().enumerate() {
-            if crate::native::uses_indirect_argument(
-                self.request.target(),
-                runtime.role(),
-                index,
-            ) {
+            if crate::native::uses_indirect_argument(self.request.target(), runtime.role(), index) {
                 let storage = llvm(self.builder.build_alloca(
                     argument.get_type(),
                     &format!("{}.argument", runtime.role().as_str()),
@@ -392,11 +388,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "process.exit.status",
         ))?;
 
-        llvm(self.builder.build_call(
-            function,
-            &[status.into()],
-            "process.exit",
-        ))?;
+        llvm(
+            self.builder
+                .build_call(function, &[status.into()], "process.exit"),
+        )?;
 
         Ok(None)
     }

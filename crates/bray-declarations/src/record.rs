@@ -110,9 +110,7 @@ impl DeclarationKind {
             Self::TraitDestructorRequirement => "trait_destructor_requirement",
             Self::TraitScopeEnterRequirement => "trait_scope_enter_requirement",
             Self::TraitScopeExitRequirement => "trait_scope_exit_requirement",
-            Self::ImplementationTypeMemberBinding => {
-                "implementation_type_valued_member_binding"
-            }
+            Self::ImplementationTypeMemberBinding => "implementation_type_valued_member_binding",
             Self::TypeConstructorMember => "type_constructor_member",
             Self::FinalizerMember => "finalizer_member",
             Self::DestructorMember => "destructor_member",

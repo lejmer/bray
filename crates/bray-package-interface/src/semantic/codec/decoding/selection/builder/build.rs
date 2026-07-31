@@ -3,12 +3,10 @@ use std::collections::BTreeSet;
 use bray_symbols::InterfaceSymbolId;
 
 use super::tables::SelectedTables;
-use crate::semantic::codec::decoding::{
-    contract, declaration, directory, facts, surface, value,
-};
+use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::codec::decoding::selection::model::SelectedRecords;
 use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
-use crate::semantic::codec::common::SemanticDecodeContext;
+use crate::semantic::codec::decoding::{contract, declaration, directory, facts, surface, value};
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
@@ -431,9 +429,11 @@ impl<'bytes> SelectionBuilder<'bytes> {
             .as_ref()
             .ok_or(InterfaceValidationError::Malformed)?;
 
-        let runtime = tables.runtimes.decode(index, &mut self.context, |reader, context| {
-            surface::decode_runtime_record(reader, context.limits(), context)
-        })?;
+        let runtime = tables
+            .runtimes
+            .decode(index, &mut self.context, |reader, context| {
+                surface::decode_runtime_record(reader, context.limits(), context)
+            })?;
 
         if runtime.owner != self.owner {
             return Err(InterfaceValidationError::Malformed);

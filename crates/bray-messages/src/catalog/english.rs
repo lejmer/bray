@@ -1,8 +1,8 @@
 mod argument;
 mod diagnostics;
 mod interface;
-mod language_server;
 mod label;
+mod language_server;
 
 pub(crate) use argument::{format_source_location, format_source_span, format_value};
 pub(crate) use diagnostics::{

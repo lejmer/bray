@@ -150,14 +150,7 @@ impl TackInvocation {
         self.command.kind()
     }
 
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        PathBuf,
-        usize,
-        OutputFormat,
-        TackCommand,
-    ) {
+    pub(crate) fn into_parts(self) -> (PathBuf, usize, OutputFormat, TackCommand) {
         (
             self.workspace_root,
             self.worker_count,

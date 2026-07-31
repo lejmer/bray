@@ -13,6 +13,8 @@ use crate::{
     SymbolName, SymbolOrdinal, SymbolOrigin, SynthesizedSymbolKey,
 };
 
+use super::support::required_declaration_value;
+
 pub(super) struct CompilerKnownSignatureSymbols {
     pub(super) declarations: Vec<(
         CompilerKnownDeclarationId,
@@ -35,21 +37,13 @@ pub(super) fn allocate_signature_symbols(
     let declared_names = declared_names(catalog, declaration_symbols)?;
 
     for descriptor in catalog.compiler_known_declarations() {
-        let Some(owner) = declaration_symbols.get(&descriptor.id()).copied() else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
-                declaration: descriptor.id(),
-            });
-        };
+        let owner = required_declaration_value(declaration_symbols, descriptor.id()).copied()?;
 
         if owner.kind() == SymbolKind::TrustedCapability {
             continue;
         }
 
-        let Some(owner_key) = declaration_keys.get(&descriptor.id()) else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
-                declaration: descriptor.id(),
-            });
-        };
+        let owner_key = required_declaration_value(declaration_keys, descriptor.id())?;
 
         let Some(surface) = catalog.declaration_surface(descriptor.surface()) else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
@@ -290,11 +284,7 @@ fn declared_names(
     let mut names = BTreeSet::new();
 
     for descriptor in catalog.compiler_known_declarations() {
-        let Some(symbol) = declaration_symbols.get(&descriptor.id()).copied() else {
-            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
-                declaration: descriptor.id(),
-            });
-        };
+        let symbol = required_declaration_value(declaration_symbols, descriptor.id()).copied()?;
 
         let Some(surface) = catalog.declaration_surface(descriptor.surface()) else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {

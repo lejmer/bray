@@ -32,12 +32,9 @@ impl BackendContributionSet {
             for contribution in set.contributions() {
                 validate_backend_contribution(plan, contribution)?;
 
-                let digest = validate_content(
-                    contribution.content(),
-                    contribution.digest(),
-                    cancellation,
-                )
-                .map_err(|error| content_error(plan, contribution.id(), error))?;
+                let digest =
+                    validate_content(contribution.content(), contribution.digest(), cancellation)
+                        .map_err(|error| content_error(plan, contribution.id(), error))?;
 
                 validated.insert(contribution.id(), (contribution, digest));
             }
@@ -147,7 +144,10 @@ fn validate_sets(
     plan: &EmissionPlan,
     sets: &[&BackendArtifactSet],
 ) -> Result<(), BackendContributionMergeError> {
-    if let Some(pair) = sets.windows(2).find(|pair| pair[0].unit() == pair[1].unit()) {
+    if let Some(pair) = sets
+        .windows(2)
+        .find(|pair| pair[0].unit() == pair[1].unit())
+    {
         return Err(unit_error(
             BackendContributionMergeErrorKind::DuplicateUnit(pair[0].unit().clone()),
         ));
@@ -160,7 +160,10 @@ fn validate_sets(
             ));
         }
 
-        if plan.backend().is_none_or(|backend| backend != set.backend()) {
+        if plan
+            .backend()
+            .is_none_or(|backend| backend != set.backend())
+        {
             return Err(unit_error(
                 BackendContributionMergeErrorKind::BackendMismatch(set.unit().clone()),
             ));
@@ -178,9 +181,9 @@ fn validate_sets(
             .binary_search_by(|set| set.unit().cmp(request.unit()))
             .is_err()
         {
-            return Err(unit_error(
-                BackendContributionMergeErrorKind::MissingUnit(request.unit().clone()),
-            ));
+            return Err(unit_error(BackendContributionMergeErrorKind::MissingUnit(
+                request.unit().clone(),
+            )));
         }
     }
 
@@ -282,9 +285,7 @@ fn merge_error(
 
 #[cfg(test)]
 mod tests {
-    use bray_codegen::test_support::{
-        codegen_request_for_backend, contribution,
-    };
+    use bray_codegen::test_support::{codegen_request_for_backend, contribution};
     use bray_codegen::{
         ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm, BackendArtifactContribution,
         CodegenOutcome, CodegenRuntimeMetadata,
@@ -300,8 +301,7 @@ mod tests {
 
     #[test]
     fn backend_sets_merge_once_in_plan_order_for_publication_and_staging() {
-        let (request, backend, published, backend_request) =
-            backend_artifact_plan_parts();
+        let (request, backend, published, backend_request) = backend_artifact_plan_parts();
 
         let staged = PlannedArtifact::new(
             ArtifactId::new(
@@ -357,8 +357,7 @@ mod tests {
 
     #[test]
     fn merge_rejects_missing_unrequested_and_digest_mismatched_contributions() {
-        let (request, backend, artifact, backend_request) =
-            backend_artifact_plan_parts();
+        let (request, backend, artifact, backend_request) = backend_artifact_plan_parts();
 
         let Ok(plan) = EmissionPlan::try_new(
             request,

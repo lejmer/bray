@@ -1,8 +1,6 @@
 use serde::Deserialize;
 
-use super::workspace::{
-    RustWorkspace, require_executable_source_contracts, require_ordered_names,
-};
+use super::workspace::{RustWorkspace, require_executable_source_contracts, require_ordered_names};
 
 const REQUIRED_CONTRACTS: &[&str] = &[
     "equivalent immutable plans",

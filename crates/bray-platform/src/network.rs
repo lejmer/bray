@@ -1,14 +1,13 @@
 use std::io::{self, Read, Write};
 use std::net::{
-    SocketAddr, TcpListener as StdTcpListener, TcpStream as StdTcpStream,
-    ToSocketAddrs, UdpSocket as StdUdpSocket,
+    SocketAddr, TcpListener as StdTcpListener, TcpStream as StdTcpStream, ToSocketAddrs,
+    UdpSocket as StdUdpSocket,
 };
 
 use mio::net::{TcpListener, TcpStream, UdpSocket};
 
 use crate::{
-    NativeEventPoller, NativePollEvent, NativePollInterest, PlatformError,
-    PlatformOperation,
+    NativeEventPoller, NativePollEvent, NativePollInterest, PlatformError, PlatformOperation,
 };
 
 macro_rules! poll_registration {
@@ -34,10 +33,7 @@ macro_rules! poll_registration {
         }
 
         /// Removes this socket from a native event poller.
-        pub fn deregister(
-            &mut self,
-            poller: &NativeEventPoller,
-        ) -> Result<(), PlatformError> {
+        pub fn deregister(&mut self, poller: &NativeEventPoller) -> Result<(), PlatformError> {
             poller.deregister_source(&mut self.0)
         }
     };
@@ -50,12 +46,7 @@ pub fn resolve_socket_addresses(
     address
         .to_socket_addrs()
         .map(Iterator::collect)
-        .map_err(|error| {
-            PlatformError::from_io(
-                PlatformOperation::SocketAddressResolution,
-                &error,
-            )
-        })
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketAddressResolution, &error))
 }
 
 /// Owned nonblocking native TCP listener.
@@ -69,15 +60,11 @@ impl NativeTcpListener {
     }
 
     /// Accepts one ready connection without blocking.
-    pub fn accept(
-        &self,
-    ) -> Result<(NativeTcpStream, SocketAddr), PlatformError> {
+    pub fn accept(&self) -> Result<(NativeTcpStream, SocketAddr), PlatformError> {
         self.0
             .accept()
             .map(|(stream, address)| (NativeTcpStream(stream), address))
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::SocketAccept, &error)
-            })
+            .map_err(|error| PlatformError::from_io(PlatformOperation::SocketAccept, &error))
     }
 
     poll_registration!();
@@ -128,80 +115,60 @@ impl NativeUdpSocket {
     }
 
     /// Receives one datagram without blocking.
-    pub fn receive_from(
-        &self,
-        buffer: &mut [u8],
-    ) -> Result<(usize, SocketAddr), PlatformError> {
-        self.0.recv_from(buffer).map_err(|error| {
-            PlatformError::from_io(PlatformOperation::SocketReceive, &error)
-        })
+    pub fn receive_from(&self, buffer: &mut [u8]) -> Result<(usize, SocketAddr), PlatformError> {
+        self.0
+            .recv_from(buffer)
+            .map_err(|error| PlatformError::from_io(PlatformOperation::SocketReceive, &error))
     }
 
     /// Sends one datagram without blocking.
-    pub fn send_to(
-        &self,
-        buffer: &[u8],
-        target: SocketAddr,
-    ) -> Result<usize, PlatformError> {
-        self.0.send_to(buffer, target).map_err(|error| {
-            PlatformError::from_io(PlatformOperation::SocketSend, &error)
-        })
+    pub fn send_to(&self, buffer: &[u8], target: SocketAddr) -> Result<usize, PlatformError> {
+        self.0
+            .send_to(buffer, target)
+            .map_err(|error| PlatformError::from_io(PlatformOperation::SocketSend, &error))
     }
 
     poll_registration!();
 }
 
 /// Binds a nonblocking native TCP listener.
-pub fn bind_tcp_listener(
-    address: impl ToSocketAddrs,
-) -> Result<NativeTcpListener, PlatformError> {
-    let listener = StdTcpListener::bind(address).map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketBind, &error)
-    })?;
+pub fn bind_tcp_listener(address: impl ToSocketAddrs) -> Result<NativeTcpListener, PlatformError> {
+    let listener = StdTcpListener::bind(address)
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketBind, &error))?;
 
-    listener.set_nonblocking(true).map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketConfiguration, &error)
-    })?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketConfiguration, &error))?;
 
     Ok(NativeTcpListener(TcpListener::from_std(listener)))
 }
 
 /// Connects a nonblocking native TCP stream.
-pub fn connect_tcp(
-    address: impl ToSocketAddrs,
-) -> Result<NativeTcpStream, PlatformError> {
-    let stream = StdTcpStream::connect(address).map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketConnect, &error)
-    })?;
+pub fn connect_tcp(address: impl ToSocketAddrs) -> Result<NativeTcpStream, PlatformError> {
+    let stream = StdTcpStream::connect(address)
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketConnect, &error))?;
 
-    stream.set_nonblocking(true).map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketConfiguration, &error)
-    })?;
+    stream
+        .set_nonblocking(true)
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketConfiguration, &error))?;
 
     Ok(NativeTcpStream(TcpStream::from_std(stream)))
 }
 
 /// Binds a nonblocking native UDP socket.
-pub fn bind_udp_socket(
-    address: impl ToSocketAddrs,
-) -> Result<NativeUdpSocket, PlatformError> {
-    let socket = StdUdpSocket::bind(address).map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketBind, &error)
-    })?;
+pub fn bind_udp_socket(address: impl ToSocketAddrs) -> Result<NativeUdpSocket, PlatformError> {
+    let socket = StdUdpSocket::bind(address)
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketBind, &error))?;
 
-    socket.set_nonblocking(true).map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketConfiguration, &error)
-    })?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|error| PlatformError::from_io(PlatformOperation::SocketConfiguration, &error))?;
 
     Ok(NativeUdpSocket(UdpSocket::from_std(socket)))
 }
 
-fn socket_address(
-    result: io::Result<SocketAddr>,
-) -> Result<SocketAddr, PlatformError> {
-    result.map_err(|error| {
-        PlatformError::from_io(PlatformOperation::SocketAddress, &error)
-    })
+fn socket_address(result: io::Result<SocketAddr>) -> Result<SocketAddr, PlatformError> {
+    result.map_err(|error| PlatformError::from_io(PlatformOperation::SocketAddress, &error))
 }
 
 #[cfg(test)]
@@ -211,8 +178,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
-        MonotonicClock, NativeEventPoller, NativePollEvent, NativePollInterest,
-        NativePollReady,
+        MonotonicClock, NativeEventPoller, NativePollEvent, NativePollInterest, NativePollReady,
     };
 
     use super::{bind_tcp_listener, connect_tcp, resolve_socket_addresses};
@@ -231,8 +197,7 @@ mod tests {
                 match listener.accept() {
                     Ok((stream, _)) => break stream,
                     Err(error)
-                        if error.kind()
-                            == crate::PlatformErrorKind::Io(ErrorKind::WouldBlock) =>
+                        if error.kind() == crate::PlatformErrorKind::Io(ErrorKind::WouldBlock) =>
                     {
                         thread::yield_now();
                     }
@@ -255,8 +220,8 @@ mod tests {
             byte[0]
         });
 
-        let mut client = connect_tcp(address)
-            .unwrap_or_else(|error| panic!("client must connect: {error:?}"));
+        let mut client =
+            connect_tcp(address).unwrap_or_else(|error| panic!("client must connect: {error:?}"));
 
         loop {
             match client.write_all(&[42]) {
@@ -301,8 +266,8 @@ mod tests {
             None
         );
 
-        let _client = connect_tcp(address)
-            .unwrap_or_else(|error| panic!("client must connect: {error:?}"));
+        let _client =
+            connect_tcp(address).unwrap_or_else(|error| panic!("client must connect: {error:?}"));
 
         let ready = poller
             .wait(MonotonicClock.deadline_after(Duration::from_secs(1)))

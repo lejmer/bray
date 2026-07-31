@@ -12,9 +12,8 @@ use bray_codegen::{
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend, ProductLinkFacts};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 use bray_linker::{
-    DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind, Linker,
-    SectionGarbageCollectionPolicy,
+    DeadStripPolicy, DebugLinkPolicy, LinkInputProvenance, LinkInputSpec, LinkModel, LinkPolicy,
+    LinkTarget, LinkedProductKind, Linker, SectionGarbageCollectionPolicy,
 };
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{
@@ -590,21 +589,14 @@ fn native_link_input(
     requirement: &NativeLinkRequirement,
     provenance: LinkInputProvenance,
 ) -> Result<LinkInputSpec, NativeProductFactError> {
-    let (kind, source) = match requirement.kind() {
-        NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => (
-            LinkInputKind::NativeLibrary,
-            LinkInputSource::try_native_library(requirement.name())
-                .ok_or(NativeProductFactError::InvalidNativeLinkInput)?,
-        ),
-        NativeLinkKind::Framework => (
-            LinkInputKind::Framework,
-            LinkInputSource::try_framework(requirement.name())
-                .ok_or(NativeProductFactError::InvalidNativeLinkInput)?,
-        ),
+    let input = match requirement.kind() {
+        NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
+            LinkInputSpec::try_native_library(requirement.name(), provenance)
+        }
+        NativeLinkKind::Framework => LinkInputSpec::try_framework(requirement.name(), provenance),
     };
 
-    LinkInputSpec::try_new(kind, source, provenance, LinkInputMode::Ordinary)
-        .map_err(NativeProductFactError::InvalidLinkInput)
+    input.ok_or(NativeProductFactError::InvalidNativeLinkInput)
 }
 
 fn bound_template(

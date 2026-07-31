@@ -3,9 +3,7 @@ use std::num::NonZeroUsize;
 use bray_platform::PlatformError;
 use bray_runtime_interface::ProtectedFrameStateId;
 
-use crate::{
-    ExecutionLaneSelectionError, TaskId,
-};
+use crate::{ExecutionLaneSelectionError, TaskId};
 
 /// Hard scheduler capacities selected by the product host.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

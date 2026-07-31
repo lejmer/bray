@@ -250,7 +250,7 @@ fn preserves_lf_and_crlf_line_ending_styles() {
     assert!(lf.text().contains('\n'));
 
     assert!(crlf.text().contains("\r\n"));
-    assert_eq!(crlf.text().replace("\r\n", "").contains('\n'), false);
+    assert!(!crlf.text().replace("\r\n", "").contains('\n'));
 }
 
 #[test]

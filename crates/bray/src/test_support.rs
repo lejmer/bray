@@ -60,10 +60,7 @@ impl ProjectWorkspace {
             }"#,
         );
 
-        workspace.write(
-            "app/src/main.bray",
-            "module app;\n\nfunc main()\n{\n}\n",
-        );
+        workspace.write("app/src/main.bray", "module app;\n\nfunc main()\n{\n}\n");
 
         workspace
     }
@@ -152,10 +149,7 @@ impl ProjectWorkspace {
             }"#,
         );
 
-        workspace.write(
-            "vendor/math/src/math.bray",
-            "module math;\n",
-        );
+        workspace.write("vendor/math/src/math.bray", "module math;\n");
 
         workspace
     }

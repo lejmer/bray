@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_binder::{BinderDependency, BoundUnitComputation};
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitRoot,
-    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, CheckedAsyncFacts, CheckedControlFlowFacts,
+    AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitRoot, BoundWalkControl,
+    BoundWalkEvent, BoundWalkOutcome, CheckedAsyncFacts, CheckedControlFlowFacts,
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts,
     CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
     StorageFlowFacts, StoragePlan, walk_bound_unit_view,
@@ -393,7 +393,7 @@ impl Compilation {
                 return BoundWalkControl::Continue;
             };
 
-            let Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) =
+            let Some(BoundExpression::AnonymousCallable(callable)) =
                 bound.view().expression(expression)
             else {
                 return BoundWalkControl::Continue;
@@ -1206,7 +1206,7 @@ mod tests {
         assert!(
             facts
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)
+                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
                 .next()
                 .is_some()
         );
@@ -1263,7 +1263,7 @@ mod tests {
         assert!(
             facts
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
                 .next()
                 .is_some()
         );
@@ -1271,7 +1271,7 @@ mod tests {
         assert!(
             compilation
                 .semantic_diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
                 .next()
                 .is_some()
         );
@@ -1313,7 +1313,7 @@ mod tests {
 
             let has_diagnostic = facts
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
                 .next()
                 .is_some();
 
@@ -1468,7 +1468,7 @@ mod tests {
         assert!(
             facts
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority)
+                .by_kind(DiagnosticKind::CheckingMissingMutationAuthority)
                 .next()
                 .is_some()
         );
@@ -1499,7 +1499,7 @@ mod tests {
         assert!(
             facts
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority)
+                .by_kind(DiagnosticKind::CheckingMissingMutationAuthority)
                 .next()
                 .is_some()
         );
@@ -1592,7 +1592,7 @@ mod tests {
         assert!(
             facts
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage)
+                .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
                 .next()
                 .is_some()
         );
@@ -3724,7 +3724,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingUnreachablePatternAlternative]
+            [DiagnosticKind::CheckingUnreachablePatternAlternative]
         );
     }
 
@@ -3769,7 +3769,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingUnreachableMatchArm]
+            [DiagnosticKind::CheckingUnreachableMatchArm]
         );
     }
 
@@ -3831,7 +3831,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+            [DiagnosticKind::CheckingIncompatiblePattern]
         );
 
         assert!(facts.value().is_recovered());
@@ -3858,7 +3858,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingNonExhaustiveMatch]
+            [DiagnosticKind::CheckingNonExhaustiveMatch]
         );
     }
 
@@ -3897,7 +3897,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingUnreachableMatchArm]
+            [DiagnosticKind::CheckingUnreachableMatchArm]
         );
     }
 
@@ -3922,7 +3922,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+            [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
@@ -3938,7 +3938,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingRefutablePattern]
+            [DiagnosticKind::CheckingRefutablePattern]
         );
     }
 
@@ -4137,7 +4137,7 @@ func other()
 
         assert!(
             crate::test_support::diagnostic_kinds(selections.diagnostics())
-                .contains(&bray_diagnostics::DiagnosticKind::BindingUnresolvedName)
+                .contains(&DiagnosticKind::BindingUnresolvedName)
         );
 
         let facts = match compilation.pattern_facts(key) {
@@ -4320,7 +4320,7 @@ func other()
 
         assert!(
             !crate::test_support::diagnostic_kinds(types.diagnostics())
-                .contains(&bray_diagnostics::DiagnosticKind::BindingUnresolvedName),
+                .contains(&DiagnosticKind::BindingUnresolvedName),
             "{:?}",
             types.diagnostics()
         );
@@ -4499,7 +4499,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(bound.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::BindingAmbiguousName]
+            [DiagnosticKind::BindingAmbiguousName]
         );
 
         assert!(bound.value().local_symbols().bindings().is_empty());
@@ -4578,7 +4578,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(invalid_facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+            [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
@@ -4631,7 +4631,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(invalid_facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+            [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
@@ -4745,7 +4745,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+            [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
@@ -4773,7 +4773,7 @@ func other()
 
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
-            [bray_diagnostics::DiagnosticKind::CheckingIncompatiblePattern]
+            [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 

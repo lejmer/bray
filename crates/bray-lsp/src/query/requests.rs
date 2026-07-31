@@ -1,25 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundSourceAnchor;
-use bray_compilation::{
-    CancellationToken, FactQueryError, QueryPriority, SemanticAvailability,
-};
+use bray_compilation::{CancellationToken, FactQueryError, QueryPriority, SemanticAvailability};
 use bray_declarations::{
     ContainerId, DeclarationKind, DeclarationName, DeclarationRecord, SyntaxAnchor,
 };
 use bray_source::{LineIndex, LspPosition, SourceId, SourceSnapshot, TextRange, TextSize};
-use bray_symbols::{
-    CallableDefinitionId, LocalScopeId, LocalSymbolSnapshot, SymbolKind,
-};
+use bray_symbols::{CallableDefinitionId, LocalScopeId, LocalSymbolSnapshot, SymbolKind};
 use bray_syntax::{
-    ArgumentListSyntax, CallOperationSyntax,
-    SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
+    ArgumentListSyntax, CallOperationSyntax, SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent,
+    walk_syntax_node,
 };
 use bray_tooling::format_semantic_type;
 
 use crate::model::{
-    CompletionItem, DocumentSymbol, Hover, Location, MarkupContent, ParameterInformation,
-    Position, Range, SignatureHelp, SignatureInformation,
+    CompletionItem, DocumentSymbol, Hover, Location, MarkupContent, ParameterInformation, Position,
+    Range, SignatureHelp, SignatureInformation,
 };
 use crate::workspace::{DocumentSnapshot, WorkspaceError, offset_for_position};
 
@@ -53,13 +49,9 @@ pub(crate) fn execute(
         Query::Definition(position) => {
             serde_json::to_value(definition(document, position, cancellation)?)
         }
-        Query::Diagnostics => {
-            serde_json::to_value(diagnostics(document, cancellation)?)
-        }
+        Query::Diagnostics => serde_json::to_value(diagnostics(document, cancellation)?),
         Query::DocumentSymbols => serde_json::to_value(document_symbols(document, cancellation)?),
-        Query::Hover(position) => {
-            serde_json::to_value(hover(document, position, cancellation)?)
-        }
+        Query::Hover(position) => serde_json::to_value(hover(document, position, cancellation)?),
         Query::References {
             position,
             include_declaration,
@@ -70,11 +62,7 @@ pub(crate) fn execute(
             cancellation,
         )?),
         Query::SemanticTokens { multiline_support } => {
-            serde_json::to_value(semantic_tokens(
-                document,
-                cancellation,
-                multiline_support,
-            )?)
+            serde_json::to_value(semantic_tokens(document, cancellation, multiline_support)?)
         }
         Query::SignatureHelp(position) => {
             serde_json::to_value(signature_help(document, position, cancellation)?)
@@ -127,7 +115,11 @@ fn hover(
         SemanticAvailability::Available(declaration)
         | SemanticAvailability::Recovered(Some(declaration)) => {
             if let Some(record) = compilation.declaration_table().declaration(declaration) {
-                sections.push(format!("```bray\n{}\n```", declaration_label(source, record)));
+                sections.push(format!(
+                    "```bray\n{}\n```",
+                    declaration_label(source, record)
+                ));
+
                 range = lsp_range(source, record.full_range());
             }
         }
@@ -140,8 +132,7 @@ fn hover(
         cancellation,
         QueryPriority::Interactive,
     )? {
-        SemanticAvailability::Available(result)
-        | SemanticAvailability::Recovered(Some(result)) => {
+        SemanticAvailability::Available(result) | SemanticAvailability::Recovered(Some(result)) => {
             let values = compilation.semantic_value_store()?;
             let symbols = compilation.symbol_graph()?;
 
@@ -181,8 +172,9 @@ fn definition(
     )?;
 
     let anchor = match definition {
-        SemanticAvailability::Available(anchor)
-        | SemanticAvailability::Recovered(Some(anchor)) => anchor,
+        SemanticAvailability::Available(anchor) | SemanticAvailability::Recovered(Some(anchor)) => {
+            anchor
+        }
         SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => {
             return Ok(None);
         }
@@ -240,8 +232,11 @@ fn references(
         .collect::<Vec<_>>();
 
     locations.sort_by(|left, right| {
-        (&left.uri, left.range.start.line, left.range.start.character)
-            .cmp(&(&right.uri, right.range.start.line, right.range.start.character))
+        (&left.uri, left.range.start.line, left.range.start.character).cmp(&(
+            &right.uri,
+            right.range.start.line,
+            right.range.start.character,
+        ))
     });
 
     locations.dedup();
@@ -276,7 +271,8 @@ fn completion(
         offset,
         cancellation,
         QueryPriority::Interactive,
-    )? else {
+    )?
+    else {
         return Ok(completion_items(items));
     };
 
@@ -293,10 +289,9 @@ fn completion(
         {
             let label = binding.name().as_str().to_owned();
 
-            items.entry(label).or_insert((
-                6,
-                Some(SymbolKind::LocalBinding.as_str().to_owned()),
-            ));
+            items
+                .entry(label)
+                .or_insert((6, Some(SymbolKind::LocalBinding.as_str().to_owned())));
         }
     }
 
@@ -310,10 +305,9 @@ fn completion(
         {
             let label = constant.name().as_str().to_owned();
 
-            items.entry(label).or_insert((
-                21,
-                Some(SymbolKind::LocalConstant.as_str().to_owned()),
-            ));
+            items
+                .entry(label)
+                .or_insert((21, Some(SymbolKind::LocalConstant.as_str().to_owned())));
         }
     }
 
@@ -326,20 +320,14 @@ fn completion(
 
         items.entry(label).or_insert((
             5,
-            Some(
-                SymbolKind::AnonymousCallableParameter
-                    .as_str()
-                    .to_owned(),
-            ),
+            Some(SymbolKind::AnonymousCallableParameter.as_str().to_owned()),
         ));
     }
 
     Ok(completion_items(items))
 }
 
-fn completion_items(
-    items: BTreeMap<String, (u32, Option<String>)>,
-) -> Vec<CompletionItem> {
+fn completion_items(items: BTreeMap<String, (u32, Option<String>)>) -> Vec<CompletionItem> {
     items
         .into_iter()
         .map(|(label, (kind, detail))| CompletionItem {
@@ -350,19 +338,14 @@ fn completion_items(
         .collect()
 }
 
-fn visible_local_scopes(
-    locals: &LocalSymbolSnapshot,
-    offset: TextSize,
-) -> BTreeSet<LocalScopeId> {
+fn visible_local_scopes(locals: &LocalSymbolSnapshot, offset: TextSize) -> BTreeSet<LocalScopeId> {
     let innermost = locals
         .scopes()
         .iter()
         .filter(|scope| {
             let range = scope.syntax_anchor().full_range();
 
-            range.start() <= offset
-                && offset <= range.end()
-                && scope.visibility_start() <= offset
+            range.start() <= offset && offset <= range.end() && scope.visibility_start() <= offset
         })
         .min_by_key(|scope| scope.syntax_anchor().full_range().len())
         .map(|scope| scope.id());
@@ -390,34 +373,26 @@ fn signature_help(
     let source = source(document)?;
     let offset = offset_for_position(source, position)?;
 
-    let Some((call_syntax, arguments, active_parameter)) =
-        call_syntax_at(document, offset)?
-    else {
+    let Some((call_syntax, arguments, active_parameter)) = call_syntax_at(document, offset)? else {
         return Ok(None);
     };
 
     let selection = document.compilation.selected_call_for_syntax(
-        BoundSourceAnchor::new(
-            SyntaxAnchor::from_node(&call_syntax),
-            source.version(),
-        ),
+        BoundSourceAnchor::new(SyntaxAnchor::from_node(&call_syntax), source.version()),
         cancellation,
         QueryPriority::Interactive,
     )?;
 
     let definition = match selection {
-        SemanticAvailability::Available(call)
-        | SemanticAvailability::Recovered(Some(call)) => call.target().declaration(),
+        SemanticAvailability::Available(call) | SemanticAvailability::Recovered(Some(call)) => {
+            call.target().declaration()
+        }
         SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => None,
     };
 
     let definition = match definition {
         Some(definition) => definition,
-        None => match callable_definition_before_call(
-            document,
-            &call_syntax,
-            cancellation,
-        )? {
+        None => match callable_definition_before_call(document, &call_syntax, cancellation)? {
             Some(definition) => definition,
             None => return Ok(None),
         },
@@ -504,8 +479,9 @@ fn callable_definition_before_call(
     )?;
 
     let anchor = match definition {
-        SemanticAvailability::Available(anchor)
-        | SemanticAvailability::Recovered(Some(anchor)) => anchor,
+        SemanticAvailability::Available(anchor) | SemanticAvailability::Recovered(Some(anchor)) => {
+            anchor
+        }
         SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => {
             return Ok(None);
         }
@@ -771,9 +747,7 @@ const fn declaration_symbol_kind(kind: DeclarationKind) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use bray_compilation::{
-        Compilation, CompilationOptions, CompilationRequest, WorkerBudget,
-    };
+    use bray_compilation::{Compilation, CompilationOptions, CompilationRequest, WorkerBudget};
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 
@@ -789,8 +763,15 @@ mod tests {
         let document = feature_document();
         let cancellation = bray_compilation::CancellationToken::new();
 
-        let hover = hover(&document, Position { line: 9, character: 23 }, &cancellation)
-            .unwrap_or_else(|error| panic!("hover should complete: {error:?}"));
+        let hover = hover(
+            &document,
+            Position {
+                line: 9,
+                character: 23,
+            },
+            &cancellation,
+        )
+        .unwrap_or_else(|error| panic!("hover should complete: {error:?}"));
 
         assert!(
             hover
@@ -807,15 +788,17 @@ mod tests {
 
         let definition = definition(
             &document,
-            Position { line: 9, character: 23 },
+            Position {
+                line: 9,
+                character: 23,
+            },
             &cancellation,
         )
         .unwrap_or_else(|error| panic!("definition should complete: {error:?}"));
 
         assert!(
             definition.as_ref().is_some_and(|location| {
-                location.uri == "file:///test.bray"
-                    && location.range.start != location.range.end
+                location.uri == "file:///test.bray" && location.range.start != location.range.end
             }),
             "definition should identify source syntax: {definition:?}"
         );
@@ -828,7 +811,10 @@ mod tests {
 
         let references = references(
             &document,
-            Position { line: 9, character: 23 },
+            Position {
+                line: 9,
+                character: 23,
+            },
             true,
             &cancellation,
         )
@@ -837,8 +823,7 @@ mod tests {
         assert_eq!(references.len(), 2, "unexpected references: {references:?}");
 
         assert!(references.iter().all(|location| {
-            location.uri == "file:///test.bray"
-                && location.range.start != location.range.end
+            location.uri == "file:///test.bray" && location.range.start != location.range.end
         }));
 
         assert_ne!(references[0].range, references[1].range);
@@ -851,7 +836,10 @@ mod tests {
 
         let completion = completion(
             &document,
-            Position { line: 10, character: 4 },
+            Position {
+                line: 10,
+                character: 4,
+            },
             &cancellation,
         )
         .unwrap_or_else(|error| panic!("completion should complete: {error:?}"));
@@ -869,7 +857,10 @@ mod tests {
 
         let signature = signature_help(
             &document,
-            Position { line: 9, character: 29 },
+            Position {
+                line: 9,
+                character: 29,
+            },
             &cancellation,
         )
         .unwrap_or_else(|error| panic!("signature help should complete: {error:?}"));
@@ -913,11 +904,7 @@ mod tests {
 
     #[test]
     fn multiline_tokens_are_split_when_the_client_does_not_support_them() {
-        let document = document(concat!(
-            "module app;\n",
-            "/* first\n",
-            "   second */\n",
-        ));
+        let document = document(concat!("module app;\n", "/* first\n", "   second */\n",));
 
         let cancellation = bray_compilation::CancellationToken::new();
 

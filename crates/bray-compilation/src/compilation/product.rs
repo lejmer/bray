@@ -9,7 +9,5 @@ mod visibility;
 
 pub use codegen::{NativeProductFactError, NativeProductFacts};
 #[cfg(test)]
-pub(in crate::compilation) use realization::{
-    generated_frame_symbol_name, generated_symbol_name,
-};
+pub(in crate::compilation) use realization::{generated_frame_symbol_name, generated_symbol_name};
 pub(in crate::compilation) use visibility::symbol_is_publicly_reachable;

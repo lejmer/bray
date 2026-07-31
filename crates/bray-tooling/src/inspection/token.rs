@@ -8,8 +8,8 @@ use serde::Serialize;
 use crate::OutputFormat;
 use crate::inspection::{
     InspectionOutput, InspectionTrivia, InspectionTriviaError, escaped_text, location_for_range,
-    location_start_text, push_text_diagnostic, quoted_text, range_text, trivia_entries,
-    trivia_summary,
+    location_start_text, push_indented_report_value, push_report_value, push_text_diagnostic,
+    quoted_text, range_text, render_pretty_json, trivia_entries, trivia_summary,
 };
 use crate::output::{
     DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
@@ -31,7 +31,9 @@ pub(crate) fn render_token_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => render_json_report(&report)?,
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| TokenInspectionRenderError::Json)?
+        }
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -176,12 +178,9 @@ const fn map_trivia_error(error: InspectionTriviaError) -> TokenInspectionRender
 fn render_text_report(report: &TokenInspectionReport) -> String {
     let mut output = String::new();
 
-    output.push_str("kind: ");
-    output.push_str(report.kind);
-    output.push('\n');
-
-    push_value(&mut output, "source_count", report.source_count);
-    push_value(&mut output, "has_errors", report.has_errors);
+    push_report_value(&mut output, "kind", report.kind);
+    push_report_value(&mut output, "source_count", report.source_count);
+    push_report_value(&mut output, "has_errors", report.has_errors);
 
     for source in &report.sources {
         output.push('\n');
@@ -198,11 +197,11 @@ fn push_text_source(output: &mut String, source: &TokenInspectionSource) {
     output.push_str(&source.display_name);
     output.push('\n');
 
-    push_indented_value(output, "source_id", source.source_id);
-    push_indented_value(output, "identity", source.identity);
-    push_indented_value(output, "version", source.version);
-    push_indented_value(output, "token_count", source.token_count);
-    push_indented_value(output, "diagnostic_count", source.diagnostic_count);
+    push_indented_report_value(output, "source_id", source.source_id);
+    push_indented_report_value(output, "identity", source.identity);
+    push_indented_report_value(output, "version", source.version);
+    push_indented_report_value(output, "token_count", source.token_count);
+    push_indented_report_value(output, "diagnostic_count", source.diagnostic_count);
 
     output.push_str("  tokens:\n");
 
@@ -309,29 +308,6 @@ fn push_padded(output: &mut String, value: &str, width: usize) {
     for _ in value.len()..width {
         output.push(' ');
     }
-}
-
-fn push_value<T: ToString>(output: &mut String, key: &str, value: T) {
-    output.push_str(key);
-    output.push_str(": ");
-    output.push_str(&value.to_string());
-    output.push('\n');
-}
-
-fn push_indented_value<T: ToString>(output: &mut String, key: &str, value: T) {
-    output.push_str("  ");
-    push_value(output, key, value);
-}
-
-fn render_json_report(
-    report: &TokenInspectionReport,
-) -> Result<String, TokenInspectionRenderError> {
-    let mut output =
-        serde_json::to_string_pretty(report).map_err(|_| TokenInspectionRenderError::Json)?;
-
-    output.push('\n');
-
-    Ok(output)
 }
 
 #[cfg(test)]

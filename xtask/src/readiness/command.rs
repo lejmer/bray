@@ -4,8 +4,7 @@ use super::workspace::RustWorkspace;
 use super::{codegen, emission, linker, lowering, native_execution, semantic};
 use crate::{command, workspace};
 
-const USAGE: &str =
-    "usage: cargo xtask readiness [semantic | diagnostics | lowering | codegen | emission | linker | native-execution]";
+const USAGE: &str = "usage: cargo xtask readiness [semantic | diagnostics | lowering | codegen | emission | linker | native-execution]";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let audit = arguments.next();

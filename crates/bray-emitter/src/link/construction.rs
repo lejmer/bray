@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bray_linker::{
-    LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
-    LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError,
-    LinkPlanBuilder, LinkedArtifactKind, LinkedProductKind, PlannedLinkedArtifact,
-    StagingDestination, StagingDestinationBuildError, StagingDestinationId, StagingPathKey,
+    LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
+    LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError, LinkPlanBuilder,
+    LinkedArtifactKind, LinkedProductKind, PlannedLinkedArtifact, StagingDestination,
+    StagingDestinationBuildError, StagingDestinationId, StagingPathKey,
 };
 use bray_target::TargetIdentity;
 
@@ -98,8 +98,7 @@ pub enum LinkPlanConstructionError {
 struct LinkPlanConstructor<'plan> {
     emission: &'plan EmissionPlan,
     staged_artifacts: BTreeMap<ArtifactId, PathBuf>,
-    output_staging:
-        BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
+    output_staging: BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
     facts: &'plan ProductLinkFacts,
     builder: LinkPlanBuilder,
     next_input: u32,
@@ -110,10 +109,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
         emission: &'plan EmissionPlan,
         product_kind: LinkedProductKind,
         staged_artifacts: BTreeMap<ArtifactId, PathBuf>,
-        output_staging: BTreeMap<
-            ArtifactId,
-            (LinkedArtifactKind, PathBuf, StagingPathKey),
-        >,
+        output_staging: BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
         facts: &'plan ProductLinkFacts,
     ) -> Self {
         let builder = LinkPlanBuilder::new(
@@ -153,9 +149,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
         }
 
         if let Some((artifact, _)) = self.output_staging.pop_first() {
-            return Err(LinkPlanConstructionError::UnexpectedOutputStaging(
-                artifact,
-            ));
+            return Err(LinkPlanConstructionError::UnexpectedOutputStaging(artifact));
         }
 
         self.builder
@@ -239,9 +233,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
         for input in self.facts.native_inputs.iter().cloned() {
             if !matches!(
                 input.kind(),
-                LinkInputKind::Archive
-                    | LinkInputKind::NativeLibrary
-                    | LinkInputKind::Framework
+                LinkInputKind::Archive | LinkInputKind::NativeLibrary | LinkInputKind::Framework
             ) {
                 return Err(LinkPlanConstructionError::InvalidNativeInputKind(
                     input.kind(),
@@ -258,11 +250,9 @@ impl<'plan> LinkPlanConstructor<'plan> {
         // The link plan owns input specifications independently of the product-fact borrow.
         for input in self.facts.termination_inputs.iter().cloned() {
             if input.kind() != LinkInputKind::TerminationObject {
-                return Err(
-                    LinkPlanConstructionError::InvalidTerminationInputKind(
-                        input.kind(),
-                    ),
-                );
+                return Err(LinkPlanConstructionError::InvalidTerminationInputKind(
+                    input.kind(),
+                ));
             }
 
             self.push_input(input)?;
@@ -274,9 +264,12 @@ impl<'plan> LinkPlanConstructor<'plan> {
     fn push_outputs(&mut self) -> Result<(), LinkPlanConstructionError> {
         let mut destination_ordinal = 0_u32;
 
-        for planned in self.emission.artifacts().iter().filter(|artifact| {
-            matches!(artifact.producer(), ArtifactProducer::Linker(_))
-        }) {
+        for planned in self
+            .emission
+            .artifacts()
+            .iter()
+            .filter(|artifact| matches!(artifact.producer(), ArtifactProducer::Linker(_)))
+        {
             let Some((kind, path, path_key)) = self.output_staging.remove(planned.id()) else {
                 // Construction errors retain the Arc-backed artifact identity.
                 return Err(LinkPlanConstructionError::MissingOutputStaging(
@@ -435,8 +428,8 @@ fn output_staging_by_id(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_base::Cancellation;
     use bray_codegen::{
@@ -446,33 +439,29 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
     use bray_linker::{
         DeadStripPolicy, DebugLinkPolicy, LinkFailure, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkModel, LinkOutcome,
-        LinkPolicy, LinkSearchPath, LinkSearchPathKind, LinkSubsystem,
-        LinkTarget, LinkedArtifactKind, LinkedProductKind, Linker, LinkerDriver,
-        LinkerDriverIdentity, LinkerDriverKind, SectionGarbageCollectionPolicy,
-        StagingPathKey,
+        LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkModel, LinkOutcome, LinkPolicy,
+        LinkSearchPath, LinkSearchPathKind, LinkSubsystem, LinkTarget, LinkedArtifactKind,
+        LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+        SectionGarbageCollectionPolicy, StagingPathKey,
     };
     use bray_runtime_interface::{
-        BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact,
-        RuntimeArtifactDigest, RuntimeArtifactMetadata, RuntimeArtifactId,
-        RuntimeCapability,
+        BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeArtifactDigest,
+        RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeCapability,
     };
-    use bray_target::{
-        CodeModel, RelocationModel,
-    };
+    use bray_target::{CodeModel, RelocationModel};
 
     use super::{
-        LinkOutputStaging, LinkPlanConstructionError, ProductLinkFacts,
-        StagedArtifact, construct_link_plan,
+        LinkOutputStaging, LinkPlanConstructionError, ProductLinkFacts, StagedArtifact,
+        construct_link_plan,
     };
     use crate::test_support::{
         backend_capabilities, backend_identity, codegen_unit_key, interface_artifact,
         product_identity, target_identity, target_output_description,
     };
     use crate::{
-        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend,
-        EmissionPlan, EmissionPlanner, EmissionRequest, ProductKind,
-        RequestedArtifact, RequestedArtifactDestination, ReplacementPolicy,
+        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlan,
+        EmissionPlanner, EmissionRequest, ProductKind, ReplacementPolicy, RequestedArtifact,
+        RequestedArtifactDestination,
     };
 
     #[test]
@@ -501,10 +490,7 @@ mod tests {
                 LinkInputProvenance::TargetProfile,
             )])
             .with_entry_point(binary_symbol("library_initialize"))
-            .with_exported_symbols([
-                binary_symbol("zeta"),
-                binary_symbol("alpha"),
-            ])
+            .with_exported_symbols([binary_symbol("zeta"), binary_symbol("alpha")])
             .with_search_paths([
                 search_path(LinkSearchPathKind::Library, "dependencies"),
                 search_path(LinkSearchPathKind::Framework, "frameworks"),
@@ -559,15 +545,13 @@ mod tests {
                 .any(|artifact| artifact.id().kind() == ArtifactKind::PackageInterface)
         );
 
-        assert!(
-            link_plan.inputs().iter().all(|input| {
-                !matches!(
-                    input.source(),
-                    LinkInputSource::File(path)
-                        if path.extension().is_some_and(|extension| extension == "brayi")
-                )
-            })
-        );
+        assert!(link_plan.inputs().iter().all(|input| {
+            !matches!(
+                input.source(),
+                LinkInputSource::File(path)
+                    if path.extension().is_some_and(|extension| extension == "brayi")
+            )
+        }));
     }
 
     #[test]
@@ -599,9 +583,7 @@ mod tests {
         let runtime_inputs = link_plan
             .inputs()
             .iter()
-            .filter(|input| {
-                matches!(input.provenance(), LinkInputProvenance::Runtime(_))
-            })
+            .filter(|input| matches!(input.provenance(), LinkInputProvenance::Runtime(_)))
             .collect::<Vec<_>>();
 
         let [runtime_input] = runtime_inputs.as_slice() else {
@@ -613,10 +595,7 @@ mod tests {
             &LinkInputProvenance::Runtime(runtime.contract().artifact().clone())
         );
 
-        assert_eq!(
-            linked_host.abi_version(),
-            runtime.contract().abi_version()
-        );
+        assert_eq!(linked_host.abi_version(), runtime.contract().abi_version());
 
         assert!(matches!(
             linked_host.root(),
@@ -650,12 +629,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test plan must have staged inputs"));
 
         assert_eq!(
-            construct_link_plan(
-                &plan,
-                staged,
-                output_staging(&plan),
-                &product_link_facts(),
-            ),
+            construct_link_plan(&plan, staged, output_staging(&plan), &product_link_facts(),),
             Err(LinkPlanConstructionError::MissingStagedArtifact(
                 missing.artifact().clone()
             ))
@@ -685,18 +659,13 @@ mod tests {
             .find(|artifact| artifact.id().kind() == ArtifactKind::PackageInterface)
             .unwrap_or_else(|| panic!("test plan must contain a package interface"));
 
-        let foreign = StagedArtifact::try_new(
-            interface.id().clone(),
-            "stage/application.brayi",
-        )
-        .unwrap_or_else(|error| panic!("test staged artifact must be valid: {error:?}"));
+        let foreign = StagedArtifact::try_new(interface.id().clone(), "stage/application.brayi")
+            .unwrap_or_else(|error| panic!("test staged artifact must be valid: {error:?}"));
 
         assert_eq!(
             construct_link_plan(
                 &plan,
-                staged_artifacts(&plan)
-                    .into_iter()
-                    .chain([foreign]),
+                staged_artifacts(&plan).into_iter().chain([foreign]),
                 output_staging(&plan),
                 &product_link_facts(),
             ),
@@ -762,10 +731,7 @@ mod tests {
             target_identity(),
             RequestedArtifactDestination::FilesystemDirectory("out".into()),
             [
-                RequestedArtifact::new(
-                    ArtifactKind::SharedLibrary,
-                    ArtifactRequirement::Required,
-                ),
+                RequestedArtifact::new(ArtifactKind::SharedLibrary, ArtifactRequirement::Required),
                 RequestedArtifact::new(
                     ArtifactKind::PackageInterface,
                     ArtifactRequirement::Required,
@@ -836,24 +802,15 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
 
-        EmissionPlanner::new(
-            target_output_description(),
-            Some(backend),
-            interface,
-        )
+        EmissionPlanner::new(target_output_description(), Some(backend), interface)
     }
 
     fn staged_artifacts(plan: &EmissionPlan) -> Vec<StagedArtifact> {
         plan.staged_artifacts()
             .enumerate()
             .map(|(index, artifact)| {
-                StagedArtifact::try_new(
-                    artifact.id().clone(),
-                    format!("stage/input-{index}.o"),
-                )
-                .unwrap_or_else(|error| {
-                    panic!("test staged artifact must be valid: {error:?}")
-                })
+                StagedArtifact::try_new(artifact.id().clone(), format!("stage/input-{index}.o"))
+                    .unwrap_or_else(|error| panic!("test staged artifact must be valid: {error:?}"))
             })
             .collect()
     }
@@ -861,9 +818,7 @@ mod tests {
     fn output_staging(plan: &EmissionPlan) -> Vec<LinkOutputStaging> {
         plan.artifacts()
             .iter()
-            .filter(|artifact| {
-                matches!(artifact.producer(), crate::ArtifactProducer::Linker(_))
-            })
+            .filter(|artifact| matches!(artifact.producer(), crate::ArtifactProducer::Linker(_)))
             .enumerate()
             .map(|(index, artifact)| {
                 let kind = match artifact.id().kind() {
@@ -883,9 +838,7 @@ mod tests {
                     format!("stage/output-{index}"),
                     key,
                 )
-                .unwrap_or_else(|error| {
-                    panic!("test output staging must be valid: {error:?}")
-                })
+                .unwrap_or_else(|error| panic!("test output staging must be valid: {error:?}"))
             })
             .collect()
     }
@@ -919,13 +872,8 @@ mod tests {
     }
 
     fn linker_driver_identity() -> LinkerDriverIdentity {
-        LinkerDriverIdentity::try_new(
-            LinkerDriverKind::EmbeddedLld,
-            "lld",
-            "1",
-            "22",
-        )
-        .unwrap_or_else(|| panic!("test linker driver identity must be valid"))
+        LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "lld", "1", "22")
+            .unwrap_or_else(|| panic!("test linker driver identity must be valid"))
     }
 
     fn file_input(
@@ -943,16 +891,8 @@ mod tests {
     }
 
     fn native_library(name: &str) -> LinkInputSpec {
-        let source = LinkInputSource::try_native_library(name)
-            .unwrap_or_else(|| panic!("test native library name must be valid"));
-
-        LinkInputSpec::try_new(
-            LinkInputKind::NativeLibrary,
-            source,
-            LinkInputProvenance::HostConfiguration,
-            LinkInputMode::Ordinary,
-        )
-        .unwrap_or_else(|error| panic!("test native link input must be valid: {error:?}"))
+        LinkInputSpec::try_native_library(name, LinkInputProvenance::HostConfiguration)
+            .unwrap_or_else(|| panic!("test native library name must be valid"))
     }
 
     fn search_path(kind: LinkSearchPathKind, path: &str) -> LinkSearchPath {
@@ -965,9 +905,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test binary symbol name must be valid"))
     }
 
-    fn runtime_artifact(
-        host: &bray_runtime_interface::ExecutableHostContract,
-    ) -> RuntimeArtifact {
+    fn runtime_artifact(host: &bray_runtime_interface::ExecutableHostContract) -> RuntimeArtifact {
         let contract = host
             .runtime()
             .cloned()
@@ -975,12 +913,8 @@ mod tests {
 
         let digest = RuntimeArtifactDigest::new([7; 32]);
 
-        let metadata = RuntimeArtifactMetadata::try_new(
-            contract,
-            "bray_runtime.a",
-            digest,
-        )
-        .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
+        let metadata = RuntimeArtifactMetadata::try_new(contract, "bray_runtime.a", digest)
+            .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
 
         RuntimeArtifact::try_new(metadata, "runtime/bray_runtime.a", digest)
             .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"))
@@ -996,11 +930,7 @@ mod tests {
             &self.identity
         }
 
-        fn supports(
-            &self,
-            _target: &LinkTarget,
-            _product: LinkedProductKind,
-        ) -> bool {
+        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
             true
         }
 

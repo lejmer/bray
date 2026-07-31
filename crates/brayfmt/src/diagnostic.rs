@@ -54,28 +54,31 @@ pub(crate) fn format_standard_input(
 }
 
 fn file_error_diagnostic(id: DiagnosticId, error: FormatFileError) -> Diagnostic {
+    let kind = file_error_diagnostic_kind(error.kind());
+
     match error.kind() {
-        FormatFileErrorKind::Read => Diagnostic::new(
-            id,
-            DiagnosticKind::SourceFileReadFailed,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::file_path(error.path()))
-        .with_arg(DiagnosticArg::io_error_kind(file_io_kind(&error)))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::SourceFileMustBeReadable,
-        )),
-        FormatFileErrorKind::InvalidUtf8 => {
-            path_diagnostic(id, DiagnosticKind::FormatterSourceInvalidUtf8, error.path())
-                .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8))
-        }
+        FormatFileErrorKind::Read => Diagnostic::new(id, kind, SeverityKind::Error)
+            .with_arg(DiagnosticArg::file_path(error.path()))
+            .with_arg(DiagnosticArg::io_error_kind(file_io_kind(&error)))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::SourceFileMustBeReadable,
+            )),
+        FormatFileErrorKind::InvalidUtf8 => path_diagnostic(id, kind, error.path())
+            .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8)),
         FormatFileErrorKind::SourceTooLarge => {
-            size_diagnostic(id, error.path(), error.byte_count())
+            size_diagnostic(id, kind, error.path(), error.byte_count())
         }
-        FormatFileErrorKind::Write => {
-            path_diagnostic(id, DiagnosticKind::FormatterSourceWriteFailed, error.path())
-                .with_arg(DiagnosticArg::io_error_kind(file_io_kind(&error)))
-        }
+        FormatFileErrorKind::Write => path_diagnostic(id, kind, error.path())
+            .with_arg(DiagnosticArg::io_error_kind(file_io_kind(&error))),
+    }
+}
+
+const fn file_error_diagnostic_kind(kind: FormatFileErrorKind) -> DiagnosticKind {
+    match kind {
+        FormatFileErrorKind::Read => DiagnosticKind::SourceFileReadFailed,
+        FormatFileErrorKind::InvalidUtf8 => DiagnosticKind::FormatterSourceInvalidUtf8,
+        FormatFileErrorKind::SourceTooLarge => DiagnosticKind::FormatterSourceTooLarge,
+        FormatFileErrorKind::Write => DiagnosticKind::FormatterSourceWriteFailed,
     }
 }
 
@@ -88,21 +91,33 @@ fn file_io_kind(error: &FormatFileError) -> DiagnosticIoErrorKind {
 
 fn bytes_error_diagnostic(id: DiagnosticId, error: FormatBytesError) -> Diagnostic {
     let path = Path::new("-");
+    let kind = bytes_error_diagnostic_kind(error.kind());
 
     match error.kind() {
-        FormatBytesErrorKind::InvalidUtf8 => {
-            path_diagnostic(id, DiagnosticKind::FormatterSourceInvalidUtf8, path)
-                .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8))
+        FormatBytesErrorKind::InvalidUtf8 => path_diagnostic(id, kind, path)
+            .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8)),
+        FormatBytesErrorKind::SourceTooLarge => {
+            size_diagnostic(id, kind, path, Some(error.byte_count()))
         }
-        FormatBytesErrorKind::SourceTooLarge => size_diagnostic(id, path, Some(error.byte_count())),
     }
 }
 
-fn size_diagnostic(id: DiagnosticId, path: &Path, byte_count: Option<usize>) -> Diagnostic {
-    let mut diagnostic = path_diagnostic(id, DiagnosticKind::FormatterSourceTooLarge, path)
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::SourceTextOffsetsAreCompact,
-        ));
+const fn bytes_error_diagnostic_kind(kind: FormatBytesErrorKind) -> DiagnosticKind {
+    match kind {
+        FormatBytesErrorKind::InvalidUtf8 => DiagnosticKind::FormatterSourceInvalidUtf8,
+        FormatBytesErrorKind::SourceTooLarge => DiagnosticKind::FormatterSourceTooLarge,
+    }
+}
+
+fn size_diagnostic(
+    id: DiagnosticId,
+    kind: DiagnosticKind,
+    path: &Path,
+    byte_count: Option<usize>,
+) -> Diagnostic {
+    let mut diagnostic = path_diagnostic(id, kind, path).with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::SourceTextOffsetsAreCompact,
+    ));
 
     if let Some(byte_count) = byte_count.and_then(DiagnosticArg::byte_count) {
         diagnostic = diagnostic.with_arg(byte_count);
@@ -113,4 +128,30 @@ fn size_diagnostic(id: DiagnosticId, path: &Path, byte_count: Option<usize>) -> 
 
 fn path_diagnostic(id: DiagnosticId, kind: DiagnosticKind, path: &Path) -> Diagnostic {
     Diagnostic::new(id, kind, SeverityKind::Error).with_arg(DiagnosticArg::file_path(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticKind;
+    use bray_formatter::{FormatBytesErrorKind, FormatFileErrorKind};
+
+    use super::{bytes_error_diagnostic_kind, file_error_diagnostic_kind};
+
+    #[test]
+    fn formatter_failures_preserve_their_diagnostic_categories() {
+        assert_eq!(
+            bytes_error_diagnostic_kind(FormatBytesErrorKind::InvalidUtf8),
+            DiagnosticKind::FormatterSourceInvalidUtf8
+        );
+
+        assert_eq!(
+            bytes_error_diagnostic_kind(FormatBytesErrorKind::SourceTooLarge),
+            DiagnosticKind::FormatterSourceTooLarge
+        );
+
+        assert_eq!(
+            file_error_diagnostic_kind(FormatFileErrorKind::Write),
+            DiagnosticKind::FormatterSourceWriteFailed
+        );
+    }
 }

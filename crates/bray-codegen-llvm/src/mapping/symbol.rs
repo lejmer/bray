@@ -4,14 +4,14 @@ use bray_codegen::{
     CodegenTarget, CodegenValueAttribute,
 };
 use inkwell::DLLStorageClass;
+use inkwell::GlobalVisibility;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::module::{Linkage, Module};
 use inkwell::types::AnyType;
 use inkwell::values::FunctionValue;
-use inkwell::GlobalVisibility;
 
-use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
 use super::LlvmTypeMappings;
+use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
 
 pub(crate) fn declare_symbols<'context>(
     module: &Module<'context>,
@@ -20,14 +20,10 @@ pub(crate) fn declare_symbols<'context>(
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
-        let native_type = crate::native::symbol_function_type(
-            types.context(),
-            target,
-            mapping.key(),
-        );
+        let native_type =
+            crate::native::symbol_function_type(types.context(), target, mapping.key());
 
-        let function_type = native_type
-            .unwrap_or(types.function_type(mapping.signature())?);
+        let function_type = native_type.unwrap_or(types.function_type(mapping.signature())?);
 
         let function = module.add_function(mapping.name().as_str(), function_type, None);
 
@@ -51,8 +47,7 @@ fn apply_native_attributes(
     target: &CodegenTarget,
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
-    let Some(result) =
-        crate::native::indirect_result_type(types.context(), target, mapping.key())
+    let Some(result) = crate::native::indirect_result_type(types.context(), target, mapping.key())
     else {
         return Ok(());
     };
@@ -275,14 +270,15 @@ mod tests {
     use bray_codegen::{
         CodegenCallableSignature, CodegenIndirectParameterKind, CodegenIntegerExtension,
         CodegenLinkage, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
-        CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenValueAttribute,
-        CodegenTarget, TargetAddressSpaceKind,
+        CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
+        CodegenValueAttribute, TargetAddressSpaceKind,
     };
+    use bray_symbols::testing::intern_type;
     use bray_symbols::{CallableAbi, SemanticValueStore, TypeData};
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
+    use inkwell::DLLStorageClass;
     use inkwell::context::Context;
     use inkwell::module::Linkage;
-    use inkwell::DLLStorageClass;
 
     use super::{apply_linkage, declare_symbols};
     use crate::machine::LlvmTargetMachine;
@@ -448,10 +444,4 @@ mod tests {
         TargetValueLayout::new(size, alignment, TargetLayoutContract::Default)
     }
 
-    fn intern_type(store: &SemanticValueStore, data: TypeData) -> bray_symbols::TypeId {
-        match store.intern_type(data) {
-            Ok(ty) => ty,
-            Err(error) => panic!("test type must intern: {error:?}"),
-        }
-    }
 }

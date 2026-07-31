@@ -72,16 +72,10 @@ impl ProjectInspection {
     }
 
     fn text(&self) -> String {
-        let mut text = format!(
-            "kind: {}\noutput_root: {}\n",
-            self.kind, self.output_root
-        );
+        let mut text = format!("kind: {}\noutput_root: {}\n", self.kind, self.output_root);
 
         for target in &self.targets {
-            text.push_str(&format!(
-                "target {}: {}\n",
-                target.name, target.identity
-            ));
+            text.push_str(&format!("target {}: {}\n", target.name, target.identity));
         }
 
         for package in &self.packages {

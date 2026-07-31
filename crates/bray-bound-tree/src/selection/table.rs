@@ -482,7 +482,9 @@ fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::testing::{implementation_instance, implementation_requirement};
+    use bray_symbols::testing::{
+        implementation_instance, implementation_requirement, intern_type,
+    };
     use bray_symbols::{FunctionSymbolId, SymbolId, TraitSymbolId, TypeData};
 
     use super::{
@@ -762,13 +764,4 @@ mod tests {
         name
     }
 
-    fn intern_type(
-        values: &bray_symbols::SemanticValueStore,
-        data: TypeData,
-    ) -> bray_symbols::TypeId {
-        match values.intern_type(data) {
-            Ok(ty) => ty,
-            Err(error) => panic!("test type must be valid: {error:?}"),
-        }
-    }
 }

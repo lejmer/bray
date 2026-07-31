@@ -19,12 +19,7 @@ pub(crate) struct UnitInspectionSelection {
 }
 
 impl UnitInspectionSelection {
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        DiagnosticBag,
-        Vec<Arc<DiagnosticResult<BoundUnit>>>,
-    ) {
+    pub(crate) fn into_parts(self) -> (DiagnosticBag, Vec<Arc<DiagnosticResult<BoundUnit>>>) {
         (self.diagnostics, self.units)
     }
 }

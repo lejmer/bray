@@ -36,11 +36,7 @@ fn test_mir_unit_with_declaration_and_target(
     let bound = test_bound_unit_with_declaration(unit, declaration);
     let source = MirSourceAnchor::from(bound.key().source());
 
-    let mut builder = MirUnitBuilder::for_bound(
-        bound.identity(),
-        MirUnitKind::Synchronous,
-        target,
-    );
+    let mut builder = MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
 
     let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
         panic!("test MIR block must be valid");
@@ -61,7 +57,7 @@ fn test_mir_unit_with_declaration_and_target(
 pub fn test_mir_target() -> MirTargetFacts {
     MirTargetFacts::new(
         bray_target::test_support::test_target_profile(),
-        bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+        RuntimeAbiVersion::new(1, 0),
     )
 }
 

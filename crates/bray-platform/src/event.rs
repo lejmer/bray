@@ -4,9 +4,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use mio::event::Source;
 use mio::{Events, Interest, Poll, Token, Waker};
 
-use crate::{
-    MonotonicDeadline, PlatformError, PlatformErrorKind, PlatformOperation,
-};
+use crate::{MonotonicDeadline, PlatformError, PlatformErrorKind, PlatformOperation};
 
 const HOST_WAKE_TOKEN: Token = Token(usize::MAX);
 
@@ -178,9 +176,7 @@ impl NativePollInterest {
         match self {
             Self::Readable => Interest::READABLE,
             Self::Writable => Interest::WRITABLE,
-            Self::ReadableOrWritable => {
-                Interest::READABLE.add(Interest::WRITABLE)
-            }
+            Self::ReadableOrWritable => Interest::READABLE.add(Interest::WRITABLE),
         }
     }
 }
@@ -242,9 +238,10 @@ impl NativeEventRegistration {
             pending.push_back(self.event);
         }
 
-        self.state.waker.wake().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::EventPoll, &error)
-        })
+        self.state
+            .waker
+            .wake()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventPoll, &error))
     }
 }
 
@@ -260,13 +257,11 @@ pub struct NativeEventPoller {
 impl NativeEventPoller {
     /// Creates an empty native poller.
     pub fn new() -> Result<Self, PlatformError> {
-        let poll = Poll::new().map_err(|error| {
-            PlatformError::from_io(PlatformOperation::EventPoll, &error)
-        })?;
+        let poll = Poll::new()
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventPoll, &error))?;
 
-        let waker = Waker::new(poll.registry(), HOST_WAKE_TOKEN).map_err(|error| {
-            PlatformError::from_io(PlatformOperation::EventPoll, &error)
-        })?;
+        let waker = Waker::new(poll.registry(), HOST_WAKE_TOKEN)
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventPoll, &error))?;
 
         Ok(Self {
             poll,
@@ -299,13 +294,8 @@ impl NativeEventPoller {
         self.events.clear();
 
         self.poll
-            .poll(
-                &mut self.events,
-                deadline.map(MonotonicDeadline::remaining),
-            )
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::EventPoll, &error)
-            })?;
+            .poll(&mut self.events, deadline.map(MonotonicDeadline::remaining))
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventPoll, &error))?;
 
         self.collect_ready()?;
 
@@ -323,9 +313,7 @@ impl NativeEventPoller {
         self.poll
             .registry()
             .register(source, token, interest.into_mio())
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::EventRegistration, &error)
-            })
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventRegistration, &error))
     }
 
     pub(crate) fn reregister_source(
@@ -339,18 +327,14 @@ impl NativeEventPoller {
         self.poll
             .registry()
             .reregister(source, token, interest.into_mio())
-            .map_err(|error| {
-                PlatformError::from_io(PlatformOperation::EventRegistration, &error)
-            })
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventRegistration, &error))
     }
 
-    pub(crate) fn deregister_source(
-        &self,
-        source: &mut impl Source,
-    ) -> Result<(), PlatformError> {
-        self.poll.registry().deregister(source).map_err(|error| {
-            PlatformError::from_io(PlatformOperation::EventRegistration, &error)
-        })
+    pub(crate) fn deregister_source(&self, source: &mut impl Source) -> Result<(), PlatformError> {
+        self.poll
+            .registry()
+            .deregister(source)
+            .map_err(|error| PlatformError::from_io(PlatformOperation::EventRegistration, &error))
     }
 
     fn collect_ready(&mut self) -> Result<(), PlatformError> {
@@ -410,8 +394,7 @@ mod tests {
     use crate::MonotonicClock;
 
     use super::{
-        NativeEvent, NativeEventPoller, NativePollEvent, NativePollReady,
-        NativeWaitOutcome,
+        NativeEvent, NativeEventPoller, NativePollEvent, NativePollReady, NativeWaitOutcome,
     };
 
     #[test]
@@ -453,10 +436,7 @@ mod tests {
 
         wake.unwrap_or_else(|error| panic!("poll wake must succeed: {error:?}"));
 
-        assert_eq!(
-            event,
-            Some(NativePollReady::Woken(NativePollEvent::new(7)))
-        );
+        assert_eq!(event, Some(NativePollReady::Woken(NativePollEvent::new(7))));
     }
 
     #[test]

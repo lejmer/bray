@@ -8,9 +8,9 @@ use bray_ir::{
 };
 use bray_symbols::AnySymbolId;
 
+use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
-use super::super::LoweringError;
 
 enum LoweredOperands {
     Continuing {
@@ -109,7 +109,11 @@ impl Lowerer<'_> {
                     return Err(LoweringError::MissingSemanticSelection(id));
                 };
 
-                (ConstructionTarget::UnionVariant(variant), current, Vec::new())
+                (
+                    ConstructionTarget::UnionVariant(variant),
+                    current,
+                    Vec::new(),
+                )
             }
             _ => return Err(LoweringError::MissingSemanticSelection(id)),
         };

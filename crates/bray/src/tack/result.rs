@@ -58,9 +58,7 @@ impl TackRunResult {
 
     pub(crate) fn diagnostic_groups(
         &self,
-    ) -> impl Iterator<
-        Item = (&DiagnosticBag, Option<&bray_source::SourceStore>),
-    > {
+    ) -> impl Iterator<Item = (&DiagnosticBag, Option<&bray_source::SourceStore>)> {
         std::iter::once((&self.diagnostics, None))
     }
 

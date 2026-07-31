@@ -4,14 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bray_diagnostics::DiagnosticBag;
-use bray_platform::{
-    NativeExitStatus, NativeProcessCommand,
-};
+use bray_platform::{NativeExitStatus, NativeProcessCommand};
 use bray_project::ProjectPath;
 
-use crate::tack::error::{
-    operation_diagnostics, selection_diagnostics,
-};
+use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 
 pub(crate) fn install_git_repository(
     workspace_root: &Path,
@@ -75,10 +71,7 @@ pub(crate) fn run_project_process(
     arguments: &[OsString],
     workspace_root: &Path,
 ) -> Result<ExitCode, DiagnosticBag> {
-    let arguments: Vec<_> = arguments
-        .iter()
-        .map(OsString::as_os_str)
-        .collect();
+    let arguments: Vec<_> = arguments.iter().map(OsString::as_os_str).collect();
 
     let status = native_process_status(
         program.as_os_str(),
@@ -91,10 +84,7 @@ pub(crate) fn run_project_process(
         return Ok(ExitCode::SUCCESS);
     }
 
-    let code = match status.code().and_then(|code| u8::try_from(code).ok()) {
-        Some(code) => code,
-        None => 1,
-    };
+    let code = status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or_else(|| 1);
 
     Ok(ExitCode::from(code))
 }
@@ -105,8 +95,8 @@ fn native_process_status(
     working_directory: &Path,
     operation: &'static str,
 ) -> Result<NativeExitStatus, DiagnosticBag> {
-    let mut command = NativeProcessCommand::new(program)
-        .map_err(|_| operation_diagnostics(operation))?;
+    let mut command =
+        NativeProcessCommand::new(program).map_err(|_| operation_diagnostics(operation))?;
 
     for argument in arguments {
         command.arg(argument);
@@ -118,9 +108,7 @@ fn native_process_status(
         .spawn()
         .map_err(|_| operation_diagnostics(operation))?;
 
-    child
-        .wait()
-        .map_err(|_| operation_diagnostics(operation))
+    child.wait().map_err(|_| operation_diagnostics(operation))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -132,11 +120,7 @@ struct GitInstallPlan {
 }
 
 impl GitInstallPlan {
-    fn new(
-        workspace_root: &Path,
-        name: &str,
-        repository: &str,
-    ) -> Result<Self, DiagnosticBag> {
+    fn new(workspace_root: &Path, name: &str, repository: &str) -> Result<Self, DiagnosticBag> {
         if !workspace_root.is_absolute() || name.contains('/') || repository.is_empty() {
             return Err(selection_diagnostics(name));
         }
@@ -218,12 +202,8 @@ mod tests {
     fn explicit_install_disables_recursive_repository_acquisition() {
         let workspace = unique_temporary_directory();
 
-        let plan = GitInstallPlan::new(
-            &workspace,
-            "math",
-            "https://example.invalid/math.git",
-        )
-        .unwrap_or_else(|error| panic!("install plan should be valid: {error:?}"));
+        let plan = GitInstallPlan::new(&workspace, "math", "https://example.invalid/math.git")
+            .unwrap_or_else(|error| panic!("install plan should be valid: {error:?}"));
 
         assert_eq!(
             plan.arguments(),

@@ -73,10 +73,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
     }
 
     /// Supplies compilation-owned native code generation without final linking.
-    pub fn with_native_codegen(
-        mut self,
-        facts: &'operation NativeProductFacts,
-    ) -> Self {
+    pub fn with_native_codegen(mut self, facts: &'operation NativeProductFacts) -> Self {
         self.generation = ProductGenerationInputs::Custom {
             codegen: Some(ProductCodegenInputs {
                 backend: facts.backend(),

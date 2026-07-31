@@ -127,9 +127,9 @@ mod tests {
             let second_acquired = Arc::clone(&second_has_permit);
 
             let second = scope.spawn(move || {
-                let _permit = second_budget
-                    .acquire(&|| false)
-                    .unwrap_or_else(|error| panic!("second permit should become available: {error:?}"));
+                let _permit = second_budget.acquire(&|| false).unwrap_or_else(|error| {
+                    panic!("second permit should become available: {error:?}")
+                });
 
                 second_acquired.store(true, Ordering::Release);
             });

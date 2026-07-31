@@ -16,8 +16,7 @@ use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
 use crate::fact::FactQueryError;
 
 use super::types::{
-    dependency_contracts_are_compatible, substitute_requirement_type,
-    type_templates_are_compatible,
+    dependency_contracts_are_compatible, substitute_requirement_type, type_templates_are_compatible,
 };
 
 macro_rules! demand_fact {

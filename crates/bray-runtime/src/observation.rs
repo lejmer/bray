@@ -149,9 +149,7 @@ impl TaskSnapshot {
             .map_or(&[], |state| state.dependencies())
     }
 
-    fn frame_descriptor(
-        &self,
-    ) -> Option<&bray_runtime_interface::ProtectedFrameStateDescriptor> {
+    fn frame_descriptor(&self) -> Option<&bray_runtime_interface::ProtectedFrameStateDescriptor> {
         self.descriptor.state(self.frame_state)
     }
 }

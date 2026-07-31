@@ -1,8 +1,8 @@
 use bray_codegen::CodegenSpecialization;
 use bray_symbols::GenericSubstitutionId;
 
-use super::encoding::StructuralValueEncoder;
 use super::super::super::{CodegenFactError, Compilation};
+use super::encoding::StructuralValueEncoder;
 use crate::fact::FactQueryError;
 
 impl Compilation {
@@ -30,11 +30,7 @@ impl Compilation {
             .bindings()
             .iter()
             .map(|binding| {
-                StructuralValueEncoder::argument_key(
-                    values,
-                    symbols,
-                    binding.argument(),
-                )
+                StructuralValueEncoder::argument_key(values, symbols, binding.argument())
             })
             .collect::<Result<Vec<_>, _>>()?;
 

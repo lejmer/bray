@@ -9,8 +9,9 @@ use serde::Serialize;
 use crate::OutputFormat;
 use crate::inspection::{
     InspectionOutput, InspectionTrivia, InspectionTriviaError, TreeWriter, escaped_text,
-    location_for_range, location_range_text, push_text_diagnostic, quoted_text, range_text,
-    trivia_entries, trivia_summary,
+    location_for_range, location_range_text, push_indented_report_value, push_report_value,
+    push_text_diagnostic, quoted_text, range_text, render_pretty_json, trivia_entries,
+    trivia_summary,
 };
 use crate::output::{
     DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
@@ -35,7 +36,9 @@ pub(crate) fn render_syntax_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => render_json_report(&report)?,
+        OutputFormat::Json => {
+            render_pretty_json(&report).map_err(|_| SyntaxInspectionRenderError::Json)?
+        }
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -50,9 +53,7 @@ struct SyntaxInspectionReport {
 }
 
 impl SyntaxInspectionReport {
-    fn from_compilation(
-        compilation: &Compilation,
-    ) -> Result<Self, SyntaxInspectionRenderError> {
+    fn from_compilation(compilation: &Compilation) -> Result<Self, SyntaxInspectionRenderError> {
         let mut sources = Vec::with_capacity(compilation.source_count());
 
         for snapshot in compilation.sources() {
@@ -101,8 +102,8 @@ impl SyntaxInspectionSource {
             return Err(SyntaxInspectionRenderError::SourceMismatch);
         }
 
-        let line_index =
-            LineIndex::new(snapshot.text()).map_err(|_| SyntaxInspectionRenderError::SourceIndex)?;
+        let line_index = LineIndex::new(snapshot.text())
+            .map_err(|_| SyntaxInspectionRenderError::SourceIndex)?;
 
         let (tree, node_count, token_count) =
             syntax_tree_elements(snapshot, &line_index, result.source_unit())?;
@@ -350,15 +351,9 @@ const fn map_trivia_error(error: InspectionTriviaError) -> SyntaxInspectionRende
 fn render_text_report(report: &SyntaxInspectionReport) -> String {
     let mut output = String::new();
 
-    output.push_str("kind: ");
-    output.push_str(report.kind);
-    output.push('\n');
-    output.push_str("source_count: ");
-    output.push_str(&report.source_count.to_string());
-    output.push('\n');
-    output.push_str("has_errors: ");
-    output.push_str(&report.has_errors.to_string());
-    output.push('\n');
+    push_report_value(&mut output, "kind", report.kind);
+    push_report_value(&mut output, "source_count", report.source_count);
+    push_report_value(&mut output, "has_errors", report.has_errors);
 
     for source in &report.sources {
         output.push('\n');
@@ -375,12 +370,12 @@ fn push_text_source(output: &mut String, source: &SyntaxInspectionSource) {
     output.push_str(&source.display_name);
     output.push('\n');
 
-    push_indented_value(output, "source_id", source.source_id);
-    push_indented_value(output, "identity", source.identity);
-    push_indented_value(output, "version", source.version);
-    push_indented_value(output, "node_count", source.node_count);
-    push_indented_value(output, "token_count", source.token_count);
-    push_indented_value(output, "diagnostic_count", source.diagnostic_count);
+    push_indented_report_value(output, "source_id", source.source_id);
+    push_indented_report_value(output, "identity", source.identity);
+    push_indented_report_value(output, "version", source.version);
+    push_indented_report_value(output, "node_count", source.node_count);
+    push_indented_report_value(output, "token_count", source.token_count);
+    push_indented_report_value(output, "diagnostic_count", source.diagnostic_count);
 
     output.push_str("  tree:\n");
 
@@ -400,25 +395,6 @@ fn push_text_source(output: &mut String, source: &SyntaxInspectionSource) {
     for diagnostic in &source.diagnostics {
         push_text_diagnostic(output, diagnostic);
     }
-}
-
-fn push_indented_value<T: ToString>(output: &mut String, key: &str, value: T) {
-    output.push_str("  ");
-    output.push_str(key);
-    output.push_str(": ");
-    output.push_str(&value.to_string());
-    output.push('\n');
-}
-
-fn render_json_report(
-    report: &SyntaxInspectionReport,
-) -> Result<String, SyntaxInspectionRenderError> {
-    let mut output =
-        serde_json::to_string_pretty(report).map_err(|_| SyntaxInspectionRenderError::Json)?;
-
-    output.push('\n');
-
-    Ok(output)
 }
 
 #[cfg(test)]

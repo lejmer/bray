@@ -174,7 +174,6 @@ impl BackendSerializationOptions {
     pub const fn assembly_syntax_kind(self) -> AssemblySyntaxKind {
         self.assembly_syntax_kind
     }
-
 }
 
 /// Exact immutable backend outputs derived from one emission plan.

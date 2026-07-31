@@ -199,8 +199,9 @@ mod tests {
 
     use crate::service::BodyBehaviorCollector;
     use crate::test_support::{
-        TestCheckerContext, callable_entry, checked_expression_types, error_type, expression_unit,
-        empty_callable_phase_behaviors, push_expression, semantic_values,
+        TestCheckerContext, callable_entry, checked_expression_types,
+        empty_callable_phase_behaviors, error_type, expression_unit, push_expression,
+        semantic_values,
     };
     use crate::{CheckerUnitView, DefaultBodyBehaviorCollector};
 

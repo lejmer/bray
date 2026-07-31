@@ -1,11 +1,10 @@
 use std::hash::Hasher;
 
 use bray_symbols::{
-    CallableAbi, CallableConstness, CallableParameterMode, CallablePosition,
-    CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
-    CurrentRunCancellation, DependencyRequirementKind, IntegerConstant,
-    IntegerSign, LifecycleObligationKind, RealConstantBits, SymbolOrdinal,
-    TargetSizedIntegerType,
+    CallableAbi, CallableConstness, CallableParameterMode, CallablePosition, CallableTrust,
+    ConstantBinaryOperation, ConstantUnaryOperation, CurrentRunCancellation,
+    DependencyRequirementKind, IntegerConstant, IntegerSign, LifecycleObligationKind,
+    RealConstantBits, SymbolOrdinal, TargetSizedIntegerType,
 };
 
 use super::encoding::StructuralValueEncoder;
@@ -37,10 +36,7 @@ impl StructuralValueEncoder<'_> {
         }
     }
 
-    pub(super) fn dependency_requirement_kind(
-        &mut self,
-        kind: DependencyRequirementKind,
-    ) {
+    pub(super) fn dependency_requirement_kind(&mut self, kind: DependencyRequirementKind) {
         match kind {
             DependencyRequirementKind::StorageAlive => self.tag(0),
             DependencyRequirementKind::StorageInitialized => self.tag(1),
@@ -63,10 +59,7 @@ impl StructuralValueEncoder<'_> {
         }
     }
 
-    pub(super) fn constant_binary_operation(
-        &mut self,
-        operation: ConstantBinaryOperation,
-    ) {
+    pub(super) fn constant_binary_operation(&mut self, operation: ConstantBinaryOperation) {
         self.tag(match operation {
             ConstantBinaryOperation::Add => 0,
             ConstantBinaryOperation::Subtract => 1,
@@ -90,10 +83,7 @@ impl StructuralValueEncoder<'_> {
         });
     }
 
-    pub(super) fn constant_unary_operation(
-        &mut self,
-        operation: ConstantUnaryOperation,
-    ) {
+    pub(super) fn constant_unary_operation(&mut self, operation: ConstantUnaryOperation) {
         self.tag(match operation {
             ConstantUnaryOperation::Identity => 0,
             ConstantUnaryOperation::Negate => 1,
@@ -102,10 +92,7 @@ impl StructuralValueEncoder<'_> {
         });
     }
 
-    pub(super) fn lifecycle_obligation(
-        &mut self,
-        obligation: LifecycleObligationKind,
-    ) {
+    pub(super) fn lifecycle_obligation(&mut self, obligation: LifecycleObligationKind) {
         self.tag(match obligation {
             LifecycleObligationKind::Destruction => 0,
             LifecycleObligationKind::Finalization => 1,
@@ -114,10 +101,7 @@ impl StructuralValueEncoder<'_> {
         });
     }
 
-    pub(super) fn target_sized_integer_type(
-        &mut self,
-        ty: TargetSizedIntegerType,
-    ) {
+    pub(super) fn target_sized_integer_type(&mut self, ty: TargetSizedIntegerType) {
         self.tag(match ty {
             TargetSizedIntegerType::Isize => 0,
             TargetSizedIntegerType::Usize => 1,
@@ -138,10 +122,7 @@ impl StructuralValueEncoder<'_> {
         });
     }
 
-    pub(super) fn callable_parameter_mode(
-        &mut self,
-        mode: CallableParameterMode,
-    ) {
+    pub(super) fn callable_parameter_mode(&mut self, mode: CallableParameterMode) {
         self.tag(match mode {
             CallableParameterMode::Immutable => 0,
             CallableParameterMode::Mutable => 1,
@@ -170,10 +151,7 @@ impl StructuralValueEncoder<'_> {
         });
     }
 
-    pub(super) fn current_run_cancellation(
-        &mut self,
-        value: CurrentRunCancellation,
-    ) {
+    pub(super) fn current_run_cancellation(&mut self, value: CurrentRunCancellation) {
         self.tag(match value {
             CurrentRunCancellation::NotEntered => 0,
             CurrentRunCancellation::MayEnter => 1,

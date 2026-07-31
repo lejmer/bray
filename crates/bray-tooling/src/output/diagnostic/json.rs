@@ -7,9 +7,7 @@ use bray_source::{SourceSpan, SourceStore};
 use serde::Serialize;
 
 use super::source_map::DiagnosticSourceMap;
-use crate::output::{
-    SourceLocationOutput, SourceOriginOutput, path_to_output_string,
-};
+use crate::output::{SourceLocationOutput, SourceOriginOutput, path_to_output_string};
 
 pub(crate) fn write_json_diagnostics(
     diagnostics: &DiagnosticBag,
@@ -20,9 +18,7 @@ pub(crate) fn write_json_diagnostics(
 }
 
 pub(super) fn write_json_diagnostic_groups<'diagnostic>(
-    groups: impl IntoIterator<
-        Item = (&'diagnostic DiagnosticBag, Option<&'diagnostic SourceStore>),
-    >,
+    groups: impl IntoIterator<Item = (&'diagnostic DiagnosticBag, Option<&'diagnostic SourceStore>)>,
     writer: &mut impl Write,
 ) -> io::Result<()> {
     let mut has_errors = false;

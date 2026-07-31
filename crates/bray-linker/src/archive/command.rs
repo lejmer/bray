@@ -3,14 +3,12 @@ use std::path::Path;
 
 use super::format::ArchiveFormat;
 use crate::external_tool::{
-    ResponseFileEncoding, ResponseFileEncodingError,
-    encode_response_arguments, response_file_materialization_path,
-    response_file_path, response_file_reference,
+    ResponseFileEncoding, ResponseFileEncodingError, encode_response_arguments,
+    response_file_materialization_path, response_file_path, response_file_reference,
 };
 use crate::{
-    DeadStripPolicy, ExternalToolInvocation,
-    ExternalToolInvocationBuildError, ExternalToolResponseFile,
-    ExternalToolResponseFileBuildError, LinkInputKind, LinkInputSource,
+    DeadStripPolicy, ExternalToolInvocation, ExternalToolInvocationBuildError,
+    ExternalToolResponseFile, ExternalToolResponseFileBuildError, LinkInputKind, LinkInputSource,
     LinkPlan, LinkedArtifactKind, SectionGarbageCollectionPolicy,
 };
 
@@ -39,29 +37,18 @@ pub(super) fn invocation(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let reference_path =
-        response_file_path(output, ".bray-archive.rsp");
+    let reference_path = response_file_path(output, ".bray-archive.rsp");
 
-    let materialization_path = response_file_materialization_path(
-        &reference_path,
-        template.current_directory(),
-    );
+    let materialization_path =
+        response_file_materialization_path(&reference_path, template.current_directory());
 
-    let contents = encode_response_arguments(
-        &input_paths,
-        ResponseFileEncoding::Utf8,
-    )
-    .map_err(ArchiveInvocationBuildError::ResponseEncoding)?;
+    let contents = encode_response_arguments(&input_paths, ResponseFileEncoding::Utf8)
+        .map_err(ArchiveInvocationBuildError::ResponseEncoding)?;
 
-    let response_file =
-        ExternalToolResponseFile::try_new(materialization_path, contents)
-            .map_err(ArchiveInvocationBuildError::ResponseFile)?;
+    let response_file = ExternalToolResponseFile::try_new(materialization_path, contents)
+        .map_err(ArchiveInvocationBuildError::ResponseFile)?;
 
-    let arguments = arguments(
-        format,
-        output,
-        response_file_reference(&reference_path),
-    );
+    let arguments = arguments(format, output, response_file_reference(&reference_path));
 
     // Each process request owns its configuration so the immutable driver can serve concurrent links.
     let environment = template.environment().iter().cloned();
@@ -80,9 +67,7 @@ pub(super) fn invocation(
     .map_err(ArchiveInvocationBuildError::Invocation)
 }
 
-fn validate_plan(
-    plan: &LinkPlan,
-) -> Result<(), ArchiveInvocationBuildError> {
+fn validate_plan(plan: &LinkPlan) -> Result<(), ArchiveInvocationBuildError> {
     let policy = plan.policy();
 
     if plan.outputs().len() != 1
@@ -95,8 +80,7 @@ fn validate_plan(
         || !plan.retained_symbols().is_empty()
         || !plan.search_paths().is_empty()
         || policy.dead_strip() != DeadStripPolicy::Preserve
-        || policy.section_garbage_collection()
-            != SectionGarbageCollectionPolicy::Preserve
+        || policy.section_garbage_collection() != SectionGarbageCollectionPolicy::Preserve
         || policy.subsystem().is_some()
     {
         return Err(ArchiveInvocationBuildError::InvalidPlan);
@@ -104,20 +88,18 @@ fn validate_plan(
 
     let output = plan.outputs()[0].destination().path();
 
-    if plan.inputs().iter().any(
-        |input| matches!(input.source(), LinkInputSource::File(path) if path == output),
-    ) {
+    if plan
+        .inputs()
+        .iter()
+        .any(|input| matches!(input.source(), LinkInputSource::File(path) if path == output))
+    {
         return Err(ArchiveInvocationBuildError::InvalidPlan);
     }
 
     Ok(())
 }
 
-fn arguments(
-    format: ArchiveFormat,
-    output: &Path,
-    response_file: OsString,
-) -> Vec<OsString> {
+fn arguments(format: ArchiveFormat, output: &Path, response_file: OsString) -> Vec<OsString> {
     // Quick append preserves repeated member names while `s` indexes and `D` normalizes metadata.
     vec![
         OsString::from("--rsp-quoting=posix"),

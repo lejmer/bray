@@ -68,8 +68,7 @@ impl Lowerer<'_> {
                 None => matched,
             };
 
-            let body =
-                self.lower_yielding_block(arm.body(), body_entry, join, result_type)?;
+            let body = self.lower_yielding_block(arm.body(), body_entry, join, result_type)?;
 
             self.finish_result_edge(body, join, result_type)?;
 

@@ -77,9 +77,7 @@ pub fn demanded_callable_instances_for_mir(
         .collect()
 }
 
-fn operation_callable_instance(
-    operation: &MirOperationKind,
-) -> Option<DemandedCallableInstance> {
+fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedCallableInstance> {
     let call = match operation {
         MirOperationKind::Call(call)
         | MirOperationKind::Async(MirAsyncOperation::CreateFrame {

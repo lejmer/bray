@@ -20,9 +20,7 @@ pub(super) fn needs_space_before(
         return false;
     }
 
-    if matches!(previous, SyntaxKind::DotDotToken)
-        || matches!(current, SyntaxKind::DotDotToken)
-    {
+    if matches!(previous, SyntaxKind::DotDotToken) || matches!(current, SyntaxKind::DotDotToken) {
         return false;
     }
 
@@ -54,8 +52,7 @@ pub(super) fn clears_pending_space_before(kind: SyntaxKind) -> bool {
 }
 
 pub(super) fn is_operator(kind: SyntaxKind) -> bool {
-    (kind.is_expression_operator()
-        && !matches!(kind, SyntaxKind::AtToken | SyntaxKind::ColonToken))
+    (kind.is_expression_operator() && !matches!(kind, SyntaxKind::AtToken | SyntaxKind::ColonToken))
         || matches!(kind, SyntaxKind::ArrowToken | SyntaxKind::DotDotToken)
 }
 
@@ -73,10 +70,7 @@ pub(super) fn is_prefix_operator(operator: SyntaxKind, previous: SyntaxKind) -> 
     ) && !can_end_expression(previous)
 }
 
-pub(super) fn is_generic_delimiter(
-    kind: SyntaxKind,
-    parent: Option<SyntaxKind>,
-) -> bool {
+pub(super) fn is_generic_delimiter(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
     matches!(kind, SyntaxKind::LessToken | SyntaxKind::GreaterToken)
         && matches!(
             parent,
@@ -117,11 +111,11 @@ pub(super) fn is_directive(kind: SyntaxKind) -> bool {
     )
 }
 
-pub(super) fn should_separate_after(
-    kind: SyntaxKind,
-    parent: Option<SyntaxKind>,
-) -> bool {
-    if matches!(parent, Some(SyntaxKind::SourceUnit | SyntaxKind::ModuleBody)) {
+pub(super) fn should_separate_after(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
+    if matches!(
+        parent,
+        Some(SyntaxKind::SourceUnit | SyntaxKind::ModuleBody)
+    ) {
         return is_module_declaration(kind);
     }
 

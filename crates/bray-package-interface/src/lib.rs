@@ -77,8 +77,7 @@ pub use semantic::{
     InterfaceSupportImplementation, InterfaceSymbolResolver, InterfaceTargetFactDependency,
     InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
     InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
-    InterfaceTypeRepresentation, InterfaceUnionTag, decode_semantic_facts,
-    encode_semantic_facts,
+    InterfaceTypeRepresentation, InterfaceUnionTag, decode_semantic_facts, encode_semantic_facts,
 };
 pub use surface::{
     DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,

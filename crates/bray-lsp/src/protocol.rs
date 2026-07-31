@@ -40,11 +40,7 @@ pub(crate) fn read_messages(
     Ok(())
 }
 
-pub(crate) fn write_result(
-    output: &mut dyn Write,
-    id: Value,
-    result: Value,
-) -> io::Result<()> {
+pub(crate) fn write_result(output: &mut dyn Write, id: Value, result: Value) -> io::Result<()> {
     write_value(
         output,
         &json!({
@@ -190,13 +186,9 @@ mod tests {
 
     use serde_json::json;
 
-    use bray_messages::{
-        LanguageServerMessage, LanguageServerMessageRenderer,
-    };
+    use bray_messages::{LanguageServerMessage, LanguageServerMessageRenderer};
 
-    use super::{
-        IncomingMessage, INVALID_PARAMS, read_messages, write_error, write_result,
-    };
+    use super::{INVALID_PARAMS, IncomingMessage, read_messages, write_error, write_result};
 
     #[test]
     fn reads_consecutive_framed_messages() {

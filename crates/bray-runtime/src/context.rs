@@ -2,9 +2,7 @@ use std::cell::RefCell;
 
 use bray_runtime_interface::ProtectedFrameStateId;
 
-use crate::{
-    CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle,
-};
+use crate::{CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle};
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
@@ -114,8 +112,7 @@ pub(crate) fn with_run_cancellation_context<T>(
     cancellation: CancellationContext,
     callback: impl FnOnce() -> T,
 ) -> T {
-    let previous =
-        CURRENT_RUN_CANCELLATION.with(|current| current.replace(Some(cancellation)));
+    let previous = CURRENT_RUN_CANCELLATION.with(|current| current.replace(Some(cancellation)));
 
     let _guard = RunCancellationGuard(previous);
 
@@ -162,13 +159,13 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
-        TaskExecutionContext, current_run_cancellation_observable,
-        current_task_execution_context, with_task_execution_context,
+        TaskExecutionContext, current_run_cancellation_observable, current_task_execution_context,
+        with_task_execution_context,
     };
     use crate::test_support::TestFrame;
     use crate::{
-        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-        Scheduler, SchedulerLimits, TaskControlBlock,
+        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, Scheduler,
+        SchedulerLimits, TaskControlBlock,
     };
 
     #[test]
@@ -205,14 +202,13 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("task must register: {error:?}"));
 
-        let context =
-            TaskExecutionContext::new(
-                task.id(),
-                ProtectedFrameStateId::new(0),
-                cancellation,
-                lane,
-                registration.wake_handle(),
-            );
+        let context = TaskExecutionContext::new(
+            task.id(),
+            ProtectedFrameStateId::new(0),
+            cancellation,
+            lane,
+            registration.wake_handle(),
+        );
 
         assert!(current_task_execution_context().is_none());
 

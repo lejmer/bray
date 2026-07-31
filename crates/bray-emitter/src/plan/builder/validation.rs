@@ -329,22 +329,19 @@ fn request_requires_backend(request: &EmissionRequest) -> bool {
 }
 
 fn request_requires_codegen_units(request: &EmissionRequest) -> bool {
-    request
-        .artifacts()
-        .iter()
-        .any(|artifact| {
-            artifact.requirement() == ArtifactRequirement::Required
-                && matches!(
-                    artifact.kind(),
-                    ArtifactKind::Executable
-                        | ArtifactKind::SharedLibrary
-                        | ArtifactKind::Assembly
-                        | ArtifactKind::BackendIr
-                        | ArtifactKind::BackendBitcode
-                        | ArtifactKind::RelocatableObject
-                        | ArtifactKind::DebugCompanion
-                )
-        })
+    request.artifacts().iter().any(|artifact| {
+        artifact.requirement() == ArtifactRequirement::Required
+            && matches!(
+                artifact.kind(),
+                ArtifactKind::Executable
+                    | ArtifactKind::SharedLibrary
+                    | ArtifactKind::Assembly
+                    | ArtifactKind::BackendIr
+                    | ArtifactKind::BackendBitcode
+                    | ArtifactKind::RelocatableObject
+                    | ArtifactKind::DebugCompanion
+            )
+    })
 }
 
 fn has_planned_backend_work(planner: &EmissionPlanner, request: &EmissionRequest) -> bool {

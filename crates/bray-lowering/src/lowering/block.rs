@@ -59,11 +59,9 @@ impl Lowerer<'_> {
                     BoundBlockItem::LocalBinding(binding) => {
                         self.lower_local_binding(binding, current)?
                     }
-                    BoundBlockItem::LocalConstant(_) => LoweredExpression::continuing(
-                        current,
-                        None,
-                        Self::retained_source(&source),
-                    ),
+                    BoundBlockItem::LocalConstant(_) => {
+                        LoweredExpression::continuing(current, None, Self::retained_source(&source))
+                    }
                     BoundBlockItem::Expression(expression) => {
                         self.lower_expression(*expression, current)?
                     }

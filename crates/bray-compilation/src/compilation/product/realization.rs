@@ -887,8 +887,8 @@ impl Compilation {
                 .iter()
                 .map(|field| {
                     let template = facts
-                        .symbol_fact(bray_symbols::SymbolFactRequest::<
-                            bray_symbols::UnionPayloadFieldTypeFact,
+                        .symbol_fact(SymbolFactRequest::<
+                            UnionPayloadFieldTypeFact,
                         >::new(*field))
                         .map_err(super::super::binder::binder_fact_error)?;
 
@@ -1537,7 +1537,7 @@ impl Compilation {
                     .iter()
                     .map(|field| {
                         let template = facts
-                            .symbol_fact(bray_symbols::SymbolFactRequest::<
+                            .symbol_fact(SymbolFactRequest::<
                                 bray_symbols::StructFieldTypeFact,
                             >::new(*field))
                             .map_err(super::super::binder::binder_fact_error)?;
@@ -2219,7 +2219,7 @@ impl Compilation {
 
         if self
             .available_compiler_known_symbols()
-            .declaration_symbol::<bray_symbols::StructSymbolId>(&heap_key)
+            .declaration_symbol::<StructSymbolId>(&heap_key)
             .is_some_and(|heap| definition == NamedTypeSymbolId::Struct(heap))
         {
             return Ok(pointer_mapping(ty, ty, target));
@@ -2239,7 +2239,7 @@ impl Compilation {
                     .iter()
                     .map(|field| {
                         let template = facts
-                            .symbol_fact(bray_symbols::SymbolFactRequest::<
+                            .symbol_fact(SymbolFactRequest::<
                                 bray_symbols::StructFieldTypeFact,
                             >::new(*field))
                             .map_err(super::super::binder::binder_fact_error)?;
@@ -3017,18 +3017,10 @@ impl Compilation {
         let result = if callable.execution() == CallableExecution::Asynchronous {
             let future = self
                 .available_compiler_known_symbols()
-                .unary_representation_type(
-                    values,
-                    RepresentationRole::Future,
-                    signature.result(),
-                )
+                .unary_representation_type(values, RepresentationRole::Future, signature.result())
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            CodegenResultMapping::direct(
-                future,
-                None,
-                [],
-            )
+            CodegenResultMapping::direct(future, None, [])
         } else if is_unit(self, signature.result())? {
             CodegenResultMapping::Void
         } else {
@@ -3158,10 +3150,10 @@ impl Compilation {
     ) -> Result<TypeId, FactQueryError> {
         let definition = self
             .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(role)
+            .representation_symbol::<StructSymbolId>(role)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        super::super::substitution::named_type(
+        named_type(
             self.semantic_value_store()?,
             NamedTypeSymbolId::Struct(definition),
         )
@@ -3581,6 +3573,7 @@ mod tests {
     use bray_runtime_interface::{
         ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole, RuntimeRoleContractEffect,
     };
+    use bray_symbols::testing::intern_type;
     use bray_symbols::{
         BorrowKind, CallableAbi, NamedTypeSymbolId, SymbolOrigin, TraitApplicationData, TypeData,
         TypeId,
@@ -3663,7 +3656,7 @@ mod tests {
 
     #[test]
     fn lifecycle_helpers_use_distinct_type_aware_instance_dependencies() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -3731,8 +3724,8 @@ mod tests {
 
     #[test]
     fn lifecycle_identity_is_stable_and_payload_remains_compilation_local() {
-        let first = crate::test_support::compilation("module app; func main() {}");
-        let second = crate::test_support::compilation("module app; func main() {}");
+        let first = compilation("module app; func main() {}");
+        let second = compilation("module app; func main() {}");
 
         let first_values = first
             .semantic_value_store()
@@ -3791,7 +3784,7 @@ mod tests {
 
     #[test]
     fn lifecycle_payload_must_match_the_stable_key_role() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let ty = compilation
@@ -3815,7 +3808,7 @@ mod tests {
 
     #[test]
     fn generated_destruction_composes_parts_in_reverse_order() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -3878,7 +3871,7 @@ mod tests {
 
     #[test]
     fn nullable_lifecycle_resolves_only_the_present_payload() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -3944,7 +3937,7 @@ mod tests {
 
     #[test]
     fn nullable_cancellation_branches_within_the_cleanup_phase() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -4013,7 +4006,7 @@ mod tests {
 
     #[test]
     fn union_lifecycle_resolves_only_the_active_variant_payload() {
-        let compilation = crate::test_support::compilation(concat!(
+        let compilation = compilation(concat!(
             "module app;\n",
             "union Choice\n",
             "{\n",
@@ -4100,7 +4093,7 @@ mod tests {
 
     #[test]
     fn nullable_and_union_codegen_use_checked_payload_layouts() {
-        let compilation = crate::test_support::compilation(concat!(
+        let compilation = compilation(concat!(
             "module app;\n",
             "@layout(stable, tag = u8)\n",
             "union Choice\n",
@@ -4124,7 +4117,7 @@ mod tests {
             .intern_type(TypeData::Nullable(union))
             .expect("nullable union type must intern");
 
-        let mut mappings = std::collections::BTreeMap::new();
+        let mut mappings = BTreeMap::new();
         let mut pending = BTreeSet::new();
 
         compilation
@@ -4161,7 +4154,7 @@ mod tests {
 
     #[test]
     fn generator_destruction_reaches_element_lifecycle_and_releases_storage() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -4244,7 +4237,7 @@ mod tests {
 
     #[test]
     fn generator_cleanup_broadcast_reaches_exact_element_cleanup() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -4307,7 +4300,7 @@ mod tests {
 
     #[test]
     fn generator_runtime_helpers_use_stable_erased_abis() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
 
         let begin = compilation
             .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
@@ -4325,7 +4318,7 @@ mod tests {
 
     #[test]
     fn owned_indirection_uses_storage_policy_teardown() {
-        let compilation = crate::test_support::compilation("module app; func main() {}");
+        let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -4345,7 +4338,7 @@ mod tests {
             .expect("compiler-known Heap must be available");
 
         let storage =
-            crate::compilation::substitution::named_type(values, NamedTypeSymbolId::Struct(heap))
+            named_type(values, NamedTypeSymbolId::Struct(heap))
                 .expect("Heap storage type must intern");
 
         let owned = values
@@ -4465,7 +4458,7 @@ mod tests {
             .expect("semantic values must resolve");
 
         let substitution =
-            crate::compilation::substitution::empty_substitution(values, union.id().into())
+            empty_substitution(values, union.id().into())
                 .expect("union substitution must intern");
 
         values
@@ -4836,9 +4829,4 @@ mod tests {
             .unwrap_or_else(|error| panic!("baseline codegen target must be valid: {error:?}"))
     }
 
-    fn intern_type(values: &bray_symbols::SemanticValueStore, data: TypeData) -> TypeId {
-        values
-            .intern_type(data)
-            .unwrap_or_else(|error| panic!("test type must be valid: {error:?}"))
-    }
 }
