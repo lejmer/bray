@@ -26,7 +26,7 @@ pub use output::{
 pub use product::{
     baseline_output_name, baseline_target_outputs, load_compilation,
     load_llvm_compilation, native_linker, package_interface_export_request,
-    project_interface_path, project_output_directory,
+    project_interface_path, project_output_directory, selected_target,
 };
 pub use source::{
     SourceInputError, compilation_request_from_file_arguments,

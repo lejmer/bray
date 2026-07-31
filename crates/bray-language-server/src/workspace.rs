@@ -1,12 +1,17 @@
-use std::collections::BTreeMap;
+// rust-style: allow(module-too-large, reason = "document snapshots and product rebuilds share one workspace consistency invariant")
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_compilation::{
-    Compilation, CompilationOptions, DependencyInterfaceInput, SelectedTarget, WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+    WorkerBudget,
 };
+use bray_messages::LanguageServerMessage;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
+    encode_package_interface,
 };
 use bray_project::{ProjectGraph, ProjectProduct};
 use bray_source::{
@@ -14,8 +19,10 @@ use bray_source::{
     SourceSnapshot, SourceVersion,
 };
 use bray_symbols::ProductIdentity;
+use bray_target::TargetIdentity;
 use bray_tooling::{
-    compilation_request_from_file_arguments, project_interface_path,
+    compilation_request_from_file_arguments, package_interface_export_request,
+    project_interface_path, selected_target,
 };
 
 use crate::model::{ContentChange, Position};
@@ -26,19 +33,35 @@ pub(crate) struct DocumentSnapshot {
     pub(crate) source_id: SourceId,
     pub(crate) uri: String,
     pub(crate) revision: u64,
+    pub(crate) compilation_revision: CompilationRevision,
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct CompilationRevision {
+    pub(crate) product: ProductIdentity,
+    pub(crate) target: TargetIdentity,
+    pub(crate) generation: u64,
+}
+
+pub(crate) struct WorkspaceUpdate {
+    pub(crate) current: DocumentSnapshot,
+    pub(crate) affected: Vec<DocumentSnapshot>,
 }
 
 pub(crate) struct Workspace {
     root: PathBuf,
     graph: Arc<ProjectGraph>,
+    target: TargetIdentity,
     worker_budget: WorkerBudget,
     products: BTreeMap<ProductIdentity, ProductState>,
     documents: BTreeMap<String, DocumentOwner>,
+    next_generation: u64,
 }
 
 struct ProductState {
     compilation: Arc<Compilation>,
     sources: Vec<WorkspaceSource>,
+    generation: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -67,19 +90,21 @@ pub(crate) enum WorkspaceError {
     ProductNotFound,
     SourceTooLarge,
     UnsupportedTarget,
+    DependencyUnavailable,
 }
 
 impl WorkspaceError {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub(crate) const fn message(self) -> LanguageServerMessage {
         match self {
-            Self::Compilation => "language_server_compilation_failed",
-            Self::DocumentNotFound => "language_server_document_not_found",
-            Self::InvalidDocumentUri => "language_server_invalid_document_uri",
-            Self::InvalidEdit => "language_server_invalid_document_edit",
-            Self::InvalidVersion => "language_server_invalid_document_version",
-            Self::ProductNotFound => "language_server_product_not_found",
-            Self::SourceTooLarge => "language_server_source_too_large",
-            Self::UnsupportedTarget => "language_server_unsupported_target",
+            Self::Compilation => LanguageServerMessage::CompilationFailed,
+            Self::DocumentNotFound => LanguageServerMessage::DocumentNotFound,
+            Self::InvalidDocumentUri => LanguageServerMessage::InvalidDocumentUri,
+            Self::InvalidEdit => LanguageServerMessage::InvalidDocumentEdit,
+            Self::InvalidVersion => LanguageServerMessage::InvalidDocumentVersion,
+            Self::ProductNotFound => LanguageServerMessage::ProductNotFound,
+            Self::SourceTooLarge => LanguageServerMessage::SourceTooLarge,
+            Self::UnsupportedTarget => LanguageServerMessage::UnsupportedTarget,
+            Self::DependencyUnavailable => LanguageServerMessage::DependencyUnavailable,
         }
     }
 }
@@ -88,14 +113,17 @@ impl Workspace {
     pub(crate) fn new(
         root: impl Into<PathBuf>,
         graph: Arc<ProjectGraph>,
+        target: TargetIdentity,
         worker_budget: WorkerBudget,
     ) -> Self {
         Self {
             root: root.into(),
             graph,
+            target,
             worker_budget,
             products: BTreeMap::new(),
             documents: BTreeMap::new(),
+            next_generation: 0,
         }
     }
 
@@ -104,16 +132,12 @@ impl Workspace {
         uri: String,
         version: i64,
         text: String,
-    ) -> Result<DocumentSnapshot, WorkspaceError> {
+    ) -> Result<WorkspaceUpdate, WorkspaceError> {
         let version = source_version(version)?;
         let product = self.product_for_uri(&uri)?.clone();
         let identity = product.identity().clone();
 
-        if !self.products.contains_key(&identity) {
-            let state = self.load_product(product)?;
-
-            self.products.insert(identity.clone(), state);
-        }
+        self.ensure_product_loaded(&identity)?;
 
         let state = self
             .products
@@ -138,17 +162,24 @@ impl Workspace {
 
         let source_identity = source.identity;
 
-        revise_compilation(state)?;
-
         self.documents.insert(
             uri.clone(),
             DocumentOwner {
-                product: identity,
+                product: identity.clone(),
                 identity: source_identity,
             },
         );
 
-        document_snapshot(state, source_identity, uri, version.raw())
+        let affected = self.rebuild_products_from(&identity)?;
+
+        let current = self
+            .document(&uri)
+            .ok_or(WorkspaceError::DocumentNotFound)?;
+
+        Ok(WorkspaceUpdate {
+            current,
+            affected: self.documents_for_products(&affected),
+        })
     }
 
     pub(crate) fn change_document(
@@ -156,7 +187,7 @@ impl Workspace {
         uri: &str,
         version: i64,
         changes: &[ContentChange],
-    ) -> Result<DocumentSnapshot, WorkspaceError> {
+    ) -> Result<WorkspaceUpdate, WorkspaceError> {
         let version = source_version(version)?;
 
         let owner = self
@@ -182,12 +213,22 @@ impl Workspace {
 
         apply_changes(source, version, changes)?;
 
-        revise_compilation(state)?;
+        let affected = self.rebuild_products_from(&owner.product)?;
 
-        document_snapshot(state, owner.identity, uri.to_owned(), version.raw())
+        let current = self
+            .document(uri)
+            .ok_or(WorkspaceError::DocumentNotFound)?;
+
+        Ok(WorkspaceUpdate {
+            current,
+            affected: self.documents_for_products(&affected),
+        })
     }
 
-    pub(crate) fn close_document(&mut self, uri: &str) -> Result<(), WorkspaceError> {
+    pub(crate) fn close_document(
+        &mut self,
+        uri: &str,
+    ) -> Result<Vec<DocumentSnapshot>, WorkspaceError> {
         let owner = self
             .documents
             .remove(uri)
@@ -207,7 +248,9 @@ impl Workspace {
         let Some(path) = source.path.as_ref() else {
             source.is_open = false;
 
-            return Ok(());
+            let affected = self.rebuild_products_from(&owner.product)?;
+
+            return Ok(self.documents_for_products(&affected));
         };
 
         let text = std::fs::read_to_string(path).map_err(|_| WorkspaceError::Compilation)?;
@@ -221,7 +264,9 @@ impl Workspace {
         source.version = version;
         source.is_open = false;
 
-        revise_compilation(state)
+        let affected = self.rebuild_products_from(&owner.product)?;
+
+        Ok(self.documents_for_products(&affected))
     }
 
     pub(crate) fn document(&self, uri: &str) -> Option<DocumentSnapshot> {
@@ -238,13 +283,21 @@ impl Workspace {
             owner.identity,
             uri.to_owned(),
             source.version.raw(),
+            CompilationRevision {
+                product: owner.product.clone(),
+                target: self.target.clone(),
+                generation: state.generation,
+            },
         )
         .ok()
     }
 
-    pub(crate) fn is_current(&self, uri: &str, revision: u64) -> bool {
-        self.document(uri)
-            .is_some_and(|document| document.revision == revision)
+    pub(crate) fn is_current(&self, revision: &CompilationRevision) -> bool {
+        self.target == revision.target
+            && self
+                .products
+                .get(&revision.product)
+                .is_some_and(|state| state.generation == revision.generation)
     }
 
     fn product_for_uri(&self, uri: &str) -> Result<&ProjectProduct, WorkspaceError> {
@@ -269,15 +322,44 @@ impl Workspace {
         self.graph
             .packages()
             .iter()
+            .filter(|package| package.role() == bray_project::PackageRole::Root)
             .flat_map(|package| package.products())
             .next()
             .ok_or(WorkspaceError::ProductNotFound)
     }
 
-    fn load_product(&self, product: ProjectProduct) -> Result<ProductState, WorkspaceError> {
-        let selected_target = SelectedTarget::baseline();
+    fn ensure_product_loaded(
+        &mut self,
+        identity: &ProductIdentity,
+    ) -> Result<(), WorkspaceError> {
+        if self.products.contains_key(identity) {
+            return Ok(());
+        }
 
-        if !product.targets().contains(selected_target.profile().identity()) {
+        let product = self
+            .project_product(identity)
+            .cloned()
+            .ok_or(WorkspaceError::ProductNotFound)?;
+
+        for dependency in self.product_dependencies(&product)? {
+            self.ensure_product_loaded(&dependency)?;
+        }
+
+        let state = self.load_product(product)?;
+
+        self.products.insert(identity.clone(), state);
+
+        Ok(())
+    }
+
+    fn load_product(
+        &mut self,
+        product: ProjectProduct,
+    ) -> Result<ProductState, WorkspaceError> {
+        let selected_target =
+            selected_target(&self.target).ok_or(WorkspaceError::UnsupportedTarget)?;
+
+        if !product.targets().contains(&self.target) {
             return Err(WorkspaceError::UnsupportedTarget);
         }
 
@@ -300,10 +382,7 @@ impl Workspace {
         )
         .map_err(|_| WorkspaceError::Compilation)?;
 
-        request = request.with_dependency_interfaces(self.dependency_interfaces(
-            &product,
-            selected_target.profile().identity(),
-        ));
+        request = self.configure_request(request, &product)?;
 
         let compilation = Compilation::load(request).map_err(|_| WorkspaceError::Compilation)?;
 
@@ -316,36 +395,197 @@ impl Workspace {
         Ok(ProductState {
             compilation: Arc::new(compilation),
             sources,
+            generation: self.next_generation()?,
         })
+    }
+
+    fn rebuild_products_from(
+        &mut self,
+        changed: &ProductIdentity,
+    ) -> Result<BTreeSet<ProductIdentity>, WorkspaceError> {
+        let loaded = self.products.keys().cloned().collect::<BTreeSet<_>>();
+
+        let products = self
+            .graph
+            .packages()
+            .iter()
+            .flat_map(|package| package.products())
+            .filter(|product| loaded.contains(product.identity()))
+            .map(|product| (product.identity().clone(), product.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        let dependencies = products
+            .iter()
+            .map(|(identity, product)| {
+                self.product_dependencies(product)
+                    .map(|dependencies| (identity.clone(), dependencies))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+
+        let mut affected = BTreeSet::from([changed.clone()]);
+
+        loop {
+            let next = dependencies
+                .iter()
+                .filter(|(identity, _)| !affected.contains(*identity))
+                .filter(|(_, dependencies)| {
+                    dependencies
+                        .iter()
+                        .any(|dependency| affected.contains(dependency))
+                })
+                .map(|(identity, _)| identity.clone())
+                .collect::<Vec<_>>();
+
+            if next.is_empty() {
+                break;
+            }
+
+            affected.extend(next);
+        }
+
+        let mut pending = affected.clone();
+        let mut rebuilt = BTreeSet::new();
+
+        while !pending.is_empty() {
+            let identity = pending
+                .iter()
+                .find(|identity| {
+                    dependencies
+                        .get(*identity)
+                        .into_iter()
+                        .flatten()
+                        .filter(|dependency| affected.contains(*dependency))
+                        .all(|dependency| rebuilt.contains(dependency))
+                })
+                .cloned()
+                .ok_or(WorkspaceError::Compilation)?;
+
+            let product = products
+                .get(&identity)
+                .ok_or(WorkspaceError::ProductNotFound)?;
+
+            self.rebuild_product(product)?;
+
+            pending.remove(&identity);
+            rebuilt.insert(identity);
+        }
+
+        Ok(affected)
+    }
+
+    fn rebuild_product(
+        &mut self,
+        product: &ProjectProduct,
+    ) -> Result<(), WorkspaceError> {
+        let identity = product.identity().clone();
+
+        let state = self
+            .products
+            .get(&identity)
+            .ok_or(WorkspaceError::ProductNotFound)?;
+
+        let sources = state
+            .sources
+            .iter()
+            .map(WorkspaceSource::input)
+            .collect::<Vec<_>>();
+
+        let options = CompilationOptions::new(
+            self.worker_budget,
+            product.kind(),
+            selected_target(&self.target).ok_or(WorkspaceError::UnsupportedTarget)?,
+        );
+
+        let request = CompilationRequest::with_options(
+            identity.package().clone(),
+            sources,
+            options,
+        );
+
+        let request = self.configure_request(request, product)?;
+
+        let previous = self
+            .products
+            .get(&identity)
+            .ok_or(WorkspaceError::ProductNotFound)?
+            .compilation
+            .as_ref();
+
+        let compilation = previous
+            .updated(request)
+            .map_err(|_| WorkspaceError::Compilation)?;
+
+        let generation = self.next_generation()?;
+
+        let state = self
+            .products
+            .get_mut(&identity)
+            .ok_or(WorkspaceError::ProductNotFound)?;
+
+        state.compilation = Arc::new(compilation);
+        state.generation = generation;
+
+        Ok(())
+    }
+
+    fn configure_request(
+        &self,
+        mut request: CompilationRequest,
+        product: &ProjectProduct,
+    ) -> Result<CompilationRequest, WorkspaceError> {
+        request = request.with_dependency_interfaces(self.dependency_interfaces(product)?);
+
+        if product.kind() == bray_symbols::ProductKind::Library {
+            request = request.with_package_interface_export(
+                package_interface_export_request(product.identity().clone()),
+            );
+        }
+
+        Ok(request)
     }
 
     fn dependency_interfaces(
         &self,
         product: &ProjectProduct,
-        target: &bray_target::TargetIdentity,
-    ) -> Vec<DependencyInterfaceInput> {
+    ) -> Result<Vec<DependencyInterfaceInput>, WorkspaceError> {
         let Some(package) = self.graph.package(product.identity().package()) else {
-            return Vec::new();
+            return Err(WorkspaceError::ProductNotFound);
         };
 
         package
             .dependencies()
             .iter()
-            .filter_map(|dependency| {
+            .map(|dependency| {
                 let identity = dependency.product();
 
-                let interface_product = InterfaceProductIdentity::try_new(identity.name())?;
+                let interface_product = InterfaceProductIdentity::try_new(identity.name())
+                    .ok_or(WorkspaceError::DependencyUnavailable)?;
 
                 let path = project_interface_path(
                     &self.graph,
                     &self.root,
                     identity,
-                    target,
-                )?;
+                    &self.target,
+                )
+                .ok_or(WorkspaceError::DependencyUnavailable)?;
 
-                let bytes = std::fs::read(&path).ok()?;
+                let dependency = self
+                    .products
+                    .get(identity)
+                    .ok_or(WorkspaceError::DependencyUnavailable)?;
 
-                Some(DependencyInterfaceInput::new(
+                let bundle = dependency
+                    .compilation
+                    .package_interface_export_bundle()
+                    .ok_or(WorkspaceError::DependencyUnavailable)?
+                    .as_ref()
+                    .map_err(|_| WorkspaceError::DependencyUnavailable)?;
+
+                let bytes = encode_package_interface(bundle)
+                    .map_err(|_| WorkspaceError::DependencyUnavailable)?
+                    .shared_bytes();
+
+                Ok(DependencyInterfaceInput::new(
                     identity.package().clone(),
                     interface_product,
                     path,
@@ -355,23 +595,50 @@ impl Workspace {
             })
             .collect()
     }
-}
 
-fn revise_compilation(state: &mut ProductState) -> Result<(), WorkspaceError> {
-    let inputs = state
-        .sources
-        .iter()
-        .map(WorkspaceSource::input)
-        .collect::<Vec<_>>();
+    fn project_product(&self, identity: &ProductIdentity) -> Option<&ProjectProduct> {
+        self.graph
+            .packages()
+            .iter()
+            .flat_map(|package| package.products())
+            .find(|product| product.identity() == identity)
+    }
 
-    let compilation = state
-        .compilation
-        .updated_sources(inputs)
-        .map_err(|_| WorkspaceError::Compilation)?;
+    fn product_dependencies(
+        &self,
+        product: &ProjectProduct,
+    ) -> Result<Vec<ProductIdentity>, WorkspaceError> {
+        self.graph
+            .package(product.identity().package())
+            .map(|package| {
+                package
+                    .dependencies()
+                    .iter()
+                    .map(|dependency| dependency.product().clone())
+                    .collect()
+            })
+            .ok_or(WorkspaceError::ProductNotFound)
+    }
 
-    state.compilation = Arc::new(compilation);
+    fn documents_for_products(
+        &self,
+        products: &BTreeSet<ProductIdentity>,
+    ) -> Vec<DocumentSnapshot> {
+        self.documents
+            .iter()
+            .filter(|(_, owner)| products.contains(&owner.product))
+            .filter_map(|(uri, _)| self.document(uri))
+            .collect()
+    }
 
-    Ok(())
+    fn next_generation(&mut self) -> Result<u64, WorkspaceError> {
+        self.next_generation = self
+            .next_generation
+            .checked_add(1)
+            .ok_or(WorkspaceError::Compilation)?;
+
+        Ok(self.next_generation)
+    }
 }
 
 fn document_snapshot(
@@ -379,6 +646,7 @@ fn document_snapshot(
     identity: SourceIdentity,
     uri: String,
     revision: u64,
+    compilation_revision: CompilationRevision,
 ) -> Result<DocumentSnapshot, WorkspaceError> {
     let source_id = state
         .compilation
@@ -392,6 +660,7 @@ fn document_snapshot(
         source_id,
         uri,
         revision,
+        compilation_revision,
     })
 }
 
@@ -571,19 +840,28 @@ mod tests {
         let graph = load_project_graph(fixture.path())
             .unwrap_or_else(|error| panic!("test project should load: {error:?}"));
 
+        let target = graph
+            .targets()
+            .first()
+            .unwrap_or_else(|| panic!("test target should exist"))
+            .identity()
+            .clone();
+
         let uri = bray_source::SourceOrigin::file_uri_from_path(&fixture.source)
             .unwrap_or_else(|error| panic!("test source URI should form: {error:?}"));
 
         let mut workspace = Workspace::new(
             fixture.path(),
             Arc::new(graph),
+            target,
             WorkerBudget::new(2)
                 .unwrap_or_else(|error| panic!("test worker budget should form: {error:?}")),
         );
 
         let opened = workspace
             .open_document(uri.clone(), 1, fixture.source_text.to_owned())
-            .unwrap_or_else(|error| panic!("test document should open: {error:?}"));
+            .unwrap_or_else(|error| panic!("test document should open: {error:?}"))
+            .current;
 
         let changed = workspace
             .change_document(
@@ -603,7 +881,8 @@ mod tests {
                     text: String::from("new"),
                 }],
             )
-            .unwrap_or_else(|error| panic!("test document should change: {error:?}"));
+            .unwrap_or_else(|error| panic!("test document should change: {error:?}"))
+            .current;
 
         assert_eq!(opened.revision, 1);
         assert_eq!(changed.revision, 2);
@@ -624,7 +903,211 @@ mod tests {
                 .is_some_and(|source| source.text().starts_with("module new;"))
         );
 
-        assert!(!workspace.is_current(&uri, opened.revision));
-        assert!(workspace.is_current(&uri, changed.revision));
+        assert!(!workspace.is_current(&opened.compilation_revision));
+        assert!(workspace.is_current(&changed.compilation_revision));
+    }
+
+    #[test]
+    fn edits_invalidate_other_open_documents_in_the_same_compilation() {
+        let fixture = ProjectFixture::new();
+        let other = fixture.path().join("app").join("src").join("other.bray");
+
+        std::fs::write(&other, "module app;\n")
+            .unwrap_or_else(|error| panic!("second test source should write: {error}"));
+
+        let graph = load_project_graph(fixture.path())
+            .unwrap_or_else(|error| panic!("test project should load: {error:?}"));
+
+        let target = graph
+            .targets()
+            .first()
+            .unwrap_or_else(|| panic!("test target should exist"))
+            .identity()
+            .clone();
+
+        let main_uri = bray_source::SourceOrigin::file_uri_from_path(&fixture.source)
+            .unwrap_or_else(|error| panic!("main source URI should form: {error:?}"));
+
+        let other_uri = bray_source::SourceOrigin::file_uri_from_path(&other)
+            .unwrap_or_else(|error| panic!("second source URI should form: {error:?}"));
+
+        let mut workspace = Workspace::new(
+            fixture.path(),
+            Arc::new(graph),
+            target,
+            WorkerBudget::serial(),
+        );
+
+        workspace
+            .open_document(main_uri.clone(), 1, fixture.source_text.to_owned())
+            .unwrap_or_else(|error| panic!("main document should open: {error:?}"));
+
+        let other_before = workspace
+            .open_document(other_uri.clone(), 1, String::from("module app;\n"))
+            .unwrap_or_else(|error| panic!("second document should open: {error:?}"))
+            .current;
+
+        let update = workspace
+            .change_document(
+                &main_uri,
+                2,
+                &[ContentChange {
+                    range: None,
+                    text: fixture.source_text.replace("module app;", "module changed;"),
+                }],
+            )
+            .unwrap_or_else(|error| panic!("main document should change: {error:?}"));
+
+        let other_after = update
+            .affected
+            .iter()
+            .find(|document| document.uri == other_uri)
+            .unwrap_or_else(|| panic!("second document should be affected"));
+
+        assert!(!workspace.is_current(&other_before.compilation_revision));
+        assert!(workspace.is_current(&other_after.compilation_revision));
+        assert_eq!(other_before.revision, other_after.revision);
+    }
+
+    #[test]
+    fn workspace_dependencies_use_live_compilations_without_emitted_interfaces() {
+        let fixture = ProjectFixture::new();
+        let vendor = fixture.path().join("vendor").join("math");
+
+        std::fs::create_dir_all(vendor.join("src"))
+            .unwrap_or_else(|error| panic!("vendor source directory should form: {error}"));
+
+        std::fs::write(
+            fixture.path().join("bray-workspace.json"),
+            r#"{
+                "format": 1,
+                "output_root": "build",
+                "targets": [
+                    {
+                        "name": "native",
+                        "identity": "x86_64-unknown-linux-gnu"
+                    }
+                ],
+                "packages": [
+                    {
+                        "path": "app",
+                        "role": "root",
+                        "features": []
+                    },
+                    {
+                        "path": "vendor/math",
+                        "role": "vendored",
+                        "features": []
+                    }
+                ]
+            }"#,
+        )
+        .unwrap_or_else(|error| panic!("workspace manifest should update: {error}"));
+
+        std::fs::write(
+            fixture.path().join("app").join("bray-package.json"),
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "features": [],
+                "source_roots": [
+                    {
+                        "name": "main",
+                        "path": "src"
+                    }
+                ],
+                "dependencies": [
+                    {
+                        "package": "example.math",
+                        "product": "math"
+                    }
+                ],
+                "products": [
+                    {
+                        "name": "application",
+                        "kind": "executable",
+                        "source_roots": ["main"],
+                        "targets": ["native"],
+                        "outputs": ["executable"]
+                    }
+                ]
+            }"#,
+        )
+        .unwrap_or_else(|error| panic!("application manifest should update: {error}"));
+
+        std::fs::write(
+            vendor.join("bray-package.json"),
+            r#"{
+                "format": 1,
+                "identity": "example.math",
+                "features": [],
+                "source_roots": [
+                    {
+                        "name": "library",
+                        "path": "src"
+                    }
+                ],
+                "dependencies": [],
+                "products": [
+                    {
+                        "name": "math",
+                        "kind": "library",
+                        "source_roots": ["library"],
+                        "targets": ["native"],
+                        "outputs": ["package_interface"]
+                    }
+                ]
+            }"#,
+        )
+        .unwrap_or_else(|error| panic!("dependency manifest should write: {error}"));
+
+        std::fs::write(vendor.join("src").join("math.bray"), "module math;\n")
+            .unwrap_or_else(|error| panic!("dependency source should write: {error}"));
+
+        let graph = load_project_graph(fixture.path())
+            .unwrap_or_else(|error| panic!("test project should load: {error:?}"));
+
+        let target = graph
+            .targets()
+            .first()
+            .unwrap_or_else(|| panic!("test target should exist"))
+            .identity()
+            .clone();
+
+        let uri = bray_source::SourceOrigin::file_uri_from_path(&fixture.source)
+            .unwrap_or_else(|error| panic!("test source URI should form: {error:?}"));
+
+        let mut workspace = Workspace::new(
+            fixture.path(),
+            Arc::new(graph),
+            target,
+            WorkerBudget::serial(),
+        );
+
+        let opened = workspace
+            .open_document(uri.clone(), 1, fixture.source_text.to_owned())
+            .unwrap_or_else(|error| panic!("dependent document should open: {error:?}"))
+            .current;
+
+        assert!(!fixture.path().join("build").exists());
+
+        let dependency_source = vendor.join("src").join("math.bray");
+
+        let dependency_uri = bray_source::SourceOrigin::file_uri_from_path(&dependency_source)
+            .unwrap_or_else(|error| panic!("dependency source URI should form: {error:?}"));
+
+        let update = workspace
+            .open_document(dependency_uri, 1, String::from("module math;\n"))
+            .unwrap_or_else(|error| panic!("dependency document should open: {error:?}"));
+
+        let dependent = update
+            .affected
+            .iter()
+            .find(|document| document.uri == uri)
+            .unwrap_or_else(|| panic!("dependent document should be invalidated"));
+
+        assert!(!workspace.is_current(&opened.compilation_revision));
+        assert!(workspace.is_current(&dependent.compilation_revision));
+        assert_eq!(opened.revision, dependent.revision);
     }
 }

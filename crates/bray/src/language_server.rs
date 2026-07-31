@@ -13,12 +13,12 @@ impl TackLanguageServerService for BrayLanguageServerService {
     fn run(
         &self,
         request: TackLanguageServerRequest,
-        input: &mut (dyn Read + Send),
+        input: Box<dyn Read + Send>,
         output: &mut dyn Write,
     ) -> TackServiceResult {
-        let (workspace_root, graph, worker_budget) = request.into_parts();
+        let (workspace_root, graph, target, worker_budget) = request.into_parts();
 
-        let server = LanguageServer::new(workspace_root, graph, worker_budget);
+        let server = LanguageServer::new(workspace_root, graph, target, worker_budget);
 
         let exit_code = match server.run(input, output) {
             Ok(()) => ExitCode::SUCCESS,

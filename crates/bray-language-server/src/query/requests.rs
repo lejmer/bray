@@ -5,11 +5,16 @@ use bray_compilation::{
     CancellationToken, FactQueryError, QueryPriority, SemanticAvailability,
 };
 use bray_declarations::{
-    ContainerId, DeclarationKind, DeclarationName, DeclarationRecord,
+    ContainerId, DeclarationKind, DeclarationName, DeclarationRecord, SyntaxAnchor,
 };
 use bray_source::{LineIndex, LspPosition, SourceId, SourceSnapshot, TextRange, TextSize};
-use bray_symbols::{LocalScopeId, LocalSymbolSnapshot, SymbolKind};
-use bray_syntax::SyntaxKind;
+use bray_symbols::{
+    CallableDefinitionId, LocalScopeId, LocalSymbolSnapshot, SymbolKind,
+};
+use bray_syntax::{
+    ArgumentListSyntax, CallOperationSyntax,
+    SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
+};
 use bray_tooling::format_semantic_type;
 
 use crate::model::{
@@ -30,7 +35,9 @@ pub(crate) enum Query {
         position: Position,
         include_declaration: bool,
     },
-    SemanticTokens,
+    SemanticTokens {
+        multiline_support: bool,
+    },
     SignatureHelp(Position),
 }
 
@@ -62,8 +69,12 @@ pub(crate) fn execute(
             include_declaration,
             cancellation,
         )?),
-        Query::SemanticTokens => {
-            serde_json::to_value(semantic_tokens(document, cancellation)?)
+        Query::SemanticTokens { multiline_support } => {
+            serde_json::to_value(semantic_tokens(
+                document,
+                cancellation,
+                multiline_support,
+            )?)
         }
         Query::SignatureHelp(position) => {
             serde_json::to_value(signature_help(document, position, cancellation)?)
@@ -248,14 +259,15 @@ fn completion(
     let compilation = document.compilation.as_ref();
     let mut items = BTreeMap::<String, (u32, Option<String>)>::new();
 
-    for declaration in compilation.declaration_table().declarations() {
-        let Some(label) = declaration_name(declaration.name()) else {
-            continue;
-        };
-
-        items.entry(label).or_insert((
-            declaration_completion_kind(declaration.kind()),
-            Some(declaration.kind().as_str().to_owned()),
+    for candidate in compilation.completion_candidates_at(
+        document.source_id,
+        offset,
+        cancellation,
+        QueryPriority::Interactive,
+    )? {
+        items.entry(candidate.name().to_owned()).or_insert((
+            symbol_completion_kind(candidate.kind()),
+            Some(candidate.kind().as_str().to_owned()),
         ));
     }
 
@@ -378,33 +390,115 @@ fn signature_help(
     let source = source(document)?;
     let offset = offset_for_position(source, position)?;
 
+    let Some((call_syntax, arguments, active_parameter)) =
+        call_syntax_at(document, offset)?
+    else {
+        return Ok(None);
+    };
+
+    let selection = document.compilation.selected_call_for_syntax(
+        BoundSourceAnchor::new(
+            SyntaxAnchor::from_node(&call_syntax),
+            source.version(),
+        ),
+        cancellation,
+        QueryPriority::Interactive,
+    )?;
+
+    let definition = match selection {
+        SemanticAvailability::Available(call)
+        | SemanticAvailability::Recovered(Some(call)) => call.target().declaration(),
+        SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => None,
+    };
+
+    let definition = match definition {
+        Some(definition) => definition,
+        None => match callable_definition_before_call(
+            document,
+            &call_syntax,
+            cancellation,
+        )? {
+            Some(definition) => definition,
+            None => return Ok(None),
+        },
+    };
+
+    let graph = document.compilation.symbol_graph()?;
+
+    if graph
+        .callable_parameters_and_receiver(definition.callable_symbol())
+        .is_none()
+    {
+        return Ok(None);
+    }
+
+    let (parameter_ids, _) = graph
+        .callable_parameters_and_receiver(definition.callable_symbol())
+        .ok_or(QueryError::Compiler)?;
+
+    let parameters = parameter_ids
+        .iter()
+        .map(|parameter| ParameterInformation {
+            label: graph
+                .member_name((*parameter).into())
+                .map(|name| name.as_str().to_owned())
+                .unwrap_or_else(|| String::from("_")),
+        })
+        .collect::<Vec<_>>();
+
+    let callable_name = graph
+        .member_name(definition.symbol())
+        .map(|name| name.as_str())
+        .unwrap_or("<callable>");
+
+    let parameter_text = parameters
+        .iter()
+        .map(|parameter| parameter.label.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let parameter_count = u32::try_from(parameter_ids.len()).unwrap_or(u32::MAX);
+    let supplied_count = u32::try_from(arguments.arguments().count()).unwrap_or(u32::MAX);
+    let last_parameter = parameter_count.max(supplied_count).saturating_sub(1);
+
+    Ok(Some(SignatureHelp {
+        signatures: vec![SignatureInformation {
+            label: format!("{callable_name}({parameter_text})"),
+            parameters,
+        }],
+        active_signature: 0,
+        active_parameter: active_parameter.min(last_parameter),
+    }))
+}
+
+fn callable_definition_before_call(
+    document: &DocumentSnapshot,
+    call: &CallOperationSyntax,
+    cancellation: &CancellationToken,
+) -> Result<Option<CallableDefinitionId>, QueryError> {
     let syntax = document
         .compilation
         .source_unit_syntax(document.source_id)
         .ok_or(QueryError::Compiler)?;
 
-    let Some((open_paren, active_parameter)) = call_context(source.text(), offset) else {
-        return Ok(None);
-    };
-
-    let callable_offset = syntax
+    let callable = syntax
         .source_unit()
         .tokens()
         .filter(|token| {
             !token.is_missing()
                 && token.kind() == SyntaxKind::IdentifierToken
-                && token.range().end() <= open_paren
+                && token.range().end() <= call.full_range().start()
         })
         .map(|token| token.range().start())
         .last();
 
-    let Some(callable_offset) = callable_offset else {
+    let Some(callable) = callable else {
         return Ok(None);
     };
 
     let definition = document.compilation.definition_at(
         document.source_id,
-        callable_offset,
+        callable,
         cancellation,
         QueryPriority::Interactive,
     )?;
@@ -417,45 +511,76 @@ fn signature_help(
         }
     };
 
-    let declaration = document
+    let Some(declaration) = document
         .compilation
         .declaration_table()
         .declarations()
         .iter()
         .find(|declaration| declaration.syntax_anchor() == anchor.syntax())
+    else {
+        return Ok(None);
+    };
+
+    let graph = document.compilation.symbol_graph()?;
+
+    let definition = graph
+        .symbol_for_declaration(declaration.id())
+        .and_then(CallableDefinitionId::try_new);
+
+    Ok(definition)
+}
+
+fn call_syntax_at(
+    document: &DocumentSnapshot,
+    offset: TextSize,
+) -> Result<Option<(CallOperationSyntax, ArgumentListSyntax, u32)>, QueryError> {
+    let syntax = document
+        .compilation
+        .source_unit_syntax(document.source_id)
         .ok_or(QueryError::Compiler)?;
 
-    let parameters = declaration
-        .child_container()
-        .and_then(|container| document.compilation.declaration_table().container(container))
-        .map(|container| {
-            container
-                .declarations()
-                .iter()
-                .filter_map(|parameter| {
-                    let parameter = document.compilation.declaration_table().declaration(*parameter)?;
+    let mut selected = None;
 
-                    matches!(
-                        parameter.kind(),
-                        DeclarationKind::CallableParameter | DeclarationKind::PredicateParameter
-                    )
-                    .then(|| ParameterInformation {
-                        label: declaration_name(parameter.name())
-                            .unwrap_or_else(|| String::from("_")),
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    walk_syntax_node(syntax.source_unit(), |event| {
+        let SyntaxWalkEvent::EnterNode(node) = event else {
+            return SyntaxWalkControl::Continue;
+        };
 
-    Ok(Some(SignatureHelp {
-        signatures: vec![SignatureInformation {
-            label: declaration_label(source_for_anchor(document.compilation.as_ref(), anchor)?, declaration),
-            parameters,
-        }],
-        active_signature: 0,
-        active_parameter,
-    }))
+        if !range_covers_cursor(node.full_range(), offset) {
+            return SyntaxWalkControl::SkipChildren;
+        }
+
+        let Some(call) = node.cast::<CallOperationSyntax>() else {
+            return SyntaxWalkControl::Continue;
+        };
+
+        let arguments = call.argument_list();
+
+        if !range_covers_cursor(arguments.full_range(), offset) {
+            return SyntaxWalkControl::Continue;
+        }
+
+        let active = arguments
+            .arguments()
+            .enumerate()
+            .find(|(_, argument)| range_covers_cursor(argument.full_range(), offset))
+            .map(|(index, _)| u32::try_from(index).unwrap_or(u32::MAX))
+            .unwrap_or_else(|| {
+                u32::try_from(
+                    arguments
+                        .arguments()
+                        .filter(|argument| argument.full_range().end() <= offset)
+                        .count(),
+                )
+                .unwrap_or(u32::MAX)
+            });
+
+        selected = Some((call, arguments, active));
+
+        SyntaxWalkControl::Continue
+    });
+
+    Ok(selected)
 }
 
 fn document_symbols(
@@ -593,25 +718,33 @@ fn declaration_name(name: Option<&DeclarationName>) -> Option<String> {
     }
 }
 
-const fn declaration_completion_kind(kind: DeclarationKind) -> u32 {
+const fn symbol_completion_kind(kind: SymbolKind) -> u32 {
     match kind {
-        DeclarationKind::Module => 9,
-        DeclarationKind::Struct | DeclarationKind::Union | DeclarationKind::Trait => 7,
-        DeclarationKind::Function
-        | DeclarationKind::Predicate
-        | DeclarationKind::CallableContract
-        | DeclarationKind::TypeCallableMember
-        | DeclarationKind::TraitCallableMember => 3,
-        DeclarationKind::CallableParameter
-        | DeclarationKind::PredicateParameter
-        | DeclarationKind::GenericTypeParameter
-        | DeclarationKind::GenericConstParameter => 5,
-        DeclarationKind::Constant
-        | DeclarationKind::TraitConstantMember
-        | DeclarationKind::StructField
-        | DeclarationKind::UnionPayloadField => 21,
+        SymbolKind::Module => 9,
+        SymbolKind::Struct | SymbolKind::Union | SymbolKind::Trait => 7,
+        SymbolKind::Function
+        | SymbolKind::Predicate
+        | SymbolKind::CallableContract
+        | SymbolKind::CallableOverload
+        | SymbolKind::AnonymousCallable => 3,
+        SymbolKind::CallableParameter
+        | SymbolKind::PredicateParameter
+        | SymbolKind::ReceiverParameter
+        | SymbolKind::AnonymousCallableParameter
+        | SymbolKind::GenericTypeParameter
+        | SymbolKind::GenericConstParameter => 5,
+        SymbolKind::Constant
+        | SymbolKind::TraitConstantMember
+        | SymbolKind::TraitConstantFulfillment
+        | SymbolKind::LocalConstant
+        | SymbolKind::StructField
+        | SymbolKind::UnionPayloadField => 21,
         _ => 6,
     }
+}
+
+fn range_covers_cursor(range: TextRange, offset: TextSize) -> bool {
+    range.contains(offset) || range.end() == offset
 }
 
 const fn declaration_symbol_kind(kind: DeclarationKind) -> u32 {
@@ -636,39 +769,20 @@ const fn declaration_symbol_kind(kind: DeclarationKind) -> u32 {
     }
 }
 
-fn call_context(text: &str, offset: TextSize) -> Option<(TextSize, u32)> {
-    let end = usize::try_from(offset.bytes()).unwrap_or(text.len()).min(text.len());
-    let prefix = &text[..end];
-
-    let Some(open) = prefix.rfind('(') else {
-        return None;
-    };
-
-    let commas = prefix[open + 1..]
-        .chars()
-        .filter(|character| *character == ',')
-        .count();
-
-    Some((
-        TextSize::try_from(open).ok()?,
-        u32::try_from(commas).unwrap_or(u32::MAX),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use bray_compilation::{
         Compilation, CompilationOptions, CompilationRequest, WorkerBudget,
     };
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{PackageIdentity, ProductKind};
+    use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 
     use super::{
         QueryError, completion, definition, diagnostics, document_symbols, hover, references,
         semantic_tokens, signature_help,
     };
     use crate::model::Position;
-    use crate::workspace::DocumentSnapshot;
+    use crate::workspace::{CompilationRevision, DocumentSnapshot};
 
     #[test]
     fn hover_reports_source_and_type_information() {
@@ -744,6 +858,8 @@ mod tests {
 
         assert!(completion.iter().any(|item| item.label == "add"));
         assert!(completion.iter().any(|item| item.label == "value"));
+        assert!(!completion.iter().any(|item| item.label == "left"));
+        assert!(!completion.iter().any(|item| item.label == "right"));
     }
 
     #[test]
@@ -758,11 +874,14 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("signature help should complete: {error:?}"));
 
-        assert!(signature.is_some_and(|signature| {
-            signature.signatures.len() == 1
-                && signature.signatures[0].parameters.len() == 2
-                && signature.active_parameter == 1
-        }));
+        assert!(
+            signature.as_ref().is_some_and(|signature| {
+                signature.signatures.len() == 1
+                    && signature.signatures[0].parameters.len() == 2
+                    && signature.active_parameter == 1
+            }),
+            "unexpected signature help: {signature:?}"
+        );
     }
 
     #[test]
@@ -781,7 +900,7 @@ mod tests {
         let document = feature_document();
         let cancellation = bray_compilation::CancellationToken::new();
 
-        let tokens = semantic_tokens(&document, &cancellation)
+        let tokens = semantic_tokens(&document, &cancellation, false)
             .unwrap_or_else(|error| panic!("semantic tokens should complete: {error:?}"));
 
         assert!(!tokens.data.is_empty());
@@ -793,6 +912,28 @@ mod tests {
     }
 
     #[test]
+    fn multiline_tokens_are_split_when_the_client_does_not_support_them() {
+        let document = document(concat!(
+            "module app;\n",
+            "/* first\n",
+            "   second */\n",
+        ));
+
+        let cancellation = bray_compilation::CancellationToken::new();
+
+        let tokens = semantic_tokens(&document, &cancellation, false)
+            .unwrap_or_else(|error| panic!("semantic tokens should complete: {error:?}"));
+
+        let comment_lines = absolute_tokens(&tokens.data)
+            .into_iter()
+            .filter(|token| token.3 == 15)
+            .map(|token| token.0)
+            .collect::<Vec<_>>();
+
+        assert_eq!(comment_lines, [1, 2]);
+    }
+
+    #[test]
     fn cancelled_queries_stop_before_publishing_results() {
         let document = document("module app;\n");
         let cancellation = bray_compilation::CancellationToken::new();
@@ -800,7 +941,7 @@ mod tests {
         cancellation.cancel();
 
         assert_eq!(
-            semantic_tokens(&document, &cancellation),
+            semantic_tokens(&document, &cancellation, false),
             Err(QueryError::Cancelled)
         );
     }
@@ -848,7 +989,7 @@ mod tests {
         };
 
         let request = CompilationRequest::with_options(
-            package,
+            package.clone(),
             vec![SourceInput::lsp_open_document(
                 SourceIdentity::new(1),
                 "file:///test.bray",
@@ -865,11 +1006,24 @@ mod tests {
         let compilation = Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation should load: {error:?}"));
 
+        let product = ProductIdentity::try_new(package, "test")
+            .unwrap_or_else(|| panic!("test product identity should be valid"));
+
+        let target = bray_compilation::SelectedTarget::baseline()
+            .profile()
+            .identity()
+            .clone();
+
         DocumentSnapshot {
             compilation: std::sync::Arc::new(compilation),
             source_id: SourceId::new(0),
             uri: String::from("file:///test.bray"),
             revision: 1,
+            compilation_revision: CompilationRevision {
+                product,
+                target,
+                generation: 1,
+            },
         }
     }
 
@@ -877,5 +1031,25 @@ mod tests {
         symbols
             .iter()
             .any(|symbol| symbol.name == name || contains_symbol(&symbol.children, name))
+    }
+
+    fn absolute_tokens(data: &[u32]) -> Vec<(u32, u32, u32, u32)> {
+        let mut line = 0_u32;
+        let mut character = 0_u32;
+        let mut tokens = Vec::new();
+
+        for token in data.chunks_exact(5) {
+            line = line.saturating_add(token[0]);
+
+            character = if token[0] == 0 {
+                character.saturating_add(token[1])
+            } else {
+                token[1]
+            };
+
+            tokens.push((line, character, token[2], token[3]));
+        }
+
+        tokens
     }
 }

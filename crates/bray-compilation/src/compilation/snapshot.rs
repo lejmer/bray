@@ -84,6 +84,13 @@ fn reuse_published_facts(
     );
 
     reuse_indexed_cells(
+        &previous.source_reference_indexes,
+        &mut updated.source_reference_indexes,
+        &reusable,
+        |index| CompilationFactKey::SourceReferenceIndex(bray_source::SourceId::new(index)),
+    );
+
+    reuse_indexed_cells(
         &previous.loaded_dependency_interfaces,
         &mut updated.loaded_dependency_interfaces,
         &reusable,
@@ -157,6 +164,7 @@ fn invalidation_roots(
             if updated.sources.get(source.source_id()) != Some(source) {
                 roots.insert(CompilationFactKey::SourceUnitSyntax(source.source_id()));
                 roots.insert(CompilationFactKey::DeclarationChunk(source.source_id()));
+                roots.insert(CompilationFactKey::SourceReferenceIndex(source.source_id()));
             }
         }
     }

@@ -405,6 +405,8 @@ pub(crate) enum CompilationFactKey {
     SemanticDiagnostics,
     /// Parsed syntax for one source unit.
     SourceUnitSyntax(SourceId),
+    /// Semantic source references grouped by target for one source unit.
+    SourceReferenceIndex(SourceId),
     /// The deterministic compilation-wide symbol identity graph.
     SymbolGraph,
     /// One symbol-owned semantic fact.
@@ -480,6 +482,7 @@ impl CompilationFactKey {
             | Self::SemanticValueStore
             | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)
+            | Self::SourceReferenceIndex(_)
             | Self::SymbolGraph
             | Self::Symbol(_)
             | Self::SyntaxTree => None,

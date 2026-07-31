@@ -128,7 +128,7 @@ fn select_packages<'graph>(
     Ok(vec![package])
 }
 
-fn select_target<'graph>(
+pub(crate) fn select_target<'graph>(
     graph: &'graph ProjectGraph,
     selected: Option<&str>,
 ) -> Result<Option<&'graph ProjectTarget>, DiagnosticBag> {

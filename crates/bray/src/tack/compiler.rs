@@ -22,7 +22,7 @@ use bray_tooling::{
     baseline_target_outputs, compilation_request_from_file_arguments,
     load_compilation, load_llvm_compilation, native_linker,
     package_interface_export_request, project_interface_path,
-    project_output_directory,
+    project_output_directory, selected_target,
 };
 use crate::tack::error::{
     operation_diagnostics, selection_diagnostics, unavailable_diagnostics,
@@ -428,13 +428,8 @@ impl<'project> ProjectCompiler<'project> {
         &self,
         identity: &TargetIdentity,
     ) -> Result<SelectedTarget, DiagnosticBag> {
-        let baseline = SelectedTarget::baseline();
-
-        if baseline.profile().identity() != identity {
-            return Err(unavailable_diagnostics(identity.as_str()));
-        }
-
-        Ok(baseline)
+        selected_target(identity)
+            .ok_or_else(|| unavailable_diagnostics(identity.as_str()))
     }
 
     fn project_product(

@@ -162,7 +162,7 @@ enum CliCommand {
     Format(CliFormat),
     Inspect(CliInspect),
     #[command(name = "language-server")]
-    LanguageServer,
+    LanguageServer(CliLanguageServer),
     Vendor(CliVendor),
 }
 
@@ -189,10 +189,18 @@ impl CliCommand {
                 source_id: inspect.source_id,
                 position: inspect.offset.map(Into::into),
             },
-            Self::LanguageServer => TackCommand::LanguageServer,
+            Self::LanguageServer(server) => TackCommand::LanguageServer {
+                target: server.target,
+            },
             Self::Vendor(vendor) => vendor.into_command(),
         }
     }
+}
+
+#[derive(Args, Debug)]
+struct CliLanguageServer {
+    #[arg(long, value_name = "NAME")]
+    target: Option<String>,
 }
 
 #[derive(Args, Debug)]

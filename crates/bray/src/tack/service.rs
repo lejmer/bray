@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use bray_compilation::WorkerBudget;
 use bray_diagnostics::DiagnosticBag;
 use bray_project::ProjectGraph;
+use bray_target::TargetIdentity;
 
 /// Formatter write policy selected by `bray fmt`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -67,6 +68,7 @@ impl TackFormatRequest {
 pub struct TackLanguageServerRequest {
     workspace_root: PathBuf,
     graph: Arc<ProjectGraph>,
+    target: TargetIdentity,
     worker_budget: WorkerBudget,
 }
 
@@ -74,11 +76,13 @@ impl TackLanguageServerRequest {
     pub(crate) const fn new(
         workspace_root: PathBuf,
         graph: Arc<ProjectGraph>,
+        target: TargetIdentity,
         worker_budget: WorkerBudget,
     ) -> Self {
         Self {
             workspace_root,
             graph,
+            target,
             worker_budget,
         }
     }
@@ -98,10 +102,20 @@ impl TackLanguageServerRequest {
         self.worker_budget
     }
 
+    /// Returns the exact project-selected compilation target.
+    pub const fn target(&self) -> &TargetIdentity {
+        &self.target
+    }
+
     pub(crate) fn into_parts(
         self,
-    ) -> (PathBuf, Arc<ProjectGraph>, WorkerBudget) {
-        (self.workspace_root, self.graph, self.worker_budget)
+    ) -> (PathBuf, Arc<ProjectGraph>, TargetIdentity, WorkerBudget) {
+        (
+            self.workspace_root,
+            self.graph,
+            self.target,
+            self.worker_budget,
+        )
     }
 }
 
@@ -152,7 +166,7 @@ pub trait TackLanguageServerService {
     fn run(
         &self,
         request: TackLanguageServerRequest,
-        input: &mut (dyn Read + Send),
+        input: Box<dyn Read + Send>,
         output: &mut dyn Write,
     ) -> TackServiceResult;
 }

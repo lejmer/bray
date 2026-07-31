@@ -25,6 +25,7 @@ use crate::tack::model::{
 };
 use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products,
+    select_target,
 };
 use crate::tack::result::TackRunResult;
 use crate::tack::service::{
@@ -42,14 +43,13 @@ pub fn run_tack_with_services(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
 ) -> ExitCode {
-    let mut stdin = io::stdin();
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
     run_tack_with_io(
         arguments,
         services,
-        &mut stdin,
+        io::stdin(),
         &mut stdout,
         &mut stderr,
     )
@@ -59,20 +59,20 @@ pub fn run_tack_with_services(
 pub fn run_tack_result(
     arguments: impl IntoIterator<Item = OsString>,
 ) -> TackRunResult {
-    run_tack_result_with_input(arguments, TackServices::new(), &mut io::empty())
+    run_tack_result_with_input(arguments, TackServices::new(), io::empty())
 }
 
 fn run_tack_with_io(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
-    stdin: &mut (impl Read + Send),
+    stdin: impl Read + Send + 'static,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> ExitCode {
     let result = run_tack_result_with_input_and_output(
         arguments,
         services,
-        stdin,
+        Box::new(stdin),
         stdout,
     );
 
@@ -100,14 +100,14 @@ fn run_tack_with_io(
 fn run_tack_result_with_input(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
-    stdin: &mut (impl Read + Send),
+    stdin: impl Read + Send + 'static,
 ) -> TackRunResult {
     let mut protocol_output = Vec::new();
 
     let mut result = run_tack_result_with_input_and_output(
         arguments,
         services,
-        stdin,
+        Box::new(stdin),
         &mut protocol_output,
     );
 
@@ -121,7 +121,7 @@ fn run_tack_result_with_input(
 fn run_tack_result_with_input_and_output(
     arguments: impl IntoIterator<Item = OsString>,
     services: TackServices<'_>,
-    stdin: &mut (impl Read + Send),
+    stdin: Box<dyn Read + Send>,
     protocol_output: &mut impl Write,
 ) -> TackRunResult {
     let invocation = match TackInvocation::try_from_arguments(arguments) {
@@ -148,7 +148,7 @@ fn run_tack_result_with_input_and_output(
 fn execute_invocation(
     invocation: TackInvocation,
     services: TackServices<'_>,
-    stdin: &mut (impl Read + Send),
+    mut stdin: Box<dyn Read + Send>,
     protocol_output: &mut impl Write,
 ) -> TackRunResult {
     let (workspace_root, worker_budget, output_format, command) =
@@ -179,7 +179,7 @@ fn execute_invocation(
                 files,
                 output_format,
                 services,
-                stdin,
+                stdin.as_mut(),
             );
         }
         _ => {}
@@ -248,7 +248,7 @@ fn execute_invocation(
             position,
             output_format,
         ),
-        TackCommand::LanguageServer => {
+        TackCommand::LanguageServer { target } => {
             let Some(service) = services.language_server() else {
                 return TackRunResult::new(
                     ExitCode::FAILURE,
@@ -257,9 +257,31 @@ fn execute_invocation(
                 );
             };
 
+            let target = match select_target(&graph, target.as_deref()) {
+                Ok(Some(target)) => target.identity().clone(),
+                Ok(None) => match graph.targets().first() {
+                    Some(target) => target.identity().clone(),
+                    None => {
+                        return TackRunResult::new(
+                            ExitCode::FAILURE,
+                            selection_diagnostics("target"),
+                            output_format,
+                        );
+                    }
+                },
+                Err(diagnostics) => {
+                    return TackRunResult::new(
+                        ExitCode::FAILURE,
+                        diagnostics,
+                        output_format,
+                    );
+                }
+            };
+
             let request = TackLanguageServerRequest::new(
                 workspace_root,
                 Arc::new(graph),
+                target,
                 worker_budget,
             );
 
@@ -608,7 +630,7 @@ fn run_format(
     files: Vec<PathBuf>,
     output_format: OutputFormat,
     services: TackServices<'_>,
-    stdin: &mut (impl Read + Send),
+    stdin: &mut dyn Read,
 ) -> TackRunResult {
     let Some(formatter) = services.formatter() else {
         return TackRunResult::new(
@@ -652,7 +674,7 @@ fn run_format(
 fn format_input(
     workspace_root: &Path,
     files: Vec<PathBuf>,
-    stdin: &mut impl Read,
+    stdin: &mut dyn Read,
 ) -> Result<TackFormatInput, DiagnosticBag> {
     let standard_input = files.iter().any(|path| path == Path::new("-"));
 
@@ -756,13 +778,14 @@ mod tests {
     #[derive(Default)]
     struct RecordingLanguageServer {
         package_count: Mutex<Option<usize>>,
+        target: Mutex<Option<String>>,
     }
 
     impl TackLanguageServerService for RecordingLanguageServer {
         fn run(
             &self,
             request: TackLanguageServerRequest,
-            _input: &mut (dyn Read + Send),
+            _input: Box<dyn Read + Send>,
             output: &mut dyn Write,
         ) -> TackServiceResult {
             *self
@@ -770,6 +793,12 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) =
                 Some(request.graph().packages().len());
+
+            *self
+                .target
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) =
+                Some(request.target().as_str().to_owned());
 
             output
                 .write_all(b"language-server-protocol")
@@ -801,7 +830,7 @@ mod tests {
                 "check".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
             &mut stdout,
             &mut stderr,
         );
@@ -914,7 +943,7 @@ mod tests {
                 "check".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
@@ -1033,7 +1062,7 @@ mod tests {
                 "check".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::FAILURE);
@@ -1061,7 +1090,7 @@ mod tests {
                 "build".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::FAILURE);
@@ -1090,7 +1119,7 @@ mod tests {
                 "check".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
@@ -1116,7 +1145,7 @@ mod tests {
                 "native".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(
@@ -1151,7 +1180,7 @@ mod tests {
                 "build".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
@@ -1173,7 +1202,7 @@ mod tests {
                 "build".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
@@ -1196,7 +1225,7 @@ mod tests {
                 "-".into(),
             ],
             TackServices::new().with_formatter(&formatter),
-            &mut Cursor::new(b"module app;\n".to_vec()),
+            Cursor::new(b"module app;\n".to_vec()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
@@ -1230,7 +1259,7 @@ mod tests {
                 "fmt".into(),
             ],
             TackServices::new().with_formatter(&formatter),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
@@ -1274,7 +1303,7 @@ mod tests {
                 "fmt".into(),
             ],
             TackServices::new().with_formatter(&formatter),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
@@ -1309,13 +1338,13 @@ mod tests {
                 "project".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         let help = run_tack_result_with_input(
             ["bray".into(), "--help".into()],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(project.exit_code(), ExitCode::SUCCESS);
@@ -1336,10 +1365,12 @@ mod tests {
                 "--workspace".into(),
                 workspace.path().as_os_str().to_os_string(),
                 "language-server".into(),
+                "--target".into(),
+                "native".into(),
             ],
             TackServices::new()
                 .with_language_server(&language_server),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
@@ -1351,6 +1382,15 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()),
             Some(2)
+        );
+
+        assert_eq!(
+            language_server
+                .target
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_deref(),
+            Some("x86_64-unknown-linux-gnu")
         );
     }
 
@@ -1370,7 +1410,7 @@ mod tests {
                 "check".into(),
             ],
             TackServices::new(),
-            &mut Cursor::new(Vec::new()),
+            Cursor::new(Vec::new()),
             &mut stdout,
             &mut stderr,
         );

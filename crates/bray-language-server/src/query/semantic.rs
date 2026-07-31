@@ -9,7 +9,7 @@ use bray_source::SourceSnapshot;
 use bray_symbols::SymbolKind;
 use bray_syntax::SyntaxKind;
 
-use crate::model::{Diagnostic, DocumentDiagnosticReport, Range, SemanticTokens};
+use crate::model::{Diagnostic, DocumentDiagnosticReport, SemanticTokens};
 use crate::workspace::DocumentSnapshot;
 
 use super::requests::{QueryError, lsp_range, source};
@@ -17,6 +17,7 @@ use super::requests::{QueryError, lsp_range, source};
 pub(super) fn semantic_tokens(
     document: &DocumentSnapshot,
     cancellation: &CancellationToken,
+    multiline_support: bool,
 ) -> Result<SemanticTokens, QueryError> {
     let source = source(document)?;
 
@@ -38,18 +39,18 @@ pub(super) fn semantic_tokens(
             .chain(token.trailing_trivia())
             .filter(|trivia| is_comment(trivia.kind()))
         {
-            if let Some(range) = lsp_range(source, trivia.range()) {
-                push_semantic_token(&mut absolute, range, Some(15));
-            }
+            push_semantic_token(
+                &mut absolute,
+                source,
+                trivia.range(),
+                Some(15),
+                multiline_support,
+            );
         }
 
         if token.is_missing() || token.range().is_empty() {
             continue;
         }
-
-        let Some(range) = lsp_range(source, token.range()) else {
-            continue;
-        };
 
         let token_type = if token.kind() == SyntaxKind::IdentifierToken {
             identifier_token_type(document, token.range().start(), cancellation)?
@@ -57,7 +58,13 @@ pub(super) fn semantic_tokens(
             syntax_token_type(token.kind())
         };
 
-        push_semantic_token(&mut absolute, range, token_type);
+        push_semantic_token(
+            &mut absolute,
+            source,
+            token.range(),
+            token_type,
+            multiline_support,
+        );
     }
 
     absolute.sort_unstable();
@@ -293,23 +300,67 @@ const fn declaration_token_type(kind: DeclarationKind) -> u32 {
 
 fn push_semantic_token(
     tokens: &mut Vec<(u32, u32, u32, u32)>,
-    range: Range,
+    source: &SourceSnapshot,
+    text_range: bray_source::TextRange,
     token_type: Option<u32>,
+    multiline_support: bool,
 ) {
-    if range.start.line != range.end.line {
-        return;
-    }
-
     let Some(token_type) = token_type else {
         return;
     };
 
-    tokens.push((
-        range.start.line,
-        range.start.character,
-        range.end.character.saturating_sub(range.start.character),
-        token_type,
-    ));
+    let Some(range) = lsp_range(source, text_range) else {
+        return;
+    };
+
+    if range.start.line == range.end.line {
+        tokens.push((
+            range.start.line,
+            range.start.character,
+            range.end.character.saturating_sub(range.start.character),
+            token_type,
+        ));
+
+        return;
+    }
+
+    let Some(text) = source.text_slice(text_range) else {
+        return;
+    };
+
+    if multiline_support {
+        tokens.push((
+            range.start.line,
+            range.start.character,
+            u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX),
+            token_type,
+        ));
+
+        return;
+    }
+
+    for (line_offset, segment) in text.split('\n').enumerate() {
+        let segment = segment.strip_suffix('\r').unwrap_or(segment);
+        let length = u32::try_from(segment.encode_utf16().count()).unwrap_or(u32::MAX);
+
+        if length == 0 {
+            continue;
+        }
+
+        tokens.push((
+            range
+                .start
+                .line
+                .saturating_add(u32::try_from(line_offset).unwrap_or(u32::MAX)),
+            if line_offset == 0 {
+                range.start.character
+            } else {
+                0
+            },
+            length,
+            token_type,
+        ));
+    }
 }
 
 const fn is_comment(kind: SyntaxKind) -> bool {

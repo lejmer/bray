@@ -1,5 +1,6 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 
+use bray_messages::{LanguageServerMessage, LanguageServerMessageRenderer};
 use serde_json::{Value, json};
 
 pub(crate) const REQUEST_CANCELLED: i32 = -32800;
@@ -58,8 +59,11 @@ pub(crate) fn write_error(
     output: &mut dyn Write,
     id: Value,
     code: i32,
-    message: &'static str,
+    message: LanguageServerMessage,
+    renderer: LanguageServerMessageRenderer,
 ) -> io::Result<()> {
+    let message = renderer.render(message);
+
     write_value(
         output,
         &json!({
@@ -186,8 +190,12 @@ mod tests {
 
     use serde_json::json;
 
+    use bray_messages::{
+        LanguageServerMessage, LanguageServerMessageRenderer,
+    };
+
     use super::{
-        IncomingMessage, read_messages, write_result,
+        IncomingMessage, INVALID_PARAMS, read_messages, write_error, write_result,
     };
 
     #[test]
@@ -230,5 +238,25 @@ mod tests {
         assert!(output.starts_with("Content-Length: "));
         assert!(output.contains(r#""id":7"#));
         assert!(output.contains(r#""capabilities":{}"#));
+    }
+
+    #[test]
+    fn protocol_errors_render_localized_structured_messages() {
+        let mut output = Vec::new();
+
+        write_error(
+            &mut output,
+            json!(7),
+            INVALID_PARAMS,
+            LanguageServerMessage::InvalidParams,
+            LanguageServerMessageRenderer::english(),
+        )
+        .unwrap_or_else(|error| panic!("protocol error should write: {error}"));
+
+        let output = String::from_utf8(output)
+            .unwrap_or_else(|error| panic!("protocol output should be UTF-8: {error}"));
+
+        assert!(output.contains(r#""message":"Invalid request parameters.""#));
+        assert!(!output.contains("language_server_invalid_params"));
     }
 }

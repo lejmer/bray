@@ -4,28 +4,36 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_compilation::{CancellationToken, WorkerBudget};
+use bray_messages::{
+    DiagnosticLocale, LanguageServerMessage, LanguageServerMessageRenderer,
+};
 use bray_project::ProjectGraph;
+use bray_target::TargetIdentity;
 use crossbeam_channel::Sender;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::model::{
     CancellationParams, DidChangeParams, DidCloseParams, DidOpenParams, DocumentParams,
-    ReferenceParams, TextDocumentPositionParams,
+    InitializeParams, ReferenceParams, TextDocumentPositionParams,
 };
 use crate::protocol::{
     CONTENT_MODIFIED, INTERNAL_ERROR, INVALID_PARAMS, IncomingMessage, METHOD_NOT_FOUND,
     REQUEST_CANCELLED, read_messages, write_error, write_notification, write_result,
 };
 use crate::query::{Query, QueryError, execute};
-use crate::workspace::{DocumentSnapshot, Workspace, WorkspaceError};
+use crate::workspace::{
+    CompilationRevision, DocumentSnapshot, Workspace, WorkspaceError, WorkspaceUpdate,
+};
 
 const PUBLISH_DIAGNOSTICS: &str = "textDocument/publishDiagnostics";
+const SHOW_MESSAGE: &str = "window/showMessage";
 
 /// Bray language server for one validated project graph.
 pub struct LanguageServer {
     workspace_root: PathBuf,
     graph: Arc<ProjectGraph>,
+    target: TargetIdentity,
     worker_budget: WorkerBudget,
 }
 
@@ -34,11 +42,13 @@ impl LanguageServer {
     pub fn new(
         workspace_root: impl Into<PathBuf>,
         graph: Arc<ProjectGraph>,
+        target: TargetIdentity,
         worker_budget: WorkerBudget,
     ) -> Self {
         Self {
             workspace_root: workspace_root.into(),
             graph,
+            target,
             worker_budget,
         }
     }
@@ -46,12 +56,13 @@ impl LanguageServer {
     /// Serves Language Server Protocol messages until the peer exits or closes input.
     pub fn run(
         self,
-        input: &mut (dyn Read + Send),
+        input: Box<dyn Read + Send>,
         output: &mut dyn Write,
     ) -> io::Result<()> {
         let mut workspace = Workspace::new(
             self.workspace_root,
             Arc::clone(&self.graph),
+            self.target,
             self.worker_budget,
         );
 
@@ -73,6 +84,7 @@ enum Event {
 
 struct PendingTask {
     id: Option<Value>,
+    diagnostic_id: Option<u64>,
     document: DocumentSnapshot,
     query: Query,
     cancellation: CancellationToken,
@@ -80,90 +92,129 @@ struct PendingTask {
 
 struct CompletedTask {
     id: Option<Value>,
+    diagnostic_id: Option<u64>,
     uri: String,
     revision: u64,
+    compilation_revision: CompilationRevision,
     cancellation: CancellationToken,
     result: Result<Value, QueryError>,
 }
 
 struct InFlightRequest {
     uri: String,
-    revision: u64,
+    compilation_revision: CompilationRevision,
     cancellation: CancellationToken,
 }
 
+struct InFlightDiagnostics {
+    id: u64,
+    compilation_revision: CompilationRevision,
+    cancellation: CancellationToken,
+}
+
+#[derive(Clone, Copy)]
+struct ClientConfiguration {
+    renderer: LanguageServerMessageRenderer,
+    multiline_semantic_tokens: bool,
+}
+
+impl Default for ClientConfiguration {
+    fn default() -> Self {
+        Self {
+            renderer: LanguageServerMessageRenderer::english(),
+            multiline_semantic_tokens: false,
+        }
+    }
+}
+
 fn run_event_loop(
-    input: &mut (dyn Read + Send),
+    input: Box<dyn Read + Send>,
     output: &mut dyn Write,
     workspace: &mut Workspace,
     worker_count: usize,
 ) -> io::Result<()> {
     let (sender, receiver) = crossbeam_channel::unbounded();
 
-    std::thread::scope(|scope| {
-        spawn_reader(scope, input, sender.clone());
+    spawn_reader(input, sender.clone());
 
-        let mut pending = VecDeque::new();
-        let mut requests = BTreeMap::new();
-        let mut active = 0_usize;
-        let mut reader_closed = false;
+    let mut pending = VecDeque::new();
+    let mut requests = BTreeMap::new();
+    let mut diagnostics = BTreeMap::new();
+    let mut active = 0_usize;
+    let mut reader_closed = false;
+    let mut next_diagnostic_id = 0_u64;
+    let mut client = ClientConfiguration::default();
 
-        loop {
-            while active < worker_count {
-                let Some(task) = pending.pop_front() else {
-                    break;
-                };
-
-                active += 1;
-
-                spawn_task(scope, task, sender.clone());
-            }
-
-            if reader_closed && active == 0 && pending.is_empty() {
+    loop {
+        while active < worker_count {
+            let Some(task) = pending.pop_front() else {
                 break;
-            }
+            };
 
-            let event = receiver.recv().map_err(|_| {
-                io::Error::new(io::ErrorKind::BrokenPipe, "language_server_event_channel_closed")
-            })?;
+            active += 1;
 
-            match event {
-                Event::Incoming(message) => {
-                    handle_message(
-                        message,
-                        workspace,
-                        output,
-                        &mut pending,
-                        &mut requests,
-                        &mut reader_closed,
-                    )?;
-                }
-                Event::Completed(task) => {
-                    active = active.saturating_sub(1);
-
-                    if let Some(id) = task.id.as_ref() {
-                        requests.remove(&request_key(id));
-                    }
-
-                    publish_completed(task, workspace, output)?;
-                }
-                Event::ReaderClosed => reader_closed = true,
-                Event::ReaderFailed(error) => return Err(error),
-            }
+            spawn_task(task, sender.clone());
         }
 
-        Ok(())
-    })
+        if reader_closed && active == 0 && pending.is_empty() {
+            break;
+        }
+
+        let event = receiver.recv().map_err(|_| {
+            io::Error::new(io::ErrorKind::BrokenPipe, "language_server_event_channel_closed")
+        })?;
+
+        match event {
+            Event::Incoming(message) => {
+                handle_message(
+                    message,
+                    workspace,
+                    output,
+                    &mut pending,
+                    &mut requests,
+                    &mut diagnostics,
+                    &mut reader_closed,
+                    &mut next_diagnostic_id,
+                    &mut client,
+                )?;
+            }
+            Event::Completed(task) => {
+                active = active.saturating_sub(1);
+
+                if let Some(id) = task.id.as_ref() {
+                    requests.remove(&request_key(id));
+                }
+
+                if let Some(id) = task.diagnostic_id
+                    && diagnostics
+                        .get(&task.uri)
+                        .is_some_and(|diagnostic| diagnostic.id == id)
+                {
+                    diagnostics.remove(&task.uri);
+                }
+
+                publish_completed(task, workspace, output, client.renderer)?;
+            }
+            Event::ReaderClosed => reader_closed = true,
+            Event::ReaderFailed(error) => return Err(error),
+        }
+    }
+
+    Ok(())
 }
 
-fn spawn_reader<'scope>(
-    scope: &'scope std::thread::Scope<'scope, '_>,
-    input: &'scope mut (dyn Read + Send),
+fn spawn_reader(
+    mut input: Box<dyn Read + Send>,
     sender: Sender<Event>,
 ) {
-    scope.spawn(move || {
-        let result = read_messages(input, |message| {
-            sender.send(Event::Incoming(message)).is_ok()
+    std::thread::spawn(move || {
+        let result = read_messages(input.as_mut(), |message| {
+            let exits = matches!(
+                &message,
+                IncomingMessage::Notification { method, .. } if method == "exit"
+            );
+
+            sender.send(Event::Incoming(message)).is_ok() && !exits
         });
 
         let event = match result {
@@ -175,18 +226,19 @@ fn spawn_reader<'scope>(
     });
 }
 
-fn spawn_task<'scope>(
-    scope: &'scope std::thread::Scope<'scope, '_>,
+fn spawn_task(
     task: PendingTask,
     sender: Sender<Event>,
 ) {
-    scope.spawn(move || {
+    std::thread::spawn(move || {
         let result = execute(&task.document, task.query, &task.cancellation);
 
         let completed = CompletedTask {
             id: task.id,
+            diagnostic_id: task.diagnostic_id,
             uri: task.document.uri,
             revision: task.document.revision,
+            compilation_revision: task.document.compilation_revision,
             cancellation: task.cancellation,
             result,
         };
@@ -201,11 +253,19 @@ fn handle_message(
     output: &mut dyn Write,
     pending: &mut VecDeque<PendingTask>,
     requests: &mut BTreeMap<String, InFlightRequest>,
+    diagnostics: &mut BTreeMap<String, InFlightDiagnostics>,
     reader_closed: &mut bool,
+    next_diagnostic_id: &mut u64,
+    client: &mut ClientConfiguration,
 ) -> io::Result<()> {
     match message {
         IncomingMessage::Request { id, method, params } => {
             if method == "initialize" {
+                let params = serde_json::from_value::<InitializeParams>(params)
+                    .unwrap_or_default();
+
+                *client = client_configuration(&params);
+
                 return write_result(output, id, initialize_result());
             }
 
@@ -213,14 +273,21 @@ fn handle_message(
                 return write_result(output, id, Value::Null);
             }
 
-            let task = match prepare_request(workspace, id.clone(), &method, params) {
+            let task = match prepare_request(
+                workspace,
+                id.clone(),
+                &method,
+                params,
+                client.multiline_semantic_tokens,
+            ) {
                 Ok(task) => task,
                 Err(RequestPreparationError::InvalidParams) => {
                     return write_error(
                         output,
                         id,
                         INVALID_PARAMS,
-                        "language_server_invalid_params",
+                        LanguageServerMessage::InvalidParams,
+                        client.renderer,
                     );
                 }
                 Err(RequestPreparationError::MethodNotFound) => {
@@ -228,11 +295,18 @@ fn handle_message(
                         output,
                         id,
                         METHOD_NOT_FOUND,
-                        "language_server_method_not_found",
+                        LanguageServerMessage::MethodNotFound,
+                        client.renderer,
                     );
                 }
                 Err(RequestPreparationError::Workspace(error)) => {
-                    return write_error(output, id, INTERNAL_ERROR, error.as_str());
+                    return write_error(
+                        output,
+                        id,
+                        INTERNAL_ERROR,
+                        error.message(),
+                        client.renderer,
+                    );
                 }
             };
 
@@ -240,7 +314,7 @@ fn handle_message(
                 request_key(&id),
                 InFlightRequest {
                     uri: task.document.uri.clone(),
-                    revision: task.document.revision,
+                    compilation_revision: task.document.compilation_revision.clone(),
                     cancellation: task.cancellation.clone(),
                 },
             );
@@ -254,6 +328,10 @@ fn handle_message(
 
                 for request in requests.values() {
                     request.cancellation.cancel();
+                }
+
+                for diagnostic in diagnostics.values() {
+                    diagnostic.cancellation.cancel();
                 }
             }
             "$/cancelRequest" => {
@@ -273,11 +351,17 @@ fn handle_message(
                     params.text_document.version,
                     params.text_document.text,
                 ) {
-                    Ok(document) => {
-                        cancel_stale_requests(requests, &document.uri, document.revision);
-                        pending.push_back(diagnostic_task(document));
+                    Ok(update) => {
+                        queue_workspace_update(
+                            update,
+                            workspace,
+                            pending,
+                            requests,
+                            diagnostics,
+                            next_diagnostic_id,
+                        );
                     }
-                    Err(_) => {}
+                    Err(error) => publish_workspace_error(output, error, client.renderer)?,
                 }
             }
             "textDocument/didChange" => {
@@ -290,11 +374,17 @@ fn handle_message(
                     params.text_document.version,
                     &params.content_changes,
                 ) {
-                    Ok(document) => {
-                        cancel_stale_requests(requests, &document.uri, document.revision);
-                        pending.push_back(diagnostic_task(document));
+                    Ok(update) => {
+                        queue_workspace_update(
+                            update,
+                            workspace,
+                            pending,
+                            requests,
+                            diagnostics,
+                            next_diagnostic_id,
+                        );
                     }
-                    Err(_) => {}
+                    Err(error) => publish_workspace_error(output, error, client.renderer)?,
                 }
             }
             "textDocument/didClose" => {
@@ -305,8 +395,23 @@ fn handle_message(
                 let uri = params.text_document.uri;
 
                 cancel_document_requests(requests, &uri);
+                cancel_document_diagnostics(diagnostics, &uri);
 
-                let _ = workspace.close_document(&uri);
+                match workspace.close_document(&uri) {
+                    Ok(affected) => {
+                        cancel_stale_work(workspace, requests, diagnostics);
+
+                        for document in affected {
+                            queue_diagnostics(
+                                document,
+                                pending,
+                                diagnostics,
+                                next_diagnostic_id,
+                            );
+                        }
+                    }
+                    Err(error) => publish_workspace_error(output, error, client.renderer)?,
+                }
 
                 write_notification(
                     output,
@@ -330,6 +435,7 @@ fn prepare_request(
     id: Value,
     method: &str,
     params: Value,
+    multiline_semantic_tokens: bool,
 ) -> Result<PendingTask, RequestPreparationError> {
     let (uri, query) = match method {
         "textDocument/hover" => {
@@ -374,7 +480,12 @@ fn prepare_request(
         "textDocument/semanticTokens/full" => {
             let params = parameters::<DocumentParams>(params)?;
 
-            (params.text_document.uri, Query::SemanticTokens)
+            (
+                params.text_document.uri,
+                Query::SemanticTokens {
+                    multiline_support: multiline_semantic_tokens,
+                },
+            )
         }
         "textDocument/diagnostic" => {
             let params = parameters::<DocumentParams>(params)?;
@@ -392,15 +503,17 @@ fn prepare_request(
 
     Ok(PendingTask {
         id: Some(id),
+        diagnostic_id: None,
         document,
         query,
         cancellation: CancellationToken::new(),
     })
 }
 
-fn diagnostic_task(document: DocumentSnapshot) -> PendingTask {
+fn diagnostic_task(document: DocumentSnapshot, id: u64) -> PendingTask {
     PendingTask {
         id: None,
+        diagnostic_id: Some(id),
         document,
         query: Query::Diagnostics,
         cancellation: CancellationToken::new(),
@@ -411,6 +524,7 @@ fn publish_completed(
     task: CompletedTask,
     workspace: &Workspace,
     output: &mut dyn Write,
+    renderer: LanguageServerMessageRenderer,
 ) -> io::Result<()> {
     if task.cancellation.is_cancelled() || matches!(task.result, Err(QueryError::Cancelled)) {
         if let Some(id) = task.id {
@@ -418,20 +532,22 @@ fn publish_completed(
                 output,
                 id,
                 REQUEST_CANCELLED,
-                "language_server_request_cancelled",
+                LanguageServerMessage::RequestCancelled,
+                renderer,
             );
         }
 
         return Ok(());
     }
 
-    if !workspace.is_current(&task.uri, task.revision) {
+    if !workspace.is_current(&task.compilation_revision) {
         if let Some(id) = task.id {
             return write_error(
                 output,
                 id,
                 CONTENT_MODIFIED,
-                "language_server_content_modified",
+                LanguageServerMessage::ContentModified,
+                renderer,
             );
         }
 
@@ -441,7 +557,13 @@ fn publish_completed(
     match (task.id, task.result) {
         (Some(id), Ok(result)) => write_result(output, id, result),
         (Some(id), Err(_)) => {
-            write_error(output, id, INTERNAL_ERROR, "language_server_query_failed")
+            write_error(
+                output,
+                id,
+                INTERNAL_ERROR,
+                LanguageServerMessage::QueryFailed,
+                renderer,
+            )
         }
         (None, Ok(report)) => {
             let diagnostics = report
@@ -463,16 +585,23 @@ fn publish_completed(
     }
 }
 
-fn cancel_stale_requests(
+fn cancel_stale_work(
+    workspace: &Workspace,
     requests: &BTreeMap<String, InFlightRequest>,
-    uri: &str,
-    revision: u64,
+    diagnostics: &BTreeMap<String, InFlightDiagnostics>,
 ) {
     for request in requests
         .values()
-        .filter(|request| request.uri == uri && request.revision < revision)
+        .filter(|request| !workspace.is_current(&request.compilation_revision))
     {
         request.cancellation.cancel();
+    }
+
+    for diagnostic in diagnostics
+        .values()
+        .filter(|diagnostic| !workspace.is_current(&diagnostic.compilation_revision))
+    {
+        diagnostic.cancellation.cancel();
     }
 }
 
@@ -482,6 +611,100 @@ fn cancel_document_requests(
 ) {
     for request in requests.values().filter(|request| request.uri == uri) {
         request.cancellation.cancel();
+    }
+}
+
+fn cancel_document_diagnostics(
+    diagnostics: &mut BTreeMap<String, InFlightDiagnostics>,
+    uri: &str,
+) {
+    if let Some(diagnostic) = diagnostics.remove(uri) {
+        diagnostic.cancellation.cancel();
+    }
+}
+
+fn queue_workspace_update(
+    update: WorkspaceUpdate,
+    workspace: &Workspace,
+    pending: &mut VecDeque<PendingTask>,
+    requests: &BTreeMap<String, InFlightRequest>,
+    diagnostics: &mut BTreeMap<String, InFlightDiagnostics>,
+    next_diagnostic_id: &mut u64,
+) {
+    debug_assert!(
+        update
+            .affected
+            .iter()
+            .any(|document| document.uri == update.current.uri)
+    );
+
+    cancel_stale_work(workspace, requests, diagnostics);
+
+    for document in update.affected {
+        queue_diagnostics(document, pending, diagnostics, next_diagnostic_id);
+    }
+}
+
+fn queue_diagnostics(
+    document: DocumentSnapshot,
+    pending: &mut VecDeque<PendingTask>,
+    diagnostics: &mut BTreeMap<String, InFlightDiagnostics>,
+    next_diagnostic_id: &mut u64,
+) {
+    if let Some(previous) = diagnostics.remove(&document.uri) {
+        previous.cancellation.cancel();
+    }
+
+    *next_diagnostic_id = next_diagnostic_id.saturating_add(1);
+
+    let id = *next_diagnostic_id;
+    let cancellation = CancellationToken::new();
+
+    diagnostics.insert(
+        document.uri.clone(),
+        InFlightDiagnostics {
+            id,
+            compilation_revision: document.compilation_revision.clone(),
+            cancellation: cancellation.clone(),
+        },
+    );
+
+    let mut task = diagnostic_task(document, id);
+    task.cancellation = cancellation;
+
+    pending.push_back(task);
+}
+
+fn publish_workspace_error(
+    output: &mut dyn Write,
+    error: WorkspaceError,
+    renderer: LanguageServerMessageRenderer,
+) -> io::Result<()> {
+    write_notification(
+        output,
+        SHOW_MESSAGE,
+        json!({
+            "type": 1,
+            "message": renderer.render(error.message()),
+        }),
+    )
+}
+
+fn client_configuration(params: &InitializeParams) -> ClientConfiguration {
+    let locale = match params.locale.as_deref() {
+        Some(_) | None => DiagnosticLocale::English,
+    };
+
+    let multiline_semantic_tokens = params
+        .capabilities
+        .text_document
+        .as_ref()
+        .and_then(|capabilities| capabilities.semantic_tokens)
+        .is_some_and(|capabilities| capabilities.multiline_token_support);
+
+    ClientConfiguration {
+        renderer: LanguageServerMessageRenderer::new(locale),
+        multiline_semantic_tokens,
     }
 }
 
@@ -558,17 +781,22 @@ fn initialize_result() -> Value {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::io::Cursor;
-    use std::sync::Arc;
+    use std::collections::{BTreeMap, VecDeque};
+    use std::io::{self, Cursor, Read};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::Duration;
 
     use bray_compilation::WorkerBudget;
     use bray_project::load_project_graph;
     use serde_json::{Value, json};
 
-    use super::{InFlightRequest, LanguageServer, cancel_stale_requests};
+    use super::{
+        InFlightDiagnostics, LanguageServer, PendingTask, queue_diagnostics,
+    };
     use crate::protocol::read_messages;
     use crate::test_support::ProjectFixture;
+    use crate::workspace::Workspace;
 
     #[test]
     fn protocol_advertises_and_answers_every_editor_feature() {
@@ -576,6 +804,13 @@ mod tests {
 
         let graph = load_project_graph(fixture.path())
             .unwrap_or_else(|error| panic!("test project should load: {error:?}"));
+
+        let target = graph
+            .targets()
+            .first()
+            .unwrap_or_else(|| panic!("test target should exist"))
+            .identity()
+            .clone();
 
         let uri = bray_source::SourceOrigin::file_uri_from_path(&fixture.source)
             .unwrap_or_else(|error| panic!("test source URI should form: {error:?}"));
@@ -648,11 +883,12 @@ mod tests {
         LanguageServer::new(
             fixture.path(),
             Arc::new(graph),
+            target,
             WorkerBudget::new(2).unwrap_or_else(|error| {
                 panic!("test worker budget should form: {error:?}")
             }),
         )
-        .run(&mut Cursor::new(input), &mut output)
+        .run(Box::new(Cursor::new(input)), &mut output)
         .unwrap_or_else(|error| panic!("test server should run: {error:?}"));
 
         let mut responses = Vec::new();
@@ -670,43 +906,148 @@ mod tests {
     }
 
     #[test]
-    fn revisions_cancel_only_stale_requests_for_the_changed_document() {
-        let stale = bray_compilation::CancellationToken::new();
-        let current = bray_compilation::CancellationToken::new();
-        let unrelated = bray_compilation::CancellationToken::new();
+    fn exit_stops_before_reading_from_a_blocked_transport_again() {
+        let fixture = ProjectFixture::new();
 
-        let requests = BTreeMap::from([
-            (
-                String::from("stale"),
-                InFlightRequest {
-                    uri: String::from("file:///changed.bray"),
-                    revision: 1,
-                    cancellation: stale.clone(),
-                },
-            ),
-            (
-                String::from("current"),
-                InFlightRequest {
-                    uri: String::from("file:///changed.bray"),
-                    revision: 2,
-                    cancellation: current.clone(),
-                },
-            ),
-            (
-                String::from("unrelated"),
-                InFlightRequest {
-                    uri: String::from("file:///other.bray"),
-                    revision: 1,
-                    cancellation: unrelated.clone(),
-                },
-            ),
+        let graph = load_project_graph(fixture.path())
+            .unwrap_or_else(|error| panic!("test project should load: {error:?}"));
+
+        let target = graph
+            .targets()
+            .first()
+            .unwrap_or_else(|| panic!("test target should exist"))
+            .identity()
+            .clone();
+
+        let input = framed([
+            request(1, "initialize", json!({})),
+            request(2, "shutdown", Value::Null),
+            notification("exit", Value::Null),
         ]);
 
-        cancel_stale_requests(&requests, "file:///changed.bray", 2);
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let read_after_exit = Arc::new(AtomicBool::new(false));
 
-        assert!(stale.is_cancelled());
-        assert!(!current.is_cancelled());
-        assert!(!unrelated.is_cancelled());
+        let reader = BlockingAfterInput {
+            input: Cursor::new(input),
+            gate: Arc::clone(&gate),
+            read_after_exit: Arc::clone(&read_after_exit),
+        };
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        let root = fixture.path().to_owned();
+
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+
+            let result = LanguageServer::new(
+                root,
+                Arc::new(graph),
+                target,
+                WorkerBudget::serial(),
+            )
+            .run(Box::new(reader), &mut output);
+
+            let _ = sender.send(result);
+        });
+
+        let result = receiver.recv_timeout(Duration::from_secs(2));
+
+        if result.is_err() {
+            let (released, changed) = &*gate;
+
+            let mut released = released.lock().unwrap_or_else(|error| error.into_inner());
+
+            *released = true;
+            changed.notify_all();
+        }
+
+        assert!(result.is_ok(), "exit should not wait for another transport read");
+        assert!(!read_after_exit.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn queuing_new_diagnostics_cancels_the_superseded_task() {
+        let fixture = ProjectFixture::new();
+
+        let graph = load_project_graph(fixture.path())
+            .unwrap_or_else(|error| panic!("test project should load: {error:?}"));
+
+        let target = graph
+            .targets()
+            .first()
+            .unwrap_or_else(|| panic!("test target should exist"))
+            .identity()
+            .clone();
+
+        let uri = bray_source::SourceOrigin::file_uri_from_path(&fixture.source)
+            .unwrap_or_else(|error| panic!("test source URI should form: {error:?}"));
+
+        let mut workspace = Workspace::new(
+            fixture.path(),
+            Arc::new(graph),
+            target,
+            WorkerBudget::serial(),
+        );
+
+        let document = workspace
+            .open_document(uri, 1, fixture.source_text.to_owned())
+            .unwrap_or_else(|error| panic!("test document should open: {error:?}"))
+            .current;
+
+        let mut pending = VecDeque::<PendingTask>::new();
+        let mut diagnostics = BTreeMap::<String, InFlightDiagnostics>::new();
+        let mut next = 0_u64;
+
+        queue_diagnostics(
+            document.clone(),
+            &mut pending,
+            &mut diagnostics,
+            &mut next,
+        );
+
+        let first = diagnostics
+            .get(&document.uri)
+            .unwrap_or_else(|| panic!("first diagnostic task should be tracked"))
+            .cancellation
+            .clone();
+
+        queue_diagnostics(document, &mut pending, &mut diagnostics, &mut next);
+
+        assert!(first.is_cancelled());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(pending.len(), 2);
+    }
+
+    struct BlockingAfterInput {
+        input: Cursor<Vec<u8>>,
+        gate: Arc<(Mutex<bool>, Condvar)>,
+        read_after_exit: Arc<AtomicBool>,
+    }
+
+    impl Read for BlockingAfterInput {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let read = self.input.read(buffer)?;
+
+            if read != 0 {
+                return Ok(read);
+            }
+
+            self.read_after_exit.store(true, Ordering::Release);
+
+            let (released, changed) = &*self.gate;
+
+            let mut released = released.lock().unwrap_or_else(|error| error.into_inner());
+
+            while !*released {
+                released = changed
+                    .wait(released)
+                    .unwrap_or_else(|error| error.into_inner());
+            }
+
+            Ok(0)
+        }
     }
 
     fn request(id: u32, method: &str, params: Value) -> Value {

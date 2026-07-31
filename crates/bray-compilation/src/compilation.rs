@@ -46,4 +46,4 @@ pub use product_emission::{
 };
 pub use product::{NativeProductFactError, NativeProductFacts};
 pub use source_graph::ProductSourceGraph;
-pub use tooling::SemanticAvailability;
+pub use tooling::{CompletionCandidate, SemanticAvailability};

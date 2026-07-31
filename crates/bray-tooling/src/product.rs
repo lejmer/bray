@@ -48,6 +48,13 @@ pub fn load_llvm_compilation(
     Compilation::load_with_codegen(request, codegen).ok()
 }
 
+/// Resolves a compiler target from one exact project-selected target identity.
+pub fn selected_target(identity: &TargetIdentity) -> Option<SelectedTarget> {
+    let target = SelectedTarget::baseline();
+
+    (target.profile().identity() == identity).then_some(target)
+}
+
 /// Creates the package-interface export request for a library product.
 pub fn package_interface_export_request(
     product: ProductIdentity,

@@ -1,5 +1,31 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InitializeParams {
+    pub(crate) locale: Option<String>,
+    pub(crate) capabilities: ClientCapabilities,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClientCapabilities {
+    pub(crate) text_document: Option<TextDocumentClientCapabilities>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TextDocumentClientCapabilities {
+    pub(crate) semantic_tokens: Option<SemanticTokensClientCapabilities>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SemanticTokensClientCapabilities {
+    #[serde(default)]
+    pub(crate) multiline_token_support: bool,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct Position {
     pub(crate) line: u32,

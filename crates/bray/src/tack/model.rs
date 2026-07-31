@@ -68,7 +68,9 @@ pub(crate) enum TackCommand {
         source_id: u32,
         position: Option<TextSize>,
     },
-    LanguageServer,
+    LanguageServer {
+        target: Option<String>,
+    },
     VendorInstall {
         name: String,
         repository: String,
@@ -84,7 +86,7 @@ impl TackCommand {
             Self::Test { .. } => TackCommandKind::Test,
             Self::Format { .. } => TackCommandKind::Format,
             Self::Inspect { .. } => TackCommandKind::Inspect,
-            Self::LanguageServer => TackCommandKind::LanguageServer,
+            Self::LanguageServer { .. } => TackCommandKind::LanguageServer,
             Self::VendorInstall { .. } => TackCommandKind::VendorInstall,
         }
     }
