@@ -586,7 +586,7 @@ mod tests {
     };
     use bray_target::test_support::test_target_profile;
     use bray_target::{
-        TargetFacts, TargetLayoutContract, TargetOperationFacts, TargetProfile, TargetValueLayout,
+        TargetLayoutContract, TargetOperationFacts, TargetProfile, TargetValueLayout,
     };
     use inkwell::context::Context;
 
@@ -952,17 +952,11 @@ mod tests {
 
     fn memory_target(raw_memory: bool, allocation: bool) -> bray_codegen::CodegenTarget {
         let profile = test_target_profile();
-        let facts = profile.facts();
 
-        let facts = TargetFacts::new(
-            facts.identity().clone(),
-            facts.scalars(),
-            facts.atomics(),
-            facts.abis(),
-            facts.address_spaces(),
-            facts.alignments(),
-            TargetOperationFacts::new(raw_memory, allocation),
-        );
+        let facts = profile
+            .facts()
+            .clone()
+            .with_operations(TargetOperationFacts::new(raw_memory, allocation));
 
         let profile = TargetProfile::try_new(
             profile.identity().clone(),
