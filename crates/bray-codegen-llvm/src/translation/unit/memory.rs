@@ -110,7 +110,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             CheckedMemoryOperationKind::Copy { pointee, kind } => {
-                let [destination, source, count] = memory.operands() else {
+                let [source, destination, count] = memory.operands() else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
                 };
 
@@ -441,29 +441,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let bytes = self.pointer_sized_memory_operand(bytes)?;
         let alignment = self.pointer_sized_memory_operand(alignment)?;
-        let function = self.memory_allocator_function(true);
-
-        let address = llvm(self.builder.build_call(
-            function,
-            &[bytes.into(), alignment.into()],
-            "memory.allocate",
-        ))?
-        .try_as_basic_value()
-        .basic()
-        .and_then(int_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
         let result = self.operation_result_type(operation)?;
 
         let BasicTypeEnum::PointerType(pointer) = self.types.map(result)? else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        llvm(
-            self.builder
-                .build_int_to_ptr(address, pointer, "memory.allocation"),
-        )
+        let function = self.memory_allocation_function(pointer);
+
+        llvm(self.builder.build_call(
+            function,
+            &[bytes.into(), alignment.into()],
+            "memory.allocate",
+        ))?
+        .try_as_basic_value()
+        .basic()
+        .and_then(pointer_value)
         .map(Into::into)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
     fn translate_memory_deallocation(
@@ -475,10 +470,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let pointer = self.memory_pointer(pointer)?;
-        let pointer = self.pointer_address(pointer)?;
         let bytes = self.pointer_sized_memory_operand(bytes)?;
         let alignment = self.pointer_sized_memory_operand(alignment)?;
-        let function = self.memory_allocator_function(false);
+        let function = self.memory_deallocation_function(pointer.get_type());
 
         llvm(self.builder.build_call(
             function,
@@ -489,30 +483,44 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    fn memory_allocator_function(
+    fn memory_allocation_function(
         &self,
-        allocation: bool,
+        pointer: inkwell::types::PointerType<'context>,
+    ) -> inkwell::values::FunctionValue<'context> {
+        let integer = self.pointer_integer_type();
+        let ty = pointer.fn_type(&[integer.into(), integer.into()], false);
+
+        self.module
+            .get_function(bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL)
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL,
+                    ty,
+                    None,
+                )
+            })
+    }
+
+    fn memory_deallocation_function(
+        &self,
+        pointer: inkwell::types::PointerType<'context>,
     ) -> inkwell::values::FunctionValue<'context> {
         let integer = self.pointer_integer_type();
 
-        let (name, ty) = if allocation {
-            (
-                bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL,
-                integer.fn_type(&[integer.into(), integer.into()], false),
-            )
-        } else {
-            (
-                bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
-                self.types
-                    .context()
-                    .void_type()
-                    .fn_type(&[integer.into(), integer.into(), integer.into()], false),
-            )
-        };
+        let ty = self.types.context().void_type().fn_type(
+            &[pointer.into(), integer.into(), integer.into()],
+            false,
+        );
 
         self.module
-            .get_function(name)
-            .unwrap_or_else(|| self.module.add_function(name, ty, None))
+            .get_function(bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL)
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
+                    ty,
+                    None,
+                )
+            })
     }
 
     fn memory_pointer(
@@ -628,6 +636,23 @@ mod tests {
             bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
         ] {
             assert!(ir.contains(spelling), "missing generated LLVM for {spelling}");
+        }
+
+        for intrinsic in ["@llvm.memcpy", "@llvm.memmove"] {
+            let call = ir
+                .lines()
+                .find(|line| line.contains("call void") && line.contains(intrinsic))
+                .unwrap_or_else(|| panic!("missing generated call to {intrinsic}"));
+
+            let destination = call
+                .find("null")
+                .unwrap_or_else(|| panic!("{intrinsic} destination must use the null fixture"));
+
+            let source = call
+                .find("%storage.0")
+                .unwrap_or_else(|| panic!("{intrinsic} source must use fixture storage"));
+
+            assert!(destination < source, "{intrinsic} operands are reversed");
         }
     }
 

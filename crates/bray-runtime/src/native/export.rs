@@ -57,7 +57,7 @@ native_export! {
     pub extern "C-unwind" fn bray_runtime_memory_allocation_v1(
         bytes: usize,
         alignment: usize,
-    ) -> usize {
+    ) -> *mut u8 {
         let layout = native_memory_layout(bytes, alignment);
 
         let pointer = unsafe { alloc(layout) };
@@ -66,19 +66,19 @@ native_export! {
             panic_any(NativeMemoryAllocationFailure);
         }
 
-        pointer.addr()
+        pointer
     }
 }
 
 native_export! {
     pub extern "C-unwind" fn bray_runtime_memory_deallocation_v1(
-        pointer: usize,
+        pointer: *mut u8,
         bytes: usize,
         alignment: usize,
     ) {
         let layout = native_memory_layout(bytes, alignment);
 
-        let Some(pointer) = std::ptr::NonNull::new(pointer as *mut u8) else {
+        let Some(pointer) = std::ptr::NonNull::new(pointer) else {
             panic_any(NativeMemoryAllocationFailure);
         };
 
@@ -516,8 +516,8 @@ mod tests {
     fn native_memory_allocation_obeys_size_and_alignment_contracts() {
         let address = bray_runtime_memory_allocation_v1(32, 16);
 
-        assert_ne!(address, 0);
-        assert_eq!(address % 16, 0);
+        assert!(!address.is_null());
+        assert_eq!(address.addr() % 16, 0);
 
         bray_runtime_memory_deallocation_v1(address, 32, 16);
     }
