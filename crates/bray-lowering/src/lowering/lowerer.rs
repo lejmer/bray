@@ -222,10 +222,11 @@ mod tests {
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
         CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
         ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        LivenessFacts, MemoryOperationDecision, MemoryOperationStatus, OperatorTarget,
-        SelectedArgument, SelectedCall, SelectedConversion, SelectedOperation,
-        SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
-        SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
+        LivenessFacts, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
+        MemoryOperationDecision, MemoryOperationStatus, MemoryReadKind, OperatorTarget,
+        SelectedArgument, SelectedCall, SelectedConversion, SelectedOperation, SelectedPropagation,
+        SelectedPropagationBoundary, SemanticSelection, SemanticSelectionEntry, StorageFlowFacts,
+        StoragePlanBuilder,
     };
     use bray_ir::{
         MirBinaryOperator, MirCallArgument, MirOperationKind, MirTerminatorKind, MirUnitKind,
@@ -354,64 +355,107 @@ mod tests {
     }
 
     #[test]
-    fn lowering_replaces_only_checked_memory_calls_with_explicit_mir() {
-        let (mut fixture, pointee) = selected_call_fixture(84, false);
+    fn lowering_replaces_every_checked_memory_family_with_explicit_mir() {
+        type Kind = CheckedMemoryOperationKind;
 
-        let [entry] = fixture.selections.entries() else {
-            panic!("selected call fixture must contain one selection");
-        };
+        let cases: [(usize, fn(bray_symbols::TypeId) -> Kind); 12] = [
+            (1, |ty| Kind::Address {
+                kind: MemoryAddressKind::Shared,
+                pointee: ty,
+            }),
+            (0, |ty| Kind::Null { pointee: ty }),
+            (1, |ty| Kind::IsNull { pointee: ty }),
+            (2, |ty| Kind::Offset {
+                unit: MemoryOffsetUnit::Element,
+                pointee: ty,
+            }),
+            (1, |ty| Kind::Reinterpret {
+                source: ty,
+                target: ty,
+            }),
+            (1, |ty| Kind::Read {
+                pointee: ty,
+                kind: MemoryReadKind::Copy,
+            }),
+            (2, |ty| Kind::Write { pointee: ty }),
+            (3, |ty| Kind::Copy {
+                pointee: ty,
+                kind: MemoryCopyKind::NonOverlapping,
+            }),
+            (0, |ty| Kind::LayoutQuery {
+                ty,
+                kind: MemoryLayoutQueryKind::Size,
+            }),
+            (1, |ty| Kind::LayoutQuery {
+                ty,
+                kind: MemoryLayoutQueryKind::Layout,
+            }),
+            (2, |_| Kind::Allocate),
+            (3, |_| Kind::Deallocate),
+        ];
 
-        let expression = entry.expression();
+        for (index, (argument_count, kind)) in cases.into_iter().enumerate() {
+            let unit_id = 84_u32
+                .checked_add(
+                    u32::try_from(index).unwrap_or_else(|_| panic!("test case index must fit")),
+                )
+                .unwrap_or_else(|| panic!("test unit ID must fit"));
 
-        let SemanticSelection::Call(call) = entry.selection() else {
-            panic!("selected call fixture must contain a call");
-        };
+            let (mut fixture, pointee) = call_fixture(unit_id, argument_count, false);
 
-        let [SelectedArgument::Explicit {
-            expression: argument,
-            ..
-        }] = call.arguments()
-        else {
-            panic!("memory fixture must contain one explicit argument");
-        };
+            let [entry] = fixture.selections.entries() else {
+                panic!("selected call fixture must contain one selection");
+            };
 
-        let operations = CheckedMemoryOperations::try_new(
-            fixture.unit.unit(),
-            fixture.unit.key().kind(),
-            [CheckedMemoryOperation::new(
-                expression,
-                CheckedMemoryOperationKind::Read {
-                    pointee,
-                    kind: bray_bound_tree::MemoryReadKind::Copy,
-                },
-                [*argument],
-            )],
-            false,
-        )
-        .unwrap_or_else(|error| panic!("checked memory operation must validate: {error:?}"));
+            let expression = entry.expression();
 
-        fixture.storage_flow = fixture
-            .storage_flow
-            .with_memory_operations(
-                &operations,
-                [MemoryOperationDecision::new(
-                    expression,
-                    MemoryOperationStatus::Valid,
-                )],
-            )
-            .unwrap_or_else(|error| panic!("memory flow must validate: {error:?}"));
+            let SemanticSelection::Call(call) = entry.selection() else {
+                panic!("selected call fixture must contain a call");
+            };
 
-        let mir = lower_unit(fixture.input())
-            .unwrap_or_else(|error| panic!("checked memory call must lower: {error:?}"));
-
-        assert!(matches!(
-            mir.operations()[0].kind(),
-            MirOperationKind::Memory(operation)
-                if operation.kind() == (CheckedMemoryOperationKind::Read {
-                    pointee,
-                    kind: bray_bound_tree::MemoryReadKind::Copy,
+            let arguments = call
+                .arguments()
+                .iter()
+                .map(|argument| match argument {
+                    SelectedArgument::Explicit { expression, .. } => *expression,
+                    SelectedArgument::Default { .. } => {
+                        panic!("memory fixture must contain only explicit arguments")
+                    }
                 })
-        ));
+                .collect::<Vec<_>>();
+
+            let kind = kind(pointee);
+
+            let operations = CheckedMemoryOperations::try_new(
+                fixture.unit.unit(),
+                fixture.unit.key().kind(),
+                [CheckedMemoryOperation::new(expression, kind, arguments)],
+                false,
+            )
+            .unwrap_or_else(|error| panic!("checked memory operation must validate: {error:?}"));
+
+            fixture.storage_flow = fixture
+                .storage_flow
+                .with_memory_operations(
+                    &operations,
+                    [MemoryOperationDecision::new(
+                        expression,
+                        MemoryOperationStatus::Valid,
+                    )],
+                )
+                .unwrap_or_else(|error| panic!("memory flow must validate: {error:?}"));
+
+            let mir = lower_unit(fixture.input())
+                .unwrap_or_else(|error| panic!("checked memory call must lower: {error:?}"));
+
+            assert!(matches!(
+                mir.operations()[0].kind(),
+                MirOperationKind::Memory(operation)
+                    if operation.kind() == kind
+                        && operation.operands().len() == argument_count
+                        && operation.result_type().is_some() == kind.produces_value()
+            ));
+        }
     }
 
     struct LoweringFixture {
@@ -460,6 +504,14 @@ mod tests {
         unit_id: u32,
         include_default: bool,
     ) -> (LoweringFixture, bray_symbols::TypeId) {
+        call_fixture(unit_id, 1, include_default)
+    }
+
+    fn call_fixture(
+        unit_id: u32,
+        argument_count: usize,
+        include_default: bool,
+    ) -> (LoweringFixture, bray_symbols::TypeId) {
         let values = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
 
@@ -496,16 +548,20 @@ mod tests {
             BoundExpression::Error(BoundErrorExpression::new(origin, ty)),
         );
 
-        let argument = push_expression(
-            &mut tree,
-            BoundExpression::Literal(BoundLiteralExpression::new(
-                origin,
-                template.key().source().syntax().full_range(),
-                BoundLiteralKind::Integer,
-                Some(ty),
-                false,
-            )),
-        );
+        let arguments = (0..argument_count)
+            .map(|_| {
+                push_expression(
+                    &mut tree,
+                    BoundExpression::Literal(BoundLiteralExpression::new(
+                        origin,
+                        template.key().source().syntax().full_range(),
+                        BoundLiteralKind::Integer,
+                        Some(ty),
+                        false,
+                    )),
+                )
+            })
+            .collect::<Vec<_>>();
 
         let call = push_expression(
             &mut tree,
@@ -513,7 +569,10 @@ mod tests {
                 origin,
                 callee,
                 [],
-                [BoundArgument::new(argument, None, false)],
+                arguments
+                    .iter()
+                    .copied()
+                    .map(|argument| BoundArgument::new(argument, None, false)),
                 resolution.clone(),
             )),
         );
@@ -555,7 +614,12 @@ mod tests {
         .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
 
         let result = ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid);
-        let expressions = [callee, argument, call, return_expression];
+
+        let expressions = [callee]
+            .into_iter()
+            .chain(arguments.iter().copied())
+            .chain([call, return_expression])
+            .collect::<Vec<_>>();
 
         let types = CheckedExpressionTypes::new(
             unit.unit(),
@@ -570,24 +634,39 @@ mod tests {
             .empty_dependency_contract_template()
             .unwrap_or_else(|error| panic!("empty dependency template must exist: {error:?}"));
 
-        let mut arguments = vec![SelectedArgument::Explicit {
-            expression: argument,
-            parameter: Some(CallableParameterSymbolId::from_symbol_id(SymbolId::new(2))),
-            ordinal: 0,
-            conversion: SelectedConversion::new(
-                ty,
-                ty,
-                bray_bound_tree::ConversionTarget::Identity,
-            ),
-        }];
+        let mut selected_arguments = arguments
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(ordinal, expression)| {
+                let ordinal = u32::try_from(ordinal)
+                    .unwrap_or_else(|_| panic!("test parameter ordinal must fit"));
+
+                SelectedArgument::Explicit {
+                    expression,
+                    parameter: Some(CallableParameterSymbolId::from_symbol_id(SymbolId::new(
+                        ordinal + 2,
+                    ))),
+                    ordinal,
+                    conversion: SelectedConversion::new(
+                        ty,
+                        ty,
+                        bray_bound_tree::ConversionTarget::Identity,
+                    ),
+                }
+            })
+            .collect::<Vec<_>>();
 
         if include_default {
-            arguments.push(SelectedArgument::Default {
+            let ordinal = u32::try_from(argument_count)
+                .unwrap_or_else(|_| panic!("test parameter ordinal must fit"));
+
+            selected_arguments.push(SelectedArgument::Default {
                 parameter: CallableParameterSymbolId::from_symbol_id(SymbolId::new(3)),
-                ordinal: 1,
-                provider: CallableParameterDefaultProviderSymbolId::from_symbol_id(
-                    SymbolId::new(4),
-                ),
+                ordinal,
+                provider: CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(
+                    4,
+                )),
             });
         }
 
@@ -596,7 +675,7 @@ mod tests {
             CallableAbi::C,
             CallablePhaseBehaviors::empty(CallableDependencyContracts::synchronous(dependency)),
             None,
-            arguments,
+            selected_arguments,
             [],
         );
 
@@ -610,14 +689,26 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test call selection must validate: {error:?}"));
 
-        let literal = constant_value(&values, ty, 1);
-
         let literals = CheckedLiteralValues::try_new(
             &unit,
             &types,
             &values,
             test_mir_target().machine().pointer_width_bits(),
-            [CheckedLiteralValueEntry::new(argument, literal)],
+            arguments
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, argument)| {
+                    CheckedLiteralValueEntry::new(
+                        argument,
+                        constant_value(
+                            &values,
+                            ty,
+                            u64::try_from(index + 1)
+                                .unwrap_or_else(|_| panic!("test literal value must fit")),
+                        ),
+                    )
+                }),
         )
         .unwrap_or_else(|error| panic!("test literal values must validate: {error:?}"));
 

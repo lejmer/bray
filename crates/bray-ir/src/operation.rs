@@ -104,6 +104,8 @@ pub enum MirGeneratorKind {
 pub struct MirMemoryOperation {
     kind: CheckedMemoryOperationKind,
     operands: Arc<[MirOperand]>,
+    operand_types: Arc<[TypeId]>,
+    result_type: Option<TypeId>,
 }
 
 impl MirMemoryOperation {
@@ -111,10 +113,14 @@ impl MirMemoryOperation {
     pub fn new(
         kind: CheckedMemoryOperationKind,
         operands: impl IntoIterator<Item = MirOperand>,
+        operand_types: impl IntoIterator<Item = TypeId>,
+        result_type: Option<TypeId>,
     ) -> Self {
         Self {
             kind,
             operands: shared_slice(operands),
+            operand_types: shared_slice(operand_types),
+            result_type,
         }
     }
 
@@ -126,6 +132,16 @@ impl MirMemoryOperation {
     /// Returns evaluated operands in declaration order.
     pub fn operands(&self) -> &[MirOperand] {
         &self.operands
+    }
+
+    /// Returns the selected parameter types in declaration order.
+    pub fn operand_types(&self) -> &[TypeId] {
+        &self.operand_types
+    }
+
+    /// Returns the selected result type when the operation produces a value.
+    pub const fn result_type(&self) -> Option<TypeId> {
+        self.result_type
     }
 }
 

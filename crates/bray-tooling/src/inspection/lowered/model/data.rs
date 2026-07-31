@@ -4,8 +4,8 @@ use std::fmt::Write;
 
 use bray_bound_tree::{
     BoundCallResult, BoundLiteralKind, CheckedMemoryOperationKind, ConstructionDefaultProvider,
-    ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation,
-    PatternPredicate, PatternProjection, SelectedConversion,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation, PatternPredicate,
+    PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
@@ -754,10 +754,14 @@ fn memory_operation_parts(
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
     let (name, types) = match memory.kind() {
-        CheckedMemoryOperationKind::Address { pointee, .. } => ("address", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::Address { pointee, .. } => {
+            ("address", vec![("pointee", pointee)])
+        }
         CheckedMemoryOperationKind::Null { pointee } => ("null", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::IsNull { pointee } => ("is_null", vec![("pointee", pointee)]),
-        CheckedMemoryOperationKind::Offset { pointee, .. } => ("offset", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::Offset { pointee, .. } => {
+            ("offset", vec![("pointee", pointee)])
+        }
         CheckedMemoryOperationKind::Reinterpret { source, target } => {
             ("reinterpret", vec![("source", source), ("target", target)])
         }

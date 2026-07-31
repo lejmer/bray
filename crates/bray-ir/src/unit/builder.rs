@@ -332,9 +332,7 @@ fn compact_slot(index: usize) -> Result<u32, MirUnitBuildError> {
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{
-        BoundNodeOrigin, BoundSourceAnchor, CheckedMemoryOperationKind,
-    };
+    use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor, CheckedMemoryOperationKind};
     use bray_runtime_interface::{
         ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion,
     };
@@ -654,8 +652,48 @@ mod tests {
             MirOperationKind::Memory(MirMemoryOperation::new(
                 CheckedMemoryOperationKind::Write { pointee: ty },
                 [operand],
+                [ty],
+                None,
             )),
             None,
+        ) {
+            Ok(operation) => operation.operation(),
+            Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
+        };
+
+        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::InvalidMemoryOperation(operation))
+        );
+    }
+
+    #[test]
+    fn builders_reject_memory_operand_type_mismatches() {
+        let bound = test_bound_unit(15);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+        let other = crate::test_support::test_other_type();
+
+        let operand = MirOperand::Immediate {
+            value: MirImmediateValue::Unit,
+            ty,
+        };
+
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        let operation = match builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Memory(MirMemoryOperation::new(
+                CheckedMemoryOperationKind::IsNull { pointee: ty },
+                [operand],
+                [other],
+                Some(ty),
+            )),
+            Some(ty),
         ) {
             Ok(operation) => operation.operation(),
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),

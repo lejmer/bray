@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{BoundUnitKind, CheckedMemoryOperationKind};
+use bray_bound_tree::BoundUnitKind;
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{AnySymbolId, TypeId};
 
@@ -89,7 +89,7 @@ pub(super) fn validate_operation(
             validate_call(unit, block, id, call)?;
         }
         MirOperationKind::Memory(operation) => {
-            validate_memory_operation(unit, block, id, operation)?;
+            super::memory::validate_memory_operation(unit, block, id, operation)?;
         }
         MirOperationKind::Async(operation) => {
             validate_async_operation(unit, block, id, operation)?;
@@ -264,16 +264,12 @@ fn validate_operation_result(
             return Err(MirUnitBuildError::InvalidMemoryOperation(id));
         }
 
-        if let (
-            CheckedMemoryOperationKind::Read { pointee, .. },
-            Some(result),
-        ) = (memory.kind(), operation.result())
-        {
+        if let Some(result) = operation.result() {
             let Some(result) = unit.value(result) else {
                 return Err(MirUnitBuildError::MissingValue(result));
             };
 
-            if result.ty() != pointee {
+            if Some(result.ty()) != memory.result_type() {
                 return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
             }
         }
@@ -291,31 +287,6 @@ fn validate_operation_result(
         if initializer.future_type() != Some(result.ty()) {
             return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
         }
-    }
-
-    Ok(())
-}
-
-fn validate_memory_operation(
-    unit: &MirUnit,
-    block: crate::MirBlockId,
-    operation: MirOperationId,
-    memory: &crate::MirMemoryOperation,
-) -> Result<(), MirUnitBuildError> {
-    let expected = memory.kind().operand_count();
-
-    if memory.operands().len() != expected {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
-    }
-
-    for operand in memory.operands() {
-        validate_operand(unit, operand, block, Some(operation))?;
-    }
-
-    if let CheckedMemoryOperationKind::Write { pointee } = memory.kind()
-        && operand_type(unit, &memory.operands()[1])? != pointee
-    {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
     }
 
     Ok(())
@@ -385,6 +356,14 @@ mod tests {
                     kind: MemoryLayoutQueryKind::Size,
                 },
                 0,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::LayoutQuery {
+                    ty,
+                    kind: MemoryLayoutQueryKind::Layout,
+                },
+                1,
                 true,
             ),
             (CheckedMemoryOperationKind::Allocate, 2, true),

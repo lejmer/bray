@@ -15,8 +15,11 @@ impl Lowerer<'_> {
         operation: CheckedMemoryOperation,
     ) -> Result<LoweredExpression, LoweringError> {
         let mut operands = Vec::with_capacity(operation.arguments().len());
+        let mut operand_types = Vec::with_capacity(operation.arguments().len());
 
-        for argument in selection.arguments() {
+        for (argument, expected_expression) in
+            selection.arguments().iter().zip(operation.arguments())
+        {
             let SelectedArgument::Explicit {
                 expression,
                 conversion,
@@ -25,6 +28,10 @@ impl Lowerer<'_> {
             else {
                 return Err(LoweringError::MissingSemanticSelection(id));
             };
+
+            if expression != expected_expression {
+                return Err(LoweringError::MissingSemanticSelection(id));
+            }
 
             let lowered = self.lower_expression(*expression, current)?;
 
@@ -45,6 +52,8 @@ impl Lowerer<'_> {
                 operand,
                 conversion,
             )?);
+
+            operand_types.push(conversion.target_type());
         }
 
         if operands.len() != operation.arguments().len() {
@@ -58,7 +67,12 @@ impl Lowerer<'_> {
         let commit = self.builder.push_operation(
             current,
             Self::retained_source(&source),
-            MirOperationKind::Memory(MirMemoryOperation::new(kind, operands)),
+            MirOperationKind::Memory(MirMemoryOperation::new(
+                kind,
+                operands,
+                operand_types,
+                result,
+            )),
             result,
         )?;
 

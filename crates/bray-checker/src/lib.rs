@@ -71,7 +71,8 @@ pub use service::{
     DefaultSemanticSelector, DefaultStorageFlowChecker, DefaultStoragePlanner,
     DefaultTargetValidityChecker, DependencyContractChecker, ExpressionSemanticChecker,
     ExpressionTypeChecker, LivenessAnalyzer, MemoryOperationChecker, PatternChecker,
-    RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner, TargetValidityChecker,
+    RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
+    TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,
