@@ -1713,9 +1713,9 @@ mod tests {
             "        if condition\n",
             "        {\n",
             "            break;\n",
-            "        };\n",
+            "        }\n",
             "        value;\n",
-            "    };\n",
+            "    }\n",
             "    return selected;\n",
             "}\n",
         ));
@@ -1743,7 +1743,7 @@ mod tests {
             "    else\n",
             "    {\n",
             "        condition;\n",
-            "    };\n",
+            "    }\n",
             "}\n",
         ));
 
@@ -1805,7 +1805,7 @@ mod tests {
             "{\n",
             "    {\n",
             "        value;\n",
-            "    };\n",
+            "    }\n",
             "    return value;\n",
             "}\n",
         ));
@@ -4467,7 +4467,7 @@ func other()
             "        {\n",
             "            captured;\n",
             "        }\n",
-            "    };\n",
+            "    }\n",
             "}\n",
             "func make_value() -> bool\n",
             "{\n",
@@ -4544,7 +4544,7 @@ func other()
             "            let selected: bool = true;\n",
             "            selected;\n",
             "        }\n",
-            "    };\n",
+            "    }\n",
             "}\n",
             "func make_choice() -> Choice\n",
             "{\n",

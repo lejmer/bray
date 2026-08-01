@@ -102,27 +102,18 @@ impl Parser {
 mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_syntax::{
-        ExpressionSyntax, MatchArmSyntax, MatchBodySyntax, MatchExpressionSyntax, SyntaxKind,
-        SyntaxText,
+        ExpressionSyntax, MatchArmSyntax, MatchBodySyntax, MatchExpressionSyntax, SyntaxText,
     };
-    use bray_testing::test_source_store as source_store;
 
-    use crate::parser::state::Parser;
-    use crate::test_support::{diagnostic_kinds, source};
+    use crate::parser::expression::test_support::parse_expression_to_eof_for_test;
+    use crate::test_support::diagnostic_kinds;
 
     #[test]
     fn parser_parses_match_subject_arms_and_guards() {
-        let sources = source_store([
-            "match consume value { case Some(item) when item > 0 { yield item; } case none { yield 0; } };",
-        ]);
+        let (expression, diagnostics) = parse_expression_to_eof_for_test(
+            "match consume value { case Some(item) when item > 0 { yield item; } case none { yield 0; } }",
+        );
 
-        let snapshot = source(&sources, 0);
-
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-        let expression = parser.parse_expression_until(&mut boundary);
-        let diagnostics = parser.finish();
         let match_expression = first_match_expression(&expression);
 
         assert_eq!(
@@ -136,14 +127,9 @@ mod tests {
 
     #[test]
     fn parser_recovers_bad_match_body_tokens_before_later_arms() {
-        let sources = source_store(["match value { $ case item { yield item; } };"]);
-        let snapshot = source(&sources, 0);
+        let (expression, diagnostics) =
+            parse_expression_to_eof_for_test("match value { $ case item { yield item; } }");
 
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-        let expression = parser.parse_expression_until(&mut boundary);
-        let diagnostics = parser.finish();
         let match_expression = first_match_expression(&expression);
 
         let skipped = match_expression
@@ -167,14 +153,7 @@ mod tests {
 
     #[test]
     fn parser_reports_missing_match_arm_for_empty_match_bodies() {
-        let sources = source_store(["match value { };"]);
-        let snapshot = source(&sources, 0);
-
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-        let expression = parser.parse_expression_until(&mut boundary);
-        let diagnostics = parser.finish();
+        let (expression, diagnostics) = parse_expression_to_eof_for_test("match value { }");
 
         let match_expression = first_match_expression(&expression);
         let match_body = match_expression.match_body();
@@ -197,14 +176,8 @@ mod tests {
 
     #[test]
     fn parser_reports_missing_match_arm_body_without_consuming_match_body_close() {
-        let sources = source_store(["match value { case item };"]);
-        let snapshot = source(&sources, 0);
-
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-        let expression = parser.parse_expression_until(&mut boundary);
-        let diagnostics = parser.finish();
+        let (expression, diagnostics) =
+            parse_expression_to_eof_for_test("match value { case item }");
 
         let match_expression = first_match_expression(&expression);
         let match_body = match_expression.match_body();
@@ -225,14 +198,8 @@ mod tests {
 
     #[test]
     fn parser_keeps_bare_case_patterns_separate_from_arm_bodies() {
-        let sources = source_store(["match value { case item { yield item; } };"]);
-        let snapshot = source(&sources, 0);
-
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-        let expression = parser.parse_expression_until(&mut boundary);
-        let diagnostics = parser.finish();
+        let (expression, diagnostics) =
+            parse_expression_to_eof_for_test("match value { case item { yield item; } }");
 
         let match_expression = first_match_expression(&expression);
         let match_body = match_expression.match_body();

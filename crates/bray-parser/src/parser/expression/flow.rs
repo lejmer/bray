@@ -124,16 +124,19 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::assert_expression_cases_until_semicolon_for_test;
+    use super::super::test_support::{
+        assert_expression_cases_to_eof_for_test,
+        assert_expression_cases_until_semicolon_for_test,
+    };
 
     #[test]
     fn parser_parses_with_expressions() {
         let cases = [(
-            "with value: Item = source { yield value; };",
+            "with value: Item = source { yield value; }",
             "with value: Item = source { yield value; }",
         )];
 
-        assert_expression_cases_until_semicolon_for_test(&cases);
+        assert_expression_cases_to_eof_for_test(&cases);
     }
 
     #[test]
