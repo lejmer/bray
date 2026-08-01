@@ -164,6 +164,7 @@ name = "bray-bound-tree"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-compiler-known",
  "bray-declarations",
  "bray-source",
  "bray-symbols",
@@ -297,7 +298,6 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -558,6 +558,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

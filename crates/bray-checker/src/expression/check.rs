@@ -212,6 +212,8 @@ where
         return Ok(SessionProgress::Cancelled);
     };
 
+    prepared.add_operation_selections(operation_input.operation_selections());
+
     prepared.add_diagnostics(&diagnostics);
     prepared.defer(deferred);
     prepared.defer(supplemental_deferred.iter().copied());

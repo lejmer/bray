@@ -313,7 +313,11 @@ impl Lowerer<'_> {
         purpose: StorageAccessPurpose,
         current: MirBlockId,
     ) -> Result<LoweredPlace, LoweringError> {
-        let decision = self.storage_decision(expression, |candidate| candidate == purpose)?;
+        let decision = self.storage_decision(expression, |candidate| {
+            candidate == purpose
+                || purpose == StorageAccessPurpose::Assignment
+                    && candidate == StorageAccessPurpose::Write
+        })?;
 
         self.lower_access_place(expression, decision.access(), current)
     }

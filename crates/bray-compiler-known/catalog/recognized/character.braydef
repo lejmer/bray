@@ -1,0 +1,45 @@
+catalog recognized_standard_library;
+
+scope StandardCharacter at std.character {
+    declaration StandardCharacterScalarValue {
+        identity name scalar_value;
+        implementation CharacterScalarValue;
+
+        surface { extern func scalar_value(value: char) -> u32; }
+    }
+
+    declaration StandardCharacterFromScalarValue {
+        identity name from_scalar_value;
+        implementation CharacterFromScalarValue;
+
+        surface { extern func from_scalar_value(value: u32) -> char?; }
+    }
+
+    declaration StandardCharacterUtf8Length {
+        identity name utf8_length;
+        implementation CharacterUtf8Length;
+
+        surface { extern func utf8_length(value: char) -> usize; }
+    }
+
+    declaration StandardCharacterIsAlphabetic {
+        identity name is_alphabetic;
+        implementation CharacterIsAlphabetic;
+
+        surface { extern func is_alphabetic(value: char) -> bool; }
+    }
+
+    declaration StandardCharacterIsNumeric {
+        identity name is_numeric;
+        implementation CharacterIsNumeric;
+
+        surface { extern func is_numeric(value: char) -> bool; }
+    }
+
+    declaration StandardCharacterIsWhitespace {
+        identity name is_whitespace;
+        implementation CharacterIsWhitespace;
+
+        surface { extern func is_whitespace(value: char) -> bool; }
+    }
+}

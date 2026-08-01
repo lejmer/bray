@@ -16,37 +16,42 @@ scope StandardString at std.string {
 
     declaration StandardStringScalarCount {
         identity name scalar_count;
+        implementation StringScalarCount;
 
-        surface { func scalar_count(pos value: &string) -> usize; }
+        surface { extern func scalar_count(pos value: &string) -> usize; }
     }
 
     declaration StandardStringIsEmpty {
         identity name is_empty;
+        implementation StringIsEmpty;
 
-        surface { func is_empty(pos value: &string) -> bool; }
+        surface { extern func is_empty(pos value: &string) -> bool; }
     }
 
     declaration StandardStringEquals {
         identity name equals;
+        implementation StringEquals;
 
         surface {
-            func equals(pos left: &string, pos right: &string) -> bool;
+            extern func equals(pos left: &string, pos right: &string) -> bool;
         }
     }
 
     declaration StandardStringScalarAt {
         identity name scalar_at;
+        implementation StringScalarAt;
 
         surface {
-            func scalar_at(pos value: &string, index: usize) -> char?;
+            extern func scalar_at(pos value: &string, index: usize) -> char?;
         }
     }
 
     declaration StandardStringScalarSlice {
         identity name scalar_slice;
+        implementation StringScalarSlice;
 
         surface {
-            func scalar_slice(
+            extern func scalar_slice(
                 pos value: &string,
                 start: usize,
                 end: usize,
@@ -56,15 +61,42 @@ scope StandardString at std.string {
 
     declaration StandardStringUtf8 {
         identity name utf8;
+        implementation StringUtf8;
 
-        surface { func utf8(pos value: &string) -> &[u8]; }
+        surface { extern func utf8(pos value: &string) -> &[u8]; }
     }
 
     declaration StandardStringFromUtf8 {
         identity name from_utf8;
+        implementation StringFromUtf8;
 
         surface {
-            func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+            extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
         }
+    }
+
+    declaration StandardScalarCursor {
+        identity name ScalarCursor;
+
+        surface { struct ScalarCursor {} }
+    }
+
+    declaration StandardStringScalars {
+        identity name scalars;
+
+        surface { func scalars(pos value: &string) -> ScalarCursor; }
+    }
+
+    declaration StandardScalarCursorIterator {
+        identity name ScalarCursorIterator;
+
+        surface { impl ScalarCursorIterator = ScalarCursor(Iterator) {} }
+    }
+
+    declaration StandardScalarCursorIteratorNext {
+        owner StandardScalarCursorIterator;
+        identity name next;
+
+        surface { mut func next() -> char? {} }
     }
 }

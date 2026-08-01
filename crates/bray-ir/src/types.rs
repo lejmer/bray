@@ -84,6 +84,11 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
             collect_operands_types(memory.operands(), types);
             collect_memory_types(memory.kind(), types);
         }
+        MirOperationKind::Text(text) => {
+            collect_operands_types(text.operands(), types);
+            types.extend(text.operand_types());
+            types.extend(text.result_type());
+        }
         MirOperationKind::PanicReport(cause) => collect_panic_types(cause, types),
         MirOperationKind::Async(operation) => collect_async_types(operation, types),
         MirOperationKind::Host(operation) => collect_host_types(operation, types),

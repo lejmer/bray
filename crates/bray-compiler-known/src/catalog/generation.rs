@@ -460,7 +460,7 @@ mod tests {
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 12);
+        assert_eq!(generator_input_inventory().sources().len(), 13);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
@@ -562,6 +562,12 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         let expected = [
+            "StandardCharacterFromScalarValue",
+            "StandardCharacterIsAlphabetic",
+            "StandardCharacterIsNumeric",
+            "StandardCharacterIsWhitespace",
+            "StandardCharacterScalarValue",
+            "StandardCharacterUtf8Length",
             "StandardConvert",
             "StandardMemoryAddressOf",
             "StandardMemoryAddressOfMut",
@@ -616,12 +622,16 @@ mod tests {
             "StandardRoundingRuleVariant3TowardPositiveInfinity",
             "StandardRoundingRuleVariant4AwayFromZero",
             "StandardSaturateTo",
+            "StandardScalarCursor",
+            "StandardScalarCursorIterator",
+            "StandardScalarCursorIteratorNext",
             "StandardStringEquals",
             "StandardStringFromUtf8",
             "StandardStringIsEmpty",
             "StandardStringScalarAt",
             "StandardStringScalarCount",
             "StandardStringScalarSlice",
+            "StandardStringScalars",
             "StandardStringUtf8",
             "StandardTruncateTo",
             "StandardUtf8Error",

@@ -117,6 +117,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         )
         | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
+        | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)

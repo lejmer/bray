@@ -1,0 +1,62 @@
+module std.string;
+
+union Utf8Error
+{
+    InvalidEncoding;
+}
+
+extern func scalar_count(pos value: &string) -> usize;
+
+extern func is_empty(pos value: &string) -> bool;
+
+extern func equals(pos left: &string, pos right: &string) -> bool;
+
+extern func scalar_at(pos value: &string, index: usize) -> char?;
+
+extern func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
+
+extern func utf8(pos value: &string) -> &[u8];
+
+extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+
+struct ScalarCursor
+{
+    value: &string;
+    mut index: usize = 0;
+    count: usize;
+}
+
+func scalars(pos value: &string) -> ScalarCursor
+{
+    return ScalarCursor
+    {
+        value = value,
+        count = scalar_count(value),
+    };
+}
+
+impl ScalarCursorIterator = ScalarCursor(Iterator)
+{
+    type Element = char;
+
+    mut func next() -> char?
+    {
+        let index: usize = self.index;
+        let count: usize = self.count;
+
+        if index >= count
+        {
+            let exhausted: char? = none;
+
+            return exhausted;
+        };
+
+        let next_index: usize = index + 1;
+
+        self.index = next_index;
+
+        let scalar: char? = scalar_at(self.value, index = index);
+
+        return scalar;
+    }
+}

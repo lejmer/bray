@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "callable applicability and argument mapping form one cohesive selection algorithm")
+
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
@@ -65,6 +67,7 @@ where
     let candidate_input = CandidateInput {
         types,
         mode,
+        callee_member: input.callee_member(),
         receiver: input.receiver,
         generic_arguments: &input.generic_arguments,
         arguments: &input.arguments,
@@ -103,7 +106,11 @@ where
             continue;
         }
 
-        match check_candidate(request, candidate_input, candidate)? {
+        let Some(candidate) = check_candidate(request, candidate_input, candidate)? else {
+            return Ok(None);
+        };
+
+        match candidate {
             CandidateCheck::Applicable { key, call } => applicable.push((key, call)),
             CandidateCheck::Incompatible => has_incompatible = true,
             CandidateCheck::Recovered => has_recovered = true,
@@ -149,6 +156,7 @@ where
     let candidate_input = CandidateInput {
         types,
         mode,
+        callee_member: input.callee_member(),
         receiver: input.receiver,
         generic_arguments: &input.generic_arguments,
         arguments: &input.arguments,
@@ -201,6 +209,7 @@ enum CandidateCheck {
 struct CandidateInput<'input> {
     types: &'input CheckedExpressionTypes,
     mode: CallableSelectionMode,
+    callee_member: Option<&'input bray_bound_tree::MemberTarget>,
     receiver: Option<super::ReceiverSelection>,
     generic_arguments: &'input [BoundGenericArgument],
     arguments: &'input [BoundArgument],
@@ -210,12 +219,12 @@ fn check_candidate<C>(
     request: CheckerUnitView<'_, C>,
     input: CandidateInput<'_>,
     candidate: &CallableCandidate,
-) -> Result<CandidateCheck, CheckerInfrastructureError>
+) -> Result<Option<CandidateCheck>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut selected_arguments = Vec::new();
-    let mut witnesses = Vec::with_capacity(candidate.implementation_selections().len());
+    let mut witnesses = Vec::new();
     let mut selected_receiver = None;
 
     match check_candidate_applicability(
@@ -234,7 +243,32 @@ where
             let key = candidate.key().clone();
             let resolution = candidate.resolution().clone();
 
-            Ok(CandidateCheck::Applicable {
+            let implementation_hook = match resolution.target() {
+                BoundCallableTarget::Declaration(instance) => {
+                    match request.implementation_hook(instance.definition().symbol()) {
+                        Ok(Some(resolution)) if resolution.is_available() => {
+                            Some(resolution.hook())
+                        }
+                        Ok(_) => None,
+                        Err(crate::CheckerFactError::Cancelled) => return Ok(None),
+                        Err(crate::CheckerFactError::Infrastructure(error)) => return Err(error),
+                    }
+                }
+                BoundCallableTarget::Indirect(_) => match input.callee_member {
+                    Some(member) => match request.implementation_hook(member.member()) {
+                        Ok(Some(resolution)) if resolution.is_available() => {
+                            Some(resolution.hook())
+                        }
+                        Ok(_) => None,
+                        Err(crate::CheckerFactError::Cancelled) => return Ok(None),
+                        Err(crate::CheckerFactError::Infrastructure(error)) => return Err(error),
+                    },
+                    None => None,
+                },
+                BoundCallableTarget::Anonymous(_) => None,
+            };
+
+            Ok(Some(CandidateCheck::Applicable {
                 key,
                 call: SelectedCall::new(
                     resolution,
@@ -244,11 +278,12 @@ where
                     selected_arguments,
                     witnesses,
                 )
-                .with_contract(candidate.contract().cloned()),
-            })
+                .with_contract(candidate.contract().cloned())
+                .with_implementation_hook(implementation_hook),
+            }))
         }
-        CandidateApplicability::Incompatible => Ok(CandidateCheck::Incompatible),
-        CandidateApplicability::Recovered => Ok(CandidateCheck::Recovered),
+        CandidateApplicability::Incompatible => Ok(Some(CandidateCheck::Incompatible)),
+        CandidateApplicability::Recovered => Ok(Some(CandidateCheck::Recovered)),
     }
 }
 
@@ -312,7 +347,8 @@ where
         input.receiver,
         candidate
             .declaration_signature()
-            .and_then(CallableSignature::receiver),
+            .and_then(CallableSignature::receiver)
+            .or_else(|| input.callee_member.and_then(bray_bound_tree::MemberTarget::receiver)),
     )? {
         ReceiverApplicability::Incompatible => {
             return Ok(CandidateApplicability::Incompatible);

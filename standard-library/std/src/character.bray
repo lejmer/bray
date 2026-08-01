@@ -1,0 +1,13 @@
+module std.character;
+
+extern func scalar_value(value: char) -> u32;
+
+extern func from_scalar_value(value: u32) -> char?;
+
+extern func utf8_length(value: char) -> usize;
+
+extern func is_alphabetic(value: char) -> bool;
+
+extern func is_numeric(value: char) -> bool;
+
+extern func is_whitespace(value: char) -> bool;

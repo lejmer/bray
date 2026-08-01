@@ -82,6 +82,32 @@ define_catalog_enum! {
         ComputeExecution => "ComputeExecution",
         /// Tests whether execution is on the distinguished initial thread.
         MainThreadExecution => "MainThreadExecution",
+        /// Counts Unicode scalar values in valid UTF-8 text.
+        StringScalarCount => "StringScalarCount",
+        /// Tests whether UTF-8 text is empty.
+        StringIsEmpty => "StringIsEmpty",
+        /// Compares two UTF-8 text values for equality.
+        StringEquals => "StringEquals",
+        /// Returns one Unicode scalar by scalar index.
+        StringScalarAt => "StringScalarAt",
+        /// Copies one half-open Unicode scalar range into owned text.
+        StringScalarSlice => "StringScalarSlice",
+        /// Borrows the UTF-8 bytes of text.
+        StringUtf8 => "StringUtf8",
+        /// Validates UTF-8 bytes and copies them into owned text.
+        StringFromUtf8 => "StringFromUtf8",
+        /// Returns a character's Unicode scalar value.
+        CharacterScalarValue => "CharacterScalarValue",
+        /// Constructs a character from a valid Unicode scalar value.
+        CharacterFromScalarValue => "CharacterFromScalarValue",
+        /// Returns a character's UTF-8 encoded length.
+        CharacterUtf8Length => "CharacterUtf8Length",
+        /// Tests whether a character is alphabetic in the selected Unicode data.
+        CharacterIsAlphabetic => "CharacterIsAlphabetic",
+        /// Tests whether a character is numeric in the selected Unicode data.
+        CharacterIsNumeric => "CharacterIsNumeric",
+        /// Tests whether a character is whitespace in the selected Unicode data.
+        CharacterIsWhitespace => "CharacterIsWhitespace",
     }
 }
 
@@ -148,6 +174,19 @@ mod tests {
             ImplementationHook::BlockingExecution,
             ImplementationHook::ComputeExecution,
             ImplementationHook::MainThreadExecution,
+            ImplementationHook::StringScalarCount,
+            ImplementationHook::StringIsEmpty,
+            ImplementationHook::StringEquals,
+            ImplementationHook::StringScalarAt,
+            ImplementationHook::StringScalarSlice,
+            ImplementationHook::StringUtf8,
+            ImplementationHook::StringFromUtf8,
+            ImplementationHook::CharacterScalarValue,
+            ImplementationHook::CharacterFromScalarValue,
+            ImplementationHook::CharacterUtf8Length,
+            ImplementationHook::CharacterIsAlphabetic,
+            ImplementationHook::CharacterIsNumeric,
+            ImplementationHook::CharacterIsWhitespace,
         ];
 
         let mut categorized = ImplementationHook::MEMORY_OPERATIONS.to_vec();

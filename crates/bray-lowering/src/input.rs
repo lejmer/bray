@@ -153,7 +153,14 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_literal_target(literal_values, &target)?;
         validate_literal_values(literal_values, semantic_values)?;
-        validate_semantic_completeness(unit, expression_types, semantic_selections)?;
+
+        validate_semantic_completeness(
+            unit,
+            expression_types,
+            semantic_selections,
+            storage_plan,
+        )?;
+
         validate_pattern_completeness(unit, pattern_facts)?;
 
         validate_liveness(unit, storage_plan, liveness)?;
@@ -406,6 +413,7 @@ fn validate_semantic_completeness(
     unit: &BoundUnit,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
+    storage: &StoragePlan,
 ) -> Result<(), LoweringInputError> {
     for (expression, node) in unit.tree().expressions() {
         if !requires_expression_type(node) {
@@ -420,7 +428,9 @@ fn validate_semantic_completeness(
             continue;
         }
 
-        if requires_semantic_selection(node) && selections.expression(expression).is_none() {
+        if requires_semantic_selection(node, expression, storage)
+            && selections.expression(expression).is_none()
+        {
             return Err(LoweringInputError::MissingSemanticSelection(expression));
         }
     }
@@ -694,7 +704,11 @@ fn storage_borrow_matches(
     decision.borrow() == created.or(inherited)
 }
 
-const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
+fn requires_semantic_selection(
+    expression: &BoundExpression,
+    id: BoundExpressionId,
+    storage: &StoragePlan,
+) -> bool {
     match expression {
         BoundExpression::Unary(_)
         | BoundExpression::Binary(_)
@@ -706,10 +720,12 @@ const fn requires_semantic_selection(expression: &BoundExpression) -> bool {
         | BoundExpression::LeadingDotVariant(_)
         | BoundExpression::TraitQualifiedMember(_)
         | BoundExpression::PatternReference(_) => true,
-        BoundExpression::MemberAccess(expression) => !matches!(
-            expression.selector(),
-            Some(bray_bound_tree::BoundMemberSelector::TupleElement(_))
-        ),
+        BoundExpression::MemberAccess(expression) => {
+            !matches!(
+                expression.selector(),
+                Some(bray_bound_tree::BoundMemberSelector::TupleElement(_))
+            ) && storage.expression_plans(id).next().is_none()
+        }
         BoundExpression::Structured(expression) => matches!(
             expression.kind(),
             BoundStructuredExpressionKind::ElementIndex

@@ -43,6 +43,10 @@ impl PreparedBuiltInOperator {
                 | BoundOperator::GreaterEqual
                 | BoundOperator::Add
                 | BoundOperator::Subtract
+                | BoundOperator::Multiply
+                | BoundOperator::Divide
+                | BoundOperator::Remainder
+                | BoundOperator::Exponentiate
                 | BoundOperator::BitwiseNot
         )
         .then_some(Self {
@@ -348,7 +352,15 @@ const fn representation_supports_operator(
         BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr => {
             matches!(role, RepresentationRole::ScalarBool)
         }
-        BoundOperator::Add | BoundOperator::Subtract => role.numeric_kind().is_some(),
+        BoundOperator::Add
+        | BoundOperator::Subtract
+        | BoundOperator::Multiply
+        | BoundOperator::Divide
+        | BoundOperator::Exponentiate => role.numeric_kind().is_some(),
+        BoundOperator::Remainder => matches!(
+            role.numeric_kind(),
+            Some(NumericRepresentationKind::Integer | NumericRepresentationKind::Real)
+        ),
         BoundOperator::BitwiseNot => {
             matches!(
                 role.numeric_kind(),

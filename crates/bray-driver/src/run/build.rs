@@ -8,13 +8,13 @@ use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
     RequestedArtifact, RequestedArtifactDestination,
 };
-use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata};
+use bray_runtime_interface::RuntimeArtifact;
 use bray_symbols::{ProductIdentity, ProductKind};
 use bray_target::{TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{
-    OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
+    OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, load_runtime_artifact,
+    native_linker,
 };
-use sha2::{Digest, Sha256};
 
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use crate::command::{
@@ -236,7 +236,7 @@ fn resolve_runtime(
         }
     };
 
-    load_runtime_artifact(&metadata).map(Some)
+    load_runtime_artifact(&metadata).map(Some).ok_or(())
 }
 
 fn runtime_profile_metadata(
@@ -255,17 +255,6 @@ fn runtime_profile_metadata(
                 .join("bray-runtime.brayrt")
         })
         .find(|path| path.is_file())
-}
-
-fn load_runtime_artifact(metadata_path: &std::path::Path) -> Result<RuntimeArtifact, ()> {
-    let metadata_bytes = std::fs::read(metadata_path).map_err(|_| ())?;
-    let metadata = RuntimeArtifactMetadata::decode_json(&metadata_bytes).map_err(|_| ())?;
-    let parent = metadata_path.parent().ok_or(())?;
-    let archive = parent.join(metadata.archive_file_name());
-    let archive_bytes = std::fs::read(&archive).map_err(|_| ())?;
-    let digest = RuntimeArtifactDigest::new(Sha256::digest(&archive_bytes).into());
-
-    RuntimeArtifact::try_new(metadata, archive, digest).map_err(|_| ())
 }
 
 fn unsupported_product_result(

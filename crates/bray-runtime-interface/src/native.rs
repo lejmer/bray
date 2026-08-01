@@ -50,6 +50,43 @@ pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation_v1";
 /// Stable symbol releasing manually managed Bray storage.
 pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation_v1";
 
+/// Stable symbol counting Unicode scalar values in UTF-8 text.
+pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
+
+/// Stable symbol comparing UTF-8 text values for equality.
+pub const STRING_EQUALS_SYMBOL: &str = "bray_runtime_string_equals_v1";
+
+/// Stable symbol selecting one Unicode scalar by scalar index.
+pub const STRING_SCALAR_AT_SYMBOL: &str = "bray_runtime_string_scalar_at_v1";
+
+/// Stable symbol copying one scalar range into owned UTF-8 text.
+pub const STRING_SCALAR_SLICE_SYMBOL: &str = "bray_runtime_string_scalar_slice_v1";
+
+/// Stable symbol validating and copying borrowed UTF-8 bytes.
+pub const STRING_FROM_UTF8_SYMBOL: &str = "bray_runtime_string_from_utf8_v1";
+
+/// Stable symbol returning a character's Unicode scalar value.
+pub const CHARACTER_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_scalar_value_v1";
+
+/// Stable symbol constructing a character from a Unicode scalar value.
+pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str =
+    "bray_runtime_character_from_scalar_value_v1";
+
+/// Stable symbol returning a character's UTF-8 encoded length.
+pub const CHARACTER_UTF8_LENGTH_SYMBOL: &str = "bray_runtime_character_utf8_length_v1";
+
+/// Stable symbol testing whether a character is alphabetic.
+pub const CHARACTER_IS_ALPHABETIC_SYMBOL: &str = "bray_runtime_character_is_alphabetic_v1";
+
+/// Stable symbol testing whether a character is numeric.
+pub const CHARACTER_IS_NUMERIC_SYMBOL: &str = "bray_runtime_character_is_numeric_v1";
+
+/// Stable symbol testing whether a character is whitespace.
+pub const CHARACTER_IS_WHITESPACE_SYMBOL: &str = "bray_runtime_character_is_whitespace_v1";
+
+/// Unicode data version required by the character-classification runtime ABI.
+pub const CHARACTER_UNICODE_DATA_VERSION: (u8, u8, u8) = (17, 0, 0);
+
 /// Stable symbol publishing an allocated task for execution.
 pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v1";
 

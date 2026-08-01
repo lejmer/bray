@@ -422,6 +422,12 @@ impl Lowerer<'_> {
             return self.lower_memory_call(id, current, source, &selection, operation);
         }
 
+        if let Some(hook) = selection.implementation_hook()
+            && let Some(kind) = super::super::text::text_operation_kind(hook)
+        {
+            return self.lower_text_call(id, current, source, &selection, kind);
+        }
+
         let mut arguments = Vec::new();
 
         let target = match selection.target() {

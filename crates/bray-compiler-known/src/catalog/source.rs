@@ -148,7 +148,7 @@ impl CatalogTokenSpelling {
 }
 
 #[cfg(any(test, feature = "generation"))]
-const SOURCES: [CatalogSource; 12] = [
+const SOURCES: [CatalogSource; 13] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
@@ -217,6 +217,12 @@ const SOURCES: [CatalogSource; 12] = [
     ),
     CatalogSource::new(
         CatalogSourceId::new(11),
+        CatalogKind::RecognizedStandardLibrary,
+        "catalog/recognized/character.braydef",
+        include_str!("../../catalog/recognized/character.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(12),
         CatalogKind::CompilerKnown,
         "catalog/ambient/capabilities.braydef",
         include_str!("../../catalog/ambient/capabilities.braydef"),
@@ -251,7 +257,7 @@ mod tests {
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 12);
+        assert_eq!(sources.len(), 13);
 
         assert_eq!(
             sources
@@ -275,7 +281,7 @@ mod tests {
                 .iter()
                 .filter(|source| source.kind() == CatalogKind::RecognizedStandardLibrary)
                 .count(),
-            3
+            4
         );
 
         for (index, source) in sources.iter().enumerate() {

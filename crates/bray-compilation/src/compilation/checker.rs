@@ -23,7 +23,7 @@ use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, ModuleOwnerId,
     ModulePathKey, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, SymbolFactContract,
-    SymbolFactRequest, SymbolFactResult, SymbolKind, TraitSymbolId, TypeId,
+    SymbolFactRequest, SymbolFactResult, TraitSymbolId, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -241,44 +241,53 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
         let target = self.facts.compilation().selected_target().target();
         let mut implementations = BTreeMap::new();
+        let mut declarations = BTreeMap::new();
 
         for descriptor in COMPILER_KNOWN_CATALOG.recognized_standard_library_declarations() {
-            let Some(hook) = descriptor.implementation_hook() else {
-                continue;
-            };
-
-            let RecognizedStandardLibraryDeclarationOwner::Scope(scope) = descriptor.owner() else {
-                continue;
-            };
-
-            let Some(scope) = COMPILER_KNOWN_CATALOG.recognized_standard_library_scope(scope)
-            else {
-                continue;
-            };
-
-            let Some(path) = ModulePathKey::try_new(scope.path().segments()) else {
-                continue;
-            };
-
-            let Some(module) = symbols.module_by_path(ModuleOwnerId::from(package.id()), &path)
-            else {
-                continue;
-            };
-
             let RecognizedStandardLibraryDeclarationIdentity::Name(name) = descriptor.identity()
             else {
                 continue;
             };
 
-            let MemberLookupResult::Found(symbol) =
-                symbols.lookup_member(module.id().into(), name.as_ref())
+            let owner = match descriptor.owner() {
+                RecognizedStandardLibraryDeclarationOwner::Scope(scope) => {
+                    let Some(scope) =
+                        COMPILER_KNOWN_CATALOG.recognized_standard_library_scope(scope)
+                    else {
+                        continue;
+                    };
+
+                    let Some(path) = ModulePathKey::try_new(scope.path().segments()) else {
+                        continue;
+                    };
+
+                    let Some(module) =
+                        symbols.module_by_path(ModuleOwnerId::from(package.id()), &path)
+                    else {
+                        continue;
+                    };
+
+                    module.id().into()
+                }
+                RecognizedStandardLibraryDeclarationOwner::Declaration(owner) => {
+                    let Some(owner) = declarations.get(&owner).copied() else {
+                        continue;
+                    };
+
+                    owner
+                }
+            };
+
+            let MemberLookupResult::Found(symbol) = symbols.lookup_member(owner, name.as_ref())
             else {
                 continue;
             };
 
-            if symbol.kind() != SymbolKind::Function {
+            declarations.insert(descriptor.id(), symbol);
+
+            let Some(hook) = descriptor.implementation_hook() else {
                 continue;
-            }
+            };
 
             implementations.insert(
                 symbol,

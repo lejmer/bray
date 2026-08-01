@@ -1,4 +1,9 @@
-use std::{borrow::Cow, collections::BTreeSet};
+// rust-style: allow(module-too-large, reason = "expression candidate convergence shares one fixed-point preparation and selection state")
+
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundExpressionId, BoundResolvedCall, SelectedArgument,
@@ -29,6 +34,7 @@ struct PreparedCall {
 pub(super) struct PreparedExpressions {
     calls: Vec<PreparedCall>,
     built_in_operators: Vec<PreparedBuiltInOperator>,
+    member_targets: BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     deferred: BTreeSet<BoundExpressionId>,
     diagnostics: DiagnosticBag,
 }
@@ -49,6 +55,21 @@ impl PreparedExpressions {
     pub(super) fn add_diagnostics(&mut self, diagnostics: &DiagnosticBag) {
         // Prepared expression state outlives the dependency bag it aggregates.
         self.diagnostics.extend(diagnostics.iter().cloned());
+    }
+
+    pub(super) fn add_operation_selections(
+        &mut self,
+        selections: &[SemanticSelectionEntry],
+    ) {
+        self.member_targets.extend(selections.iter().filter_map(|entry| {
+            let SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Member(target)) =
+                entry.selection()
+            else {
+                return None;
+            };
+
+            Some((entry.expression(), target.clone()))
+        }));
     }
 
     pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
@@ -207,6 +228,7 @@ where
     Ok(SessionProgress::Complete(PreparedExpressions {
         calls,
         built_in_operators,
+        member_targets: BTreeMap::new(),
         deferred,
         diagnostics,
     }))
@@ -350,18 +372,24 @@ where
 fn add_candidate_expectations<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
-    prepared: &[PreparedCall],
+    prepared: &PreparedExpressions,
     session: &mut ExpressionTypeSession<'_, C>,
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    for prepared_call in prepared {
+    for prepared_call in &prepared.calls {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(candidates) = materialize_call_candidates(request, types, prepared_call)? else {
+        let Some(candidates) = materialize_call_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+        )?
+        else {
             continue;
         };
 
@@ -370,8 +398,13 @@ where
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        let Some(candidates) =
-            viable_candidates(request, types, prepared_call.expression, call, &candidates)?
+        let Some(candidates) = viable_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+            &candidates,
+        )?
         else {
             return Ok(SessionProgress::Cancelled);
         };
@@ -397,22 +430,15 @@ where
 fn viable_candidates<'candidate, C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
-    expression: BoundExpressionId,
-    call: &bray_bound_tree::BoundCallExpression,
+    prepared: &PreparedCall,
+    member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     candidates: &'candidate [CallableCandidate],
 ) -> Result<Option<Vec<&'candidate CallableCandidate>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     // The probe borrows the prepared candidates while owning only the source call surface.
-    let input = CallableSelectionRequest::new(
-        expression,
-        None,
-        None,
-        call.generic_arguments().iter().copied(),
-        call.arguments().iter().cloned(),
-        [],
-    );
+    let input = call_selection_request(request, types, prepared, member_targets, [])?;
 
     let Some(indices) =
         crate::selection::viable_candidate_indices(request, types, &input, candidates)?
@@ -494,6 +520,7 @@ fn materialize_call_candidates<'prepared, C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &'prepared PreparedCall,
+    member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
 ) -> Result<Option<Cow<'prepared, [CallableCandidate]>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -533,16 +560,35 @@ where
         BoundCallableTarget::Anonymous,
     );
 
-    let resolution = BoundResolvedCall::new(target, [], result);
+    let member = member_targets.get(&call.callee());
+
+    let witnesses = member
+        .into_iter()
+        .flat_map(bray_bound_tree::MemberTarget::witnesses)
+        .map(|witness| witness.witness());
+
+    let resolution = BoundResolvedCall::new(target, witnesses, result);
 
     // Each materialized value candidate owns its reusable resolved-call description.
     candidates.extend(prepared.values.iter().map(|template| {
-        CallableCandidate::value(
+        let candidate = CallableCandidate::value(
             template.value(),
             resolution.clone(),
             callee_type.ty(),
             callable.result(),
             candidate_state(template.state()),
+        );
+
+        candidate.with_implementation_selections(
+            member
+                .into_iter()
+                .flat_map(bray_bound_tree::MemberTarget::witnesses)
+                .map(|witness| {
+                    crate::ImplementationSelectionEvidence::new(
+                        witness.requirement(),
+                        bray_symbols::ImplementationSelection::Selected(witness.witness()),
+                    )
+                }),
         )
     }));
 
@@ -575,7 +621,7 @@ where
             session,
         )?;
 
-        if add_candidate_expectations(request, &types, &prepared.calls, session)?.is_cancelled() {
+        if add_candidate_expectations(request, &types, prepared, session)?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
 
@@ -583,7 +629,7 @@ where
             continue;
         }
 
-        if apply_selected_call_evidence(request, &types, &prepared.calls, session)?.is_cancelled() {
+        if apply_selected_call_evidence(request, &types, prepared, session)?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
 
@@ -596,22 +642,34 @@ where
 fn apply_selected_call_evidence<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
-    prepared: &[PreparedCall],
+    prepared: &PreparedExpressions,
     session: &mut ExpressionTypeSession<'_, C>,
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    for prepared_call in prepared {
+    for prepared_call in &prepared.calls {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(candidates) = materialize_call_candidates(request, types, prepared_call)? else {
+        let Some(candidates) = materialize_call_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+        )?
+        else {
             continue;
         };
 
-        let outcome = select_prepared_call(request, types, prepared_call, &candidates);
+        let outcome = select_prepared_call(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+            &candidates,
+        );
 
         match outcome {
             CheckerOutcome::Complete(result) => {
@@ -714,11 +772,23 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     for prepared_call in &prepared.calls {
-        let Some(candidates) = materialize_call_candidates(request, types, prepared_call)? else {
+        let Some(candidates) = materialize_call_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+        )?
+        else {
             continue;
         };
 
-        match select_prepared_call(request, types, prepared_call, &candidates) {
+        match select_prepared_call(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+            &candidates,
+        ) {
             CheckerOutcome::Complete(result) => {
                 let (selection, selection_diagnostics) = result.into_parts();
 
@@ -749,30 +819,105 @@ fn select_prepared_call<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &PreparedCall,
+    member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     candidates: &[CallableCandidate],
 ) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedCall>>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        );
+    let input = match call_selection_request(request, types, prepared, member_targets, []) {
+        Ok(input) => input,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    // The request owns source argument records independently of the immutable bound unit.
-    let arguments = call.arguments().iter().cloned();
-
-    let input = CallableSelectionRequest::new(
-        prepared.expression,
-        None,
-        None,
-        call.generic_arguments().iter().copied(),
-        arguments,
-        [],
-    );
-
     crate::selection::select_callable_candidates(request, types, &input, candidates)
+}
+
+fn call_selection_request<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+    prepared: &PreparedCall,
+    member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
+    candidates: impl IntoIterator<Item = CallableCandidate>,
+) -> Result<CallableSelectionRequest, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let member = member_targets.get(&call.callee()).cloned();
+
+    let receiver = match request.view().expression(call.callee()) {
+        Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
+        Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
+        _ => None,
+    };
+
+    let receiver = receiver
+        .map(|receiver| {
+            receiver_capability(request, types, receiver)
+                .map(|capability| crate::ReceiverSelection::new(receiver, capability))
+        })
+        .transpose()?;
+
+    Ok(CallableSelectionRequest::new(
+        prepared.expression,
+        member,
+        receiver,
+        call.generic_arguments().iter().copied(),
+        call.arguments().iter().cloned(),
+        candidates,
+    ))
+}
+
+fn receiver_capability<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+    receiver: BoundExpressionId,
+) -> Result<crate::ReceiverCapability, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let ty = types
+        .expression(receiver)
+        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+    let data = request
+        .semantic_values()
+        .type_data(ty.ty())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
+        return Ok(match kind {
+            bray_symbols::BorrowKind::Shared => crate::ReceiverCapability::Shared,
+            bray_symbols::BorrowKind::Mutable => crate::ReceiverCapability::Mutable,
+        });
+    }
+
+    let Some(BoundExpression::Name(name)) = request.view().expression(receiver) else {
+        return Ok(crate::ReceiverCapability::Owned);
+    };
+
+    let bray_bound_tree::BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(
+        binding,
+    )) = name.target()
+    else {
+        return Ok(crate::ReceiverCapability::Owned);
+    };
+
+    let is_mutable = request
+        .unit()
+        .tree()
+        .patterns()
+        .any(|(_, pattern)| pattern.bindings().contains(&binding) && pattern.is_mutable());
+
+    Ok(if is_mutable {
+        crate::ReceiverCapability::OwnedMutable
+    } else {
+        crate::ReceiverCapability::Owned
+    })
 }
 
 #[cfg(test)]

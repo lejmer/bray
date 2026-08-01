@@ -240,7 +240,7 @@ impl TypeExpressionBinder<'_> {
         self.generic_parameters(type_parameters, const_parameters)
     }
 
-    fn trait_parameters(
+    pub(super) fn trait_parameters(
         &self,
         definition: TraitSymbolId,
     ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {

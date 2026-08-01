@@ -32,9 +32,9 @@ use bray_runtime_interface::{
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableSignature, CallableSignatureFact, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId, NamedTypeSymbolId,
-    StructSymbolId, SymbolFactRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId,
-    UnionPayloadFieldTypeFact,
+    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId,
+    ImplementationCoherenceFact, NamedTypeSymbolId, SelfTypeContext, StructSymbolId,
+    SymbolFactRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -260,7 +260,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<CodegenHelperMapping, CodegenFactError> {
         let concrete_reference =
-            self.concrete_codegen_helper_reference(owner_realization, &reference)?;
+            self.concrete_codegen_helper_reference(owner_realization, &reference, cancellation)?;
 
         if let Some(ty) = concrete_reference.lifecycle_type()
             && self.has_trivial_codegen_lifecycle(ty)?
@@ -305,7 +305,8 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Option<ConcreteCodegenInstance>, CodegenFactError> {
-        let concrete_reference = self.concrete_codegen_helper_reference(owner, reference)?;
+        let concrete_reference =
+            self.concrete_codegen_helper_reference(owner, reference, cancellation)?;
 
         let dependency = match &concrete_reference {
             MirHelperReference::AnonymousCallable(unit) => {
@@ -350,19 +351,28 @@ impl Compilation {
         &self,
         owner: &ConcreteCodegenInstance,
         reference: &MirHelperReference,
+        cancellation: &CancellationToken,
     ) -> Result<MirHelperReference, FactQueryError> {
         let substitution = owner.substitution();
 
         Ok(match reference {
             MirHelperReference::Finalize(ty) => {
-                MirHelperReference::Finalize(self.substitute_codegen_type(*ty, substitution)?)
+                MirHelperReference::Finalize(self.substitute_codegen_type(
+                    *ty,
+                    substitution,
+                    cancellation,
+                )?)
             }
             MirHelperReference::Destroy(ty) => {
-                MirHelperReference::Destroy(self.substitute_codegen_type(*ty, substitution)?)
+                MirHelperReference::Destroy(self.substitute_codegen_type(
+                    *ty,
+                    substitution,
+                    cancellation,
+                )?)
             }
             MirHelperReference::Cleanup { phase, ty } => MirHelperReference::Cleanup {
                 phase: *phase,
-                ty: self.substitute_codegen_type(*ty, substitution)?,
+                ty: self.substitute_codegen_type(*ty, substitution, cancellation)?,
             },
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::CallableDefault(_)
@@ -1272,6 +1282,31 @@ impl Compilation {
             return Ok(false);
         };
 
+        if role == RepresentationRole::String {
+            if matches!(
+                reference,
+                MirHelperReference::Destroy(_)
+                    | MirHelperReference::Cleanup {
+                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                        ..
+                    }
+            ) {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Text(bray_ir::MirTextOperation::new(
+                        bray_ir::MirTextOperationKind::Release,
+                        [MirOperand::Move(place.clone())],
+                        [ty],
+                        None,
+                    )),
+                )?;
+            }
+
+            return Ok(true);
+        }
+
         if role != RepresentationRole::Task {
             return Ok(false);
         }
@@ -1647,7 +1682,6 @@ impl Compilation {
                             RepresentationRole::Unit
                                 | RepresentationRole::Never
                                 | RepresentationRole::RawPointer
-                                | RepresentationRole::String
                                 | RepresentationRole::Future
                         ) || super::super::representation::target_scalar(role).is_some()
                     },
@@ -1991,7 +2025,7 @@ impl Compilation {
         let mut pending = BTreeSet::new();
 
         for template in demanded {
-            let ty = self.substitute_codegen_type(template, substitution)?;
+            let ty = self.substitute_codegen_type(template, substitution, cancellation)?;
 
             self.codegen_type(ty, target, cancellation, mappings, &mut pending)?;
 
@@ -2006,7 +2040,8 @@ impl Compilation {
                         CodegenTypeMapping::new(template, layout, mapping.kind().clone())
                     }
                     None => CodegenTypeMapping::new_unsized(template, mapping.kind().clone()),
-                };
+                }
+                .with_behavior(mapping.behavior());
 
                 mappings.insert(template, mapping);
             }
@@ -2021,7 +2056,10 @@ impl Compilation {
         &self,
         ty: TypeId,
         substitution: Option<GenericSubstitutionId>,
+        cancellation: &CancellationToken,
     ) -> Result<TypeId, FactQueryError> {
+        let ty = self.resolve_codegen_contextual_self(ty, cancellation)?;
+
         let Some(substitution) = substitution else {
             return Ok(ty);
         };
@@ -2049,7 +2087,8 @@ impl Compilation {
                     .map_err(|_| FactQueryError::InfrastructureFailure)
             }
             TypeData::Borrow { kind, target } => {
-                let target = self.substitute_codegen_type(*target, Some(substitution))?;
+                let target =
+                    self.substitute_codegen_type(*target, Some(substitution), cancellation)?;
 
                 values
                     .intern_type(TypeData::Borrow {
@@ -2060,6 +2099,32 @@ impl Compilation {
             }
             _ => Ok(ty),
         }
+    }
+
+    fn resolve_codegen_contextual_self(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<TypeId, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        let data = values
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) =
+            data.as_ref()
+        else {
+            return Ok(ty);
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let coherence = facts
+            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(*implementation))
+            .map_err(super::super::binder::binder_fact_error)?;
+
+        Ok(coherence.value().subject())
     }
 
     fn substitute_codegen_constant_term(
@@ -2793,11 +2858,12 @@ impl Compilation {
     ) -> Result<CodegenTypeMapping, CodegenFactError> {
         let byte = self.compiler_known_type(RepresentationRole::ScalarU8)?;
         let data = self.indirection_metadata_pointer(byte, BorrowKind::Shared)?;
+        let owner = data;
         let length = self.compiler_known_type(RepresentationRole::ScalarUsize)?;
 
         self.codegen_aggregate_type(
             ty,
-            [(None, data), (None, length)],
+            [(None, data), (None, owner), (None, length)],
             TargetLayoutContract::Default,
             None,
             None,
@@ -2806,6 +2872,7 @@ impl Compilation {
             mappings,
             pending,
         )
+        .map(|mapping| mapping.with_behavior(Some(bray_codegen::CodegenTypeBehavior::String)))
     }
 
     fn compiler_known_type(&self, role: RepresentationRole) -> Result<TypeId, FactQueryError> {

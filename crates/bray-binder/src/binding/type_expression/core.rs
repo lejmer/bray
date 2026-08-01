@@ -7,7 +7,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, BorrowKind, GenericTypeParameterSymbolId, MemberLookupResult, ModuleSymbolId,
     SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationTemplate,
-    TypeData, TypeExpressionTemplate, TypeId,
+    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,
@@ -273,6 +273,9 @@ impl<'facts> TypeExpressionBinder<'facts> {
             )) => self
                 .intern_type(TypeData::TypeParameter(parameter))
                 .map(TypeExpressionTemplate::Resolved),
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::TraitMember(member)) => {
+                self.bind_contextual_trait_type_member(member)
+            }
             MemberLookupResult::Found(_)
             | MemberLookupResult::NotFound
             | MemberLookupResult::WrongKind(_)
@@ -280,6 +283,33 @@ impl<'facts> TypeExpressionBinder<'facts> {
             | MemberLookupResult::Inaccessible(_)
             | MemberLookupResult::Malformed(_) => self.error_type_template(),
         }
+    }
+
+    fn bind_contextual_trait_type_member(
+        &self,
+        member: TraitTypeMemberSymbolId,
+    ) -> BinderFactResult<TypeExpressionTemplate> {
+        let Some(context @ SelfTypeContext::Trait(trait_definition)) = self.self_type else {
+            return self.error_type_template();
+        };
+
+        let parameters = self.trait_parameters(trait_definition)?;
+
+        if !parameters.is_empty() {
+            return self.error_type_template();
+        }
+
+        let subject = self
+            .intern_type(TypeData::ContextualSelf(context))
+            .map(TypeExpressionTemplate::Resolved)?;
+
+        let application = TraitApplicationTemplate::new(trait_definition, [], []);
+
+        Ok(TypeExpressionTemplate::TypeValuedMemberProjection {
+            subject: Arc::new(subject),
+            application,
+            member,
+        })
     }
 
     pub(super) fn intern_type(&self, data: TypeData) -> BinderFactResult<TypeId> {

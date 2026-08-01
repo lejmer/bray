@@ -168,6 +168,7 @@ impl Compilation {
                     bound.result().value(),
                     &types,
                     key.expression(),
+                    &mut diagnostics,
                 )?;
 
                 match built_in {

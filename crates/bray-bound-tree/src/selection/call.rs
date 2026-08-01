@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
+use bray_compiler_known::ImplementationHook;
 use bray_symbols::{
     CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallablePhaseBehaviors, ImplementationInstanceId,
@@ -109,6 +110,7 @@ pub struct SelectedCall {
     abi: CallableAbi,
     phase_behaviors: Arc<CallablePhaseBehaviors>,
     contract: Option<Arc<CallableContractTemplate>>,
+    implementation_hook: Option<ImplementationHook>,
     receiver: Option<SelectedReceiver>,
     arguments: Arc<[SelectedArgument]>,
     witnesses: Arc<[SelectedImplementationWitness]>,
@@ -129,6 +131,7 @@ impl SelectedCall {
             abi,
             phase_behaviors: Arc::new(phase_behaviors),
             contract: None,
+            implementation_hook: None,
             receiver,
             arguments: shared_slice(arguments),
             witnesses: sorted_unique_shared_slice(witnesses),
@@ -168,6 +171,18 @@ impl SelectedCall {
             Some(contract) => Some(contract.as_ref()),
             None => None,
         }
+    }
+
+    /// Retains compiler-provided behavior selected for this exact declaration.
+    pub const fn with_implementation_hook(mut self, hook: Option<ImplementationHook>) -> Self {
+        self.implementation_hook = hook;
+
+        self
+    }
+
+    /// Returns compiler-provided behavior selected for this exact declaration.
+    pub const fn implementation_hook(&self) -> Option<ImplementationHook> {
+        self.implementation_hook
     }
 
     /// Returns explicit arguments in source order followed by defaults in parameter order.

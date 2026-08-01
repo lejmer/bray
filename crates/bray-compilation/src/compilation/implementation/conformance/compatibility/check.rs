@@ -4,11 +4,13 @@ use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableContractClause, CallableContractSet, CallableContractsFact, CallablePhaseBehavior,
-    CallableSignatureFact, CallableSymbolId, ConstantTermData, GenericArgument,
-    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, RuntimeDefaultPresence,
-    SymbolFactRequest, TraitApplicationId, TraitMemberFulfillmentId, TraitMemberRequirementId,
+    CallableParameterTypeTemplate, CallableSignatureFact, CallableSignatureTemplate,
+    CallableSymbolId, CallableTypeTemplate, ConstantTermData, GenericArgument,
+    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
+    GenericDeclarationTemplateFact, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericSubstitutionId, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateFact, RuntimeDefaultPresence, SymbolFactRequest,
+    TraitApplicationId, TraitMemberFulfillmentId, TraitMemberRequirementId,
     TraitTypeFulfillmentValueFact, TypeData, TypeExpressionTemplate,
 };
 
@@ -190,8 +192,8 @@ fn callable_is_compatible(
         return Ok(false);
     }
 
-    let requirement_type = requirement_signature.value().callable_type();
-    let fulfillment_type = fulfillment_signature.value().callable_type();
+    let requirement_type = callable_type_template(values, requirement_signature.value())?;
+    let fulfillment_type = callable_type_template(values, fulfillment_signature.value())?;
 
     if requirement_signature
         .value()
@@ -205,64 +207,45 @@ fn callable_is_compatible(
         return Ok(false);
     }
 
-    match (requirement_type, fulfillment_type) {
-        (
-            TypeExpressionTemplate::Callable(requirement),
-            TypeExpressionTemplate::Callable(fulfillment),
-        ) => {
-            if requirement.constness() != fulfillment.constness()
-                || requirement.execution() != fulfillment.execution()
-                || requirement.trust() != fulfillment.trust()
-                || requirement.abi() != fulfillment.abi()
-                || requirement.parameters().len() != fulfillment.parameters().len()
-            {
-                return Ok(false);
-            }
+    if requirement_type.constness() != fulfillment_type.constness()
+        || requirement_type.execution() != fulfillment_type.execution()
+        || requirement_type.trust() != fulfillment_type.trust()
+        || requirement_type.abi() != fulfillment_type.abi()
+        || requirement_type.parameters().len() != fulfillment_type.parameters().len()
+    {
+        return Ok(false);
+    }
 
-            for (requirement, fulfillment) in requirement
-                .parameters()
-                .iter()
-                .zip(fulfillment.parameters())
-            {
-                if requirement.name() != fulfillment.name()
-                    || requirement.position() != fulfillment.position()
-                    || requirement.mode() != fulfillment.mode()
-                    || !type_templates_are_compatible(
-                        values,
-                        trait_application,
-                        generic_substitution,
-                        requirement.ty(),
-                        fulfillment.ty(),
-                        type_bindings,
-                    )?
-                {
-                    return Ok(false);
-                }
-            }
-
-            if !type_templates_are_compatible(
+    for (requirement, fulfillment) in requirement_type
+        .parameters()
+        .iter()
+        .zip(fulfillment_type.parameters())
+    {
+        if requirement.name() != fulfillment.name()
+            || requirement.position() != fulfillment.position()
+            || requirement.mode() != fulfillment.mode()
+            || !type_templates_are_compatible(
                 values,
                 trait_application,
                 generic_substitution,
-                requirement.result(),
-                fulfillment.result(),
+                requirement.ty(),
+                fulfillment.ty(),
                 type_bindings,
-            )? {
-                return Ok(false);
-            }
-        }
-        _ if !type_templates_are_compatible(
-            values,
-            trait_application,
-            generic_substitution,
-            requirement_type,
-            fulfillment_type,
-            type_bindings,
-        )? =>
+            )?
         {
             return Ok(false);
         }
-        _ => {}
+    }
+
+    if !type_templates_are_compatible(
+        values,
+        trait_application,
+        generic_substitution,
+        requirement_type.result(),
+        fulfillment_type.result(),
+        type_bindings,
+    )? {
+        return Ok(false);
     }
 
     if !parameter_defaults_are_compatible(
@@ -274,7 +257,7 @@ fn callable_is_compatible(
         return Ok(false);
     }
 
-    callable_contracts_are_compatible(
+    let compatible = callable_contracts_are_compatible(
         values,
         facts,
         trait_application,
@@ -282,7 +265,53 @@ fn callable_is_compatible(
         requirement,
         fulfillment,
         diagnostics,
-    )
+    )?;
+
+    Ok(compatible)
+}
+
+fn callable_type_template(
+    values: &bray_symbols::SemanticValueStore,
+    signature: &CallableSignatureTemplate,
+) -> Result<CallableTypeTemplate, FactQueryError> {
+    match signature.callable_type() {
+        TypeExpressionTemplate::Callable(callable) => Ok(callable.clone()),
+        TypeExpressionTemplate::Resolved(ty) => {
+            let data = values
+                .type_data(*ty)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let TypeData::Callable(callable) = data.as_ref() else {
+                return Err(FactQueryError::InfrastructureFailure);
+            };
+
+            let parameter_types = signature
+                .parameter_type_templates(values)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let parameters = callable.parameters().iter().zip(parameter_types).map(
+                |(parameter, ty)| {
+                    CallableParameterTypeTemplate::new(
+                        parameter.name().clone(),
+                        parameter.position(),
+                        parameter.mode(),
+                        ty,
+                    )
+                },
+            );
+
+            Ok(CallableTypeTemplate::new(
+                parameters,
+                signature.result().clone(),
+                callable.constness(),
+                callable.trust(),
+                callable.abi(),
+                callable.dependency_contracts(),
+            )
+            .with_phase_behaviors(callable.phase_behaviors().clone()))
+        }
+        _ => Err(FactQueryError::InfrastructureFailure),
+    }
 }
 
 fn generic_surfaces_are_compatible(

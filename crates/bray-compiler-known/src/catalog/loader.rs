@@ -531,8 +531,8 @@ mod tests {
         assert_eq!(catalog.compiler_known_scopes().len(), 10);
         assert_eq!(catalog.compiler_known_declarations().len(), 207);
         assert_eq!(catalog.compiler_known_values().len(), 4);
-        assert_eq!(catalog.recognized_standard_library_scopes().len(), 3);
-        assert_eq!(catalog.recognized_standard_library_declarations().len(), 65);
+        assert_eq!(catalog.recognized_standard_library_scopes().len(), 4);
+        assert_eq!(catalog.recognized_standard_library_declarations().len(), 75);
 
         let raw_pointer = declaration(&catalog, "RawPointer");
         let element = declaration(&catalog, "RawPointerElement");
@@ -678,7 +678,11 @@ mod tests {
             ]
         );
 
-        let recognized = &catalog.recognized_standard_library_declarations()[0];
+        let recognized = catalog
+            .recognized_standard_library_declarations()
+            .iter()
+            .find(|declaration| declaration.key().as_str() == "StandardConvert")
+            .unwrap_or_else(|| panic!("recognized catalog must contain StandardConvert"));
 
         assert_eq!(recognized.key().as_str(), "StandardConvert");
         assert_eq!(recognized.kind(), CatalogDeclarationKind::Function);
