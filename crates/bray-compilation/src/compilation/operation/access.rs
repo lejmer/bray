@@ -49,11 +49,9 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
-        let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
-
-        let receiver_type = self.resolve_contextual_receiver_type(
+        let receiver_type = self.resolve_access_subject_type(
             facts,
-            receiver_type,
+            expression_type(types, receiver)?,
             diagnostics,
         )?;
 
@@ -153,26 +151,45 @@ impl Compilation {
         )))
     }
 
-    fn resolve_contextual_receiver_type(
+    fn resolve_access_subject_type(
         &self,
         facts: &CompilationBinderFacts<'_>,
-        receiver_type: TypeId,
+        mut ty: TypeId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<TypeId, FactQueryError> {
-        let data = facts
-            .semantic_values()
-            .type_data(receiver_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        loop {
+            let data = facts
+                .semantic_values()
+                .type_data(ty)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) =
-            data.as_ref()
-        else {
-            return Ok(receiver_type);
-        };
+            match data.as_ref() {
+                TypeData::Borrow { target, .. } => ty = *target,
+                TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) => {
+                    ty = self.resolve_implementation_self_type(
+                        facts,
+                        *implementation,
+                        diagnostics,
+                    )?;
+                }
+                TypeData::ContextualSelf(context) => {
+                    ty = contextual_self_type(facts, *context)?;
+                }
+                _ => return Ok(ty),
+            }
+        }
+    }
+
+    fn resolve_implementation_self_type(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        implementation: bray_symbols::ImplementationSymbolId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<TypeId, FactQueryError> {
 
         let subject = facts
             .symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
-                *implementation,
+                implementation,
             ))
             .map_err(binder_fact_error)?;
 
@@ -399,6 +416,7 @@ impl Compilation {
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
+        diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let Some(BoundExpression::Structured(index)) = unit.view().expression(expression) else {
             return Err(FactQueryError::InfrastructureFailure);
@@ -408,7 +426,11 @@ impl Compilation {
             return Ok(None);
         };
 
-        let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
+        let receiver_type = self.resolve_access_subject_type(
+            facts,
+            expression_type(types, receiver)?,
+            diagnostics,
+        )?;
 
         let data = facts
             .semantic_values()
@@ -562,25 +584,5 @@ impl Compilation {
             cancellation,
             diagnostics,
         )
-    }
-}
-
-fn access_subject_type(
-    facts: &CompilationBinderFacts<'_>,
-    mut ty: TypeId,
-) -> Result<TypeId, FactQueryError> {
-    loop {
-        let data = facts
-            .semantic_values()
-            .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        match data.as_ref() {
-            TypeData::Borrow { target, .. } => ty = *target,
-            TypeData::ContextualSelf(context) => {
-                ty = contextual_self_type(facts, *context)?;
-            }
-            _ => return Ok(ty),
-        }
     }
 }

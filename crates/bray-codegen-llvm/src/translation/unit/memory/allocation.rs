@@ -258,7 +258,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
     }
 
-    pub(super) fn memory_deallocation_function(
+    pub(in crate::translation::unit) fn memory_deallocation_function(
         &self,
         pointer: inkwell::types::PointerType<'context>,
     ) -> inkwell::values::FunctionValue<'context> {
@@ -308,7 +308,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn pointer_integer_type(&self) -> inkwell::types::IntType<'context> {
+    pub(in crate::translation::unit) fn pointer_integer_type(
+        &self,
+    ) -> inkwell::types::IntType<'context> {
         self.types
             .context()
             .ptr_sized_int_type(self.types.target_data(), None)

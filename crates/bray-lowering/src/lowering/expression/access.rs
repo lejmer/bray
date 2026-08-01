@@ -576,10 +576,6 @@ impl Lowerer<'_> {
         &self,
         identity: StorageIdentityId,
     ) -> Result<TypeId, LoweringError> {
-        if let Some((borrow, _)) = self.entry_borrow_types(identity)? {
-            return Ok(borrow);
-        }
-
         let plan = self.input.storage_plan();
 
         if let Some(ty) = plan.identity_type(identity) {

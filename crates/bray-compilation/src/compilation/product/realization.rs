@@ -2087,7 +2087,8 @@ impl Compilation {
                     .map_err(|_| FactQueryError::InfrastructureFailure)
             }
             TypeData::Borrow { kind, target } => {
-                let target = self.substitute_codegen_type(*target, Some(substitution))?;
+                let target =
+                    self.substitute_codegen_type(*target, Some(substitution), cancellation)?;
 
                 values
                     .intern_type(TypeData::Borrow {
