@@ -780,6 +780,10 @@ Standard-library bundle manifests and configured roots follow `docs/design/stand
 explicit root and compilation demand-resolves only the interface and target artifacts required by the current request. Compilation
 does not search for an installation, acquire packages, or eagerly load every bundled artifact.
 
+Core data package structure, ownership, formatting, and cross-module dependency contracts follow
+`docs/design/core-data-standard-library.md`. These APIs remain ordinary declarations in the `std` package and reuse compiler-known
+language contracts rather than introducing a parallel semantic substrate.
+
 Stable target identities, architectures, object formats, byte order, relocation models, code models, and validated machine
 properties belong to `bray-target`.
 
