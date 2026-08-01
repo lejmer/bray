@@ -18,8 +18,8 @@ pub use argument::{
     DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
     DiagnosticCallableAbi, DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
-    DiagnosticOutputSink, DiagnosticSelectionKind, DiagnosticTargetRepresentation, DiagnosticType,
-    DiagnosticVisibility,
+    DiagnosticOutputSink, DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind,
+    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use code::DiagnosticCode;

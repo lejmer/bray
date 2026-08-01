@@ -141,7 +141,7 @@ mod tests {
         DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
         DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
         DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticSelectionKind,
-        DiagnosticVisibility, SeverityKind,
+        DiagnosticRuntimeAbiVersion, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -369,6 +369,43 @@ mod tests {
         );
 
         assert_eq!(rendered.message(), expected);
+    }
+
+    #[test]
+    fn renderer_localizes_standard_library_artifact_and_abi_failures() {
+        let length = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryArtifactLengthMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path("targets/test/1.0/libstd.a"))
+        .with_arg(DiagnosticArg::actual_byte_count(7))
+        .with_arg(DiagnosticArg::expected_byte_count(9));
+
+        let abi = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::StandardLibraryRuntimeAbiMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("test-target"))
+        .with_arg(DiagnosticArg::expected_runtime_abi(
+            DiagnosticRuntimeAbiVersion::new(2, 1),
+        ))
+        .with_arg(DiagnosticArg::actual_runtime_abi(
+            DiagnosticRuntimeAbiVersion::new(1, 4),
+        ));
+
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&length).message(),
+            "standard library artifact targets/test/1.0/libstd.a has 7 bytes but expected 9"
+        );
+
+        assert_eq!(
+            renderer.render(&abi).message(),
+            "target 'test-target' requires runtime ABI 2.1 but the standard library provides 1.4"
+        );
     }
 
     #[test]

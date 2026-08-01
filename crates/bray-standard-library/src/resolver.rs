@@ -113,8 +113,8 @@ impl StandardLibraryResolver {
         if selected.runtime_abi() != runtime_abi {
             return Err(StandardLibraryLoadError::RuntimeAbiMismatch {
                 target: target.clone(),
-                expected: selected.runtime_abi(),
-                actual: runtime_abi,
+                expected: runtime_abi,
+                actual: selected.runtime_abi(),
             });
         }
 
@@ -237,9 +237,9 @@ pub enum StandardLibraryLoadError {
     RuntimeAbiMismatch {
         /// Exact selected target.
         target: TargetIdentity,
-        /// ABI recorded by the bundle.
+        /// ABI required by the compilation request.
         expected: RuntimeAbiVersion,
-        /// ABI requested by compilation.
+        /// ABI recorded by the bundle.
         actual: RuntimeAbiVersion,
     },
     /// Resolver cache coordination failed.

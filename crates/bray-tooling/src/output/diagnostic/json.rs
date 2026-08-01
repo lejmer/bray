@@ -219,6 +219,7 @@ enum DiagnosticArgValueJson {
     SourceSpan(SourceSpanJson),
     WorkerCount(u64),
     Revision(u64),
+    RuntimeAbi(DiagnosticRuntimeAbiVersionJson),
     Type(DiagnosticTypeJson),
     SelectionKind(&'static str),
 }
@@ -273,10 +274,22 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
             DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
+            DiagnosticArgValue::RuntimeAbi(version) => {
+                Self::RuntimeAbi(DiagnosticRuntimeAbiVersionJson {
+                    major: version.major(),
+                    minor: version.minor(),
+                })
+            }
             DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(*ty)),
             DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),
         }
     }
+}
+
+#[derive(Serialize)]
+struct DiagnosticRuntimeAbiVersionJson {
+    major: u16,
+    minor: u16,
 }
 
 #[derive(Serialize)]
@@ -425,8 +438,8 @@ mod tests {
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
         DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
         DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
-        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticSelectionKind,
-        DiagnosticVisibility, SeverityKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticRuntimeAbiVersion,
+        DiagnosticSelectionKind, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -634,6 +647,39 @@ mod tests {
         assert_eq!(note_args[1]["value"]["value"], "library");
         assert_eq!(note_args[2]["value"]["kind"], "file_path");
         assert_eq!(note_args[2]["value"]["value"], "dependency.brayi");
+    }
+
+    #[test]
+    fn json_output_serializes_runtime_abi_arguments_as_typed_versions() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryRuntimeAbiMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::expected_runtime_abi(
+            DiagnosticRuntimeAbiVersion::new(2, 1),
+        ))
+        .with_arg(DiagnosticArg::actual_runtime_abi(
+            DiagnosticRuntimeAbiVersion::new(1, 4),
+        ));
+
+        let mut output = Vec::new();
+
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+        let output: serde_json::Value = serde_json::from_slice(&output)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+        let args = &output["diagnostics"][0]["args"];
+
+        assert_eq!(args[0]["name"], "expected_runtime_abi");
+        assert_eq!(args[0]["value"]["kind"], "runtime_abi");
+        assert_eq!(args[0]["value"]["value"]["major"], 2);
+        assert_eq!(args[0]["value"]["value"]["minor"], 1);
+        assert_eq!(args[1]["name"], "actual_runtime_abi");
+        assert_eq!(args[1]["value"]["value"]["major"], 1);
+        assert_eq!(args[1]["value"]["value"]["minor"], 4);
     }
 
     #[test]

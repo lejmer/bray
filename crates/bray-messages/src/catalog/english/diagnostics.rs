@@ -170,14 +170,18 @@ const STANDARD_LIBRARY_MANIFEST_INVALID: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("standard library manifest is invalid")];
 
 const STANDARD_LIBRARY_ARTIFACT_LENGTH_MISMATCH: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("standard library artifact has "),
+    MessageTemplatePart::Text("standard library artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" has "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualByteCount),
     MessageTemplatePart::Text(" bytes but expected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedByteCount),
 ];
 
 const STANDARD_LIBRARY_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("standard library artifact digest "),
+    MessageTemplatePart::Text("standard library artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" has digest "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
     MessageTemplatePart::Text(" does not match expected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
@@ -189,8 +193,12 @@ const STANDARD_LIBRARY_TARGET_UNAVAILABLE: &[MessageTemplatePart] = &[
 ];
 
 const STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("standard library runtime ABI is incompatible with target "),
+    MessageTemplatePart::Text("target "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" requires runtime ABI "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
+    MessageTemplatePart::Text(" but the standard library provides "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualRuntimeAbi),
 ];
 
 const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
