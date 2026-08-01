@@ -10,14 +10,14 @@ No I/O declaration is ambient. Source names it through an ordinary qualified pat
 
 The public platform-facing modules are:
 
-| Module | Public responsibility |
-| --- | --- |
-| `std.io` | Byte streams, standard input and output, buffering, flushing, and I/O failures |
-| `std.path` | Lossless target-native paths and explicit text conversion |
-| `std.fs` | Files, directories, metadata, traversal, and filesystem mutation |
+| Module        | Public responsibility                                                          |
+|---------------|--------------------------------------------------------------------------------|
+| `std.io`      | Byte streams, standard input and output, buffering, flushing, and I/O failures |
+| `std.path`    | Lossless target-native paths and explicit text conversion                      |
+| `std.fs`      | Files, directories, metadata, traversal, and filesystem mutation               |
 | `std.process` | Process context, child-process control, and typed Bray child-process protocols |
-| `std.time` | Durations, monotonic instants, wall-clock values, deadlines, and timers |
-| `std.random` | System entropy and deterministic pseudorandom generation |
+| `std.time`    | Durations, monotonic instants, wall-clock values, deadlines, and timers        |
+| `std.random`  | System entropy and deterministic pseudorandom generation                       |
 
 These modules can use private trusted declarations to reach the selected target. Private declarations are not public `std`
 surface, are not available to user source, and do not change the semantics specified here.
