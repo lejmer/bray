@@ -120,6 +120,33 @@ pub enum CheckedMemoryOperationKind {
     Deallocate,
 }
 
+impl CheckedMemoryOperationKind {
+    /// Returns the exact number of runtime operands required by this operation.
+    pub const fn operand_count(self) -> usize {
+        match self {
+            Self::Address { .. }
+            | Self::IsNull { .. }
+            | Self::Reinterpret { .. }
+            | Self::Read { .. } => 1,
+            Self::Offset { .. } | Self::Write { .. } | Self::Allocate => 2,
+            Self::Copy { .. } | Self::Deallocate => 3,
+            Self::LayoutQuery {
+                kind: MemoryLayoutQueryKind::Layout,
+                ..
+            } => 1,
+            Self::Null { .. } | Self::LayoutQuery { .. } => 0,
+        }
+    }
+
+    /// Returns whether the operation produces a value instead of only changing memory state.
+    pub const fn produces_value(self) -> bool {
+        !matches!(
+            self,
+            Self::Write { .. } | Self::Copy { .. } | Self::Deallocate
+        )
+    }
+}
+
 /// One source-correlated checked memory operation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedMemoryOperation {
@@ -288,8 +315,8 @@ mod tests {
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
         CheckedMemoryOperationsBuildError, MemoryReadKind,
     };
-    use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
     use crate::test_support::error_type;
+    use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 
     #[test]
     fn operation_tables_sort_and_index_expressions() {
@@ -306,11 +333,8 @@ mod tests {
             [],
         );
 
-        let second_operation = CheckedMemoryOperation::new(
-            second,
-            CheckedMemoryOperationKind::Allocate,
-            [],
-        );
+        let second_operation =
+            CheckedMemoryOperation::new(second, CheckedMemoryOperationKind::Allocate, []);
 
         let table = CheckedMemoryOperations::try_new(
             unit,
@@ -333,11 +357,8 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let expression = BoundExpressionId::from_slot(unit, 1);
 
-        let operation = CheckedMemoryOperation::new(
-            expression,
-            CheckedMemoryOperationKind::Allocate,
-            [],
-        );
+        let operation =
+            CheckedMemoryOperation::new(expression, CheckedMemoryOperationKind::Allocate, []);
 
         assert_eq!(
             CheckedMemoryOperations::try_new(
@@ -356,12 +377,7 @@ mod tests {
         );
 
         assert_eq!(
-            CheckedMemoryOperations::try_new(
-                unit,
-                BoundUnitKind::CallableBody,
-                [foreign],
-                false,
-            ),
+            CheckedMemoryOperations::try_new(unit, BoundUnitKind::CallableBody, [foreign], false,),
             Err(CheckedMemoryOperationsBuildError::ForeignUnit)
         );
     }

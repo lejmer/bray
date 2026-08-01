@@ -384,6 +384,16 @@ impl Lowerer<'_> {
             .clone();
 
         let source = self.source(expression.origin());
+
+        if let Some(operation) = self
+            .input
+            .storage_flow()
+            .checked_memory_operation(id)
+            .cloned()
+        {
+            return self.lower_memory_call(id, current, source, &selection, operation);
+        }
+
         let mut arguments = Vec::new();
 
         let target = match selection.target() {

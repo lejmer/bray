@@ -151,7 +151,7 @@ where
             || liveness.is_recovered()
             || refinements.is_recovered(),
     )
-    .and_then(|facts| facts.with_memory_operations(memory_decisions))
+    .and_then(|facts| facts.with_memory_operations(memory, memory_decisions))
     {
         Ok(facts) => facts,
         Err(_) => {
@@ -340,11 +340,7 @@ where
         }
     }
 
-    fn transfer_raw_pointer_state(
-        &self,
-        state: &mut StorageFlowState,
-        node: AnyBoundNodeId,
-    ) {
+    fn transfer_raw_pointer_state(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
         let mut sources = Vec::new();
         let mut destinations = Vec::new();
 
@@ -439,14 +435,20 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                state.raw_initialized.entry(result).or_default().insert(pointee);
+                state
+                    .raw_initialized
+                    .entry(result)
+                    .or_default()
+                    .insert(pointee);
             }
             CheckedMemoryOperationKind::Null { .. } => {}
             CheckedMemoryOperationKind::IsNull { .. }
             | CheckedMemoryOperationKind::LayoutQuery { .. } => {}
             CheckedMemoryOperationKind::Offset { .. }
             | CheckedMemoryOperationKind::Reinterpret { .. } => {
-                let Some(source) = arguments.first().and_then(|argument| self.argument_storage(*argument))
+                let Some(source) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
                 else {
                     return MemoryOperationStatus::Recovered;
                 };
@@ -458,7 +460,9 @@ where
                 copy_raw_state(state, source, result);
             }
             CheckedMemoryOperationKind::Read { pointee, kind } => {
-                let Some(pointer) = arguments.first().and_then(|argument| self.argument_storage(*argument))
+                let Some(pointer) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
                 else {
                     return MemoryOperationStatus::Recovered;
                 };
@@ -466,7 +470,9 @@ where
                 return apply_raw_read(state, pointer, pointee, kind);
             }
             CheckedMemoryOperationKind::Write { pointee } => {
-                let Some(pointer) = arguments.first().and_then(|argument| self.argument_storage(*argument))
+                let Some(pointer) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
                 else {
                     return MemoryOperationStatus::Recovered;
                 };
@@ -497,7 +503,9 @@ where
                 state.invalidated_allocations.remove(&result);
             }
             CheckedMemoryOperationKind::Deallocate => {
-                let Some(pointer) = arguments.first().and_then(|argument| self.argument_storage(*argument))
+                let Some(pointer) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
                 else {
                     return MemoryOperationStatus::Recovered;
                 };
@@ -517,10 +525,7 @@ where
             .find_map(|plan| self.storage.root_identity(plan.access()))
     }
 
-    fn operation_result_storage(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<StorageIdentityId> {
+    fn operation_result_storage(&self, expression: BoundExpressionId) -> Option<StorageIdentityId> {
         self.storage.identity_entries().find_map(|(id, identity)| {
             matches!(
                 identity,
@@ -532,10 +537,7 @@ where
     }
 
     fn add_memory_diagnostic(&mut self, kind: DiagnosticKind, expression: BoundExpressionId) {
-        if !self
-            .reported_memory_diagnostics
-            .insert((kind, expression))
-        {
+        if !self.reported_memory_diagnostics.insert((kind, expression)) {
             return;
         }
 
@@ -1119,7 +1121,11 @@ fn apply_raw_write(
         return MemoryOperationStatus::InvalidatedAllocation;
     }
 
-    state.raw_initialized.entry(pointer).or_default().insert(pointee);
+    state
+        .raw_initialized
+        .entry(pointer)
+        .or_default()
+        .insert(pointee);
 
     MemoryOperationStatus::Valid
 }
@@ -1183,7 +1189,9 @@ mod tests {
         MemoryReadKind, StorageIdentity, StoragePlanBuilder,
     };
 
-    use super::{StorageFlowState, apply_deallocation, apply_raw_copy, apply_raw_read, apply_raw_write};
+    use super::{
+        StorageFlowState, apply_deallocation, apply_raw_copy, apply_raw_read, apply_raw_write,
+    };
     use crate::test_support::{error_type, expression_unit, push_expression};
 
     #[test]

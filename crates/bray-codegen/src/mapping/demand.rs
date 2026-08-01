@@ -128,6 +128,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         }
         MirOperationKind::Generator(operation) => collect_generator_values(operation, demands),
         MirOperationKind::Call(call) => collect_call_values(call, demands),
+        MirOperationKind::Memory(memory) => collect_operands(memory.operands(), demands),
         MirOperationKind::PanicReport(cause) => collect_panic_values(cause, demands),
         MirOperationKind::Async(operation) => collect_async_values(operation, demands),
         MirOperationKind::Host(operation) => collect_host_values(operation, demands),

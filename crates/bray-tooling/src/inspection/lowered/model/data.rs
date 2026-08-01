@@ -3,9 +3,9 @@
 use std::fmt::Write;
 
 use bray_bound_tree::{
-    BoundCallResult, BoundLiteralKind, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, PatternOperation, PatternPredicate, PatternProjection,
-    SelectedConversion,
+    BoundCallResult, BoundLiteralKind, CheckedMemoryOperationKind, ConstructionDefaultProvider,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation, PatternPredicate,
+    PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
@@ -706,6 +706,11 @@ fn operation_parts(
 
             "call"
         }
+        MirOperationKind::Memory(memory) => {
+            memory_operation_parts(memory, parts, context)?;
+
+            "memory"
+        }
         MirOperationKind::PanicReport(cause) => {
             match cause {
                 MirPanicCause::Message(message) => parts.operand("message", message, context)?,
@@ -741,6 +746,44 @@ fn operation_parts(
     };
 
     Ok(kind)
+}
+
+fn memory_operation_parts(
+    memory: &bray_ir::MirMemoryOperation,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    let (name, types) = match memory.kind() {
+        CheckedMemoryOperationKind::Address { pointee, .. } => {
+            ("address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::Null { pointee } => ("null", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::IsNull { pointee } => ("is_null", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::Offset { pointee, .. } => {
+            ("offset", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::Reinterpret { source, target } => {
+            ("reinterpret", vec![("source", source), ("target", target)])
+        }
+        CheckedMemoryOperationKind::Read { pointee, .. } => ("read", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::Write { pointee } => ("write", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::Copy { pointee, .. } => ("copy", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::LayoutQuery { ty, .. } => ("layout_query", vec![("type", ty)]),
+        CheckedMemoryOperationKind::Allocate => ("allocate", Vec::new()),
+        CheckedMemoryOperationKind::Deallocate => ("deallocate", Vec::new()),
+    };
+
+    parts.attribute("memory_operation", name);
+
+    for (role, ty) in types {
+        parts.r#type(role, ty, context)?;
+    }
+
+    for (index, operand) in memory.operands().iter().enumerate() {
+        parts.operand(format!("operand[{index}]"), operand, context)?;
+    }
+
+    Ok(())
 }
 
 fn call_parts(

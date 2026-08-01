@@ -3,18 +3,17 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{
     BoundCallableTarget, CheckedMemoryOperation, CheckedMemoryOperationKind,
     CheckedMemoryOperations, CheckedSemanticSelections, MemoryAddressKind, MemoryCopyKind,
-    MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind, SelectedArgument,
-    SemanticSelection,
+    MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind, SelectedArgument, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, DiagnosticResult, SeverityKind};
 use bray_symbols::{CallableInstanceData, GenericArgument, TypeId};
 
+use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
     type_is_copyable,
 };
-use crate::diagnostic::{diagnostic_id, expression_span};
 
 pub(crate) fn check_memory_operations<C>(
     request: CheckerUnitView<'_, C>,
@@ -55,7 +54,10 @@ where
         let symbol = instance.definition().symbol();
         let available = request.available_compiler_known_symbols();
 
-        let Some(hook) = available.provider().role_registry().symbol_implementation(symbol)
+        let Some(hook) = available
+            .provider()
+            .role_registry()
+            .symbol_implementation(symbol)
         else {
             continue;
         };
@@ -191,12 +193,10 @@ where
             kind: MemoryAddressKind::Mutable,
             pointee: one()?,
         },
-        ImplementationHook::RawPointerNull => CheckedMemoryOperationKind::Null {
-            pointee: one()?,
-        },
-        ImplementationHook::RawPointerIsNull => CheckedMemoryOperationKind::IsNull {
-            pointee: one()?,
-        },
+        ImplementationHook::RawPointerNull => CheckedMemoryOperationKind::Null { pointee: one()? },
+        ImplementationHook::RawPointerIsNull => {
+            CheckedMemoryOperationKind::IsNull { pointee: one()? }
+        }
         ImplementationHook::RawPointerOffset => CheckedMemoryOperationKind::Offset {
             unit: MemoryOffsetUnit::Element,
             pointee: one()?,
@@ -250,9 +250,9 @@ where
                 kind: read_kind,
             }
         }
-        ImplementationHook::RawPointerWrite => CheckedMemoryOperationKind::Write {
-            pointee: one()?,
-        },
+        ImplementationHook::RawPointerWrite => {
+            CheckedMemoryOperationKind::Write { pointee: one()? }
+        }
         ImplementationHook::MemoryCopy => CheckedMemoryOperationKind::Copy {
             pointee: one()?,
             kind: MemoryCopyKind::NonOverlapping,
@@ -316,19 +316,18 @@ mod tests {
 
     use bray_bound_tree::{
         BoundErrorExpression, BoundExpression, BoundUnitId, CheckedMemoryOperationKind,
-        MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
-        MemoryReadKind,
+        MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticBag;
     use bray_symbols::TypeData;
 
     use super::classify_operation;
+    use crate::CheckerUnitView;
     use crate::test_support::{
         TestCheckerContext, callable_entry, error_type, expression_unit, push_expression,
         semantic_values,
     };
-    use crate::CheckerUnitView;
 
     #[test]
     fn hooks_classify_without_source_name_matching() {
@@ -378,13 +377,8 @@ mod tests {
             ];
 
             for (hook, types, expected) in cases {
-                let result = classify_operation(
-                    request,
-                    hook,
-                    &types,
-                    &mut read_kinds,
-                    &mut diagnostics,
-                );
+                let result =
+                    classify_operation(request, hook, &types, &mut read_kinds, &mut diagnostics);
 
                 assert_eq!(result, Ok(Some(expected)));
             }

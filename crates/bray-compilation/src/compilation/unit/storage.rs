@@ -168,8 +168,7 @@ impl Compilation {
                 let refinements =
                     self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
 
-                let memory =
-                    self.memory_operations_with_cancellation(key.clone(), cancellation)?;
+                let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
 

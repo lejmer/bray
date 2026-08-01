@@ -206,10 +206,9 @@ const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] =
         "selected target does not provide this compiler-provided memory operation",
     )];
 
-const CHECKING_MISSING_TRUSTED_MEMORY_FACTS: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "compiler-provided memory operation requires trusted supporting facts",
-    )];
+const CHECKING_MISSING_TRUSTED_MEMORY_FACTS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "compiler-provided memory operation requires trusted supporting facts",
+)];
 
 const CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(

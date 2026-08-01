@@ -88,6 +88,9 @@ pub(super) fn validate_operation(
         MirOperationKind::Call(call) => {
             validate_call(unit, block, id, call)?;
         }
+        MirOperationKind::Memory(operation) => {
+            super::memory::validate_memory_operation(unit, block, id, operation)?;
+        }
         MirOperationKind::Async(operation) => {
             validate_async_operation(unit, block, id, operation)?;
         }
@@ -153,6 +156,7 @@ fn validate_operation_block(
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::Call(_)
+        | MirOperationKind::Memory(_)
         | MirOperationKind::PanicReport(_) => true,
     };
 
@@ -253,6 +257,24 @@ fn validate_operation_result(
         }
     }
 
+    if let MirOperationKind::Memory(memory) = operation.kind() {
+        let produces_value = memory.kind().produces_value();
+
+        if produces_value != operation.result().is_some() {
+            return Err(MirUnitBuildError::InvalidMemoryOperation(id));
+        }
+
+        if let Some(result) = operation.result() {
+            let Some(result) = unit.value(result) else {
+                return Err(MirUnitBuildError::MissingValue(result));
+            };
+
+            if Some(result.ty()) != memory.result_type() {
+                return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            }
+        }
+    }
+
     if let (
         MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }),
         Some(result),
@@ -268,6 +290,91 @@ fn validate_operation_result(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
+        MemoryOffsetUnit, MemoryReadKind,
+    };
+
+    use crate::test_support::{test_other_type, test_type};
+
+    #[test]
+    fn memory_operation_shapes_cover_every_explicit_family() {
+        let ty = test_type();
+        let other = test_other_type();
+
+        let cases = [
+            (
+                CheckedMemoryOperationKind::Address {
+                    kind: MemoryAddressKind::Shared,
+                    pointee: ty,
+                },
+                1,
+                true,
+            ),
+            (CheckedMemoryOperationKind::Null { pointee: ty }, 0, true),
+            (CheckedMemoryOperationKind::IsNull { pointee: ty }, 1, true),
+            (
+                CheckedMemoryOperationKind::Offset {
+                    unit: MemoryOffsetUnit::Element,
+                    pointee: ty,
+                },
+                2,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::Reinterpret {
+                    source: ty,
+                    target: other,
+                },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::Read {
+                    pointee: ty,
+                    kind: MemoryReadKind::Move,
+                },
+                1,
+                true,
+            ),
+            (CheckedMemoryOperationKind::Write { pointee: ty }, 2, false),
+            (
+                CheckedMemoryOperationKind::Copy {
+                    pointee: ty,
+                    kind: MemoryCopyKind::NonOverlapping,
+                },
+                3,
+                false,
+            ),
+            (
+                CheckedMemoryOperationKind::LayoutQuery {
+                    ty,
+                    kind: MemoryLayoutQueryKind::Size,
+                },
+                0,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::LayoutQuery {
+                    ty,
+                    kind: MemoryLayoutQueryKind::Layout,
+                },
+                1,
+                true,
+            ),
+            (CheckedMemoryOperationKind::Allocate, 2, true),
+            (CheckedMemoryOperationKind::Deallocate, 3, false),
+        ];
+
+        for (kind, operands, produces_value) in cases {
+            assert_eq!(kind.operand_count(), operands);
+            assert_eq!(kind.produces_value(), produces_value);
+        }
+    }
 }
 
 fn validate_call(

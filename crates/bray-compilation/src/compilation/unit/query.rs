@@ -2485,7 +2485,10 @@ mod tests {
             panic!("storage flow must retain the null operation decision");
         };
 
-        assert_eq!(decision.status(), bray_bound_tree::MemoryOperationStatus::Valid);
+        assert_eq!(
+            decision.status(),
+            bray_bound_tree::MemoryOperationStatus::Valid
+        );
     }
 
     #[test]
