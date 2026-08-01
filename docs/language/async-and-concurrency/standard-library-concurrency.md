@@ -7,6 +7,10 @@ by name by the language.
 The standard library is written in Bray over the compiler-known types and private trusted runtime ABI declarations. Its public
 surface does not expose those private ABI declarations.
 
+General stream, path, filesystem, process-context, raw child-process, clock, and entropy semantics are defined by
+[I/O and platform services](../io-and-platform-services.md). This chapter defines the additional concurrency, typed child-process,
+and structured ownership contracts built over that surface.
+
 ## Implementation boundary
 
 The concurrency and parallelism implementation is divided into three layers:

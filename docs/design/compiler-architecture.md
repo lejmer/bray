@@ -35,6 +35,8 @@ Artifact planning, serialization, and publication rules live in `docs/design/emi
 
 Native linker integration rules live in `docs/design/linker.md`.
 
+Standard-library I/O and private platform-service boundary rules live in `docs/design/io-and-platform-services.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---

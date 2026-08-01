@@ -2,7 +2,8 @@
 
 The compiler-known and recognized standard-library conformance catalog is closed for a conforming Bray implementation.
 
-A conforming compiler and standard library must preserve the declaration identity, availability, contract, and observable semantics of each catalog entry.
+A conforming compiler and standard library must preserve the declaration identity, availability, contract, and observable
+semantics of each catalog entry.
 
 ## Always-available compiler-known type entries
 
@@ -77,7 +78,8 @@ The target-available compiler-known entries are:
 - target-conditional atomic declarations and facts,
 - target-conditional ABI declarations and facts,
 - target-conditional address-space declarations and facts,
-- target-conditional allocation declarations and facts.
+- target-conditional allocation declarations and facts,
+- target-conditional platform-service availability facts.
 
 ## Compiler-known traits and contracts
 

@@ -94,6 +94,8 @@ func environment() -> Environment;
 
 `Arguments` and `Environment` are ordinary owned or borrowed standard-library views selected by the product contract. Process
 identity and environment access do not grant child-process creation, termination, raw-handle, or shared-memory authority.
+The immutable snapshot and target-availability rules for these facilities are defined by
+[I/O and platform services](../io-and-platform-services.md).
 
 Normal process termination occurs only after the executable root run and its owned lifecycle obligations resolve. A safe ordinary
 process-exit operation cannot silently bypass structured cleanup. A platform may expose an explicitly aborting operation through a

@@ -495,6 +495,10 @@ it.
 
 ## Standard-library boundary
 
+The general public package layout, platform-service roles, and target artifact contract are defined by
+[I/O and platform services](io-and-platform-services.md). This section defines the additional ownership and runtime integration
+required by concurrency and parallelism.
+
 `std.run`, `std.task`, `std.channel`, `std.concurrent`, `std.parallel`, `std.sync`, `std.thread`, and `std.process` are ordinary Bray
 modules. Their public declarations are encoded in package interfaces exactly like user-library declarations.
 

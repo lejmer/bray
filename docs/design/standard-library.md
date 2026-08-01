@@ -7,6 +7,9 @@ or code-generation backend.
 The public text, byte, collection, formatting, hashing, ordering, and numeric contracts are defined by
 [Core Data Standard Library](core-data-standard-library.md).
 
+The public I/O package layout and private target mechanism boundary are defined by
+[I/O and platform services](io-and-platform-services.md).
+
 ## Principles
 
 The standard library follows the same language and package rules as other Bray libraries except where the language reserves its
@@ -83,6 +86,7 @@ independent typed contracts:
 - the selected target profile satisfies the interface's target requirements,
 - target-native artifacts name the exact target identity they were produced for,
 - runtime-dependent artifacts require a compatible `RuntimeAbiVersion`,
+- platform-dependent artifacts require a compatible platform-service ABI and the complete role set demanded by reachable code,
 - recognized declarations match the compiler-known recognition catalog by stable semantic identity,
 - and every artifact byte sequence matches its declared digest.
 
@@ -103,6 +107,7 @@ manifest records:
 - the package-interface artifact path, kind, byte length, and digest,
 - every target artifact set in canonical target-identity order,
 - each target set's exact target identity and runtime ABI requirement,
+- each target set's platform-service ABI, provided role set, and semantic-contract digest,
 - every native or dependency artifact's kind, relative path, byte length, and digest,
 - and the digest-derived identity of the complete bundle.
 
@@ -197,6 +202,7 @@ One deterministic build request fixes:
 - enabled features,
 - target profiles,
 - runtime ABI contracts,
+- platform-service ABI contracts and target service facts,
 - compiler-known catalog input,
 - and requested artifact kinds.
 
@@ -213,7 +219,12 @@ canonical `std:library` dependency edge.
 
 `bray-package-interface` owns `.brayi` encoding, validation, compatibility, and imported semantic access.
 
-`bray-target` and `bray-runtime-interface` own target and runtime ABI identities and compatibility facts.
+`bray-target` owns target identities and target compatibility facts. `bray-runtime-interface` owns runtime ABI identities and
+compatibility facts.
+
+`bray-runtime-interface` also owns the closed platform-service role identities, semantic contracts, and ABI compatibility values
+shared by standard-library binding validation, product formation, and link planning. `bray-platform` can implement those mechanisms
+for the compiler host and trusted runtime artifacts, but its Rust API is not the product ABI.
 
 `bray-compilation` owns lazy selection and validation of the exact interface and target artifacts required by a compilation.
 
