@@ -12,8 +12,9 @@ use bray_codegen::{
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend, ProductLinkFacts};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 use bray_linker::{
-    DeadStripPolicy, DebugLinkPolicy, LinkInputProvenance, LinkInputSpec, LinkModel, LinkPolicy,
-    LinkTarget, LinkedProductKind, Linker, SectionGarbageCollectionPolicy,
+    DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkInputProvenance,
+    LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind, Linker,
+    SectionGarbageCollectionPolicy,
 };
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{
@@ -555,8 +556,11 @@ impl Compilation {
                 })
         });
 
+        let standard_library_inputs = self.standard_library_link_inputs(kind)?;
+
         let native_inputs = configured_inputs
             .chain(runtime_inputs)
+            .chain(standard_library_inputs)
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut facts = ProductLinkFacts::new(link_target, driver.clone(), policy)
@@ -571,6 +575,65 @@ impl Compilation {
         }
 
         Ok(facts)
+    }
+
+    fn standard_library_link_inputs(
+        &self,
+        product_kind: ProductKind,
+    ) -> Result<Vec<Result<LinkInputSpec, NativeProductFactError>>, NativeProductFactError> {
+        if product_kind == ProductKind::Library {
+            return Ok(Vec::new());
+        }
+
+        let Some(resolver) = self.state.standard_library.as_ref() else {
+            return Ok(Vec::new());
+        };
+
+        let selected = self.options().selected_target();
+
+        let artifacts = resolver
+            .target_artifacts(selected.profile().identity(), selected.runtime_abi())
+            .map_err(NativeProductFactError::StandardLibrary)?;
+
+        let package = bray_symbols::PackageIdentity::try_new(
+            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
+        )
+        .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
+        let inputs = artifacts
+            .iter()
+            .filter_map(|artifact| {
+                let kind = match artifact.metadata().kind() {
+                    bray_standard_library::StandardLibraryArtifactKind::RelocatableObject => {
+                        LinkInputKind::RelocatableObject
+                    }
+                    bray_standard_library::StandardLibraryArtifactKind::StaticLibrary => {
+                        LinkInputKind::Archive
+                    }
+                    bray_standard_library::StandardLibraryArtifactKind::PackageInterface
+                    | bray_standard_library::StandardLibraryArtifactKind::DependencyMetadata
+                    | bray_standard_library::StandardLibraryArtifactKind::RuntimeArtifact => {
+                        return None;
+                    }
+                    bray_standard_library::StandardLibraryArtifactKind::SharedLibrary => {
+                        return Some(Err(NativeProductFactError::InvalidNativeLinkInput));
+                    }
+                };
+
+                Some(
+                    LinkInputSpec::try_new(
+                        kind,
+                        LinkInputSource::file(artifact.path()),
+                        // Every immutable input retains the Arc-backed package provenance.
+                        LinkInputProvenance::Package(package.clone()),
+                        LinkInputMode::Ordinary,
+                    )
+                    .map_err(|_| NativeProductFactError::InvalidNativeLinkInput),
+                )
+            })
+            .collect();
+
+        Ok(inputs)
     }
 }
 

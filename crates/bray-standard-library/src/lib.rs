@@ -4,6 +4,8 @@
 
 mod identity;
 mod manifest;
+mod resolver;
+mod root;
 mod source;
 
 pub use identity::{
@@ -18,3 +20,7 @@ pub use manifest::{
     StandardLibraryBundleManifest, StandardLibraryManifestError, StandardLibraryTargetArtifacts,
     decode_standard_library_manifest, encode_standard_library_manifest,
 };
+pub use resolver::{
+    ResolvedStandardLibraryArtifact, StandardLibraryLoadError, StandardLibraryResolver,
+};
+pub use root::StandardLibraryRoot;

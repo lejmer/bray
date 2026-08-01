@@ -6,6 +6,10 @@ use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
 };
+use bray_standard_library::{
+    PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
+    StandardLibraryLoadError, StandardLibraryResolver,
+};
 use bray_source::{SourceInput, SourceSpan};
 pub use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
@@ -130,6 +134,7 @@ impl Default for CompilationOptions {
 pub struct CompilationRequest {
     package_identity: PackageIdentity,
     package_source_authority: PackageSourceAuthority,
+    standard_library_root: Option<bray_standard_library::StandardLibraryRoot>,
     options: CompilationOptions,
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
@@ -171,12 +176,23 @@ impl PackageInterfaceExportRequest {
 pub struct DependencyInterfaceInput {
     package: PackageIdentity,
     product: InterfaceProductIdentity,
-    artifact_path: Arc<Path>,
+    source: DependencyInterfaceSource,
     dependency_span: Option<SourceSpan>,
-    bytes: Arc<[u8]>,
     validation_policy: InterfaceValidationPolicy,
     implementation_artifact_path: Option<Arc<Path>>,
     implementation_artifact: Option<Arc<bray_package_interface::PackageImplementationArtifact>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum DependencyInterfaceSource {
+    Bytes {
+        artifact_path: Arc<Path>,
+        bytes: Arc<[u8]>,
+    },
+    StandardLibrary {
+        artifact_path: Arc<Path>,
+        resolver: StandardLibraryResolver,
+    },
 }
 
 impl DependencyInterfaceInput {
@@ -191,9 +207,11 @@ impl DependencyInterfaceInput {
         Self {
             package,
             product,
-            artifact_path: Arc::from(artifact_path.into()),
+            source: DependencyInterfaceSource::Bytes {
+                artifact_path: Arc::from(artifact_path.into()),
+                bytes: bytes.into(),
+            },
             dependency_span: None,
-            bytes: bytes.into(),
             validation_policy,
             implementation_artifact_path: None,
             implementation_artifact: None,
@@ -231,7 +249,10 @@ impl DependencyInterfaceInput {
 
     /// Returns the stable artifact path supplied by package resolution.
     pub fn artifact_path(&self) -> &Path {
-        &self.artifact_path
+        match &self.source {
+            DependencyInterfaceSource::Bytes { artifact_path, .. }
+            | DependencyInterfaceSource::StandardLibrary { artifact_path, .. } => artifact_path,
+        }
     }
 
     /// Returns the source dependency that selected this artifact, when available.
@@ -240,8 +261,11 @@ impl DependencyInterfaceInput {
     }
 
     /// Returns the immutable untrusted artifact bytes.
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+    pub fn bytes(&self) -> Option<&[u8]> {
+        match &self.source {
+            DependencyInterfaceSource::Bytes { bytes, .. } => Some(bytes),
+            DependencyInterfaceSource::StandardLibrary { .. } => None,
+        }
     }
 
     /// Returns the selected implementation artifact path, when one was supplied.
@@ -256,9 +280,50 @@ impl DependencyInterfaceInput {
         self.implementation_artifact.as_deref()
     }
 
-    pub(crate) fn shared_bytes(&self) -> Arc<[u8]> {
-        // Validation retains immutable request bytes, so sharing avoids copying dependency files.
-        Arc::clone(&self.bytes)
+    pub(crate) fn shared_bytes(&self) -> Result<Arc<[u8]>, StandardLibraryLoadError> {
+        match &self.source {
+            DependencyInterfaceSource::Bytes { bytes, .. } => {
+                // Validation retains immutable request bytes, so sharing avoids copying files.
+                Ok(Arc::clone(bytes))
+            }
+            DependencyInterfaceSource::StandardLibrary { resolver, .. } => {
+                resolver.interface().map(|artifact| artifact.shared_bytes())
+            }
+        }
+    }
+
+    pub(crate) fn for_standard_library(resolver: StandardLibraryResolver) -> Self {
+        let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
+            .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
+        let product = InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
+            .unwrap_or_else(|| panic!("standard library product identity must be valid"));
+
+        let artifact_path = resolver
+            .root()
+            .path()
+            .join("interfaces")
+            .join("std.brayi");
+
+        Self {
+            package,
+            product,
+            source: DependencyInterfaceSource::StandardLibrary {
+                artifact_path: Arc::from(artifact_path),
+                resolver,
+            },
+            dependency_span: None,
+            validation_policy: InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            implementation_artifact_path: None,
+            implementation_artifact: None,
+        }
+    }
+
+    pub(crate) const fn is_standard_library(&self) -> bool {
+        matches!(
+            &self.source,
+            DependencyInterfaceSource::StandardLibrary { .. }
+        )
     }
 
     /// Returns the compatibility and resource policy for this artifact.
@@ -282,6 +347,7 @@ impl CompilationRequest {
         Self {
             package_identity,
             package_source_authority: PackageSourceAuthority::Ordinary,
+            standard_library_root: None,
             options,
             sources,
             dependency_interfaces: Vec::new(),
@@ -295,6 +361,16 @@ impl CompilationRequest {
     /// binding, checking, trusted capability, or artifact validation rules.
     pub const fn with_standard_library_source_authority(mut self) -> Self {
         self.package_source_authority = PackageSourceAuthority::StandardLibrary;
+
+        self
+    }
+
+    /// Returns a copy with one explicit immutable standard library bundle root.
+    pub fn with_standard_library_root(
+        mut self,
+        root: bray_standard_library::StandardLibraryRoot,
+    ) -> Self {
+        self.standard_library_root = Some(root);
 
         self
     }
@@ -329,6 +405,13 @@ impl CompilationRequest {
         self.package_source_authority
     }
 
+    /// Returns the explicit standard library root, when selected.
+    pub const fn standard_library_root(
+        &self,
+    ) -> Option<&bray_standard_library::StandardLibraryRoot> {
+        self.standard_library_root.as_ref()
+    }
+
     /// Returns the compilation options.
     pub const fn options(&self) -> &CompilationOptions {
         &self.options
@@ -355,6 +438,7 @@ impl CompilationRequest {
     ) -> (
         PackageIdentity,
         PackageSourceAuthority,
+        Option<bray_standard_library::StandardLibraryRoot>,
         CompilationOptions,
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
@@ -363,6 +447,7 @@ impl CompilationRequest {
         (
             self.package_identity,
             self.package_source_authority,
+            self.standard_library_root,
             self.options,
             self.sources,
             self.dependency_interfaces,

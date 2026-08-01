@@ -39,7 +39,22 @@ impl Compilation {
             sources,
             self.state.options.clone(),
         )
-        .with_dependency_interfaces(self.state.dependency_interfaces.iter().cloned());
+        .with_dependency_interfaces(
+            self.state
+                .dependency_interfaces
+                .iter()
+                .filter(|input| !input.is_standard_library())
+                .cloned(),
+        );
+
+        if self.state.package_source_authority.is_standard_library() {
+            request = request.with_standard_library_source_authority();
+        }
+
+        if let Some(resolver) = self.state.standard_library.as_ref() {
+            // Revised snapshots retain the same explicit immutable root, not resolver cache state.
+            request = request.with_standard_library_root(resolver.root().clone());
+        }
 
         if let Some(export) = self.state.package_interface_export.clone() {
             request = request.with_package_interface_export(export);
@@ -706,6 +721,47 @@ mod tests {
 
         assert!(updated.state.symbol_graph.get().is_none());
         assert!(updated.state.declaration_table_result.get().is_none());
+    }
+
+    #[test]
+    fn updated_source_snapshots_preserve_the_configured_standard_library_root() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+
+        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
+            .unwrap_or_else(|| panic!("temporary root must be absolute"));
+
+        let previous = Compilation::load(
+            request(
+                [source(10, 0, "module app;\n")],
+                options(ProductKind::Library, SelectedTarget::baseline()),
+            )
+            .with_standard_library_root(root.clone()),
+        )
+        .unwrap_or_else(|error| panic!("compilation must load without reading the root: {error:?}"));
+
+        let updated = previous
+            .updated_sources(vec![source(10, 1, "module app;\n")])
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert_eq!(
+            updated
+                .state
+                .standard_library
+                .as_ref()
+                .map(|resolver| resolver.root()),
+            Some(&root)
+        );
+
+        assert_eq!(
+            updated
+                .state
+                .dependency_interfaces
+                .iter()
+                .filter(|input| input.is_standard_library())
+                .count(),
+            1
+        );
     }
 
     #[test]

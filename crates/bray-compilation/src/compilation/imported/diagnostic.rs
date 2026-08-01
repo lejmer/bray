@@ -1,8 +1,10 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
+    Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
+    DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote,
     DiagnosticNoteKind, SeverityKind,
 };
 use bray_package_interface::InterfaceValidationError;
+use bray_standard_library::{StandardLibraryArtifactDigest, StandardLibraryLoadError};
 
 use crate::request::DependencyInterfaceInput;
 
@@ -32,6 +34,79 @@ pub(super) fn unlocated_interface_diagnostics(kind: DiagnosticKind) -> Diagnosti
         kind,
         SeverityKind::Error,
     ))
+}
+
+pub(super) fn standard_library_diagnostics(
+    error: StandardLibraryLoadError,
+    input: &DependencyInterfaceInput,
+) -> DiagnosticBag {
+    let diagnostic = match error {
+        StandardLibraryLoadError::Read { path, kind } => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryArtifactReadFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path(path))
+        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+            kind,
+        ))),
+        StandardLibraryLoadError::Manifest(_) => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryManifestInvalid,
+            SeverityKind::Error,
+        ),
+        StandardLibraryLoadError::ArtifactLengthMismatch {
+            path,
+            expected,
+            actual,
+        } => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryArtifactLengthMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path(path))
+        .with_arg(DiagnosticArg::expected_byte_count(expected))
+        .with_arg(DiagnosticArg::actual_byte_count(actual)),
+        StandardLibraryLoadError::ArtifactDigestMismatch {
+            path,
+            expected,
+            actual,
+        } => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryArtifactDigestMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path(path))
+        .with_arg(DiagnosticArg::expected_artifact_digest(diagnostic_digest(
+            expected,
+        )))
+        .with_arg(DiagnosticArg::actual_artifact_digest(diagnostic_digest(
+            actual,
+        ))),
+        StandardLibraryLoadError::TargetUnavailable(target) => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryTargetUnavailable,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name(target.as_str())),
+        StandardLibraryLoadError::RuntimeAbiMismatch { target, .. } => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryRuntimeAbiMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name(target.as_str())),
+        StandardLibraryLoadError::Infrastructure => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::StandardLibraryManifestInvalid,
+            SeverityKind::Error,
+        ),
+    };
+
+    DiagnosticBag::single(with_dependency_context(diagnostic, input))
+}
+
+const fn diagnostic_digest(digest: StandardLibraryArtifactDigest) -> DiagnosticArtifactDigest {
+    DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Blake3, digest.bytes())
 }
 
 pub(super) fn implementation_body_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {

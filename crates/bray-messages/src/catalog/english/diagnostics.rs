@@ -161,6 +161,38 @@ const REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart]
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const STANDARD_LIBRARY_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read standard library artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const STANDARD_LIBRARY_MANIFEST_INVALID: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("standard library manifest is invalid")];
+
+const STANDARD_LIBRARY_ARTIFACT_LENGTH_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library artifact has "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualByteCount),
+    MessageTemplatePart::Text(" bytes but expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedByteCount),
+];
+
+const STANDARD_LIBRARY_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library artifact digest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
+    MessageTemplatePart::Text(" does not match expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
+];
+
+const STANDARD_LIBRARY_TARGET_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library does not support target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library runtime ABI is incompatible with target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("source input "),
     MessageTemplatePart::Arg(DiagnosticArgName::InputIndex),
@@ -1026,6 +1058,24 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::RequestStandardLibraryPackageIdentityRequired => {
             MessageTemplate::new(REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED)
+        }
+        DiagnosticKind::StandardLibraryArtifactReadFailed => {
+            MessageTemplate::new(STANDARD_LIBRARY_ARTIFACT_READ_FAILED)
+        }
+        DiagnosticKind::StandardLibraryManifestInvalid => {
+            MessageTemplate::new(STANDARD_LIBRARY_MANIFEST_INVALID)
+        }
+        DiagnosticKind::StandardLibraryArtifactLengthMismatch => {
+            MessageTemplate::new(STANDARD_LIBRARY_ARTIFACT_LENGTH_MISMATCH)
+        }
+        DiagnosticKind::StandardLibraryArtifactDigestMismatch => {
+            MessageTemplate::new(STANDARD_LIBRARY_ARTIFACT_DIGEST_MISMATCH)
+        }
+        DiagnosticKind::StandardLibraryTargetUnavailable => {
+            MessageTemplate::new(STANDARD_LIBRARY_TARGET_UNAVAILABLE)
+        }
+        DiagnosticKind::StandardLibraryRuntimeAbiMismatch => {
+            MessageTemplate::new(STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH)
         }
         DiagnosticKind::RequestDuplicateSourceInput => {
             MessageTemplate::new(REQUEST_DUPLICATE_SOURCE_INPUT)

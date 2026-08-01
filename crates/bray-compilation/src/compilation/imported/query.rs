@@ -10,12 +10,31 @@ use bray_symbols::{ImportedInterfaceId, ImportedSymbolSkeleton, PackageIdentity,
 
 use super::diagnostic::{
     interface_diagnostics, unlocated_interface_diagnostics, validation_diagnostics,
+    standard_library_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticFactKey};
 use crate::request::DependencyInterfaceInput;
 
 impl super::super::Compilation {
+    /// Returns structured diagnostics for one failed standard library artifact request.
+    pub fn standard_library_load_diagnostics(
+        &self,
+        error: &bray_standard_library::StandardLibraryLoadError,
+    ) -> DiagnosticBag {
+        let input = self.state.dependency_interfaces.iter().find(|input| {
+            input.package().as_str()
+                == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+        });
+
+        input.map_or_else(
+            || {
+                unlocated_interface_diagnostics(DiagnosticKind::StandardLibraryManifestInvalid)
+            },
+            |input| standard_library_diagnostics(error.clone(), input),
+        )
+    }
+
     /// Resolves the canonical compilation-local handle for one selected dependency interface.
     pub fn dependency_interface_id(
         &self,
@@ -480,8 +499,17 @@ fn load_dependency_interface(
 ) -> Result<LoadedDependencyInterface, FactQueryError> {
     cancellation.check()?;
 
+    let bytes = match input.shared_bytes() {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Ok(LoadedDependencyInterface::invalid(
+                standard_library_diagnostics(error, input),
+            ));
+        }
+    };
+
     let validated =
-        match ValidatedPackageInterface::try_new(input.shared_bytes(), input.validation_policy()) {
+        match ValidatedPackageInterface::try_new(bytes, input.validation_policy()) {
             Ok(validated) => validated,
             Err(error) => {
                 return Ok(LoadedDependencyInterface::invalid(validation_diagnostics(
@@ -598,6 +626,45 @@ mod tests {
         assert!(
             diagnostic_kinds(compilation.check_diagnostics())
                 .contains(&DiagnosticKind::InterfaceInvalidMagic)
+        );
+    }
+
+    #[test]
+    fn configured_standard_library_roots_are_loaded_only_when_imports_are_demanded() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
+            .unwrap_or_else(|| panic!("temporary root must be absolute"));
+
+        let package = PackageIdentity::try_new("example.application")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let request = CompilationRequest::new(
+            package,
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(0),
+                "source",
+                SourceVersion::new(0),
+                "module application;",
+            )],
+        )
+        .with_standard_library_root(root);
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("I/O-free compilation load must succeed: {error:?}"));
+
+        assert!(compilation.source_diagnostics().is_empty());
+
+        let interface = interface_id(&compilation, "std", "library");
+
+        let result = compilation
+            .dependency_interface_result(interface)
+            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+
+        assert_eq!(
+            diagnostic_kinds(result.diagnostics()),
+            [DiagnosticKind::StandardLibraryArtifactReadFailed]
         );
     }
 

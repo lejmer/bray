@@ -28,6 +28,18 @@ define_diagnostic_kinds! {
     RequestReservedPackageIdentity,
     /// Standard library source authority is applied to a package outside the reserved namespace.
     RequestStandardLibraryPackageIdentityRequired,
+    /// A configured standard library file could not be read.
+    StandardLibraryArtifactReadFailed,
+    /// A configured standard library manifest is invalid.
+    StandardLibraryManifestInvalid,
+    /// A configured standard library artifact has an unexpected byte length.
+    StandardLibraryArtifactLengthMismatch,
+    /// A configured standard library artifact has an unexpected digest.
+    StandardLibraryArtifactDigestMismatch,
+    /// A configured standard library bundle does not support the selected target.
+    StandardLibraryTargetUnavailable,
+    /// A configured standard library target requires another runtime ABI.
+    StandardLibraryRuntimeAbiMismatch,
     /// A compilation request selects one logical source more than once.
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
@@ -402,6 +414,12 @@ impl DiagnosticKind {
             Self::RequestUnsupportedProductEmission => 1106,
             Self::RequestReservedPackageIdentity => 1107,
             Self::RequestStandardLibraryPackageIdentityRequired => 1108,
+            Self::StandardLibraryArtifactReadFailed => 1109,
+            Self::StandardLibraryManifestInvalid => 1110,
+            Self::StandardLibraryArtifactLengthMismatch => 1111,
+            Self::StandardLibraryArtifactDigestMismatch => 1112,
+            Self::StandardLibraryTargetUnavailable => 1113,
+            Self::StandardLibraryRuntimeAbiMismatch => 1114,
             Self::ProjectManifestReadFailed => 1201,
             Self::ProjectManifestParseFailed => 1202,
             Self::ProjectManifestInvalid => 1203,
@@ -594,6 +612,20 @@ impl DiagnosticKind {
             Self::RequestReservedPackageIdentity => "request_reserved_package_identity",
             Self::RequestStandardLibraryPackageIdentityRequired => {
                 "request_standard_library_package_identity_required"
+            }
+            Self::StandardLibraryArtifactReadFailed => {
+                "standard_library_artifact_read_failed"
+            }
+            Self::StandardLibraryManifestInvalid => "standard_library_manifest_invalid",
+            Self::StandardLibraryArtifactLengthMismatch => {
+                "standard_library_artifact_length_mismatch"
+            }
+            Self::StandardLibraryArtifactDigestMismatch => {
+                "standard_library_artifact_digest_mismatch"
+            }
+            Self::StandardLibraryTargetUnavailable => "standard_library_target_unavailable",
+            Self::StandardLibraryRuntimeAbiMismatch => {
+                "standard_library_runtime_abi_mismatch"
             }
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
             Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
