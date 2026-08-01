@@ -1,5 +1,5 @@
-use std::fmt;
 use std::ffi::OsString;
+use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -30,8 +30,7 @@ use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file
 
 use crate::workspace;
 
-const USAGE: &str =
-    "usage: cargo xtask standard-library <build --output <directory> [--source <directory>] | verify [--source <directory>]>";
+const USAGE: &str = "usage: cargo xtask standard-library <build --output <directory> [--source <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -102,45 +101,19 @@ fn path_argument(
 }
 
 fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError> {
-    let source = match arguments.next().as_deref() {
-        Some("--source") => Some(path_argument(&mut arguments, "--source")?),
-        Some(argument) => return Err(BuildError::UnexpectedArgument(argument.to_owned())),
-        None => None,
-    };
-
     if let Some(argument) = arguments.next() {
         return Err(BuildError::UnexpectedArgument(argument));
     }
-
-    let source = match source {
-        Some(source) => source,
-        None => workspace::root()
-            .map_err(BuildError::Workspace)?
-            .join("standard-library"),
-    };
 
     let directory = tempfile::Builder::new()
         .prefix("bray-standard-library-verification-")
         .tempdir()
         .map_err(BuildError::TemporaryDirectory)?;
 
-    let first = directory.path().join("first");
-    let second = directory.path().join("second");
-
-    build(&BuildOptions {
-        source: source.clone(),
-        output: first.clone(),
-    })?;
-
-    build(&BuildOptions {
-        source,
-        output: second.clone(),
-    })?;
-
-    compare_bundles(&first, &second)
+    super::conformance::verify(directory.path())
 }
 
-fn compare_bundles(first: &Path, second: &Path) -> Result<(), BuildError> {
+pub(super) fn compare_bundles(first: &Path, second: &Path) -> Result<(), BuildError> {
     let first_manifest = read_manifest(first)?;
     let second_manifest = read_manifest(second)?;
 
@@ -161,7 +134,7 @@ fn compare_bundles(first: &Path, second: &Path) -> Result<(), BuildError> {
     Ok(())
 }
 
-fn read_manifest(root: &Path) -> Result<StandardLibraryBundleManifest, BuildError> {
+pub(super) fn read_manifest(root: &Path) -> Result<StandardLibraryBundleManifest, BuildError> {
     let path = root.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
     let bytes = fs::read(&path).map_err(|error| BuildError::read(&path, error))?;
 
@@ -184,7 +157,9 @@ fn compare_artifact(
         fs::read(&second_path).map_err(|error| BuildError::read(&second_path, error))?;
 
     if first_bytes != second_bytes {
-        return Err(BuildError::NonReproducibleArtifact(artifact.path().to_owned()));
+        return Err(BuildError::NonReproducibleArtifact(
+            artifact.path().to_owned(),
+        ));
     }
 
     Ok(())
@@ -372,13 +347,10 @@ fn build_target(
         selected.clone(),
     );
 
-    let request = CompilationRequest::with_options(
-        product.identity().package().clone(),
-        sources,
-        options,
-    )
-    .with_standard_library_source_authority()
-    .with_package_interface_export(interface_export_request(product.identity())?);
+    let request =
+        CompilationRequest::with_options(product.identity().package().clone(), sources, options)
+            .with_standard_library_source_authority()
+            .with_package_interface_export(interface_export_request(product.identity())?);
 
     let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;
 
@@ -420,8 +392,8 @@ fn build_target(
     )
     .map_err(|error| BuildError::EmissionRequest(format!("{error:?}")))?;
 
-    let inputs = ProductEmissionInputs::new(&output_description)
-        .with_native_product(&native_facts, &linker);
+    let inputs =
+        ProductEmissionInputs::new(&output_description).with_native_product(&native_facts, &linker);
 
     let outcome = compilation
         .emit_product(request, inputs)
@@ -506,7 +478,11 @@ fn standard_library_product(graph: &ProjectGraph) -> Result<&ProjectProduct, Bui
         .ok_or(BuildError::MissingProduct)
 }
 
-fn write_bundle_artifact(bundle: &Path, path: &str, bytes: &[u8]) -> Result<(), BuildError> {
+pub(super) fn write_bundle_artifact(
+    bundle: &Path,
+    path: &str,
+    bytes: &[u8],
+) -> Result<(), BuildError> {
     let destination = path
         .split('/')
         .fold(bundle.to_path_buf(), |path, component| path.join(component));
@@ -521,7 +497,7 @@ fn write_bundle_artifact(bundle: &Path, path: &str, bytes: &[u8]) -> Result<(), 
 }
 
 #[derive(Debug)]
-enum BuildError {
+pub(super) enum BuildError {
     Usage,
     UnexpectedArgument(String),
     MissingValue(&'static str),
@@ -549,6 +525,10 @@ enum BuildError {
     MissingInterface,
     NonReproducibleManifest,
     NonReproducibleArtifact(String),
+    Conformance {
+        check: &'static str,
+        detail: String,
+    },
     Manifest(String),
     Io {
         action: &'static str,
@@ -559,7 +539,14 @@ enum BuildError {
 }
 
 impl BuildError {
-    fn read(path: &Path, source: std::io::Error) -> Self {
+    pub(super) fn conformance(check: &'static str, detail: impl Into<String>) -> Self {
+        Self::Conformance {
+            check,
+            detail: detail.into(),
+        }
+    }
+
+    pub(super) fn read(path: &Path, source: std::io::Error) -> Self {
         Self::Io {
             action: "read",
             path: path.to_path_buf(),
@@ -611,7 +598,10 @@ impl fmt::Display for BuildError {
                 write!(formatter, "standard library project is invalid: {error}")
             }
             Self::Source(error) => {
-                write!(formatter, "standard library source could not be read: {error}")
+                write!(
+                    formatter,
+                    "standard library source could not be read: {error}"
+                )
             }
             Self::TemporaryDirectory(error) => {
                 write!(formatter, "could not create staging directory: {error}")
@@ -664,9 +654,8 @@ impl fmt::Display for BuildError {
             Self::MissingProduct => {
                 formatter.write_str("standard library product std:library is missing")
             }
-            Self::MissingInterface => {
-                formatter.write_str("standard library has no target from which to build its interface")
-            }
+            Self::MissingInterface => formatter
+                .write_str("standard library has no target from which to build its interface"),
             Self::NonReproducibleManifest => {
                 formatter.write_str("repeated standard library builds produced different manifests")
             }
@@ -674,6 +663,12 @@ impl fmt::Display for BuildError {
                 write!(
                     formatter,
                     "repeated standard library builds produced different bytes for {path}"
+                )
+            }
+            Self::Conformance { check, detail } => {
+                write!(
+                    formatter,
+                    "standard library {check} conformance failed: {detail}"
                 )
             }
             Self::Manifest(error) => {
