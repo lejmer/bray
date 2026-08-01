@@ -313,4 +313,3 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.load_owned_memory(buffer, buffer_type, 3, "memory.buffer")
     }
 }
-
