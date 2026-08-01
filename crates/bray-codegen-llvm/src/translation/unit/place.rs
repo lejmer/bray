@@ -190,7 +190,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.dynamic_offset_pointer(data, index, stride)
             }
-            CodegenTypeKind::Aggregate(_) => Err(CodegenFailure::GeneratedModuleInvariant),
+            CodegenTypeKind::Aggregate(fields) => {
+                let (data, _) = self.slice_parts(pointer, source_type, fields)?;
+
+                let element = self
+                    .request
+                    .mappings()
+                    .ty(fields[0].ty())
+                    .and_then(|mapping| match mapping.kind() {
+                        CodegenTypeKind::Pointer { target, .. } => Some(*target),
+                        _ => None,
+                    })
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                let stride = mapped_type_size(self.request.mappings(), element)?;
+
+                self.dynamic_offset_pointer(data, index, stride)
+            }
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
     }
@@ -559,6 +575,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(value);
         }
 
+        if let Some(layout) = self.equivalent_codegen_layout(source, target) {
+            let storage = self.aligned_alloca(
+                source,
+                layout.alignment().get(),
+                "convert.representation",
+            )?;
+
+            llvm(self.builder.build_store(storage, value))?;
+
+            return llvm(self.builder.build_load(
+                self.types.map(target)?,
+                storage,
+                "convert.representation.value",
+            ));
+        }
+
         let source_signed = self.signed_integer(source).unwrap_or(false);
         let target_signed = self.signed_integer(target).unwrap_or(false);
         let target_type = self.types.map(target)?;
@@ -601,6 +633,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (value, target) if value.get_type() == target => Ok(value),
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
+    }
+
+    fn equivalent_codegen_layout(
+        &self,
+        source: bray_symbols::TypeId,
+        target: bray_symbols::TypeId,
+    ) -> Option<bray_target::TargetValueLayout> {
+        let source = self.request.mappings().ty(source)?;
+        let target = self.request.mappings().ty(target)?;
+
+        (source.kind() == target.kind() && source.layout() == target.layout())
+            .then(|| source.layout())
+            .flatten()
     }
 
     pub(super) fn project_value(

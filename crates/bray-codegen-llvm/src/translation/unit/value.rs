@@ -35,7 +35,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     }
                 }
             }
-            MirOperand::Copy(place) | MirOperand::Move(place) => {
+            MirOperand::Copy(place) => {
                 let pointer = self.place(place)?;
 
                 llvm(
@@ -43,8 +43,50 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .build_load(self.types.map(place.ty())?, pointer, "load"),
                 )
             }
+            MirOperand::Move(place) => {
+                let pointer = self.place(place)?;
+
+                if !self.pending_moves.contains(place) {
+                    self.pending_moves.push(place.clone());
+                }
+
+                llvm(
+                    self.builder
+                        .build_load(self.types.map(place.ty())?, pointer, "move"),
+                )
+            }
             MirOperand::Constant { value, .. } => self.constant(*value),
         }
+    }
+
+    pub(super) fn clear_moved_places(&mut self) -> Result<(), CodegenFailure> {
+        let moved = std::mem::take(&mut self.pending_moves);
+
+        for place in moved {
+            let ownership_bearing = self
+                .request
+                .mappings()
+                .ty(place.ty())
+                .is_some_and(|mapping| {
+                    matches!(
+                        mapping.kind(),
+                        CodegenTypeKind::Aggregate(_)
+                            | CodegenTypeKind::Array { .. }
+                            | CodegenTypeKind::Union { .. }
+                    )
+                });
+
+            if !ownership_bearing {
+                continue;
+            }
+
+            let pointer = self.place(&place)?;
+            let value_type = self.types.map(place.ty())?;
+
+            llvm(self.builder.build_store(pointer, value_type.const_zero()))?;
+        }
+
+        Ok(())
     }
 
     pub(super) fn constant(

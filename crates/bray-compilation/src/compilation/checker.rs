@@ -229,7 +229,6 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         }
 
         let standard_library = standard_library_package_identity()?;
-
         let symbols = self.symbols();
 
         let Some(package) = symbols

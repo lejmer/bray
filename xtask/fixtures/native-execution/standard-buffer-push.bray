@@ -1,0 +1,22 @@
+module std.bytes;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: Buffer = try create(capacity = 0);
+
+    try reserve(additional = 3, buffer = &mut buffer);
+    try push(value = 4, buffer = &mut buffer);
+    try push(value = 5, buffer = &mut buffer);
+    try push(value = 6, buffer = &mut buffer);
+    try reserve(additional = 2, buffer = &mut buffer);
+
+    let values: &mut [u8] = as_slice_mut(&mut buffer);
+
+    assert(length(&buffer) == 3);
+    assert(capacity(&buffer) >= 5);
+    assert(values[0] == 4);
+    assert(values[1] == 5);
+    assert(values[2] == 6);
+
+    return .Ok(unit);
+}

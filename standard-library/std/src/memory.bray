@@ -24,12 +24,24 @@ extern trusted func reinterpret<Target, Source>(
     uses(layout_reinterpret);
 
 extern trusted func read<T>(pos pointer: RawPointer<T>) -> T
+    requires(
+        trusted core.memory.valid_read(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+    )
     uses(raw_memory);
 
 extern trusted func write<T>(
     pos pointer: RawPointer<T>,
     pos value: T,
 ) -> unit
+    requires(
+        trusted core.memory.valid_write(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+    )
     uses(raw_memory, unchecked_init);
 
 extern trusted func copy<T>(
@@ -37,6 +49,26 @@ extern trusted func copy<T>(
     pos destination: RawPointer<T>,
     count: usize,
 ) -> unit
+    requires(
+        trusted core.memory.valid_read(pointer = source, count = count),
+        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.initialized_range_as<T>(
+            pointer = source,
+            count = count,
+        ),
+        trusted core.memory.non_overlapping(
+            left = source,
+            left_count = count,
+            right = destination,
+            right_count = count,
+        ),
+    )
+    ensures(
+        trusted core.memory.initialized_range_as<T>(
+            pointer = destination,
+            count = count,
+        ),
+    )
     uses(raw_memory, unchecked_init);
 
 extern trusted func copy_overlapping<T>(
@@ -44,6 +76,20 @@ extern trusted func copy_overlapping<T>(
     pos destination: RawPointer<T>,
     count: usize,
 ) -> unit
+    requires(
+        trusted core.memory.valid_read(pointer = source, count = count),
+        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.initialized_range_as<T>(
+            pointer = source,
+            count = count,
+        ),
+    )
+    ensures(
+        trusted core.memory.initialized_range_as<T>(
+            pointer = destination,
+            count = count,
+        ),
+    )
     uses(raw_memory, unchecked_init);
 
 struct MemoryLayout
@@ -73,9 +119,25 @@ struct RawAllocation
     pointer: RawPointer<u8>;
     bytes: usize;
     align: usize;
+
+    trusted destruct()
+    {
+        trusted deallocate(self);
+    }
 }
 
 extern trusted func allocate(pos layout: MemoryLayout) -> RawAllocation
+    ensures(
+        trusted core.memory.owned_allocation(
+            pointer = result.pointer,
+            bytes = result.bytes,
+            align = result.align,
+        ),
+        trusted core.memory.valid_write(
+            pointer = result.pointer,
+            count = result.bytes,
+        ),
+    )
     uses(manual_alloc);
 
 extern trusted func deallocate(pos allocation: RawAllocation) -> unit
@@ -86,6 +148,11 @@ struct RawBuffer<T>
     pointer: RawPointer<T>;
     capacity: usize;
     initialized: usize;
+
+    trusted destruct()
+    {
+        trusted raw_buffer_release<T>(&mut self);
+    }
 }
 
 trusted func create_buffer<T>(
@@ -93,11 +160,26 @@ trusted func create_buffer<T>(
 ) -> Result<RawBuffer<T>, MemoryLayoutError>
     uses(manual_alloc, layout_reinterpret)
 {
-    let layout: MemoryLayout = try layout_of<T>(count = capacity);
-    let allocation: RawAllocation = trusted allocate(layout);
+    if capacity == 0
+    {
+        let empty_pointer: RawPointer<T> = null<T>();
+        let empty_initialized: usize = 0;
+        let buffer: RawBuffer<T> = {
+            pointer = empty_pointer,
+            capacity = capacity,
+            initialized = empty_initialized,
+        };
 
+        return .Ok(buffer);
+    };
+
+    let layout: MemoryLayout = try layout_of<T>(count = capacity);
+    let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(
+        bytes = layout.bytes,
+        align = layout.align,
+    );
     let storage_pointer: RawPointer<T> =
-        trusted reinterpret<T, u8>(allocation.pointer);
+        trusted reinterpret<T, u8>(allocation_pointer);
     let initialized: usize = 0;
 
     let buffer: RawBuffer<T> = {
@@ -128,67 +210,40 @@ extern trusted func initialized_slice_mut<T>(
 extern trusted func spare_pointer<T>(
     pos buffer: &mut RawBuffer<T>,
 ) -> RawPointer<T>
+    ensures(
+        trusted core.memory.valid_write(
+            pointer = result,
+            count = buffer.capacity - buffer.initialized,
+        ),
+        trusted core.memory.aligned_for<T>(pointer = result),
+    )
     uses(raw_memory);
 
 extern trusted func set_initialized_count<T>(
     pos buffer: &mut RawBuffer<T>,
     count: usize,
 ) -> unit
+    requires(
+        count <= buffer.capacity,
+        trusted core.memory.initialized_range_as<T>(
+            pointer = buffer.pointer,
+            count = count,
+        ),
+    )
+    ensures(
+        buffer.initialized == count,
+    )
     uses(unchecked_init);
 
-trusted internal func byte_buffer_create(
-    capacity: usize,
-) -> Result<RawBuffer<u8>, MemoryLayoutError>
-{
-    return trusted create_buffer<u8>(capacity = capacity);
-}
-
-internal func byte_buffer_capacity(pos buffer: &RawBuffer<u8>) -> usize
-{
-    return buffer.capacity;
-}
-
-internal func byte_buffer_initialized_count(pos buffer: &RawBuffer<u8>) -> usize
-{
-    return buffer.initialized;
-}
-
-internal func byte_buffer_pointer(pos buffer: &RawBuffer<u8>) -> RawPointer<u8>
-{
-    return buffer.pointer;
-}
-
-trusted internal func byte_buffer_initialized_slice(
-    pos buffer: &RawBuffer<u8>,
-) -> &[u8]
-{
-    return trusted initialized_slice<u8>(buffer);
-}
-
-trusted internal func byte_buffer_initialized_slice_mut(
-    pos buffer: &mut RawBuffer<u8>,
-) -> &mut [u8]
-{
-    return trusted initialized_slice_mut<u8>(buffer);
-}
-
-trusted internal func byte_buffer_spare_pointer(
-    pos buffer: &mut RawBuffer<u8>,
-) -> RawPointer<u8>
-{
-    return trusted spare_pointer<u8>(buffer);
-}
-
-trusted internal func byte_buffer_set_initialized_count(
-    pos buffer: &mut RawBuffer<u8>,
-    count: usize,
+extern trusted internal func raw_buffer_release<T>(
+    pos buffer: &mut RawBuffer<T>,
 ) -> unit
-{
-    trusted set_initialized_count<u8>(count = count, buffer = &mut buffer);
-}
+    uses(manual_alloc);
 
-extern trusted internal func byte_buffer_release(
-    pos buffer: &mut RawBuffer<u8>,
+extern trusted internal func raw_buffer_replace<T>(
+    pos destination: &mut RawBuffer<T>,
+    pos source: &mut RawBuffer<T>,
+    initialized: usize,
 ) -> unit
     uses(manual_alloc);
 
@@ -211,6 +266,8 @@ extern trusted internal func byte_buffer_read(
     index: usize,
 ) -> u8
     uses(raw_memory);
+
+extern internal func byte_slice_length(pos bytes: &[u8]) -> usize;
 
 internal func byte_address_of(pos value: &u8) -> RawPointer<u8>
 {

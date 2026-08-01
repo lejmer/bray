@@ -367,7 +367,7 @@ impl Compilation {
         Ok(realized)
     }
 
-    fn realize_codegen_constant_argument(
+    pub(super) fn realize_codegen_constant_argument(
         &self,
         term: bray_symbols::ConstantTermId,
     ) -> Result<bray_symbols::ConstantTermId, CodegenFactError> {

@@ -3,7 +3,9 @@ use crate::mapping::LlvmTypeMappings;
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
 };
-use bray_ir::{MirBlockId, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId};
+use bray_ir::{
+    MirBlockId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId,
+};
 use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -86,6 +88,7 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
     pub(super) storages: BTreeMap<MirStorageId, PointerValue<'context>>,
     pub(super) values: BTreeMap<MirValueId, BasicValueEnum<'context>>,
+    pub(super) pending_moves: Vec<MirPlace>,
     pub(super) host_root: Option<BasicValueEnum<'context>>,
     pub(super) host_result: Option<BasicValueEnum<'context>>,
     pub(super) host_status: Option<inkwell::values::IntValue<'context>>,
@@ -130,6 +133,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
+            pending_moves: Vec::new(),
             host_root: None,
             host_result: None,
             host_status: None,
@@ -180,6 +184,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
+            pending_moves: Vec::new(),
             host_root: None,
             host_result: None,
             host_status: None,
@@ -466,10 +471,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let parameter_storages = self
             .unit
             .storages_with_ids()
-            .filter(|(_, storage)| storage.kind() == MirStorageKind::Parameter);
+            .filter_map(|(id, storage)| match storage.kind() {
+                MirStorageKind::Parameter(position) => Some((position, id)),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
 
-        for ((storage, _), mapping) in parameter_storages.zip(self.signature.parameters()) {
-            let destination = self.storage(storage)?;
+        for (position, mapping) in self.signature.parameters().iter().enumerate() {
+            let storage = u32::try_from(position)
+                .ok()
+                .and_then(|position| parameter_storages.get(&position).copied());
 
             match mapping {
                 CodegenParameterMapping::Ignore => {}
@@ -482,7 +493,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         )
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    llvm(self.builder.build_store(destination, value))?;
+                    if let Some(storage) = storage {
+                        llvm(self.builder.build_store(self.storage(storage)?, value))?;
+                    }
+
                     llvm_index += 1;
                 }
                 CodegenParameterMapping::Indirect { pointee, .. } => {
@@ -501,7 +515,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "parameter.indirect",
                     ))?;
 
-                    llvm(self.builder.build_store(destination, value))?;
+                    if let Some(storage) = storage {
+                        llvm(self.builder.build_store(self.storage(storage)?, value))?;
+                    }
+
                     llvm_index += 1;
                 }
             }

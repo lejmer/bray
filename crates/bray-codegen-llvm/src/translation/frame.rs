@@ -207,26 +207,21 @@ fn initialize_parameters(
     let storages = instance
         .mir()
         .storages_with_ids()
-        .filter(|(_, storage)| storage.kind() == MirStorageKind::Parameter);
+        .filter_map(|(id, storage)| match storage.kind() {
+            MirStorageKind::Parameter(position) => Some((position, id)),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     let mut parameter_index = u32::from(matches!(
         signature.result(),
         CodegenResultMapping::Indirect { .. }
     ));
 
-    for ((storage, _), mapping) in storages.zip(signature.parameters()) {
-        let destination = builder
-            .build_struct_gep(
-                context_type,
-                context,
-                storage
-                    .slot()
-                    .checked_add(3)
-                    .and_then(|index| u32::try_from(index).ok())
-                    .ok_or(CodegenFailure::ResourceExhausted)?,
-                "frame.parameter",
-            )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    for (position, mapping) in signature.parameters().iter().enumerate() {
+        let storage = u32::try_from(position)
+            .ok()
+            .and_then(|position| storages.get(&position).copied());
 
         match mapping {
             CodegenParameterMapping::Ignore => {}
@@ -235,9 +230,24 @@ fn initialize_parameters(
                     .get_nth_param(parameter_index)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                builder
-                    .build_store(destination, value)
-                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                if let Some(storage) = storage {
+                    let destination = builder
+                        .build_struct_gep(
+                            context_type,
+                            context,
+                            storage
+                                .slot()
+                                .checked_add(3)
+                                .and_then(|index| u32::try_from(index).ok())
+                                .ok_or(CodegenFailure::ResourceExhausted)?,
+                            "frame.parameter",
+                        )
+                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+                    builder
+                        .build_store(destination, value)
+                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                }
 
                 parameter_index += 1;
             }

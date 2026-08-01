@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::core::UnitTranslator;
 use super::support::{llvm, next_helper, parameter_type, pointer_value};
 use crate::mapping::type_attribute;
@@ -118,22 +120,67 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         call: &MirCall,
         helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
-        let mut arguments = Vec::with_capacity(call.arguments().len());
+        let mut receiver = None;
+        let mut parameters = BTreeMap::new();
+        let mut defaults = Vec::new();
 
         for argument in call.arguments() {
-            let value = match argument {
-                MirCallArgument::Receiver { value, .. }
-                | MirCallArgument::Explicit { value, .. } => self.operand(value)?,
-                MirCallArgument::Default { provider, .. } => {
-                    let helper =
-                        next_helper(helpers, &MirHelperReference::CallableDefault(*provider))?;
+            match argument {
+                MirCallArgument::Receiver { value, .. } => {
+                    let value = self.operand(value)?;
 
-                    self.invoke_helper(helper, &arguments)?
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+                    if receiver.replace(value).is_some() {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
                 }
-            };
+                MirCallArgument::Explicit { ordinal, value, .. } => {
+                    let value = self.operand(value)?;
+
+                    if parameters.insert(*ordinal, value).is_some() {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
+                }
+                MirCallArgument::Default {
+                    ordinal, provider, ..
+                } => defaults.push((*ordinal, *provider)),
+            }
+        }
+
+        for (ordinal, provider) in defaults {
+            let helper = next_helper(helpers, &MirHelperReference::CallableDefault(provider))?;
+            let mut preceding = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
+
+            preceding.extend(receiver);
+
+            preceding.extend(
+                parameters
+                    .range(..ordinal)
+                    .map(|(_, value)| *value),
+            );
+
+            let value = self
+                .invoke_helper(helper, &preceding)?
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            if parameters.insert(ordinal, value).is_some() {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+        }
+
+        let mut arguments = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
+
+        arguments.extend(receiver);
+
+        for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {
+            if ordinal != expected {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
 
             arguments.push(value);
+        }
+
+        if arguments.len() != call.arguments().len() {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
         Ok(arguments)

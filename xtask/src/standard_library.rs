@@ -699,10 +699,9 @@ impl fmt::Display for BuildError {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::path::PathBuf;
 
-    use super::{BuildError, BuildOptions, workspace};
+    use super::{BuildError, BuildOptions};
 
     #[test]
     fn build_options_require_an_output_and_reject_unknown_arguments() {
@@ -734,41 +733,4 @@ mod tests {
         assert_eq!(options.output, PathBuf::from("output"));
     }
 
-    #[test]
-    fn buffer_destruction_releases_its_owned_storage_once() {
-        let source = standard_library_source("bytes.bray");
-        let release = "std.memory.byte_buffer_release(&mut self.storage)";
-
-        assert_eq!(source.matches(release).count(), 1);
-    }
-
-    #[test]
-    fn buffer_reserve_releases_empty_or_nonempty_storage_before_replacement() {
-        let source = standard_library_source("bytes_impl.bray");
-        let release = "std.memory.byte_buffer_release(&mut buffer.storage)";
-        let assignment = "buffer.storage = replacement";
-
-        assert_eq!(source.matches(release).count(), 1);
-        assert_eq!(source.matches("support_replace_storage(").count(), 2);
-
-        let release = source
-            .find(release)
-            .unwrap_or_else(|| panic!("storage replacement must release the old allocation"));
-
-        let assignment = source
-            .find(assignment)
-            .unwrap_or_else(|| panic!("storage replacement must install the new allocation"));
-
-        assert!(release < assignment);
-    }
-
-    fn standard_library_source(file_name: &str) -> String {
-        let root = workspace::root()
-            .unwrap_or_else(|error| panic!("workspace root must resolve: {error}"));
-
-        let path = root.join("standard-library/std/src").join(file_name);
-
-        fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("{} must be readable: {error}", path.display()))
-    }
 }

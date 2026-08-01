@@ -31,7 +31,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::RecoveredBoundNode(id.into()));
         }
 
-        match expression {
+        let lowered = match expression {
             BoundExpression::Block(expression) => self.lower_block(expression.block(), current),
             BoundExpression::Literal(expression) => {
                 let source = self.source(expression.origin());
@@ -145,7 +145,98 @@ impl Lowerer<'_> {
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
             | BoundExpression::Error(_) => Err(LoweringError::UnsupportedExpression(id)),
+        }?;
+
+        self.materialize_temporary(id, lowered)
+    }
+
+    fn materialize_temporary(
+        &mut self,
+        expression: BoundExpressionId,
+        lowered: LoweredExpression,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let Some(current) = lowered.block else {
+            return Ok(lowered);
+        };
+
+        let Some(value) = lowered.value else {
+            return Ok(lowered);
+        };
+
+        let temporary = self
+            .input
+            .storage_plan()
+            .identity_entries()
+            .find_map(|(identity, model)| {
+                matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
+                    .then_some(identity)
+            });
+
+        let Some(temporary) = temporary else {
+            return Ok(LoweredExpression::continuing(
+                current,
+                Some(value),
+                lowered.source,
+            ));
+        };
+
+        let requires_lifecycle_storage = self
+            .input
+            .async_facts()
+            .scope_exits()
+            .iter()
+            .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)
+            .any(|access| {
+                self.input.storage_plan().root_identity(*access) == Some(temporary)
+            });
+
+        if !requires_lifecycle_storage {
+            return Ok(LoweredExpression::continuing(
+                current,
+                Some(value),
+                lowered.source,
+            ));
         }
+
+        let ty = self.expression_type(expression)?;
+
+        let origin = self
+            .input
+            .unit()
+            .view()
+            .expression(expression)
+            .map(BoundExpression::origin)
+            .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
+
+        let place = self.place_for_identity(temporary, ty, origin)?;
+
+        if matches!(
+            &value,
+            MirOperand::Copy(existing) | MirOperand::Move(existing) if existing == &place
+        ) {
+            return Ok(LoweredExpression::continuing(
+                current,
+                Some(value),
+                lowered.source,
+            ));
+        }
+
+        self.builder.push_operation(
+            current,
+            Self::retained_source(&lowered.source),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: place.clone(),
+                value,
+            },
+            None,
+        )?;
+
+        Ok(LoweredExpression::continuing(
+            current,
+            Some(MirOperand::Move(place)),
+            lowered.source,
+        ))
     }
 
     fn lower_unary(
@@ -711,7 +802,7 @@ impl Lowerer<'_> {
                     .identity(id)
                     .ok_or(LoweringError::MissingStorageIdentityRecord(id))?;
 
-                let kind = storage_kind(identity);
+                let kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
 
                 let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
 
@@ -753,12 +844,14 @@ fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
     }
 }
 
-fn storage_kind(identity: StorageIdentity) -> MirStorageKind {
+fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> MirStorageKind {
     match identity {
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
-        | StorageIdentity::PredicateParameter(_) => MirStorageKind::Parameter,
+        | StorageIdentity::PredicateParameter(_) => {
+            MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
+        }
         StorageIdentity::LocalOwned(_) | StorageIdentity::Alternative { .. } => {
             MirStorageKind::Local
         }

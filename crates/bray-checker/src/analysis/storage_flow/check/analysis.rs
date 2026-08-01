@@ -175,10 +175,15 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate
             | CheckedMemoryOperationKind::Deallocate
+            | CheckedMemoryOperationKind::RawBufferInitializedSlice
+            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+            | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+            | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+            | CheckedMemoryOperationKind::RawBufferRelease { .. }
+            | CheckedMemoryOperationKind::RawBufferReplace { .. }
             | CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::ByteBufferRelease
     )
 }
 
@@ -521,7 +526,16 @@ where
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::ByteBufferRelease => {}
+            | CheckedMemoryOperationKind::ByteSliceLength
+            | CheckedMemoryOperationKind::RawBufferCapacity
+            | CheckedMemoryOperationKind::RawBufferInitializedCount
+            | CheckedMemoryOperationKind::RawBufferPointer
+            | CheckedMemoryOperationKind::RawBufferInitializedSlice
+            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+            | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+            | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+            | CheckedMemoryOperationKind::RawBufferRelease { .. } => {}
+            | CheckedMemoryOperationKind::RawBufferReplace { .. } => {}
         }
 
         MemoryOperationStatus::Valid
@@ -690,6 +704,12 @@ where
         match purpose {
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access());
+
+                if self.move_consumes_complete_union_payload(plan.access())
+                    && let Some(root) = self.root_access(plan.access())
+                {
+                    state.moved.insert(root);
+                }
             }
             StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
                 if self.storage.is_root_access(plan.access())
@@ -718,6 +738,31 @@ where
             | StorageAccessPurpose::Slice
             | StorageAccessPurpose::Projection => {}
         }
+    }
+
+    fn move_consumes_complete_union_payload(&self, access: StorageAccessId) -> bool {
+        let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) = self
+            .storage
+            .resolved_projections(access)
+            .and_then(|projections| projections.last())
+        else {
+            return false;
+        };
+
+        self.request
+            .symbols()
+            .union_variant(*variant)
+            .is_some_and(|variant| variant.payload_fields().len() == 1)
+    }
+
+    fn root_access(&self, access: StorageAccessId) -> Option<StorageAccessId> {
+        let identity = self.storage.root_identity(access)?;
+
+        self.storage.access_entries().find_map(|(candidate, _)| {
+            (self.storage.root_identity(candidate) == Some(identity)
+                && self.storage.is_root_access(candidate))
+            .then_some(candidate)
+        })
     }
 
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {

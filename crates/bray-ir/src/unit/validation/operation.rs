@@ -374,10 +374,42 @@ mod tests {
             (CheckedMemoryOperationKind::RawDeallocate, 3, false),
             (CheckedMemoryOperationKind::Allocate, 1, true),
             (CheckedMemoryOperationKind::Deallocate, 1, false),
+            (CheckedMemoryOperationKind::RawBufferCapacity, 1, true),
+            (
+                CheckedMemoryOperationKind::RawBufferInitializedCount,
+                1,
+                true,
+            ),
+            (CheckedMemoryOperationKind::RawBufferPointer, 1, true),
+            (
+                CheckedMemoryOperationKind::RawBufferInitializedSlice,
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::RawBufferSparePointer { element: ty },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::RawBufferSetInitializedCount,
+                2,
+                false,
+            ),
+            (
+                CheckedMemoryOperationKind::RawBufferRelease { element: ty },
+                1,
+                false,
+            ),
             (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
             (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
-            (CheckedMemoryOperationKind::ByteBufferRelease, 1, false),
+            (CheckedMemoryOperationKind::ByteSliceLength, 1, true),
         ];
 
         for (kind, operands, produces_value) in cases {

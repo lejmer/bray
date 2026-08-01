@@ -784,10 +784,33 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
             ("deallocate", Vec::new())
         }
+        CheckedMemoryOperationKind::RawBufferCapacity => ("raw_buffer_capacity", Vec::new()),
+        CheckedMemoryOperationKind::RawBufferInitializedCount => {
+            ("raw_buffer_initialized_count", Vec::new())
+        }
+        CheckedMemoryOperationKind::RawBufferPointer => ("raw_buffer_pointer", Vec::new()),
+        CheckedMemoryOperationKind::RawBufferInitializedSlice => {
+            ("raw_buffer_initialized_slice", Vec::new())
+        }
+        CheckedMemoryOperationKind::RawBufferInitializedSliceMut => {
+            ("raw_buffer_initialized_slice_mut", Vec::new())
+        }
+        CheckedMemoryOperationKind::RawBufferSparePointer { element } => {
+            ("raw_buffer_spare_pointer", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
+            ("raw_buffer_set_initialized_count", Vec::new())
+        }
+        CheckedMemoryOperationKind::RawBufferRelease { element } => {
+            ("raw_buffer_release", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::RawBufferReplace { element } => {
+            ("raw_buffer_replace", vec![("element", element)])
+        }
         CheckedMemoryOperationKind::ByteBufferFill => ("byte_buffer_fill", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
-        CheckedMemoryOperationKind::ByteBufferRelease => ("byte_buffer_release", Vec::new()),
+        CheckedMemoryOperationKind::ByteSliceLength => ("byte_slice_length", Vec::new()),
     };
 
     parts.attribute("memory_operation", name);
@@ -2136,7 +2159,7 @@ const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &
 
 fn storage_kind(kind: MirStorageKind) -> &'static str {
     match kind {
-        MirStorageKind::Parameter => "parameter",
+        MirStorageKind::Parameter(_) => "parameter",
         MirStorageKind::Local => "local",
         MirStorageKind::Temporary => "temporary",
         MirStorageKind::Return => "return",

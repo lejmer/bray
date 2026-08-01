@@ -5,11 +5,6 @@ using std.memory;
 struct Buffer
 {
     internal mut storage: std.memory.RawBuffer<u8>;
-
-    trusted destruct()
-    {
-        trusted internal std.memory.byte_buffer_release(&mut self.storage);
-    }
 }
 
 func create(
@@ -28,12 +23,12 @@ func from_slice(
 
 func length(pos buffer: &Buffer) -> usize
 {
-    return internal std.memory.byte_buffer_initialized_count(&buffer.storage);
+    return std.memory.initialized_count<u8>(&buffer.storage);
 }
 
 func capacity(pos buffer: &Buffer) -> usize
 {
-    return internal std.memory.byte_buffer_capacity(&buffer.storage);
+    return std.memory.capacity<u8>(&buffer.storage);
 }
 
 func as_slice(pos buffer: &Buffer) -> &[u8]
@@ -43,7 +38,7 @@ func as_slice(pos buffer: &Buffer) -> &[u8]
 
 func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
 {
-    return support_as_slice_mut(buffer = &mut buffer);
+    return support_as_slice_mut(buffer = buffer);
 }
 
 func reserve(
@@ -51,7 +46,7 @@ func reserve(
     additional: usize,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return support_reserve(additional = additional, buffer = &mut buffer);
+    return support_reserve(additional = additional, buffer = buffer);
 }
 
 func resize(
@@ -63,18 +58,18 @@ func resize(
     return support_resize(
         fill = fill,
         new_length = new_length,
-        buffer = &mut buffer,
+        buffer = buffer,
     );
 }
 
 func truncate(pos buffer: &mut Buffer, new_length: usize) -> unit
 {
-    support_truncate(new_length = new_length, buffer = &mut buffer);
+    support_truncate(new_length = new_length, buffer = buffer);
 }
 
 func clear(pos buffer: &mut Buffer) -> unit
 {
-    support_truncate(new_length = 0, buffer = &mut buffer);
+    support_truncate(new_length = 0, buffer = buffer);
 }
 
 func push(
@@ -82,7 +77,7 @@ func push(
     value: u8,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return support_push(value = value, buffer = &mut buffer);
+    return support_push(value = value, buffer = buffer);
 }
 
 func append(
@@ -90,10 +85,10 @@ func append(
     bytes: &[u8],
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return support_append(bytes = bytes, buffer = &mut buffer);
+    return support_append(bytes = bytes, buffer = buffer);
 }
 
 func pop(pos buffer: &mut Buffer) -> u8?
 {
-    return support_pop(buffer = &mut buffer);
+    return support_pop(buffer = buffer);
 }

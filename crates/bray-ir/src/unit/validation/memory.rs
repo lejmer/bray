@@ -42,11 +42,21 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::LayoutQuery { .. } => true,
         CheckedMemoryOperationKind::RawAllocate => types[0] == types[1],
         CheckedMemoryOperationKind::RawDeallocate => types[1] == types[2],
-        CheckedMemoryOperationKind::Allocate | CheckedMemoryOperationKind::Deallocate => true,
+        CheckedMemoryOperationKind::Allocate
+        | CheckedMemoryOperationKind::Deallocate
+        | CheckedMemoryOperationKind::RawBufferCapacity
+        | CheckedMemoryOperationKind::RawBufferInitializedCount
+        | CheckedMemoryOperationKind::RawBufferPointer
+        | CheckedMemoryOperationKind::RawBufferInitializedSlice
+        | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+        | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+        | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+        | CheckedMemoryOperationKind::RawBufferRelease { .. }
+        | CheckedMemoryOperationKind::RawBufferReplace { .. } => true,
         CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
-        | CheckedMemoryOperationKind::ByteBufferRelease => true,
+        | CheckedMemoryOperationKind::ByteSliceLength => true,
     };
 
     if !valid {

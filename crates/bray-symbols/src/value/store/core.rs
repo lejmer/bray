@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use crate::{GenericParameterSymbolId, NamedTypeSymbolId};
+use crate::{GenericParameterSymbolId, NamedTypeSymbolId, SymbolGraph};
 
 use super::{
     super::{
@@ -35,6 +35,90 @@ pub struct SemanticValueStore {
 }
 
 impl SemanticValueStore {
+    /// Interns a named type using its declaration's generic parameters as open arguments.
+    pub fn intern_open_named_type(
+        &self,
+        symbols: &SymbolGraph,
+        definition: NamedTypeSymbolId,
+    ) -> Result<Option<TypeId>, SemanticValueStoreError> {
+        let owner = definition.into_any();
+
+        let (type_parameters, const_parameters) = match definition {
+            NamedTypeSymbolId::Struct(id) => {
+                let Some(symbol) = symbols.structure(id) else {
+                    return Ok(None);
+                };
+
+                (
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters(),
+                )
+            }
+            NamedTypeSymbolId::Union(id) => {
+                let Some(symbol) = symbols.union(id) else {
+                    return Ok(None);
+                };
+
+                (
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters(),
+                )
+            }
+        };
+
+        let mut parameters = type_parameters
+            .iter()
+            .copied()
+            .map(GenericParameterSymbolId::Type)
+            .chain(
+                const_parameters
+                    .iter()
+                    .copied()
+                    .map(GenericParameterSymbolId::Const),
+            )
+            .collect::<Vec<_>>();
+
+        parameters.sort_by_key(|parameter| match parameter {
+            GenericParameterSymbolId::Type(parameter) => symbols
+                .generic_type_parameter(*parameter)
+                .map(|parameter| parameter.ordinal()),
+            GenericParameterSymbolId::Const(parameter) => symbols
+                .generic_const_parameter(*parameter)
+                .map(|parameter| parameter.ordinal()),
+        });
+
+        let arguments = parameters
+            .iter()
+            .copied()
+            .map(|parameter| match parameter {
+                GenericParameterSymbolId::Type(parameter) => self
+                    .intern_type(TypeData::TypeParameter(parameter))
+                    .map(super::super::GenericArgument::Type),
+                GenericParameterSymbolId::Const(parameter) => self
+                    .intern_constant_term(ConstantTermData::Parameter(parameter))
+                    .map(super::super::GenericArgument::Constant),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let Some(owner) = super::super::GenericOwnerId::try_new(owner) else {
+            return Ok(None);
+        };
+
+        let Ok(substitution) = GenericSubstitutionData::try_new(owner, parameters, arguments)
+        else {
+            return Ok(None);
+        };
+
+        let substitution = self.intern_generic_substitution(substitution)?;
+
+        let ty = self.intern_type(TypeData::Named {
+            definition,
+            substitution,
+        })?;
+
+        Ok(Some(ty))
+    }
+
     /// Interns a named type whose declaration has no generic parameters.
     pub fn intern_non_generic_named_type(
         &self,

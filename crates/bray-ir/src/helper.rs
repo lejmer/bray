@@ -127,6 +127,17 @@ impl MirOperationKind {
                     helpers.push(MirHelperReference::Destroy(*element));
                 }
             },
+            Self::Memory(memory) => {
+                if let bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element }
+                | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { element } =
+                    memory.kind()
+                {
+                    helpers.push(MirHelperReference::Cleanup {
+                        phase: crate::MirCleanupPhase::LifecycleResolution,
+                        ty: element,
+                    });
+                }
+            }
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
             Self::Call(call) => collect_call_defaults(call, &mut helpers),
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
@@ -166,7 +177,6 @@ impl MirOperationKind {
             | Self::Binary { .. }
             | Self::Aggregate(_)
             | Self::PatternProjection { .. }
-            | Self::Memory(_)
             | Self::Async(_)
             | Self::Host(_) => {}
         }

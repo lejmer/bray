@@ -14,24 +14,18 @@ impl Lowerer<'_> {
         selection: &bray_bound_tree::SelectedCall,
         operation: CheckedMemoryOperation,
     ) -> Result<LoweredExpression, LoweringError> {
-        let mut operands = Vec::with_capacity(operation.arguments().len());
-        let mut operand_types = Vec::with_capacity(operation.arguments().len());
+        let mut arguments = Vec::with_capacity(operation.arguments().len());
 
-        for (argument, expected_expression) in
-            selection.arguments().iter().zip(operation.arguments())
-        {
+        for argument in selection.arguments() {
             let SelectedArgument::Explicit {
                 expression,
+                ordinal,
                 conversion,
                 ..
             } = argument
             else {
                 return Err(LoweringError::MissingSemanticSelection(id));
             };
-
-            if expression != expected_expression {
-                return Err(LoweringError::MissingSemanticSelection(id));
-            }
 
             let lowered = self.lower_expression(*expression, current)?;
 
@@ -45,20 +39,32 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingOperationResult(*expression));
             };
 
-            operands.push(self.convert_operand(
+            let operand = self.convert_operand(
                 id,
                 current,
                 Self::retained_source(&source),
                 operand,
                 conversion,
-            )?);
+            )?;
 
-            operand_types.push(conversion.target_type());
+            arguments.push((*ordinal, *expression, operand, conversion.target_type()));
         }
 
-        if operands.len() != operation.arguments().len() {
+        arguments.sort_unstable_by_key(|(ordinal, _, _, _)| *ordinal);
+
+        if arguments.len() != operation.arguments().len()
+            || arguments
+                .iter()
+                .map(|(_, expression, _, _)| expression)
+                .ne(operation.arguments())
+        {
             return Err(LoweringError::MissingSemanticSelection(id));
         }
+
+        let (operands, operand_types): (Vec<_>, Vec<_>) = arguments
+            .into_iter()
+            .map(|(_, _, operand, ty)| (operand, ty))
+            .unzip();
 
         let result_type = self.expression_type(id)?;
         let kind = operation.kind();

@@ -380,11 +380,7 @@ impl Compilation {
         let generated_host = generated_host.map(|(mir, root)| {
             realizations.insert(root.key().clone(), root.clone());
 
-            (
-                CodegenInstanceKey::non_generic(&mir),
-                mir,
-                CodegenInstanceDependency::definition(root.key().clone()),
-            )
+            (CodegenInstanceKey::non_generic(&mir), mir, root)
         });
 
         loop {
@@ -410,39 +406,43 @@ impl Compilation {
                     continue;
                 }
 
-                if let Some((host_key, host_mir, dependency)) = &generated_host
+                let mir = if let Some((host_key, host_mir, _)) = &generated_host
                     && key == host_key
                 {
-                    let instance = CodegenInstance::try_new(
-                        key.clone(),
-                        host_mir.clone(),
-                        [dependency.clone()],
-                    )
-                    .map_err(NativeProductFactError::InvalidCodegenInstance)?;
+                    host_mir.clone()
+                } else {
+                    match realization.generated_lifecycle_reference() {
+                        Some(reference) => self.codegen_generated_lifecycle_mir(
+                            key,
+                            reference,
+                            MirUnitId::new(0),
+                            cancellation,
+                        ),
+                        None => {
+                            self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)
+                        }
+                    }
+                    ?
+                };
 
-                    builder
-                        .push_instance(instance)
-                        .map_err(NativeProductFactError::InvalidReachability)?;
-
-                    continue;
-                }
-
-                let mir = match realization.generated_lifecycle_reference() {
-                    Some(reference) => self.codegen_generated_lifecycle_mir(
-                        key,
-                        reference,
-                        MirUnitId::new(0),
-                        cancellation,
-                    ),
-                    None => self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation),
-                }?;
-
-                let concrete_dependencies = self.concrete_codegen_dependencies_for_mir(
+                let mut concrete_dependencies = self.concrete_codegen_dependencies_for_mir(
                     &realization,
                     &mir,
                     target,
                     cancellation,
                 )?;
+
+                if let Some((host_key, _, root)) = &generated_host
+                    && key == host_key
+                    && !concrete_dependencies
+                        .iter()
+                        .any(|dependency| dependency.key() == root.key())
+                {
+                    concrete_dependencies.push(root.clone());
+                }
+
+                concrete_dependencies.sort_unstable_by(|left, right| left.key().cmp(right.key()));
+                concrete_dependencies.dedup_by(|left, right| left.key() == right.key());
 
                 let dependencies = concrete_dependencies
                     .iter()

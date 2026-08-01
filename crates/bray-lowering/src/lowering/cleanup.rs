@@ -412,7 +412,7 @@ impl Lowerer<'_> {
             MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
             MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
         }) {
-            let place = self.place_for_access(*access)?;
+            let place = self.place_for_access(*access, false)?;
 
             self.builder.push_operation(
                 block,

@@ -130,15 +130,26 @@ where
 fn selected_arguments(
     arguments: &[SelectedArgument],
 ) -> Result<Vec<bray_bound_tree::BoundExpressionId>, CheckerInfrastructureError> {
-    arguments
+    let mut selected = arguments
         .iter()
         .map(|argument| match argument {
-            SelectedArgument::Explicit { expression, .. } => Ok(*expression),
+            SelectedArgument::Explicit {
+                expression,
+                ordinal,
+                ..
+            } => Ok((*ordinal, *expression)),
             SelectedArgument::Default { .. } => {
                 Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
             }
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    selected.sort_unstable_by_key(|(ordinal, _)| *ordinal);
+
+    Ok(selected
+        .into_iter()
+        .map(|(_, expression)| expression)
+        .collect())
 }
 
 fn type_arguments<C>(
@@ -298,6 +309,45 @@ where
 
             CheckedMemoryOperationKind::Deallocate
         }
+        ImplementationHook::RawBufferCapacity => {
+            one()?;
+
+            CheckedMemoryOperationKind::RawBufferCapacity
+        }
+        ImplementationHook::RawBufferInitializedCount => {
+            one()?;
+
+            CheckedMemoryOperationKind::RawBufferInitializedCount
+        }
+        ImplementationHook::RawBufferPointer => {
+            one()?;
+
+            CheckedMemoryOperationKind::RawBufferPointer
+        }
+        ImplementationHook::RawBufferInitializedSlice => {
+            one()?;
+
+            CheckedMemoryOperationKind::RawBufferInitializedSlice
+        }
+        ImplementationHook::RawBufferInitializedSliceMut => {
+            one()?;
+
+            CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+        }
+        ImplementationHook::RawBufferSparePointer => CheckedMemoryOperationKind::RawBufferSparePointer {
+            element: one()?,
+        },
+        ImplementationHook::RawBufferSetInitializedCount => {
+            one()?;
+
+            CheckedMemoryOperationKind::RawBufferSetInitializedCount
+        }
+        ImplementationHook::RawBufferRelease => CheckedMemoryOperationKind::RawBufferRelease {
+            element: one()?,
+        },
+        ImplementationHook::RawBufferReplace => CheckedMemoryOperationKind::RawBufferReplace {
+            element: one()?,
+        },
         ImplementationHook::ByteBufferFill => {
             ensure_no_type_arguments(types)?;
 
@@ -313,10 +363,10 @@ where
 
             CheckedMemoryOperationKind::ByteBufferRead
         }
-        ImplementationHook::ByteBufferRelease => {
+        ImplementationHook::ByteSliceLength => {
             ensure_no_type_arguments(types)?;
 
-            CheckedMemoryOperationKind::ByteBufferRelease
+            CheckedMemoryOperationKind::ByteSliceLength
         }
         ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin

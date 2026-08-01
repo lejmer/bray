@@ -480,7 +480,7 @@ impl Compilation {
             .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
         let storage = builder
-            .push_storage(source.clone(), MirStorageKind::Parameter, pointer)
+            .push_storage(source.clone(), MirStorageKind::Parameter(0), pointer)
             .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
         let place = MirPlace::new(
@@ -1690,10 +1690,9 @@ impl Compilation {
                     void_signature(CallableAbi::Bray),
                 ),
                 MirUnitKind::GeneratedLifecycle(reference) => (
-                    generated_symbol_name(
+                    generated_instance_symbol_name(
                         target,
                         CodegenLinkage::Internal,
-                        "lifecycle",
                         instance.key(),
                     )?,
                     CodegenLinkage::Internal,
@@ -1751,7 +1750,7 @@ impl Compilation {
             symbols.push(CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.clone()),
                 boundary.map(|(name, _)| name).map_or_else(
-                    || generated_symbol_name(target, linkage, "instance", instance),
+                    || generated_instance_symbol_name(target, linkage, instance),
                     Ok,
                 )?,
                 linkage,
@@ -2067,14 +2066,16 @@ impl Compilation {
         &self,
         term: bray_symbols::ConstantTermId,
         substitution: Option<GenericSubstitutionId>,
-    ) -> Result<bray_symbols::ConstantTermId, FactQueryError> {
-        let Some(substitution) = substitution else {
-            return Ok(term);
+    ) -> Result<bray_symbols::ConstantTermId, CodegenFactError> {
+        let term = if let Some(substitution) = substitution {
+            self.semantic_value_store()?
+                .substitute_constant_term(term, substitution)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?
+        } else {
+            term
         };
 
-        self.semantic_value_store()?
-            .substitute_constant_term(term, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+        self.realize_codegen_constant_argument(term)
     }
 
     fn classify_codegen_callable_types(
@@ -3308,21 +3309,25 @@ fn closed_array_length(
         .constant_term_data(term_id)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let ConstantTermData::Value(value) = term.as_ref() else {
-        return Err(CodegenFactError::OpenConstantTerm(term_id));
-    };
+    match term.as_ref() {
+        ConstantTermData::Value(value) => {
+            let data = values
+                .constant_value_data(*value)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let data = values
-        .constant_value_data(*value)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            let ConstantValueKind::Integer(value) = data.kind() else {
+                return Err(CodegenFactError::InvalidArrayLength(term_id));
+            };
 
-    let ConstantValueKind::Integer(value) = data.kind() else {
-        return Err(CodegenFactError::InvalidArrayLength(term_id));
-    };
-
-    value
-        .to_u64()
-        .ok_or(CodegenFactError::LayoutOverflow(data.ty()))
+            value
+                .to_u64()
+                .ok_or(CodegenFactError::InvalidArrayLength(term_id))
+        }
+        ConstantTermData::IntegerLiteral { value, .. } => value
+            .to_u64()
+            .ok_or(CodegenFactError::InvalidArrayLength(term_id)),
+        _ => Err(CodegenFactError::OpenConstantTerm(term_id)),
+    }
 }
 
 fn scalar_mapping(
@@ -3653,6 +3658,20 @@ pub(in crate::compilation) fn generated_symbol_name(
     identity.hash(&mut hasher);
 
     binary_symbol_name(target, linkage, category, hasher.finalize())
+}
+
+fn generated_instance_symbol_name(
+    target: &CodegenTarget,
+    linkage: CodegenLinkage,
+    instance: &bray_codegen::CodegenInstanceKey,
+) -> Result<BinarySymbolName, CodegenFactError> {
+    let category = if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_)) {
+        "lifecycle"
+    } else {
+        "instance"
+    };
+
+    generated_symbol_name(target, linkage, category, instance)
 }
 
 pub(in crate::compilation) fn generated_frame_symbol_name(

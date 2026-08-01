@@ -7,7 +7,7 @@ use bray_ir::{
     MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirOperand,
     MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStoreKind,
 };
-use bray_symbols::{AnySymbolId, CallableAbi, TypeId};
+use bray_symbols::{AnySymbolId, CallableAbi, TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -59,11 +59,39 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         }
 
-        let place = MirPlace::new(
-            place.storage(),
-            place.projections().iter().cloned(),
-            *target,
-        );
+        let mut projections = place.projections().to_vec();
+
+        let parameter_borrow = self
+            .input
+            .storage_plan()
+            .root_identity(decision.access())
+            .and_then(|identity| self.input.storage_plan().identity_type(identity))
+            .and_then(|ty| {
+                self.input
+                    .semantic_values()
+                    .type_data(ty)
+                    .ok()
+                    .and_then(|data| match data.as_ref() {
+                        TypeData::Borrow { target, .. } => Some((ty, *target)),
+                        _ => None,
+                    })
+            });
+
+        let already_dereferenced = projections
+            .first()
+            .is_some_and(|projection| projection.kind() == &MirProjectionKind::Dereference);
+
+        if let Some((parameter_type, reached_type)) = parameter_borrow
+            && !already_dereferenced
+        {
+            projections.insert(0, MirProjection::new(
+                MirProjectionKind::Dereference,
+                parameter_type,
+                reached_type,
+            ));
+        }
+
+        let place = MirPlace::new(place.storage(), projections, *target);
 
         let value = self.push_value_operation(
             id,
@@ -241,7 +269,15 @@ impl Lowerer<'_> {
                 .map_err(|_| LoweringError::SemanticValueUnavailable)?
                 .as_ref()
         {
-            let target = MirPlace::new(place.storage(), [], *target);
+            let target = MirPlace::new(
+                place.storage(),
+                [MirProjection::new(
+                    MirProjectionKind::Dereference,
+                    place.ty(),
+                    *target,
+                )],
+                *target,
+            );
 
             let value = self.push_value_operation(
                 expression,
@@ -353,8 +389,14 @@ impl Lowerer<'_> {
                 }
             };
 
-        let mut lowered = Vec::with_capacity(projections.len());
-        let mut source_type = self.storage_identity_type(identity)?;
+        let mut lowered = Vec::with_capacity(projections.len() + 1);
+
+        let mut source_type = self.append_entry_dereference(
+            identity,
+            reached_type,
+            projections.is_empty(),
+            &mut lowered,
+        )?;
 
         for (index, projection) in projections.iter().copied().enumerate() {
             let result_type = self.projection_result_type(identity, &projections[..=index])?;
@@ -458,6 +500,7 @@ impl Lowerer<'_> {
     pub(in crate::lowering) fn place_for_access(
         &mut self,
         id: StorageAccessId,
+        project_borrowed_root: bool,
     ) -> Result<MirPlace, LoweringError> {
         let access = self
             .input
@@ -492,8 +535,18 @@ impl Lowerer<'_> {
             bray_bound_tree::BoundNodeOrigin::source(source),
         )?;
 
-        let mut lowered = Vec::with_capacity(projections.len());
-        let mut source_type = root_type;
+        let mut lowered = Vec::with_capacity(projections.len() + usize::from(project_borrowed_root));
+
+        let mut source_type = if project_borrowed_root {
+            self.append_entry_dereference(
+                identity,
+                reached_type,
+                projections.is_empty(),
+                &mut lowered,
+            )?
+        } else {
+            root_type
+        };
 
         for (index, projection) in projections.iter().copied().enumerate() {
             let Some(kind) = static_projection_kind(projection) else {
@@ -506,7 +559,13 @@ impl Lowerer<'_> {
             source_type = result_type;
         }
 
-        Ok(MirPlace::new(root.storage(), lowered, reached_type))
+        let place_type = if project_borrowed_root || !projections.is_empty() {
+            reached_type
+        } else {
+            root_type
+        };
+
+        Ok(MirPlace::new(root.storage(), lowered, place_type))
     }
 
     pub(in crate::lowering) fn storage_identity_type(
@@ -514,6 +573,10 @@ impl Lowerer<'_> {
         identity: StorageIdentityId,
     ) -> Result<TypeId, LoweringError> {
         let plan = self.input.storage_plan();
+
+        if let Some(ty) = plan.identity_type(identity) {
+            return Ok(ty);
+        }
 
         plan.access_entries()
             .find_map(|(access, model)| {
@@ -524,6 +587,40 @@ impl Lowerer<'_> {
                 .then_some(model.reached_type())
             })
             .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
+    }
+
+    fn append_entry_dereference(
+        &self,
+        identity: StorageIdentityId,
+        reached_type: TypeId,
+        has_no_explicit_projections: bool,
+        projections: &mut Vec<MirProjection>,
+    ) -> Result<TypeId, LoweringError> {
+        let source_type = self.storage_identity_type(identity)?;
+
+        if self.input.storage_plan().identity_type(identity).is_none()
+            || has_no_explicit_projections && source_type == reached_type
+        {
+            return Ok(source_type);
+        }
+
+        let data = self
+            .input
+            .semantic_values()
+            .type_data(source_type)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let TypeData::Borrow { target, .. } = data.as_ref() else {
+            return Ok(source_type);
+        };
+
+        projections.push(MirProjection::new(
+            MirProjectionKind::Dereference,
+            source_type,
+            *target,
+        ));
+
+        Ok(*target)
     }
 
     fn projection_result_type(
