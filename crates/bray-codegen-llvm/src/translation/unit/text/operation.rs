@@ -2,7 +2,8 @@ use bray_codegen::{CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{MirTextOperation, MirTextOperationKind};
 use inkwell::AtomicOrdering;
 use inkwell::IntPredicate;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType};
+use inkwell::builder::Builder;
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
@@ -263,7 +264,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .into_int_value();
 
         let scalar_type = self.types.context().i32_type();
-        let scalar = llvm(self.builder.build_alloca(scalar_type, "string.cursor.scalar"))?;
+        let scalar = zeroed_scalar_output(&self.builder, scalar_type, "string.cursor.scalar")?;
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(
@@ -778,5 +779,53 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .try_as_basic_value()
             .basic()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    }
+}
+
+pub(super) fn zeroed_scalar_output<'context>(
+    builder: &Builder<'context>,
+    ty: IntType<'context>,
+    name: &str,
+) -> Result<PointerValue<'context>, CodegenFailure> {
+    let output = llvm(builder.build_alloca(ty, name))?;
+
+    llvm(builder.build_store(output, ty.const_zero()))?;
+
+    Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use inkwell::context::Context;
+
+    use super::zeroed_scalar_output;
+
+    #[test]
+    fn nullable_native_outputs_are_initialized_before_the_call_can_report_absence() {
+        let context = Context::create();
+        let module = context.create_module("nullable-output");
+
+        let function = module.add_function(
+            "nullable_output",
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        let builder = context.create_builder();
+        let entry = context.append_basic_block(function, "entry");
+
+        builder.position_at_end(entry);
+
+        zeroed_scalar_output(&builder, context.i32_type(), "scalar")
+            .unwrap_or_else(|error| panic!("nullable output must initialize: {error:?}"));
+
+        builder
+            .build_return(None)
+            .unwrap_or_else(|error| panic!("test function must return: {error:?}"));
+
+        let ir = module.print_to_string().to_string();
+
+        assert!(ir.contains("store i32 0, ptr %scalar"), "{ir}");
+        assert!(module.verify().is_ok(), "{ir}");
     }
 }

@@ -5,6 +5,7 @@ use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
 use super::super::support::llvm;
+use super::operation::zeroed_scalar_output;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn character_scalar_value(
@@ -27,7 +28,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: &MirTextOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let value = self.only_scalar_operand(operation)?;
-        let scalar = llvm(self.builder.build_alloca(value.get_type(), "character.scalar"))?;
+        let scalar = zeroed_scalar_output(&self.builder, value.get_type(), "character.scalar")?;
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(

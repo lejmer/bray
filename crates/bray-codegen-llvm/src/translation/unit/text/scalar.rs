@@ -5,6 +5,7 @@ use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
 use super::super::support::llvm;
+use super::operation::zeroed_scalar_output;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn text_scalar_count(
@@ -104,7 +105,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let index = self.pointer_sized_integer(*index)?;
         let scalar_type = self.types.context().i32_type();
-        let scalar = llvm(self.builder.build_alloca(scalar_type, "string.scalar"))?;
+        let scalar = zeroed_scalar_output(&self.builder, scalar_type, "string.scalar")?;
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(
