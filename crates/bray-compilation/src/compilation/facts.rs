@@ -1112,9 +1112,10 @@ mod tests {
             );
         }
 
-        assert_eq!(
-            first.declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy")),
-            None
+        assert!(
+            first
+                .declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy"))
+                .is_some()
         );
     }
 

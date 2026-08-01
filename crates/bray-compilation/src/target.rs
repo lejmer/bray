@@ -145,7 +145,8 @@ mod tests {
 
         assert!(target.supports(AvailabilityRule::Always));
         assert!(!target.supports(AvailabilityRule::Real16));
-        assert!(!target.supports(AvailabilityRule::RawMemory));
+        assert!(target.supports(AvailabilityRule::RawMemory));
+        assert!(target.supports(AvailabilityRule::Allocation));
         assert!(target.supports(AvailabilityRule::ForeignAbi));
     }
 

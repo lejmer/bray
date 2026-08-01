@@ -179,17 +179,18 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
+    use bray_bound_tree::{BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind};
     use bray_diagnostics::DiagnosticResult;
-    use bray_ir::{MirOperand, MirTerminatorKind, MirUnit};
+    use bray_ir::{MirOperand, MirOperationKind, MirTerminatorKind, MirUnit};
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::{ProductKind, TypeData};
 
     use super::Compilation;
     use crate::test_support::{
-        compilation, compilation_with_sources_and_worker_budget, package_identity,
-        source_callable_body_key, source_input,
+        compilation, compilation_with_sources_and_worker_budget,
+        compilation_with_target_operations, package_identity, source_callable_body_key,
+        source_input,
     };
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
@@ -1213,6 +1214,44 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn qualified_compiler_provided_memory_calls_lower_to_explicit_mir() {
+        let compilation = compilation_with_target_operations(
+            concat!(
+                "trusted module app;\n",
+                "trusted func main() uses(manual_alloc)\n",
+                "{\n",
+                "    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);\n",
+                "\n",
+                "    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
+                "}\n",
+            ),
+            true,
+            true,
+        );
+
+        let result = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("memory operation MIR must be available: {error:?}"));
+
+        let kinds = lowered_mir(&result)
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Memory(memory) => Some(memory.kind()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            kinds,
+            [
+                CheckedMemoryOperationKind::Allocate,
+                CheckedMemoryOperationKind::Deallocate,
+            ]
+        );
     }
 
     fn lowering_compilation() -> Compilation {

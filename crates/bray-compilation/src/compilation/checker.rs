@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
 
 use bray_binder::{BinderFactContext, BinderFactError, SymbolFactProvider};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
@@ -6,14 +7,19 @@ use bray_checker::{
     CheckedConstantTerms, CheckerFactError, CheckerFactResult, CheckerInfrastructureError,
     CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource,
     DefaultTargetValidityChecker, TargetValidity, TargetValidityChecker, TargetValidityContext,
-    TargetValidityRequest, resolve_type_expression_template,
+    ImplementationHookResolution, TargetValidityRequest, resolve_type_expression_template,
+};
+use bray_compiler_known::{
+    COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationIdentity,
+    RecognizedStandardLibraryDeclarationOwner,
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, DeclaredTypeRepresentation, GenericDeclarationTemplateFact,
-    GenericOwnerId, NamedTypeSymbolId, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitSymbolId, TypeId,
+    AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
+    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, ModuleOwnerId,
+    ModulePathKey, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, SymbolFactContract,
+    SymbolFactRequest, SymbolFactResult, SymbolKind, TraitSymbolId, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -23,11 +29,16 @@ use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct CompilationCheckerContext<'compilation> {
     facts: CompilationBinderFacts<'compilation>,
+    recognized_standard_library_implementations:
+        OnceLock<Result<BTreeMap<AnySymbolId, ImplementationHookResolution>, CheckerFactError>>,
 }
 
 impl<'compilation> CompilationCheckerContext<'compilation> {
     pub(super) fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
-        Self { facts }
+        Self {
+            facts,
+            recognized_standard_library_implementations: OnceLock::new(),
+        }
     }
 
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
@@ -150,6 +161,137 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })
     }
+
+    fn recognized_standard_library_implementations(
+        &self,
+    ) -> CheckerFactResult<&BTreeMap<AnySymbolId, ImplementationHookResolution>> {
+        self.recognized_standard_library_implementations
+            .get_or_init(|| self.build_recognized_standard_library_implementations())
+            .as_ref()
+            .map_err(|error| *error)
+    }
+
+    fn build_recognized_standard_library_implementations(
+        &self,
+    ) -> CheckerFactResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
+        let mut implementations = self.source_standard_library_implementations()?;
+
+        let imported = self
+            .facts
+            .compilation()
+            .imported_symbol_skeleton_result_with_cancellation(self.facts.cancellation())
+            .map_err(checker_fact_error)?;
+
+        let Some(imported) = imported.value() else {
+            return Ok(implementations);
+        };
+
+        let standard_library = standard_library_package_identity()?;
+
+        let all = Arc::clone(imported).recognize_standard_library(&standard_library, |_| true);
+        let target = self.facts.compilation().selected_target().target();
+
+        let available = Arc::clone(imported)
+            .recognize_standard_library(&standard_library, |rule| target.supports(rule));
+
+        for declaration in all.declarations() {
+            let Some(descriptor) = COMPILER_KNOWN_CATALOG
+                .recognized_standard_library_declaration(declaration.descriptor())
+            else {
+                continue;
+            };
+
+            let Some(hook) = descriptor.implementation_hook() else {
+                continue;
+            };
+
+            implementations.insert(
+                declaration.symbol(),
+                ImplementationHookResolution::new(
+                    hook,
+                    available.descriptor(declaration.symbol()).is_some(),
+                ),
+            );
+        }
+
+        Ok(implementations)
+    }
+
+    fn source_standard_library_implementations(
+        &self,
+    ) -> CheckerFactResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
+        let standard_library = standard_library_package_identity()?;
+
+        let symbols = self.symbols();
+
+        let Some(package) = symbols
+            .packages()
+            .iter()
+            .find(|package| package.identity() == &standard_library)
+        else {
+            return Ok(BTreeMap::new());
+        };
+
+        let target = self.facts.compilation().selected_target().target();
+        let mut implementations = BTreeMap::new();
+
+        for descriptor in COMPILER_KNOWN_CATALOG.recognized_standard_library_declarations() {
+            let Some(hook) = descriptor.implementation_hook() else {
+                continue;
+            };
+
+            let RecognizedStandardLibraryDeclarationOwner::Scope(scope) = descriptor.owner()
+            else {
+                continue;
+            };
+
+            let Some(scope) = COMPILER_KNOWN_CATALOG.recognized_standard_library_scope(scope)
+            else {
+                continue;
+            };
+
+            let Some(path) = ModulePathKey::try_new(scope.path().segments()) else {
+                continue;
+            };
+
+            let Some(module) =
+                symbols.module_by_path(ModuleOwnerId::from(package.id()), &path)
+            else {
+                continue;
+            };
+
+            let RecognizedStandardLibraryDeclarationIdentity::Name(name) = descriptor.identity()
+            else {
+                continue;
+            };
+
+            let MemberLookupResult::Found(symbol) =
+                symbols.lookup_member(module.id().into(), name.as_ref())
+            else {
+                continue;
+            };
+
+            if symbol.kind() != SymbolKind::Function {
+                continue;
+            }
+
+            implementations.insert(
+                symbol,
+                ImplementationHookResolution::new(
+                    hook,
+                    target.supports(descriptor.availability_rule()),
+                ),
+            );
+        }
+
+        Ok(implementations)
+    }
+}
+
+fn standard_library_package_identity() -> CheckerFactResult<PackageIdentity> {
+    PackageIdentity::try_new("std").ok_or(CheckerFactError::Infrastructure(
+        CheckerInfrastructureError::SemanticValueUnavailable,
+    ))
 }
 
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
@@ -175,6 +317,16 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .compilation()
             .selected_target()
             .available_compiler_known_symbols()
+    }
+
+    fn recognized_standard_library_implementation_hook(
+        &self,
+        symbol: AnySymbolId,
+    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+        Ok(self
+            .recognized_standard_library_implementations()?
+            .get(&symbol)
+            .copied())
     }
 
     fn selected_target(&self) -> &TargetProfile {

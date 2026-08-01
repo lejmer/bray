@@ -55,6 +55,29 @@ define_catalog_enum! {
     }
 }
 
+impl ImplementationHook {
+    /// Compiler-provided raw-memory and layout operations.
+    pub const MEMORY_OPERATIONS: &'static [Self] = &[
+        Self::AddressOf,
+        Self::AddressOfMut,
+        Self::RawPointerNull,
+        Self::RawPointerIsNull,
+        Self::RawPointerOffset,
+        Self::RawPointerByteOffset,
+        Self::RawPointerReinterpret,
+        Self::RawPointerRead,
+        Self::RawPointerWrite,
+        Self::MemoryCopy,
+        Self::MemoryCopyOverlapping,
+        Self::MemorySizeOf,
+        Self::MemoryAlignOf,
+        Self::MemoryStrideOf,
+        Self::MemoryLayoutOf,
+        Self::Allocate,
+        Self::Deallocate,
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::ImplementationHook;
@@ -69,5 +92,25 @@ mod tests {
             ImplementationHook::RawPointerRead,
             ImplementationHook::RawPointerWrite
         );
+    }
+
+    #[test]
+    fn memory_operation_inventory_partitions_the_closed_hook_set() {
+        let non_memory = [
+            ImplementationHook::FutureStart,
+            ImplementationHook::TaskJoin,
+            ImplementationHook::TaskCancel,
+            ImplementationHook::BlockingExecution,
+            ImplementationHook::ComputeExecution,
+            ImplementationHook::MainThreadExecution,
+        ];
+
+        let mut categorized = ImplementationHook::MEMORY_OPERATIONS.to_vec();
+
+        categorized.extend(non_memory);
+        categorized.sort_unstable();
+        categorized.dedup();
+
+        assert_eq!(categorized, ImplementationHook::ALL);
     }
 }

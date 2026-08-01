@@ -2492,14 +2492,49 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_memory_operations_publish_structured_target_diagnostics() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "func main()\n",
+    fn compiler_known_callable_parameters_supply_default_templates() {
+        let source = concat!(
+            "trusted module app;\n",
+            "trusted func main() uses(manual_alloc)\n",
             "{\n",
-            "    let pointer = core.memory.null<i32>();\n",
+            "    let pointer = trusted core.memory.allocate(bytes = 16, align = 4);\n",
             "}\n",
-        ));
+        );
+
+        let compilation = compilation_with_target_operations(source, true, true);
+
+        let operations = match compilation.memory_operations(source_callable_body_key(&compilation))
+        {
+            Ok(operations) => operations,
+            Err(error) => panic!("allocation operation must publish: {error:?}"),
+        };
+
+        let [operation] = operations.value().operations() else {
+            panic!("allocation call must publish one memory operation");
+        };
+
+        assert_eq!(operation.kind(), CheckedMemoryOperationKind::Allocate);
+
+        let flow = compilation
+            .storage_flow_facts(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("allocation storage flow must publish: {error:?}"));
+
+        assert!(flow.diagnostics().is_empty(), "{:?}", flow.diagnostics());
+    }
+
+    #[test]
+    fn unavailable_memory_operations_publish_structured_target_diagnostics() {
+        let compilation = compilation_with_target_operations(
+            concat!(
+                "module app;\n",
+                "func main()\n",
+                "{\n",
+                "    let pointer = core.memory.null<i32>();\n",
+                "}\n",
+            ),
+            false,
+            false,
+        );
 
         let operations = match compilation.memory_operations(source_callable_body_key(&compilation))
         {
@@ -2521,6 +2556,104 @@ mod tests {
             diagnostic.kind(),
             DiagnosticKind::CheckingTargetMemoryOperationUnavailable
         );
+    }
+
+    #[test]
+    fn invalid_memory_obligations_publish_structured_semantic_diagnostics() {
+        let cases = [
+            (
+                concat!(
+                    "trusted module app;\n",
+                    "trusted func main() -> u8 uses(raw_memory)\n",
+                    "{\n",
+                    "    let pointer = core.memory.null<u8>();\n",
+                    "    return core.memory.read<u8>(pointer);\n",
+                    "}\n",
+                ),
+                DiagnosticKind::CheckingMissingTrustedMemoryFacts,
+            ),
+            (
+                concat!(
+                    "trusted module app;\n",
+                    "trusted func main() -> u8 uses(raw_memory)\n",
+                    "{\n",
+                    "    let pointer = core.memory.null<u8>();\n",
+                    "    return trusted core.memory.read<u8>(pointer);\n",
+                    "}\n",
+                ),
+                DiagnosticKind::CheckingUninitializedRawStorage,
+            ),
+            (
+                concat!(
+                    "trusted module app;\n",
+                    "trusted func main() uses(manual_alloc, raw_memory, unchecked_init)\n",
+                    "{\n",
+                    "    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);\n",
+                    "\n",
+                    "    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
+                    "    trusted core.memory.write<u8>(pointer, 1);\n",
+                    "}\n",
+                ),
+                DiagnosticKind::CheckingMemoryOperationAfterDeallocation,
+            ),
+            (
+                concat!(
+                    "trusted module app;\n",
+                    "trusted func main() uses(manual_alloc, raw_memory, unchecked_init)\n",
+                    "{\n",
+                    "    let pointer = trusted core.memory.allocate(bytes = 1, align = 1);\n",
+                    "\n",
+                    "    trusted core.memory.write<u8>(pointer, 1);\n",
+                    "    trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);\n",
+                    "}\n",
+                ),
+                DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let compilation = compilation_with_target_operations(source, true, true);
+
+            let flow = compilation
+                .storage_flow_facts(source_callable_body_key(&compilation))
+                .unwrap_or_else(|error| {
+                    panic!("invalid memory storage flow must publish: {error:?}")
+                });
+
+            assert!(
+                flow.diagnostics().by_kind(expected).next().is_some(),
+                "{expected:?} must be reported: {:?}",
+                flow.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn same_named_source_callables_are_not_memory_operations() {
+        let compilation = compilation_with_target_operations(
+            concat!(
+                "module app;\n",
+                "func main()\n",
+                "{\n",
+                "    let value: i32 = allocate();\n",
+                "}\n",
+                "func allocate() -> i32\n",
+                "{\n",
+                "    return 1;\n",
+                "}\n",
+            ),
+            true,
+            true,
+        );
+
+        let operations = match compilation.memory_operations(source_callable_body_key(&compilation))
+        {
+            Ok(operations) => operations,
+            Err(error) => panic!("source call memory operations must publish: {error:?}"),
+        };
+
+        assert!(operations.value().operations().is_empty());
+        assert!(operations.diagnostics().is_empty());
     }
 
     #[test]

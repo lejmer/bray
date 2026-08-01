@@ -1,0 +1,115 @@
+{
+  "operations": [
+    {
+      "name": "AddressOf",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::AddressOf" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryAddressKind::Shared" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Address" }
+    },
+    {
+      "name": "AddressOfMut",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::AddressOfMut" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryAddressKind::Mutable" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Address" }
+    },
+    {
+      "name": "RawPointerNull",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerNull" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Null" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Null" }
+    },
+    {
+      "name": "RawPointerIsNull",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerIsNull" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::IsNull" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::IsNull" }
+    },
+    {
+      "name": "RawPointerOffset",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerOffset" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryOffsetUnit::Element" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryOffsetUnit::Element" }
+    },
+    {
+      "name": "RawPointerByteOffset",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerByteOffset" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryOffsetUnit::Byte" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryOffsetUnit::Byte" }
+    },
+    {
+      "name": "RawPointerReinterpret",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerReinterpret" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Reinterpret" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Reinterpret" }
+    },
+    {
+      "name": "RawPointerRead",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerRead" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Read" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Read" }
+    },
+    {
+      "name": "RawPointerWrite",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawPointerWrite" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Write" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Write" }
+    },
+    {
+      "name": "MemoryCopy",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::MemoryCopy" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryCopyKind::NonOverlapping" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryCopyKind::NonOverlapping" }
+    },
+    {
+      "name": "MemoryCopyOverlapping",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::MemoryCopyOverlapping" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryCopyKind::Overlapping" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryCopyKind::Overlapping" }
+    },
+    {
+      "name": "MemorySizeOf",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::MemorySizeOf" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryLayoutQueryKind::Size" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryLayoutQueryKind::Size" }
+    },
+    {
+      "name": "MemoryAlignOf",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::MemoryAlignOf" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryLayoutQueryKind::Alignment" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryLayoutQueryKind::Alignment" }
+    },
+    {
+      "name": "MemoryStrideOf",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::MemoryStrideOf" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryLayoutQueryKind::Stride" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryLayoutQueryKind::Stride" }
+    },
+    {
+      "name": "MemoryLayoutOf",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::MemoryLayoutOf" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "MemoryLayoutQueryKind::Layout" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryLayoutQueryKind::Layout" }
+    },
+    {
+      "name": "Allocate",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::Allocate" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Allocate" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Allocate" }
+    },
+    {
+      "name": "Deallocate",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::Deallocate" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Deallocate" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Deallocate" }
+    }
+  ],
+  "contracts": [
+    { "name": "closed hook inventory", "test": "memory_operation_inventory_partitions_the_closed_hook_set" },
+    { "name": "checker classification", "test": "hooks_classify_without_source_name_matching" },
+    { "name": "lowering coverage", "test": "lowering_replaces_every_checked_memory_family_with_explicit_mir" },
+    { "name": "code generation coverage", "test": "every_memory_operation_family_generates_verified_llvm" },
+    { "name": "unavailable target rejection", "test": "unavailable_memory_operations_publish_structured_target_diagnostics" },
+    { "name": "invalid obligation rejection", "test": "invalid_memory_obligations_publish_structured_semantic_diagnostics" },
+    { "name": "same-name isolation", "test": "same_named_source_callables_are_not_memory_operations" }
+  ]
+}

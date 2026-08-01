@@ -4,8 +4,8 @@ use std::fmt::Write;
 
 use bray_bound_tree::{
     BoundCallResult, BoundLiteralKind, CheckedMemoryOperationKind, ConstructionDefaultProvider,
-    ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation, PatternPredicate,
-    PatternProjection, SelectedConversion,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, MemoryLayoutQueryKind,
+    PatternOperation, PatternPredicate, PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
@@ -768,7 +768,16 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::Read { pointee, .. } => ("read", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::Write { pointee } => ("write", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::Copy { pointee, .. } => ("copy", vec![("pointee", pointee)]),
-        CheckedMemoryOperationKind::LayoutQuery { ty, .. } => ("layout_query", vec![("type", ty)]),
+        CheckedMemoryOperationKind::LayoutQuery { ty, kind } => {
+            let name = match kind {
+                MemoryLayoutQueryKind::Size => "size_of",
+                MemoryLayoutQueryKind::Alignment => "align_of",
+                MemoryLayoutQueryKind::Stride => "stride_of",
+                MemoryLayoutQueryKind::Layout => "layout_of",
+            };
+
+            (name, vec![("type", ty)])
+        }
         CheckedMemoryOperationKind::Allocate => ("allocate", Vec::new()),
         CheckedMemoryOperationKind::Deallocate => ("deallocate", Vec::new()),
     };

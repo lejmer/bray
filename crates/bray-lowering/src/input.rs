@@ -408,6 +408,10 @@ fn validate_semantic_completeness(
     selections: &CheckedSemanticSelections,
 ) -> Result<(), LoweringInputError> {
     for (expression, node) in unit.tree().expressions() {
+        if !requires_expression_type(node) {
+            continue;
+        }
+
         let Some(result) = types.expression(expression) else {
             return Err(LoweringInputError::MissingExpressionType(expression));
         };
@@ -422,6 +426,14 @@ fn validate_semantic_completeness(
     }
 
     Ok(())
+}
+
+const fn requires_expression_type(expression: &BoundExpression) -> bool {
+    match expression {
+        BoundExpression::Name(expression) => expression.ty().is_some(),
+        BoundExpression::MemberAccess(expression) => expression.ty().is_some(),
+        _ => true,
+    }
 }
 
 fn validate_pattern_completeness(

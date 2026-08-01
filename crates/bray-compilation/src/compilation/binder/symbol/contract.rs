@@ -466,7 +466,31 @@ fn bind_callable_predicates(
     predicates: &mut Vec<CallableContractClause>,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
-    let expression_count = expressions.into_iter().count();
+    let expressions = expressions.into_iter().collect::<Vec<_>>();
+
+    if context.symbols.symbol_origin(owner) != Some(bray_symbols::SymbolOrigin::Source) {
+        let result = bind_predicate_clause(
+            context,
+            owner,
+            syntax,
+            expressions,
+            PredicateClauseBindingContext::CallableContract(kind),
+        )?;
+
+        let (summaries, clause_diagnostics) = result.into_parts();
+
+        *diagnostics = diagnostics.merged(&clause_diagnostics);
+
+        for summary in summaries {
+            let ordinal = symbol_ordinal(predicates.len())?;
+
+            predicates.push(CallableContractClause::new(ordinal, kind, summary));
+        }
+
+        return Ok(());
+    }
+
+    let expression_count = expressions.len();
 
     let owner_key = context
         .symbols

@@ -3576,7 +3576,9 @@ mod tests {
         TypeId,
     };
     use bray_target::TargetValueLayout;
-    use bray_testing::{test_mir_unit, test_mir_unit_with_declaration};
+    use bray_testing::{
+        test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
+    };
 
     use super::{dependency_symbol, direct_helper_symbol, named_type, pointer_layout};
     use crate::compilation::CodegenFactError;
@@ -3700,7 +3702,11 @@ mod tests {
             references.len()
         );
 
-        let owner_mir = test_mir_unit(2);
+        let Some(first_dependency) = dependencies.first() else {
+            panic!("lifecycle helpers must produce dependencies");
+        };
+
+        let owner_mir = test_mir_unit_for_target(2, first_dependency.key().target().clone());
 
         let owner = CodegenInstance::try_new(
             CodegenInstanceKey::non_generic(&owner_mir),

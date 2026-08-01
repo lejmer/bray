@@ -57,7 +57,7 @@ where
     ))
 }
 
-pub(super) fn push_callable_inputs<C>(
+pub(crate) fn push_callable_inputs<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
 ) -> Result<CallableExecution, BoundUnitBindingError>
@@ -72,6 +72,18 @@ where
         .and_then(CallableSymbolId::try_from_any)
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
+    push_callable_inputs_for(binder, scope, callable)
+}
+
+pub(crate) fn push_callable_inputs_for<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    callable: CallableSymbolId,
+) -> Result<CallableExecution, BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+{
     let signature = binder
         .facts()
         .symbol_facts()
@@ -115,15 +127,20 @@ where
         .parameter_type_templates(binder.facts().semantic_values())
         .map_err(|_| BoundUnitBindingError::Binding)?;
 
-    for (parameter, ty) in signature
+    let parameter_names = signature
+        .parameter_names(binder.facts().semantic_values())
+        .map_err(|_| BoundUnitBindingError::Binding)?;
+
+    for ((parameter, name), ty) in signature
         .parameters()
         .iter()
+        .zip(parameter_names)
         .zip(parameter_types)
         .take(parameter_count)
     {
         let parameter = (*parameter).into();
 
-        insert_source_surface(binder, scope, parameter)?;
+        insert_named_surface(binder, scope, parameter, name.as_str())?;
 
         if let Some(ty) = ty.resolved_type() {
             binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
@@ -133,7 +150,7 @@ where
     Ok(())
 }
 
-pub(super) fn insert_source_surface<C>(
+pub(super) fn insert_surface<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
     symbol: AnySymbolId,
@@ -141,20 +158,27 @@ pub(super) fn insert_source_surface<C>(
 where
     C: BinderFactContext + ?Sized,
 {
-    let declaration = binder
+    if let Some(name) = binder
         .facts()
         .symbols()
         .symbol_key(symbol)
         .and_then(bray_symbols::SymbolKey::source_declaration_id)
         .and_then(|declaration| binder.facts().declarations().declaration(declaration))
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
-
-    let name = declaration
-        .name()
+        .and_then(bray_declarations::DeclarationRecord::name)
         .and_then(bray_declarations::DeclarationName::as_identifier)
+    {
+        return insert_named_surface(binder, scope, symbol, name);
+    }
+
+    // Insertion mutates the binder after releasing the graph borrow; symbol names are Arc-backed.
+    let name = binder
+        .facts()
+        .symbols()
+        .member_name(symbol)
+        .cloned()
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
-    insert_named_surface(binder, scope, symbol, name)
+    insert_named_surface(binder, scope, symbol, name.as_str())
 }
 
 pub(super) fn insert_named_surface<C>(
