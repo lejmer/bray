@@ -436,6 +436,7 @@ impl SelectedOperation {
             (
                 Self::Construction(construction),
                 BoundExpression::LeadingDotVariant(_)
+                | BoundExpression::UnqualifiedVariant(_)
                 | BoundExpression::MemberAccess(_)
                 | BoundExpression::Call(_),
             ) => matches!(construction.target(), ConstructionTarget::UnionVariant(_)),

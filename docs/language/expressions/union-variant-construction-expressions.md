@@ -14,6 +14,12 @@ An expected-type payload variant construction expression uses leading-dot shorth
 let shape: Shape = .Circle(center = origin, radius = 10.0);
 ```
 
+An expected-type payload variant construction expression can also use an unqualified variant name.
+
+```bray
+let shape: Shape = Circle(center = origin, radius = 10.0);
+```
+
 A full no-payload variant construction expression names the union type and variant.
 
 ```bray
@@ -26,9 +32,27 @@ An expected-type no-payload variant construction expression uses leading-dot sho
 let result: ParseResult<i32> = .EndOfInput;
 ```
 
+An expected-type no-payload variant construction expression can also use an unqualified variant name.
+
+```bray
+let result: ParseResult<i32> = EndOfInput;
+```
+
 A leading-dot variant construction expression is valid when expression context provides a known union type and that union contains the named variant.
 
-The full union path is required when the expected union type is absent or insufficient for resolution.
+An unqualified variant name first uses ordinary lexical value and callable lookup. An ordinary declaration with the same name is selected normally and prevents contextual variant lookup.
+
+When ordinary lookup finds no declaration, an unqualified variant name can resolve against a known concrete expected union type. Return types, explicit local type annotations, known callable parameter types, and other expression contexts can provide that expected type.
+
+Contextual variant lookup does not introduce union variants into lexical scope.
+
+Contextual variant lookup does not search visible union types, infer a union type from the variant name, or use the expected type to choose among callable overloads or implementation candidates.
+
+If the expected union type is absent or insufficient, the union and variant must be explicitly qualified.
+
+If the expected union type is known but does not contain the unqualified variant, the expression is rejected as an unknown variant of that union.
+
+Leading-dot construction remains available even when an ordinary lexical declaration has the same name because the leading dot explicitly requests expected-type-directed variant lookup.
 
 A no-payload variant construction expression uses no parentheses.
 

@@ -159,7 +159,7 @@ A type path can be used in compile-time contexts without producing a runtime val
 
 ---
 
-## Expected-type variant paths
+## Expected-type variant references
 
 A leading-dot variant path refers to a variant of the expected union type.
 
@@ -173,6 +173,17 @@ A leading-dot variant path is valid when the expression context provides a known
 A leading-dot payload variant path participates in union variant construction.
 
 A leading-dot no-payload variant path produces the no-payload variant value.
+
+An unqualified name can also refer to a variant of the expected union type.
+
+```bray
+let circle: Shape = Circle(center = origin, radius = 1.0);
+let empty: Shape = Empty;
+```
+
+Ordinary lexical value and callable lookup takes precedence over contextual unqualified variant lookup. Contextual lookup is attempted only when ordinary lookup finds no declaration and the expression has a known concrete expected union type.
+
+Contextual lookup does not add variants to lexical scope, search visible unions, infer a union from a variant name, or use the expected type to select overload or implementation candidates.
 
 If the expected union type is absent, the full union path is required.
 

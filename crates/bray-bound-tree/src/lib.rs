@@ -73,8 +73,9 @@ pub use node::{
     BoundPatternReferenceExpression, BoundPatternTarget, BoundReferenceTarget, BoundResolvedCall,
     BoundSliceBounds, BoundStructConstructionExpression, BoundStructFieldInitializer,
     BoundStructuredExpression, BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression,
-    BoundTypeReference, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
-    BoundUnresolvedReferenceKind, ExactBoundNodeId, IterationSourceMode,
+    BoundTypeReference, BoundUnaryExpression, BoundUnqualifiedVariantExpression,
+    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind, ExactBoundNodeId,
+    IterationSourceMode,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,

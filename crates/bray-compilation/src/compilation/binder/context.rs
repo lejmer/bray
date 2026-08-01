@@ -294,8 +294,7 @@ mod tests {
         walk_bound_unit_view,
     };
     use bray_checker::{
-        CallableCandidateTemplate, CallableCandidateTemplates, CandidateAbsence,
-        ExpressionCandidateSet,
+        CallableCandidateTemplate, CallableCandidateTemplates, ExpressionCandidateSet,
     };
     use bray_diagnostics::DiagnosticKind;
     use bray_package_interface::{
@@ -576,13 +575,23 @@ mod tests {
                 )
         )));
 
-        assert!(results.iter().any(|result| matches!(
-            result.value(),
-            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
-                reason: CandidateAbsence::UnresolvedReference,
-                ..
-            })
-        )));
+        assert!(results.iter().any(|result| {
+            let ExpressionCandidateSet::Operation(operation) = result.value() else {
+                return false;
+            };
+
+            let Some(BoundExpression::Call(call)) =
+                bound.value().view().expression(operation.expression())
+            else {
+                return false;
+            };
+
+            operation.kind() == SelectionKind::Construction
+                && matches!(
+                    bound.value().view().expression(call.callee()),
+                    Some(BoundExpression::UnqualifiedVariant(_))
+                )
+        }));
 
         for kind in [
             SelectionKind::Member,
@@ -820,6 +829,7 @@ mod tests {
                     | BoundExpression::Conversion(_)
                     | BoundExpression::StructConstruction(_)
                     | BoundExpression::LeadingDotVariant(_)
+                    | BoundExpression::UnqualifiedVariant(_)
                     | BoundExpression::Structured(_)
             ) {
                 expressions.push(expression);

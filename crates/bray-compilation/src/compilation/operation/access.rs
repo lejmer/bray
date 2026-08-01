@@ -112,7 +112,7 @@ impl Compilation {
                 let operation =
                     SelectedOperation::Member(MemberTarget::new(field.into(), result_type, []));
 
-                (result_type, operation)
+                (result_type, Some(operation))
             }
             member if CallableDefinitionId::try_new(member).is_some() => {
                 let Some(signature) = self.resolve_callable_member_signature(
@@ -138,8 +138,9 @@ impl Compilation {
 
                 let operation = SelectedOperation::Member(target);
 
-                (result_type, operation)
+                (result_type, Some(operation))
             }
+            AnySymbolId::UnionVariant(_) => (receiver_type, None),
             _ => return Ok(None),
         };
 
@@ -147,7 +148,7 @@ impl Compilation {
             expression,
             result_type,
             [],
-            Some(operation),
+            operation,
         )))
     }
 

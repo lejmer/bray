@@ -1,6 +1,7 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use bray_binder::BinderFactContext;
+use bray_binder::{BinderFactContext, qualified_union_variant};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
     BoundUnitKey, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, ExpressionTypeEntry,
@@ -31,6 +32,8 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<(Vec<OperationResolution>, DiagnosticBag, bool), FactQueryError> {
         let mut expressions = Vec::new();
+        let facts = self.binder_facts_for(key, cancellation)?;
+        let variant_construction_callees = variant_construction_callees(&facts, bound);
 
         let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
             if cancellation.is_cancelled() {
@@ -45,7 +48,9 @@ impl Compilation {
                 return BoundWalkControl::Stop;
             };
 
-            if selection_kind(expression).is_ok() {
+            if selection_kind(expression).is_ok()
+                && !variant_construction_callees.contains(&id)
+            {
                 expressions.push(id);
             }
 
@@ -129,7 +134,8 @@ impl Compilation {
             semantics.result().diagnostics(),
         ]);
 
-        let selection_kind = selection_kind(expression)?;
+        let selection_kind =
+            selection_kind_for(&facts, bound.result().value(), key.expression(), expression)?;
 
         if !matches!(expression, BoundExpression::Call(_))
             && semantics
@@ -138,6 +144,7 @@ impl Compilation {
                 .1
                 .expression(key.expression())
                 .is_some()
+            && selection_kind != bray_bound_tree::SelectionKind::Construction
         {
             return Ok(DiagnosticResult::new(None, diagnostics));
         }
@@ -146,6 +153,7 @@ impl Compilation {
             key,
             bound.result().value(),
             expression,
+            selection_kind,
             &semantics.result().value().0,
             cancellation,
             &mut diagnostics,
@@ -219,11 +227,11 @@ impl Compilation {
         key: &OperationSelectionFactKey,
         unit: &bray_bound_tree::BoundUnit,
         expression: &BoundExpression,
+        kind: bray_bound_tree::SelectionKind,
         provisional: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<bray_bound_tree::CheckedExpressionTypes>, FactQueryError> {
-        let kind = selection_kind(expression)?;
         let mut entries = provisional.entries().to_vec();
 
         for operand in selection_operands(expression, kind) {
@@ -309,7 +317,10 @@ impl Compilation {
 
         let input = OperationSelectionRequest::new(
             key.expression(),
-            selection_kind(
+            selection_kind_for(
+                facts,
+                unit,
+                key.expression(),
                 unit.view()
                     .expression(key.expression())
                     .ok_or(FactQueryError::InfrastructureFailure)?,
@@ -355,6 +366,7 @@ pub(in crate::compilation) fn selection_kind(
         BoundExpression::Conversion(_) => Ok(bray_bound_tree::SelectionKind::Conversion),
         BoundExpression::StructConstruction(_)
         | BoundExpression::LeadingDotVariant(_)
+        | BoundExpression::UnqualifiedVariant(_)
         | BoundExpression::Call(_) => Ok(bray_bound_tree::SelectionKind::Construction),
         BoundExpression::Structured(expression)
             if matches!(
@@ -390,10 +402,51 @@ pub(super) fn construction_operands(
             .collect(),
         BoundExpression::Structured(expression) => expression.operands().to_vec(),
         BoundExpression::LeadingDotVariant(_) => Vec::new(),
+        BoundExpression::UnqualifiedVariant(_) => Vec::new(),
         _ => Vec::new(),
     };
 
     operands.into_iter()
+}
+
+fn variant_construction_callees(
+    facts: &CompilationBinderFacts<'_>,
+    unit: &BoundUnit,
+) -> BTreeSet<BoundExpressionId> {
+    unit.tree()
+        .expressions()
+        .filter_map(|(_, expression)| {
+            let BoundExpression::Call(call) = expression else {
+                return None;
+            };
+
+            let callee = unit.view().expression(call.callee())?;
+
+            let is_variant = match callee {
+                BoundExpression::LeadingDotVariant(_)
+                | BoundExpression::UnqualifiedVariant(_) => true,
+                BoundExpression::MemberAccess(_) => {
+                    qualified_union_variant(facts, unit, call.callee()).is_some()
+                }
+                _ => false,
+            };
+
+            is_variant.then_some(call.callee())
+        })
+        .collect()
+}
+
+fn selection_kind_for(
+    facts: &CompilationBinderFacts<'_>,
+    unit: &BoundUnit,
+    expression_id: BoundExpressionId,
+    expression: &BoundExpression,
+) -> Result<bray_bound_tree::SelectionKind, FactQueryError> {
+    if qualified_union_variant(facts, unit, expression_id).is_some() {
+        return Ok(bray_bound_tree::SelectionKind::Construction);
+    }
+
+    selection_kind(expression)
 }
 
 fn selection_operands(

@@ -398,6 +398,22 @@ where
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
+        let available = candidates.iter().collect::<Vec<_>>();
+
+        for (ordinal, argument) in call.arguments().iter().enumerate() {
+            if !expected_type_directed_variant(request, argument.expression()) {
+                continue;
+            }
+
+            let Some(expected) =
+                common_parameter_type(request, &available, call.arguments(), ordinal)?
+            else {
+                continue;
+            };
+
+            session.add_evidence(argument.expression(), expected)?;
+        }
+
         let Some(candidates) = viable_candidates(
             request,
             types,
@@ -501,6 +517,25 @@ where
     }
 
     Ok(expected)
+}
+
+fn expected_type_directed_variant<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match request.view().expression(expression) {
+        Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_)) => {
+            true
+        }
+        Some(BoundExpression::Call(call)) => matches!(
+            request.view().expression(call.callee()),
+            Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_))
+        ),
+        _ => false,
+    }
 }
 
 fn common_candidate_value<T: Copy + Eq>(

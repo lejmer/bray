@@ -18,7 +18,7 @@ Construction expressions use named fields where field identity matters.
 
 Struct construction can omit the type when the expected type is known.
 
-Union variant construction can use leading-dot shorthand when the expected union type is known.
+Union variant construction can use leading-dot or contextually resolved unqualified shorthand when the expected union type is known.
 
 No-payload union variants construct without parentheses.
 

@@ -1443,7 +1443,7 @@ mod tests {
         assert_eq!(nested.len(), 2);
         assert!(nested[0].source() < nested[1].source());
 
-        let mut recovered = Vec::new();
+        let mut recovery_states = Vec::new();
 
         for nested_key in nested {
             let child = match compilation.control_flow(nested_key.clone()) {
@@ -1451,10 +1451,10 @@ mod tests {
                 Err(error) => panic!("nested control-flow fact must be available: {error:?}"),
             };
 
-            recovered.push(child.value().is_recovered());
+            recovery_states.push(child.value().is_recovered());
         }
 
-        assert_eq!(recovered, [true, false]);
+        assert_eq!(recovery_states, [false, false]);
 
         let parent = match compilation.control_flow(key) {
             Ok(parent) => parent,

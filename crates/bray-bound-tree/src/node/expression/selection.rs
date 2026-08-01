@@ -186,6 +186,52 @@ impl BoundLeadingDotVariantExpression {
     }
 }
 
+/// An unqualified name awaiting variant lookup against a known expected union type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundUnqualifiedVariantExpression {
+    origin: BoundNodeOrigin,
+    name: bray_symbols::SymbolName,
+    ty: Option<TypeId>,
+    is_recovered: bool,
+}
+
+impl BoundUnqualifiedVariantExpression {
+    /// Creates an unqualified variant reference after ordinary lookup found no declaration.
+    pub const fn new(
+        origin: BoundNodeOrigin,
+        name: bray_symbols::SymbolName,
+        ty: Option<TypeId>,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            origin,
+            name,
+            ty,
+            is_recovered,
+        }
+    }
+
+    /// Returns the source or synthesized origin.
+    pub const fn origin(&self) -> BoundNodeOrigin {
+        self.origin
+    }
+
+    /// Returns the unqualified variant name.
+    pub const fn name(&self) -> &bray_symbols::SymbolName {
+        &self.name
+    }
+
+    /// Returns the resolved type when available.
+    pub const fn ty(&self) -> Option<TypeId> {
+        self.ty
+    }
+
+    /// Returns whether source recovery contributed to this reference.
+    pub const fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
+}
+
 /// A receiver member selection awaiting receiver-aware checking.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundMemberAccessExpression {

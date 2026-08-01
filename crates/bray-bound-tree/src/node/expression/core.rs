@@ -10,7 +10,7 @@ use super::{
     BoundLiteralExpression, BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression,
     BoundPatternReferenceExpression, BoundStructConstructionExpression, BoundStructuredExpression,
     BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression, IterationSourceMode,
+    BoundUnqualifiedVariantExpression, BoundUnresolvedReferenceExpression, IterationSourceMode,
 };
 
 /// A checked expression retaining its exact semantic category.
@@ -52,6 +52,8 @@ pub enum BoundExpression {
     MemberAccess(BoundMemberAccessExpression),
     /// A contextually typed leading-dot variant reference.
     LeadingDotVariant(BoundLeadingDotVariantExpression),
+    /// An unqualified variant reference considered only after ordinary lookup finds no name.
+    UnqualifiedVariant(BoundUnqualifiedVariantExpression),
     /// A trait-qualified receiver member selection.
     TraitQualifiedMember(BoundTraitQualifiedMemberExpression),
     /// A return, yield, break, or continue transfer.
@@ -88,6 +90,7 @@ impl BoundExpression {
             Self::StructConstruction(_) => "struct_construction",
             Self::MemberAccess(_) => "member_access",
             Self::LeadingDotVariant(_) => "leading_dot_variant",
+            Self::UnqualifiedVariant(_) => "unqualified_variant",
             Self::TraitQualifiedMember(_) => "trait_qualified_member",
             Self::ControlTransfer(_) => "control_transfer",
             Self::For(_) => "for",
@@ -118,6 +121,7 @@ impl BoundExpression {
             Self::StructConstruction(expression) => expression.origin(),
             Self::MemberAccess(expression) => expression.origin(),
             Self::LeadingDotVariant(expression) => expression.origin(),
+            Self::UnqualifiedVariant(expression) => expression.origin(),
             Self::TraitQualifiedMember(expression) => expression.origin(),
             Self::ControlTransfer(expression) => expression.origin(),
             Self::For(expression) => expression.origin(),
@@ -148,6 +152,7 @@ impl BoundExpression {
             Self::StructConstruction(expression) => expression.ty(),
             Self::MemberAccess(expression) => expression.ty(),
             Self::LeadingDotVariant(expression) => expression.ty(),
+            Self::UnqualifiedVariant(expression) => expression.ty(),
             Self::TraitQualifiedMember(expression) => expression.ty(),
             Self::ControlTransfer(expression) => expression.ty(),
             Self::For(expression) => expression.ty(),
@@ -178,6 +183,7 @@ impl BoundExpression {
             Self::StructConstruction(expression) => expression.is_recovered(),
             Self::MemberAccess(expression) => expression.is_recovered(),
             Self::LeadingDotVariant(expression) => expression.is_recovered(),
+            Self::UnqualifiedVariant(expression) => expression.is_recovered(),
             Self::TraitQualifiedMember(expression) => expression.is_recovered(),
             Self::ControlTransfer(expression) => expression.is_recovered(),
             Self::For(expression) => expression.is_recovered(),
@@ -212,6 +218,7 @@ impl BoundExpression {
             | Self::PatternReference(_)
             | Self::UnresolvedReference(_)
             | Self::LeadingDotVariant(_)
+            | Self::UnqualifiedVariant(_)
             | Self::AnonymousCallable(_)
             | Self::Error(_) => &[],
         };

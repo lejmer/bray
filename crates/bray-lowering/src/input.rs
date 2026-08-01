@@ -718,6 +718,7 @@ fn requires_semantic_selection(
         | BoundExpression::For(_)
         | BoundExpression::Generator(_)
         | BoundExpression::LeadingDotVariant(_)
+        | BoundExpression::UnqualifiedVariant(_)
         | BoundExpression::TraitQualifiedMember(_)
         | BoundExpression::PatternReference(_) => true,
         BoundExpression::MemberAccess(expression) => {

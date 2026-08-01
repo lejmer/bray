@@ -21,8 +21,8 @@ pub use expression::{
     BoundOperator, BoundPatternReferenceExpression, BoundReferenceTarget, BoundResolvedCall,
     BoundSliceBounds, BoundStructConstructionExpression, BoundStructFieldInitializer,
     BoundStructuredExpression, BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression,
-    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
-    IterationSourceMode,
+    BoundUnaryExpression, BoundUnqualifiedVariantExpression, BoundUnresolvedReferenceExpression,
+    BoundUnresolvedReferenceKind, IterationSourceMode,
 };
 pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,

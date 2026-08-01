@@ -326,6 +326,7 @@ fn construction_matches(
         | (
             ConstructionTarget::UnionVariant(_),
             BoundExpression::LeadingDotVariant(_)
+            | BoundExpression::UnqualifiedVariant(_)
             | BoundExpression::MemberAccess(_)
             | BoundExpression::Call(_),
         ) => true,
