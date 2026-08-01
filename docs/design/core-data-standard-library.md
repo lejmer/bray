@@ -29,6 +29,7 @@ The public modules are:
 | Module | Responsibility |
 |---|---|
 | `std.string` | UTF-8 validation, scalar and byte views, text search, comparison, and conversion |
+| `std.character` | Unicode scalar conversion, classification, and encoding utilities |
 | `std.bytes` | Borrowed byte views, owned byte buffers, copying, comparison, and encoding support |
 | `std.iteration` | Iterator adapters and algorithms over the compiler-known iteration traits |
 | `std.collection` | General-purpose sequences, maps, sets, queues, and their views |
@@ -96,6 +97,85 @@ Text comparison is defined over Unicode scalar values unless an API explicitly s
 collation, normalization, grapheme segmentation, and case conversion are separate policy-bearing facilities and must not be hidden
 inside basic equality, ordering, indexing, or slicing.
 
+### Initial Text Surface
+
+The initial text surface uses `&string` as its borrowed text view and `&[u8]` as its borrowed UTF-8 byte view. It does not introduce
+`StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural forms. Scalar positions
+and UTF-8 byte offsets use `usize` and remain distinguished by the operation that accepts them.
+
+The recognized declarations have these exact signatures:
+
+```bray
+module std.string;
+
+union Utf8Error
+{
+    InvalidEncoding;
+}
+
+func scalar_count(pos value: &string) -> usize;
+
+func is_empty(pos value: &string) -> bool;
+
+func equals(pos left: &string, pos right: &string) -> bool;
+
+func scalar_at(pos value: &string, index: usize) -> char?;
+
+func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
+
+func utf8(pos value: &string) -> &[u8];
+
+func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+```
+
+`scalar_at` returns `none` when `index` is outside the scalar sequence. `scalar_slice` uses the half-open scalar range
+`[start, end)`, allocates an owning result, and panics when `start > end` or either bound exceeds `scalar_count(value)`. `utf8`
+returns a view dependent on `value`. `from_utf8` returns `Utf8Error.InvalidEncoding` for malformed UTF-8 and otherwise constructs an
+owning `string` whose scalar sequence is the decoded input.
+
+Scalar iteration uses one public cursor identity and an ordinary named implementation:
+
+```bray
+module std.string;
+
+struct ScalarCursor;
+
+func scalars(pos value: &string) -> ScalarCursor;
+
+impl ScalarCursorIterator = ScalarCursor(Iterator)
+{
+    type Element = char;
+
+    mut func next() -> char?;
+}
+```
+
+The cursor representation is private. The value returned by `scalars` carries the dependency of `value`, advances in Unicode
+scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned by `utf8` and the ordinary
+slice iteration contract rather than a second string-specific byte cursor.
+
+The initial `std.character` surface is:
+
+```bray
+module std.character;
+
+func scalar_value(value: char) -> u32;
+
+func from_scalar_value(value: u32) -> char?;
+
+func utf8_length(value: char) -> usize;
+
+func is_alphabetic(value: char) -> bool;
+
+func is_numeric(value: char) -> bool;
+
+func is_whitespace(value: char) -> bool;
+```
+
+`from_scalar_value` returns `none` for values that are not Unicode scalar values. Classification follows the Unicode data version
+selected by the standard-library artifact and is independent of the host locale. Case conversion and normalization remain
+separate policy-bearing additions because one input scalar can produce multiple output scalars.
+
 ## Bytes And Buffers
 
 Borrowed byte data uses slice and borrow forms over `u8`. `std.bytes` may provide named views when they add a real contract, but a
@@ -119,6 +199,70 @@ safe buffer invariant, but callers of the safe surface do not inherit raw-memory
 
 Encoding and decoding APIs name their encoding and failure policy. UTF-8 conversion uses the recognized `std.string` operations.
 No byte API silently assumes host endianness, native integer width, or null termination.
+
+### Initial Buffer Surface
+
+The initial owning byte-buffer identity is `std.bytes.Buffer`. Its representation is private and contains one
+`std.memory.RawBuffer<u8>` whose initialized prefix is the buffer's byte sequence. The type is movable and not copyable.
+
+The public surface is:
+
+```bray
+module std.bytes;
+
+struct Buffer;
+
+func create(capacity: usize = 0) -> Result<Buffer, std.memory.MemoryLayoutError>;
+
+func from_slice(pos bytes: &[u8]) -> Result<Buffer, std.memory.MemoryLayoutError>;
+
+func length(pos buffer: &Buffer) -> usize;
+
+func capacity(pos buffer: &Buffer) -> usize;
+
+func as_slice(pos buffer: &Buffer) -> &[u8];
+
+func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8];
+
+func reserve(
+    pos buffer: &mut Buffer,
+    additional: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+func resize(
+    pos buffer: &mut Buffer,
+    new_length: usize,
+    fill: u8 = 0,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+func truncate(pos buffer: &mut Buffer, new_length: usize) -> unit;
+
+func clear(pos buffer: &mut Buffer) -> unit;
+
+func push(
+    pos buffer: &mut Buffer,
+    value: u8,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+func append(
+    pos buffer: &mut Buffer,
+    bytes: &[u8],
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+func pop(pos buffer: &mut Buffer) -> u8?;
+```
+
+`create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation failure follows
+the language allocation panic contract. `reserve` guarantees capacity for `length(buffer) + additional` without changing the byte
+sequence. `resize` preserves the existing prefix, truncates when shrinking, and appends `fill` bytes when growing. `truncate`
+leaves the buffer unchanged when `new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
+
+`as_slice` and `as_slice_mut` return views dependent on `buffer`. Any operation requiring mutation or possible reallocation is
+rejected while an incompatible view remains live by ordinary borrowing rules. A caller therefore cannot pass a view reaching
+`buffer` as the `bytes` argument of `append` while also supplying the required mutable borrow of that buffer.
+
+Private standard-library support may transfer a `Buffer` to or from its `RawBuffer<u8>` representation. That bridge is not part of
+the public `std.bytes` surface and does not expose raw allocation facts to ordinary callers.
 
 ## Iteration
 
@@ -227,7 +371,7 @@ contracts.
 Core data modules follow this dependency direction:
 
 1. compiler-known types, traits, and `std.memory` establish the substrate,
-2. `std.bytes` and `std.string` establish byte and text values,
+2. `std.bytes`, `std.string`, and `std.character` establish byte, text, and character utilities,
 3. `std.iteration` establishes reusable traversal behavior,
 4. `std.hash`, `std.order`, and `std.numeric` establish focused policies and algorithms,
 5. `std.collection` builds owning containers over memory, iteration, hashing, and ordering,
