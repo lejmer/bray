@@ -236,6 +236,7 @@ fn standard_library_projects_require_the_public_std_root() {
         r#""identity": "example.application""#,
         r#""identity": "std.application""#,
     );
+
     replace(
         workspace
             .path()
@@ -245,6 +246,7 @@ fn standard_library_projects_require_the_public_std_root() {
         r#""identity": "example.math""#,
         r#""identity": "std.runtime""#,
     );
+
     replace(
         workspace.path().join("app").join("bray-package.json"),
         r#""package": "example.math""#,
