@@ -29,19 +29,22 @@ A target profile contains:
 - atomic capability facts,
 - address-space facts,
 - allocation facts,
+- platform-service availability facts,
 - symbol and linkage facts required by selected ABI modes.
 
 A target profile is immutable for one product compilation.
 
 All target facts used by a product are facts of that one selected target profile.
 
-If a target profile is missing a required fact, contains contradictory facts, or states a fact outside the language-defined range for that fact, the target profile is invalid and the product is rejected before source checking.
+If a target profile is missing a required fact, contains contradictory facts, or states a fact outside the language-defined range
+for that fact, the target profile is invalid and the product is rejected before source checking.
 
 A **target fact** is a compiler-known compile-time constant fact exposed by the selected target profile.
 
 Target facts are available under the reserved compiler-known path prefix `target`.
 
-`target` uses ordinary path syntax, but its declarations are compiler-known target facts, not ordinary standard-library declarations.
+`target` uses ordinary path syntax, but its declarations are compiler-known target facts, not ordinary standard-library
+declarations.
 
 Target fact declarations are available without `using`.
 
@@ -49,7 +52,8 @@ Source packages cannot declare, import, re-export, overload, shadow, replace, or
 
 Target facts can have scalar, string, boolean, or compiler-known target-fact enum types.
 
-Target facts are valid in constant expressions, predicate expressions, contract expressions, static constraints, target-selection expressions, layout checking, ABI checking, and compiler-known availability rules.
+Target facts are valid in constant expressions, predicate expressions, contract expressions, static constraints, target-selection
+expressions, layout checking, ABI checking, and compiler-known availability rules.
 
 Target fact values are deterministic for the selected target profile.
 
@@ -64,6 +68,7 @@ The language-defined target fact groups are:
 - `target.atomic`: atomic storage and atomic operation capability facts,
 - `target.address_space`: address-space availability and pointer behavior facts,
 - `target.allocation`: allocation size and alignment support facts,
+- `target.platform`: process context, standard stream, filesystem, child-process, clock, and entropy availability facts,
 - `target.linkage`: symbol encoding, linkage kind, and external artifact facts exposed by the target profile.
 
 The target fact surface includes these language-defined facts:
@@ -113,6 +118,13 @@ target.address_space.host
 target.address_space.device
 target.alignment.max_storage
 target.alignment.max_allocation
+target.platform.process_context
+target.platform.standard_streams
+target.platform.filesystem
+target.platform.child_processes
+target.platform.monotonic_clock
+target.platform.wall_clock
+target.platform.entropy
 ```
 
 `target.identity.name`, `target.identity.arch`, `target.identity.vendor`, `target.identity.system`,
@@ -127,19 +139,23 @@ Exactly one of `target.endian.little` and `target.endian.big` is true.
 
 Scalar availability facts for required scalar types must be true for every conforming target profile.
 
-Scalar availability facts for target-conditional scalar types are true only when the selected target profile supports the required representation and operations for that scalar type.
+Scalar availability facts for target-conditional scalar types are true only when the selected target profile supports the required
+representation and operations for that scalar type.
 
 Additional target fact declarations can be defined only by this specification.
 
 Compiler-specific target facts cannot appear under `target`.
 
-Compiler-specific target information belongs to package and build metadata or compiler-specific tooling outside the compiler-known declaration surface.
+Compiler-specific target information belongs to package and build metadata or compiler-specific tooling outside the compiler-known
+declaration surface.
 
 A target fact used by a compile-time constant makes that constant target-dependent.
 
-Target-dependent constants are evaluated for the selected target profile, and compiled interface metadata records the target facts that affect the value.
+Target-dependent constants are evaluated for the selected target profile, and compiled interface metadata records the target facts
+that affect the value.
 
-A compiler must not reuse a target-dependent constant value across target profiles unless the recorded target facts are identical for the purposes of that constant.
+A compiler must not reuse a target-dependent constant value across target profiles unless the recorded target facts are identical
+for the purposes of that constant.
 
 ## Navigation
 

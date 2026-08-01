@@ -71,8 +71,8 @@ documents.
     - Deterministic Bray source formatting, comment and recovery preservation, and reusable check/write file operations.
 
 - `bray-runtime-interface`
-    - Backend-neutral compiler/runtime interface for protected-frame identities, private execution ABI roles, runtime requirements,
-      and executable-host contracts.
+    - Backend-neutral contracts for protected-frame identities, private execution and platform-service ABI roles, runtime
+      requirements, and executable-host integration.
 
 - `bray-platform`
     - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
