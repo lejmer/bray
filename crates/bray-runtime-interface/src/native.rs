@@ -65,9 +65,6 @@ pub const STRING_SCALAR_SLICE_SYMBOL: &str = "bray_runtime_string_scalar_slice_v
 /// Stable symbol validating and copying borrowed UTF-8 bytes.
 pub const STRING_FROM_UTF8_SYMBOL: &str = "bray_runtime_string_from_utf8_v1";
 
-/// Stable symbol advancing a Unicode scalar cursor.
-pub const STRING_SCALAR_CURSOR_NEXT_SYMBOL: &str = "bray_runtime_string_scalar_cursor_next_v1";
-
 /// Stable symbol returning a character's Unicode scalar value.
 pub const CHARACTER_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_scalar_value_v1";
 

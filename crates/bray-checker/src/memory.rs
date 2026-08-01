@@ -381,8 +381,6 @@ where
         | ImplementationHook::StringScalarSlice
         | ImplementationHook::StringUtf8
         | ImplementationHook::StringFromUtf8
-        | ImplementationHook::StringScalars
-        | ImplementationHook::StringScalarCursorNext
         | ImplementationHook::CharacterScalarValue
         | ImplementationHook::CharacterFromScalarValue
         | ImplementationHook::CharacterUtf8Length

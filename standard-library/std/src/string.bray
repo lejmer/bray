@@ -5,51 +5,34 @@ union Utf8Error
     InvalidEncoding;
 }
 
-func scalar_count(pos value: &string) -> usize
-{
-    return loop {};
-}
+extern func scalar_count(pos value: &string) -> usize;
 
-func is_empty(pos value: &string) -> bool
-{
-    return loop {};
-}
+extern func is_empty(pos value: &string) -> bool;
 
-func equals(pos left: &string, pos right: &string) -> bool
-{
-    return loop {};
-}
+extern func equals(pos left: &string, pos right: &string) -> bool;
 
-func scalar_at(pos value: &string, index: usize) -> char?
-{
-    return loop {};
-}
+extern func scalar_at(pos value: &string, index: usize) -> char?;
 
-func scalar_slice(pos value: &string, start: usize, end: usize) -> string
-{
-    return loop {};
-}
+extern func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
 
-func utf8(pos value: &string) -> &[u8]
-{
-    return loop {};
-}
+extern func utf8(pos value: &string) -> &[u8];
 
-func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>
-{
-    return loop {};
-}
+extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
 
 struct ScalarCursor
 {
     value: &string;
-    index: usize;
+    mut index: usize = 0;
     count: usize;
 }
 
 func scalars(pos value: &string) -> ScalarCursor
 {
-    return loop {};
+    return ScalarCursor
+    {
+        value = value,
+        count = scalar_count(value),
+    };
 }
 
 impl ScalarCursorIterator = ScalarCursor(Iterator)
@@ -58,6 +41,22 @@ impl ScalarCursorIterator = ScalarCursor(Iterator)
 
     mut func next() -> char?
     {
-        return loop {};
+        let index: usize = self.index;
+        let count: usize = self.count;
+
+        if index >= count
+        {
+            let exhausted: char? = none;
+
+            return exhausted;
+        };
+
+        let next_index: usize = index + 1;
+
+        self.index = next_index;
+
+        let scalar: char? = scalar_at(self.value, index = index);
+
+        return scalar;
     }
 }

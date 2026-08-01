@@ -1,0 +1,13 @@
+module std.string;
+
+func main() -> i32
+{
+    let value: string = "Aé";
+    let mut cursor: ScalarCursor = scalars(&value);
+    let first: char? = cursor(Iterator).next();
+    let second: char? = cursor(Iterator).next();
+    let exhausted: char? = cursor(Iterator).next();
+    let still_exhausted: char? = cursor(Iterator).next();
+
+    return 42;
+}

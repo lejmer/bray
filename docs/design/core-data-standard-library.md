@@ -113,19 +113,19 @@ union Utf8Error
     InvalidEncoding;
 }
 
-func scalar_count(pos value: &string) -> usize;
+extern func scalar_count(pos value: &string) -> usize;
 
-func is_empty(pos value: &string) -> bool;
+extern func is_empty(pos value: &string) -> bool;
 
-func equals(pos left: &string, pos right: &string) -> bool;
+extern func equals(pos left: &string, pos right: &string) -> bool;
 
-func scalar_at(pos value: &string, index: usize) -> char?;
+extern func scalar_at(pos value: &string, index: usize) -> char?;
 
-func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
+extern func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
 
-func utf8(pos value: &string) -> &[u8];
+extern func utf8(pos value: &string) -> &[u8];
 
-func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
 ```
 
 `scalar_at` returns `none` when `index` is outside the scalar sequence. `scalar_slice` uses the half-open scalar range
@@ -159,17 +159,17 @@ The initial `std.character` surface is:
 ```bray
 module std.character;
 
-func scalar_value(value: char) -> u32;
+extern func scalar_value(value: char) -> u32;
 
-func from_scalar_value(value: u32) -> char?;
+extern func from_scalar_value(value: u32) -> char?;
 
-func utf8_length(value: char) -> usize;
+extern func utf8_length(value: char) -> usize;
 
-func is_alphabetic(value: char) -> bool;
+extern func is_alphabetic(value: char) -> bool;
 
-func is_numeric(value: char) -> bool;
+extern func is_numeric(value: char) -> bool;
 
-func is_whitespace(value: char) -> bool;
+extern func is_whitespace(value: char) -> bool;
 ```
 
 `from_scalar_value` returns `none` for values that are not Unicode scalar values. The initial character-classification contract

@@ -722,8 +722,6 @@ fn operation_parts(
                     bray_ir::MirTextOperationKind::ScalarSlice => "scalar_slice",
                     bray_ir::MirTextOperationKind::Utf8 => "utf8",
                     bray_ir::MirTextOperationKind::FromUtf8 => "from_utf8",
-                    bray_ir::MirTextOperationKind::Scalars => "scalars",
-                    bray_ir::MirTextOperationKind::ScalarCursorNext => "scalar_cursor_next",
                     bray_ir::MirTextOperationKind::CharacterScalarValue => {
                         "character_scalar_value"
                     }

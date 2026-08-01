@@ -8,6 +8,8 @@ mod model;
 mod output;
 #[cfg(feature = "analysis")]
 mod product;
+#[cfg(feature = "compiler")]
+mod runtime;
 #[cfg(feature = "analysis")]
 mod source;
 mod status;
@@ -30,6 +32,8 @@ pub use product::{
 };
 #[cfg(feature = "compiler")]
 pub use product::{load_llvm_compilation, native_linker};
+#[cfg(feature = "compiler")]
+pub use runtime::load_runtime_artifact;
 #[cfg(feature = "analysis")]
 pub use source::{
     SourceInputError, compilation_request_from_file_arguments, source_inputs_from_file_arguments,

@@ -7,9 +7,9 @@ use bray_checker::{resolve_callable_signature_template, resolve_type_expression_
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableSignatureFact, ExactSymbolId,
-    ImplementationSelection, MemberLookupResult, NamedTypeSymbolId, StructFieldTypeFact,
-    SymbolFactContract, SymbolFactRequest, TraitCallableMemberSymbolId, TypeData,
-    TypeExpressionTemplate, TypeId,
+    ImplementationSelection, ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId,
+    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    TraitCallableMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
@@ -50,6 +50,12 @@ impl Compilation {
         };
 
         let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
+
+        let receiver_type = self.resolve_contextual_receiver_type(
+            facts,
+            receiver_type,
+            diagnostics,
+        )?;
 
         let data = facts
             .semantic_values()
@@ -145,6 +151,44 @@ impl Compilation {
             [],
             Some(operation),
         )))
+    }
+
+    fn resolve_contextual_receiver_type(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        receiver_type: TypeId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<TypeId, FactQueryError> {
+        let data = facts
+            .semantic_values()
+            .type_data(receiver_type)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) =
+            data.as_ref()
+        else {
+            return Ok(receiver_type);
+        };
+
+        let subject = facts
+            .symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
+                *implementation,
+            ))
+            .map_err(binder_fact_error)?;
+
+        *diagnostics = diagnostics.merged(subject.diagnostics());
+
+        let checked = self.checked_constant_terms(subject.value().ty())?;
+
+        *diagnostics = diagnostics.merged(checked.diagnostics());
+
+        resolve_type_expression_template(
+            facts.semantic_values(),
+            subject.value().ty(),
+            checked.value(),
+        )
+        .map_err(FactQueryError::CheckerInfrastructure)?
+        .ok_or(FactQueryError::InfrastructureFailure)
     }
 
     fn resolve_trait_qualified_member_operation(

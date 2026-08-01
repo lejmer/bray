@@ -195,36 +195,6 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_string_scalar_cursor_next_v1(
-        data: *const u8,
-        length: usize,
-        index: *mut usize,
-        count: usize,
-        scalar: *mut u32,
-    ) -> u8 {
-        let current = unsafe { index.read() };
-
-        if current >= count {
-            return 0;
-        }
-
-        let Some(value) = unsafe { native_utf8(data, length) }
-            .get(current..)
-            .and_then(|remaining| remaining.chars().next())
-        else {
-            return 0;
-        };
-
-        unsafe {
-            index.write(current + value.len_utf8());
-            scalar.write(u32::from(value));
-        }
-
-        1
-    }
-}
-
-native_export! {
     pub extern "C" fn bray_runtime_character_scalar_value_v1(value: u32) -> u32 {
         value
     }
@@ -748,7 +718,7 @@ mod tests {
         bray_runtime_structured_shutdown_v1, bray_runtime_synchronous_root_execution_v1,
         bray_runtime_string_equals_v1, bray_runtime_string_from_utf8_v1,
         bray_runtime_string_scalar_at_v1, bray_runtime_string_scalar_count_v1,
-        bray_runtime_string_scalar_cursor_next_v1, bray_runtime_string_scalar_slice_v1,
+        bray_runtime_string_scalar_slice_v1,
         bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
     };
 
@@ -911,54 +881,6 @@ mod tests {
         assert!(data.is_null());
         assert_eq!(length, 0);
         assert!(owner.is_null());
-    }
-
-    #[test]
-    fn scalar_cursor_advances_once_and_has_stable_exhaustion() {
-        let text = "é🙂";
-        let mut index = 0;
-        let mut scalar = 0;
-
-        for expected in ['é', '🙂'] {
-            assert_eq!(
-                bray_runtime_string_scalar_cursor_next_v1(
-                    text.as_ptr(),
-                    text.len(),
-                    &raw mut index,
-                    text.len(),
-                    &raw mut scalar,
-                ),
-                1
-            );
-
-            assert_eq!(scalar, u32::from(expected));
-        }
-
-        assert_eq!(
-            bray_runtime_string_scalar_cursor_next_v1(
-                text.as_ptr(),
-                text.len(),
-                &raw mut index,
-                text.len(),
-                &raw mut scalar,
-            ),
-            0
-        );
-
-        assert_eq!(index, text.len());
-
-        assert_eq!(
-            bray_runtime_string_scalar_cursor_next_v1(
-                text.as_ptr(),
-                text.len(),
-                &raw mut index,
-                text.len(),
-                &raw mut scalar,
-            ),
-            0
-        );
-
-        assert_eq!(index, text.len());
     }
 
     #[test]

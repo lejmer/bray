@@ -118,10 +118,6 @@ pub enum MirTextOperationKind {
     Utf8,
     /// Validate and copy borrowed UTF-8 bytes into owned text.
     FromUtf8,
-    /// Create a scalar cursor over borrowed text.
-    Scalars,
-    /// Advance a mutable scalar cursor.
-    ScalarCursorNext,
     /// Return a character's Unicode scalar value.
     CharacterScalarValue,
     /// Construct a character from a valid Unicode scalar value.

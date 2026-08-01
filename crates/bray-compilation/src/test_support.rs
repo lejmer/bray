@@ -14,8 +14,8 @@ use bray_source::{
     SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceSnapshot, SourceVersion,
 };
 use bray_symbols::{
-    FunctionSymbolId, ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey, SymbolKind,
-    SymbolOrigin, SymbolRootKey,
+    AnySymbolId, FunctionSymbolId, ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey,
+    SymbolKind, SymbolOrigin, SymbolRootKey,
 };
 
 use crate::fact::{
@@ -316,20 +316,50 @@ pub(crate) fn source_function_body_key(compilation: &Compilation, name: &str) ->
 
     let function = source_function(compilation, name);
 
-    let Some(function) = symbols.function(function) else {
-        panic!("source function must exist");
+    source_symbol_body_key(compilation, symbols, function.into())
+}
+
+pub(crate) fn source_trait_callable_fulfillment_body_key(
+    compilation: &Compilation,
+    name: &str,
+) -> BoundUnitKey {
+    let symbols = compilation
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+    let member = symbols
+        .trait_callable_fulfillments()
+        .iter()
+        .find(|member| {
+            member.origin() == SymbolOrigin::Source
+                && symbols
+                    .member_name(member.id().into())
+                    .is_some_and(|member_name| member_name.as_str() == name)
+        })
+        .unwrap_or_else(|| panic!("source trait callable fulfillment {name} must exist"));
+
+    source_symbol_body_key(compilation, symbols, member.id().into())
+}
+
+fn source_symbol_body_key(
+    compilation: &Compilation,
+    symbols: &SymbolGraph,
+    symbol: AnySymbolId,
+) -> BoundUnitKey {
+    let Some(key) = symbols.symbol_key(symbol) else {
+        panic!("source callable must retain its symbol key");
     };
 
-    let Some(anchor) = function.syntax_anchor() else {
-        panic!("source function must retain its syntax anchor");
+    let Some(anchor) = symbols.declaration_syntax_anchor(symbol) else {
+        panic!("source callable must retain its syntax anchor");
     };
 
     let Some(source) = compilation.source(anchor.source_id()) else {
-        panic!("function source must be loaded");
+        panic!("callable source must be loaded");
     };
 
     valid_key(BoundUnitKey::callable_body(
-        function.key().clone(),
+        key.clone(),
         BoundSourceAnchor::new(anchor, source.version()),
     ))
 }

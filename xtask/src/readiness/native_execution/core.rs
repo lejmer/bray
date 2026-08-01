@@ -17,6 +17,8 @@ const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bra
 const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
 const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/memory-layout.bray";
 const STANDARD_MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/standard-memory.bray";
+const STANDARD_TEXT_FIXTURE: &str = "standard-library/std/src/string.bray";
+const TEXT_CURSOR_FIXTURE: &str = "xtask/fixtures/native-execution/standard-text-cursor.bray";
 const INVALID_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/memory-invalid-obligation.bray";
 pub(super) const PRODUCT_NAME: &str = "application";
@@ -33,6 +35,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     let runtime = crate::runtime_artifact::build_for_readiness(target, runtime.path())?;
 
     audit_standard_buffer(root, target, &runtime)?;
+    audit_text_cursor(root, target, &runtime)?;
     audit_startup(root, target, &runtime)?;
     audit_entry_result(root, target, &runtime)?;
     audit_memory_operations(root, target, &runtime)?;
@@ -127,6 +130,24 @@ fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     require_lowered_layout_operations(root, target)?;
 
     execute_product(&first_executable, 42, "executing memory layout operations")
+}
+
+fn audit_text_cursor(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
+    let output = native_output("bray-native-text-cursor-")?;
+
+    build_standard_library_fixtures(
+        root,
+        target,
+        runtime,
+        output.path(),
+        &[STANDARD_TEXT_FIXTURE, TEXT_CURSOR_FIXTURE],
+    )?;
+
+    execute_product(
+        &executable_path(output.path(), target),
+        42,
+        "executing standard text scalar iteration",
+    )
 }
 
 fn require_lowered_layout_operations(root: &Path, target: NativeTarget) -> Result<(), String> {

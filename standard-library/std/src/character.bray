@@ -1,31 +1,13 @@
 module std.character;
 
-func scalar_value(value: char) -> u32
-{
-    return loop {};
-}
+extern func scalar_value(value: char) -> u32;
 
-func from_scalar_value(value: u32) -> char?
-{
-    return loop {};
-}
+extern func from_scalar_value(value: u32) -> char?;
 
-func utf8_length(value: char) -> usize
-{
-    return loop {};
-}
+extern func utf8_length(value: char) -> usize;
 
-func is_alphabetic(value: char) -> bool
-{
-    return loop {};
-}
+extern func is_alphabetic(value: char) -> bool;
 
-func is_numeric(value: char) -> bool
-{
-    return loop {};
-}
+extern func is_numeric(value: char) -> bool;
 
-func is_whitespace(value: char) -> bool
-{
-    return loop {};
-}
+extern func is_whitespace(value: char) -> bool;

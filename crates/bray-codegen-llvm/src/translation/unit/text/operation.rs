@@ -24,8 +24,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTextOperationKind::ScalarSlice => self.text_scalar_slice(operation)?,
             MirTextOperationKind::Utf8 => self.text_utf8(operation)?,
             MirTextOperationKind::FromUtf8 => self.text_from_utf8(operation)?,
-            MirTextOperationKind::Scalars => self.text_scalars(operation)?,
-            MirTextOperationKind::ScalarCursorNext => self.text_scalar_cursor_next(operation)?,
             MirTextOperationKind::CharacterScalarValue => {
                 self.character_scalar_value(operation)?
             }
@@ -183,130 +181,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let string = self.load_owned_string(operation, result_data, result_length, result_owner)?;
 
         self.utf8_result(operation.result_type(), valid, string)
-    }
-
-    fn text_scalars(
-        &mut self,
-        operation: &MirTextOperation,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let operands = self.text_operands(operation)?;
-
-        let [(value, value_type)] = operands.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let (_, length, _) = self.borrowed_string_parts(*value, *value_type)?;
-
-        let integer = self.pointer_integer_type();
-
-        let result = operation
-            .result_type()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let fields = self.text_aggregate_fields(result, 3)?;
-        let mut cursor = self.types.map(result)?.const_zero();
-
-        for (index, field) in [*value, integer.const_zero().into(), length.into()]
-            .into_iter()
-            .enumerate()
-        {
-            cursor = insert_value(
-                &self.builder,
-                cursor,
-                field,
-                aggregate_value_element(self.request.mappings(), &fields, index)?,
-            )?;
-        }
-
-        Ok(cursor)
-    }
-
-    fn text_scalar_cursor_next(
-        &mut self,
-        operation: &MirTextOperation,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let operands = self.text_operands(operation)?;
-
-        let [(cursor, cursor_type)] = operands.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let cursor_target = self
-            .request
-            .mappings()
-            .ty(*cursor_type)
-            .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Pointer { target, .. } => Some(*target),
-                _ => None,
-            })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let fields = self.text_aggregate_fields(cursor_target, 3)?;
-        let cursor = cursor.into_pointer_value();
-        let value_pointer = self.constant_offset_pointer(cursor, fields[0].offset_bytes())?;
-
-        let value = llvm(self.builder.build_load(
-            self.types.map(fields[0].ty())?,
-            value_pointer,
-            "string.cursor.value",
-        ))?;
-
-        let (data, length, _) = self.borrowed_string_parts(value, fields[0].ty())?;
-
-        let index = self.constant_offset_pointer(cursor, fields[1].offset_bytes())?;
-        let count_pointer = self.constant_offset_pointer(cursor, fields[2].offset_bytes())?;
-
-        let count = llvm(self.builder.build_load(
-            self.types.map(fields[2].ty())?,
-            count_pointer,
-            "string.cursor.count",
-        ))?
-        .into_int_value();
-
-        let scalar_type = self.types.context().i32_type();
-        let scalar = zeroed_scalar_output(&self.builder, scalar_type, "string.cursor.scalar")?;
-        let byte = self.types.context().i8_type();
-
-        let function = self.text_function(
-            bray_runtime_interface::STRING_SCALAR_CURSOR_NEXT_SYMBOL,
-            Some(byte.into()),
-            &[
-                data.get_type().into(),
-                length.get_type().into(),
-                index.get_type().into(),
-                count.get_type().into(),
-                scalar.get_type().into(),
-            ],
-        );
-
-        let present = self
-            .call_value(
-                function,
-                &[
-                    data.into(),
-                    length.into(),
-                    index.into(),
-                    count.into(),
-                    scalar.into(),
-                ],
-                "string.cursor.next",
-            )?
-            .into_int_value();
-
-        let present = llvm(self.builder.build_int_compare(
-            IntPredicate::NE,
-            present,
-            present.get_type().const_zero(),
-            "string.cursor.present",
-        ))?;
-
-        let scalar = llvm(self.builder.build_load(
-            scalar_type,
-            scalar,
-            "string.cursor.scalar.value",
-        ))?;
-
-        self.nullable_value(operation.result_type(), present, scalar)
     }
 
     fn release_string(&mut self, operation: &MirTextOperation) -> Result<(), CodegenFailure> {

@@ -530,14 +530,24 @@ where
         });
 
         state.active_borrows.retain(|borrow| {
-            self.liveness
-                .is_live_across_scope(block, BoundDependencySubject::BorrowCapability(*borrow))
+            self.borrow_is_entry(*borrow)
+                || self
+                    .liveness
+                    .is_live_across_scope(block, BoundDependencySubject::BorrowCapability(*borrow))
         });
 
         state.definitely_active_borrows.retain(|borrow| {
-            self.liveness
-                .is_live_across_scope(block, BoundDependencySubject::BorrowCapability(*borrow))
+            self.borrow_is_entry(*borrow)
+                || self
+                    .liveness
+                    .is_live_across_scope(block, BoundDependencySubject::BorrowCapability(*borrow))
         });
+    }
+
+    fn borrow_is_entry(&self, borrow: BorrowCapabilityId) -> bool {
+        self.storage
+            .borrow_capability(borrow)
+            .is_some_and(|capability| capability.entry_binding().is_some())
     }
 
     fn record_exit(&mut self, state: &StorageFlowState, block: bray_bound_tree::BoundBlockId) {

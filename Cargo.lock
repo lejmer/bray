@@ -298,7 +298,6 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -559,6 +558,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

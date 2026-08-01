@@ -96,10 +96,6 @@ define_catalog_enum! {
         StringUtf8 => "StringUtf8",
         /// Validates UTF-8 bytes and copies them into owned text.
         StringFromUtf8 => "StringFromUtf8",
-        /// Creates a scalar cursor over borrowed UTF-8 text.
-        StringScalars => "StringScalars",
-        /// Advances a scalar cursor in Unicode scalar order.
-        StringScalarCursorNext => "StringScalarCursorNext",
         /// Returns a character's Unicode scalar value.
         CharacterScalarValue => "CharacterScalarValue",
         /// Constructs a character from a valid Unicode scalar value.
@@ -185,8 +181,6 @@ mod tests {
             ImplementationHook::StringScalarSlice,
             ImplementationHook::StringUtf8,
             ImplementationHook::StringFromUtf8,
-            ImplementationHook::StringScalars,
-            ImplementationHook::StringScalarCursorNext,
             ImplementationHook::CharacterScalarValue,
             ImplementationHook::CharacterFromScalarValue,
             ImplementationHook::CharacterUtf8Length,

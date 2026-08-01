@@ -313,7 +313,11 @@ impl Lowerer<'_> {
         purpose: StorageAccessPurpose,
         current: MirBlockId,
     ) -> Result<LoweredPlace, LoweringError> {
-        let decision = self.storage_decision(expression, |candidate| candidate == purpose)?;
+        let decision = self.storage_decision(expression, |candidate| {
+            candidate == purpose
+                || purpose == StorageAccessPurpose::Assignment
+                    && candidate == StorageAccessPurpose::Write
+        })?;
 
         self.lower_access_place(expression, decision.access(), current)
     }
@@ -572,6 +576,10 @@ impl Lowerer<'_> {
         &self,
         identity: StorageIdentityId,
     ) -> Result<TypeId, LoweringError> {
+        if let Some((borrow, _)) = self.entry_borrow_types(identity)? {
+            return Ok(borrow);
+        }
+
         let plan = self.input.storage_plan();
 
         if let Some(ty) = plan.identity_type(identity) {

@@ -185,7 +185,9 @@ mod tests {
     };
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
-    use bray_ir::{MirOperand, MirOperationKind, MirTerminatorKind, MirUnit};
+    use bray_ir::{
+        MirOperand, MirOperationKind, MirTerminatorKind, MirTextOperationKind, MirUnit,
+    };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::{PackageIdentity, ProductKind, TypeData};
@@ -194,7 +196,7 @@ mod tests {
     use crate::test_support::{
         compilation, compilation_with_sources_and_worker_budget,
         compilation_with_target_operations, package_identity, source_callable_body_key,
-        source_function_body_key, source_input,
+        source_function_body_key, source_input, source_trait_callable_fulfillment_body_key,
     };
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
@@ -1259,7 +1261,7 @@ mod tests {
     }
 
     #[test]
-    fn standard_text_calls_select_exact_implementation_hooks() {
+    fn standard_text_sources_bind_primitive_hooks_and_cursor_bodies() {
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library identity must be valid"));
 
@@ -1286,6 +1288,12 @@ mod tests {
                     include_str!("../../../../xtask/fixtures/native-execution/standard-character.bray"),
                     4,
                 ),
+                source_input(
+                    include_str!(
+                        "../../../../xtask/fixtures/native-execution/standard-text-cursor.bray"
+                    ),
+                    5,
+                ),
             ],
             CompilationOptions::new(
                 WorkerBudget::serial(),
@@ -1304,37 +1312,13 @@ mod tests {
             compilation.check_diagnostics()
         );
 
-        let kinds = ["exercise_text_operations", "exercise_character_operations"]
+        let primitive_hooks = ["exercise_text_operations", "exercise_character_operations"]
             .into_iter()
-            .flat_map(|name| {
-                let key = source_function_body_key(&compilation, name);
-
-                let selections = compilation
-                    .semantic_selections(key.clone())
-                    .unwrap_or_else(|error| {
-                        panic!("standard text selections for {name} must be available: {error:?}")
-                    });
-
-                assert!(
-                    selections.diagnostics().is_empty(),
-                    "{name}: {:#?}",
-                    selections.diagnostics()
-                );
-
-                selections
-                    .value()
-                    .entries()
-                    .iter()
-                    .filter_map(|entry| match entry.selection() {
-                        SemanticSelection::Call(call) => call.implementation_hook(),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-            })
+            .flat_map(|name| implementation_hooks(&compilation, name))
             .collect::<BTreeSet<_>>();
 
         assert_eq!(
-            kinds,
+            primitive_hooks,
             BTreeSet::from([
                 ImplementationHook::StringScalarCount,
                 ImplementationHook::StringIsEmpty,
@@ -1343,8 +1327,6 @@ mod tests {
                 ImplementationHook::StringScalarSlice,
                 ImplementationHook::StringUtf8,
                 ImplementationHook::StringFromUtf8,
-                ImplementationHook::StringScalars,
-                ImplementationHook::StringScalarCursorNext,
                 ImplementationHook::CharacterScalarValue,
                 ImplementationHook::CharacterFromScalarValue,
                 ImplementationHook::CharacterUtf8Length,
@@ -1353,6 +1335,85 @@ mod tests {
                 ImplementationHook::CharacterIsWhitespace,
             ])
         );
+
+        assert_eq!(
+            implementation_hooks(&compilation, "scalars"),
+            [ImplementationHook::StringScalarCount]
+        );
+
+        let next_key = source_trait_callable_fulfillment_body_key(&compilation, "next");
+
+        assert_eq!(
+            implementation_hooks_for_key(&compilation, "next", next_key.clone()),
+            [ImplementationHook::StringScalarAt]
+        );
+
+        for (name, key, expected) in [
+            (
+                "scalars",
+                source_function_body_key(&compilation, "scalars"),
+                MirTextOperationKind::ScalarCount,
+            ),
+            (
+                "next",
+                next_key,
+                MirTextOperationKind::ScalarAt,
+            ),
+        ] {
+            let lowered = compilation
+                .lowered_unit(key)
+                .unwrap_or_else(|error| panic!("{name} must lower through its Bray body: {error:?}"));
+
+            assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+            let operations = lowered_mir(&lowered)
+                .operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Text(text) => Some(text.kind()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(operations, [expected], "{name}");
+        }
+    }
+
+    fn implementation_hooks(
+        compilation: &Compilation,
+        name: &str,
+    ) -> Vec<ImplementationHook> {
+        let key = source_function_body_key(compilation, name);
+
+        implementation_hooks_for_key(compilation, name, key)
+    }
+
+    fn implementation_hooks_for_key(
+        compilation: &Compilation,
+        name: &str,
+        key: BoundUnitKey,
+    ) -> Vec<ImplementationHook> {
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| {
+                panic!("standard text selections for {name} must be available: {error:?}")
+            });
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{name}: {:#?}",
+            selections.diagnostics()
+        );
+
+        selections
+            .value()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::Call(call) => call.implementation_hook(),
+                _ => None,
+            })
+            .collect()
     }
 
     fn lowering_compilation() -> Compilation {

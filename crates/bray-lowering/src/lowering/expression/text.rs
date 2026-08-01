@@ -20,10 +20,6 @@ pub(super) const fn text_operation_kind(
         ImplementationHook::StringScalarSlice => Some(MirTextOperationKind::ScalarSlice),
         ImplementationHook::StringUtf8 => Some(MirTextOperationKind::Utf8),
         ImplementationHook::StringFromUtf8 => Some(MirTextOperationKind::FromUtf8),
-        ImplementationHook::StringScalars => Some(MirTextOperationKind::Scalars),
-        ImplementationHook::StringScalarCursorNext => {
-            Some(MirTextOperationKind::ScalarCursorNext)
-        }
         ImplementationHook::CharacterScalarValue => {
             Some(MirTextOperationKind::CharacterScalarValue)
         }
@@ -205,14 +201,6 @@ mod tests {
             (
                 ImplementationHook::StringFromUtf8,
                 MirTextOperationKind::FromUtf8,
-            ),
-            (
-                ImplementationHook::StringScalars,
-                MirTextOperationKind::Scalars,
-            ),
-            (
-                ImplementationHook::StringScalarCursorNext,
-                MirTextOperationKind::ScalarCursorNext,
             ),
             (
                 ImplementationHook::CharacterScalarValue,

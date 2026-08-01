@@ -47,13 +47,7 @@ fn callable_dependencies_for_implementation<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if !matches!(
-        implementation,
-        Some(
-            bray_compiler_known::ImplementationHook::StringUtf8
-                | bray_compiler_known::ImplementationHook::StringScalars
-        )
-    ) {
+    if implementation != Some(bray_compiler_known::ImplementationHook::StringUtf8) {
         return Ok(contracts);
     }
 
@@ -454,10 +448,7 @@ mod tests {
 
     #[test]
     fn borrowed_text_results_retain_their_source_dependency() {
-        for implementation in [ImplementationHook::StringUtf8, ImplementationHook::StringScalars]
-        {
-            assert_borrowed_text_result_dependency(implementation);
-        }
+        assert_borrowed_text_result_dependency(ImplementationHook::StringUtf8);
     }
 
     fn assert_borrowed_text_result_dependency(implementation: ImplementationHook) {
