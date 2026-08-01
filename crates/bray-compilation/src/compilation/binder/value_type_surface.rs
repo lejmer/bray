@@ -17,6 +17,7 @@ use bray_target::TargetFactKind;
 use super::CompilationBinderFacts;
 use super::symbol::{type_binder, visible_generic_const_parameters};
 use super::value_type::{DeclaredValueTypeBinding, local_value};
+use crate::compilation::substitution::contextual_self_type;
 
 impl DeclaredValueTypeBinding<'_> {
     pub(super) fn bind_visible_generic_const_parameters(&mut self) -> BinderFactResult<()> {
@@ -65,9 +66,25 @@ impl DeclaredValueTypeBinding<'_> {
         let signature = result.value();
 
         if let Some(receiver) = signature.receiver() {
+            let receiver_type = self
+                .context
+                .semantic_values()
+                .type_data(receiver.ty())
+                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            let receiver_type = match receiver_type.as_ref() {
+                bray_symbols::TypeData::ContextualSelf(
+                    context @ bray_symbols::SelfTypeContext::NamedType(_),
+                ) => {
+                    contextual_self_type(self.context, *context)
+                        .map_err(|_| BinderFactError::DependencyUnavailable)?
+                }
+                _ => receiver.ty(),
+            };
+
             self.add_evidence(
                 surface_value(receiver.parameter().into()),
-                TypeExpressionTemplate::Resolved(receiver.ty()),
+                TypeExpressionTemplate::Resolved(receiver_type),
             );
         }
 

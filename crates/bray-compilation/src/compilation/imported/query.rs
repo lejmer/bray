@@ -9,8 +9,8 @@ use bray_package_interface::{
 use bray_symbols::{ImportedInterfaceId, ImportedSymbolSkeleton, PackageIdentity, SymbolId};
 
 use super::diagnostic::{
-    interface_diagnostics, unlocated_interface_diagnostics, validation_diagnostics,
-    standard_library_diagnostics,
+    interface_diagnostics, standard_library_diagnostics, unlocated_interface_diagnostics,
+    validation_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticFactKey};
@@ -28,9 +28,7 @@ impl super::super::Compilation {
         });
 
         input.map_or_else(
-            || {
-                unlocated_interface_diagnostics(DiagnosticKind::StandardLibraryManifestInvalid)
-            },
+            || unlocated_interface_diagnostics(DiagnosticKind::StandardLibraryManifestInvalid),
             |input| standard_library_diagnostics(error.clone(), input),
         )
     }
@@ -508,15 +506,14 @@ fn load_dependency_interface(
         }
     };
 
-    let validated =
-        match ValidatedPackageInterface::try_new(bytes, input.validation_policy()) {
-            Ok(validated) => validated,
-            Err(error) => {
-                return Ok(LoadedDependencyInterface::invalid(validation_diagnostics(
-                    error, input,
-                )));
-            }
-        };
+    let validated = match ValidatedPackageInterface::try_new(bytes, input.validation_policy()) {
+        Ok(validated) => validated,
+        Err(error) => {
+            return Ok(LoadedDependencyInterface::invalid(validation_diagnostics(
+                error, input,
+            )));
+        }
+    };
 
     cancellation.check()?;
 

@@ -18,7 +18,7 @@ use super::dependency::{dependency_contract_is_satisfied, retained_suspension_su
 
 use crate::analysis::{
     AnalysisOperationKind, AnalysisTaskOperationKind, ControlFlowGraphBuildOutcome,
-    build_control_flow_graph,
+    build_storage_control_flow_graph,
 };
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
@@ -62,7 +62,7 @@ where
         );
     }
 
-    let graph = match build_control_flow_graph(request) {
+    let graph = match build_storage_control_flow_graph(request, storage) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };

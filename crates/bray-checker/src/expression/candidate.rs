@@ -568,7 +568,7 @@ where
 
         let types = session.preview();
 
-        built_in_operator::apply_comparison_expectations(
+        built_in_operator::apply_operand_expectations(
             request,
             &types,
             prepared.built_in_operators(),

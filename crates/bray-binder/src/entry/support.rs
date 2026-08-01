@@ -2,7 +2,8 @@ use bray_bound_tree::{BoundReferenceTarget, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnySymbolId, CallableExecution, CallableSignatureFact, CallableSignatureTemplate,
-    CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SymbolFactRequest, SymbolName, TypeData,
+    CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SelfTypeContext, SymbolFactRequest,
+    SymbolName, TypeData,
 };
 
 use super::BoundUnitBindingError;
@@ -114,9 +115,10 @@ where
 {
     if let Some(receiver) = signature.receiver() {
         let parameter = receiver.parameter().into();
+        let ty = receiver_type(binder, receiver.ty())?;
 
         insert_named_surface(binder, scope, parameter, "self")?;
-        binder.record_value_type(BoundReferenceTarget::Surface(parameter), receiver.ty());
+        binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
     }
 
     if parameter_count == 0 {
@@ -148,6 +150,29 @@ where
     }
 
     Ok(())
+}
+
+fn receiver_type<C>(
+    binder: &Binder<'_, C>,
+    ty: bray_symbols::TypeId,
+) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let values = binder.facts().semantic_values();
+
+    let data = values
+        .type_data(ty)
+        .map_err(BoundUnitBindingError::SemanticValue)?;
+
+    let TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) = data.as_ref() else {
+        return Ok(ty);
+    };
+
+    values
+        .intern_open_named_type(binder.facts().symbols(), *definition)
+        .map_err(BoundUnitBindingError::SemanticValue)?
+        .ok_or(BoundUnitBindingError::Binding)
 }
 
 pub(super) fn insert_surface<C>(

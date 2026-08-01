@@ -21,8 +21,7 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "invalid obligation rejection",
     "same-name isolation",
 ];
-const UNAVAILABLE_TARGET_FIXTURE: &str =
-    "xtask/fixtures/readiness/memory-unavailable-target.bray";
+const UNAVAILABLE_TARGET_FIXTURE: &str = "xtask/fixtures/readiness/memory-unavailable-target.bray";
 
 #[derive(Deserialize)]
 struct CoverageFixture {
@@ -77,7 +76,13 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
     for operation in &fixture.operations {
         require_source_anchor(&operation.checker, workspace, &operation.name, "checker")?;
         require_source_anchor(&operation.lowering, workspace, &operation.name, "lowering")?;
-        require_source_anchor(&operation.codegen, workspace, &operation.name, "code generation")?;
+
+        require_source_anchor(
+            &operation.codegen,
+            workspace,
+            &operation.name,
+            "code generation",
+        )?;
     }
 
     require_unique_names(
@@ -118,8 +123,9 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
         TargetOperationFacts::new(false, false),
     );
 
-    let profile = TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
-        .map_err(|error| format!("could not build unavailable memory target: {error}"))?;
+    let profile =
+        TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
+            .map_err(|error| format!("could not build unavailable memory target: {error}"))?;
 
     let package = PackageIdentity::try_new("memory.readiness")
         .ok_or_else(|| "memory readiness package identity is invalid".to_owned())?;
@@ -144,16 +150,15 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
     ))
     .map_err(|error| format!("could not load unavailable memory fixture: {error:?}"))?;
 
-    if compilation
-        .check_diagnostics()
-        .iter()
-        .any(|diagnostic| {
-            diagnostic.kind() == DiagnosticKind::CheckingTargetMemoryOperationUnavailable
-        })
-    {
+    if compilation.check_diagnostics().iter().any(|diagnostic| {
+        diagnostic.kind() == DiagnosticKind::CheckingTargetMemoryOperationUnavailable
+    }) {
         Ok(())
     } else {
-        Err("unavailable memory target did not produce the structured rejection diagnostic".to_owned())
+        Err(
+            "unavailable memory target did not produce the structured rejection diagnostic"
+                .to_owned(),
+        )
     }
 }
 

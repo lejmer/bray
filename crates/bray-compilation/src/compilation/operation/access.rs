@@ -13,7 +13,7 @@ use bray_symbols::{
 
 use super::super::Compilation;
 use super::super::binder::{CompilationBinderFacts, binder_fact_error};
-use super::super::substitution::substitution_for_owner;
+use super::super::substitution::{contextual_self_type, substitution_for_owner};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
@@ -36,7 +36,7 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
-        let receiver_type = expression_type(types, receiver)?;
+        let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
 
         let data = facts
             .semantic_values()
@@ -208,7 +208,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let receiver_type = expression_type(types, receiver)?;
+        let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
 
         let data = facts
             .semantic_values()
@@ -362,5 +362,25 @@ impl Compilation {
             cancellation,
             diagnostics,
         )
+    }
+}
+
+fn access_subject_type(
+    facts: &CompilationBinderFacts<'_>,
+    mut ty: TypeId,
+) -> Result<TypeId, FactQueryError> {
+    loop {
+        let data = facts
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        match data.as_ref() {
+            TypeData::Borrow { target, .. } => ty = *target,
+            TypeData::ContextualSelf(context) => {
+                ty = contextual_self_type(facts, *context)?;
+            }
+            _ => return Ok(ty),
+        }
     }
 }

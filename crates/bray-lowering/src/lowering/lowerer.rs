@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentityId};
+use bray_bound_tree::{
+    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentity, StorageIdentityId,
+};
 use bray_declarations::SyntaxAnchor;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirFrameDescriptor, MirFrameStateFacts,
@@ -53,6 +55,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
+    pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
@@ -68,11 +71,13 @@ pub fn lower_unit(input: LoweringInput<'_>) -> Result<MirUnit, LoweringError> {
 impl<'unit> Lowerer<'unit> {
     fn new(input: LoweringInput<'unit>) -> Self {
         let builder = input.mir_builder();
+        let parameter_positions = parameter_positions(input.storage_plan());
 
         Self {
             input,
             builder,
             storages: BTreeMap::new(),
+            parameter_positions,
             active_scopes: Vec::new(),
             yield_targets: Vec::new(),
             loop_targets: Vec::new(),
@@ -206,6 +211,41 @@ impl<'unit> Lowerer<'unit> {
         // Independent MIR records must own the same immutable place descriptor.
         place.clone()
     }
+}
+
+fn parameter_positions(
+    plan: &bray_bound_tree::StoragePlan,
+) -> BTreeMap<StorageIdentityId, u32> {
+    let entries = plan
+        .identity_entries()
+        .filter(|(_, identity)| is_parameter_identity(*identity))
+        .collect::<Vec<_>>();
+
+    entries
+        .iter()
+        .copied()
+        .filter(|(_, identity)| matches!(identity, StorageIdentity::Receiver(_)))
+        .chain(
+            entries
+                .iter()
+                .copied()
+                .filter(|(_, identity)| !matches!(identity, StorageIdentity::Receiver(_))),
+        )
+        .enumerate()
+        .map(|(position, (identity, _))| {
+            (identity, u32::try_from(position).unwrap_or(u32::MAX))
+        })
+        .collect()
+}
+
+const fn is_parameter_identity(identity: StorageIdentity) -> bool {
+    matches!(
+        identity,
+        StorageIdentity::Parameter(_)
+            | StorageIdentity::Receiver(_)
+            | StorageIdentity::AnonymousParameter(_)
+            | StorageIdentity::PredicateParameter(_)
+    )
 }
 
 #[cfg(test)]
@@ -358,7 +398,7 @@ mod tests {
     fn lowering_replaces_every_checked_memory_family_with_explicit_mir() {
         type Kind = CheckedMemoryOperationKind;
 
-        let cases: [(usize, fn(bray_symbols::TypeId) -> Kind); 17] = [
+        let cases: [(usize, fn(bray_symbols::TypeId) -> Kind); 19] = [
             (1, |ty| Kind::Address {
                 kind: MemoryAddressKind::Shared,
                 pointee: ty,
@@ -410,8 +450,10 @@ mod tests {
                 ty,
                 kind: MemoryLayoutQueryKind::Layout,
             }),
-            (2, |_| Kind::Allocate),
-            (3, |_| Kind::Deallocate),
+            (2, |_| Kind::RawAllocate),
+            (3, |_| Kind::RawDeallocate),
+            (1, |_| Kind::Allocate),
+            (1, |_| Kind::Deallocate),
         ];
 
         for (index, (argument_count, kind)) in cases.into_iter().enumerate() {

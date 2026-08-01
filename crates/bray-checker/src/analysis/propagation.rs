@@ -74,7 +74,16 @@ where
         expression: &BoundStructuredExpression,
     ) -> Option<RepresentationRole> {
         let operand = expression.operands().first().copied()?;
-        let operand_type = self.view().expression(operand)?.ty()?;
+
+        let operand_type = self
+            .checked_storage()
+            .and_then(|storage| {
+                storage
+                    .expression_plans(operand)
+                    .find_map(|plan| storage.access(plan.access()))
+                    .map(|access| access.reached_type())
+            })
+            .or_else(|| self.view().expression(operand)?.ty())?;
 
         type_representation(self.request(), operand_type).ok()?
     }

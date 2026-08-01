@@ -6,12 +6,12 @@ use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
 };
+use bray_source::{SourceInput, SourceSpan};
+pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     StandardLibraryLoadError, StandardLibraryResolver,
 };
-use bray_source::{SourceInput, SourceSpan};
-pub use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
 use crate::SelectedTarget;
@@ -299,11 +299,7 @@ impl DependencyInterfaceInput {
         let product = InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
             .unwrap_or_else(|| panic!("standard library product identity must be valid"));
 
-        let artifact_path = resolver
-            .root()
-            .path()
-            .join("interfaces")
-            .join("std.brayi");
+        let artifact_path = resolver.root().path().join("interfaces").join("std.brayi");
 
         Self {
             package,

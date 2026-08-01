@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, BorrowKind, CallableParameterSymbolId,
     LocalBindingSymbolId, PostconditionResultSymbolId, PredicateParameterSymbolId,
-    ReceiverParameterSymbolId,
+    ReceiverParameterSymbolId, TypeId,
 };
 
 use crate::{
@@ -262,6 +263,7 @@ pub struct StoragePlan {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
+    identity_types: BTreeMap<StorageIdentityId, TypeId>,
     accesses: Arc<[StorageAccess]>,
     alternatives: Arc<[StorageAlternative]>,
     resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
@@ -289,6 +291,7 @@ impl StoragePlan {
             unit,
             kind,
             identities,
+            identity_types,
             accesses,
             alternatives,
             borrow_capabilities,
@@ -309,6 +312,7 @@ impl StoragePlan {
             unit,
             kind,
             identities: identities.into(),
+            identity_types,
             accesses: accesses.into(),
             alternatives: alternatives.into(),
             resolved_accesses: resolved_accesses.into(),
@@ -347,6 +351,11 @@ impl StoragePlan {
 
                 Some((id, identity))
             })
+    }
+
+    /// Returns the checked type stored by one persistent storage origin, when recorded.
+    pub fn identity_type(&self, identity: StorageIdentityId) -> Option<TypeId> {
+        self.identity_types.get(&identity).copied()
     }
 
     /// Returns evaluated accesses in deterministic evaluation order.
@@ -684,6 +693,10 @@ const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
     matches!(
         identity,
         StorageIdentity::LocalOwned(_)
+            | StorageIdentity::Parameter(_)
+            | StorageIdentity::Receiver(_)
+            | StorageIdentity::AnonymousParameter(_)
+            | StorageIdentity::PredicateParameter(_)
             | StorageIdentity::Result(_)
             | StorageIdentity::Temporary(_)
             | StorageIdentity::IterationCursor(_)

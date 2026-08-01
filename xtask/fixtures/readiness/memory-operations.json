@@ -91,6 +91,18 @@
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "MemoryLayoutQueryKind::Layout" }
     },
     {
+      "name": "RawAllocate",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawAllocate" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawAllocate" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawAllocate" }
+    },
+    {
+      "name": "RawDeallocate",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawDeallocate" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawDeallocate" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawDeallocate" }
+    },
+    {
       "name": "Allocate",
       "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::Allocate" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Allocate" },
@@ -101,6 +113,78 @@
       "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::Deallocate" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::Deallocate" },
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::Deallocate" }
+    },
+    {
+      "name": "RawBufferCapacity",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferCapacity" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferCapacity" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferCapacity" }
+    },
+    {
+      "name": "RawBufferInitializedCount",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferInitializedCount" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferInitializedCount" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferInitializedCount" }
+    },
+    {
+      "name": "RawBufferPointer",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferPointer" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferPointer" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferPointer" }
+    },
+    {
+      "name": "RawBufferInitializedSlice",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferInitializedSlice" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferInitializedSlice" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferInitializedSlice" }
+    },
+    {
+      "name": "RawBufferInitializedSliceMut",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferInitializedSliceMut" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferInitializedSliceMut" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferInitializedSliceMut" }
+    },
+    {
+      "name": "RawBufferSparePointer",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferSparePointer" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferSparePointer" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferSparePointer" }
+    },
+    {
+      "name": "RawBufferSetInitializedCount",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferSetInitializedCount" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferSetInitializedCount" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferSetInitializedCount" }
+    },
+    {
+      "name": "RawBufferRelease",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferRelease" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::RawBufferRelease" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::RawBufferRelease" }
+    },
+    {
+      "name": "ByteBufferFill",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteBufferFill" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::ByteBufferFill" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferFill" }
+    },
+    {
+      "name": "ByteBufferCopy",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteBufferCopy" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::ByteBufferCopy" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferCopy" }
+    },
+    {
+      "name": "ByteBufferRead",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteBufferRead" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::ByteBufferRead" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferRead" }
+    },
+    {
+      "name": "ByteSliceLength",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteSliceLength" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/lowerer.rs", "symbol": "Kind::ByteSliceLength" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory.rs", "symbol": "CheckedMemoryOperationKind::ByteSliceLength" }
     }
   ],
   "contracts": [
@@ -111,5 +195,6 @@
     { "name": "unavailable target rejection", "test": "unavailable_memory_operations_publish_structured_target_diagnostics" },
     { "name": "invalid obligation rejection", "test": "invalid_memory_obligations_publish_structured_semantic_diagnostics" },
     { "name": "same-name isolation", "test": "same_named_source_callables_are_not_memory_operations" }
+    ,{ "name": "standard byte-buffer execution", "test": "cargo xtask readiness native-execution" }
   ]
 }

@@ -114,10 +114,49 @@ pub enum CheckedMemoryOperationKind {
         /// Requested layout property.
         kind: MemoryLayoutQueryKind,
     },
-    /// Create a distinct owned writable allocation.
+    /// Create raw storage from separate byte count and alignment values.
+    RawAllocate,
+    /// Release raw storage described by separate pointer and layout values.
+    RawDeallocate,
+    /// Create a distinct owned writable allocation from a layout value.
     Allocate,
-    /// Release an allocation and invalidate its dependent facts.
+    /// Release an owned allocation and invalidate its dependent facts.
     Deallocate,
+    /// Read a raw buffer's capacity.
+    RawBufferCapacity,
+    /// Read a raw buffer's initialized element count.
+    RawBufferInitializedCount,
+    /// Read a raw buffer's storage pointer.
+    RawBufferPointer,
+    /// Borrow a raw buffer's initialized elements.
+    RawBufferInitializedSlice,
+    /// Mutably borrow a raw buffer's initialized elements.
+    RawBufferInitializedSliceMut,
+    /// Produce a pointer to a raw buffer's spare storage.
+    RawBufferSparePointer {
+        /// Buffered element type governing pointer arithmetic.
+        element: TypeId,
+    },
+    /// Update a raw buffer's initialized element count.
+    RawBufferSetInitializedCount,
+    /// Destroy initialized elements and release a raw buffer in place.
+    RawBufferRelease {
+        /// Buffered element type governing cleanup and allocation layout.
+        element: TypeId,
+    },
+    /// Release a destination raw buffer and transfer a source owner into it.
+    RawBufferReplace {
+        /// Buffered element type governing cleanup and allocation layout.
+        element: TypeId,
+    },
+    /// Initialize a byte-buffer range to one repeated byte.
+    ByteBufferFill,
+    /// Copy one byte-buffer range into writable storage.
+    ByteBufferCopy,
+    /// Read one initialized byte from byte-buffer storage.
+    ByteBufferRead,
+    /// Read the element count carried by a byte slice.
+    ByteSliceLength,
 }
 
 impl CheckedMemoryOperationKind {
@@ -127,9 +166,27 @@ impl CheckedMemoryOperationKind {
             Self::Address { .. }
             | Self::IsNull { .. }
             | Self::Reinterpret { .. }
-            | Self::Read { .. } => 1,
-            Self::Offset { .. } | Self::Write { .. } | Self::Allocate => 2,
-            Self::Copy { .. } | Self::Deallocate => 3,
+            | Self::Read { .. }
+            | Self::Allocate
+            | Self::Deallocate
+            | Self::RawBufferCapacity
+            | Self::RawBufferInitializedCount
+            | Self::RawBufferPointer
+            | Self::RawBufferInitializedSlice
+            | Self::RawBufferInitializedSliceMut
+            | Self::RawBufferSparePointer { .. }
+            | Self::RawBufferRelease { .. }
+            | Self::ByteSliceLength => 1,
+            Self::Offset { .. }
+            | Self::Write { .. }
+            | Self::RawAllocate
+            | Self::RawBufferSetInitializedCount
+            | Self::ByteBufferRead => 2,
+            Self::Copy { .. }
+            | Self::RawDeallocate
+            | Self::RawBufferReplace { .. }
+            | Self::ByteBufferFill
+            | Self::ByteBufferCopy => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
@@ -142,7 +199,15 @@ impl CheckedMemoryOperationKind {
     pub const fn produces_value(self) -> bool {
         !matches!(
             self,
-            Self::Write { .. } | Self::Copy { .. } | Self::Deallocate
+            Self::Write { .. }
+                | Self::Copy { .. }
+                | Self::RawDeallocate
+                | Self::Deallocate
+                | Self::RawBufferSetInitializedCount
+                | Self::RawBufferRelease { .. }
+                | Self::RawBufferReplace { .. }
+                | Self::ByteBufferFill
+                | Self::ByteBufferCopy
         )
     }
 }

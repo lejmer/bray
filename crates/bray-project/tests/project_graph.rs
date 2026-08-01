@@ -223,7 +223,6 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
             .collect::<Vec<_>>(),
         vec!["std.runtime", "std"]
     );
-
 }
 
 #[test]

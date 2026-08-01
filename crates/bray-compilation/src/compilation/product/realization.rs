@@ -16,7 +16,7 @@ use bray_codegen::{
     CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit, CodegenValueAttribute,
     TargetAddressSpaceKind, child_constants, demanded_callable_instances,
     demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
-    demanded_types, mapped_runtime_references,
+    mapped_runtime_references,
 };
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
@@ -40,7 +40,7 @@ use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
-use super::super::substitution::named_type;
+use super::super::substitution::{named_type, substitution_for_owner};
 use super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -107,15 +107,37 @@ impl Compilation {
 
         let realization = unit
             .instances()
-            .first()
-            .and_then(|instance| reachability.instance(instance.key()))
+            .iter()
+            .filter_map(|instance| reachability.instance(instance.key()))
+            .find(|instance| instance.substitution().is_some())
+            .or_else(|| {
+                unit.instances()
+                    .first()
+                    .and_then(|instance| reachability.instance(instance.key()))
+            })
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let constants = self.codegen_constants(unit)?;
 
         let (constant_terms, terminators) = self.codegen_constant_terms(unit, realization)?;
 
-        let mut demanded = demanded_types(unit);
+        let mut type_mappings = BTreeMap::new();
+
+        for instance in unit.instances() {
+            let realization = reachability
+                .instance(instance.key())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            self.extend_codegen_types(
+                instance.mir().referenced_types(),
+                realization.substitution(),
+                target,
+                cancellation,
+                &mut type_mappings,
+            )?;
+        }
+
+        let mut demanded = BTreeSet::new();
 
         demanded.extend(constants.iter().map(|constant| constant.data().ty()));
 
@@ -123,13 +145,15 @@ impl Compilation {
             demanded.extend(signature_types(symbol.signature()));
         }
 
-        let types =
-            self.codegen_types(demanded, realization.substitution(), target, cancellation)?;
+        demanded.retain(|ty| !type_mappings.contains_key(ty));
 
-        let mut type_mappings: BTreeMap<_, _> = types
-            .into_iter()
-            .map(|mapping| (mapping.ty(), mapping))
-            .collect();
+        self.extend_codegen_types(
+            demanded,
+            realization.substitution(),
+            target,
+            cancellation,
+            &mut type_mappings,
+        )?;
 
         symbols =
             self.classify_codegen_symbols(symbols, target, cancellation, &mut type_mappings)?;
@@ -456,7 +480,7 @@ impl Compilation {
             .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
         let storage = builder
-            .push_storage(source.clone(), MirStorageKind::Parameter, pointer)
+            .push_storage(source.clone(), MirStorageKind::Parameter(0), pointer)
             .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
         let place = MirPlace::new(
@@ -917,8 +941,14 @@ impl Compilation {
             current = unmatched;
         }
 
+        let unmatched = if kind == MirBlockKind::CleanupBroadcast {
+            MirTerminatorKind::Goto(MirEdge::new(merge, []))
+        } else {
+            MirTerminatorKind::Unreachable
+        };
+
         builder
-            .set_terminator(current, source.clone(), MirTerminatorKind::Unreachable)
+            .set_terminator(current, source.clone(), unmatched)
             .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
 
         Ok(merge)
@@ -1483,6 +1513,8 @@ impl Compilation {
             .map(|receiver| receiver.ty())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
+        let receiver = concrete_lifecycle_receiver(values, receiver, ty)?;
+
         let callable_type = values
             .type_data(signature.callable_type())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -1658,10 +1690,9 @@ impl Compilation {
                     void_signature(CallableAbi::Bray),
                 ),
                 MirUnitKind::GeneratedLifecycle(reference) => (
-                    generated_symbol_name(
+                    generated_instance_symbol_name(
                         target,
                         CodegenLinkage::Internal,
-                        "lifecycle",
                         instance.key(),
                     )?,
                     CodegenLinkage::Internal,
@@ -1719,7 +1750,7 @@ impl Compilation {
             symbols.push(CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.clone()),
                 boundary.map(|(name, _)| name).map_or_else(
-                    || generated_symbol_name(target, linkage, "instance", instance),
+                    || generated_instance_symbol_name(target, linkage, instance),
                     Ok,
                 )?,
                 linkage,
@@ -1934,6 +1965,7 @@ impl Compilation {
         Ok((terms, terminators))
     }
 
+    #[cfg(test)]
     fn codegen_types(
         &self,
         demanded: BTreeSet<TypeId>,
@@ -1942,12 +1974,26 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenTypeMapping>, CodegenFactError> {
         let mut mappings = BTreeMap::new();
+
+        self.extend_codegen_types(demanded, substitution, target, cancellation, &mut mappings)?;
+
+        Ok(mappings.into_values().collect())
+    }
+
+    fn extend_codegen_types(
+        &self,
+        demanded: BTreeSet<TypeId>,
+        substitution: Option<GenericSubstitutionId>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+    ) -> Result<(), CodegenFactError> {
         let mut pending = BTreeSet::new();
 
         for template in demanded {
             let ty = self.substitute_codegen_type(template, substitution)?;
 
-            self.codegen_type(ty, target, cancellation, &mut mappings, &mut pending)?;
+            self.codegen_type(ty, target, cancellation, mappings, &mut pending)?;
 
             if template != ty {
                 let mapping = mappings
@@ -1966,9 +2012,9 @@ impl Compilation {
             }
         }
 
-        self.classify_codegen_callable_types(target, cancellation, &mut mappings, &mut pending)?;
+        self.classify_codegen_callable_types(target, cancellation, mappings, &mut pending)?;
 
-        Ok(mappings.into_values().collect())
+        Ok(())
     }
 
     fn substitute_codegen_type(
@@ -1980,23 +2026,56 @@ impl Compilation {
             return Ok(ty);
         };
 
-        self.semantic_value_store()?
+        let values = self.semantic_value_store()?;
+
+        let ty = values
             .substitute_type(ty, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let data = values
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        match data.as_ref() {
+            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
+                let substitution =
+                    substitution_for_owner(values, definition.into_any(), [substitution])?;
+
+                values
+                    .intern_type(TypeData::Named {
+                        definition: *definition,
+                        substitution,
+                    })
+                    .map_err(|_| FactQueryError::InfrastructureFailure)
+            }
+            TypeData::Borrow { kind, target } => {
+                let target = self.substitute_codegen_type(*target, Some(substitution))?;
+
+                values
+                    .intern_type(TypeData::Borrow {
+                        kind: *kind,
+                        target,
+                    })
+                    .map_err(|_| FactQueryError::InfrastructureFailure)
+            }
+            _ => Ok(ty),
+        }
     }
 
     fn substitute_codegen_constant_term(
         &self,
         term: bray_symbols::ConstantTermId,
         substitution: Option<GenericSubstitutionId>,
-    ) -> Result<bray_symbols::ConstantTermId, FactQueryError> {
-        let Some(substitution) = substitution else {
-            return Ok(term);
+    ) -> Result<bray_symbols::ConstantTermId, CodegenFactError> {
+        let term = if let Some(substitution) = substitution {
+            self.semantic_value_store()?
+                .substitute_constant_term(term, substitution)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?
+        } else {
+            term
         };
 
-        self.semantic_value_store()?
-            .substitute_constant_term(term, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+        self.realize_codegen_constant_argument(term)
     }
 
     fn classify_codegen_callable_types(
@@ -2009,18 +2088,26 @@ impl Compilation {
         let mut classified = BTreeSet::new();
 
         loop {
-            let callable = mappings.values().find_map(|mapping| {
-                if classified.contains(&mapping.ty()) {
-                    return None;
-                }
+            let callable =
+                mappings.values().find_map(|mapping| {
+                    if classified.contains(&mapping.ty()) {
+                        return None;
+                    }
 
-                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    return None;
-                };
+                    let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+                        return None;
+                    };
 
-                // Signatures use shared slices; this clone releases the mapping borrow before recursion.
-                Some((mapping.ty(), signature.as_ref().clone()))
-            });
+                    if signature.parameters().iter().any(|parameter| {
+                        !matches!(parameter, CodegenParameterMapping::Direct { .. })
+                    }) || matches!(signature.result(), CodegenResultMapping::Indirect { .. })
+                    {
+                        return None;
+                    }
+
+                    // Signatures use shared slices; this clone releases the mapping borrow before recursion.
+                    Some((mapping.ty(), signature.as_ref().clone()))
+                });
 
             let Some((ty, signature)) = callable else {
                 break;
@@ -2174,9 +2261,41 @@ impl Compilation {
             TypeData::TraitView(_) => {
                 CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::UnsizedTraitView)
             }
+            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
+                let mut candidates = mappings.values().filter(|mapping| {
+                    values.type_data(mapping.ty()).is_ok_and(|data| {
+                        matches!(
+                            data.as_ref(),
+                            TypeData::Named {
+                                definition: candidate,
+                                ..
+                            } if candidate == definition
+                        )
+                    })
+                });
+
+                let mapping = candidates
+                    .next()
+                    .cloned()
+                    .ok_or(CodegenFactError::UnresolvedType(ty))?;
+
+                if candidates.any(|candidate| {
+                    candidate.layout() != mapping.layout() || candidate.kind() != mapping.kind()
+                }) {
+                    return Err(CodegenFactError::UnresolvedType(ty));
+                }
+
+                match mapping.layout() {
+                    Some(layout) => CodegenTypeMapping::new(ty, layout, mapping.kind().clone()),
+                    None => CodegenTypeMapping::new_unsized(ty, mapping.kind().clone()),
+                }
+            }
             TypeData::Error
             | TypeData::TypeParameter(_)
-            | TypeData::ContextualSelf(_)
+            | TypeData::ContextualSelf(
+                bray_symbols::SelfTypeContext::Trait(_)
+                | bray_symbols::SelfTypeContext::Implementation(_),
+            )
             | TypeData::TypeValuedMemberProjection { .. } => {
                 return Err(CodegenFactError::UnresolvedType(ty));
             }
@@ -3190,21 +3309,25 @@ fn closed_array_length(
         .constant_term_data(term_id)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let ConstantTermData::Value(value) = term.as_ref() else {
-        return Err(CodegenFactError::OpenConstantTerm(term_id));
-    };
+    match term.as_ref() {
+        ConstantTermData::Value(value) => {
+            let data = values
+                .constant_value_data(*value)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let data = values
-        .constant_value_data(*value)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            let ConstantValueKind::Integer(value) = data.kind() else {
+                return Err(CodegenFactError::InvalidArrayLength(term_id));
+            };
 
-    let ConstantValueKind::Integer(value) = data.kind() else {
-        return Err(CodegenFactError::InvalidArrayLength(term_id));
-    };
-
-    value
-        .to_u64()
-        .ok_or(CodegenFactError::LayoutOverflow(data.ty()))
+            value
+                .to_u64()
+                .ok_or(CodegenFactError::InvalidArrayLength(term_id))
+        }
+        ConstantTermData::IntegerLiteral { value, .. } => value
+            .to_u64()
+            .ok_or(CodegenFactError::InvalidArrayLength(term_id)),
+        _ => Err(CodegenFactError::OpenConstantTerm(term_id)),
+    }
 }
 
 fn scalar_mapping(
@@ -3337,6 +3460,31 @@ fn lifecycle_operation_block_kind(
         | bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
         ) => Err(FactQueryError::InfrastructureFailure),
+    }
+}
+
+fn concrete_lifecycle_receiver(
+    values: &bray_symbols::SemanticValueStore,
+    receiver: TypeId,
+    concrete_self: TypeId,
+) -> Result<TypeId, FactQueryError> {
+    let receiver_data = values
+        .type_data(receiver)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    match receiver_data.as_ref() {
+        TypeData::ContextualSelf(_) => Ok(concrete_self),
+        TypeData::Borrow { kind, target } => {
+            let target = concrete_lifecycle_receiver(values, *target, concrete_self)?;
+
+            values
+                .intern_type(TypeData::Borrow {
+                    kind: *kind,
+                    target,
+                })
+                .map_err(|_| FactQueryError::InfrastructureFailure)
+        }
+        _ => Ok(receiver),
     }
 }
 
@@ -3512,6 +3660,20 @@ pub(in crate::compilation) fn generated_symbol_name(
     binary_symbol_name(target, linkage, category, hasher.finalize())
 }
 
+fn generated_instance_symbol_name(
+    target: &CodegenTarget,
+    linkage: CodegenLinkage,
+    instance: &bray_codegen::CodegenInstanceKey,
+) -> Result<BinarySymbolName, CodegenFactError> {
+    let category = if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_)) {
+        "lifecycle"
+    } else {
+        "instance"
+    };
+
+    generated_symbol_name(target, linkage, category, instance)
+}
+
 pub(in crate::compilation) fn generated_frame_symbol_name(
     target: &CodegenTarget,
     frame: bray_runtime_interface::ProtectedAsyncFrameId,
@@ -3576,9 +3738,7 @@ mod tests {
         TypeId,
     };
     use bray_target::TargetValueLayout;
-    use bray_testing::{
-        test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
-    };
+    use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
     use super::{dependency_symbol, direct_helper_symbol, named_type, pointer_layout};
     use crate::compilation::CodegenFactError;

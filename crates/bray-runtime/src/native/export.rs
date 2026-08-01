@@ -490,9 +490,9 @@ mod tests {
     };
 
     use super::{
-        bray_runtime_memory_allocation_v1, bray_runtime_memory_deallocation_v1,
         bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
-        bray_runtime_main_thread_lane_startup_v1, bray_runtime_root_completion_resolution_v1,
+        bray_runtime_main_thread_lane_startup_v1, bray_runtime_memory_allocation_v1,
+        bray_runtime_memory_deallocation_v1, bray_runtime_root_completion_resolution_v1,
         bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
         bray_runtime_structured_shutdown_v1, bray_runtime_synchronous_root_execution_v1,
         bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
@@ -513,13 +513,15 @@ mod tests {
     static FAILURE_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
-    fn native_memory_allocation_obeys_size_and_alignment_contracts() {
-        let address = bray_runtime_memory_allocation_v1(32, 16);
+    fn native_memory_allocation_obeys_empty_and_nonempty_layout_contracts() {
+        for (bytes, alignment) in [(0, 1), (32, 16)] {
+            let address = bray_runtime_memory_allocation_v1(bytes, alignment);
 
-        assert!(!address.is_null());
-        assert_eq!(address.addr() % 16, 0);
+            assert!(!address.is_null());
+            assert_eq!(address.addr() % alignment, 0);
 
-        bray_runtime_memory_deallocation_v1(address, 32, 16);
+            bray_runtime_memory_deallocation_v1(address, bytes, alignment);
+        }
     }
 
     #[test]

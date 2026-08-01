@@ -1,0 +1,13 @@
+module std.bytes;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: Buffer = try create(capacity = 0);
+
+    try reserve(additional = 5, buffer = &mut buffer);
+
+    assert(length(&buffer) == 0);
+    assert(capacity(&buffer) >= 5);
+
+    return .Ok(unit);
+}

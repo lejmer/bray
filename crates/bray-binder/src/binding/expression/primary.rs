@@ -282,9 +282,53 @@ impl ExpressionBinder {
     {
         let root_token = syntax.identifier_token().or_else(|| syntax.self_token());
 
-        let mut current = match root_token {
-            Some(token) => self.bind_root_reference(binder, scope, syntax, token, access)?,
-            None => match syntax.access_expressions().next() {
+        let mut route_tokens = root_token.iter().cloned().collect::<Vec<_>>();
+        let mut collecting_route = root_token.is_some();
+
+        walk_direct_child_nodes(syntax, |operation| {
+            if !collecting_route || operation.kind() != SyntaxKind::MemberAccessOperation {
+                collecting_route = false;
+
+                return SyntaxWalkControl::Continue;
+            }
+
+            let Some(member) = operation.cast::<bray_syntax::MemberAccessOperationSyntax>() else {
+                collecting_route = false;
+
+                return SyntaxWalkControl::Continue;
+            };
+
+            let Some(token) = member.identifier_token() else {
+                collecting_route = false;
+
+                return SyntaxWalkControl::Continue;
+            };
+
+            route_tokens.push(token);
+
+            SyntaxWalkControl::Continue
+        });
+
+        let context = self.path_context_for(scope, access);
+
+        let route = root_token.as_ref().and_then(|token| {
+            let root = binder.lookup_reference_identifier(context, syntax.source(), token.clone());
+
+            matches!(root, bray_symbols::MemberLookupResult::NotFound)
+                .then(|| binder.lookup_module_route(context, syntax.source(), route_tokens))
+                .flatten()
+        });
+
+        let mut current = match (route, root_token) {
+            (Some((module, _)), _) => self.push_resolved_reference(
+                binder,
+                syntax,
+                bray_bound_tree::BoundReferenceTarget::Surface(module.into()),
+            )?,
+            (None, Some(token)) => {
+                self.bind_root_reference(binder, scope, syntax, token, access)?
+            }
+            (None, None) => match syntax.access_expressions().next() {
                 Some(nested) => {
                     let nested_access = if syntax.internal_token().is_some() {
                         NameAccess::Internal
@@ -299,10 +343,17 @@ impl ExpressionBinder {
         };
 
         let mut failure = None;
+        let mut member_index = 0_usize;
 
         walk_direct_child_nodes(syntax, |operation| {
             let result = match operation.kind() {
                 SyntaxKind::MemberAccessOperation => {
+                    member_index += 1;
+
+                    if route.is_some_and(|(_, length)| member_index < length) {
+                        return SyntaxWalkControl::Continue;
+                    }
+
                     let Some(member) = operation.cast::<bray_syntax::MemberAccessOperationSyntax>()
                     else {
                         failure = Some(BindingError::UnsupportedSyntax);

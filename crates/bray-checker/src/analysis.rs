@@ -12,7 +12,7 @@ mod reachability;
 mod refinement;
 mod storage_flow;
 
-pub(crate) use build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+pub(crate) use build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 pub(crate) use check::check_control_flow;
 pub(crate) use liveness::analyze_storage_liveness;
 pub(crate) use model::{AnalysisOperationKind, AnalysisTaskOperationKind};

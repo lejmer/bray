@@ -19,6 +19,12 @@ use crate::{
     resolve_type_expression_template,
 };
 
+#[derive(Clone, Copy)]
+struct EntryStorage {
+    ty: TypeId,
+    borrow: Option<(BorrowKind, TypeId)>,
+}
+
 pub(crate) fn plan_storage<C>(
     request: CheckerUnitView<'_, C>,
     declared_types: &DeclaredValueTypeTemplates,
@@ -227,7 +233,7 @@ where
                     self.bind_entry(
                         target,
                         StorageIdentity::AnonymousParameter(*parameter),
-                        self.entry_borrow(reference)?,
+                        self.entry_storage(reference)?,
                     )?;
                 }
             }
@@ -287,7 +293,7 @@ where
                     self.bind_entry(
                         target,
                         StorageIdentity::Parameter(parameter),
-                        self.entry_borrow(BoundReferenceTarget::Surface(parameter.into()))?,
+                        self.entry_storage(BoundReferenceTarget::Surface(parameter.into()))?,
                     )?;
                 }
 
@@ -298,10 +304,29 @@ where
                         .map(|(_, borrow)| borrow)
                         .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
+                    let entry = match borrow {
+                        Some((kind, target)) => {
+                            let ty = self
+                                .request
+                                .semantic_values()
+                                .intern_type(TypeData::Borrow { kind, target })
+                                .map_err(|_| {
+                                    CheckerInfrastructureError::SemanticValueUnavailable
+                                })?;
+
+                            Some(EntryStorage {
+                                ty,
+                                borrow: Some((kind, target)),
+                            })
+                        }
+                        None => self
+                            .entry_storage(BoundReferenceTarget::Surface(receiver.into()))?,
+                    };
+
                     self.bind_entry(
                         StorageBindingTarget::Receiver(receiver),
                         StorageIdentity::Receiver(receiver),
-                        borrow,
+                        entry,
                     )?;
                 }
 
@@ -325,7 +350,7 @@ where
                     self.bind_entry(
                         target,
                         StorageIdentity::PredicateParameter(parameter),
-                        self.entry_borrow(BoundReferenceTarget::Surface(parameter.into()))?,
+                        self.entry_storage(BoundReferenceTarget::Surface(parameter.into()))?,
                     )?;
                 }
 
@@ -369,12 +394,8 @@ where
         &mut self,
         target: StorageBindingTarget,
         identity: StorageIdentity,
-        borrow: Option<(BorrowKind, TypeId)>,
+        entry: Option<EntryStorage>,
     ) -> Result<(), PlanError> {
-        let Some((kind, reached_type)) = borrow else {
-            return self.bind_identity(target, identity);
-        };
-
         if self.builder()?.binding(target).is_some() {
             return Ok(());
         }
@@ -383,6 +404,20 @@ where
             .builder_mut()?
             .push_identity(identity)
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        if let Some(entry) = entry {
+            self.builder_mut()?
+                .set_identity_type(storage, entry.ty)
+                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+        }
+
+        let Some((kind, reached_type)) = entry.and_then(|entry| entry.borrow) else {
+            self.builder_mut()?
+                .bind(target, StorageBinding::Identity(storage))
+                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+            return Ok(());
+        };
 
         let source = bray_bound_tree::BoundSourceAnchor::new(
             self.request.unit().key().source().syntax(),
@@ -434,10 +469,10 @@ where
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
     }
 
-    fn entry_borrow(
+    fn entry_storage(
         &self,
         target: BoundReferenceTarget,
-    ) -> Result<Option<(BorrowKind, TypeId)>, PlanError> {
+    ) -> Result<Option<EntryStorage>, PlanError> {
         let Some(template) = self
             .declared_types
             .evidence()
@@ -456,21 +491,21 @@ where
                     .type_data(*ty)
                     .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-                match data.as_ref() {
-                    TypeData::Borrow { kind, target } => Ok(Some((*kind, *target))),
-                    _ => Ok(None),
-                }
+                let borrow = match data.as_ref() {
+                    TypeData::Borrow { kind, target } => Some((*kind, *target)),
+                    _ => None,
+                };
+
+                Ok(Some(EntryStorage { ty: *ty, borrow }))
             }
             TypeExpressionTemplate::Borrow { kind, target } => {
                 let terms = self.request.checked_constant_terms(target)?;
 
-                let reached_type = resolve_type_expression_template(
+                let reached_type = match resolve_type_expression_template(
                     self.request.semantic_values(),
                     target,
                     terms.value(),
-                )?;
-
-                let reached_type = match reached_type {
+                )? {
                     Some(ty) => ty,
                     None => self
                         .request
@@ -479,7 +514,19 @@ where
                         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?,
                 };
 
-                Ok(Some((*kind, reached_type)))
+                let ty = self
+                    .request
+                    .semantic_values()
+                    .intern_type(TypeData::Borrow {
+                        kind: *kind,
+                        target: reached_type,
+                    })
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                Ok(Some(EntryStorage {
+                    ty,
+                    borrow: Some((*kind, reached_type)),
+                }))
             }
             TypeExpressionTemplate::Named { .. }
             | TypeExpressionTemplate::TypeValuedMemberProjection { .. }

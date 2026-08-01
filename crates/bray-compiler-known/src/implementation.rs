@@ -36,10 +36,40 @@ define_catalog_enum! {
         MemoryStrideOf => "MemoryStrideOf",
         /// Computes a repeated-value memory layout.
         MemoryLayoutOf => "MemoryLayoutOf",
-        /// Allocates raw storage.
+        /// Allocates raw storage from separate byte count and alignment values.
+        RawAllocate => "RawAllocate",
+        /// Releases raw storage described by separate pointer and layout values.
+        RawDeallocate => "RawDeallocate",
+        /// Allocates an owned raw allocation.
         Allocate => "Allocate",
-        /// Releases raw storage.
+        /// Releases an owned raw allocation.
         Deallocate => "Deallocate",
+        /// Reads a raw buffer's capacity.
+        RawBufferCapacity => "RawBufferCapacity",
+        /// Reads a raw buffer's initialized element count.
+        RawBufferInitializedCount => "RawBufferInitializedCount",
+        /// Reads a raw buffer's storage pointer.
+        RawBufferPointer => "RawBufferPointer",
+        /// Borrows a raw buffer's initialized elements.
+        RawBufferInitializedSlice => "RawBufferInitializedSlice",
+        /// Mutably borrows a raw buffer's initialized elements.
+        RawBufferInitializedSliceMut => "RawBufferInitializedSliceMut",
+        /// Produces a pointer to a raw buffer's spare storage.
+        RawBufferSparePointer => "RawBufferSparePointer",
+        /// Updates a raw buffer's initialized element count.
+        RawBufferSetInitializedCount => "RawBufferSetInitializedCount",
+        /// Destroys initialized elements and releases a raw buffer in place.
+        RawBufferRelease => "RawBufferRelease",
+        /// Replaces one raw-buffer owner and clears the transferred source.
+        RawBufferReplace => "RawBufferReplace",
+        /// Initializes a byte-buffer range to one repeated byte.
+        ByteBufferFill => "ByteBufferFill",
+        /// Copies a byte-buffer range without exposing raw initialization state.
+        ByteBufferCopy => "ByteBufferCopy",
+        /// Reads one initialized byte from byte-buffer storage.
+        ByteBufferRead => "ByteBufferRead",
+        /// Reads the element count carried by a byte slice.
+        ByteSliceLength => "ByteSliceLength",
         /// Starts an inactive asynchronous computation as a task.
         FutureStart => "FutureStart",
         /// Joins and observes an independently running task.
@@ -73,8 +103,23 @@ impl ImplementationHook {
         Self::MemoryAlignOf,
         Self::MemoryStrideOf,
         Self::MemoryLayoutOf,
+        Self::RawAllocate,
+        Self::RawDeallocate,
         Self::Allocate,
         Self::Deallocate,
+        Self::RawBufferCapacity,
+        Self::RawBufferInitializedCount,
+        Self::RawBufferPointer,
+        Self::RawBufferInitializedSlice,
+        Self::RawBufferInitializedSliceMut,
+        Self::RawBufferSparePointer,
+        Self::RawBufferSetInitializedCount,
+        Self::RawBufferRelease,
+        Self::RawBufferReplace,
+        Self::ByteBufferFill,
+        Self::ByteBufferCopy,
+        Self::ByteBufferRead,
+        Self::ByteSliceLength,
     ];
 }
 

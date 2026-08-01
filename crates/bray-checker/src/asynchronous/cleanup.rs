@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncScopeExitPlan, StorageAccessId, StorageFlowFacts, StorageIdentityId, StoragePlan,
+    AsyncScopeExitPlan, BoundUnitKind, StorageAccessId, StorageFlowFacts, StorageIdentity,
+    StorageIdentityId, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{GenericArgument, TypeData, TypeId};
+use bray_symbols::{CallableSymbolId, GenericArgument, TypeData, TypeId};
 
 use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
@@ -213,6 +214,10 @@ where
         let mut is_recovered = exit.is_recovered();
 
         for identity in exit.initialized().iter().rev().copied() {
+            if scope_exit_transfers_identity(request, storage, identity) {
+                continue;
+            }
+
             let Some(access) = root_access(storage, identity) else {
                 is_recovered = true;
 
@@ -256,6 +261,40 @@ where
     }
 
     Ok((plans, cleanup_shapes.into_diagnostics()))
+}
+
+fn scope_exit_transfers_identity<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    identity: StorageIdentityId,
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match storage.identity(identity) {
+        Some(StorageIdentity::Result(_)) => true,
+        Some(StorageIdentity::Receiver(_)) => {
+            request.unit().key().kind() == BoundUnitKind::CallableBody
+                && matches!(
+                    request.containing_callable(),
+                    Some(CallableSymbolId::Destructor(_))
+                )
+        }
+        Some(
+            StorageIdentity::LocalOwned(_)
+            | StorageIdentity::Parameter(_)
+            | StorageIdentity::AnonymousParameter(_)
+            | StorageIdentity::PredicateParameter(_)
+            | StorageIdentity::Temporary(_)
+            | StorageIdentity::IterationCursor(_)
+            | StorageIdentity::IterationElement(_)
+            | StorageIdentity::Allocation(_)
+            | StorageIdentity::CompilerCreated(_)
+            | StorageIdentity::Alternative { .. }
+            | StorageIdentity::Error(_),
+        )
+        | None => false,
+    }
 }
 
 fn root_access(storage: &StoragePlan, identity: StorageIdentityId) -> Option<StorageAccessId> {

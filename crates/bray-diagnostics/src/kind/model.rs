@@ -613,9 +613,7 @@ impl DiagnosticKind {
             Self::RequestStandardLibraryPackageIdentityRequired => {
                 "request_standard_library_package_identity_required"
             }
-            Self::StandardLibraryArtifactReadFailed => {
-                "standard_library_artifact_read_failed"
-            }
+            Self::StandardLibraryArtifactReadFailed => "standard_library_artifact_read_failed",
             Self::StandardLibraryManifestInvalid => "standard_library_manifest_invalid",
             Self::StandardLibraryArtifactLengthMismatch => {
                 "standard_library_artifact_length_mismatch"
@@ -624,9 +622,7 @@ impl DiagnosticKind {
                 "standard_library_artifact_digest_mismatch"
             }
             Self::StandardLibraryTargetUnavailable => "standard_library_target_unavailable",
-            Self::StandardLibraryRuntimeAbiMismatch => {
-                "standard_library_runtime_abi_mismatch"
-            }
+            Self::StandardLibraryRuntimeAbiMismatch => "standard_library_runtime_abi_mismatch",
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
             Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",

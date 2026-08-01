@@ -211,7 +211,7 @@ impl Lowerer<'_> {
                     Some(self.place_for_identity(*identity, ty, origin)?.storage())
                 }
                 BoundDependencySubject::StorageAccess(access) => {
-                    Some(self.place_for_access(*access)?.storage())
+                    Some(self.place_for_access(*access, false)?.storage())
                 }
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)

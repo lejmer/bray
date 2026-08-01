@@ -40,8 +40,23 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::Write { pointee } => types[1] == pointee,
         CheckedMemoryOperationKind::Copy { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::LayoutQuery { .. } => true,
-        CheckedMemoryOperationKind::Allocate => types[0] == types[1],
-        CheckedMemoryOperationKind::Deallocate => types[1] == types[2],
+        CheckedMemoryOperationKind::RawAllocate => types[0] == types[1],
+        CheckedMemoryOperationKind::RawDeallocate => types[1] == types[2],
+        CheckedMemoryOperationKind::Allocate
+        | CheckedMemoryOperationKind::Deallocate
+        | CheckedMemoryOperationKind::RawBufferCapacity
+        | CheckedMemoryOperationKind::RawBufferInitializedCount
+        | CheckedMemoryOperationKind::RawBufferPointer
+        | CheckedMemoryOperationKind::RawBufferInitializedSlice
+        | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+        | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+        | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+        | CheckedMemoryOperationKind::RawBufferRelease { .. }
+        | CheckedMemoryOperationKind::RawBufferReplace { .. } => true,
+        CheckedMemoryOperationKind::ByteBufferFill
+        | CheckedMemoryOperationKind::ByteBufferCopy
+        | CheckedMemoryOperationKind::ByteBufferRead
+        | CheckedMemoryOperationKind::ByteSliceLength => true,
     };
 
     if !valid {

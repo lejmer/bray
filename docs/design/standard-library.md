@@ -4,6 +4,9 @@ This document defines how ordinary Bray standard-library source becomes an exact
 artifact compatibility, immutable layout, and discovery without prescribing an installer, archive format, operating-system package,
 or code-generation backend.
 
+The public text, byte, collection, formatting, hashing, ordering, and numeric contracts are defined by
+[Core Data Standard Library](core-data-standard-library.md).
+
 ## Principles
 
 The standard library follows the same language and package rules as other Bray libraries except where the language reserves its

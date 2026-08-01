@@ -1,0 +1,18 @@
+module std.bytes;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let first: u8 = 1;
+    let second: u8 = 2;
+    let third: u8 = 3;
+    let bytes: [u8; 3] = [first, second, third];
+    let copied: Buffer = try from_slice(&bytes[..]);
+    let values: &[u8] = as_slice(&copied);
+
+    assert(length(&copied) == 3);
+    assert(values[0] == 1);
+    assert(values[1] == 2);
+    assert(values[2] == 3);
+
+    return .Ok(unit);
+}

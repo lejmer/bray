@@ -121,7 +121,6 @@ pub fn codegen_request_for_unit(
     mappings: CodegenMappings,
     backend: BackendIdentity,
 ) -> CodegenRequestFixture {
-
     let required_artifact = BackendArtifactId::new(
         unit.key().clone(),
         BackendArtifactKind::RelocatableObject,

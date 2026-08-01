@@ -8,8 +8,8 @@ use crate::{MirFieldReference, MirOperand, MirSourceAnchor, MirStorageId};
 /// Semantic role of one MIR storage allocation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirStorageKind {
-    /// Caller-supplied parameter storage.
-    Parameter,
+    /// Caller-supplied parameter storage at its semantic ABI position.
+    Parameter(u32),
     /// Source-correlated local storage.
     Local,
     /// Compiler-created temporary storage.

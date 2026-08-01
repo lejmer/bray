@@ -13,7 +13,7 @@ use inkwell::values::BasicValueEnum;
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(in crate::translation::unit) fn translate_operation(
         &mut self,
-        _id: bray_ir::MirOperationId,
+        id: bray_ir::MirOperationId,
         operation: &MirOperation,
     ) -> Result<(), CodegenFailure> {
         // Keep this exhaustive so every MIR operation requires an explicit translation.
@@ -63,14 +63,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(self.translate_aggregate(operation, aggregate)?)
             }
             MirOperationKind::Construct(construction) => {
-                Some(self.translate_construction(_id, operation, construction)?)
+                Some(self.translate_construction(id, operation, construction)?)
             }
             MirOperationKind::Convert {
                 operand,
                 conversion,
             } => {
                 let operand = self.operand(operand)?;
-                let helpers = self.operation_helpers(_id)?;
+                let helpers = self.operation_helpers(id)?;
                 let mut helpers = helpers.iter();
 
                 let converted =
@@ -82,8 +82,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Some(converted)
             }
-            MirOperationKind::Call(call) => self.translate_call(_id, call)?,
-            MirOperationKind::Memory(memory) => self.translate_memory(operation, memory)?,
+            MirOperationKind::Call(call) => self.translate_call(id, call)?,
+            MirOperationKind::Memory(memory) => self.translate_memory(id, operation, memory)?,
             MirOperationKind::PatternProjection {
                 subject,
                 projection,
@@ -101,14 +101,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *pattern_operation,
                 )?)
             }
-            MirOperationKind::PanicReport(cause) => self.translate_panic_report(_id, cause)?,
+            MirOperationKind::PanicReport(cause) => self.translate_panic_report(id, cause)?,
             MirOperationKind::AnonymousCallable(unit) => {
-                Some(self.translate_anonymous_callable(_id, unit)?)
+                Some(self.translate_anonymous_callable(id, unit)?)
             }
-            MirOperationKind::Generator(generator) => self.translate_generator(_id, generator)?,
+            MirOperationKind::Generator(generator) => self.translate_generator(id, generator)?,
             MirOperationKind::Finalize(place) => {
                 self.translate_lifecycle_helper(
-                    _id,
+                    id,
                     MirHelperReference::Finalize(place.ty()),
                     place,
                 )?;
@@ -117,7 +117,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirOperationKind::Destroy(place) => {
                 self.translate_lifecycle_helper(
-                    _id,
+                    id,
                     MirHelperReference::Destroy(place.ty()),
                     place,
                 )?;
@@ -126,7 +126,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirOperationKind::Cleanup { phase, place } => {
                 self.translate_lifecycle_helper(
-                    _id,
+                    id,
                     MirHelperReference::Cleanup {
                         phase: *phase,
                         ty: place.ty(),
@@ -137,10 +137,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 None
             }
             MirOperationKind::Async(asynchronous) => {
-                self.translate_async_operation(_id, operation, asynchronous)?
+                self.translate_async_operation(id, operation, asynchronous)?
             }
-            MirOperationKind::Host(operation) => self.translate_host_operation(_id, operation)?,
+            MirOperationKind::Host(operation) => self.translate_host_operation(id, operation)?,
         };
+
+        self.clear_moved_places()?;
 
         if let Some(id) = operation.result() {
             let value = result.ok_or(CodegenFailure::GeneratedModuleInvariant)?;

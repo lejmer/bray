@@ -349,6 +349,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemoryCapacity {
         identity name capacity;
         availability Allocation;
+        implementation RawBufferCapacity;
 
         surface {
             func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
@@ -358,6 +359,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemoryInitializedCount {
         identity name initialized_count;
         availability Allocation;
+        implementation RawBufferInitializedCount;
 
         surface {
             func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize;
@@ -367,6 +369,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemoryPointer {
         identity name pointer;
         availability Allocation;
+        implementation RawBufferPointer;
 
         surface {
             func pointer<T>(pos buffer: &RawBuffer<T>) -> RawPointer<T>;
@@ -376,6 +379,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemoryInitializedSlice {
         identity name initialized_slice;
         availability Allocation;
+        implementation RawBufferInitializedSlice;
 
         surface {
             trusted func initialized_slice<T>(
@@ -388,6 +392,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemoryInitializedSliceMut {
         identity name initialized_slice_mut;
         availability Allocation;
+        implementation RawBufferInitializedSliceMut;
 
         surface {
             trusted func initialized_slice_mut<T>(
@@ -400,6 +405,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemorySparePointer {
         identity name spare_pointer;
         availability Allocation;
+        implementation RawBufferSparePointer;
 
         surface {
             trusted func spare_pointer<T>(
@@ -419,6 +425,7 @@ scope StandardMemory at std.memory {
     declaration StandardMemorySetInitializedCount {
         identity name set_initialized_count;
         availability Allocation;
+        implementation RawBufferSetInitializedCount;
 
         surface {
             trusted func set_initialized_count<T>(
@@ -436,6 +443,88 @@ scope StandardMemory at std.memory {
                     buffer.initialized == count,
                 )
                 uses(unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryByteBufferFill {
+        identity name byte_buffer_fill;
+        availability Allocation;
+        implementation ByteBufferFill;
+
+        surface {
+            trusted internal func byte_buffer_fill(
+                pos destination: RawPointer<u8>,
+                value: u8,
+                count: usize,
+            ) -> unit
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryByteBufferCopy {
+        identity name byte_buffer_copy;
+        availability Allocation;
+        implementation ByteBufferCopy;
+
+        surface {
+            trusted internal func byte_buffer_copy(
+                pos source: RawPointer<u8>,
+                pos destination: RawPointer<u8>,
+                count: usize,
+            ) -> unit
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryRawBufferRelease {
+        identity name raw_buffer_release;
+        availability Allocation;
+        implementation RawBufferRelease;
+
+        surface {
+            trusted internal func raw_buffer_release<T>(
+                pos buffer: &mut RawBuffer<T>,
+            ) -> unit
+                uses(manual_alloc);
+        }
+    }
+
+    declaration StandardMemoryRawBufferReplace {
+        identity name raw_buffer_replace;
+        availability Allocation;
+        implementation RawBufferReplace;
+
+        surface {
+            trusted internal func raw_buffer_replace<T>(
+                pos destination: &mut RawBuffer<T>,
+                pos source: &mut RawBuffer<T>,
+                initialized: usize,
+            ) -> unit
+                uses(manual_alloc);
+        }
+    }
+
+    declaration StandardMemoryByteBufferRead {
+        identity name byte_buffer_read;
+        availability Allocation;
+        implementation ByteBufferRead;
+
+        surface {
+            trusted internal func byte_buffer_read(
+                pos pointer: RawPointer<u8>,
+                index: usize,
+            ) -> u8
+                uses(raw_memory);
+        }
+    }
+
+    declaration StandardMemoryByteSliceLength {
+        identity name byte_slice_length;
+        availability Allocation;
+        implementation ByteSliceLength;
+
+        surface {
+            internal func byte_slice_length(pos bytes: &[u8]) -> usize;
         }
     }
 }

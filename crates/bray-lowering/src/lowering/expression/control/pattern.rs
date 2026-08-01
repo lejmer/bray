@@ -380,7 +380,7 @@ impl Lowerer<'_> {
             StorageBinding::Identity(identity) => {
                 self.place_for_identity(identity, fact.ty(), origin)?
             }
-            StorageBinding::Access(access) => self.place_for_access(access)?,
+            StorageBinding::Access(access) => self.place_for_access(access, true)?,
         };
 
         self.builder.push_operation(

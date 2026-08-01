@@ -17,6 +17,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match terminator {
             MirTerminatorKind::Goto(edge) => {
                 self.add_edge_arguments(edge)?;
+                self.clear_moved_places()?;
 
                 llvm(
                     self.builder
@@ -28,6 +29,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let edge = cleanup.edge();
 
                 self.add_edge_arguments(edge)?;
+                self.clear_moved_places()?;
 
                 llvm(
                     self.builder
@@ -44,6 +46,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.add_edge_arguments(then_edge)?;
                 self.add_edge_arguments(else_edge)?;
+                self.clear_moved_places()?;
 
                 llvm(self.builder.build_conditional_branch(
                     condition,
@@ -73,6 +76,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     llvm_cases.push((value, self.block(case.edge().target())?));
                 }
 
+                self.clear_moved_places()?;
+
                 llvm(self.builder.build_switch(
                     discriminant,
                     self.block(otherwise.target())?,
@@ -96,11 +101,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirTerminatorKind::Unreachable => {
+                self.clear_moved_places()?;
                 llvm(self.builder.build_unreachable())?;
             }
             MirTerminatorKind::Panic { cleanup, .. }
             | MirTerminatorKind::CancelCurrentRun { cleanup } => {
                 self.add_edge_arguments(cleanup.edge())?;
+                self.clear_moved_places()?;
 
                 llvm(
                     self.builder
@@ -124,6 +131,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.add_edge_arguments(matched)?;
                 self.add_edge_arguments(unmatched)?;
+                self.clear_moved_places()?;
 
                 llvm(self.builder.build_conditional_branch(
                     condition,
@@ -205,6 +213,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.add_edge_arguments(edges.completed())?;
                 self.add_edge_arguments(edges.panicked().edge())?;
                 self.add_edge_arguments(edges.cancelled().edge())?;
+                self.clear_moved_places()?;
 
                 let completed =
                     self.union_variant_tag(result_type, edges.completed_variant(), tag.get_type())?;
@@ -246,6 +255,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             BasicValueEnum::IntValue(value) => value,
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         };
+
+        self.clear_moved_places()?;
 
         self.invoke_runtime(runtime, &[report.into()])?;
         llvm(self.builder.build_unreachable())?;
@@ -572,11 +583,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Err(CodegenFailure::GeneratedModuleInvariant);
                 }
 
+                self.clear_moved_places()?;
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Direct { .. } => {
                 let value = value.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
                 let value = self.operand(value)?;
+
+                self.clear_moved_places()?;
 
                 llvm(self.builder.build_return(Some(&value)))?;
             }
@@ -594,6 +608,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self.convert(value, source_type, *pointee)?;
 
                 llvm(self.builder.build_store(destination, value))?;
+                self.clear_moved_places()?;
                 llvm(self.builder.build_return(None))?;
             }
         }

@@ -6,6 +6,7 @@ use crate::{
     StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
     StoragePlan,
 };
+use bray_symbols::TypeId;
 
 /// A contract violation that prevents construction of one storage plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,6 +32,7 @@ pub struct StoragePlanBuilder {
     pub(super) unit: BoundUnitId,
     pub(super) kind: BoundUnitKind,
     pub(super) identities: Vec<StorageIdentity>,
+    pub(super) identity_types: BTreeMap<StorageIdentityId, TypeId>,
     pub(super) accesses: Vec<StorageAccess>,
     pub(super) alternatives: Vec<StorageAlternative>,
     pub(super) borrow_capabilities: Vec<PlannedBorrowCapability>,
@@ -50,6 +52,7 @@ impl StoragePlanBuilder {
             unit,
             kind,
             identities: Vec::new(),
+            identity_types: BTreeMap::new(),
             accesses: Vec::new(),
             alternatives: Vec::new(),
             borrow_capabilities: Vec::new(),
@@ -74,6 +77,21 @@ impl StoragePlanBuilder {
         self.identities.push(identity);
 
         Ok(id)
+    }
+
+    /// Records the checked type stored by one persistent storage origin.
+    pub fn set_identity_type(
+        &mut self,
+        identity: StorageIdentityId,
+        ty: TypeId,
+    ) -> Result<(), StoragePlanBuildError> {
+        if self.identity(identity).is_none() {
+            return Err(StoragePlanBuildError::MissingIdentity);
+        }
+
+        self.identity_types.insert(identity, ty);
+
+        Ok(())
     }
 
     /// Adds one planned borrow or reborrow capability.

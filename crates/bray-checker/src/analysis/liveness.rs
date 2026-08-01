@@ -7,7 +7,7 @@ use bray_bound_tree::{
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
-use super::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+use super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
 use super::model::{
     AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
@@ -28,7 +28,7 @@ where
         );
     }
 
-    let graph = match build_control_flow_graph(request) {
+    let graph = match build_storage_control_flow_graph(request, storage) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;

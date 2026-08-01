@@ -1,0 +1,232 @@
+module std.bytes;
+
+using std.memory;
+
+trusted internal func support_create(
+    capacity: usize,
+) -> Result<Buffer, std.memory.MemoryLayoutError>
+{
+    let storage: std.memory.RawBuffer<u8> =
+        try trusted std.memory.create_buffer<u8>(capacity = capacity);
+
+    return .Ok(Buffer { storage = storage, });
+}
+
+trusted internal func support_from_slice(
+    pos bytes: &[u8],
+) -> Result<Buffer, std.memory.MemoryLayoutError>
+{
+    let byte_count: usize = internal std.memory.byte_slice_length(bytes);
+
+    if byte_count == 0
+    {
+        return support_create(capacity = 0);
+    };
+
+    let mut buffer: Buffer = try support_create(capacity = byte_count);
+    let first: &u8 = &bytes[0];
+    let source: RawPointer<u8> = internal std.memory.byte_address_of(first);
+    let destination: RawPointer<u8> = buffer.storage.pointer;
+
+    trusted internal std.memory.byte_buffer_copy(
+        source = source,
+        destination = destination,
+        count = byte_count,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(
+        buffer = &mut buffer.storage,
+        count = byte_count,
+    );
+
+    return .Ok(buffer);
+}
+
+internal func support_as_slice(pos buffer: &Buffer) -> &[u8]
+{
+    return trusted std.memory.initialized_slice<u8>(&buffer.storage);
+}
+
+internal func support_as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
+{
+    return trusted std.memory.initialized_slice_mut<u8>(&mut buffer.storage);
+}
+
+trusted internal func support_reserve(
+    pos buffer: &mut Buffer,
+    additional: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let current_length: usize = buffer.storage.initialized;
+    let current_capacity: usize = buffer.storage.capacity;
+
+    if additional <= current_capacity - current_length
+    {
+        return .Ok(unit);
+    };
+
+    let maximum: usize = ~0;
+
+    if additional > maximum - current_length
+    {
+        let error: std.memory.MemoryLayoutError = .SizeOverflow;
+
+        return .Error(error);
+    };
+
+    let required: usize = current_length + additional;
+
+    let mut replacement: std.memory.RawBuffer<u8> =
+        try trusted std.memory.create_buffer<u8>(capacity = required);
+
+    let source: RawPointer<u8> = buffer.storage.pointer;
+    let destination: RawPointer<u8> = replacement.pointer;
+
+    trusted internal std.memory.byte_buffer_copy(
+        source = source,
+        destination = destination,
+        count = current_length,
+    );
+
+    trusted internal std.memory.raw_buffer_replace<u8>(
+        destination = &mut buffer.storage,
+        source = &mut replacement,
+        initialized = current_length,
+    );
+
+    return .Ok(unit);
+}
+
+trusted internal func support_resize(
+    pos buffer: &mut Buffer,
+    new_length: usize,
+    fill: u8,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let current_length: usize = buffer.storage.initialized;
+
+    if new_length <= current_length
+    {
+        support_truncate(new_length = new_length, buffer = buffer);
+
+        return .Ok(unit);
+    };
+
+    let additional: usize = new_length - current_length;
+
+    try support_reserve(additional = additional, buffer = &mut buffer);
+
+    let pointer: RawPointer<u8> =
+        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+
+    trusted internal std.memory.byte_buffer_fill(
+        destination = pointer,
+        value = fill,
+        count = new_length - current_length,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(
+        buffer = &mut buffer.storage,
+        count = new_length,
+    );
+
+    return .Ok(unit);
+}
+
+trusted internal func support_truncate(
+    pos buffer: &mut Buffer,
+    new_length: usize,
+) -> unit
+{
+    let current_length: usize = buffer.storage.initialized;
+
+    if new_length < current_length
+    {
+        trusted std.memory.set_initialized_count<u8>(
+            buffer = &mut buffer.storage,
+            count = new_length,
+        );
+    };
+}
+
+trusted internal func support_push(
+    pos buffer: &mut Buffer,
+    value: u8,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    try support_reserve(additional = 1, buffer = &mut buffer);
+
+    let current_length: usize = buffer.storage.initialized;
+    let pointer: RawPointer<u8> =
+        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+
+    trusted internal std.memory.byte_buffer_fill(
+        destination = pointer,
+        value = value,
+        count = 1,
+    );
+    trusted std.memory.set_initialized_count<u8>(
+        buffer = &mut buffer.storage,
+        count = current_length + 1,
+    );
+
+    return .Ok(unit);
+}
+
+trusted internal func support_append(
+    pos buffer: &mut Buffer,
+    bytes: &[u8],
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let byte_count: usize = internal std.memory.byte_slice_length(bytes);
+
+    if byte_count == 0
+    {
+        return .Ok(unit);
+    };
+
+    try support_reserve(additional = byte_count, buffer = &mut buffer);
+
+    let current_length: usize = buffer.storage.initialized;
+    let first: &u8 = &bytes[0];
+    let source: RawPointer<u8> = internal std.memory.byte_address_of(first);
+    let destination: RawPointer<u8> =
+        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+
+    trusted internal std.memory.byte_buffer_copy(
+        source = source,
+        destination = destination,
+        count = byte_count,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(
+        buffer = &mut buffer.storage,
+        count = current_length + byte_count,
+    );
+
+    return .Ok(unit);
+}
+
+trusted internal func support_pop(pos buffer: &mut Buffer) -> u8?
+{
+    let current_length: usize = buffer.storage.initialized;
+
+    if current_length == 0
+    {
+        return none;
+    };
+
+    let new_length: usize = current_length - 1;
+    let value: u8 = trusted internal std.memory.byte_buffer_read(
+        buffer.storage.pointer,
+        index = new_length,
+    );
+
+    support_truncate(new_length = new_length, buffer = buffer);
+
+    let mut result: u8? = none;
+
+    result = value;
+
+    return result;
+}

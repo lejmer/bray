@@ -140,7 +140,10 @@ pub(super) fn decode_digest(
 
     let mut bytes = [0_u8; 32];
 
-    for (destination, pair) in bytes.iter_mut().zip(digest.bytes.as_bytes().chunks_exact(2)) {
+    for (destination, pair) in bytes
+        .iter_mut()
+        .zip(digest.bytes.as_bytes().chunks_exact(2))
+    {
         *destination = decode_hex_byte(pair).ok_or(StandardLibraryManifestError::InvalidDigest)?;
     }
 
