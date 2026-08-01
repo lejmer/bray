@@ -13,7 +13,7 @@ use bray_target::TargetProfile;
 
 use crate::{
     CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource, SemanticUnitContext,
+    CheckerSemanticFactProvider, CheckerSource, ImplementationHookResolution, SemanticUnitContext,
 };
 
 /// A validated read-only view of one bound unit for focused checker services.
@@ -170,6 +170,14 @@ where
     /// Returns target-available compiler-known identities and behavior roles.
     pub fn available_compiler_known_symbols(self) -> &'view AvailableCompilerKnownSymbols {
         self.context.available_compiler_known_symbols()
+    }
+
+    /// Resolves compiler behavior carried by one exact declaration identity.
+    pub(crate) fn implementation_hook(
+        self,
+        symbol: bray_symbols::AnySymbolId,
+    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+        self.context.implementation_hook(symbol)
     }
 
     /// Returns the selected language-level target profile.

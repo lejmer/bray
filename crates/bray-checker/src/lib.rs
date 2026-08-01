@@ -39,7 +39,7 @@ pub use constant::{
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource,
+    CheckerSemanticFactProvider, CheckerSource, ImplementationHookResolution,
 };
 pub use diagnostic::diagnostic_type;
 pub use expression::NestedCallableEvidence;

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundSourceAnchor, BoundUnit};
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
@@ -94,6 +94,30 @@ pub enum CheckerFactError {
 /// The result of requesting one checker dependency.
 pub type CheckerFactResult<T> = Result<T, CheckerFactError>;
 
+/// One recognized implementation hook and its availability for the selected target.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ImplementationHookResolution {
+    hook: ImplementationHook,
+    available: bool,
+}
+
+impl ImplementationHookResolution {
+    /// Creates a resolved implementation hook.
+    pub const fn new(hook: ImplementationHook, available: bool) -> Self {
+        Self { hook, available }
+    }
+
+    /// Returns the compiler implementation hook.
+    pub const fn hook(self) -> ImplementationHook {
+        self.hook
+    }
+
+    /// Returns whether the declaration is available for the selected target.
+    pub const fn is_available(self) -> bool {
+        self.available
+    }
+}
+
 /// The exact source span and text covered by one bound source anchor.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CheckerSource<'source> {
@@ -147,6 +171,35 @@ pub trait CheckerRequestContext: Sync {
 
     /// Returns compiler-known symbols available for the current target.
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
+
+    /// Resolves a compiler-known or recognized standard-library implementation hook.
+    fn implementation_hook(
+        &self,
+        symbol: AnySymbolId,
+    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+        let available = self.available_compiler_known_symbols();
+
+        if let Some(hook) = available
+            .provider()
+            .role_registry()
+            .symbol_implementation(symbol)
+        {
+            return Ok(Some(ImplementationHookResolution::new(
+                hook,
+                available.symbol_implementation(symbol).is_some(),
+            )));
+        }
+
+        self.recognized_standard_library_implementation_hook(symbol)
+    }
+
+    /// Resolves an implementation hook carried by an imported standard-library declaration.
+    fn recognized_standard_library_implementation_hook(
+        &self,
+        _symbol: AnySymbolId,
+    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+        Ok(None)
+    }
 
     /// Returns the selected language-level target profile.
     fn selected_target(&self) -> &TargetProfile;

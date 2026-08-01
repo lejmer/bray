@@ -51,18 +51,19 @@ where
             continue;
         };
 
-        let symbol = instance.definition().symbol();
-        let available = request.available_compiler_known_symbols();
+        let resolution = match request.implementation_hook(instance.definition().symbol()) {
+            Ok(resolution) => resolution,
+            Err(crate::CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(crate::CheckerFactError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+        };
 
-        let Some(hook) = available
-            .provider()
-            .role_registry()
-            .symbol_implementation(symbol)
-        else {
+        let Some(resolution) = resolution else {
             continue;
         };
 
-        if available.symbol_implementation(symbol).is_none() {
+        if !resolution.is_available() {
             let span = match expression_span(request, entry.expression()) {
                 Ok(span) => span,
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -87,7 +88,7 @@ where
 
         let kind = match classify_operation(
             request,
-            hook,
+            resolution.hook(),
             &type_arguments,
             &mut read_kinds,
             &mut diagnostics,

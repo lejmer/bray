@@ -1,0 +1,21 @@
+trusted module std.memory;
+
+struct MemoryLayout
+{
+    bytes: usize;
+    align: usize;
+}
+
+union MemoryLayoutError
+{
+    SizeOverflow;
+    UnsupportedAlignment;
+}
+
+extern const func size_of<T>() -> usize;
+
+extern const func align_of<T>() -> usize;
+
+extern const func stride_of<T>() -> usize;
+
+extern const func layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;

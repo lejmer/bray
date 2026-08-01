@@ -1394,6 +1394,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-package-interface",
  "bray-runtime-interface",
+ "bray-source",
  "bray-symbols",
  "bray-target",
  "quote",

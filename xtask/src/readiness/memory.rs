@@ -1,6 +1,13 @@
 use std::collections::BTreeSet;
 
+use bray_compilation::{
+    Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
+};
 use bray_compiler_known::ImplementationHook;
+use bray_diagnostics::DiagnosticKind;
+use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+use bray_symbols::{PackageIdentity, ProductKind};
+use bray_target::{TargetFacts, TargetOperationFacts, TargetProfile};
 use serde::Deserialize;
 
 use super::workspace::{RustWorkspace, is_fixture_anchor, require_unique_names};
@@ -14,6 +21,8 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "invalid obligation rejection",
     "same-name isolation",
 ];
+const UNAVAILABLE_TARGET_FIXTURE: &str =
+    "xtask/fixtures/readiness/memory-unavailable-target.bray";
 
 #[derive(Deserialize)]
 struct CoverageFixture {
@@ -88,7 +97,64 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
         }
     }
 
+    audit_unavailable_target(workspace)?;
+
     Ok(())
+}
+
+fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
+    let source = workspace.read_text(UNAVAILABLE_TARGET_FIXTURE)?;
+    let baseline = SelectedTarget::baseline();
+    let profile = baseline.profile();
+    let baseline_facts = profile.facts();
+
+    let facts = TargetFacts::new(
+        baseline_facts.identity().clone(),
+        baseline_facts.scalars(),
+        baseline_facts.atomics(),
+        baseline_facts.abis(),
+        baseline_facts.address_spaces(),
+        baseline_facts.alignments(),
+        TargetOperationFacts::new(false, false),
+    );
+
+    let profile = TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
+        .map_err(|error| format!("could not build unavailable memory target: {error}"))?;
+
+    let package = PackageIdentity::try_new("memory.readiness")
+        .ok_or_else(|| "memory readiness package identity is invalid".to_owned())?;
+
+    let input = SourceInput::virtual_text(
+        SourceIdentity::new(0),
+        UNAVAILABLE_TARGET_FIXTURE,
+        SourceVersion::new(0),
+        source,
+    );
+
+    let options = CompilationOptions::new(
+        WorkerBudget::serial(),
+        ProductKind::Executable,
+        SelectedTarget::new(profile, baseline.runtime_abi()),
+    );
+
+    let compilation = Compilation::load(CompilationRequest::with_options(
+        package,
+        vec![input],
+        options,
+    ))
+    .map_err(|error| format!("could not load unavailable memory fixture: {error:?}"))?;
+
+    if compilation
+        .check_diagnostics()
+        .iter()
+        .any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingTargetMemoryOperationUnavailable
+        })
+    {
+        Ok(())
+    } else {
+        Err("unavailable memory target did not produce the structured rejection diagnostic".to_owned())
+    }
 }
 
 fn require_source_anchor(

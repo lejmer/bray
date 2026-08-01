@@ -4,6 +4,7 @@ trusted func main() -> i32
     uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let released: RawPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
+    let released_ok = !core.memory.is_null<u8>(released);
 
     trusted core.memory.deallocate(pointer = released, bytes = 16, align = 4);
 
@@ -30,7 +31,7 @@ trusted func main() -> i32
     let copied_ok = copied == 7;
     let advanced_ok = !core.memory.is_null<u8>(advanced);
     let null_ok = core.memory.is_null<u8>(null);
-    let valid = copied_ok && advanced_ok && null_ok;
+    let valid = released_ok && copied_ok && advanced_ok && null_ok;
 
     if valid
     {
