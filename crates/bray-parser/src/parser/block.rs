@@ -342,6 +342,57 @@ mod tests {
     }
 
     #[test]
+    fn parser_requires_semicolons_after_postfixes_on_block_shaped_primaries() {
+        let expressions = [
+            "if true {}.member",
+            "if true {}[0]",
+            "if true {}[0..1]",
+            "if true {}()",
+            "if true {}?",
+            "if true {} as i32",
+            "if true {}(Display).format",
+        ];
+
+        for expression_text in expressions {
+            let source_text = format!("{{ {expression_text} let next = 1; }}");
+            let sources = source_store([source_text.as_str()]);
+            let snapshot = source(&sources, 0);
+            let insertion = marker_offset(&source_text, "let");
+            let mut parser = Parser::new(snapshot);
+
+            let block = parser
+                .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+            let diagnostics = parser.finish();
+            let items = block.block_items().collect::<Vec<_>>();
+
+            let [expression_item, following_item] = items.as_slice() else {
+                panic!("expected expression and following local binding: {items:?}");
+            };
+
+            let Some(sequence) = expression_item.sequenced_expression() else {
+                panic!("postfix expression must require a semicolon: {expression_item:?}");
+            };
+
+            let Some(expression) = sequence.expression() else {
+                panic!("sequenced block item must retain its expression");
+            };
+
+            assert!(!expression.is_block_shaped(), "{expression_text}");
+            assert!(sequence.semicolon_token().is_missing(), "{expression_text}");
+            assert_eq!(sequence.semicolon_token().range(), TextRange::empty(insertion));
+            assert!(following_item.local_binding_declaration().is_some());
+            assert_eq!(block.full_text(), source_text);
+
+            assert_eq!(
+                diagnostic_kinds(&diagnostics),
+                [DiagnosticKind::SyntaxExpectedToken],
+                "{expression_text}"
+            );
+        }
+    }
+
+    #[test]
     fn parser_requires_semicolons_for_non_block_shaped_expression_items() {
         let source_text = "{ value }";
         let sources = source_store([source_text]);
