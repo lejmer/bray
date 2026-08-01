@@ -7,6 +7,11 @@ The standard-library root package is `std`.
 The `std` package namespace is reserved exclusively for standard-library packages. Compiler-known declarations, target facts, and
 private runtime ABI symbols do not occupy `std` paths.
 
+User and vendored packages cannot declare the package identity `std` or an identity beneath the reserved `std` package namespace.
+
+The selected toolchain supplies `std` as an explicit package input. This does not make any declaration ambient and does not permit
+the compiler to download or search for a standard library implicitly.
+
 Standard-library declarations are not automatically visible.
 
 Source code can use a standard-library declaration only when the declaration is reachable through the `std` package root and visible through normal import or path rules.

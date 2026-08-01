@@ -131,8 +131,9 @@ build products:
 }
 ```
 
-Package identities contain at least two lowercase ASCII dot-separated segments. Each segment starts with a letter and continues
-with lowercase letters, digits, or `-`. Package identity is independent of directory placement.
+User and vendored package identities contain at least two lowercase ASCII dot-separated segments. Each segment starts with a letter
+and continues with lowercase letters, digits, or `-`. Package identity is independent of directory placement. The toolchain-owned
+`std` package is the sole one-segment exception and is supplied outside the workspace inventory.
 
 Package-local names start with a lowercase ASCII letter and continue with lowercase letters, digits, `_`, or `-`. This rule covers
 features, source roots, products, and workspace target names. Every canonical selection is unique.
@@ -160,6 +161,11 @@ workspace's project-owned package inventory. A missing package or product is an 
 
 Package dependencies must be acyclic. A dependency package is built before its dependents. Independent packages are ordered by
 canonical package identity, so manifest ordering and parallel scheduling cannot affect the published build order.
+
+The toolchain-selected `std` package is not acquired or located through a package manifest. The package layer supplies its exact
+configured standard-library root as a separate immutable build input under the
+[standard-library artifact contract](standard-library.md). When selected, `std` still enters the ordinary dependency graph and
+follows ordinary visibility rules. Workspace packages cannot claim the reserved `std` or `std.*` identities.
 
 The initial contract applies dependencies package-wide. It does not speculate about conditional, platform-specific, or
 product-specific dependency activation. Such behavior would require an explicit graph contract rather than hidden selection
