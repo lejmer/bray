@@ -49,7 +49,8 @@ use crate::worker::WorkerBudget;
 use super::binder::CompilationSymbolFacts;
 use super::load::{
     CompilationLoadError, SourceInputDiagnosticContext, duplicate_source_input_diagnostic,
-    missing_source_input_diagnostic, next_diagnostic_id, source_load_diagnostic,
+    missing_source_input_diagnostic, next_diagnostic_id, package_source_authority_diagnostic,
+    source_load_diagnostic,
 };
 use super::source_graph::ProductSourceGraph;
 
@@ -67,6 +68,7 @@ pub struct Compilation {
 
 pub(super) struct CompilationState {
     pub(super) package_identity: PackageIdentity,
+    pub(super) package_source_authority: crate::PackageSourceAuthority,
     pub(super) options: CompilationOptions,
     pub(super) sources: SourceStore,
     pub(super) source_diagnostics: DiagnosticBag,
@@ -217,6 +219,7 @@ impl Compilation {
     ) -> Result<Self, CompilationLoadError> {
         let (
             package_identity,
+            package_source_authority,
             options,
             source_inputs,
             mut dependency_interfaces,
@@ -230,6 +233,14 @@ impl Compilation {
         let mut sources = SourceStore::with_capacity(source_inputs.len());
         let mut source_identities = BTreeSet::new();
         let mut diagnostics = DiagnosticBag::new();
+
+        if !package_source_authority.accepts(&package_identity) {
+            diagnostics.add(package_source_authority_diagnostic(
+                next_diagnostic_id(&diagnostics)?,
+                &package_identity,
+                package_source_authority,
+            ));
+        }
 
         if source_inputs.is_empty() {
             diagnostics.add(missing_source_input_diagnostic(next_diagnostic_id(
@@ -277,6 +288,7 @@ impl Compilation {
         Ok(Self {
             state: Arc::new(CompilationState {
                 package_identity,
+                package_source_authority,
                 options,
                 sources,
                 source_diagnostics: diagnostics,
@@ -370,6 +382,11 @@ impl Compilation {
     /// Returns the source package identity selected for this compilation.
     pub fn package_identity(&self) -> &PackageIdentity {
         &self.state.package_identity
+    }
+
+    /// Returns the authority governing this source package's identity.
+    pub fn package_source_authority(&self) -> crate::PackageSourceAuthority {
+        self.state.package_source_authority
     }
 
     /// Returns the compilation options.
@@ -817,6 +834,53 @@ mod tests {
         assert_eq!(
             diagnostic.notes(),
             &[DiagnosticNote::new(DiagnosticNoteKind::SourceInputRequired)]
+        );
+    }
+
+    #[test]
+    fn compilation_load_validates_package_source_authority() {
+        let standard_library = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
+        let ordinary_request = CompilationRequest::new(
+            standard_library,
+            vec![source_input("module std;", 0)],
+        );
+
+        let ordinary = Compilation::load(ordinary_request)
+            .unwrap_or_else(|error| panic!("ordinary request should load: {error:?}"));
+
+        assert_eq!(
+            diagnostic_kinds(ordinary.source_diagnostics()),
+            [DiagnosticKind::RequestReservedPackageIdentity]
+        );
+
+        let standard_library = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
+        let standard_library_request = CompilationRequest::new(
+            standard_library,
+            vec![source_input("module std;", 0)],
+        )
+        .with_standard_library_source_authority();
+
+        let authorized = Compilation::load(standard_library_request)
+            .unwrap_or_else(|error| panic!("authorized request should load: {error:?}"));
+
+        assert!(authorized.source_diagnostics().is_empty());
+
+        let invalid_authority = CompilationRequest::new(
+            package_identity(),
+            vec![source_input("module application;", 0)],
+        )
+        .with_standard_library_source_authority();
+
+        let invalid = Compilation::load(invalid_authority)
+            .unwrap_or_else(|error| panic!("invalid authority request should load: {error:?}"));
+
+        assert_eq!(
+            diagnostic_kinds(invalid.source_diagnostics()),
+            [DiagnosticKind::RequestStandardLibraryPackageIdentityRequired]
         );
     }
 

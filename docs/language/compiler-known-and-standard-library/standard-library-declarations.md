@@ -9,6 +9,10 @@ private runtime ABI symbols do not occupy `std` paths.
 
 User and vendored packages cannot declare the package identity `std` or an identity beneath the reserved `std` package namespace.
 
+The compiler host must explicitly classify source as toolchain-owned standard-library source before it can use a reserved package
+identity. That classification controls package identity only. It does not grant trusted implementation capabilities or change any
+module, declaration, contract, ownership, capability, or checking rule.
+
 The selected toolchain supplies `std` as an explicit package input. This does not make any declaration ambient and does not permit
 the compiler to download or search for a standard library implicitly.
 

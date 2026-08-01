@@ -37,6 +37,9 @@ documents.
 - `bray-project`
     - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build graphs.
 
+- `bray-standard-library`
+    - Standard library identities, source authority, bundle manifests, and artifact validation.
+
 - `bray-binder`
     - Name resolution, semantic reference binding, local symbol construction, and immutable bound-unit construction.
 

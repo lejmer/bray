@@ -26,6 +26,7 @@ members = [
     "crates/bray-project",
     "crates/bray-runtime",
     "crates/bray-source",
+    "crates/bray-standard-library",
     "crates/bray-symbols",
     "crates/bray-syntax",
     "crates/bray-target",

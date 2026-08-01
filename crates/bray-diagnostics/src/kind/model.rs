@@ -24,6 +24,10 @@ define_diagnostic_kinds! {
     RequestMissingSourceInput,
     /// A compilation request source input is not valid.
     RequestInvalidSourceInput,
+    /// An ordinary compilation request claims a reserved standard library package identity.
+    RequestReservedPackageIdentity,
+    /// Standard library source authority is applied to a package outside the reserved namespace.
+    RequestStandardLibraryPackageIdentityRequired,
     /// A compilation request selects one logical source more than once.
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
@@ -38,6 +42,10 @@ define_diagnostic_kinds! {
     ProjectManifestParseFailed,
     /// A Bray project manifest value violates a project invariant.
     ProjectManifestInvalid,
+    /// An ordinary project package claims the reserved standard library namespace.
+    ProjectPackageIdentityReserved,
+    /// A standard library project package is outside the reserved namespace.
+    ProjectStandardLibraryPackageIdentityRequired,
     /// A Bray project manifest repeats one canonical selection.
     ProjectManifestDuplicateSelection,
     /// A declared Bray source root is not a valid project-owned source tree.
@@ -390,6 +398,8 @@ impl DiagnosticKind {
             Self::RequestDuplicateSourceInput => 1104,
             Self::InspectionReportWriteFailed => 1105,
             Self::RequestUnsupportedProductEmission => 1106,
+            Self::RequestReservedPackageIdentity => 1107,
+            Self::RequestStandardLibraryPackageIdentityRequired => 1108,
             Self::ProjectManifestReadFailed => 1201,
             Self::ProjectManifestParseFailed => 1202,
             Self::ProjectManifestInvalid => 1203,
@@ -400,6 +410,8 @@ impl DiagnosticKind {
             Self::ProjectDependencyCycle => 1208,
             Self::ProjectCommandSelectionInvalid => 1209,
             Self::ProjectCommandFailed => 1211,
+            Self::ProjectPackageIdentityReserved => 1212,
+            Self::ProjectStandardLibraryPackageIdentityRequired => 1213,
             Self::FormatterSourceNotFormatted => 1301,
             Self::FormatterSourceInvalidUtf8 => 1302,
             Self::FormatterSourceTooLarge => 1303,
@@ -576,6 +588,10 @@ impl DiagnosticKind {
             Self::SourceTextTooLarge => "source_text_too_large",
             Self::RequestMissingSourceInput => "request_missing_source_input",
             Self::RequestInvalidSourceInput => "request_invalid_source_input",
+            Self::RequestReservedPackageIdentity => "request_reserved_package_identity",
+            Self::RequestStandardLibraryPackageIdentityRequired => {
+                "request_standard_library_package_identity_required"
+            }
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
             Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
@@ -583,6 +599,10 @@ impl DiagnosticKind {
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
             Self::ProjectManifestInvalid => "project_manifest_invalid",
+            Self::ProjectPackageIdentityReserved => "project_package_identity_reserved",
+            Self::ProjectStandardLibraryPackageIdentityRequired => {
+                "project_standard_library_package_identity_required"
+            }
             Self::ProjectManifestDuplicateSelection => "project_manifest_duplicate_selection",
             Self::ProjectSourceRootInvalid => "project_source_root_invalid",
             Self::ProjectDependencyPackageUnknown => "project_dependency_package_unknown",

@@ -7,6 +7,9 @@ use bray_diagnostics::{
 use bray_source::{
     SourceInput, SourceInputKind, SourceLoadError, SourceUtf8Error, TextSize, TextSizeOverflow,
 };
+use bray_symbols::PackageIdentity;
+
+use crate::PackageSourceAuthority;
 
 /// Error returned when loading durable compilation state.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -70,6 +73,22 @@ pub(super) fn duplicate_source_input_diagnostic(
         ),
         context,
     )
+}
+
+pub(super) fn package_source_authority_diagnostic(
+    id: DiagnosticId,
+    package: &PackageIdentity,
+    authority: PackageSourceAuthority,
+) -> Diagnostic {
+    let kind = match authority {
+        PackageSourceAuthority::Ordinary => DiagnosticKind::RequestReservedPackageIdentity,
+        PackageSourceAuthority::StandardLibrary => {
+            DiagnosticKind::RequestStandardLibraryPackageIdentityRequired
+        }
+    };
+
+    Diagnostic::new(id, kind, SeverityKind::Error)
+        .with_arg(DiagnosticArg::referenced_name(package.as_str()))
 }
 
 #[derive(Debug, Eq, PartialEq)]

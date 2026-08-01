@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "identity": "std",
+  "source_roots": [
+    { "name": "library", "path": "src" }
+  ],
+  "products": [
+    {
+      "name": "library",
+      "kind": "library",
+      "source_roots": ["library"],
+      "targets": [
+        "aarch64-linux",
+        "aarch64-macos",
+        "aarch64-windows",
+        "x86-64-linux",
+        "x86-64-macos",
+        "x86-64-windows"
+      ],
+      "outputs": [
+        "dependency_metadata",
+        "package_interface",
+        "static_library"
+      ]
+    }
+  ]
+}

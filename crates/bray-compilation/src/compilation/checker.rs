@@ -15,6 +15,7 @@ use bray_compiler_known::{
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
+use bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, ModuleOwnerId,
@@ -220,6 +221,15 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
     fn source_standard_library_implementations(
         &self,
     ) -> CheckerFactResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
+        if !self
+            .facts
+            .compilation()
+            .package_source_authority()
+            .is_standard_library()
+        {
+            return Ok(BTreeMap::new());
+        }
+
         let standard_library = standard_library_package_identity()?;
 
         let symbols = self.symbols();
@@ -289,9 +299,9 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 }
 
 fn standard_library_package_identity() -> CheckerFactResult<PackageIdentity> {
-    PackageIdentity::try_new("std").ok_or(CheckerFactError::Infrastructure(
-        CheckerInfrastructureError::SemanticValueUnavailable,
-    ))
+    PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY).ok_or(
+        CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable),
+    )
 }
 
 impl CheckerRequestContext for CompilationCheckerContext<'_> {

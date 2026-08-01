@@ -131,6 +131,31 @@ const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
 const REQUEST_INVALID_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("source input is invalid")];
 
+const REQUEST_RESERVED_PACKAGE_IDENTITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("package identity "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is reserved for toolchain-owned standard library source"),
+];
+
+const PROJECT_PACKAGE_IDENTITY_RESERVED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("package identity "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is reserved for toolchain-owned standard library source in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library workspace package "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" must use the reserved standard library namespace in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library source authority cannot compile package "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("source input "),
     MessageTemplatePart::Arg(DiagnosticArgName::InputIndex),
@@ -991,6 +1016,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::RequestInvalidSourceInput => {
             MessageTemplate::new(REQUEST_INVALID_SOURCE_INPUT)
         }
+        DiagnosticKind::RequestReservedPackageIdentity => {
+            MessageTemplate::new(REQUEST_RESERVED_PACKAGE_IDENTITY)
+        }
+        DiagnosticKind::RequestStandardLibraryPackageIdentityRequired => {
+            MessageTemplate::new(REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED)
+        }
         DiagnosticKind::RequestDuplicateSourceInput => {
             MessageTemplate::new(REQUEST_DUPLICATE_SOURCE_INPUT)
         }
@@ -1010,6 +1041,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(PROJECT_MANIFEST_PARSE_FAILED)
         }
         DiagnosticKind::ProjectManifestInvalid => MessageTemplate::new(PROJECT_MANIFEST_INVALID),
+        DiagnosticKind::ProjectPackageIdentityReserved => {
+            MessageTemplate::new(PROJECT_PACKAGE_IDENTITY_RESERVED)
+        }
+        DiagnosticKind::ProjectStandardLibraryPackageIdentityRequired => {
+            MessageTemplate::new(PROJECT_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED)
+        }
         DiagnosticKind::ProjectManifestDuplicateSelection => {
             MessageTemplate::new(PROJECT_MANIFEST_DUPLICATE_SELECTION)
         }

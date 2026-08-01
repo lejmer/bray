@@ -2,6 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_symbols::PackageIdentity;
+use bray_standard_library::{
+    PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PackageSourceAuthority,
+};
 use serde::de::DeserializeOwned;
 
 use crate::{ProjectLoadError, ProjectManifestProblem, ProjectPath};
@@ -111,8 +114,13 @@ pub(super) fn local_name(
 pub(super) fn package_identity(
     value: String,
     manifest_path: &Path,
+    source_authority: PackageSourceAuthority,
 ) -> Result<PackageIdentity, ProjectLoadError> {
-    if !value.split('.').all(is_package_segment) || !value.contains('.') {
+    let permits_single_segment = source_authority.is_standard_library()
+        && value == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
+
+    if !value.split('.').all(is_package_segment) || (!value.contains('.') && !permits_single_segment)
+    {
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
             ProjectManifestProblem::InvalidName,
@@ -120,13 +128,32 @@ pub(super) fn package_identity(
         ));
     }
 
-    PackageIdentity::try_new(Arc::<str>::from(value.as_str())).ok_or_else(|| {
-        ProjectLoadError::invalid(
+    let Some(identity) = PackageIdentity::try_new(Arc::<str>::from(value.as_str())) else {
+        return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
             ProjectManifestProblem::InvalidName,
             value,
-        )
-    })
+        ));
+    };
+
+    if !source_authority.accepts(&identity) {
+        let problem = match source_authority {
+            PackageSourceAuthority::Ordinary => {
+                ProjectManifestProblem::ReservedPackageIdentity
+            }
+            PackageSourceAuthority::StandardLibrary => {
+                ProjectManifestProblem::StandardLibraryPackageIdentityRequired
+            }
+        };
+
+        return Err(ProjectLoadError::invalid(
+            manifest_path.to_path_buf(),
+            problem,
+            value,
+        ));
+    }
+
+    Ok(identity)
 }
 
 pub(super) fn sorted_unique_names(
@@ -187,6 +214,8 @@ pub(super) fn manifest_path(package_root: &Path) -> PathBuf {
 mod tests {
     use std::path::Path;
 
+    use bray_standard_library::PackageSourceAuthority;
+
     use super::{local_name, package_identity, paths_overlap, project_path};
 
     #[test]
@@ -196,9 +225,33 @@ mod tests {
         assert!(local_name(String::from("native-test"), manifest).is_ok());
         assert!(local_name(String::from("Native"), manifest).is_err());
         assert!(local_name(String::from("9native"), manifest).is_err());
-        assert!(package_identity(String::from("example.math"), manifest).is_ok());
-        assert!(package_identity(String::from("example"), manifest).is_err());
-        assert!(package_identity(String::from("example.math_core"), manifest).is_err());
+
+        assert!(
+            package_identity(
+                String::from("example.math"),
+                manifest,
+                PackageSourceAuthority::Ordinary,
+            )
+            .is_ok()
+        );
+
+        assert!(
+            package_identity(
+                String::from("example"),
+                manifest,
+                PackageSourceAuthority::Ordinary,
+            )
+            .is_err()
+        );
+
+        assert!(
+            package_identity(
+                String::from("example.math_core"),
+                manifest,
+                PackageSourceAuthority::Ordinary,
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ mod path;
 
 pub use contract::{PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME};
 pub use error::{ProjectLoadError, ProjectManifestProblem};
-pub use loader::load_project_graph;
+pub use loader::{load_project_graph, load_standard_library_project_graph};
 pub use model::{
     FeatureName, PackageRole, ProjectDependency, ProjectGraph, ProjectPackage, ProjectProduct,
     ProjectSourceRoot, ProjectTarget,

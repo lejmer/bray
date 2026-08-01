@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use bray_diagnostics::{DiagnosticId, DiagnosticKind};
 use bray_project::{
     PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, load_project_graph,
+    load_standard_library_project_graph,
 };
 use bray_symbols::PackageIdentity;
 use bray_target::TargetOutputKind;
@@ -16,6 +17,25 @@ fn project_graphs_are_safe_to_share_between_workers() {
     fn assert_send_sync<T: Send + Sync>() {}
 
     assert_send_sync::<ProjectGraph>();
+}
+
+#[test]
+fn repository_standard_library_workspace_uses_the_reserved_source_boundary() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("standard-library");
+
+    let graph = load_standard_library_project_graph(&root)
+        .unwrap_or_else(|error| panic!("repository standard library must load: {error:?}"));
+
+    assert_eq!(graph.packages().len(), 1);
+
+    let package = &graph.packages()[0];
+
+    assert_eq!(package.identity().as_str(), "std");
+    assert_eq!(package.products()[0].identity().name(), "library");
+    assert_eq!(package.products()[0].targets().len(), 6);
 }
 
 #[test]
@@ -112,6 +132,78 @@ fn manifest_array_order_does_not_change_the_graph() {
         .unwrap_or_else(|error| panic!("second workspace must load: {error:?}"));
 
     assert_eq!(first, second);
+}
+
+#[test]
+fn ordinary_projects_cannot_claim_standard_library_package_identities() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""identity": "example.application""#,
+        r#""identity": "std.application""#,
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::ReservedPackageIdentity,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn standard_library_projects_require_and_accept_reserved_package_identities() {
+    let ordinary = TestWorkspace::new();
+    write_valid_workspace(ordinary.path(), false);
+
+    assert!(matches!(
+        load_standard_library_project_graph(ordinary.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::StandardLibraryPackageIdentityRequired,
+            ..
+        })
+    ));
+
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""identity": "example.application""#,
+        r#""identity": "std""#,
+    );
+
+    replace(
+        workspace
+            .path()
+            .join("vendor")
+            .join("math")
+            .join("bray-package.json"),
+        r#""identity": "example.math""#,
+        r#""identity": "std.runtime""#,
+    );
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""package": "example.math""#,
+        r#""package": "std.runtime""#,
+    );
+
+    let graph = load_standard_library_project_graph(workspace.path())
+        .unwrap_or_else(|error| panic!("standard library workspace must load: {error:?}"));
+
+    assert_eq!(
+        graph
+            .packages()
+            .iter()
+            .map(|package| package.identity().as_str())
+            .collect::<Vec<_>>(),
+        vec!["std.runtime", "std"]
+    );
+
 }
 
 #[test]
