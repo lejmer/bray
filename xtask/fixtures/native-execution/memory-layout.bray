@@ -14,7 +14,7 @@ func main() -> i32
     if valid
     {
         return 42;
-    };
+    }
 
     return 1;
 }

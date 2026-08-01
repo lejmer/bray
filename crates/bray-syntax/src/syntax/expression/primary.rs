@@ -1,3 +1,4 @@
+use crate::green::GreenElement;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     AbsenceExpressionSyntax, AccessExpressionSyntax, ArrayExpressionSyntax,
@@ -281,6 +282,15 @@ define_source_syntax_node! {
 }
 
 impl PrimaryExpressionSyntax {
+    pub(crate) fn is_block_shaped(&self) -> bool {
+        self.node.children().iter().any(|child| {
+            matches!(
+                child,
+                GreenElement::Node(node) if node.kind().is_block_shaped_expression()
+            )
+        })
+    }
+
     /// Returns the first direct primary token.
     pub fn primary_token(&self) -> Option<SyntaxToken> {
         self.tokens().next()

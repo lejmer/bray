@@ -9,5 +9,5 @@ func main()
     if true
     {
         helper();
-    };
+    }
 }

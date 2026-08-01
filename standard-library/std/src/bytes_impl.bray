@@ -21,7 +21,7 @@ trusted internal func support_from_slice(
     if byte_count == 0
     {
         return support_create(capacity = 0);
-    };
+    }
 
     let mut buffer: Buffer = try support_create(capacity = byte_count);
     let first: &u8 = &bytes[0];
@@ -63,7 +63,7 @@ trusted internal func support_reserve(
     if additional <= current_capacity - current_length
     {
         return .Ok(unit);
-    };
+    }
 
     let maximum: usize = ~0;
 
@@ -72,7 +72,7 @@ trusted internal func support_reserve(
         let error: std.memory.MemoryLayoutError = .SizeOverflow;
 
         return .Error(error);
-    };
+    }
 
     let required: usize = current_length + additional;
 
@@ -110,7 +110,7 @@ trusted internal func support_resize(
         support_truncate(new_length = new_length, buffer = buffer);
 
         return .Ok(unit);
-    };
+    }
 
     let additional: usize = new_length - current_length;
 
@@ -146,7 +146,7 @@ trusted internal func support_truncate(
             buffer = &mut buffer.storage,
             count = new_length,
         );
-    };
+    }
 }
 
 trusted internal func support_push(
@@ -183,7 +183,7 @@ trusted internal func support_append(
     if byte_count == 0
     {
         return .Ok(unit);
-    };
+    }
 
     try support_reserve(additional = byte_count, buffer = &mut buffer);
 
@@ -214,7 +214,7 @@ trusted internal func support_pop(pos buffer: &mut Buffer) -> u8?
     if current_length == 0
     {
         return none;
-    };
+    }
 
     let new_length: usize = current_length - 1;
     let value: u8 = trusted internal std.memory.byte_buffer_read(

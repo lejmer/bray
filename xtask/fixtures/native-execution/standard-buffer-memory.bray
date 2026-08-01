@@ -69,7 +69,7 @@ trusted func create_buffer<T>(
         };
 
         return .Ok(buffer);
-    };
+    }
 
     let layout: MemoryLayout = try layout_of<T>(count = capacity);
     let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(

@@ -89,6 +89,14 @@ define_source_syntax_node! {
                 kind: SyntaxKind::SequencedExpression;
             },
             {
+                /// Returns unterminated block-shaped expressions in source order.
+                block_shaped_expressions;
+                /// Appends an unterminated block-shaped expression.
+                push_block_shaped_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            },
+            {
                 /// Returns generator-iteration-expression children in source order.
                 generator_iteration_expressions;
                 /// Appends a generator-iteration-expression child.
@@ -135,6 +143,19 @@ impl BlockItemSyntax {
             SequencedExpressionSyntax::from_green,
         )
         .next()
+    }
+
+    /// Returns the unterminated block-shaped expression child when present.
+    pub fn block_shaped_expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
+    }
+
+    /// Returns the expression represented directly or through a sequenced expression.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        self.block_shaped_expression().or_else(|| {
+            self.sequenced_expression()
+                .and_then(|sequence| sequence.expression())
+        })
     }
 
     /// Returns the generator iteration expression child when present.

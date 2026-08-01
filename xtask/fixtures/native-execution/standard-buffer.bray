@@ -7,14 +7,14 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
         assert(length(&empty) == 0);
         assert(capacity(&empty) == 0);
-    };
+    }
 
     {
         let allocated: Buffer = try create(capacity = 5);
 
         assert(length(&allocated) == 0);
         assert(capacity(&allocated) == 5);
-    };
+    }
 
     return .Ok(unit);
 }

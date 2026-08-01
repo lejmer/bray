@@ -129,6 +129,12 @@ define_source_syntax_node! {
 }
 
 impl ExpressionSyntax {
+    /// Returns whether this expression is a direct block-shaped expression.
+    pub fn is_block_shaped(&self) -> bool {
+        self.primary_expression()
+            .is_some_and(|primary| primary.is_block_shaped())
+    }
+
     /// Returns the operator token when this expression is operator-shaped.
     pub fn operator_token(&self) -> Option<SyntaxToken> {
         self.node

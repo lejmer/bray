@@ -410,7 +410,17 @@ block-expression =
 block-item =
       block-level-declaration
     | generator-iteration-expression
+    | block-shaped-expression
     | sequenced-expression ;
+
+block-shaped-expression =
+      block-expression
+    | conditional-expression
+    | match-expression
+    | while-expression
+    | for-expression
+    | loop-expression
+    | with-expression ;
 
 sequenced-expression =
     expression ";" ;
@@ -418,10 +428,13 @@ sequenced-expression =
 local-binding-declaration =
     "let" irrefutable-pattern [ ":" type-expression ] "=" expression ";" ;
 
-(* A block expression does not use a final un-terminated expression as its
-   result. Value production is handled by yield. A brace-enclosed expression
-   whose only top-level child is generator-iteration-expression is a
-   general-generator-expression rather than a block-expression. *)
+(* A self-delimiting block-shaped expression can be a block item without a
+   semicolon. Other expression block items are sequenced expressions and end
+   with a semicolon. A block expression does not use a final unterminated
+   expression as its result. Value production is handled by yield. A
+   brace-enclosed expression whose only top-level child is
+   generator-iteration-expression is a general-generator-expression rather
+   than a block-expression. *)
 
 conditional-expression =
     "if" condition-expression block-expression [ "else" conditional-else ] ;

@@ -10,10 +10,10 @@ fn formats_representative_declarations_and_expressions() {
         "union Shape{Circle(center:Point,radius:r64);Empty;}",
         "trait Display{func show(pos value:Point);}",
         "impl Point(Display){func show(pos value:Point){",
-        "if true{return value.x+1;}else{return 0;};}}",
+        "if true{return value.x+1;}else{return 0;}}}",
         "func main(){let point:Point={x=1.0,y=2.0,};",
         "let values:[i32;3]=[1,2,3];",
-        "match point{case _{return;}};}",
+        "match point{case _{return;}}}",
     );
 
     let output = formatted(source);
@@ -54,7 +54,7 @@ fn formats_representative_declarations_and_expressions() {
             "        else\n",
             "        {\n",
             "            return 0;\n",
-            "        };\n",
+            "        }\n",
             "    }\n",
             "}\n",
             "\n",
@@ -72,7 +72,7 @@ fn formats_representative_declarations_and_expressions() {
             "        {\n",
             "            return;\n",
             "        }\n",
-            "    };\n",
+            "    }\n",
             "}\n",
         )
     );
@@ -87,7 +87,7 @@ fn formatting_is_idempotent_across_representative_grammar() {
         "module app; predicate positive<T,const N:i32>(value:T)=value>0;",
         "module app; overload parse={parse_int,parse_float,}",
         "module app; func main(){let pair:(i32,r64)=(1,2.0);let a=[1,2,3];}",
-        "module app; func main(){while ready{continue;};for item in items{break;};loop{break;};}",
+        "module app; func main(){while ready{continue;}for item in items{break;}loop{break;}}",
         "module app; func main(){let value=match input{case Some(x){yield x;}case None{yield 0;}};}",
     ];
 
