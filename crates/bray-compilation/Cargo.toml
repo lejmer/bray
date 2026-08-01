@@ -21,6 +21,7 @@ bray-lowering = { path = "../bray-lowering" }
 bray-parser = { path = "../bray-parser" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-source = { path = "../bray-source" }
+bray-standard-library = { path = "../bray-standard-library" }
 bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }

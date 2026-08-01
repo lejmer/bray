@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-standard-library = { path = "../bray-standard-library" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 serde = { version = "1", features = ["derive"] }

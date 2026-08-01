@@ -240,6 +240,7 @@ dependencies = [
  "bray-parser",
  "bray-runtime-interface",
  "bray-source",
+ "bray-standard-library",
  "bray-symbols",
  "bray-syntax",
  "bray-target",
@@ -439,6 +440,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-diagnostics",
+ "bray-standard-library",
  "bray-symbols",
  "bray-target",
  "serde",
@@ -469,6 +471,13 @@ name = "bray-source"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+]
+
+[[package]]
+name = "bray-standard-library"
+version = "0.0.0"
+dependencies = [
+ "bray-symbols",
 ]
 
 [[package]]

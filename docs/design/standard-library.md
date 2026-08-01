@@ -47,6 +47,29 @@ export a public identity that impersonates the `std` package.
 The source and trust rules for public and private packages are defined separately so that distribution layout does not become an
 authority mechanism.
 
+## Source Authority
+
+Project and compilation inputs classify source as either ordinary package source or toolchain-owned standard-library source.
+Ordinary authority rejects `std` and every `std.*` identity. Standard-library authority accepts only that reserved namespace, with
+the public package using exact identity `std` and private support packages using `std.*` identities.
+
+The authority is supplied through a dedicated host API that is not exposed as an ordinary compiler command option. It establishes
+who may claim the reserved package namespace. It does not make source semantically trusted, permit trusted declarations in an
+untrusted module, discharge trusted obligations, grant implementation capabilities, suppress diagnostics, or bypass any compiler
+phase. Standard-library source follows the same module and declaration trust rules as all other Bray source.
+
+Source recognition of compiler-known standard-library operations requires both the exact package identity and standard-library
+source authority. A caller cannot obtain recognition by supplying an ordinary compilation whose package spelling is `std`.
+
+## Source Layout
+
+The repository-standard source workspace lives beneath `standard-library/`. Its public package is rooted at
+`standard-library/std/`; private support packages, when needed, occupy sibling directories and reserved `std.*` identities. The
+workspace uses the ordinary Bray project manifest contract and is loaded only through the standard-library source-authority API.
+
+Compiler-known declarations remain in the checked-in compiler-known catalog owned by `bray-compiler-known`. They are not copied
+into the standard-library source workspace, and their generated Rust descriptors are compiler inputs rather than `std` source.
+
 ## Compatibility Dimensions
 
 There is no single standard-library version number that participates in dependency solving. Compatibility is the conjunction of
@@ -162,7 +185,7 @@ do not become direct dependencies of the user product.
 
 Standard-library sources compile through the ordinary parser, declaration discovery, symbol construction, binder, checker,
 lowering, code-generation, emission, and package-interface paths. A privileged build mode may supply reserved package identities
-and trusted-package authority, but it does not bypass semantic checking or artifact validation.
+and standard-library source authority, but it does not bypass semantic checking or artifact validation.
 
 One deterministic build request fixes:
 

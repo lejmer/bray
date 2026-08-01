@@ -2,6 +2,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bray_symbols::ProductKind;
+use bray_standard_library::{
+    PackageSourceAuthority, is_public_standard_library_package,
+};
 use bray_target::TargetIdentity;
 
 use crate::manifest::{TargetManifest, WorkspaceManifest, WorkspacePackageManifest};
@@ -19,6 +22,23 @@ use super::validation::{local_name, paths_overlap, project_path, read_manifest, 
 /// workspace's explicit package inventory, and `.bray` files beneath declared
 /// source roots. It performs no search, acquisition, registry access, or network I/O.
 pub fn load_project_graph(workspace_root: &Path) -> Result<ProjectGraph, ProjectLoadError> {
+    load_project_graph_with_authority(workspace_root, PackageSourceAuthority::Ordinary)
+}
+
+/// Loads one toolchain-owned standard library workspace.
+///
+/// Every package in the workspace must use the reserved `std` namespace. This
+/// authority does not change source-language trust or semantic checking rules.
+pub fn load_standard_library_project_graph(
+    workspace_root: &Path,
+) -> Result<ProjectGraph, ProjectLoadError> {
+    load_project_graph_with_authority(workspace_root, PackageSourceAuthority::StandardLibrary)
+}
+
+fn load_project_graph_with_authority(
+    workspace_root: &Path,
+    source_authority: PackageSourceAuthority,
+) -> Result<ProjectGraph, ProjectLoadError> {
     let workspace_manifest_path = workspace_root.join(WORKSPACE_MANIFEST_FILE_NAME);
     let manifest: WorkspaceManifest = read_manifest(&workspace_manifest_path)?;
 
@@ -34,6 +54,7 @@ pub fn load_project_graph(workspace_root: &Path) -> Result<ProjectGraph, Project
         &targets,
         &output_root,
         &workspace_manifest_path,
+        source_authority,
     )?;
 
     Ok(ProjectGraph::new(output_root, targets, packages))
@@ -105,6 +126,7 @@ fn load_packages(
     targets: &[ProjectTarget],
     output_root: &ProjectPath,
     workspace_manifest_path: &Path,
+    source_authority: PackageSourceAuthority,
 ) -> Result<Arc<[ProjectPackage]>, ProjectLoadError> {
     if selections.is_empty() {
         return Err(invalid_workspace(
@@ -147,6 +169,7 @@ fn load_packages(
                 targets,
                 output_root,
                 workspace_manifest_path,
+                source_authority,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -161,6 +184,19 @@ fn load_packages(
             pair[1].manifest_path.to_path_buf(),
             ProjectManifestProblem::DuplicateSelection,
             pair[0].identity.as_str().to_owned(),
+        ));
+    }
+
+    if source_authority.is_standard_library()
+        && !packages.iter().any(|package| {
+            is_public_standard_library_package(&package.identity)
+                && package.role == crate::PackageRole::Root
+        })
+    {
+        return Err(ProjectLoadError::invalid(
+            workspace_manifest_path.to_path_buf(),
+            ProjectManifestProblem::StandardLibraryRootPackageRequired,
+            "std",
         ));
     }
 

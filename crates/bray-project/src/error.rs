@@ -14,6 +14,12 @@ pub enum ProjectManifestProblem {
     InvalidPath,
     /// A package, product, feature, source-root, or target name is malformed.
     InvalidName,
+    /// An ordinary project package claims the reserved standard library namespace.
+    ReservedPackageIdentity,
+    /// A standard library project package is outside the reserved namespace.
+    StandardLibraryPackageIdentityRequired,
+    /// A standard library workspace does not select exact package `std` as its root.
+    StandardLibraryRootPackageRequired,
     /// A required manifest collection is empty.
     MissingSelection,
     /// A canonical name, path, package, product, target, feature, or output is repeated.
@@ -120,6 +126,15 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
             DiagnosticKind::ProjectDependencyProductInvalid
         }
         ProjectManifestProblem::DependencyCycle => DiagnosticKind::ProjectDependencyCycle,
+        ProjectManifestProblem::ReservedPackageIdentity => {
+            DiagnosticKind::ProjectPackageIdentityReserved
+        }
+        ProjectManifestProblem::StandardLibraryPackageIdentityRequired => {
+            DiagnosticKind::ProjectStandardLibraryPackageIdentityRequired
+        }
+        ProjectManifestProblem::StandardLibraryRootPackageRequired => {
+            DiagnosticKind::ProjectStandardLibraryRootPackageRequired
+        }
         ProjectManifestProblem::InvalidSourceRoot
         | ProjectManifestProblem::SourceSymlink
         | ProjectManifestProblem::NonUtf8SourcePath => DiagnosticKind::ProjectSourceRootInvalid,

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_standard_library::PackageSourceAuthority;
 use bray_target::{TargetIdentity, TargetOutputKind};
 
 use crate::manifest::{
@@ -58,6 +59,7 @@ pub(super) fn load_package(
     targets: &[ProjectTarget],
     output_root: &ProjectPath,
     workspace_manifest_path: &Path,
+    source_authority: PackageSourceAuthority,
 ) -> Result<PendingPackage, ProjectLoadError> {
     let package_path = project_path(selection.path, true, workspace_manifest_path)?;
 
@@ -69,7 +71,7 @@ pub(super) fn load_package(
 
     require_format(manifest.format, &manifest_path)?;
 
-    let identity = package_identity(manifest.identity, &manifest_path)?;
+    let identity = package_identity(manifest.identity, &manifest_path, source_authority)?;
     let declared_feature_names = sorted_unique_names(manifest.features, &manifest_path)?;
     let enabled_feature_names = sorted_unique_names(selection.features, workspace_manifest_path)?;
 
@@ -113,7 +115,7 @@ pub(super) fn load_package(
         &manifest_path,
     )?;
 
-    let dependencies = load_dependencies(manifest.dependencies, &manifest_path)?;
+    let dependencies = load_dependencies(manifest.dependencies, &manifest_path, source_authority)?;
 
     let role = match selection.role {
         PackageRoleManifest::Root => PackageRole::Root,
@@ -315,12 +317,13 @@ fn select_outputs(
 fn load_dependencies(
     manifests: Vec<DependencyManifest>,
     manifest_path: &Path,
+    source_authority: PackageSourceAuthority,
 ) -> Result<Box<[PendingDependency]>, ProjectLoadError> {
     let mut dependencies = manifests
         .into_iter()
         .map(|dependency| {
             Ok(PendingDependency {
-                package: package_identity(dependency.package, manifest_path)?,
+                package: package_identity(dependency.package, manifest_path, source_authority)?,
                 product: local_name(dependency.product, manifest_path)?,
             })
         })

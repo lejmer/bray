@@ -7,6 +7,7 @@ use bray_package_interface::{
     PackageInterfaceIdentity,
 };
 use bray_source::{SourceInput, SourceSpan};
+pub use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
 use crate::SelectedTarget;
@@ -128,6 +129,7 @@ impl Default for CompilationOptions {
 #[derive(Debug, Eq, PartialEq)]
 pub struct CompilationRequest {
     package_identity: PackageIdentity,
+    package_source_authority: PackageSourceAuthority,
     options: CompilationOptions,
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
@@ -279,11 +281,22 @@ impl CompilationRequest {
     ) -> Self {
         Self {
             package_identity,
+            package_source_authority: PackageSourceAuthority::Ordinary,
             options,
             sources,
             dependency_interfaces: Vec::new(),
             package_interface_export: None,
         }
+    }
+
+    /// Returns a copy authorized to compile toolchain-owned standard library source.
+    ///
+    /// This authority permits reserved package identities. It does not bypass parsing,
+    /// binding, checking, trusted capability, or artifact validation rules.
+    pub const fn with_standard_library_source_authority(mut self) -> Self {
+        self.package_source_authority = PackageSourceAuthority::StandardLibrary;
+
+        self
     }
 
     /// Returns a copy owning the selected compiled dependency interfaces.
@@ -311,6 +324,11 @@ impl CompilationRequest {
         &self.package_identity
     }
 
+    /// Returns the authority governing the source package identity.
+    pub const fn package_source_authority(&self) -> PackageSourceAuthority {
+        self.package_source_authority
+    }
+
     /// Returns the compilation options.
     pub const fn options(&self) -> &CompilationOptions {
         &self.options
@@ -336,6 +354,7 @@ impl CompilationRequest {
         self,
     ) -> (
         PackageIdentity,
+        PackageSourceAuthority,
         CompilationOptions,
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
@@ -343,6 +362,7 @@ impl CompilationRequest {
     ) {
         (
             self.package_identity,
+            self.package_source_authority,
             self.options,
             self.sources,
             self.dependency_interfaces,
@@ -365,7 +385,7 @@ mod tests {
 
     use super::{
         CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-        PackageInterfaceExportRequest, SemanticAnalysisLimits,
+        PackageInterfaceExportRequest, PackageSourceAuthority, SemanticAnalysisLimits,
     };
 
     #[test]
@@ -411,6 +431,12 @@ mod tests {
         .with_package_interface_export(export);
 
         assert_eq!(request.package_identity(), &package_identity);
+
+        assert_eq!(
+            request.package_source_authority(),
+            PackageSourceAuthority::Ordinary
+        );
+
         assert_eq!(request.options(), &options);
         assert_eq!(request.options().product_kind(), ProductKind::Library);
         assert_eq!(request.options().semantic_analysis_limits(), limits);
@@ -423,6 +449,20 @@ mod tests {
                 .map(PackageInterfaceExportRequest::identity)
                 .map(bray_package_interface::PackageInterfaceIdentity::public_surface),
             Some("public-v1")
+        );
+    }
+
+    #[test]
+    fn standard_library_source_authority_is_explicit() {
+        let package_identity = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
+        let request = CompilationRequest::new(package_identity, Vec::new())
+            .with_standard_library_source_authority();
+
+        assert_eq!(
+            request.package_source_authority(),
+            PackageSourceAuthority::StandardLibrary
         );
     }
 
