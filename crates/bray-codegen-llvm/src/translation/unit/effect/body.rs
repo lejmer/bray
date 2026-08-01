@@ -83,10 +83,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(converted)
             }
             MirOperationKind::Call(call) => self.translate_call(_id, call)?,
-            // TODO(BRA-339): Translate explicit MIR memory operations through LLVM.
-            MirOperationKind::Memory(_) => {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
+            MirOperationKind::Memory(memory) => self.translate_memory(operation, memory)?,
             MirOperationKind::PatternProjection {
                 subject,
                 projection,

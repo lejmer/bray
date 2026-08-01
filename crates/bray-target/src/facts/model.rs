@@ -260,6 +260,13 @@ impl TargetFacts {
         ))
     }
 
+    /// Returns these facts with the supplied compiler-provided operation capabilities.
+    pub const fn with_operations(mut self, operations: TargetOperationFacts) -> Self {
+        self.operations = operations;
+
+        self
+    }
+
     /// Returns stable target identity facts.
     pub const fn identity(&self) -> &TargetIdentityFacts {
         &self.identity

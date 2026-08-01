@@ -2,7 +2,7 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use crate::{
     Endianness, ObjectFormat, TargetArchitecture, TargetFacts, TargetIdentity,
-    TargetMachineProperties, TargetProfile,
+    TargetMachineProperties, TargetOperationFacts, TargetProfile,
 };
 
 /// Native target profiles provided by the Bray toolchain.
@@ -99,6 +99,7 @@ impl NativeTarget {
         let (vendor, system, environment, abi) = self.identity_facts();
 
         let facts = TargetFacts::try_portable(vendor, system, environment, abi)
+            .map(|facts| facts.with_operations(TargetOperationFacts::new(true, true)))
             .unwrap_or_else(|| panic!("native target facts must be valid"));
 
         TargetProfile::try_new(self.identity(), machine, facts)
@@ -176,6 +177,8 @@ mod tests {
             assert_eq!(profile.machine().pointer_width_bits().get(), 64);
             assert_eq!(profile.machine().pointer_alignment_bytes().get(), 8);
             assert_eq!(profile.machine().stack_alignment_bytes().get(), 16);
+            assert!(profile.facts().operations().raw_memory());
+            assert!(profile.facts().operations().allocation());
 
             assert!(matches!(
                 profile.machine().architecture(),

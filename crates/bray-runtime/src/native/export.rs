@@ -1,3 +1,4 @@
+use std::alloc::{Layout, alloc, dealloc};
 use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
 
 use bray_runtime_interface::{
@@ -48,6 +49,47 @@ struct NativePanicReport {
 
 #[derive(Debug)]
 struct PropagatedPanicReport(usize);
+
+#[derive(Debug)]
+struct NativeMemoryAllocationFailure;
+
+native_export! {
+    pub extern "C-unwind" fn bray_runtime_memory_allocation_v1(
+        bytes: usize,
+        alignment: usize,
+    ) -> *mut u8 {
+        let layout = native_memory_layout(bytes, alignment);
+
+        let pointer = unsafe { alloc(layout) };
+
+        if pointer.is_null() {
+            panic_any(NativeMemoryAllocationFailure);
+        }
+
+        pointer
+    }
+}
+
+native_export! {
+    pub extern "C-unwind" fn bray_runtime_memory_deallocation_v1(
+        pointer: *mut u8,
+        bytes: usize,
+        alignment: usize,
+    ) {
+        let layout = native_memory_layout(bytes, alignment);
+
+        let Some(pointer) = std::ptr::NonNull::new(pointer) else {
+            panic_any(NativeMemoryAllocationFailure);
+        };
+
+        unsafe { dealloc(pointer.as_ptr(), layout) };
+    }
+}
+
+fn native_memory_layout(bytes: usize, alignment: usize) -> Layout {
+    Layout::from_size_align(bytes.max(1), alignment)
+        .unwrap_or_else(|_| panic_any(NativeMemoryAllocationFailure))
+}
 
 native_export! {
     pub extern "C" fn bray_runtime_root_cancellation_request_v1(
@@ -448,6 +490,7 @@ mod tests {
     };
 
     use super::{
+        bray_runtime_memory_allocation_v1, bray_runtime_memory_deallocation_v1,
         bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
         bray_runtime_main_thread_lane_startup_v1, bray_runtime_root_completion_resolution_v1,
         bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
@@ -468,6 +511,16 @@ mod tests {
     static FAILURE_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
     static FAILURE_RESOLUTIONS: AtomicUsize = AtomicUsize::new(0);
     static FAILURE_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn native_memory_allocation_obeys_size_and_alignment_contracts() {
+        let address = bray_runtime_memory_allocation_v1(32, 16);
+
+        assert!(!address.is_null());
+        assert_eq!(address.addr() % 16, 0);
+
+        bray_runtime_memory_deallocation_v1(address, 32, 16);
+    }
 
     #[test]
     fn root_execution_moves_completion_before_frame_destruction() {

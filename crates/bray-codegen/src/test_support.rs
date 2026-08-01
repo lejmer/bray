@@ -111,6 +111,17 @@ fn codegen_request_for_seed_target_and_backend(
     let unit = codegen_unit(seed, &target);
     let mappings = codegen_mappings(&unit, &target);
 
+    codegen_request_for_unit(unit, target, mappings, backend)
+}
+
+/// Creates a complete request fixture from caller-supplied validated generation facts.
+pub fn codegen_request_for_unit(
+    unit: CodegenUnit,
+    target: CodegenTarget,
+    mappings: CodegenMappings,
+    backend: BackendIdentity,
+) -> CodegenRequestFixture {
+
     let required_artifact = BackendArtifactId::new(
         unit.key().clone(),
         BackendArtifactKind::RelocatableObject,

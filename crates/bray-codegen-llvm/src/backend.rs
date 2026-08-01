@@ -43,7 +43,7 @@ impl LlvmCodeGenerator {
         })
     }
 
-    fn prepare_module<'context>(
+    pub(crate) fn prepare_module<'context>(
         &self,
         request: CodegenRequest<'_>,
         context: &'context Context,
