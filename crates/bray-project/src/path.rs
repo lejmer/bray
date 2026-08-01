@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::NonEmptySharedStr;
+use bray_base::{NonEmptySharedStr, is_canonical_relative_path};
 
 /// A canonical portable path relative to a Bray workspace or package.
 ///
@@ -41,15 +41,7 @@ impl ProjectPath {
                 .flatten();
         }
 
-        if value.is_empty()
-            || value.starts_with('/')
-            || value.ends_with('/')
-            || value.contains('\\')
-            || value.contains('\0')
-            || value
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-        {
+        if !is_canonical_relative_path(&value) {
             return None;
         }
 

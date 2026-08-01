@@ -1,0 +1,181 @@
+use bray_target::TargetIdentity;
+
+use crate::{
+    PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
+    PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
+};
+
+use super::model::{
+    StandardLibraryArtifact, StandardLibraryArtifactDigest, StandardLibraryArtifactKind,
+    StandardLibraryBundleDigest, StandardLibraryBundleManifest, StandardLibraryManifestError,
+    StandardLibraryTargetArtifacts,
+};
+use super::wire::{
+    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedPublishedWire, decode_digest,
+    encode_published, runtime_abi,
+};
+
+/// Encodes a manifest using its canonical compact UTF-8 JSON representation.
+pub fn encode_standard_library_manifest(
+    manifest: &StandardLibraryBundleManifest,
+) -> Result<Vec<u8>, StandardLibraryManifestError> {
+    encode_published(
+        manifest.interface(),
+        manifest.targets(),
+        manifest.bundle_digest(),
+    )
+}
+
+/// Decodes and validates one canonical standard library bundle manifest.
+pub fn decode_standard_library_manifest(
+    bytes: &[u8],
+) -> Result<StandardLibraryBundleManifest, StandardLibraryManifestError> {
+    let wire: OwnedPublishedWire =
+        serde_json::from_slice(bytes).map_err(|_| StandardLibraryManifestError::Malformed)?;
+
+    validate_identity(&wire)?;
+
+    let published_digest = StandardLibraryBundleDigest::new(decode_digest(wire.bundle_digest)?);
+    let interface = decode_artifact(wire.interface)?;
+
+    let targets = wire
+        .targets
+        .into_iter()
+        .map(|target| {
+            let identity = TargetIdentity::try_new(target.target)
+                .ok_or(StandardLibraryManifestError::InvalidIdentity)?;
+
+            let artifacts = target
+                .artifacts
+                .into_iter()
+                .map(decode_artifact)
+                .collect::<Result<Vec<_>, _>>()?;
+
+            StandardLibraryTargetArtifacts::try_new(
+                identity,
+                runtime_abi(target.runtime_abi),
+                artifacts,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let manifest = StandardLibraryBundleManifest::try_new(interface, targets)?;
+
+    if manifest.bundle_digest() != published_digest {
+        return Err(StandardLibraryManifestError::BundleDigestMismatch);
+    }
+
+    let canonical = encode_standard_library_manifest(&manifest)?;
+
+    if canonical != bytes {
+        return Err(StandardLibraryManifestError::NonCanonicalEncoding);
+    }
+
+    Ok(manifest)
+}
+
+fn validate_identity(wire: &OwnedPublishedWire) -> Result<(), StandardLibraryManifestError> {
+    if wire.format != MANIFEST_FORMAT_REVISION
+        || wire.package != PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+        || wire.product != PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY
+        || wire.product_kind != "library"
+        || wire.public_surface != PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY
+    {
+        return Err(StandardLibraryManifestError::InvalidIdentity);
+    }
+
+    Ok(())
+}
+
+fn decode_artifact(
+    wire: OwnedArtifactWire,
+) -> Result<StandardLibraryArtifact, StandardLibraryManifestError> {
+    let kind = StandardLibraryArtifactKind::for_str(&wire.kind)
+        .ok_or(StandardLibraryManifestError::Malformed)?;
+
+    let digest = StandardLibraryArtifactDigest::new(decode_digest(wire.digest)?);
+
+    StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_target::TargetIdentity;
+
+    use super::{decode_standard_library_manifest, encode_standard_library_manifest};
+    use crate::{
+        StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
+        StandardLibraryManifestError, StandardLibraryTargetArtifacts,
+    };
+
+    #[test]
+    fn canonical_manifests_round_trip_and_reproduce_bundle_identity() {
+        let manifest = manifest();
+
+        let first = encode_standard_library_manifest(&manifest)
+            .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));
+
+        let decoded = decode_standard_library_manifest(&first)
+            .unwrap_or_else(|error| panic!("manifest must decode: {error:?}"));
+
+        let second = encode_standard_library_manifest(&decoded)
+            .unwrap_or_else(|error| panic!("decoded manifest must encode: {error:?}"));
+
+        assert_eq!(decoded, manifest);
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn manifest_decoder_rejects_noncanonical_and_tampered_input() {
+        let canonical = encode_standard_library_manifest(&manifest())
+            .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));
+
+        let mut whitespace = canonical.clone();
+        whitespace.push(b'\n');
+
+        assert_eq!(
+            decode_standard_library_manifest(&whitespace),
+            Err(StandardLibraryManifestError::NonCanonicalEncoding)
+        );
+
+        let tampered = String::from_utf8(canonical)
+            .unwrap_or_else(|error| panic!("manifest must be UTF-8: {error}"))
+            .replace("\"byte_len\":9", "\"byte_len\":8")
+            .into_bytes();
+
+        assert_eq!(
+            decode_standard_library_manifest(&tampered),
+            Err(StandardLibraryManifestError::BundleDigestMismatch)
+        );
+    }
+
+    fn manifest() -> StandardLibraryBundleManifest {
+        let interface = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageInterface,
+            "interfaces/std.brayi",
+            b"interface",
+        )
+        .unwrap_or_else(|error| panic!("interface must be valid: {error:?}"));
+
+        let archive = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libstd.a",
+            b"archive",
+        )
+        .unwrap_or_else(|error| panic!("archive must be valid: {error:?}"));
+
+        let target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("target identity must be valid"));
+
+        let target = StandardLibraryTargetArtifacts::try_new(
+            target,
+            RuntimeAbiVersion::new(1, 0),
+            [archive],
+        )
+        .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
+
+        StandardLibraryBundleManifest::try_new(interface, [target])
+            .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"))
+    }
+}
