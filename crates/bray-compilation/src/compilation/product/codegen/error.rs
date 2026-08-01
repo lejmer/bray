@@ -48,6 +48,8 @@ pub enum NativeProductFactError {
     InvalidLinkTarget(LinkTargetBuildError),
     /// No configured linker driver supports the selected product.
     Linker(bray_linker::LinkFailure),
+    /// The configured standard library cannot supply a required native artifact.
+    StandardLibrary(bray_standard_library::StandardLibraryLoadError),
     /// One code generation fact is unavailable.
     Codegen(super::super::super::CodegenFactError),
 }

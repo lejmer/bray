@@ -69,6 +69,7 @@ pub struct Compilation {
 pub(super) struct CompilationState {
     pub(super) package_identity: PackageIdentity,
     pub(super) package_source_authority: crate::PackageSourceAuthority,
+    pub(super) standard_library: Option<bray_standard_library::StandardLibraryResolver>,
     pub(super) options: CompilationOptions,
     pub(super) sources: SourceStore,
     pub(super) source_diagnostics: DiagnosticBag,
@@ -220,11 +221,22 @@ impl Compilation {
         let (
             package_identity,
             package_source_authority,
+            standard_library_root,
             options,
             source_inputs,
             mut dependency_interfaces,
             package_interface_export,
         ) = request.into_parts();
+
+        let standard_library =
+            standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
+
+        if let Some(resolver) = standard_library.as_ref() {
+            // The synthetic dependency and native selection share one immutable resolver cache.
+            dependency_interfaces.push(DependencyInterfaceInput::for_standard_library(
+                resolver.clone(),
+            ));
+        }
 
         dependency_interfaces.sort_by(|left, right| {
             (left.package(), left.product()).cmp(&(right.package(), right.product()))
@@ -289,6 +301,7 @@ impl Compilation {
             state: Arc::new(CompilationState {
                 package_identity,
                 package_source_authority,
+                standard_library,
                 options,
                 sources,
                 source_diagnostics: diagnostics,

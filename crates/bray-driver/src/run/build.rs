@@ -90,7 +90,9 @@ pub(crate) fn run_build_command(
             Err(error) if error.is_unsupported() => {
                 return unsupported_product_result(compilation, output_format);
             }
-            Err(_) => return native_product_failure_result(compilation, output_format),
+            Err(error) => {
+                return native_product_failure_result(compilation, output_format, &error);
+            }
         }
     } else {
         None
@@ -286,8 +288,14 @@ fn unsupported_product_result(
 fn native_product_failure_result(
     compilation: bray_compilation::Compilation,
     output_format: OutputFormat,
+    error: &bray_compilation::NativeProductFactError,
 ) -> DriverRunResult {
-    let diagnostics = compilation.check_diagnostics().clone();
+    let diagnostics = match error {
+        bray_compilation::NativeProductFactError::StandardLibrary(error) => compilation
+            .check_diagnostics()
+            .merged(&compilation.standard_library_load_diagnostics(error)),
+        _ => compilation.check_diagnostics().clone(),
+    };
 
     driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
 }

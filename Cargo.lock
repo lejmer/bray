@@ -246,6 +246,7 @@ dependencies = [
  "bray-target",
  "bray-testing",
  "rayon",
+ "tempfile",
 ]
 
 [[package]]
@@ -483,6 +484,7 @@ dependencies = [
  "bray-target",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

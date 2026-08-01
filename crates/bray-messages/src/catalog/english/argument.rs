@@ -70,6 +70,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::SourceSpan(span) => format_source_span(*span),
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
+        DiagnosticArgValue::RuntimeAbi(version) => {
+            format!("{}.{}", version.major(), version.minor())
+        }
         DiagnosticArgValue::Type(ty) => format_english_type(*ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
     }

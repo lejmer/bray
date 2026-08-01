@@ -34,6 +34,7 @@ bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-codegen-llvm = { path = "../bray-codegen-llvm" }
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
+tempfile = "3"
 
 [lints]
 workspace = true
