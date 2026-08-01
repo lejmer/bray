@@ -1,5 +1,7 @@
 use std::fmt;
-use std::fs;
+use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -189,10 +191,6 @@ fn compare_artifact(
 }
 
 fn build(options: &BuildOptions) -> Result<PathBuf, BuildError> {
-    if options.output.exists() {
-        return Err(BuildError::OutputExists(options.output.clone()));
-    }
-
     let graph = load_standard_library_project_graph(&options.source)
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
@@ -200,6 +198,12 @@ fn build(options: &BuildOptions) -> Result<PathBuf, BuildError> {
     let parent = options.output.parent().unwrap_or_else(|| Path::new("."));
 
     fs::create_dir_all(parent).map_err(|error| BuildError::write(parent, error))?;
+
+    let _publication = PublicationLock::acquire(&options.output)?;
+
+    if options.output.exists() {
+        return Err(BuildError::OutputExists(options.output.clone()));
+    }
 
     let staging = tempfile::Builder::new()
         .prefix("bray-standard-library-")
@@ -224,6 +228,38 @@ fn build(options: &BuildOptions) -> Result<PathBuf, BuildError> {
         .map_err(|error| BuildError::publish(&bundle, &options.output, error))?;
 
     Ok(options.output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
+}
+
+struct PublicationLock {
+    path: PathBuf,
+}
+
+impl PublicationLock {
+    fn acquire(output: &Path) -> Result<Self, BuildError> {
+        let file_name = output
+            .file_name()
+            .ok_or_else(|| BuildError::InvalidArtifactPath(output.to_path_buf()))?;
+
+        let mut lock_name = OsString::from(file_name);
+
+        lock_name.push(".lock");
+
+        let path = output.with_file_name(lock_name);
+
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => Ok(Self { path }),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                Err(BuildError::PublicationInProgress(path))
+            }
+            Err(error) => Err(BuildError::write(&path, error)),
+        }
+    }
+}
+
+impl Drop for PublicationLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 fn build_bundle(
@@ -492,6 +528,7 @@ enum BuildError {
     MissingOutput,
     Workspace(String),
     OutputExists(PathBuf),
+    PublicationInProgress(PathBuf),
     Project(String),
     Source(String),
     TemporaryDirectory(std::io::Error),
@@ -562,6 +599,13 @@ impl fmt::Display for BuildError {
             Self::Workspace(error) => formatter.write_str(error),
             Self::OutputExists(path) => {
                 write!(formatter, "output already exists: {}", path.display())
+            }
+            Self::PublicationInProgress(path) => {
+                write!(
+                    formatter,
+                    "standard library publication is already in progress: {}",
+                    path.display()
+                )
             }
             Self::Project(error) => {
                 write!(formatter, "standard library project is invalid: {error}")

@@ -141,7 +141,7 @@ mod tests {
 
         let tampered = String::from_utf8(canonical)
             .unwrap_or_else(|error| panic!("manifest must be UTF-8: {error}"))
-            .replace("interfaces/std.brayi", "interfaces/alt.brayi")
+            .replace("\"byte_len\":9", "\"byte_len\":8")
             .into_bytes();
 
         assert_eq!(

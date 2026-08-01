@@ -11,6 +11,7 @@ use super::wire::encode_payload;
 
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
+const STANDARD_LIBRARY_INTERFACE_PATH: &str = "interfaces/std.brayi";
 
 /// BLAKE3 digest of one complete standard library artifact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -212,6 +213,23 @@ impl StandardLibraryTargetArtifacts {
             return Err(StandardLibraryManifestError::DuplicateArtifact);
         }
 
+        let prefix = format!(
+            "targets/{}/{}.{}/",
+            target.as_str(),
+            runtime_abi.major(),
+            runtime_abi.minor()
+        );
+
+        if artifacts.iter().any(|artifact| {
+            artifact.kind() == StandardLibraryArtifactKind::PackageInterface
+                || artifact
+                    .path()
+                    .strip_prefix(&prefix)
+                    .is_none_or(|file_name| file_name.is_empty() || file_name.contains('/'))
+        }) {
+            return Err(StandardLibraryManifestError::InvalidTargetArtifact);
+        }
+
         Ok(Self {
             target,
             runtime_abi,
@@ -250,6 +268,10 @@ impl StandardLibraryBundleManifest {
         targets: impl IntoIterator<Item = StandardLibraryTargetArtifacts>,
     ) -> Result<Self, StandardLibraryManifestError> {
         if interface.kind() != StandardLibraryArtifactKind::PackageInterface {
+            return Err(StandardLibraryManifestError::InvalidInterfaceArtifact);
+        }
+
+        if interface.path() != STANDARD_LIBRARY_INTERFACE_PATH {
             return Err(StandardLibraryManifestError::InvalidInterfaceArtifact);
         }
 
@@ -318,6 +340,8 @@ pub enum StandardLibraryManifestError {
     InvalidDigest,
     /// The public interface artifact has the wrong kind.
     InvalidInterfaceArtifact,
+    /// A target artifact is outside its exact target and runtime ABI directory.
+    InvalidTargetArtifact,
     /// An artifact path is not canonical and relative.
     InvalidArtifactPath,
     /// No artifact was supplied where one is required.
