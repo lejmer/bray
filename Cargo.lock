@@ -477,7 +477,12 @@ dependencies = [
 name = "bray-standard-library"
 version = "0.0.0"
 dependencies = [
+ "bray-base",
+ "bray-runtime-interface",
  "bray-symbols",
+ "bray-target",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1401,11 +1406,15 @@ dependencies = [
  "bray-compilation",
  "bray-compiler-known",
  "bray-diagnostics",
+ "bray-emitter",
  "bray-package-interface",
+ "bray-project",
  "bray-runtime-interface",
  "bray-source",
+ "bray-standard-library",
  "bray-symbols",
  "bray-target",
+ "bray-tooling",
  "quote",
  "rust-style",
  "serde",

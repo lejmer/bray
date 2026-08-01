@@ -13,11 +13,15 @@ bray-base = { path = "../crates/bray-base" }
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-diagnostics = { path = "../crates/bray-diagnostics" }
+bray-emitter = { path = "../crates/bray-emitter" }
 bray-package-interface = { path = "../crates/bray-package-interface" }
+bray-project = { path = "../crates/bray-project" }
 bray-runtime-interface = { path = "../crates/bray-runtime-interface" }
 bray-source = { path = "../crates/bray-source" }
+bray-standard-library = { path = "../crates/bray-standard-library" }
 bray-symbols = { path = "../crates/bray-symbols" }
 bray-target = { path = "../crates/bray-target" }
+bray-tooling = { path = "../crates/bray-tooling" }
 rust-style = { path = "../tools/rust-style" }
 quote = "1"
 serde = { version = "1", features = ["derive"] }

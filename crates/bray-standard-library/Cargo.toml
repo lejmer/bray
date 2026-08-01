@@ -6,7 +6,12 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-base = { path = "../bray-base" }
+bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-symbols = { path = "../bray-symbols" }
+bray-target = { path = "../bray-target" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lints]
 workspace = true

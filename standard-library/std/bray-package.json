@@ -18,7 +18,6 @@
         "x86-64-windows"
       ],
       "outputs": [
-        "dependency_metadata",
         "package_interface",
         "static_library"
       ]
