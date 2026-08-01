@@ -776,6 +776,10 @@ Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and co
 Private runtime ABI contracts belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime.
 Executable and test products select one target-specific runtime before code generation and linking.
 
+Standard-library bundle manifests and configured roots follow `docs/design/standard-library.md`. Project loading supplies the
+explicit root and compilation demand-resolves only the interface and target artifacts required by the current request. Compilation
+does not search for an installation, acquire packages, or eagerly load every bundled artifact.
+
 Stable target identities, architectures, object formats, byte order, relocation models, code models, and validated machine
 properties belong to `bray-target`.
 

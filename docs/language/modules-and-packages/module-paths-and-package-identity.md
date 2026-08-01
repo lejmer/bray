@@ -52,6 +52,9 @@ Package identity is not a module declaration.
 
 Package identity is not introduced by writing a source declaration with the same name.
 
+The package identity `std` and identities beneath the `std` package namespace are reserved for toolchain-selected
+standard-library packages. User and vendored packages cannot claim them.
+
 Package dependencies are declared by the package and build layer, not by module declarations.
 
 The package dependency graph is acyclic.
