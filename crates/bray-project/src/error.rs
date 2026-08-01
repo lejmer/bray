@@ -18,6 +18,8 @@ pub enum ProjectManifestProblem {
     ReservedPackageIdentity,
     /// A standard library project package is outside the reserved namespace.
     StandardLibraryPackageIdentityRequired,
+    /// A standard library workspace does not select exact package `std` as its root.
+    StandardLibraryRootPackageRequired,
     /// A required manifest collection is empty.
     MissingSelection,
     /// A canonical name, path, package, product, target, feature, or output is repeated.
@@ -129,6 +131,9 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
         }
         ProjectManifestProblem::StandardLibraryPackageIdentityRequired => {
             DiagnosticKind::ProjectStandardLibraryPackageIdentityRequired
+        }
+        ProjectManifestProblem::StandardLibraryRootPackageRequired => {
+            DiagnosticKind::ProjectStandardLibraryRootPackageRequired
         }
         ProjectManifestProblem::InvalidSourceRoot
         | ProjectManifestProblem::SourceSymlink

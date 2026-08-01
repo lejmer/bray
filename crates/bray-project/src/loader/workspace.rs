@@ -2,7 +2,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bray_symbols::ProductKind;
-use bray_standard_library::PackageSourceAuthority;
+use bray_standard_library::{
+    PackageSourceAuthority, is_public_standard_library_package,
+};
 use bray_target::TargetIdentity;
 
 use crate::manifest::{TargetManifest, WorkspaceManifest, WorkspacePackageManifest};
@@ -182,6 +184,19 @@ fn load_packages(
             pair[1].manifest_path.to_path_buf(),
             ProjectManifestProblem::DuplicateSelection,
             pair[0].identity.as_str().to_owned(),
+        ));
+    }
+
+    if source_authority.is_standard_library()
+        && !packages.iter().any(|package| {
+            is_public_standard_library_package(&package.identity)
+                && package.role == crate::PackageRole::Root
+        })
+    {
+        return Err(ProjectLoadError::invalid(
+            workspace_manifest_path.to_path_buf(),
+            ProjectManifestProblem::StandardLibraryRootPackageRequired,
+            "std",
         ));
     }
 

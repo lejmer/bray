@@ -15,7 +15,9 @@ use bray_compiler_known::{
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
-use bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
+use bray_standard_library::{
+    PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, is_public_standard_library_package,
+};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, ModuleOwnerId,
@@ -221,12 +223,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
     fn source_standard_library_implementations(
         &self,
     ) -> CheckerFactResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
-        if !self
-            .facts
-            .compilation()
-            .package_source_authority()
-            .is_standard_library()
-        {
+        if !is_public_standard_library_source(self.facts.compilation()) {
             return Ok(BTreeMap::new());
         }
 
@@ -296,6 +293,13 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
         Ok(implementations)
     }
+}
+
+fn is_public_standard_library_source(compilation: &Compilation) -> bool {
+    compilation
+        .package_source_authority()
+        .is_standard_library()
+        && is_public_standard_library_package(compilation.package_identity())
 }
 
 fn standard_library_package_identity() -> CheckerFactResult<PackageIdentity> {
@@ -585,11 +589,14 @@ mod tests {
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticKind;
     use bray_source::SourceVersion;
-    use bray_symbols::{CallableSignatureFact, CallableSymbolId, SymbolFactRequest, SymbolOrigin};
+    use bray_symbols::{
+        CallableSignatureFact, CallableSymbolId, PackageIdentity, SymbolFactRequest, SymbolOrigin,
+    };
 
-    use super::Compilation;
+    use super::{Compilation, is_public_standard_library_source};
     use crate::fact::CompilationFactKey;
-    use crate::test_support::{compilation, source_callable_body_key};
+    use crate::request::CompilationRequest;
+    use crate::test_support::{compilation, source_callable_body_key, source_input};
 
     #[test]
     fn contexts_resolve_only_the_source_range_named_by_a_bound_anchor() {
@@ -790,6 +797,15 @@ mod tests {
         assert_eq!(dependencies.as_ref(), [CompilationFactKey::SelectedTarget]);
     }
 
+    #[test]
+    fn source_standard_library_recognition_requires_exact_public_package_identity() {
+        let public = standard_library_compilation("std");
+        let support = standard_library_compilation("std.runtime");
+
+        assert!(is_public_standard_library_source(&public));
+        assert!(!is_public_standard_library_source(&support));
+    }
+
     fn callable_compilation() -> Compilation {
         compilation(
             r#"module app;
@@ -798,5 +814,16 @@ func main()
 }
 "#,
         )
+    }
+
+    fn standard_library_compilation(package: &str) -> Compilation {
+        let package = PackageIdentity::try_new(package)
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let request = CompilationRequest::new(package, vec![source_input("module std;", 0)])
+            .with_standard_library_source_authority();
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"))
     }
 }

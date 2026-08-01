@@ -116,8 +116,7 @@ pub(super) fn package_identity(
     manifest_path: &Path,
     source_authority: PackageSourceAuthority,
 ) -> Result<PackageIdentity, ProjectLoadError> {
-    let permits_single_segment = source_authority.is_standard_library()
-        && value == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
+    let permits_single_segment = value == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
 
     if !value.split('.').all(is_package_segment) || (!value.contains('.') && !permits_single_segment)
     {

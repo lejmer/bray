@@ -151,6 +151,11 @@ const PROJECT_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart]
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
+const PROJECT_STANDARD_LIBRARY_ROOT_PACKAGE_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library workspace must select package std as its root in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
 const REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("standard library source authority cannot compile package "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -1046,6 +1051,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::ProjectStandardLibraryPackageIdentityRequired => {
             MessageTemplate::new(PROJECT_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED)
+        }
+        DiagnosticKind::ProjectStandardLibraryRootPackageRequired => {
+            MessageTemplate::new(PROJECT_STANDARD_LIBRARY_ROOT_PACKAGE_REQUIRED)
         }
         DiagnosticKind::ProjectManifestDuplicateSelection => {
             MessageTemplate::new(PROJECT_MANIFEST_DUPLICATE_SELECTION)

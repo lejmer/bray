@@ -46,6 +46,8 @@ define_diagnostic_kinds! {
     ProjectPackageIdentityReserved,
     /// A standard library project package is outside the reserved namespace.
     ProjectStandardLibraryPackageIdentityRequired,
+    /// A standard library workspace does not select exact package `std` as its root.
+    ProjectStandardLibraryRootPackageRequired,
     /// A Bray project manifest repeats one canonical selection.
     ProjectManifestDuplicateSelection,
     /// A declared Bray source root is not a valid project-owned source tree.
@@ -412,6 +414,7 @@ impl DiagnosticKind {
             Self::ProjectCommandFailed => 1211,
             Self::ProjectPackageIdentityReserved => 1212,
             Self::ProjectStandardLibraryPackageIdentityRequired => 1213,
+            Self::ProjectStandardLibraryRootPackageRequired => 1214,
             Self::FormatterSourceNotFormatted => 1301,
             Self::FormatterSourceInvalidUtf8 => 1302,
             Self::FormatterSourceTooLarge => 1303,
@@ -602,6 +605,9 @@ impl DiagnosticKind {
             Self::ProjectPackageIdentityReserved => "project_package_identity_reserved",
             Self::ProjectStandardLibraryPackageIdentityRequired => {
                 "project_standard_library_package_identity_required"
+            }
+            Self::ProjectStandardLibraryRootPackageRequired => {
+                "project_standard_library_root_package_required"
             }
             Self::ProjectManifestDuplicateSelection => "project_manifest_duplicate_selection",
             Self::ProjectSourceRootInvalid => "project_source_root_invalid",

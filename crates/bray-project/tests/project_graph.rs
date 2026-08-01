@@ -142,6 +142,26 @@ fn ordinary_projects_cannot_claim_standard_library_package_identities() {
     replace(
         workspace.path().join("app").join("bray-package.json"),
         r#""identity": "example.application""#,
+        r#""identity": "std""#,
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::ReservedPackageIdentity,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn ordinary_projects_cannot_claim_private_standard_library_package_identities() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""identity": "example.application""#,
         r#""identity": "std.application""#,
     );
 
@@ -204,6 +224,40 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
         vec!["std.runtime", "std"]
     );
 
+}
+
+#[test]
+fn standard_library_projects_require_the_public_std_root() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""identity": "example.application""#,
+        r#""identity": "std.application""#,
+    );
+    replace(
+        workspace
+            .path()
+            .join("vendor")
+            .join("math")
+            .join("bray-package.json"),
+        r#""identity": "example.math""#,
+        r#""identity": "std.runtime""#,
+    );
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""package": "example.math""#,
+        r#""package": "std.runtime""#,
+    );
+
+    assert!(matches!(
+        load_standard_library_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::StandardLibraryRootPackageRequired,
+            ..
+        })
+    ));
 }
 
 #[test]
