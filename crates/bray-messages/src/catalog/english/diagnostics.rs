@@ -166,8 +166,9 @@ const STANDARD_LIBRARY_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
-const STANDARD_LIBRARY_MANIFEST_INVALID: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("standard library manifest is invalid")];
+const STANDARD_LIBRARY_MANIFEST_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "standard library manifest is invalid",
+)];
 
 const STANDARD_LIBRARY_ARTIFACT_LENGTH_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("standard library artifact "),

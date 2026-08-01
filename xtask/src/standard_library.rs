@@ -1,5 +1,5 @@
-use std::fmt;
 use std::ffi::OsString;
+use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -30,8 +30,7 @@ use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file
 
 use crate::workspace;
 
-const USAGE: &str =
-    "usage: cargo xtask standard-library <build --output <directory> [--source <directory>] | verify [--source <directory>]>";
+const USAGE: &str = "usage: cargo xtask standard-library <build --output <directory> [--source <directory>] | verify [--source <directory>]>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -184,7 +183,9 @@ fn compare_artifact(
         fs::read(&second_path).map_err(|error| BuildError::read(&second_path, error))?;
 
     if first_bytes != second_bytes {
-        return Err(BuildError::NonReproducibleArtifact(artifact.path().to_owned()));
+        return Err(BuildError::NonReproducibleArtifact(
+            artifact.path().to_owned(),
+        ));
     }
 
     Ok(())
@@ -372,13 +373,10 @@ fn build_target(
         selected.clone(),
     );
 
-    let request = CompilationRequest::with_options(
-        product.identity().package().clone(),
-        sources,
-        options,
-    )
-    .with_standard_library_source_authority()
-    .with_package_interface_export(interface_export_request(product.identity())?);
+    let request =
+        CompilationRequest::with_options(product.identity().package().clone(), sources, options)
+            .with_standard_library_source_authority()
+            .with_package_interface_export(interface_export_request(product.identity())?);
 
     let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;
 
@@ -420,8 +418,8 @@ fn build_target(
     )
     .map_err(|error| BuildError::EmissionRequest(format!("{error:?}")))?;
 
-    let inputs = ProductEmissionInputs::new(&output_description)
-        .with_native_product(&native_facts, &linker);
+    let inputs =
+        ProductEmissionInputs::new(&output_description).with_native_product(&native_facts, &linker);
 
     let outcome = compilation
         .emit_product(request, inputs)
@@ -611,7 +609,10 @@ impl fmt::Display for BuildError {
                 write!(formatter, "standard library project is invalid: {error}")
             }
             Self::Source(error) => {
-                write!(formatter, "standard library source could not be read: {error}")
+                write!(
+                    formatter,
+                    "standard library source could not be read: {error}"
+                )
             }
             Self::TemporaryDirectory(error) => {
                 write!(formatter, "could not create staging directory: {error}")
@@ -664,9 +665,8 @@ impl fmt::Display for BuildError {
             Self::MissingProduct => {
                 formatter.write_str("standard library product std:library is missing")
             }
-            Self::MissingInterface => {
-                formatter.write_str("standard library has no target from which to build its interface")
-            }
+            Self::MissingInterface => formatter
+                .write_str("standard library has no target from which to build its interface"),
             Self::NonReproducibleManifest => {
                 formatter.write_str("repeated standard library builds produced different manifests")
             }
@@ -699,9 +699,10 @@ impl fmt::Display for BuildError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
-    use super::{BuildError, BuildOptions};
+    use super::{BuildError, BuildOptions, workspace};
 
     #[test]
     fn build_options_require_an_output_and_reject_unknown_arguments() {
@@ -731,5 +732,43 @@ mod tests {
 
         assert_eq!(options.source, PathBuf::from("source"));
         assert_eq!(options.output, PathBuf::from("output"));
+    }
+
+    #[test]
+    fn buffer_destruction_releases_its_owned_storage_once() {
+        let source = standard_library_source("bytes.bray");
+        let release = "std.memory.byte_buffer_release(&mut self.storage)";
+
+        assert_eq!(source.matches(release).count(), 1);
+    }
+
+    #[test]
+    fn buffer_reserve_releases_empty_or_nonempty_storage_before_replacement() {
+        let source = standard_library_source("bytes_impl.bray");
+        let release = "std.memory.byte_buffer_release(&mut buffer.storage)";
+        let assignment = "buffer.storage = replacement";
+
+        assert_eq!(source.matches(release).count(), 1);
+        assert_eq!(source.matches("support_replace_storage(").count(), 2);
+
+        let release = source
+            .find(release)
+            .unwrap_or_else(|| panic!("storage replacement must release the old allocation"));
+
+        let assignment = source
+            .find(assignment)
+            .unwrap_or_else(|| panic!("storage replacement must install the new allocation"));
+
+        assert!(release < assignment);
+    }
+
+    fn standard_library_source(file_name: &str) -> String {
+        let root = workspace::root()
+            .unwrap_or_else(|error| panic!("workspace root must resolve: {error}"));
+
+        let path = root.join("standard-library/std/src").join(file_name);
+
+        fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{} must be readable: {error}", path.display()))
     }
 }

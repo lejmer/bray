@@ -87,13 +87,9 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let present = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (present, present_operand) = self.propagation_branch(&source, operand_type)?;
 
-        let absent = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (absent, _) = self.propagation_branch(&source, operand_type)?;
 
         self.builder.set_terminator(
             current,
@@ -101,8 +97,8 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
                 predicate: PatternPredicate::NullablePresent,
-                matched: MirEdge::new(present, []),
-                unmatched: MirEdge::new(absent, []),
+                matched: MirEdge::new(present, [Self::retained_operand(&operand)]),
+                unmatched: MirEdge::new(absent, [Self::retained_operand(&operand)]),
             },
         )?;
 
@@ -110,7 +106,7 @@ impl Lowerer<'_> {
             id,
             present,
             &source,
-            operand,
+            present_operand,
             PatternProjection::NullableValue,
             value_type,
         )?;
@@ -194,13 +190,9 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let success = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (success, success_operand) = self.propagation_branch(&source, operand_type)?;
 
-        let error = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (error, error_operand) = self.propagation_branch(&source, operand_type)?;
 
         self.builder.set_terminator(
             current,
@@ -208,8 +200,8 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
                 predicate: PatternPredicate::ActiveUnionVariant(representation.success_variant),
-                matched: MirEdge::new(success, []),
-                unmatched: MirEdge::new(error, []),
+                matched: MirEdge::new(success, [Self::retained_operand(&operand)]),
+                unmatched: MirEdge::new(error, [operand]),
             },
         )?;
 
@@ -217,7 +209,7 @@ impl Lowerer<'_> {
             id,
             success,
             &source,
-            Self::retained_operand(&operand),
+            success_operand,
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.success_variant,
                 field: representation.success_field,
@@ -229,7 +221,7 @@ impl Lowerer<'_> {
             id,
             error,
             &source,
-            operand,
+            error_operand,
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.error_variant,
                 field: representation.error_field,
@@ -285,21 +277,13 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let completed = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (completed, completed_operand) = self.propagation_branch(&source, operand_type)?;
 
-        let incomplete = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (incomplete, incomplete_operand) = self.propagation_branch(&source, operand_type)?;
 
-        let panicked = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (panicked, panicked_operand) = self.propagation_branch(&source, operand_type)?;
 
-        let cancelled = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (cancelled, _) = self.propagation_branch(&source, operand_type)?;
 
         self.builder.set_terminator(
             current,
@@ -307,8 +291,8 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
                 predicate: PatternPredicate::ActiveUnionVariant(representation.completed_variant),
-                matched: MirEdge::new(completed, []),
-                unmatched: MirEdge::new(incomplete, []),
+                matched: MirEdge::new(completed, [Self::retained_operand(&operand)]),
+                unmatched: MirEdge::new(incomplete, [operand]),
             },
         )?;
 
@@ -316,10 +300,10 @@ impl Lowerer<'_> {
             incomplete,
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
-                subject: Self::retained_operand(&operand),
+                subject: Self::retained_operand(&incomplete_operand),
                 predicate: PatternPredicate::ActiveUnionVariant(representation.cancelled_variant),
-                matched: MirEdge::new(cancelled, []),
-                unmatched: MirEdge::new(panicked, []),
+                matched: MirEdge::new(cancelled, [Self::retained_operand(&incomplete_operand)]),
+                unmatched: MirEdge::new(panicked, [incomplete_operand]),
             },
         )?;
 
@@ -327,7 +311,7 @@ impl Lowerer<'_> {
             id,
             completed,
             &source,
-            Self::retained_operand(&operand),
+            completed_operand,
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.completed_variant,
                 field: representation.completed_field,
@@ -339,7 +323,7 @@ impl Lowerer<'_> {
             id,
             panicked,
             &source,
-            operand,
+            panicked_operand,
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.panicked_variant,
                 field: representation.panicked_field,
@@ -398,6 +382,24 @@ impl Lowerer<'_> {
                 })
             }
         }
+    }
+
+    fn propagation_branch(
+        &mut self,
+        source: &MirSourceAnchor,
+        operand_type: TypeId,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let block = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        let parameter = self.builder.push_block_parameter(
+            block,
+            Self::retained_source(source),
+            operand_type,
+        )?;
+
+        Ok((block, MirOperand::Value(parameter)))
     }
 
     fn finish_propagation(

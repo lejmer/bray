@@ -36,10 +36,22 @@ define_catalog_enum! {
         MemoryStrideOf => "MemoryStrideOf",
         /// Computes a repeated-value memory layout.
         MemoryLayoutOf => "MemoryLayoutOf",
-        /// Allocates raw storage.
+        /// Allocates raw storage from separate byte count and alignment values.
+        RawAllocate => "RawAllocate",
+        /// Releases raw storage described by separate pointer and layout values.
+        RawDeallocate => "RawDeallocate",
+        /// Allocates an owned raw allocation.
         Allocate => "Allocate",
-        /// Releases raw storage.
+        /// Releases an owned raw allocation.
         Deallocate => "Deallocate",
+        /// Initializes a byte-buffer range to one repeated byte.
+        ByteBufferFill => "ByteBufferFill",
+        /// Copies a byte-buffer range without exposing raw initialization state.
+        ByteBufferCopy => "ByteBufferCopy",
+        /// Reads one initialized byte from byte-buffer storage.
+        ByteBufferRead => "ByteBufferRead",
+        /// Releases byte-buffer storage and leaves the owner empty.
+        ByteBufferRelease => "ByteBufferRelease",
         /// Starts an inactive asynchronous computation as a task.
         FutureStart => "FutureStart",
         /// Joins and observes an independently running task.
@@ -73,8 +85,14 @@ impl ImplementationHook {
         Self::MemoryAlignOf,
         Self::MemoryStrideOf,
         Self::MemoryLayoutOf,
+        Self::RawAllocate,
+        Self::RawDeallocate,
         Self::Allocate,
         Self::Deallocate,
+        Self::ByteBufferFill,
+        Self::ByteBufferCopy,
+        Self::ByteBufferRead,
+        Self::ByteBufferRelease,
     ];
 }
 

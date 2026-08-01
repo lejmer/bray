@@ -1,10 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use bray_standard_library::{PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PackageSourceAuthority};
 use bray_symbols::PackageIdentity;
-use bray_standard_library::{
-    PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PackageSourceAuthority,
-};
 use serde::de::DeserializeOwned;
 
 use crate::{ProjectLoadError, ProjectManifestProblem, ProjectPath};
@@ -118,7 +116,8 @@ pub(super) fn package_identity(
 ) -> Result<PackageIdentity, ProjectLoadError> {
     let permits_single_segment = value == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
 
-    if !value.split('.').all(is_package_segment) || (!value.contains('.') && !permits_single_segment)
+    if !value.split('.').all(is_package_segment)
+        || (!value.contains('.') && !permits_single_segment)
     {
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
@@ -137,9 +136,7 @@ pub(super) fn package_identity(
 
     if !source_authority.accepts(&identity) {
         let problem = match source_authority {
-            PackageSourceAuthority::Ordinary => {
-                ProjectManifestProblem::ReservedPackageIdentity
-            }
+            PackageSourceAuthority::Ordinary => ProjectManifestProblem::ReservedPackageIdentity,
             PackageSourceAuthority::StandardLibrary => {
                 ProjectManifestProblem::StandardLibraryPackageIdentityRequired
             }

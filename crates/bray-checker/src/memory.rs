@@ -278,6 +278,16 @@ where
             ty: one()?,
             kind: MemoryLayoutQueryKind::Layout,
         },
+        ImplementationHook::RawAllocate => {
+            ensure_no_type_arguments(types)?;
+
+            CheckedMemoryOperationKind::RawAllocate
+        }
+        ImplementationHook::RawDeallocate => {
+            ensure_no_type_arguments(types)?;
+
+            CheckedMemoryOperationKind::RawDeallocate
+        }
         ImplementationHook::Allocate => {
             ensure_no_type_arguments(types)?;
 
@@ -287,6 +297,26 @@ where
             ensure_no_type_arguments(types)?;
 
             CheckedMemoryOperationKind::Deallocate
+        }
+        ImplementationHook::ByteBufferFill => {
+            ensure_no_type_arguments(types)?;
+
+            CheckedMemoryOperationKind::ByteBufferFill
+        }
+        ImplementationHook::ByteBufferCopy => {
+            ensure_no_type_arguments(types)?;
+
+            CheckedMemoryOperationKind::ByteBufferCopy
+        }
+        ImplementationHook::ByteBufferRead => {
+            ensure_no_type_arguments(types)?;
+
+            CheckedMemoryOperationKind::ByteBufferRead
+        }
+        ImplementationHook::ByteBufferRelease => {
+            ensure_no_type_arguments(types)?;
+
+            CheckedMemoryOperationKind::ByteBufferRelease
         }
         ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin
@@ -448,6 +478,16 @@ mod tests {
                         ty,
                         kind: MemoryLayoutQueryKind::Layout,
                     },
+                ),
+                (
+                    ImplementationHook::RawAllocate,
+                    vec![],
+                    CheckedMemoryOperationKind::RawAllocate,
+                ),
+                (
+                    ImplementationHook::RawDeallocate,
+                    vec![],
+                    CheckedMemoryOperationKind::RawDeallocate,
                 ),
                 (
                     ImplementationHook::Allocate,

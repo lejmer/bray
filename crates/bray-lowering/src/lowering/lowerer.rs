@@ -410,8 +410,10 @@ mod tests {
                 ty,
                 kind: MemoryLayoutQueryKind::Layout,
             }),
-            (2, |_| Kind::Allocate),
-            (3, |_| Kind::Deallocate),
+            (2, |_| Kind::RawAllocate),
+            (3, |_| Kind::RawDeallocate),
+            (1, |_| Kind::Allocate),
+            (1, |_| Kind::Deallocate),
         ];
 
         for (index, (argument_count, kind)) in cases.into_iter().enumerate() {

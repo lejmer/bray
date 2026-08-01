@@ -433,11 +433,9 @@ impl Compilation {
                         reference,
                         MirUnitId::new(0),
                         cancellation,
-                    )?,
-                    None => {
-                        self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)?
-                    }
-                };
+                    ),
+                    None => self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation),
+                }?;
 
                 let concrete_dependencies = self.concrete_codegen_dependencies_for_mir(
                     &realization,
@@ -700,16 +698,16 @@ mod tests {
         RuntimeArtifactMetadata, RuntimeCapability, RuntimeCompatibilityError, RuntimeContract,
         RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
     };
+    use bray_standard_library::{
+        StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
+        StandardLibraryRoot, StandardLibraryTargetArtifacts, encode_standard_library_manifest,
+    };
     use bray_symbols::{
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
         NamedTypeSymbolId, ProductIdentity, ProductKind, SymbolOrigin, TraitApplicationData,
         TypeData,
-    };
-    use bray_standard_library::{
-        StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-        StandardLibraryRoot, StandardLibraryTargetArtifacts, encode_standard_library_manifest,
     };
     use bray_target::NativeTarget;
     use bray_testing::TemporaryFile;
@@ -816,7 +814,10 @@ mod tests {
 
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
-            vec![crate::test_support::source_input("module application;\n", 0)],
+            vec![crate::test_support::source_input(
+                "module application;\n",
+                0,
+            )],
             CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, selected),
         )
         .with_standard_library_root(root);

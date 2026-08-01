@@ -164,7 +164,7 @@ scope CoreMemory at core.memory {
 
     declaration Allocate {
         availability Allocation;
-        implementation Allocate;
+        implementation RawAllocate;
 
         surface {
             trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
@@ -182,7 +182,7 @@ scope CoreMemory at core.memory {
 
     declaration Deallocate {
         availability Allocation;
-        implementation Deallocate;
+        implementation RawDeallocate;
 
         surface {
             trusted func deallocate(

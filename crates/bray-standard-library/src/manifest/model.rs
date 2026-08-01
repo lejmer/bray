@@ -147,8 +147,8 @@ impl StandardLibraryArtifact {
         path: impl Into<Arc<str>>,
         bytes: &[u8],
     ) -> Result<Self, StandardLibraryManifestError> {
-        let byte_len = u64::try_from(bytes.len())
-            .map_err(|_| StandardLibraryManifestError::LengthExceeded)?;
+        let byte_len =
+            u64::try_from(bytes.len()).map_err(|_| StandardLibraryManifestError::LengthExceeded)?;
 
         Self::try_new(
             kind,

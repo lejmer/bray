@@ -684,6 +684,10 @@ const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
     matches!(
         identity,
         StorageIdentity::LocalOwned(_)
+            | StorageIdentity::Parameter(_)
+            | StorageIdentity::Receiver(_)
+            | StorageIdentity::AnonymousParameter(_)
+            | StorageIdentity::PredicateParameter(_)
             | StorageIdentity::Result(_)
             | StorageIdentity::Temporary(_)
             | StorageIdentity::IterationCursor(_)

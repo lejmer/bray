@@ -515,6 +515,61 @@ mod tests {
     }
 
     #[test]
+    fn package_qualified_field_types_resolve_across_source_units() {
+        let request = CompilationRequest::new(
+            package_identity(),
+            vec![
+                source_input(
+                    concat!(
+                        "module app.memory;\n",
+                        "\n",
+                        "struct Storage\n",
+                        "{\n",
+                        "    value: u8;\n",
+                        "}\n",
+                    ),
+                    0,
+                ),
+                source_input(
+                    concat!(
+                        "module app.bytes;\n",
+                        "\n",
+                        "struct Buffer\n",
+                        "{\n",
+                        "    storage: app.memory.Storage;\n",
+                        "}\n",
+                    ),
+                    1,
+                ),
+            ],
+        );
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let Some(buffer) = symbols.structures().last() else {
+            panic!("test source must declare Buffer");
+        };
+
+        let result = compilation
+            .declared_type_representation(NamedTypeSymbolId::from(buffer.id()))
+            .unwrap_or_else(|error| panic!("representation contract must check: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert!(result.value().has_finite_size());
+        assert!(!result.value().is_recovered());
+    }
+
+    #[test]
     fn inline_recursive_products_report_representation_diagnostics() {
         let compilation = compilation(concat!(
             "module app;\n",

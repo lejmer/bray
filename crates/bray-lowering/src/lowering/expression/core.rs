@@ -4,9 +4,9 @@ use bray_bound_tree::{
     SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirCall, MirCallArgument, MirCallTarget, MirCallableReference,
-    MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind,
-    MirStoreKind, MirUnaryOperator,
+    MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirCall, MirCallArgument,
+    MirCallTarget, MirCallableReference, MirImmediateValue, MirOperand, MirOperationKind, MirPlace,
+    MirSourceAnchor, MirStorageKind, MirStoreKind, MirUnaryOperator,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -320,7 +320,7 @@ impl Lowerer<'_> {
 
         let (current, destination) = match self.lower_expression_place(
             *destination,
-            StorageAccessPurpose::Assignment,
+            StorageAccessPurpose::Write,
             current,
         )? {
             super::access::LoweredPlace::Continuing { block, place } => (block, place),
@@ -333,11 +333,37 @@ impl Lowerer<'_> {
             return Ok(value);
         };
 
-        let Some(value) = value.value else {
+        let Some(mut value) = value.value else {
             return Err(LoweringError::MissingOperationResult(*value_id));
         };
 
         let source = self.expression_source(id)?;
+        let value_type = self.expression_type(*value_id)?;
+        let destination_type = destination.ty();
+
+        let destination_data = self
+            .input
+            .semantic_values()
+            .type_data(destination_type)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        if matches!(destination_data.as_ref(), bray_symbols::TypeData::Nullable(element) if *element == value_type)
+        {
+            let commit = self.builder.push_operation(
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Aggregate(MirAggregate::new(
+                    MirAggregateKind::NullablePresent,
+                    [value],
+                )),
+                Some(destination_type),
+            )?;
+
+            value = commit
+                .result()
+                .map(MirOperand::Value)
+                .ok_or(LoweringError::MissingOperationResult(*value_id))?;
+        }
 
         self.builder.push_operation(
             current,
@@ -596,14 +622,16 @@ impl Lowerer<'_> {
         &self,
         expression: BoundExpressionId,
     ) -> Result<&SelectedOperation, LoweringError> {
-        self.input
+        let operation = self
+            .input
             .semantic_selections()
             .expression(expression)
             .and_then(|selection| match selection {
                 SemanticSelection::Operation(operation) => Some(operation),
                 _ => None,
-            })
-            .ok_or(LoweringError::MissingSemanticSelection(expression))
+            });
+
+        operation.ok_or(LoweringError::MissingSemanticSelection(expression))
     }
 
     fn selected_operator(

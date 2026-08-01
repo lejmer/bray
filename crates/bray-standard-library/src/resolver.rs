@@ -8,9 +8,9 @@ use bray_runtime_interface::RuntimeAbiVersion;
 use bray_target::TargetIdentity;
 
 use crate::{
-    STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact,
-    StandardLibraryArtifactDigest, StandardLibraryBundleManifest, StandardLibraryManifestError,
-    StandardLibraryRoot, decode_standard_library_manifest,
+    STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
+    StandardLibraryBundleManifest, StandardLibraryManifestError, StandardLibraryRoot,
+    decode_standard_library_manifest,
 };
 
 /// One digest-validated standard library artifact selected from a bundle.
@@ -80,9 +80,7 @@ impl StandardLibraryResolver {
     }
 
     /// Returns the canonical manifest, reading and validating it at most once.
-    pub fn manifest(
-        &self,
-    ) -> Result<Arc<StandardLibraryBundleManifest>, StandardLibraryLoadError> {
+    pub fn manifest(&self) -> Result<Arc<StandardLibraryBundleManifest>, StandardLibraryLoadError> {
         self.manifest
             .get_or_init(|| load_manifest(&self.root))
             .clone()
@@ -297,8 +295,7 @@ mod tests {
             .target_artifacts(&target, RuntimeAbiVersion::new(1, 0))
             .unwrap_or_else(|error| panic!("target artifacts must resolve: {error:?}"));
 
-        let [archive] = artifacts.as_ref()
-        else {
+        let [archive] = artifacts.as_ref() else {
             panic!("fixture must contain one target artifact");
         };
 

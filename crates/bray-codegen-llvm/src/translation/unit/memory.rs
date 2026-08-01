@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use bray_bound_tree::{
     CheckedMemoryOperationKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
 };
-use bray_codegen::{CodegenFailure, CodegenTypeKind};
+use bray_codegen::{CodegenFailure, CodegenFieldLayout, CodegenTypeKind};
 use bray_ir::{MirMemoryOperation, MirOperation};
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
@@ -9,7 +11,8 @@ use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_value_element, insert_value, int_value, integer_constant, llvm, pointer_value,
+    aggregate_element, aggregate_value_element, extract_value, insert_value, int_value,
+    integer_constant, llvm, pointer_value,
 };
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -121,11 +124,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::LayoutQuery { ty, kind } => self
                 .translate_layout_query(operation, memory, ty, kind)
                 .map(Some),
+            CheckedMemoryOperationKind::RawAllocate => self
+                .translate_raw_memory_allocation(operation, memory)
+                .map(Some),
+            CheckedMemoryOperationKind::RawDeallocate => {
+                self.translate_raw_memory_deallocation(memory)?;
+
+                Ok(None)
+            }
             CheckedMemoryOperationKind::Allocate => self
-                .translate_memory_allocation(operation, memory)
+                .translate_owned_memory_allocation(operation, memory)
                 .map(Some),
             CheckedMemoryOperationKind::Deallocate => {
-                self.translate_memory_deallocation(memory)?;
+                self.translate_owned_memory_deallocation(memory)?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::ByteBufferFill => {
+                self.translate_byte_buffer_fill(memory)?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::ByteBufferCopy => {
+                self.translate_byte_buffer_copy(memory)?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::ByteBufferRead => {
+                self.translate_byte_buffer_read(operation, memory).map(Some)
+            }
+            CheckedMemoryOperationKind::ByteBufferRelease => {
+                self.translate_byte_buffer_release(memory)?;
 
                 Ok(None)
             }
@@ -140,9 +169,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let available = match kind {
             CheckedMemoryOperationKind::LayoutQuery { .. } => true,
-            CheckedMemoryOperationKind::Allocate | CheckedMemoryOperationKind::Deallocate => {
-                operations.allocation()
-            }
+            CheckedMemoryOperationKind::RawAllocate
+            | CheckedMemoryOperationKind::RawDeallocate
+            | CheckedMemoryOperationKind::Allocate
+            | CheckedMemoryOperationKind::Deallocate
+            | CheckedMemoryOperationKind::ByteBufferRelease => operations.allocation(),
             _ => operations.raw_memory(),
         };
 
@@ -193,6 +224,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )?;
             }
         }
+
+        Ok(())
+    }
+
+    fn translate_byte_buffer_copy(
+        &mut self,
+        memory: &MirMemoryOperation,
+    ) -> Result<(), CodegenFailure> {
+        let [source, destination, count] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let source = self.memory_pointer(source)?;
+        let destination = self.memory_pointer(destination)?;
+
+        let count = self
+            .operand(count)
+            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+
+        let bytes = self.pointer_sized_integer(count.into())?;
+
+        llvm(self.builder.build_memcpy(destination, 1, source, 1, bytes))?;
 
         Ok(())
     }
@@ -430,7 +483,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    fn translate_memory_allocation(
+    fn translate_raw_memory_allocation(
         &mut self,
         operation: &MirOperation,
         memory: &MirMemoryOperation,
@@ -461,7 +514,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
-    fn translate_memory_deallocation(
+    fn translate_raw_memory_deallocation(
         &mut self,
         memory: &MirMemoryOperation,
     ) -> Result<(), CodegenFailure> {
@@ -483,6 +536,268 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
+    fn translate_owned_memory_allocation(
+        &mut self,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let [layout] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let [layout_type] = memory.operand_types() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let (layout, layout_fields) = self.memory_aggregate_operand(layout, *layout_type, 2)?;
+
+        let bytes = self.memory_aggregate_integer(layout, &layout_fields, 0)?;
+        let alignment = self.memory_aggregate_integer(layout, &layout_fields, 1)?;
+        let result = self.operation_result_type(operation)?;
+
+        let result_fields = self.aggregate_fields(result)?;
+
+        if result_fields.len() != 3 {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let BasicTypeEnum::PointerType(pointer_type) = self.types.map(result_fields[0].ty())?
+        else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let function = self.memory_allocation_function(pointer_type);
+
+        let pointer = llvm(self.builder.build_call(
+            function,
+            &[bytes.into(), alignment.into()],
+            "memory.allocate",
+        ))?
+        .try_as_basic_value()
+        .basic()
+        .and_then(pointer_value)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let mut allocation = self.types.map(result)?.const_zero();
+
+        for (index, value) in [pointer.into(), bytes.into(), alignment.into()]
+            .into_iter()
+            .enumerate()
+        {
+            let element = aggregate_value_element(self.request.mappings(), &result_fields, index)?;
+
+            allocation = insert_value(&self.builder, allocation, value, element)?;
+        }
+
+        Ok(allocation)
+    }
+
+    fn translate_owned_memory_deallocation(
+        &mut self,
+        memory: &MirMemoryOperation,
+    ) -> Result<(), CodegenFailure> {
+        let [allocation] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let [allocation_type] = memory.operand_types() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let (allocation, fields) =
+            self.memory_aggregate_operand(allocation, *allocation_type, 3)?;
+
+        let pointer = self.memory_aggregate_pointer(allocation, &fields, 0)?;
+        let bytes = self.memory_aggregate_integer(allocation, &fields, 1)?;
+        let alignment = self.memory_aggregate_integer(allocation, &fields, 2)?;
+        let function = self.memory_deallocation_function(pointer.get_type());
+
+        llvm(self.builder.build_call(
+            function,
+            &[pointer.into(), bytes.into(), alignment.into()],
+            "memory.deallocate",
+        ))?;
+
+        Ok(())
+    }
+
+    fn memory_aggregate_operand(
+        &mut self,
+        operand: &bray_ir::MirOperand,
+        ty: bray_symbols::TypeId,
+        field_count: usize,
+    ) -> Result<(BasicValueEnum<'context>, Arc<[CodegenFieldLayout]>), CodegenFailure> {
+        let fields = self.aggregate_fields(ty)?;
+
+        if fields.len() != field_count {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let value = self.operand(operand)?;
+
+        Ok((value, fields))
+    }
+
+    fn memory_aggregate_integer(
+        &self,
+        value: BasicValueEnum<'context>,
+        fields: &[CodegenFieldLayout],
+        index: usize,
+    ) -> Result<IntValue<'context>, CodegenFailure> {
+        extract_value(
+            &self.builder,
+            value,
+            aggregate_element(self.request.mappings(), fields, index)?,
+        )
+        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+        .and_then(|value| self.pointer_sized_integer(value.into()))
+    }
+
+    fn memory_aggregate_pointer(
+        &self,
+        value: BasicValueEnum<'context>,
+        fields: &[CodegenFieldLayout],
+        index: usize,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        extract_value(
+            &self.builder,
+            value,
+            aggregate_element(self.request.mappings(), fields, index)?,
+        )
+        .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+    }
+
+    fn translate_byte_buffer_release(
+        &mut self,
+        memory: &MirMemoryOperation,
+    ) -> Result<(), CodegenFailure> {
+        let [buffer] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let [buffer_type] = memory.operand_types() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let (buffer, llvm_type, value, pointer_index, capacity_index) =
+            self.load_byte_buffer(buffer, *buffer_type)?;
+
+        let pointer = extract_value(&self.builder, value, pointer_index).and_then(|value| {
+            pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
+        })?;
+
+        let capacity = extract_value(&self.builder, value, capacity_index)
+            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+
+        let alignment = self.pointer_integer_type().const_int(1, false);
+        let function = self.memory_deallocation_function(pointer.get_type());
+
+        llvm(self.builder.build_call(
+            function,
+            &[pointer.into(), capacity.into(), alignment.into()],
+            "byte.buffer.release",
+        ))?;
+
+        llvm(self.builder.build_store(buffer, llvm_type.const_zero()))?;
+
+        Ok(())
+    }
+
+    fn translate_byte_buffer_read(
+        &mut self,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let [pointer, index] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let pointer = self.memory_pointer(pointer)?;
+        let index = self.pointer_sized_memory_operand(index)?;
+        let pointer = self.dynamic_offset_pointer(pointer, index, 1)?;
+        let result = self.operation_result_type(operation)?;
+
+        llvm(
+            self.builder
+                .build_load(self.types.map(result)?, pointer, "byte.buffer.read"),
+        )
+    }
+
+    fn load_byte_buffer(
+        &mut self,
+        buffer: &bray_ir::MirOperand,
+        buffer_type: bray_symbols::TypeId,
+    ) -> Result<
+        (
+            PointerValue<'context>,
+            BasicTypeEnum<'context>,
+            BasicValueEnum<'context>,
+            u32,
+            u32,
+        ),
+        CodegenFailure,
+    > {
+        let buffer = self.memory_pointer(buffer)?;
+
+        let raw_buffer_type = self
+            .request
+            .mappings()
+            .ty(buffer_type)
+            .and_then(|mapping| match mapping.kind() {
+                CodegenTypeKind::Pointer { target, .. } => Some(*target),
+                _ => None,
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let fields = self
+            .request
+            .mappings()
+            .ty(raw_buffer_type)
+            .and_then(|mapping| match mapping.kind() {
+                CodegenTypeKind::Aggregate(fields) => Some(fields),
+                _ => None,
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if fields.len() != 3 {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let llvm_type = self.types.map(raw_buffer_type)?;
+        let value = llvm(self.builder.build_load(llvm_type, buffer, "byte.buffer"))?;
+
+        let pointer_index =
+            u32::try_from(aggregate_value_element(self.request.mappings(), fields, 0)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?;
+
+        let capacity_index =
+            u32::try_from(aggregate_value_element(self.request.mappings(), fields, 1)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?;
+
+        Ok((buffer, llvm_type, value, pointer_index, capacity_index))
+    }
+
+    fn translate_byte_buffer_fill(
+        &mut self,
+        memory: &MirMemoryOperation,
+    ) -> Result<(), CodegenFailure> {
+        let [destination, value, count] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let destination = self.memory_pointer(destination)?;
+
+        let value = self
+            .operand(value)
+            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+
+        let count = self.pointer_sized_memory_operand(count)?;
+
+        llvm(self.builder.build_memset(destination, 1, value, count))?;
+
+        Ok(())
+    }
+
     fn memory_allocation_function(
         &self,
         pointer: inkwell::types::PointerType<'context>,
@@ -493,11 +808,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.module
             .get_function(bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL)
             .unwrap_or_else(|| {
-                self.module.add_function(
-                    bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL,
-                    ty,
-                    None,
-                )
+                self.module
+                    .add_function(bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL, ty, None)
             })
     }
 
@@ -507,10 +819,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> inkwell::values::FunctionValue<'context> {
         let integer = self.pointer_integer_type();
 
-        let ty = self.types.context().void_type().fn_type(
-            &[pointer.into(), integer.into(), integer.into()],
-            false,
-        );
+        let ty = self
+            .types
+            .context()
+            .void_type()
+            .fn_type(&[pointer.into(), integer.into(), integer.into()], false);
 
         self.module
             .get_function(bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL)
@@ -579,13 +892,14 @@ mod tests {
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
         CodeGenerator, CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout,
-        CodegenLinkage, CodegenMappings, CodegenResultMapping, CodegenSourceFile,
-        CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping,
-        CodegenUnionVariantLayout, CodegenUnit, TargetAddressSpaceKind,
+        CodegenLinkage, CodegenMappings, CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey,
+        CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+        CodegenUnit, TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirBlockKind, MirMemoryOperation, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
-        MirStorageKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
+        MirAggregate, MirAggregateKind, MirBlockKind, MirMemoryOperation, MirOperand,
+        MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts,
+        MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{
@@ -611,6 +925,9 @@ mod tests {
         layout: TypeId,
         layout_error: TypeId,
         layout_result: TypeId,
+        allocation: TypeId,
+        byte_buffer: TypeId,
+        byte_buffer_borrow: TypeId,
     }
 
     #[test]
@@ -635,7 +952,10 @@ mod tests {
             bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL,
             bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
         ] {
-            assert!(ir.contains(spelling), "missing generated LLVM for {spelling}");
+            assert!(
+                ir.contains(spelling),
+                "missing generated LLVM for {spelling}"
+            );
         }
 
         for intrinsic in ["@llvm.memcpy", "@llvm.memmove"] {
@@ -654,6 +974,21 @@ mod tests {
 
             assert!(destination < source, "{intrinsic} operands are reversed");
         }
+
+        let deallocations = ir
+            .lines()
+            .filter(|line| {
+                line.contains("call void")
+                    && line.contains(bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL)
+            })
+            .count();
+
+        assert_eq!(deallocations, 3);
+
+        assert!(
+            ir.lines()
+                .any(|line| line.contains("zeroinitializer") && line.contains("%storage.1"))
+        );
     }
 
     #[test]
@@ -689,19 +1024,14 @@ mod tests {
     ) -> bray_codegen::test_support::CodegenRequestFixture {
         let types = memory_types();
 
-        let mir_target = MirTargetFacts::new(
-            target.profile().clone(),
-            RuntimeAbiVersion::new(1, 0),
-        );
+        let mir_target =
+            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
 
         let bound = bray_testing::test_bound_unit(171);
         let source = MirSourceAnchor::from(bound.key().source());
 
-        let mut builder = MirUnitBuilder::for_bound(
-            bound.identity(),
-            MirUnitKind::Synchronous,
-            mir_target,
-        );
+        let mut builder =
+            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, mir_target);
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
@@ -726,6 +1056,36 @@ mod tests {
             .unwrap_or_else(|error| panic!("memory test borrow must be valid: {error:?}"))
             .result()
             .unwrap_or_else(|| panic!("memory test borrow must produce a value"));
+
+        let byte_buffer_storage = builder
+            .push_storage(source.clone(), MirStorageKind::Local, types.byte_buffer)
+            .unwrap_or_else(|error| panic!("byte buffer test storage must be valid: {error:?}"));
+
+        let byte_buffer = MirPlace::new(byte_buffer_storage, [], types.byte_buffer);
+
+        let byte_buffer_borrow = builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Borrow {
+                    kind: BorrowKind::Mutable,
+                    place: byte_buffer,
+                },
+                Some(types.byte_buffer_borrow),
+            )
+            .unwrap_or_else(|error| panic!("byte buffer test borrow must be valid: {error:?}"))
+            .result()
+            .unwrap_or_else(|| panic!("byte buffer test borrow must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::ByteBufferRelease,
+            [MirOperand::Value(byte_buffer_borrow)],
+            [types.byte_buffer_borrow],
+            None,
+        );
 
         let address = push_memory(
             &mut builder,
@@ -767,6 +1127,31 @@ mod tests {
             Some(types.usize),
         )
         .unwrap_or_else(|| panic!("memory size operation must produce a value"));
+
+        let raw_allocation = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::RawAllocate,
+            [MirOperand::Value(size), MirOperand::Value(size)],
+            [types.usize, types.usize],
+            Some(types.pointer),
+        )
+        .unwrap_or_else(|| panic!("raw memory allocation must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::RawDeallocate,
+            [
+                MirOperand::Value(raw_allocation),
+                MirOperand::Value(size),
+                MirOperand::Value(size),
+            ],
+            [types.pointer, types.usize, types.usize],
+            None,
+        );
 
         push_memory(
             &mut builder,
@@ -884,14 +1269,28 @@ mod tests {
             Some(types.layout_result),
         );
 
+        let layout = builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Aggregate(MirAggregate::new(
+                    MirAggregateKind::Tuple,
+                    [MirOperand::Value(size), MirOperand::Value(size)],
+                )),
+                Some(types.layout),
+            )
+            .unwrap_or_else(|error| panic!("memory layout fixture must be valid: {error:?}"))
+            .result()
+            .unwrap_or_else(|| panic!("memory layout fixture must produce a value"));
+
         let allocation = push_memory(
             &mut builder,
             entry,
             &source,
             CheckedMemoryOperationKind::Allocate,
-            [MirOperand::Value(size), MirOperand::Value(size)],
-            [types.usize, types.usize],
-            Some(types.pointer),
+            [MirOperand::Value(layout)],
+            [types.layout],
+            Some(types.allocation),
         )
         .unwrap_or_else(|| panic!("memory allocation operation must produce a value"));
 
@@ -900,12 +1299,8 @@ mod tests {
             entry,
             &source,
             CheckedMemoryOperationKind::Deallocate,
-            [
-                MirOperand::Value(allocation),
-                MirOperand::Value(size),
-                MirOperand::Value(size),
-            ],
-            [types.pointer, types.usize, types.usize],
+            [MirOperand::Value(allocation)],
+            [types.allocation],
             None,
         );
 
@@ -961,6 +1356,9 @@ mod tests {
         let layout = intern_type(&store, TypeData::tuple([tag]));
         let layout_error = intern_type(&store, TypeData::tuple([layout]));
         let layout_result = intern_type(&store, TypeData::tuple([layout_error]));
+        let allocation = intern_type(&store, TypeData::tuple([layout_result]));
+        let byte_buffer = intern_type(&store, TypeData::tuple([allocation]));
+        let byte_buffer_borrow = intern_type(&store, TypeData::tuple([byte_buffer]));
 
         MemoryTypes {
             value,
@@ -972,6 +1370,9 @@ mod tests {
             layout,
             layout_error,
             layout_result,
+            allocation,
+            byte_buffer,
+            byte_buffer_borrow,
         }
     }
 
@@ -983,12 +1384,11 @@ mod tests {
             .clone()
             .with_operations(TargetOperationFacts::new(raw_memory, allocation));
 
-        let profile = TargetProfile::try_new(
-            profile.identity().clone(),
-            profile.machine().clone(),
-            facts,
-        )
-        .unwrap_or_else(|error| panic!("memory test target profile must be valid: {error:?}"));
+        let profile =
+            TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
+                .unwrap_or_else(|error| {
+                    panic!("memory test target profile must be valid: {error:?}")
+                });
 
         codegen_target_with_profile(profile, "x86_64-unknown-linux-gnu")
     }
@@ -1048,11 +1448,7 @@ mod tests {
                 layout(8, align8),
                 CodegenTypeKind::UnsignedInteger(width64),
             ),
-            CodegenTypeMapping::new(
-                types.boolean,
-                layout(1, align1),
-                CodegenTypeKind::Boolean,
-            ),
+            CodegenTypeMapping::new(types.boolean, layout(1, align1), CodegenTypeKind::Boolean),
             CodegenTypeMapping::new(
                 types.tag,
                 layout(1, align1),
@@ -1072,11 +1468,7 @@ mod tests {
                 CodegenTypeKind::union(
                     types.tag,
                     [
-                        CodegenUnionVariantLayout::new(
-                            overflow,
-                            IntegerConstant::from_u64(0),
-                            [],
-                        ),
+                        CodegenUnionVariantLayout::new(overflow, IntegerConstant::from_u64(0), []),
                         CodegenUnionVariantLayout::new(
                             unsupported,
                             IntegerConstant::from_u64(1),
@@ -1103,6 +1495,32 @@ mod tests {
                         ),
                     ],
                 ),
+            ),
+            CodegenTypeMapping::new(
+                types.allocation,
+                layout(24, align8),
+                CodegenTypeKind::aggregate([
+                    CodegenFieldLayout::new(None, types.pointer, 0),
+                    CodegenFieldLayout::new(None, types.usize, 8),
+                    CodegenFieldLayout::new(None, types.usize, 16),
+                ]),
+            ),
+            CodegenTypeMapping::new(
+                types.byte_buffer,
+                layout(24, align8),
+                CodegenTypeKind::aggregate([
+                    CodegenFieldLayout::new(None, types.pointer, 0),
+                    CodegenFieldLayout::new(None, types.usize, 8),
+                    CodegenFieldLayout::new(None, types.usize, 16),
+                ]),
+            ),
+            CodegenTypeMapping::new(
+                types.byte_buffer_borrow,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.byte_buffer,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
             ),
         ];
 

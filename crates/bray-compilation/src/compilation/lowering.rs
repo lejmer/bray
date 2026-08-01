@@ -1248,8 +1248,8 @@ mod tests {
         assert_eq!(
             kinds,
             [
-                CheckedMemoryOperationKind::Allocate,
-                CheckedMemoryOperationKind::Deallocate,
+                CheckedMemoryOperationKind::RawAllocate,
+                CheckedMemoryOperationKind::RawDeallocate,
             ]
         );
     }

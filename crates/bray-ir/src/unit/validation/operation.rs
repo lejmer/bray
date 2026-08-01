@@ -72,9 +72,13 @@ pub(super) fn validate_operation(
             validate_generator_operation(unit, block, id, operation)?;
         }
         MirOperationKind::Aggregate(aggregate) => {
-            if aggregate.kind() == MirAggregateKind::RepeatedArray
-                && aggregate.operands().len() != 2
-            {
+            let valid_arity = match aggregate.kind() {
+                MirAggregateKind::Tuple | MirAggregateKind::Array => true,
+                MirAggregateKind::RepeatedArray => aggregate.operands().len() == 2,
+                MirAggregateKind::NullablePresent => aggregate.operands().len() == 1,
+            };
+
+            if !valid_arity {
                 return Err(MirUnitBuildError::InvalidAggregateOperation(id));
             }
 
@@ -366,8 +370,14 @@ mod tests {
                 1,
                 true,
             ),
-            (CheckedMemoryOperationKind::Allocate, 2, true),
-            (CheckedMemoryOperationKind::Deallocate, 3, false),
+            (CheckedMemoryOperationKind::RawAllocate, 2, true),
+            (CheckedMemoryOperationKind::RawDeallocate, 3, false),
+            (CheckedMemoryOperationKind::Allocate, 1, true),
+            (CheckedMemoryOperationKind::Deallocate, 1, false),
+            (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
+            (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
+            (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
+            (CheckedMemoryOperationKind::ByteBufferRelease, 1, false),
         ];
 
         for (kind, operands, produces_value) in cases {

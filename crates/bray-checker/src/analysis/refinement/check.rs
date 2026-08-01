@@ -7,7 +7,7 @@ use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, 
 
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
-use super::super::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::super::fixed_point::{
     FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point,
 };
@@ -37,7 +37,7 @@ where
         );
     }
 
-    let graph = match build_control_flow_graph(request) {
+    let graph = match build_storage_control_flow_graph(request, storage) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };

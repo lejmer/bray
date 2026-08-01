@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry, SelectedIterationSource,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, CheckedExpressionTypes,
+    ExpressionTypeEntry, SelectedIterationSource,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
 };
-use bray_symbols::TypeId;
+use bray_symbols::{AnySymbolId, TypeId};
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -133,13 +134,13 @@ where
     }
 
     for expression in finished.unresolved {
-        if request.view().expression(expression).is_none() {
+        let Some(bound_expression) = request.view().expression(expression) else {
             return CheckerOutcome::InfrastructureFailure(
                 CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
             );
-        }
+        };
 
-        if deferred.contains(&expression) {
+        if deferred.contains(&expression) || is_compile_time_path_expression(bound_expression) {
             continue;
         }
 
@@ -194,6 +195,19 @@ where
     }
 
     CheckerOutcome::complete(checked_types, DiagnosticBag::from(diagnostics))
+}
+
+fn is_compile_time_path_expression(expression: &BoundExpression) -> bool {
+    matches!(
+        expression,
+        BoundExpression::Name(name)
+            if matches!(
+                name.target(),
+                BoundReferenceTarget::Surface(
+                    AnySymbolId::Package(_) | AnySymbolId::Module(_)
+                )
+            )
+    )
 }
 
 pub(crate) fn diagnostic_type<C>(

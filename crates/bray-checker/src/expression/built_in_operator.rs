@@ -41,6 +41,9 @@ impl PreparedBuiltInOperator {
                 | BoundOperator::LessEqual
                 | BoundOperator::Greater
                 | BoundOperator::GreaterEqual
+                | BoundOperator::Add
+                | BoundOperator::Subtract
+                | BoundOperator::BitwiseNot
         )
         .then_some(Self {
             expression,
@@ -68,7 +71,21 @@ where
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        session.add_evidence(operation.expression, boolean)?;
+        if is_boolean_result_operator(operation.operator) {
+            session.add_evidence(operation.expression, boolean)?;
+        } else if let Some(ty) = numeric_operation_type(
+            request,
+            operation.expression,
+            expression,
+            operation.operator,
+            session,
+        )? {
+            session.add_evidence(operation.expression, ty)?;
+
+            for operand in expression.child_expressions() {
+                session.add_expectation(operand, ty)?;
+            }
+        }
 
         if is_logical_operator(operation.operator) {
             for operand in expression.child_expressions() {
@@ -80,7 +97,7 @@ where
     Ok(())
 }
 
-pub(super) fn apply_comparison_expectations<C>(
+pub(super) fn apply_operand_expectations<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     prepared: &[PreparedBuiltInOperator],
@@ -89,26 +106,32 @@ pub(super) fn apply_comparison_expectations<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    for operation in prepared
-        .iter()
-        .filter(|operation| is_comparison_operator(operation.operator))
-    {
+    for operation in prepared {
         let Some(BoundExpression::Binary(expression)) =
             request.view().expression(operation.expression)
         else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            continue;
         };
 
         let [left, right] = expression.operands() else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        if let Some(ty) = comparable_operand_type(request, types, *left, operation.operator)? {
+        if let Some(ty) = built_in_operand_type(request, types, *left, operation.operator)? {
             session.add_expectation(*right, ty)?;
-        } else if let Some(ty) =
-            comparable_operand_type(request, types, *right, operation.operator)?
+
+            session.add_evidence(
+                operation.expression,
+                result_type(request, operation.operator, ty)?,
+            )?;
+        } else if let Some(ty) = built_in_operand_type(request, types, *right, operation.operator)?
         {
             session.add_expectation(*left, ty)?;
+
+            session.add_evidence(
+                operation.expression,
+                result_type(request, operation.operator, ty)?,
+            )?;
         }
     }
 
@@ -123,21 +146,18 @@ pub(super) fn selections<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
     let mut entries = Vec::with_capacity(prepared.len());
 
     for operation in prepared {
-        if is_comparison_operator(operation.operator)
-            && !comparison_is_selected(request, types, operation)?
-        {
+        let Some(result_type) = selected_result_type(request, types, operation)? else {
             continue;
-        }
+        };
 
         entries.push(SemanticSelectionEntry::new(
             operation.expression,
             SemanticSelection::Operation(SelectedOperation::Operator {
                 target: OperatorTarget::BuiltIn(operation.operator),
-                result_type: boolean,
+                result_type,
             }),
         ));
     }
@@ -145,7 +165,7 @@ where
     Ok(entries)
 }
 
-fn comparable_operand_type<C>(
+fn built_in_operand_type<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
@@ -162,47 +182,113 @@ where
     };
 
     Ok(type_representation(request, result.ty())?
-        .filter(|role| representation_supports_comparison(*role, operator))
+        .filter(|role| representation_supports_operator(*role, operator))
         .map(|_| result.ty()))
 }
 
-fn comparison_is_selected<C>(
+fn selected_result_type<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     operation: &PreparedBuiltInOperator,
-) -> Result<bool, CheckerInfrastructureError>
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(BoundExpression::Binary(expression)) = request.view().expression(operation.expression)
-    else {
+    let Some(expression) = request.view().expression(operation.expression) else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    let [left, right] = expression.operands() else {
+    let operands = expression.child_expressions().collect::<Vec<_>>();
+
+    if operands.is_empty() || operands.len() > 2 {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    };
-
-    let Some(left) = types
-        .expression(*left)
-        .filter(|result| !result.is_recovered())
-    else {
-        return Ok(false);
-    };
-
-    let Some(right) = types
-        .expression(*right)
-        .filter(|result| !result.is_recovered())
-    else {
-        return Ok(false);
-    };
-
-    if left.ty() != right.ty() {
-        return Ok(false);
     }
 
-    Ok(type_representation(request, left.ty())?
-        .is_some_and(|role| representation_supports_comparison(role, operation.operator)))
+    let Some(first) = types
+        .expression(operands[0])
+        .filter(|result| !result.is_recovered())
+    else {
+        return Ok(None);
+    };
+
+    if let Some(second) = operands.get(1) {
+        let Some(second) = types
+            .expression(*second)
+            .filter(|result| !result.is_recovered())
+        else {
+            return Ok(None);
+        };
+
+        if first.ty() != second.ty() {
+            return Ok(None);
+        }
+    }
+
+    let Some(role) = type_representation(request, first.ty())? else {
+        return Ok(None);
+    };
+
+    if !representation_supports_operator(role, operation.operator) {
+        return Ok(None);
+    }
+
+    result_type(request, operation.operator, first.ty()).map(Some)
+}
+
+fn numeric_operation_type<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    expression: &BoundExpression,
+    operator: BoundOperator,
+    session: &mut ExpressionTypeSession<'_, C>,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if let Some(result) = session
+        .expression_type(expression_id)
+        .filter(|result| !result.is_recovered())
+        && type_representation(request, result.ty())?
+            .is_some_and(|role| representation_supports_operator(role, operator))
+    {
+        return Ok(Some(result.ty()));
+    }
+
+    for operand in expression.child_expressions() {
+        let Some(result) = session
+            .expression_type(operand)
+            .filter(|result| !result.is_recovered())
+        else {
+            continue;
+        };
+
+        if type_representation(request, result.ty())?
+            .is_some_and(|role| representation_supports_operator(role, operator))
+        {
+            return Ok(Some(result.ty()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn result_type<C>(
+    request: CheckerUnitView<'_, C>,
+    operator: BoundOperator,
+    operand: TypeId,
+) -> Result<TypeId, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if is_boolean_result_operator(operator) {
+        representation_type(request, RepresentationRole::ScalarBool)
+    } else {
+        Ok(operand)
+    }
+}
+
+const fn is_boolean_result_operator(operator: BoundOperator) -> bool {
+    is_logical_operator(operator) || is_comparison_operator(operator)
 }
 
 const fn is_logical_operator(operator: BoundOperator) -> bool {
@@ -251,5 +337,24 @@ const fn representation_supports_comparison(
             )
         }
         _ => false,
+    }
+}
+
+const fn representation_supports_operator(
+    role: RepresentationRole,
+    operator: BoundOperator,
+) -> bool {
+    match operator {
+        BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr => {
+            matches!(role, RepresentationRole::ScalarBool)
+        }
+        BoundOperator::Add | BoundOperator::Subtract => role.numeric_kind().is_some(),
+        BoundOperator::BitwiseNot => {
+            matches!(
+                role.numeric_kind(),
+                Some(NumericRepresentationKind::Integer)
+            )
+        }
+        _ => representation_supports_comparison(role, operator),
     }
 }

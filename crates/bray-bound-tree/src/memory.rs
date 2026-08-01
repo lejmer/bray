@@ -114,10 +114,22 @@ pub enum CheckedMemoryOperationKind {
         /// Requested layout property.
         kind: MemoryLayoutQueryKind,
     },
-    /// Create a distinct owned writable allocation.
+    /// Create raw storage from separate byte count and alignment values.
+    RawAllocate,
+    /// Release raw storage described by separate pointer and layout values.
+    RawDeallocate,
+    /// Create a distinct owned writable allocation from a layout value.
     Allocate,
-    /// Release an allocation and invalidate its dependent facts.
+    /// Release an owned allocation and invalidate its dependent facts.
     Deallocate,
+    /// Initialize a byte-buffer range to one repeated byte.
+    ByteBufferFill,
+    /// Copy one byte-buffer range into writable storage.
+    ByteBufferCopy,
+    /// Read one initialized byte from byte-buffer storage.
+    ByteBufferRead,
+    /// Release the allocation owned by a byte buffer and leave it empty.
+    ByteBufferRelease,
 }
 
 impl CheckedMemoryOperationKind {
@@ -127,9 +139,18 @@ impl CheckedMemoryOperationKind {
             Self::Address { .. }
             | Self::IsNull { .. }
             | Self::Reinterpret { .. }
-            | Self::Read { .. } => 1,
-            Self::Offset { .. } | Self::Write { .. } | Self::Allocate => 2,
-            Self::Copy { .. } | Self::Deallocate => 3,
+            | Self::Read { .. }
+            | Self::Allocate
+            | Self::Deallocate
+            | Self::ByteBufferRelease => 1,
+            Self::Offset { .. }
+            | Self::Write { .. }
+            | Self::RawAllocate
+            | Self::ByteBufferRead => 2,
+            Self::Copy { .. }
+            | Self::RawDeallocate
+            | Self::ByteBufferFill
+            | Self::ByteBufferCopy => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
@@ -142,7 +163,13 @@ impl CheckedMemoryOperationKind {
     pub const fn produces_value(self) -> bool {
         !matches!(
             self,
-            Self::Write { .. } | Self::Copy { .. } | Self::Deallocate
+            Self::Write { .. }
+                | Self::Copy { .. }
+                | Self::RawDeallocate
+                | Self::Deallocate
+                | Self::ByteBufferFill
+                | Self::ByteBufferCopy
+                | Self::ByteBufferRelease
         )
     }
 }

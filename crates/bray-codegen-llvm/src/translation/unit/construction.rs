@@ -73,6 +73,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     value = insert_value(&self.builder, value, element, index)?;
                 }
             }
+            MirAggregateKind::NullablePresent => {
+                let [operand] = aggregate.operands() else {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                };
+
+                let operand = self.operand(operand)?;
+
+                value = self.construct_nullable_present(result, operand)?;
+            }
         }
 
         Ok(value)
@@ -390,7 +399,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    fn aggregate_fields(
+    pub(super) fn aggregate_fields(
         &self,
         ty: bray_symbols::TypeId,
     ) -> Result<std::sync::Arc<[bray_codegen::CodegenFieldLayout]>, CodegenFailure> {

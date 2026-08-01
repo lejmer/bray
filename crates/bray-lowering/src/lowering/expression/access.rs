@@ -217,6 +217,45 @@ impl Lowerer<'_> {
                 LoweredPlace::Terminated(completion) => return Ok(completion),
             };
 
+        let entry_borrow = self
+            .input
+            .storage_plan()
+            .root_identity(decision.access())
+            .and_then(|identity| self.input.storage_plan().identity(identity))
+            .is_some_and(|identity| {
+                matches!(
+                    identity,
+                    StorageIdentity::Parameter(_)
+                        | StorageIdentity::Receiver(_)
+                        | StorageIdentity::AnonymousParameter(_)
+                        | StorageIdentity::PredicateParameter(_)
+                )
+            });
+
+        if entry_borrow
+            && place.projections().is_empty()
+            && let bray_symbols::TypeData::Borrow { kind, target } = self
+                .input
+                .semantic_values()
+                .type_data(place.ty())
+                .map_err(|_| LoweringError::SemanticValueUnavailable)?
+                .as_ref()
+        {
+            let target = MirPlace::new(place.storage(), [], *target);
+
+            let value = self.push_value_operation(
+                expression,
+                block,
+                Self::retained_source(&source),
+                MirOperationKind::Borrow {
+                    kind: *kind,
+                    place: target,
+                },
+            )?;
+
+            return Ok(LoweredExpression::continuing(block, Some(value), source));
+        }
+
         let operand = match decision.purpose() {
             StorageAccessPurpose::Move => MirOperand::Move(place),
             StorageAccessPurpose::Read

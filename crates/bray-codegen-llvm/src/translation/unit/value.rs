@@ -95,50 +95,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             ConstantValueKind::NullablePresent(child) => {
                 let child = self.constant(child)?;
-                let mapped = self.types.map(ty)?;
 
-                if child.get_type() == mapped {
-                    return Ok(child);
-                }
-
-                let mut value = mapped.const_zero();
-
-                let mapping = self
-                    .request
-                    .mappings()
-                    .ty(ty)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
-                let payload = fields
-                    .len()
-                    .checked_sub(1)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                if fields.len() > 1 {
-                    let tag_type = self.types.map(fields[0].ty())?;
-
-                    let BasicTypeEnum::IntType(tag_type) = tag_type else {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
-                    };
-
-                    value = insert_value(
-                        &self.builder,
-                        value,
-                        tag_type.const_int(1, false).into(),
-                        aggregate_value_element(self.request.mappings(), fields, 0)?,
-                    )?;
-                }
-
-                insert_value(
-                    &self.builder,
-                    value,
-                    child,
-                    aggregate_value_element(self.request.mappings(), fields, payload)?,
-                )
+                self.construct_nullable_present(ty, child)
             }
             ConstantValueKind::Tuple(children) | ConstantValueKind::Array(children) => {
                 self.aggregate_constant(ty, children.iter().copied())
@@ -277,6 +235,57 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(value)
+    }
+
+    pub(super) fn construct_nullable_present(
+        &mut self,
+        ty: bray_symbols::TypeId,
+        child: BasicValueEnum<'context>,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let mapped = self.types.map(ty)?;
+
+        if child.get_type() == mapped {
+            return Ok(child);
+        }
+
+        let mut value = mapped.const_zero();
+
+        let mapping = self
+            .request
+            .mappings()
+            .ty(ty)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let payload = fields
+            .len()
+            .checked_sub(1)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if fields.len() > 1 {
+            let tag_type = self.types.map(fields[0].ty())?;
+
+            let BasicTypeEnum::IntType(tag_type) = tag_type else {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            };
+
+            value = insert_value(
+                &self.builder,
+                value,
+                tag_type.const_int(1, false).into(),
+                aggregate_value_element(self.request.mappings(), fields, 0)?,
+            )?;
+        }
+
+        insert_value(
+            &self.builder,
+            value,
+            child,
+            aggregate_value_element(self.request.mappings(), fields, payload)?,
+        )
     }
 
     pub(super) fn string_constant(

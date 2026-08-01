@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_standard_library::PackageSourceAuthority;
+use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
 
 use crate::manifest::{

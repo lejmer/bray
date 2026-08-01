@@ -9,8 +9,8 @@ use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax, TypeExpr
 
 use super::core::{TypeExpressionBinder, token_text};
 use crate::lookup::{
-    NameReference, ResolvedName, classify_type, combine_name_lookups, lookup_diagnostic,
-    lookup_surface_name,
+    NameReference, ResolvedName, bind_source_path, classify_type, combine_name_lookups,
+    lookup_diagnostic, lookup_surface_name,
 };
 use crate::{BinderFactError, BinderFactResult};
 
@@ -141,15 +141,19 @@ impl TypeExpressionBinder<'_> {
             .filter_map(|token| token_text(path.source(), &token))
             .collect::<Vec<_>>();
 
-        let [first] = references.as_slice() else {
+        let Some(first) = references.first() else {
             return MemberLookupResult::Malformed(Box::new([]));
         };
 
-        if let Some(parameter) = self.type_parameters.get(*first).copied() {
+        if references.len() == 1
+            && let Some(parameter) = self.type_parameters.get(*first).copied()
+        {
             return MemberLookupResult::Found(ResolvedName::Surface(parameter.into()));
         }
 
-        if let Some(context) = self.self_type {
+        if references.len() == 1
+            && let Some(context) = self.self_type
+        {
             let contextual = lookup_surface_name(
                 self.symbols,
                 context.symbol(),
@@ -169,18 +173,27 @@ impl TypeExpressionBinder<'_> {
             crate::lookup::NameAccess::Internal,
         );
 
-        match self.module {
-            Some(module) => combine_name_lookups(
-                lookup_surface_name(
-                    self.symbols,
-                    module.into(),
-                    first,
-                    crate::lookup::NameAccess::Internal,
-                ),
-                ambient,
+        let Some(module) = self.module else {
+            return ambient;
+        };
+
+        let ordinary = combine_name_lookups(
+            lookup_surface_name(
+                self.symbols,
+                module.into(),
+                first,
+                crate::lookup::NameAccess::Internal,
             ),
-            None => ambient,
-        }
+            ambient,
+        );
+
+        bind_source_path(
+            self.symbols,
+            module,
+            path,
+            crate::lookup::NameAccess::Internal,
+            ordinary,
+        )
     }
 
     fn report_lookup<T>(

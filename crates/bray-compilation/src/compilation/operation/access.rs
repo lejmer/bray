@@ -6,14 +6,14 @@ use bray_bound_tree::{
 use bray_checker::{resolve_callable_signature_template, resolve_type_expression_template};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableSignatureFact, MemberLookupResult,
-    NamedTypeSymbolId, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TypeData,
-    TypeExpressionTemplate, TypeId,
+    AnySymbolId, CallableDefinitionId, CallableSignatureFact, GenericOwnerId,
+    GenericSubstitutionData, MemberLookupResult, NamedTypeSymbolId, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use super::super::Compilation;
-use super::super::binder::{CompilationBinderFacts, binder_fact_error};
-use super::super::substitution::substitution_for_owner;
+use super::super::binder::{CompilationBinderFacts, binder_fact_error, visible_generic_parameters};
+use super::super::substitution::{generic_parameter_argument, substitution_for_owner};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
@@ -36,7 +36,7 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
-        let receiver_type = expression_type(types, receiver)?;
+        let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
 
         let data = facts
             .semantic_values()
@@ -208,7 +208,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let receiver_type = expression_type(types, receiver)?;
+        let receiver_type = access_subject_type(facts, expression_type(types, receiver)?)?;
 
         let data = facts
             .semantic_values()
@@ -362,5 +362,54 @@ impl Compilation {
             cancellation,
             diagnostics,
         )
+    }
+}
+
+fn access_subject_type(
+    facts: &CompilationBinderFacts<'_>,
+    mut ty: TypeId,
+) -> Result<TypeId, FactQueryError> {
+    loop {
+        let data = facts
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        match data.as_ref() {
+            TypeData::Borrow { target, .. } => ty = *target,
+            TypeData::ContextualSelf(context) => {
+                let definition = NamedTypeSymbolId::try_from_any(context.symbol())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let parameters = visible_generic_parameters(facts.symbols(), context.symbol());
+
+                let arguments = parameters
+                    .iter()
+                    .copied()
+                    .map(|parameter| generic_parameter_argument(facts.semantic_values(), parameter))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let owner = GenericOwnerId::try_new(context.symbol())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let substitution =
+                    GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                let substitution = facts
+                    .semantic_values()
+                    .intern_generic_substitution(substitution)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                ty = facts
+                    .semantic_values()
+                    .intern_type(TypeData::Named {
+                        definition,
+                        substitution,
+                    })
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            }
+            _ => return Ok(ty),
+        }
     }
 }

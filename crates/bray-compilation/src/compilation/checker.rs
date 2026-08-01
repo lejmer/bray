@@ -6,8 +6,9 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
 use bray_checker::{
     CheckedConstantTerms, CheckerFactError, CheckerFactResult, CheckerInfrastructureError,
     CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource,
-    DefaultTargetValidityChecker, TargetValidity, TargetValidityChecker, TargetValidityContext,
-    ImplementationHookResolution, TargetValidityRequest, resolve_type_expression_template,
+    DefaultTargetValidityChecker, ImplementationHookResolution, TargetValidity,
+    TargetValidityChecker, TargetValidityContext, TargetValidityRequest,
+    resolve_type_expression_template,
 };
 use bray_compiler_known::{
     COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationIdentity,
@@ -247,8 +248,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 continue;
             };
 
-            let RecognizedStandardLibraryDeclarationOwner::Scope(scope) = descriptor.owner()
-            else {
+            let RecognizedStandardLibraryDeclarationOwner::Scope(scope) = descriptor.owner() else {
                 continue;
             };
 
@@ -261,8 +261,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 continue;
             };
 
-            let Some(module) =
-                symbols.module_by_path(ModuleOwnerId::from(package.id()), &path)
+            let Some(module) = symbols.module_by_path(ModuleOwnerId::from(package.id()), &path)
             else {
                 continue;
             };
@@ -296,9 +295,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 }
 
 fn is_public_standard_library_source(compilation: &Compilation) -> bool {
-    compilation
-        .package_source_authority()
-        .is_standard_library()
+    compilation.package_source_authority().is_standard_library()
         && is_public_standard_library_package(compilation.package_identity())
 }
 

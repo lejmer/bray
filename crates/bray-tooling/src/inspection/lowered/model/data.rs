@@ -778,8 +778,16 @@ fn memory_operation_parts(
 
             (name, vec![("type", ty)])
         }
-        CheckedMemoryOperationKind::Allocate => ("allocate", Vec::new()),
-        CheckedMemoryOperationKind::Deallocate => ("deallocate", Vec::new()),
+        CheckedMemoryOperationKind::RawAllocate | CheckedMemoryOperationKind::Allocate => {
+            ("allocate", Vec::new())
+        }
+        CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
+            ("deallocate", Vec::new())
+        }
+        CheckedMemoryOperationKind::ByteBufferFill => ("byte_buffer_fill", Vec::new()),
+        CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
+        CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
+        CheckedMemoryOperationKind::ByteBufferRelease => ("byte_buffer_release", Vec::new()),
     };
 
     parts.attribute("memory_operation", name);
@@ -2202,6 +2210,7 @@ fn aggregate_kind(kind: MirAggregateKind) -> &'static str {
         MirAggregateKind::Tuple => "tuple",
         MirAggregateKind::Array => "array",
         MirAggregateKind::RepeatedArray => "repeated_array",
+        MirAggregateKind::NullablePresent => "nullable_present",
     }
 }
 

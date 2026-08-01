@@ -14,8 +14,7 @@ const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
 const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/memory-layout.bray";
-const STANDARD_MEMORY_FIXTURE: &str =
-    "xtask/fixtures/native-execution/standard-memory.bray";
+const STANDARD_MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/standard-memory.bray";
 const INVALID_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/memory-invalid-obligation.bray";
 const PRODUCT_NAME: &str = "application";
@@ -74,7 +73,10 @@ fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), Strin
     if output_contains(&output, "E7087") {
         Ok(())
     } else {
-        Err(command_failure("checking invalid memory obligations", &output))
+        Err(command_failure(
+            "checking invalid memory obligations",
+            &output,
+        ))
     }
 }
 
@@ -103,23 +105,9 @@ fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     let second = native_output("bray-native-memory-layout-second-")?;
     let fixtures = [STANDARD_MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE];
 
-    build_fixtures(
-        root,
-        target,
-        runtime,
-        first.path(),
-        Some("std"),
-        &fixtures,
-    )?;
+    build_fixtures(root, target, runtime, first.path(), Some("std"), &fixtures)?;
 
-    build_fixtures(
-        root,
-        target,
-        runtime,
-        second.path(),
-        Some("std"),
-        &fixtures,
-    )?;
+    build_fixtures(root, target, runtime, second.path(), Some("std"), &fixtures)?;
 
     let first_executable = executable_path(first.path(), target);
     let second_executable = executable_path(second.path(), target);
@@ -138,10 +126,7 @@ fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     execute_product(&first_executable, 42, "executing memory layout operations")
 }
 
-fn require_lowered_layout_operations(
-    root: &Path,
-    target: NativeTarget,
-) -> Result<(), String> {
+fn require_lowered_layout_operations(root: &Path, target: NativeTarget) -> Result<(), String> {
     let compiler = root
         .join("target")
         .join("debug")

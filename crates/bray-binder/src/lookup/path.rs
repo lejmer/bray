@@ -111,6 +111,35 @@ where
     })
 }
 
+pub(crate) fn bind_source_path(
+    symbols: &SymbolGraph,
+    module: ModuleSymbolId,
+    path: &PathSyntax,
+    access: NameAccess,
+    ordinary: NameLookupResult<ResolvedName>,
+) -> NameLookupResult<ResolvedName> {
+    let Some(module) = symbols.module(module) else {
+        return malformed_lookup();
+    };
+
+    let Some(references) = path_references(path) else {
+        return malformed_lookup();
+    };
+
+    match bind_path_with_ordinary(
+        symbols,
+        None,
+        module.owner(),
+        access,
+        references,
+        ordinary,
+        &mut |_, _, _| Ok(MemberLookupResult::NotFound),
+    ) {
+        Ok(lookup) => lookup.result,
+        Err(_) => malformed_lookup(),
+    }
+}
+
 /// Resolves one module-relative surface path with caller-provided source re-export lookup.
 pub fn bind_surface_path_with_re_exports<C>(
     facts: &C,
@@ -394,14 +423,7 @@ where
             return malformed_lookup();
         };
 
-        let result = lookup_unqualified_name(
-            self.unit(),
-            self.facts().symbols(),
-            context.scope,
-            context.module,
-            reference.text(),
-            context.access,
-        );
+        let result = self.lookup_reference_name(context, &reference);
 
         report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
 
@@ -418,14 +440,41 @@ where
             return malformed_lookup();
         };
 
-        lookup_unqualified_name(
-            self.unit(),
+        self.lookup_reference_name(context, &reference)
+    }
+
+    pub(crate) fn lookup_module_route(
+        &self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        tokens: impl IntoIterator<Item = SyntaxToken>,
+    ) -> Option<(ModuleSymbolId, usize)> {
+        let references = tokens
+            .into_iter()
+            .map(|token| token_reference(source, token))
+            .collect::<Option<Vec<_>>>()?;
+
+        let source = next_module_prefix(
             self.facts().symbols(),
-            context.scope,
-            context.module,
-            reference.text(),
+            context.module_owner,
+            None,
+            &references,
             context.access,
-        )
+        );
+
+        source
+            .or_else(|| {
+                next_module_prefix(
+                    self.facts().symbols(),
+                    ModuleOwnerId::from(self.facts().symbols().compiler_known_environment().id()),
+                    None,
+                    &references,
+                    context.access,
+                )
+            })
+            .and_then(|(module, length, lookup)| {
+                matches!(lookup, MemberLookupResult::Found(_)).then_some((module, length))
+            })
     }
 
     #[cfg(test)]
@@ -453,12 +502,87 @@ where
             return malformed_lookup();
         };
 
-        let result = lookup_surface_name(self.facts().symbols(), owner, reference.text(), access)
-            .classify(classify_member);
+        let symbols = self.facts().symbols();
+        let mut ordinary = lookup_surface_name(symbols, owner, reference.text(), access);
+
+        if let AnySymbolId::Module(module) = owner
+            && let Some(module) = symbols.module(module)
+            && !matches!(module.owner(), ModuleOwnerId::CompilerKnownEnvironment(_))
+            && let Some(compiler_known) = symbols.module_by_path(
+                ModuleOwnerId::from(symbols.compiler_known_environment().id()),
+                module.path(),
+            )
+        {
+            ordinary = combine_name_lookups(
+                ordinary,
+                lookup_surface_name(
+                    symbols,
+                    compiler_known.id().into(),
+                    reference.text(),
+                    access,
+                ),
+            );
+        }
+
+        let module_prefix = match owner {
+            AnySymbolId::Module(module) => {
+                symbols
+                    .module(module)
+                    .map_or(MemberLookupResult::NotFound, |module| {
+                        let local = source_module_prefix(
+                            symbols,
+                            module.owner(),
+                            Some(module.path()),
+                            &reference,
+                            access,
+                        );
+
+                        if !matches!(local, MemberLookupResult::NotFound) {
+                            return local;
+                        }
+
+                        source_module_prefix(
+                            symbols,
+                            ModuleOwnerId::from(symbols.compiler_known_environment().id()),
+                            Some(module.path()),
+                            &reference,
+                            access,
+                        )
+                    })
+            }
+            _ => MemberLookupResult::NotFound,
+        };
+
+        let result = combine_name_lookups(ordinary, module_prefix).classify(classify_member);
 
         report_lookup_result(self, &reference, DiagnosticNameKind::Member, &result);
 
         result
+    }
+
+    fn lookup_reference_name(
+        &self,
+        context: PathBindingContext,
+        reference: &NameReference,
+    ) -> NameLookupResult<ResolvedName> {
+        let ordinary = lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            reference.text(),
+            context.access,
+        );
+
+        let module_prefix = source_module_prefix(
+            self.facts().symbols(),
+            context.module_owner,
+            None,
+            reference,
+            context.access,
+        );
+
+        combine_name_lookups(ordinary, module_prefix)
     }
 
     #[cfg(test)]
@@ -574,8 +698,10 @@ fn bind_path_with_ordinary(
     let source_prefix = next_module_prefix(symbols, module_owner, None, &references, access);
     let compiler_known_owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
 
-    let compiler_known_prefix =
-        next_module_prefix(symbols, compiler_known_owner, None, &references, access);
+    let compiler_known_prefix = source_prefix
+        .is_none()
+        .then(|| next_module_prefix(symbols, compiler_known_owner, None, &references, access))
+        .flatten();
 
     let imported_prefix = imported_root.map(|root| imported_path_prefix(root, &references, access));
 
@@ -624,6 +750,25 @@ fn bind_remaining_path(
             access,
         );
 
+        if let AnySymbolId::Module(module) = owner
+            && let Some(module) = symbols.module(module)
+            && !matches!(module.owner(), ModuleOwnerId::CompilerKnownEnvironment(_))
+            && let Some(compiler_known) = symbols.module_by_path(
+                ModuleOwnerId::from(symbols.compiler_known_environment().id()),
+                module.path(),
+            )
+        {
+            ordinary = combine_name_lookups(
+                ordinary,
+                lookup_surface_name(
+                    symbols,
+                    compiler_known.id().into(),
+                    references[consumed].text(),
+                    access,
+                ),
+            );
+        }
+
         if matches!(ordinary, MemberLookupResult::NotFound)
             && let AnySymbolId::Module(module) = owner
             && symbols.module(module).is_some()
@@ -643,6 +788,15 @@ fn bind_remaining_path(
                         &references[consumed..],
                         access,
                     )
+                    .or_else(|| {
+                        next_module_prefix(
+                            symbols,
+                            ModuleOwnerId::from(symbols.compiler_known_environment().id()),
+                            Some(module.path()),
+                            &references[consumed..],
+                            access,
+                        )
+                    })
                 })
                 .or_else(|| {
                     imported_symbols
@@ -754,6 +908,23 @@ fn next_module_prefix(
     }
 
     malformed.or(inaccessible)
+}
+
+fn source_module_prefix(
+    symbols: &SymbolGraph,
+    owner: ModuleOwnerId,
+    parent: Option<&ModulePathKey>,
+    reference: &NameReference,
+    access: NameAccess,
+) -> NameLookupResult<ResolvedName> {
+    next_module_prefix(
+        symbols,
+        owner,
+        parent,
+        std::slice::from_ref(reference),
+        access,
+    )
+    .map_or(MemberLookupResult::NotFound, |(_, _, lookup)| lookup)
 }
 
 fn next_imported_module_prefix(

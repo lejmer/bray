@@ -738,7 +738,9 @@ mod tests {
             )
             .with_standard_library_root(root.clone()),
         )
-        .unwrap_or_else(|error| panic!("compilation must load without reading the root: {error:?}"));
+        .unwrap_or_else(|error| {
+            panic!("compilation must load without reading the root: {error:?}")
+        });
 
         let updated = previous
             .updated_sources(vec![source(10, 1, "module app;\n")])

@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression,
-    BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitView,
+    BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitView, StoragePlan,
 };
 use bray_declarations::SyntaxAnchor;
 
@@ -21,7 +21,27 @@ pub(crate) fn build_control_flow_graph<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut builder = ControlFlowGraphBuilder::new(request);
+    build_control_flow_graph_with_storage(request, None)
+}
+
+pub(crate) fn build_storage_control_flow_graph<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> ControlFlowGraphBuildOutcome
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    build_control_flow_graph_with_storage(request, Some(storage))
+}
+
+fn build_control_flow_graph_with_storage<C>(
+    request: CheckerUnitView<'_, C>,
+    checked_storage: Option<&StoragePlan>,
+) -> ControlFlowGraphBuildOutcome
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut builder = ControlFlowGraphBuilder::new(request, checked_storage);
 
     let entry = builder.push_block();
 
@@ -53,6 +73,7 @@ where
     pub(super) catches: Vec<CatchContext>,
     pub(super) yield_regions: Vec<SyntaxAnchor>,
     scopes: Vec<BoundBlockId>,
+    checked_storage: Option<&'view StoragePlan>,
 }
 
 #[derive(Clone, Copy)]
@@ -73,7 +94,10 @@ impl<'view, C> ControlFlowGraphBuilder<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn new(request: CheckerUnitView<'view, C>) -> Self {
+    fn new(
+        request: CheckerUnitView<'view, C>,
+        checked_storage: Option<&'view StoragePlan>,
+    ) -> Self {
         Self {
             request,
             view: request.view(),
@@ -82,6 +106,7 @@ where
             catches: Vec::new(),
             yield_regions: Vec::new(),
             scopes: Vec::new(),
+            checked_storage,
         }
     }
 
@@ -483,6 +508,10 @@ where
 
     pub(super) const fn view(&self) -> BoundUnitView<'_> {
         self.view
+    }
+
+    pub(super) const fn checked_storage(&self) -> Option<&StoragePlan> {
+        self.checked_storage
     }
 
     fn cancelled(&self) -> bool {

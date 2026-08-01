@@ -438,4 +438,61 @@ scope StandardMemory at std.memory {
                 uses(unchecked_init);
         }
     }
+
+    declaration StandardMemoryByteBufferFill {
+        identity name byte_buffer_fill;
+        availability Allocation;
+        implementation ByteBufferFill;
+
+        surface {
+            trusted internal func byte_buffer_fill(
+                pos destination: RawPointer<u8>,
+                value: u8,
+                count: usize,
+            ) -> unit
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryByteBufferCopy {
+        identity name byte_buffer_copy;
+        availability Allocation;
+        implementation ByteBufferCopy;
+
+        surface {
+            trusted internal func byte_buffer_copy(
+                pos source: RawPointer<u8>,
+                pos destination: RawPointer<u8>,
+                count: usize,
+            ) -> unit
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryByteBufferRelease {
+        identity name byte_buffer_release;
+        availability Allocation;
+        implementation ByteBufferRelease;
+
+        surface {
+            trusted internal func byte_buffer_release(
+                pos buffer: &mut RawBuffer<u8>,
+            ) -> unit
+                uses(manual_alloc);
+        }
+    }
+
+    declaration StandardMemoryByteBufferRead {
+        identity name byte_buffer_read;
+        availability Allocation;
+        implementation ByteBufferRead;
+
+        surface {
+            trusted internal func byte_buffer_read(
+                pos pointer: RawPointer<u8>,
+                index: usize,
+            ) -> u8
+                uses(raw_memory);
+        }
+    }
 }

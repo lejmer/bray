@@ -1,0 +1,99 @@
+module std.bytes;
+
+using std.memory;
+
+struct Buffer
+{
+    internal mut storage: std.memory.RawBuffer<u8>;
+
+    trusted destruct()
+    {
+        trusted internal std.memory.byte_buffer_release(&mut self.storage);
+    }
+}
+
+func create(
+    capacity: usize = 0,
+) -> Result<Buffer, std.memory.MemoryLayoutError>
+{
+    return support_create(capacity = capacity);
+}
+
+func from_slice(
+    pos bytes: &[u8],
+) -> Result<Buffer, std.memory.MemoryLayoutError>
+{
+    return support_from_slice(bytes);
+}
+
+func length(pos buffer: &Buffer) -> usize
+{
+    return internal std.memory.byte_buffer_initialized_count(&buffer.storage);
+}
+
+func capacity(pos buffer: &Buffer) -> usize
+{
+    return internal std.memory.byte_buffer_capacity(&buffer.storage);
+}
+
+func as_slice(pos buffer: &Buffer) -> &[u8]
+{
+    return support_as_slice(buffer);
+}
+
+func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
+{
+    return support_as_slice_mut(buffer = &mut buffer);
+}
+
+func reserve(
+    pos buffer: &mut Buffer,
+    additional: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return support_reserve(additional = additional, buffer = &mut buffer);
+}
+
+func resize(
+    pos buffer: &mut Buffer,
+    new_length: usize,
+    fill: u8 = 0,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return support_resize(
+        fill = fill,
+        new_length = new_length,
+        buffer = &mut buffer,
+    );
+}
+
+func truncate(pos buffer: &mut Buffer, new_length: usize) -> unit
+{
+    support_truncate(new_length = new_length, buffer = &mut buffer);
+}
+
+func clear(pos buffer: &mut Buffer) -> unit
+{
+    support_truncate(new_length = 0, buffer = &mut buffer);
+}
+
+func push(
+    pos buffer: &mut Buffer,
+    value: u8,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return support_push(value = value, buffer = &mut buffer);
+}
+
+func append(
+    pos buffer: &mut Buffer,
+    bytes: &[u8],
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return support_append(bytes = bytes, buffer = &mut buffer);
+}
+
+func pop(pos buffer: &mut Buffer) -> u8?
+{
+    return support_pop(buffer = &mut buffer);
+}

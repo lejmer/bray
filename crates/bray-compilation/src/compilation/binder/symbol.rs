@@ -20,6 +20,7 @@ pub(in crate::compilation) use contract::bind_declared_trusted_capabilities;
 pub(in crate::compilation) use directive::bind_module_part_directives_for_selection;
 pub(in crate::compilation) use environment::{
     has_visible_generic_parameters, type_binder, type_scope, visible_generic_const_parameters,
+    visible_generic_parameters,
 };
 pub(in crate::compilation) use imported::{
     imported_declaration_template, imported_declaration_template_at, imported_implementation,

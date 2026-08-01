@@ -267,7 +267,6 @@ mod tests {
             diagnostic.args()[2],
             DiagnosticArg::actual_runtime_abi(DiagnosticRuntimeAbiVersion::new(1, 4))
         );
-
     }
 
     fn dependency_input() -> DependencyInterfaceInput {

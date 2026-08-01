@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::availability::{projection_is_available, storage_is_recovered};
-use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use crate::analysis::fixed_point::{FixedPointOutcome, solve_fixed_point};
 use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase};
 use crate::analysis::reachability::analyze_reachability;
@@ -51,7 +51,7 @@ where
         );
     }
 
-    let graph = match build_control_flow_graph(request) {
+    let graph = match build_storage_control_flow_graph(request, storage) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
@@ -171,8 +171,14 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::Read { .. }
             | CheckedMemoryOperationKind::Write { .. }
             | CheckedMemoryOperationKind::Copy { .. }
+            | CheckedMemoryOperationKind::RawAllocate
+            | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate
             | CheckedMemoryOperationKind::Deallocate
+            | CheckedMemoryOperationKind::ByteBufferFill
+            | CheckedMemoryOperationKind::ByteBufferCopy
+            | CheckedMemoryOperationKind::ByteBufferRead
+            | CheckedMemoryOperationKind::ByteBufferRelease
     )
 }
 
@@ -494,7 +500,7 @@ where
 
                 return apply_raw_copy(state, source, destination, pointee);
             }
-            CheckedMemoryOperationKind::Allocate => {
+            CheckedMemoryOperationKind::RawAllocate | CheckedMemoryOperationKind::Allocate => {
                 let Some(result) = self.operation_result_storage(operation.expression()) else {
                     return MemoryOperationStatus::Recovered;
                 };
@@ -502,7 +508,7 @@ where
                 state.active_allocations.insert(result);
                 state.invalidated_allocations.remove(&result);
             }
-            CheckedMemoryOperationKind::Deallocate => {
+            CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
                 let Some(pointer) = arguments
                     .first()
                     .and_then(|argument| self.argument_storage(*argument))
@@ -512,6 +518,10 @@ where
 
                 return apply_deallocation(state, pointer);
             }
+            CheckedMemoryOperationKind::ByteBufferFill
+            | CheckedMemoryOperationKind::ByteBufferCopy
+            | CheckedMemoryOperationKind::ByteBufferRead
+            | CheckedMemoryOperationKind::ByteBufferRelease => {}
         }
 
         MemoryOperationStatus::Valid
@@ -982,16 +992,50 @@ where
     }
 
     fn end_last_use_borrows(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
-        state.active_borrows.retain(|borrow| {
-            !self
-                .liveness
-                .is_last_use(operation, BoundDependencySubject::BorrowCapability(*borrow))
-        });
+        let moved_borrows = state
+            .moved
+            .iter()
+            .filter_map(|access| match self.storage.access(*access)?.root() {
+                StorageAccessRoot::Borrow(borrow) => Some(borrow),
+                StorageAccessRoot::Storage(_)
+                | StorageAccessRoot::OwnedIndirection { .. }
+                | StorageAccessRoot::Recovery(_) => None,
+            })
+            .collect::<BTreeSet<_>>();
 
-        state.definitely_active_borrows.retain(|borrow| {
-            !self
-                .liveness
-                .is_last_use(operation, BoundDependencySubject::BorrowCapability(*borrow))
+        let ended = state
+            .active_borrows
+            .iter()
+            .copied()
+            .filter(|borrow| {
+                let Some(capability) = self.storage.borrow_capability(*borrow) else {
+                    return false;
+                };
+
+                let subject = BoundDependencySubject::BorrowCapability(*borrow);
+
+                capability.entry_binding().is_none()
+                    && (moved_borrows.contains(borrow)
+                        || self.liveness.is_last_use(operation, subject)
+                        || capability.expression().is_some_and(|expression| {
+                            self.liveness
+                                .is_last_use(AnyBoundNodeId::Expression(expression), subject)
+                        }))
+            })
+            .collect::<BTreeSet<_>>();
+
+        state
+            .active_borrows
+            .retain(|borrow| !ended.contains(borrow));
+
+        state
+            .definitely_active_borrows
+            .retain(|borrow| !ended.contains(borrow));
+
+        state.moved.retain(|access| {
+            self.storage.access(*access).is_none_or(|access| {
+                !matches!(access.root(), StorageAccessRoot::Borrow(borrow) if ended.contains(&borrow))
+            })
         });
     }
 

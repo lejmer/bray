@@ -1,10 +1,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use bray_standard_library::{PackageSourceAuthority, is_public_standard_library_package};
 use bray_symbols::ProductKind;
-use bray_standard_library::{
-    PackageSourceAuthority, is_public_standard_library_package,
-};
 use bray_target::TargetIdentity;
 
 use crate::manifest::{TargetManifest, WorkspaceManifest, WorkspacePackageManifest};

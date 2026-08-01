@@ -5,9 +5,9 @@ use bray_symbols::{
     AnySymbolId, CallableParameterDefaultFact, CallableParameterDefaultSurface,
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallableParameterSymbolId,
     CallableSignatureFact, CheckedCallableParameterDefault, CheckedStructFieldDefault,
-    CheckedUnionPayloadDefault, ConstantTermData, ErrorCallableParameterDefault,
-    ErrorStructFieldDefault, ErrorUnionPayloadDefault, ExactSymbolId, GenericArgument,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, RuntimeDefaultBehavior,
+    CheckedUnionPayloadDefault, ErrorCallableParameterDefault, ErrorStructFieldDefault,
+    ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, RuntimeDefaultBehavior,
     RuntimeDefaultGenericContext, RuntimeDefaultOwnership, RuntimeDefaultTemplateReference,
     StructFieldDefaultFact, StructFieldDefaultSurface, StructFieldDefaultTemplateFact,
     StructFieldDefaultValue, StructFieldSymbolId, SymbolFactRequest, SymbolFactResult,
@@ -25,6 +25,7 @@ use super::lookup::{
 };
 use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::substitution::generic_parameter_argument;
 use crate::fact::SymbolFactCache;
 
 impl_declaration_body_fact!(
@@ -353,7 +354,10 @@ fn generic_context(
     let arguments = parameters
         .iter()
         .copied()
-        .map(|parameter| generic_argument(context, parameter))
+        .map(|parameter| {
+            generic_parameter_argument(context.semantic_values(), parameter)
+                .map_err(|_| BinderFactError::DependencyUnavailable)
+        })
         .collect::<BinderFactResult<Vec<_>>>()?;
 
     let substitution =
@@ -367,24 +371,6 @@ fn generic_context(
 
     RuntimeDefaultGenericContext::generic(parameters, substitution)
         .ok_or(BinderFactError::DependencyUnavailable)
-}
-
-fn generic_argument(
-    context: &CompilationBinderFacts<'_>,
-    parameter: GenericParameterSymbolId,
-) -> BinderFactResult<GenericArgument> {
-    match parameter {
-        GenericParameterSymbolId::Type(parameter) => context
-            .semantic_values()
-            .intern_type(TypeData::TypeParameter(parameter))
-            .map(GenericArgument::Type)
-            .map_err(|_| BinderFactError::DependencyUnavailable),
-        GenericParameterSymbolId::Const(parameter) => context
-            .semantic_values()
-            .intern_constant_term(ConstantTermData::Parameter(parameter))
-            .map(GenericArgument::Constant)
-            .map_err(|_| BinderFactError::DependencyUnavailable),
-    }
 }
 
 fn runtime_default_declaration(

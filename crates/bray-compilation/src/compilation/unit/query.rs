@@ -2513,7 +2513,7 @@ mod tests {
             panic!("allocation call must publish one memory operation");
         };
 
-        assert_eq!(operation.kind(), CheckedMemoryOperationKind::Allocate);
+        assert_eq!(operation.kind(), CheckedMemoryOperationKind::RawAllocate);
 
         let flow = compilation
             .storage_flow_facts(source_callable_body_key(&compilation))

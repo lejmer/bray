@@ -855,10 +855,8 @@ mod tests {
         let standard_library = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library package identity must be valid"));
 
-        let ordinary_request = CompilationRequest::new(
-            standard_library,
-            vec![source_input("module std;", 0)],
-        );
+        let ordinary_request =
+            CompilationRequest::new(standard_library, vec![source_input("module std;", 0)]);
 
         let ordinary = Compilation::load(ordinary_request)
             .unwrap_or_else(|error| panic!("ordinary request should load: {error:?}"));
@@ -871,11 +869,9 @@ mod tests {
         let standard_library = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library package identity must be valid"));
 
-        let standard_library_request = CompilationRequest::new(
-            standard_library,
-            vec![source_input("module std;", 0)],
-        )
-        .with_standard_library_source_authority();
+        let standard_library_request =
+            CompilationRequest::new(standard_library, vec![source_input("module std;", 0)])
+                .with_standard_library_source_authority();
 
         let authorized = Compilation::load(standard_library_request)
             .unwrap_or_else(|error| panic!("authorized request should load: {error:?}"));

@@ -88,6 +88,8 @@ pub enum MirAggregateKind {
     Array,
     /// A fixed array produced by repeating one value a checked number of times.
     RepeatedArray,
+    /// The present state of a nullable value.
+    NullablePresent,
 }
 
 /// The normalized result accumulated by one generator expression.

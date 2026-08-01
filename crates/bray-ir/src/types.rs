@@ -107,7 +107,14 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         CheckedMemoryOperationKind::LayoutQuery { ty, .. } => {
             types.insert(ty);
         }
-        CheckedMemoryOperationKind::Allocate | CheckedMemoryOperationKind::Deallocate => {}
+        CheckedMemoryOperationKind::RawAllocate
+        | CheckedMemoryOperationKind::RawDeallocate
+        | CheckedMemoryOperationKind::Allocate
+        | CheckedMemoryOperationKind::Deallocate
+        | CheckedMemoryOperationKind::ByteBufferFill
+        | CheckedMemoryOperationKind::ByteBufferCopy
+        | CheckedMemoryOperationKind::ByteBufferRead
+        | CheckedMemoryOperationKind::ByteBufferRelease => {}
     }
 }
 

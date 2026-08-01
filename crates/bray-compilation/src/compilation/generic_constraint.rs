@@ -13,16 +13,16 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    ConstantTermData, ConstantValueKind, GenericArgument, GenericConstraintObligationKey,
-    GenericConstraintSatisfactionFact, GenericConstraintTemplate, GenericDeclarationTemplate,
-    GenericDeclarationTemplateFact, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericSubstitutionId, ImplementationCandidate, ImplementationRequirementKey,
-    ImplementationSelection, ProofOutcome, SemanticFactResult, SymbolFactRequest,
-    TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate,
+    ConstantValueKind, GenericConstraintObligationKey, GenericConstraintSatisfactionFact,
+    GenericConstraintTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateFact,
+    GenericSubstitutionData, GenericSubstitutionId, ImplementationCandidate,
+    ImplementationRequirementKey, ImplementationSelection, ProofOutcome, SemanticFactResult,
+    SymbolFactRequest, TraitApplicationTemplate, TraitSymbolId, TypeExpressionTemplate,
 };
 
 use super::Compilation;
 use super::checker::{CompilationCheckerContext, checker_result};
+use super::substitution::generic_parameter_argument;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
@@ -141,24 +141,7 @@ impl Compilation {
         let mut arguments = Vec::with_capacity(template.parameters().len());
 
         for parameter in template.parameters() {
-            let argument = match parameter {
-                GenericParameterSymbolId::Type(parameter) => {
-                    let ty = values
-                        .intern_type(TypeData::TypeParameter(*parameter))
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                    GenericArgument::Type(ty)
-                }
-                GenericParameterSymbolId::Const(parameter) => {
-                    let term = values
-                        .intern_constant_term(ConstantTermData::Parameter(*parameter))
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                    GenericArgument::Constant(term)
-                }
-            };
-
-            arguments.push(argument);
+            arguments.push(generic_parameter_argument(values, *parameter)?);
         }
 
         let substitution = GenericSubstitutionData::try_new(

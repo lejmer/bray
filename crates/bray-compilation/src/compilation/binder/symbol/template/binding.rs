@@ -24,9 +24,7 @@ use bray_syntax::{
 use super::super::binding::CompilationSymbolFactBinding;
 use super::super::cache::CompilationSymbolFacts;
 use super::super::environment::{generic_parameter_ids, type_binder};
-use super::super::surface::{
-    declaration_callable_surface, symbol_ordinal, with_declaration_root,
-};
+use super::super::surface::{declaration_callable_surface, symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::binder::symbol::imported::{
     imported_callable_contract, imported_callable_parameter_default, imported_generic_declaration,

@@ -60,7 +60,7 @@ where
             return Ok(None);
         }
 
-        propagate_assignment(request.view(), expression_id, variables, inference);
+        propagate_assignment(request, expression_id, variables, inference)?;
 
         propagate_control_transfer(
             request.view(),
@@ -119,11 +119,208 @@ where
                 block_variables,
                 inference,
             )?,
+            BoundStructuredExpressionKind::Absence => {
+                infer_absence(request, expression_id, variables, inference)?
+            }
+            BoundStructuredExpressionKind::Borrow => {
+                infer_borrow(request, expression_id, expression, variables, inference)?
+            }
+            BoundStructuredExpressionKind::ResultPropagation => {
+                infer_result_propagation(request, expression_id, expression, variables, inference)?
+            }
             _ => {}
         }
     }
 
     Ok(Some(inference.revision() != before))
+}
+
+fn infer_absence<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+        request
+            .semantic_values()
+            .type_data(ty)
+            .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
+
+    if let Some(expected) = expected {
+        inference.add_evidence(variable, expected, expression_id);
+    }
+
+    Ok(())
+}
+
+fn infer_result_propagation<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let Some(operand) = expression.operands().first() else {
+        return Ok(());
+    };
+
+    let Some(operand_type) = variables
+        .get(operand)
+        .and_then(|operand| inference.evidence(*operand))
+    else {
+        return Ok(());
+    };
+
+    let data = request
+        .semantic_values()
+        .type_data(operand_type)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Named { substitution, .. } = data.as_ref() else {
+        return Ok(());
+    };
+
+    if !matches!(
+        type_representation(request, operand_type)?,
+        Some(RepresentationRole::Result | RepresentationRole::RunResult)
+    ) {
+        return Ok(());
+    }
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(*substitution)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let Some(GenericArgument::Type(success)) = substitution
+        .bindings()
+        .first()
+        .map(|binding| binding.argument())
+    else {
+        return Ok(());
+    };
+
+    inference.add_evidence(variable, success, expression_id);
+
+    Ok(())
+}
+
+fn infer_borrow<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    expression: &bray_bound_tree::BoundStructuredExpression,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(kind) = expression.borrow_kind() else {
+        return Ok(());
+    };
+
+    let Some(operand) = expression.operands().first().copied() else {
+        return Ok(());
+    };
+
+    let Some(operand_variable) = variables.get(&operand).copied() else {
+        return Ok(());
+    };
+
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let operand_type = inference.evidence(operand_variable);
+
+    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+        request
+            .semantic_values()
+            .type_data(ty)
+            .map(|data| matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind))
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
+
+    if let Some(expected) = expected {
+        let data = request
+            .semantic_values()
+            .type_data(expected)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let TypeData::Borrow {
+            target: expected_target,
+            ..
+        } = data.as_ref()
+        else {
+            return Ok(());
+        };
+
+        let is_reborrow = match operand_type {
+            Some(operand_type) => {
+                let data = request
+                    .semantic_values()
+                    .type_data(operand_type)
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                matches!(
+                    data.as_ref(),
+                    TypeData::Borrow {
+                        kind: operand_kind,
+                        target,
+                    } if target == expected_target
+                        && (*operand_kind == kind || kind == bray_symbols::BorrowKind::Shared)
+                )
+            }
+            None => false,
+        };
+
+        if !is_reborrow {
+            inference.add_expectation(operand_variable, *expected_target, operand);
+        }
+
+        inference.add_evidence(variable, expected, expression_id);
+
+        return Ok(());
+    }
+
+    if let Some(target) = operand_type {
+        let target_data = request
+            .semantic_values()
+            .type_data(target)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        if matches!(target_data.as_ref(), TypeData::Borrow { .. }) {
+            return Ok(());
+        }
+
+        let ty = request
+            .semantic_values()
+            .intern_type(TypeData::Borrow { kind, target })
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        inference.add_evidence(variable, ty, expression_id);
+
+        return Ok(());
+    }
+
+    Ok(())
 }
 
 fn propagate_blocks<C>(
@@ -230,29 +427,49 @@ fn add_transfer_value(
     }
 }
 
-fn propagate_assignment(
-    view: BoundUnitView<'_>,
+fn propagate_assignment<C>(
+    request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) {
-    let Some(BoundExpression::Assignment(assignment)) = view.expression(expression_id) else {
-        return;
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(BoundExpression::Assignment(assignment)) = request.view().expression(expression_id)
+    else {
+        return Ok(());
     };
 
     let [target, value] = assignment.operands() else {
-        return;
+        return Ok(());
     };
 
     let Some(target) = variables.get(target).copied() else {
-        return;
+        return Ok(());
     };
 
     let Some(expected) = inference.evidence(target) else {
-        return;
+        return Ok(());
     };
 
+    let actual = variables
+        .get(value)
+        .copied()
+        .and_then(|value| inference.evidence(value));
+
+    let expected_data = request
+        .semantic_values()
+        .type_data(expected)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    if matches!(expected_data.as_ref(), TypeData::Nullable(element) if Some(*element) == actual) {
+        return Ok(());
+    }
+
     add_operand_expectation(Some(*value), Some(expected), variables, inference);
+
+    Ok(())
 }
 
 fn infer_tuple<C>(
