@@ -34,7 +34,8 @@ const USAGE: &str = "usage: cargo xtask standard-library <build --output <direct
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
-        Some("build") => BuildOptions::parse(arguments).and_then(|options| build(&options)),
+        Some("build") => BuildOptions::parse(arguments)
+            .and_then(|options| build(&options.source, &options.output)),
         Some("verify") => verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
     };
@@ -114,12 +115,14 @@ fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError>
 }
 
 pub(super) fn compare_bundles(first: &Path, second: &Path) -> Result<(), BuildError> {
-    let first_manifest = read_manifest(first)?;
-    let second_manifest = read_manifest(second)?;
+    let first_manifest_bytes = read_manifest_bytes(first)?;
+    let second_manifest_bytes = read_manifest_bytes(second)?;
 
-    if first_manifest != second_manifest {
+    if first_manifest_bytes != second_manifest_bytes {
         return Err(BuildError::NonReproducibleManifest);
     }
+
+    let first_manifest = decode_manifest(&first_manifest_bytes)?;
 
     compare_artifact(first, second, first_manifest.interface())?;
 
@@ -135,10 +138,19 @@ pub(super) fn compare_bundles(first: &Path, second: &Path) -> Result<(), BuildEr
 }
 
 pub(super) fn read_manifest(root: &Path) -> Result<StandardLibraryBundleManifest, BuildError> {
-    let path = root.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
-    let bytes = fs::read(&path).map_err(|error| BuildError::read(&path, error))?;
+    let bytes = read_manifest_bytes(root)?;
 
-    decode_standard_library_manifest(&bytes)
+    decode_manifest(&bytes)
+}
+
+fn read_manifest_bytes(root: &Path) -> Result<Vec<u8>, BuildError> {
+    let path = root.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
+
+    fs::read(&path).map_err(|error| BuildError::read(&path, error))
+}
+
+fn decode_manifest(bytes: &[u8]) -> Result<StandardLibraryBundleManifest, BuildError> {
+    decode_standard_library_manifest(bytes)
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))
 }
 
@@ -165,19 +177,19 @@ fn compare_artifact(
     Ok(())
 }
 
-fn build(options: &BuildOptions) -> Result<PathBuf, BuildError> {
-    let graph = load_standard_library_project_graph(&options.source)
+pub(super) fn build(source: &Path, output: &Path) -> Result<PathBuf, BuildError> {
+    let graph = load_standard_library_project_graph(source)
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
     let product = standard_library_product(&graph)?;
-    let parent = options.output.parent().unwrap_or_else(|| Path::new("."));
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
 
     fs::create_dir_all(parent).map_err(|error| BuildError::write(parent, error))?;
 
-    let _publication = PublicationLock::acquire(&options.output)?;
+    let _publication = PublicationLock::acquire(output)?;
 
-    if options.output.exists() {
-        return Err(BuildError::OutputExists(options.output.clone()));
+    if output.exists() {
+        return Err(BuildError::OutputExists(output.to_path_buf()));
     }
 
     let staging = tempfile::Builder::new()
@@ -190,7 +202,7 @@ fn build(options: &BuildOptions) -> Result<PathBuf, BuildError> {
     fs::create_dir(&bundle).map_err(|error| BuildError::write(&bundle, error))?;
 
     let work = staging.path().join("work");
-    let manifest = build_bundle(product, &options.source, &work, &bundle)?;
+    let manifest = build_bundle(product, source, &work, &bundle)?;
     let manifest_path = bundle.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
     let manifest_bytes = encode_standard_library_manifest(&manifest)
@@ -199,10 +211,9 @@ fn build(options: &BuildOptions) -> Result<PathBuf, BuildError> {
     fs::write(&manifest_path, manifest_bytes)
         .map_err(|error| BuildError::write(&manifest_path, error))?;
 
-    fs::rename(&bundle, &options.output)
-        .map_err(|error| BuildError::publish(&bundle, &options.output, error))?;
+    fs::rename(&bundle, output).map_err(|error| BuildError::publish(&bundle, output, error))?;
 
-    Ok(options.output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
+    Ok(output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
 }
 
 struct PublicationLock {
@@ -694,9 +705,12 @@ impl fmt::Display for BuildError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
-    use super::{BuildError, BuildOptions};
+    use bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME;
+
+    use super::{BuildError, BuildOptions, compare_bundles};
 
     #[test]
     fn build_options_require_an_output_and_reject_unknown_arguments() {
@@ -726,5 +740,31 @@ mod tests {
 
         assert_eq!(options.source, PathBuf::from("source"));
         assert_eq!(options.output, PathBuf::from("output"));
+    }
+
+    #[test]
+    fn bundle_comparison_rejects_different_manifest_bytes_before_decoding() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let first = directory.path().join("first");
+        let second = directory.path().join("second");
+
+        fs::create_dir(&first)
+            .unwrap_or_else(|error| panic!("first bundle root must exist: {error}"));
+
+        fs::create_dir(&second)
+            .unwrap_or_else(|error| panic!("second bundle root must exist: {error}"));
+
+        fs::write(first.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME), [0])
+            .unwrap_or_else(|error| panic!("first manifest must exist: {error}"));
+
+        fs::write(second.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME), [1])
+            .unwrap_or_else(|error| panic!("second manifest must exist: {error}"));
+
+        assert!(matches!(
+            compare_bundles(&first, &second),
+            Err(BuildError::NonReproducibleManifest)
+        ));
     }
 }

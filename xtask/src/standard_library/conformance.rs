@@ -4,31 +4,31 @@ use std::path::Path;
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticKind;
 use bray_package_interface::{
-    ExportSymbolInput, InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSemanticFacts, InterfaceValidationPolicy, PackageInterfaceExportBundle,
-    PackageInterfaceIdentity, ValidatedPackageInterface, build_package_interface_surface,
-    encode_package_interface,
+    InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
+    InterfaceValidationPolicy, ValidatedPackageInterface,
 };
+use bray_project::{PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME};
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
-    StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-    StandardLibraryLoadError, StandardLibraryResolver, StandardLibraryRoot,
-    StandardLibraryTargetArtifacts, encode_standard_library_manifest,
+    StandardLibraryBundleManifest, StandardLibraryLoadError, StandardLibraryResolver,
+    StandardLibraryRoot,
 };
-use bray_symbols::{ExternalSymbolKey, PackageIdentity};
-use bray_target::TargetIdentity;
+use bray_symbols::PackageIdentity;
+use bray_target::{NativeTarget, TargetIdentity};
 
-use super::command::{BuildError, compare_bundles, read_manifest, write_bundle_artifact};
+use super::command::{BuildError, build, compare_bundles, read_manifest, write_bundle_artifact};
 
 pub(super) fn verify(scratch: &Path) -> Result<(), BuildError> {
     let first = scratch.join("first");
     let second = scratch.join("second");
+    let source = scratch.join("source");
 
-    write_synthetic_bundle(&first, false)?;
-    write_synthetic_bundle(&second, true)?;
+    write_synthetic_project(&source)?;
+    build(&source, &first)?;
+    build(&source, &second)?;
     compare_bundles(&first, &second)?;
 
     verify_bundle(&first, scratch)
@@ -46,110 +46,70 @@ fn verify_bundle(bundle: &Path, scratch: &Path) -> Result<(), BuildError> {
     verify_artifact_integrity(bundle, &scratch.join("corrupted-artifact"), &manifest)
 }
 
-fn write_synthetic_bundle(root: &Path, reverse_targets: bool) -> Result<(), BuildError> {
-    let interface_bytes = package_interface_bytes()?;
+fn write_synthetic_project(root: &Path) -> Result<(), BuildError> {
+    let target = NativeTarget::current().ok_or_else(|| {
+        BuildError::conformance(
+            "production-build",
+            "the compiler host has no supported native target",
+        )
+    })?;
 
-    let interface = StandardLibraryArtifact::try_for_bytes(
-        StandardLibraryArtifactKind::PackageInterface,
-        "interfaces/std.brayi",
-        &interface_bytes,
+    write_file(
+        &root.join(WORKSPACE_MANIFEST_FILE_NAME),
+        &format!(
+            r#"{{
+                "format": 1,
+                "output_root": "build",
+                "targets": [{{"name": "native", "identity": "{}"}}],
+                "packages": [{{"path": "std", "role": "root"}}]
+            }}"#,
+            target.as_str()
+        ),
+    )?;
+
+    write_file(
+        &root.join("std").join(PACKAGE_MANIFEST_FILE_NAME),
+        r#"{
+            "format": 1,
+            "identity": "std",
+            "source_roots": [{"name": "library", "path": "src"}],
+            "products": [{
+                "name": "library",
+                "kind": "library",
+                "source_roots": ["library"],
+                "targets": ["native"],
+                "outputs": ["package_interface", "static_library"]
+            }]
+        }"#,
+    )?;
+
+    write_file(
+        &root.join("std").join("src").join("std.bray"),
+        "module std;\n",
     )
-    .map_err(|error| BuildError::conformance("manifest", format!("{error:?}")))?;
-
-    write_bundle_artifact(root, interface.path(), &interface_bytes)?;
-
-    let mut targets = [
-        synthetic_target(
-            root,
-            "aarch64-unknown-linux-gnu",
-            RuntimeAbiVersion::new(1, 1),
-            b"aarch64 standard library archive",
-        )?,
-        synthetic_target(
-            root,
-            "x86_64-unknown-linux-gnu",
-            RuntimeAbiVersion::new(1, 0),
-            b"x86-64 standard library archive",
-        )?,
-    ];
-
-    if reverse_targets {
-        targets.reverse();
-    }
-
-    let manifest = StandardLibraryBundleManifest::try_new(interface, targets)
-        .map_err(|error| BuildError::conformance("manifest", format!("{error:?}")))?;
-
-    let bytes = encode_standard_library_manifest(&manifest)
-        .map_err(|error| BuildError::conformance("manifest", format!("{error:?}")))?;
-
-    write_bundle_artifact(root, STANDARD_LIBRARY_MANIFEST_FILE_NAME, &bytes)
 }
 
-fn package_interface_bytes() -> Result<Vec<u8>, BuildError> {
-    let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
-        .ok_or(BuildError::InvalidIdentity)?;
+fn write_file(path: &Path, contents: &str) -> Result<(), BuildError> {
+    let Some(parent) = path.parent() else {
+        return Err(BuildError::conformance(
+            "production-build",
+            format!("{} has no parent directory", path.display()),
+        ));
+    };
 
-    let product = InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
-        .ok_or(BuildError::InvalidIdentity)?;
+    fs::create_dir_all(parent).map_err(|error| {
+        BuildError::conformance(
+            "production-build",
+            format!("could not create {}: {error}", parent.display()),
+        )
+    })?;
 
-    let identity = PackageInterfaceIdentity::try_new(
-        package.clone(),
-        product,
-        InterfaceProductKind::Library,
-        PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
-    )
-    .ok_or(BuildError::InvalidIdentity)?;
-
-    let package_key = ExternalSymbolKey::package(package);
-
-    let surface = build_package_interface_surface(
-        identity,
-        [],
-        [ExportSymbolInput::new(package_key, None)],
-        [],
-        [],
-    )
-    .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
-
-    let export = PackageInterfaceExportBundle::try_new(
-        surface,
-        InterfaceSemanticFacts::new(),
-        InterfaceLanguageRevision::new(0),
-    )
-    .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
-
-    encode_package_interface(&export)
-        .map(|artifact| artifact.bytes().to_vec())
-        .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))
-}
-
-fn synthetic_target(
-    root: &Path,
-    target: &str,
-    runtime_abi: RuntimeAbiVersion,
-    bytes: &[u8],
-) -> Result<StandardLibraryTargetArtifacts, BuildError> {
-    let target = TargetIdentity::try_new(target).ok_or(BuildError::InvalidIdentity)?;
-
-    let path = format!(
-        "targets/{}/{}.{}/libstd.a",
-        target.as_str(),
-        runtime_abi.major(),
-        runtime_abi.minor()
-    );
-
-    let artifact = StandardLibraryArtifact::try_for_bytes(
-        StandardLibraryArtifactKind::StaticLibrary,
-        path,
-        bytes,
-    )
-    .map_err(|error| BuildError::conformance("manifest", format!("{error:?}")))?;
-
-    write_bundle_artifact(root, artifact.path(), bytes)?;
-
-    StandardLibraryTargetArtifacts::try_new(target, runtime_abi, [artifact])
-        .map_err(|error| BuildError::conformance("manifest", format!("{error:?}")))
+    fs::write(path, contents).map_err(|error| {
+        BuildError::conformance(
+            "production-build",
+            format!("could not write {}: {error}", path.display()),
+        )
+    })
 }
 
 fn verify_package_interface(resolver: &StandardLibraryResolver) -> Result<(), BuildError> {
