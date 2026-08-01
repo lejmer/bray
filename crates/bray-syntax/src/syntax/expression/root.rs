@@ -1,3 +1,4 @@
+use crate::green::GreenElement;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
@@ -129,6 +130,19 @@ define_source_syntax_node! {
 }
 
 impl ExpressionSyntax {
+    /// Returns whether this expression is a direct block-shaped expression.
+    pub fn is_block_shaped(&self) -> bool {
+        if !matches!(
+            self.node.children(),
+            [GreenElement::Node(node)] if node.kind() == SyntaxKind::PrimaryExpression
+        ) {
+            return false;
+        }
+
+        self.primary_expression()
+            .is_some_and(|primary| primary.is_block_shaped())
+    }
+
     /// Returns the operator token when this expression is operator-shaped.
     pub fn operator_token(&self) -> Option<SyntaxToken> {
         self.node

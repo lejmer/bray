@@ -636,7 +636,17 @@ block-expression =
 block-item =
       block-level-declaration
     | generator-iteration-expression
+    | block-shaped-expression
     | sequenced-expression ;
+
+block-shaped-expression =
+      block-expression
+    | conditional-expression
+    | match-expression
+    | while-expression
+    | for-expression
+    | loop-expression
+    | with-expression ;
 
 sequenced-expression =
     expression ";" ;
@@ -647,8 +657,11 @@ local-binding-declaration =
 
 Block expressions can be empty.
 
-Sequenced expressions always end with `;`. A block expression does not use a final un-terminated expression as its result; value
-production is handled by `yield`.
+A block-shaped expression is self-delimiting and can appear directly as a block item without a trailing `;`. It may instead use a
+trailing `;`, in which case it is a sequenced expression.
+
+Other expression block items are sequenced expressions and always end with `;`. A block expression does not use a final
+unterminated expression as its result; value production is handled by `yield`.
 
 Block-level declarations are local binding declarations and constant declarations.
 

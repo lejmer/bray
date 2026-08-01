@@ -1,6 +1,7 @@
 use bray_syntax::{
     BlockExpressionSyntax, BlockExpressionSyntaxBuilder, BlockItemSyntax, BlockItemSyntaxBuilder,
-    LocalBindingDeclarationSyntax, SequencedExpressionSyntax, SyntaxKind, SyntaxToken,
+    ExpressionSyntax, LocalBindingDeclarationSyntax, SequencedExpressionSyntax, SyntaxKind,
+    SyntaxToken,
 };
 
 use super::expression::EXPRESSION_START_KINDS;
@@ -74,7 +75,7 @@ impl Parser {
             builder
                 .push_generator_iteration_expression(self.parse_generator_iteration_expression());
         } else if self.at_block_expression_item_start() {
-            builder.push_sequenced_expression(self.parse_sequenced_expression());
+            self.parse_expression_block_item(&mut builder);
         } else {
             self.recover_unknown_block_item(&mut builder);
         }
@@ -120,12 +121,27 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_sequenced_expression(&mut self) -> SequencedExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = SequencedExpressionSyntax::builder(self.syntax_source(), start);
+    fn parse_expression_block_item(&mut self, builder: &mut BlockItemSyntaxBuilder) {
         let mut at_expression_boundary = Parser::at_block_item_end_or_following_declaration;
+        let expression = self.parse_expression_until(&mut at_expression_boundary);
 
-        builder.push_expression(self.parse_expression_until(&mut at_expression_boundary));
+        if expression.is_block_shaped() && !self.at(SyntaxKind::SemicolonToken) {
+            builder.push_block_shaped_expression(expression);
+
+            return;
+        }
+
+        builder.push_sequenced_expression(self.parse_sequenced_expression(expression));
+    }
+
+    fn parse_sequenced_expression(
+        &mut self,
+        expression: ExpressionSyntax,
+    ) -> SequencedExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = SequencedExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
 
         self.recover_until_predicate(&mut builder, |parser| {
             parser.at_block_item_end_or_following_declaration()
@@ -240,6 +256,177 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_unterminated_block_shaped_expression_items() {
+        let source_text = concat!(
+            "{ ",
+            "{} ",
+            "if true {} ",
+            "match value { case _ {} } ",
+            "while true {} ",
+            "for item in items {} ",
+            "loop {} ",
+            "with item = value {} ",
+            "tail; ",
+            "}",
+        );
+
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        let block = parser
+            .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+        let diagnostics = parser.finish();
+        let items = block.block_items().collect::<Vec<_>>();
+
+        let [
+            block_item,
+            conditional,
+            match_item,
+            while_item,
+            for_item,
+            loop_item,
+            with_item,
+            tail,
+        ] = items.as_slice()
+        else {
+            panic!("expected seven block-shaped items and one sequence: {items:?}");
+        };
+
+        for item in [
+            block_item,
+            conditional,
+            match_item,
+            while_item,
+            for_item,
+            loop_item,
+            with_item,
+        ] {
+            let Some(expression) = item.block_shaped_expression() else {
+                panic!("expected unterminated block-shaped expression: {item:?}");
+            };
+
+            assert!(expression.is_block_shaped());
+        }
+
+        assert!(tail.sequenced_expression().is_some());
+        assert_eq!(block.full_text(), source_text);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn parser_keeps_explicitly_terminated_block_shaped_expressions_sequenced() {
+        let source_text = "{ if true {}; tail; }";
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        let block = parser
+            .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+        let diagnostics = parser.finish();
+        let items = block.block_items().collect::<Vec<_>>();
+
+        let [conditional, tail] = items.as_slice() else {
+            panic!("expected two sequenced expressions: {items:?}");
+        };
+
+        assert!(conditional.sequenced_expression().is_some());
+        assert!(tail.sequenced_expression().is_some());
+        assert_eq!(block.full_text(), source_text);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn parser_requires_semicolons_after_postfixes_on_block_shaped_primaries() {
+        let expressions = [
+            "if true {}.member",
+            "if true {}[0]",
+            "if true {}[0..1]",
+            "if true {}()",
+            "if true {}?",
+            "if true {} as i32",
+            "if true {}(Display).format",
+        ];
+
+        for expression_text in expressions {
+            let source_text = format!("{{ {expression_text} let next = 1; }}");
+            let sources = source_store([source_text.as_str()]);
+            let snapshot = source(&sources, 0);
+            let insertion = marker_offset(&source_text, "let");
+            let mut parser = Parser::new(snapshot);
+
+            let block = parser
+                .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+            let diagnostics = parser.finish();
+            let items = block.block_items().collect::<Vec<_>>();
+
+            let [expression_item, following_item] = items.as_slice() else {
+                panic!("expected expression and following local binding: {items:?}");
+            };
+
+            let Some(sequence) = expression_item.sequenced_expression() else {
+                panic!("postfix expression must require a semicolon: {expression_item:?}");
+            };
+
+            let Some(expression) = sequence.expression() else {
+                panic!("sequenced block item must retain its expression");
+            };
+
+            assert!(!expression.is_block_shaped(), "{expression_text}");
+            assert!(sequence.semicolon_token().is_missing(), "{expression_text}");
+            assert_eq!(sequence.semicolon_token().range(), TextRange::empty(insertion));
+            assert!(following_item.local_binding_declaration().is_some());
+            assert_eq!(block.full_text(), source_text);
+
+            assert_eq!(
+                diagnostic_kinds(&diagnostics),
+                [DiagnosticKind::SyntaxExpectedToken],
+                "{expression_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_requires_semicolons_for_non_block_shaped_expression_items() {
+        let source_text = "{ value }";
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let insertion = marker_offset(source_text, "}");
+        let mut parser = Parser::new(snapshot);
+
+        let block = parser
+            .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+        let diagnostics = parser.finish();
+        let items = block.block_items().collect::<Vec<_>>();
+
+        let [item] = items.as_slice() else {
+            panic!("expected one sequenced expression: {items:?}");
+        };
+
+        let Some(sequence) = item.sequenced_expression() else {
+            panic!("expected non-block-shaped expression to remain sequenced");
+        };
+
+        assert!(sequence.semicolon_token().is_missing());
+
+        assert_eq!(
+            sequence.semicolon_token().range(),
+            TextRange::empty(insertion)
+        );
+
+        assert_eq!(block.full_text(), source_text);
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxExpectedToken]
+        );
     }
 
     #[test]

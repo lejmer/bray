@@ -152,26 +152,26 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::assert_expression_cases_until_semicolon_for_test;
+    use super::super::test_support::assert_expression_cases_to_eof_for_test;
 
     #[test]
     fn parser_parses_conditional_while_for_and_loop_expressions() {
         let cases = [
             (
-                "if ready { yield value; } else if next { yield next; };",
+                "if ready { yield value; } else if next { yield next; }",
                 "if ready { yield value; } else if next { yield next; }",
             ),
             (
-                "while ready { continue; } else { break; };",
+                "while ready { continue; } else { break; }",
                 "while ready { continue; } else { break; }",
             ),
             (
-                "for item in mut items { yield item; } else { yield none; };",
+                "for item in mut items { yield item; } else { yield none; }",
                 "for item in mut items { yield item; } else { yield none; }",
             ),
-            ("loop { break; };", "loop { break; }"),
+            ("loop { break; }", "loop { break; }"),
         ];
 
-        assert_expression_cases_until_semicolon_for_test(&cases);
+        assert_expression_cases_to_eof_for_test(&cases);
     }
 }

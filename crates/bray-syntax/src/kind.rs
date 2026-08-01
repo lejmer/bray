@@ -760,6 +760,20 @@ impl SyntaxKind {
         )
     }
 
+    /// Returns whether this kind is a self-delimiting block-shaped expression root.
+    pub const fn is_block_shaped_expression(self) -> bool {
+        matches!(
+            self,
+            Self::BlockExpression
+                | Self::ConditionalExpression
+                | Self::MatchExpression
+                | Self::WhileExpression
+                | Self::ForExpression
+                | Self::LoopExpression
+                | Self::WithExpression
+        )
+    }
+
     /// Returns whether this kind represents a literal-pattern token.
     pub const fn is_pattern_literal(self) -> bool {
         self.is_literal() || matches!(self, Self::TrueKeyword | Self::FalseKeyword)
@@ -1279,6 +1293,16 @@ mod tests {
         assert!(SyntaxKind::PlusToken.is_expression_operator());
         assert!(!SyntaxKind::ArrowToken.is_expression_operator());
         assert!(!SyntaxKind::DotDotToken.is_expression_operator());
+
+        assert!(SyntaxKind::BlockExpression.is_block_shaped_expression());
+        assert!(SyntaxKind::ConditionalExpression.is_block_shaped_expression());
+        assert!(SyntaxKind::MatchExpression.is_block_shaped_expression());
+        assert!(SyntaxKind::WhileExpression.is_block_shaped_expression());
+        assert!(SyntaxKind::ForExpression.is_block_shaped_expression());
+        assert!(SyntaxKind::LoopExpression.is_block_shaped_expression());
+        assert!(SyntaxKind::WithExpression.is_block_shaped_expression());
+        assert!(!SyntaxKind::LambdaExpression.is_block_shaped_expression());
+        assert!(!SyntaxKind::GeneralGeneratorExpression.is_block_shaped_expression());
     }
 
     #[test]

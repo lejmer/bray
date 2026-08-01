@@ -43,6 +43,9 @@ A block expression in `unit` context can complete normally.
 }
 ```
 
+A block expression used directly as a block item is self-delimiting and does not require a trailing semicolon. The same rule applies
+to conditional, match, while, for, loop, and with expressions. Other expression block items are terminated with semicolons.
+
 A block expression whose control flow has no normal continuation has type `never`.
 
 A block expression’s exits must merge to coherent type, ownership, initialization, destruction, finalization, capability, effect, and fact-context state.

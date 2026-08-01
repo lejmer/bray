@@ -116,9 +116,8 @@ where
                     &declaration,
                     operations,
                 )?));
-            } else if let Some(expression) = item.sequenced_expression() {
-                let expression =
-                    operations.bind_expression(self, scope, expression.expression().as_ref())?;
+            } else if let Some(expression) = item.expression() {
+                let expression = operations.bind_expression(self, scope, Some(&expression))?;
 
                 items.push(BoundBlockItem::Expression(expression));
             } else if let Some(expression) = item.generator_iteration_expression() {

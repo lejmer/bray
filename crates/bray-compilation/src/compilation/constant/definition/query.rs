@@ -854,7 +854,7 @@ mod tests {
             "    else\n",
             "    {\n",
             "        return fallback;\n",
-            "    };\n",
+            "    }\n",
             "}\n",
         ));
 

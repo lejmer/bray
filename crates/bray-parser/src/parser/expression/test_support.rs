@@ -7,8 +7,16 @@ use crate::test_support::source;
 use super::super::state::Parser;
 
 pub(super) fn assert_expression_cases_until_semicolon_for_test(cases: &[(&str, &str)]) {
+    assert_expression_cases_until_kind_for_test(cases, SyntaxKind::SemicolonToken);
+}
+
+pub(super) fn assert_expression_cases_to_eof_for_test(cases: &[(&str, &str)]) {
+    assert_expression_cases_until_kind_for_test(cases, SyntaxKind::EndOfFileToken);
+}
+
+fn assert_expression_cases_until_kind_for_test(cases: &[(&str, &str)], boundary: SyntaxKind) {
     for (source_text, expected_text) in cases {
-        let (expression, diagnostics) = parse_expression_until_semicolon_for_test(source_text);
+        let (expression, diagnostics) = parse_expression_until_kind_for_test(source_text, boundary);
 
         assert_eq!(expression.full_text(), *expected_text, "{source_text}");
         assert!(diagnostics.is_empty(), "{source_text}: {diagnostics:?}");
@@ -18,13 +26,26 @@ pub(super) fn assert_expression_cases_until_semicolon_for_test(cases: &[(&str, &
 pub(super) fn parse_expression_until_semicolon_for_test(
     source_text: &str,
 ) -> (ExpressionSyntax, DiagnosticBag) {
+    parse_expression_until_kind_for_test(source_text, SyntaxKind::SemicolonToken)
+}
+
+pub(super) fn parse_expression_to_eof_for_test(
+    source_text: &str,
+) -> (ExpressionSyntax, DiagnosticBag) {
+    parse_expression_until_kind_for_test(source_text, SyntaxKind::EndOfFileToken)
+}
+
+fn parse_expression_until_kind_for_test(
+    source_text: &str,
+    boundary: SyntaxKind,
+) -> (ExpressionSyntax, DiagnosticBag) {
     let sources = source_store([source_text]);
     let snapshot = source(&sources, 0);
 
     let mut parser = Parser::new(snapshot);
-    let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+    let mut at_boundary = |parser: &mut Parser| parser.at(boundary);
 
-    let expression = parser.parse_expression_until(&mut boundary);
+    let expression = parser.parse_expression_until(&mut at_boundary);
     let diagnostics = parser.finish();
 
     (expression, diagnostics)

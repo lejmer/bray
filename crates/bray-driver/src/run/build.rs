@@ -485,7 +485,7 @@ mod tests {
                 "    if true\n",
                 "    {\n",
                 "        helper();\n",
-                "    };\n",
+                "    }\n",
                 "}\n",
             )
             .as_bytes(),

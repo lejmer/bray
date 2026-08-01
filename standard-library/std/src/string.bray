@@ -49,7 +49,7 @@ impl ScalarCursorIterator = ScalarCursor(Iterator)
             let exhausted: char? = none;
 
             return exhausted;
-        };
+        }
 
         let next_index: usize = index + 1;
 

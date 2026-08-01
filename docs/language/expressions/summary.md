@@ -6,7 +6,7 @@ Expressions can produce values, access paths, control-flow outcomes, or compile-
 
 Block expressions always have a type.
 
-Sequenced expressions use semicolons.
+Sequenced expressions use semicolons. Self-delimiting block-shaped expressions can instead appear directly as block items.
 
 Callable results are supplied with `return`.
 
