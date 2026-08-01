@@ -41,10 +41,9 @@ The public surface belongs to the canonical `std` package:
 | `std.time` | Durations, monotonic instants, wall-clock values, deadlines, and timer adapters |
 | `std.random` | System entropy and deterministic pseudorandom generators |
 
-The canonical initial declaration names, parameter modes, owner types, error types, blocking requirements, asynchronous variants,
-and result shapes are defined by the
-[initial public declaration surface](../language/io-and-platform-services.md#initial-public-declaration-surface). Standard-library
-source and package interfaces must preserve that declaration-level contract.
+The canonical declaration names, parameter modes, owner types, error types, blocking requirements, asynchronous variants, and
+result shapes are defined by the [I/O and platform standard-library surface](io-and-platform-surface.md). Standard-library source
+and package interfaces must preserve that declaration-level contract.
 
 These are ordinary Bray modules. Their declarations follow normal visibility, import, overload, implementation, ownership,
 checking, and compiled-interface rules. No module or declaration becomes ambient merely because it belongs to `std`.
