@@ -525,6 +525,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::DependencyContracts(key.clone())
     });
 
+    reuse!(memory_operations, |key| {
+        CompilationFactKey::MemoryOperations(key.clone())
+    });
+
     reuse!(async_facts, |key| {
         CompilationFactKey::AsyncFacts(key.clone())
     });

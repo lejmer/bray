@@ -6,9 +6,9 @@ use bray_binder::BinderDependency;
 use bray_bound_tree::{
     BodyBehaviorContributions, BoundUnit, BoundUnitKey, CheckedAsyncFacts, CheckedBodyBehavior,
     CheckedControlFlowFacts, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, LivenessFacts, SelectedIterationSource, StorageFlowFacts,
-    StoragePlan,
+    CheckedLiteralValues, CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, SelectedIterationSource,
+    StorageFlowFacts, StoragePlan,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_codegen::{CodegenConfiguration, CodegenOutcome};
@@ -161,6 +161,7 @@ pub(super) struct CompilationState {
     pub(super) refinement_facts: UnitFactCache<CheckedRefinementFacts>,
     pub(super) storage_flow_facts: UnitFactCache<StorageFlowFacts>,
     pub(super) dependency_contracts: UnitFactCache<CheckedDependencyContracts>,
+    pub(super) memory_operations: UnitFactCache<CheckedMemoryOperations>,
     pub(super) async_facts: UnitFactCache<CheckedAsyncFacts>,
     pub(super) body_behavior_contributions: UnitFactCache<BodyBehaviorContributions>,
     pub(super) checked_body_behaviors: UnitFactCache<CheckedBodyBehavior>,
@@ -337,6 +338,7 @@ impl Compilation {
                 refinement_facts: UnitFactCache::new(),
                 storage_flow_facts: UnitFactCache::new(),
                 dependency_contracts: UnitFactCache::new(),
+                memory_operations: UnitFactCache::new(),
                 async_facts: UnitFactCache::new(),
                 body_behavior_contributions: UnitFactCache::new(),
                 checked_body_behaviors: UnitFactCache::new(),

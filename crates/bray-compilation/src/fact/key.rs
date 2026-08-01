@@ -326,6 +326,8 @@ pub(crate) enum CompilationFactKey {
     StorageFlowFacts(BoundUnitKey),
     /// Normalized dependency contracts for semantic occurrences in one bound unit.
     DependencyContracts(BoundUnitKey),
+    /// Checked compiler-provided memory operations for one bound unit.
+    MemoryOperations(BoundUnitKey),
     /// Async frame, suspension, task, and cleanup facts for one bound unit.
     AsyncFacts(BoundUnitKey),
     /// Direct callable and runtime-default behavior contributions from one bound unit.
@@ -429,6 +431,7 @@ impl CompilationFactKey {
             | Self::RefinementFacts(key)
             | Self::StorageFlowFacts(key)
             | Self::DependencyContracts(key)
+            | Self::MemoryOperations(key)
             | Self::AsyncFacts(key)
             | Self::BodyBehaviorContributions(key)
             | Self::CheckedBodyBehavior(key)

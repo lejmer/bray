@@ -10,6 +10,7 @@ mod context;
 mod dependency;
 mod diagnostic;
 mod expression;
+mod memory;
 mod outcome;
 mod pattern;
 mod representation;
@@ -66,11 +67,11 @@ pub use service::{
     DefaultAsyncChecker, DefaultBodyBehaviorCollector, DefaultConstantChecker,
     DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultDependencyContractChecker,
     DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultLivenessAnalyzer,
-    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
-    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
-    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
-    PatternChecker, RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
-    TargetValidityChecker,
+    DefaultMemoryOperationChecker, DefaultPatternChecker, DefaultRefinementAnalyzer,
+    DefaultSemanticSelector, DefaultStorageFlowChecker, DefaultStoragePlanner,
+    DefaultTargetValidityChecker, DependencyContractChecker, ExpressionSemanticChecker,
+    ExpressionTypeChecker, LivenessAnalyzer, MemoryOperationChecker, PatternChecker,
+    RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, CheckedRefinementFacts, LivenessFacts, StorageAccessId,
-    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
-    StoragePlan,
+    AnyBoundNodeId, BorrowCapabilityId, CheckedMemoryOperations, CheckedRefinementFacts,
+    LivenessFacts, StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
+    StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
 
@@ -123,6 +123,9 @@ pub(super) struct StorageFlowState {
     pub(super) moved: BTreeSet<StorageAccessId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
+    pub(super) raw_initialized: BTreeMap<StorageIdentityId, BTreeSet<TypeId>>,
+    pub(super) active_allocations: BTreeSet<StorageIdentityId>,
+    pub(super) invalidated_allocations: BTreeSet<StorageIdentityId>,
     pub(super) recovered: bool,
 }
 
@@ -145,6 +148,9 @@ impl StorageFlowState {
             moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
+            raw_initialized: BTreeMap::new(),
+            active_allocations: BTreeSet::new(),
+            invalidated_allocations: BTreeSet::new(),
             recovered: false,
         }
     }
@@ -166,6 +172,16 @@ impl StorageFlowState {
         let moved_count = self.moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
+        let raw_storage_count = self.raw_initialized.len();
+
+        let raw_initialized_count = self
+            .raw_initialized
+            .values()
+            .map(BTreeSet::len)
+            .sum::<usize>();
+
+        let active_allocation_count = self.active_allocations.len();
+        let invalidated_allocation_count = self.invalidated_allocations.len();
         let was_recovered = self.recovered;
 
         self.live.retain(|storage| incoming.live.contains(storage));
@@ -181,6 +197,22 @@ impl StorageFlowState {
         self.definitely_active_borrows
             .retain(|borrow| incoming.definitely_active_borrows.contains(borrow));
 
+        self.raw_initialized.retain(|storage, initialized| {
+            let Some(incoming) = incoming.raw_initialized.get(storage) else {
+                return false;
+            };
+
+            initialized.retain(|ty| incoming.contains(ty));
+
+            !initialized.is_empty()
+        });
+
+        self.active_allocations
+            .retain(|storage| incoming.active_allocations.contains(storage));
+
+        self.invalidated_allocations
+            .extend(incoming.invalidated_allocations.iter().copied());
+
         self.recovered |= incoming.recovered;
 
         self.live.len() != live_count
@@ -188,6 +220,15 @@ impl StorageFlowState {
             || self.moved.len() != moved_count
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
+            || self.raw_initialized.len() != raw_storage_count
+            || self
+                .raw_initialized
+                .values()
+                .map(BTreeSet::len)
+                .sum::<usize>()
+                != raw_initialized_count
+            || self.active_allocations.len() != active_allocation_count
+            || self.invalidated_allocations.len() != invalidated_allocation_count
             || self.recovered != was_recovered
     }
 }
@@ -201,6 +242,7 @@ where
     storage: &'analysis StoragePlan,
     liveness: &'analysis LivenessFacts,
     refinements: &'analysis CheckedRefinementFacts,
+    memory: &'analysis CheckedMemoryOperations,
     input: &'analysis StorageFlowInput,
     request: CheckerUnitView<'analysis, C>,
 }
@@ -215,6 +257,7 @@ where
         storage: &'analysis StoragePlan,
         liveness: &'analysis LivenessFacts,
         refinements: &'analysis CheckedRefinementFacts,
+        memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
         request: CheckerUnitView<'analysis, C>,
     ) -> Self {
@@ -224,6 +267,7 @@ where
             storage,
             liveness,
             refinements,
+            memory,
             input,
             request,
         }
@@ -238,6 +282,7 @@ where
             self.storage,
             self.liveness,
             self.refinements,
+            self.memory,
             self.input,
         );
 
@@ -306,6 +351,7 @@ where
             .len()
             .saturating_add(self.storage.accesses().len())
             .saturating_add(self.storage.borrow_capabilities().len())
+            .saturating_add(self.storage.identities().len().saturating_mul(3))
             .saturating_add(2);
 
         graph.blocks().len().saturating_mul(domain_size)

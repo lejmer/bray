@@ -168,6 +168,9 @@ impl Compilation {
                 let refinements =
                     self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
 
+                let memory =
+                    self.memory_operations_with_cancellation(key.clone(), cancellation)?;
+
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -186,6 +189,7 @@ impl Compilation {
                     storage.result().value(),
                     liveness.result().value(),
                     refinements.result().value(),
+                    memory.result().value(),
                 ))?;
 
                 let (facts, flow_diagnostics) = result.into_parts();
@@ -195,6 +199,7 @@ impl Compilation {
                     storage.result().diagnostics(),
                     liveness.result().diagnostics(),
                     refinements.result().diagnostics(),
+                    memory.result().diagnostics(),
                     &flow_diagnostics,
                 ]);
 

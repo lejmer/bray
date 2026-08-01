@@ -7,6 +7,7 @@ use crate::behavior::collect_body_behavior;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::dependency::check_dependency_contracts;
 use crate::expression::check_expression_semantics;
+use crate::memory::check_memory_operations;
 use crate::pattern::check_patterns;
 use crate::selection::{select_callable, select_iteration_source, select_operation};
 use crate::storage::plan_storage;
@@ -20,9 +21,10 @@ use crate::{
 };
 use bray_bound_tree::{
     BodyBehaviorContributions, CheckedAsyncFacts, CheckedControlFlowFacts,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts,
-    CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
-    SelectedCall, SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, SelectedCall,
+    SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
@@ -82,6 +84,10 @@ pub struct DefaultDependencyContractChecker;
 /// The standard Bray async frame and structured-task checker.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultAsyncChecker;
+
+/// The standard Bray compiler-provided memory-operation checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultMemoryOperationChecker;
 
 /// The standard Bray direct body-behavior collector.
 #[derive(Clone, Copy, Debug, Default)]
@@ -227,8 +233,9 @@ where
         storage: &StoragePlan,
         liveness: &LivenessFacts,
         refinements: &CheckedRefinementFacts,
+        memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<StorageFlowFacts> {
-        check_storage_flow(request, storage, liveness, refinements)
+        check_storage_flow(request, storage, liveness, refinements, memory)
     }
 }
 
@@ -256,6 +263,26 @@ where
 
 impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
     C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
+
+/// Compiler-provided memory-operation checking over one selected bound unit.
+pub trait MemoryOperationChecker<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Classifies checked memory calls and their ownership and fact effects.
+    fn check_memory_operations(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        selections: &CheckedSemanticSelections,
+    ) -> CheckerOutcome<CheckedMemoryOperations> {
+        check_memory_operations(request, selections)
+    }
+}
+
+impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
+    C: CheckerRequestContext + ?Sized
 {
 }
 
