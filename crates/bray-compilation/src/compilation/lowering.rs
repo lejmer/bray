@@ -177,20 +177,24 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
-    use bray_bound_tree::{BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind};
+    use bray_bound_tree::{
+        BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind, SemanticSelection,
+    };
+    use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{MirOperand, MirOperationKind, MirTerminatorKind, MirUnit};
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_symbols::{ProductKind, TypeData};
+    use bray_symbols::{PackageIdentity, ProductKind, TypeData};
 
     use super::Compilation;
     use crate::test_support::{
         compilation, compilation_with_sources_and_worker_budget,
         compilation_with_target_operations, package_identity, source_callable_body_key,
-        source_input,
+        source_function_body_key, source_input,
     };
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
@@ -1251,6 +1255,103 @@ mod tests {
                 CheckedMemoryOperationKind::RawAllocate,
                 CheckedMemoryOperationKind::RawDeallocate,
             ]
+        );
+    }
+
+    #[test]
+    fn standard_text_calls_select_exact_implementation_hooks() {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library identity must be valid"));
+
+        let request = CompilationRequest::with_options(
+            package,
+            vec![
+                source_input(
+                    include_str!("../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
+                source_input(
+                    include_str!("../../../../standard-library/std/src/string.bray"),
+                    1,
+                ),
+                source_input(
+                    include_str!("../../../../standard-library/std/src/character.bray"),
+                    2,
+                ),
+                source_input(
+                    include_str!("../../../../xtask/fixtures/native-execution/standard-string.bray"),
+                    3,
+                ),
+                source_input(
+                    include_str!("../../../../xtask/fixtures/native-execution/standard-character.bray"),
+                    4,
+                ),
+            ],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        )
+        .with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard text compilation must load: {error:?}"));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let kinds = ["exercise_text_operations", "exercise_character_operations"]
+            .into_iter()
+            .flat_map(|name| {
+                let key = source_function_body_key(&compilation, name);
+
+                let selections = compilation
+                    .semantic_selections(key.clone())
+                    .unwrap_or_else(|error| {
+                        panic!("standard text selections for {name} must be available: {error:?}")
+                    });
+
+                assert!(
+                    selections.diagnostics().is_empty(),
+                    "{name}: {:#?}",
+                    selections.diagnostics()
+                );
+
+                selections
+                    .value()
+                    .entries()
+                    .iter()
+                    .filter_map(|entry| match entry.selection() {
+                        SemanticSelection::Call(call) => call.implementation_hook(),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(
+            kinds,
+            BTreeSet::from([
+                ImplementationHook::StringScalarCount,
+                ImplementationHook::StringIsEmpty,
+                ImplementationHook::StringEquals,
+                ImplementationHook::StringScalarAt,
+                ImplementationHook::StringScalarSlice,
+                ImplementationHook::StringUtf8,
+                ImplementationHook::StringFromUtf8,
+                ImplementationHook::StringScalars,
+                ImplementationHook::StringScalarCursorNext,
+                ImplementationHook::CharacterScalarValue,
+                ImplementationHook::CharacterFromScalarValue,
+                ImplementationHook::CharacterUtf8Length,
+                ImplementationHook::CharacterIsAlphabetic,
+                ImplementationHook::CharacterIsNumeric,
+                ImplementationHook::CharacterIsWhitespace,
+            ])
         );
     }
 

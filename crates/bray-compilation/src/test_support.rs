@@ -309,6 +309,31 @@ pub(crate) fn source_callable_body_key(compilation: &Compilation) -> BoundUnitKe
     source_callable_body_key_from_symbols(compilation, symbols)
 }
 
+pub(crate) fn source_function_body_key(compilation: &Compilation, name: &str) -> BoundUnitKey {
+    let symbols = compilation
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+    let function = source_function(compilation, name);
+
+    let Some(function) = symbols.function(function) else {
+        panic!("source function must exist");
+    };
+
+    let Some(anchor) = function.syntax_anchor() else {
+        panic!("source function must retain its syntax anchor");
+    };
+
+    let Some(source) = compilation.source(anchor.source_id()) else {
+        panic!("function source must be loaded");
+    };
+
+    valid_key(BoundUnitKey::callable_body(
+        function.key().clone(),
+        BoundSourceAnchor::new(anchor, source.version()),
+    ))
+}
+
 pub(crate) fn source_function(compilation: &Compilation, name: &str) -> FunctionSymbolId {
     let symbols = compilation
         .symbol_graph()

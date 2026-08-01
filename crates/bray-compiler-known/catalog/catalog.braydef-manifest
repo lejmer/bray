@@ -9,4 +9,5 @@ core/memory.braydef
 recognized/conversion.braydef
 recognized/memory.braydef
 recognized/string.braydef
+recognized/character.braydef
 ambient/capabilities.braydef

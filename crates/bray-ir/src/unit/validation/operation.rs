@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "operation validation keeps exhaustive cross-operation invariants auditable together")
+
 use std::collections::BTreeSet;
 
 use bray_bound_tree::BoundUnitKind;
@@ -95,6 +97,19 @@ pub(super) fn validate_operation(
         MirOperationKind::Memory(operation) => {
             super::memory::validate_memory_operation(unit, block, id, operation)?;
         }
+        MirOperationKind::Text(operation) => {
+            if operation.operands().len() != operation.operand_types().len() {
+                return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            }
+
+            for (operand, ty) in operation.operands().iter().zip(operation.operand_types()) {
+                validate_operand(unit, operand, block, Some(id))?;
+
+                if operand_type(unit, operand)? != *ty {
+                    return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+                }
+            }
+        }
         MirOperationKind::Async(operation) => {
             validate_async_operation(unit, block, id, operation)?;
         }
@@ -161,6 +176,7 @@ fn validate_operation_block(
         | MirOperationKind::Convert { .. }
         | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
+        | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_) => true,
     };
 
@@ -198,6 +214,9 @@ fn validate_operation_result(
             )
     );
 
+    let requires_result = requires_result
+        || matches!(operation.kind(), MirOperationKind::Text(text) if text.result_type().is_some());
+
     let rejects_result = matches!(
         operation.kind(),
         MirOperationKind::Store { .. }
@@ -224,12 +243,29 @@ fn validate_operation_result(
             )
     );
 
+    let rejects_result = rejects_result
+        || matches!(operation.kind(), MirOperationKind::Text(text) if text.result_type().is_none());
+
     if requires_result && operation.result().is_none() {
         return Err(MirUnitBuildError::MissingOperationResult(id));
     }
 
     if rejects_result && operation.result().is_some() {
         return Err(MirUnitBuildError::UnexpectedOperationResult(id));
+    }
+
+    if let (
+        MirOperationKind::Text(text),
+        Some(result),
+    ) = (operation.kind(), operation.result())
+    {
+        let Some(result) = unit.value(result) else {
+            return Err(MirUnitBuildError::MissingValue(result));
+        };
+
+        if Some(result.ty()) != text.result_type() {
+            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+        }
     }
 
     if let (

@@ -8,6 +8,7 @@ mod memory;
 mod place;
 mod scalar;
 mod support;
+mod text;
 mod value;
 
 pub(crate) use core::{TranslationError, UnitTranslator, translate_instances};

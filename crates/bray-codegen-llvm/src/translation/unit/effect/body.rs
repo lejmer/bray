@@ -1,7 +1,6 @@
 use super::super::core::UnitTranslator;
 use super::super::support::{
     aggregate_value_element, extract_value, insert_value, int_value, llvm, next_helper,
-    pointer_field_index,
 };
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
@@ -84,6 +83,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirOperationKind::Call(call) => self.translate_call(id, call)?,
             MirOperationKind::Memory(memory) => self.translate_memory(id, operation, memory)?,
+            MirOperationKind::Text(text) => self.translate_text(text)?,
             MirOperationKind::PatternProjection {
                 subject,
                 projection,
@@ -205,16 +205,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .mappings()
             .ty(message_type)
             .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => Some(fields.clone()),
+                CodegenTypeKind::Aggregate(fields)
+                    if fields.len() == 3
+                        && mapping.behavior() == Some(bray_codegen::CodegenTypeBehavior::String) =>
+                {
+                    Some(fields.clone())
+                }
                 _ => None,
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let pointer = pointer_field_index(self.request.mappings(), &fields)?;
-
-        let length = 1_usize
-            .checked_sub(pointer)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let pointer = 0;
+        let length = 2;
 
         let pointer_element = u32::try_from(aggregate_value_element(
             self.request.mappings(),

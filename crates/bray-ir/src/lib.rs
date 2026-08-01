@@ -37,7 +37,8 @@ pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,
     MirConstructionInput, MirFrameInitializer, MirGeneratorKind, MirGeneratorOperation,
     MirHostOperation, MirMemoryOperation, MirOperation, MirOperationCommit, MirOperationKind,
-    MirPanicCause, MirStoreKind, MirTaskTerminalState, MirUnaryOperator,
+    MirPanicCause, MirStoreKind, MirTaskTerminalState, MirTextOperation, MirTextOperationKind,
+    MirUnaryOperator,
 };
 pub use reference::{
     MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirFieldReference,

@@ -95,6 +95,7 @@ fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedC
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(_)
         | MirOperationKind::Memory(_)
+        | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)

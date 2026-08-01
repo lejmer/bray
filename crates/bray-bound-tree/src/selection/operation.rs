@@ -4,8 +4,8 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     AnySymbolId, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, ImplementationRequirementKey, StructFieldDefaultProviderSymbolId,
-    StructFieldSymbolId, StructSymbolId, TypeId, UnionPayloadDefaultProviderSymbolId,
-    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    ReceiverParameterSignature, StructFieldSymbolId, StructSymbolId, TypeId,
+    UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::{
@@ -52,6 +52,7 @@ impl SelectionKind {
 pub struct MemberTarget {
     member: AnySymbolId,
     result_type: TypeId,
+    receiver: Option<ReceiverParameterSignature>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
 
@@ -65,8 +66,16 @@ impl MemberTarget {
         Self {
             member,
             result_type,
+            receiver: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
+    }
+
+    /// Returns a member target with its resolved implicit receiver contract.
+    pub fn with_receiver(mut self, receiver: ReceiverParameterSignature) -> Self {
+        self.receiver = Some(receiver);
+
+        self
     }
 
     /// Returns the exact selected member.
@@ -77,6 +86,11 @@ impl MemberTarget {
     /// Returns the member access result type.
     pub const fn result_type(&self) -> TypeId {
         self.result_type
+    }
+
+    /// Returns the resolved implicit receiver when this target is callable.
+    pub const fn receiver(&self) -> Option<ReceiverParameterSignature> {
+        self.receiver
     }
 
     /// Returns implementation requirements and witnesses in canonical order.

@@ -711,6 +711,55 @@ fn operation_parts(
 
             "memory"
         }
+        MirOperationKind::Text(text) => {
+            parts.attribute(
+                "operation",
+                match text.kind() {
+                    bray_ir::MirTextOperationKind::ScalarCount => "scalar_count",
+                    bray_ir::MirTextOperationKind::IsEmpty => "is_empty",
+                    bray_ir::MirTextOperationKind::Equals => "equals",
+                    bray_ir::MirTextOperationKind::ScalarAt => "scalar_at",
+                    bray_ir::MirTextOperationKind::ScalarSlice => "scalar_slice",
+                    bray_ir::MirTextOperationKind::Utf8 => "utf8",
+                    bray_ir::MirTextOperationKind::FromUtf8 => "from_utf8",
+                    bray_ir::MirTextOperationKind::Scalars => "scalars",
+                    bray_ir::MirTextOperationKind::ScalarCursorNext => "scalar_cursor_next",
+                    bray_ir::MirTextOperationKind::CharacterScalarValue => {
+                        "character_scalar_value"
+                    }
+                    bray_ir::MirTextOperationKind::CharacterFromScalarValue => {
+                        "character_from_scalar_value"
+                    }
+                    bray_ir::MirTextOperationKind::CharacterUtf8Length => {
+                        "character_utf8_length"
+                    }
+                    bray_ir::MirTextOperationKind::CharacterIsAlphabetic => {
+                        "character_is_alphabetic"
+                    }
+                    bray_ir::MirTextOperationKind::CharacterIsNumeric => {
+                        "character_is_numeric"
+                    }
+                    bray_ir::MirTextOperationKind::CharacterIsWhitespace => {
+                        "character_is_whitespace"
+                    }
+                    bray_ir::MirTextOperationKind::Release => "release",
+                },
+            );
+
+            for (index, operand) in text.operands().iter().enumerate() {
+                parts.operand(format!("argument[{index}]"), operand, context)?;
+            }
+
+            for (index, ty) in text.operand_types().iter().copied().enumerate() {
+                parts.r#type(format!("argument[{index}]"), ty, context)?;
+            }
+
+            if let Some(result) = text.result_type() {
+                parts.r#type("result", result, context)?;
+            }
+
+            "text"
+        }
         MirOperationKind::PanicReport(cause) => {
             match cause {
                 MirPanicCause::Message(message) => parts.operand("message", message, context)?,

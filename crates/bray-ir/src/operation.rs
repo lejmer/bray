@@ -101,6 +101,89 @@ pub enum MirGeneratorKind {
     General,
 }
 
+/// Compiler-provided UTF-8 text behavior selected for one call.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirTextOperationKind {
+    /// Count Unicode scalar values.
+    ScalarCount,
+    /// Test whether text is empty.
+    IsEmpty,
+    /// Compare text values for equality.
+    Equals,
+    /// Select one Unicode scalar by scalar index.
+    ScalarAt,
+    /// Copy one half-open scalar range into owned text.
+    ScalarSlice,
+    /// Borrow the underlying valid UTF-8 bytes.
+    Utf8,
+    /// Validate and copy borrowed UTF-8 bytes into owned text.
+    FromUtf8,
+    /// Create a scalar cursor over borrowed text.
+    Scalars,
+    /// Advance a mutable scalar cursor.
+    ScalarCursorNext,
+    /// Return a character's Unicode scalar value.
+    CharacterScalarValue,
+    /// Construct a character from a valid Unicode scalar value.
+    CharacterFromScalarValue,
+    /// Return a character's UTF-8 encoded length.
+    CharacterUtf8Length,
+    /// Test whether a character is alphabetic.
+    CharacterIsAlphabetic,
+    /// Test whether a character is numeric.
+    CharacterIsNumeric,
+    /// Test whether a character is whitespace.
+    CharacterIsWhitespace,
+    /// Release one owned text storage reference.
+    Release,
+}
+
+/// One explicit UTF-8 text operation with evaluated operands.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirTextOperation {
+    kind: MirTextOperationKind,
+    operands: Arc<[MirOperand]>,
+    operand_types: Arc<[TypeId]>,
+    result_type: Option<TypeId>,
+}
+
+impl MirTextOperation {
+    /// Creates one text operation in evaluation order.
+    pub fn new(
+        kind: MirTextOperationKind,
+        operands: impl IntoIterator<Item = MirOperand>,
+        operand_types: impl IntoIterator<Item = TypeId>,
+        result_type: Option<TypeId>,
+    ) -> Self {
+        Self {
+            kind,
+            operands: shared_slice(operands),
+            operand_types: shared_slice(operand_types),
+            result_type,
+        }
+    }
+
+    /// Returns the selected text behavior.
+    pub const fn kind(&self) -> MirTextOperationKind {
+        self.kind
+    }
+
+    /// Returns evaluated operands in declaration order.
+    pub fn operands(&self) -> &[MirOperand] {
+        &self.operands
+    }
+
+    /// Returns selected operand types in declaration order.
+    pub fn operand_types(&self) -> &[TypeId] {
+        &self.operand_types
+    }
+
+    /// Returns the exact operation result type.
+    pub const fn result_type(&self) -> Option<TypeId> {
+        self.result_type
+    }
+}
+
 /// One explicit compiler-provided memory operation with evaluated operands.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirMemoryOperation {
@@ -541,6 +624,8 @@ pub enum MirOperationKind {
     Call(MirCall),
     /// Perform one checked compiler-provided memory operation.
     Memory(MirMemoryOperation),
+    /// Perform one compiler-provided UTF-8 text operation.
+    Text(MirTextOperation),
     /// Create an owned panic report from one checked failure cause.
     PanicReport(MirPanicCause),
     /// Run checked finalization for a storage place.

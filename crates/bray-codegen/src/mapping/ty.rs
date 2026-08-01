@@ -342,6 +342,13 @@ pub enum CodegenTypeKind {
     Callable(Arc<CodegenCallableSignature>),
 }
 
+/// Semantic behavior attached to one protected physical representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CodegenTypeBehavior {
+    /// Immutable UTF-8 text with shared owned storage.
+    String,
+}
+
 impl CodegenTypeKind {
     /// Creates an ordered aggregate representation.
     pub fn aggregate(fields: impl IntoIterator<Item = CodegenFieldLayout>) -> Self {
@@ -378,6 +385,7 @@ pub struct CodegenTypeMapping {
     ty: TypeId,
     layout: Option<TargetValueLayout>,
     kind: CodegenTypeKind,
+    behavior: Option<CodegenTypeBehavior>,
 }
 
 impl CodegenTypeMapping {
@@ -387,6 +395,7 @@ impl CodegenTypeMapping {
             ty,
             layout: Some(layout),
             kind,
+            behavior: None,
         }
     }
 
@@ -396,7 +405,18 @@ impl CodegenTypeMapping {
             ty,
             layout: None,
             kind,
+            behavior: None,
         }
+    }
+
+    /// Returns this mapping with its optional semantic behavior.
+    pub const fn with_behavior(
+        mut self,
+        behavior: Option<CodegenTypeBehavior>,
+    ) -> Self {
+        self.behavior = behavior;
+
+        self
     }
 
     /// Returns the semantic type identity.
@@ -412,5 +432,10 @@ impl CodegenTypeMapping {
     /// Returns the backend-neutral physical representation.
     pub const fn kind(&self) -> &CodegenTypeKind {
         &self.kind
+    }
+
+    /// Returns semantic behavior attached to this representation.
+    pub const fn behavior(&self) -> Option<CodegenTypeBehavior> {
+        self.behavior
     }
 }

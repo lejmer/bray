@@ -1,7 +1,6 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_value_element, insert_value, integer_constant, llvm, pointer_field_index, real_width,
-    real_words,
+    aggregate_value_element, insert_value, integer_constant, llvm, real_width, real_words,
 };
 use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{MirImmediateValue, MirOperand};
@@ -38,10 +37,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperand::Copy(place) => {
                 let pointer = self.place(place)?;
 
-                llvm(
+                let value = llvm(
                     self.builder
                         .build_load(self.types.map(place.ty())?, pointer, "load"),
-                )
+                )?;
+
+                if matches!(operand, MirOperand::Copy(_)) {
+                    self.retain_string(value, place.ty())?;
+                }
+
+                Ok(value)
             }
             MirOperand::Move(place) => {
                 let pointer = self.place(place)?;
@@ -357,14 +362,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match mapping.kind() {
             CodegenTypeKind::Pointer { .. } => Ok(pointer),
-            CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => {
+            CodegenTypeKind::Aggregate(fields)
+                if fields.len() == 3
+                    && mapping.behavior() == Some(bray_codegen::CodegenTypeBehavior::String) =>
+            {
                 let mut value = self.types.map(ty)?.const_zero();
-
-                let pointer_index = pointer_field_index(self.request.mappings(), fields)?;
-
-                let length_index = 1_usize
-                    .checked_sub(pointer_index)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let pointer_index = 0;
+                let length_index = 2;
 
                 let BasicTypeEnum::IntType(length_type) =
                     self.types.map(fields[length_index].ty())?

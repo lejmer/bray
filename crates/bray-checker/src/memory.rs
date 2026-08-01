@@ -373,7 +373,22 @@ where
         | ImplementationHook::TaskCancel
         | ImplementationHook::BlockingExecution
         | ImplementationHook::ComputeExecution
-        | ImplementationHook::MainThreadExecution => return Ok(None),
+        | ImplementationHook::MainThreadExecution
+        | ImplementationHook::StringScalarCount
+        | ImplementationHook::StringIsEmpty
+        | ImplementationHook::StringEquals
+        | ImplementationHook::StringScalarAt
+        | ImplementationHook::StringScalarSlice
+        | ImplementationHook::StringUtf8
+        | ImplementationHook::StringFromUtf8
+        | ImplementationHook::StringScalars
+        | ImplementationHook::StringScalarCursorNext
+        | ImplementationHook::CharacterScalarValue
+        | ImplementationHook::CharacterFromScalarValue
+        | ImplementationHook::CharacterUtf8Length
+        | ImplementationHook::CharacterIsAlphabetic
+        | ImplementationHook::CharacterIsNumeric
+        | ImplementationHook::CharacterIsWhitespace => return Ok(None),
     };
 
     Ok(Some(kind))

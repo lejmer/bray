@@ -172,9 +172,12 @@ func is_numeric(value: char) -> bool;
 func is_whitespace(value: char) -> bool;
 ```
 
-`from_scalar_value` returns `none` for values that are not Unicode scalar values. Classification follows the Unicode data version
-selected by the standard-library artifact and is independent of the host locale. Case conversion and normalization remain
-separate policy-bearing additions because one input scalar can produce multiple output scalars.
+`from_scalar_value` returns `none` for values that are not Unicode scalar values. The initial character-classification contract
+uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact and its private runtime ABI must
+agree on that exact Unicode data version. Changing the classification data requires a deliberate runtime ABI compatibility update
+and rebuilt standard-library artifacts, so an unchanged artifact and ABI cannot silently acquire new classification behavior from
+a host toolchain update. Case conversion and normalization remain separate policy-bearing additions because one input scalar can
+produce multiple output scalars.
 
 ## Bytes And Buffers
 

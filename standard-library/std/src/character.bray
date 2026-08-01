@@ -1,0 +1,31 @@
+module std.character;
+
+func scalar_value(value: char) -> u32
+{
+    return loop {};
+}
+
+func from_scalar_value(value: u32) -> char?
+{
+    return loop {};
+}
+
+func utf8_length(value: char) -> usize
+{
+    return loop {};
+}
+
+func is_alphabetic(value: char) -> bool
+{
+    return loop {};
+}
+
+func is_numeric(value: char) -> bool
+{
+    return loop {};
+}
+
+func is_whitespace(value: char) -> bool
+{
+    return loop {};
+}
