@@ -272,6 +272,9 @@ impl FixedPointDomain for LivenessDomain<'_> {
 
     fn should_seed(&self, block: &AnalysisBlock) -> bool {
         self.reachability.is_block_reachable(block.id())
+            && self
+                .transfer(block)
+                .is_some_and(|transfer| !transfer.generated.is_empty())
     }
 
     fn boundary(&self) -> Self::State {

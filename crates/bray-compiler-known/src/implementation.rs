@@ -102,6 +102,8 @@ define_catalog_enum! {
         CharacterFromScalarValue => "CharacterFromScalarValue",
         /// Returns a character's UTF-8 encoded length.
         CharacterUtf8Length => "CharacterUtf8Length",
+        /// Returns one byte from a character's UTF-8 encoding.
+        CharacterUtf8Byte => "CharacterUtf8Byte",
         /// Tests whether a character is alphabetic in the selected Unicode data.
         CharacterIsAlphabetic => "CharacterIsAlphabetic",
         /// Tests whether a character is numeric in the selected Unicode data.
@@ -184,6 +186,7 @@ mod tests {
             ImplementationHook::CharacterScalarValue,
             ImplementationHook::CharacterFromScalarValue,
             ImplementationHook::CharacterUtf8Length,
+            ImplementationHook::CharacterUtf8Byte,
             ImplementationHook::CharacterIsAlphabetic,
             ImplementationHook::CharacterIsNumeric,
             ImplementationHook::CharacterIsWhitespace,

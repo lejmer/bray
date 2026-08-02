@@ -6,7 +6,9 @@ use bray_symbols::{
     GenericSubstitutionId, TypeData, TypeId,
 };
 
-use crate::{CallableCandidate, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CallableCandidate, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView,
+};
 
 pub(super) fn infer_call_generic_arguments<C>(
     request: CheckerUnitView<'_, C>,
@@ -300,10 +302,10 @@ mod tests {
     };
 
     use super::GenericArgumentInference;
+    use crate::CheckerUnitView;
     use crate::test_support::{
         TestCheckerContext, callable_entry, expression_unit, semantic_values,
     };
-    use crate::CheckerUnitView;
 
     #[test]
     fn nested_named_types_infer_open_type_arguments() {
@@ -317,18 +319,14 @@ mod tests {
 
         let values = semantic_values();
 
-        let target_parameter =
-            GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(1_001));
+        let target_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(1_001));
 
-        let source_parameter =
-            GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(1_002));
+        let source_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(1_002));
 
-        let named_parameter =
-            GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(1_003));
+        let named_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(1_003));
 
-        let definition = NamedTypeSymbolId::Struct(StructSymbolId::from_symbol_id(SymbolId::new(
-            1_004,
-        )));
+        let definition =
+            NamedTypeSymbolId::Struct(StructSymbolId::from_symbol_id(SymbolId::new(1_004)));
 
         let expected_argument = values
             .intern_type(TypeData::TypeParameter(target_parameter))

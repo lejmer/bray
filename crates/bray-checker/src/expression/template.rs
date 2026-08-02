@@ -8,9 +8,9 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
     CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
-    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument,
-    ConstantTermData, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
-    PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
+    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData,
+    ConstantTermData, GenericArgument, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericSubstitutionId, PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
@@ -190,8 +190,6 @@ pub(super) fn resolve_declaration_candidate<C>(
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
-    let values = request.semantic_values();
-
     if template.generic_arguments().len() != template.generic().parameters().len() {
         return Ok(TemplateResolution::Unsupported);
     }
@@ -201,6 +199,38 @@ where
             TemplateResolution::Resolved(arguments) => arguments,
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
         };
+
+    resolve_declaration_candidate_with_arguments(request, template, arguments, diagnostics)
+}
+
+pub(super) fn resolve_open_declaration_candidate<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    template: &CallableDeclarationCandidateTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<CallableCandidate, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let arguments = open_generic_arguments(request, template.generic().parameters())?;
+
+    match resolve_declaration_candidate_with_arguments(request, template, arguments, diagnostics)? {
+        TemplateResolution::Resolved(candidate) => Ok(candidate),
+        TemplateResolution::Unsupported => {
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+        }
+    }
+}
+
+pub(super) fn resolve_declaration_candidate_with_arguments<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    template: &CallableDeclarationCandidateTemplate,
+    arguments: Vec<GenericArgument>,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let values = request.semantic_values();
 
     let substitution = GenericSubstitutionData::try_new(
         template.generic().owner(),

@@ -74,6 +74,9 @@ pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_fro
 /// Stable symbol returning a character's UTF-8 encoded length.
 pub const CHARACTER_UTF8_LENGTH_SYMBOL: &str = "bray_runtime_character_utf8_length_v1";
 
+/// Stable symbol returning one byte from a character's UTF-8 encoding.
+pub const CHARACTER_UTF8_BYTE_SYMBOL: &str = "bray_runtime_character_utf8_byte_v1";
+
 /// Stable symbol testing whether a character is alphabetic.
 pub const CHARACTER_IS_ALPHABETIC_SYMBOL: &str = "bray_runtime_character_is_alphabetic_v1";
 

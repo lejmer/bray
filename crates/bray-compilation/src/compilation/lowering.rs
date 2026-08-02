@@ -1297,6 +1297,7 @@ mod tests {
                 ImplementationHook::CharacterScalarValue,
                 ImplementationHook::CharacterFromScalarValue,
                 ImplementationHook::CharacterUtf8Length,
+                ImplementationHook::CharacterUtf8Byte,
                 ImplementationHook::CharacterIsAlphabetic,
                 ImplementationHook::CharacterIsNumeric,
                 ImplementationHook::CharacterIsWhitespace,
@@ -1480,7 +1481,7 @@ mod tests {
             .value()
             .as_ref()
             .and_then(LoweredUnit::mir)
-            .unwrap_or_else(|| panic!("checked executable unit must produce MIR"))
+            .unwrap_or_else(|| panic!("checked executable unit must produce MIR: {result:#?}"))
     }
 
     fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {

@@ -87,6 +87,15 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
+        if candidate.is_none() && matches!(expression, BoundExpression::UnqualifiedVariant(_)) {
+            return Ok(Some(OperationResolution::new(
+                key.expression(),
+                result_type,
+                [],
+                None,
+            )));
+        }
+
         let selected = self.select_operation(
             key,
             facts,

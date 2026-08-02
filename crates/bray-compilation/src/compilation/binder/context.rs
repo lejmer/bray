@@ -70,9 +70,47 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         &self,
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
-        Ok(self
+        let mut package_prefix = String::new();
+        let mut selected = None;
+
+        for component in components {
+            if !package_prefix.is_empty() {
+                package_prefix.push('.');
+            }
+
+            package_prefix.push_str(component);
+
+            let dependency = self
+                .compilation
+                .state
+                .dependency_interfaces
+                .binary_search_by(|dependency| {
+                    dependency.package().as_str().cmp(package_prefix.as_str())
+                })
+                .ok();
+
+            if let Some(dependency) = dependency {
+                selected = Some(dependency);
+            }
+        }
+
+        let Some(dependency) = selected else {
+            return Ok(None);
+        };
+
+        let identity = self.compilation.state.dependency_interfaces[dependency].package();
+
+        let symbols = self
             .imported_symbols()?
-            .and_then(|symbols| ImportedPathRoot::select(symbols, components)))
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        let package = symbols
+            .package_by_identity(identity)
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        ImportedPathRoot::for_path(symbols, package.id(), components)
+            .map(Some)
+            .ok_or(BinderFactError::DependencyUnavailable)
     }
 
     pub(in crate::compilation) fn imported_symbols(

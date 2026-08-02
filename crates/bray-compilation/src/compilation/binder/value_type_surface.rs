@@ -45,7 +45,7 @@ impl DeclaredValueTypeBinding<'_> {
             BoundUnitKind::ConstantTemplate => self.bind_constant_surface(),
             BoundUnitKind::EmbeddedConstant => self.bind_embedded_constant_surface(),
             BoundUnitKind::PredicateDefinition => self.bind_predicate_surface(),
-            BoundUnitKind::Constraint => self.bind_predicate_results(),
+            BoundUnitKind::Constraint => Ok(()),
             BoundUnitKind::ContractClause => self.bind_contract_surface(),
             BoundUnitKind::TargetGate => self.bind_target_gate_surface(),
         }
@@ -278,7 +278,6 @@ impl DeclaredValueTypeBinding<'_> {
 
     fn bind_contract_surface(&mut self) -> BinderFactResult<()> {
         self.bind_callable_surface(self.owner, false)?;
-        self.bind_predicate_results()?;
 
         let result = self
             .unit
@@ -312,39 +311,6 @@ impl DeclaredValueTypeBinding<'_> {
             DeclaredValueTypeTerm::Expression(expression),
             TypeExpressionTemplate::Resolved(boolean),
         );
-
-        Ok(())
-    }
-
-    fn bind_predicate_results(&mut self) -> BinderFactResult<()> {
-        let expressions = match self.unit.root() {
-            BoundUnitRoot::Expression(expression) => vec![expression],
-            BoundUnitRoot::ExpressionSequence(block) => self
-                .unit
-                .view()
-                .block(block)
-                .ok_or(BinderFactError::DependencyUnavailable)?
-                .items()
-                .iter()
-                .filter_map(|item| item.expression())
-                .collect(),
-            BoundUnitRoot::CallableBody { .. } | BoundUnitRoot::AnonymousCallable { .. } => {
-                return Err(BinderFactError::DependencyUnavailable);
-            }
-        };
-
-        let boolean = self
-            .context
-            .compilation()
-            .target_fact_type(TargetFactKind::ScalarBool)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
-
-        for expression in expressions {
-            self.add_evidence(
-                DeclaredValueTypeTerm::Expression(expression),
-                TypeExpressionTemplate::Resolved(boolean),
-            );
-        }
 
         Ok(())
     }

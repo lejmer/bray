@@ -134,8 +134,10 @@ impl CallableCandidate {
         let mut defaults = defaults.into_iter().collect::<Vec<_>>();
 
         let substitution = match resolution.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => instance.substitution(),
-            _ => unreachable!("declaration candidates have declaration targets"),
+            bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
+                Some(instance.substitution())
+            }
+            _ => None,
         };
 
         defaults.sort_unstable_by_key(|(parameter, _)| *parameter);
@@ -149,7 +151,7 @@ impl CallableCandidate {
             contract: None,
             defaults: defaults.into(),
             generic_constraints: Arc::new([]),
-            generic_substitution: Some(substitution),
+            generic_substitution: substitution,
             implementation_selections: Arc::new([]),
             state,
         }
@@ -176,6 +178,19 @@ impl CallableCandidate {
             implementation_selections: Arc::new([]),
             state,
         }
+    }
+
+    /// Retains declaration parameter identities for a callable member value.
+    pub(crate) fn with_declaration_signature(mut self, signature: CallableSignature) -> Self {
+        let substitution = match self.resolution.target() {
+            bray_bound_tree::BoundCallableTarget::Declaration(instance) => instance.substitution(),
+            _ => unreachable!("declaration signatures require declaration targets"),
+        };
+
+        self.declaration_signature = Some(signature);
+        self.generic_substitution = Some(substitution);
+
+        self
     }
 
     /// Creates a compile-time predicate candidate with a concrete callable surface.

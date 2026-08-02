@@ -12,14 +12,14 @@ use crate::lookup::{
     NameReference, ResolvedName, bind_source_path, classify_type, combine_name_lookups,
     lookup_diagnostic, lookup_surface_name, lookup_surface_name_with_imports,
 };
-use crate::{BinderFactError, BinderFactResult, ImportedPathRoot};
+use crate::{BinderFactError, BinderFactResult};
 
 impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,
     ) -> BinderFactResult<TraitApplicationTemplate> {
-        let definition = self.bind_trait_path(&syntax.path());
+        let definition = self.bind_trait_path(&syntax.path())?;
 
         let MemberLookupResult::Found(definition) = definition else {
             return Err(BinderFactError::DependencyUnavailable);
@@ -80,44 +80,46 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_type_path(
         &mut self,
         path: &PathSyntax,
-    ) -> MemberLookupResult<crate::lookup::ResolvedTypeName, ResolvedName> {
-        let lookup = self.bind_path(path).classify(classify_type);
+    ) -> BinderFactResult<MemberLookupResult<crate::lookup::ResolvedTypeName, ResolvedName>> {
+        let lookup = self.bind_path(path)?.classify(classify_type);
 
         self.report_lookup(path, DiagnosticNameKind::Type, &lookup);
 
-        lookup
+        Ok(lookup)
     }
 
     pub(super) fn bind_trait_path(
         &mut self,
         path: &PathSyntax,
-    ) -> MemberLookupResult<TraitSymbolId, ResolvedName> {
-        let lookup = self.bind_path(path).classify(|name| match name {
+    ) -> BinderFactResult<MemberLookupResult<TraitSymbolId, ResolvedName>> {
+        let lookup = self.bind_path(path)?.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Trait(id)) => Some(id),
             ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
         });
 
         self.report_lookup(path, DiagnosticNameKind::Trait, &lookup);
 
-        lookup
+        Ok(lookup)
     }
 
     pub(super) fn bind_trait_type_member(
         &mut self,
         definition: TraitSymbolId,
         syntax: &TypeExpressionSyntax,
-    ) -> MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName> {
+    ) -> BinderFactResult<MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName>> {
         let Some(token) = syntax.identifier_token() else {
-            return MemberLookupResult::Malformed(Box::new([]));
+            return Ok(MemberLookupResult::Malformed(Box::new([])));
         };
 
         let Some(text) = token_text(syntax.source(), &token) else {
-            return MemberLookupResult::Malformed(Box::new([]));
+            return Ok(MemberLookupResult::Malformed(Box::new([])));
         };
+
+        let imported_symbols = self.imports.imported_symbols()?;
 
         let lookup = lookup_surface_name_with_imports(
             self.symbols,
-            self.imported_symbols,
+            imported_symbols,
             definition.into(),
             text,
             crate::lookup::NameAccess::Internal,
@@ -133,23 +135,25 @@ impl TypeExpressionBinder<'_> {
             self.diagnostics.add(diagnostic);
         }
 
-        lookup
+        Ok(lookup)
     }
 
-    fn bind_path(&self, path: &PathSyntax) -> MemberLookupResult<ResolvedName> {
+    fn bind_path(&self, path: &PathSyntax) -> BinderFactResult<MemberLookupResult<ResolvedName>> {
         let references = path
             .identifier_tokens()
             .filter_map(|token| token_text(path.source(), &token))
             .collect::<Vec<_>>();
 
         let Some(first) = references.first() else {
-            return MemberLookupResult::Malformed(Box::new([]));
+            return Ok(MemberLookupResult::Malformed(Box::new([])));
         };
 
         if references.len() == 1
             && let Some(parameter) = self.type_parameters.get(*first).copied()
         {
-            return MemberLookupResult::Found(ResolvedName::Surface(parameter.into()));
+            return Ok(MemberLookupResult::Found(ResolvedName::Surface(
+                parameter.into(),
+            )));
         }
 
         if references.len() == 1
@@ -163,7 +167,7 @@ impl TypeExpressionBinder<'_> {
             );
 
             if contextual != MemberLookupResult::NotFound {
-                return contextual;
+                return Ok(contextual);
             }
         }
 
@@ -175,7 +179,7 @@ impl TypeExpressionBinder<'_> {
         );
 
         let Some(module) = self.module else {
-            return ambient;
+            return Ok(ambient);
         };
 
         let ordinary = combine_name_lookups(
@@ -188,18 +192,16 @@ impl TypeExpressionBinder<'_> {
             ambient,
         );
 
-        let imported_root = self
-            .imported_symbols
-            .and_then(|symbols| ImportedPathRoot::select(symbols, &references));
+        let imported_root = self.imports.imported_path_root(&references)?;
 
-        bind_source_path(
+        Ok(bind_source_path(
             self.symbols,
             imported_root,
             module,
             path,
             crate::lookup::NameAccess::Internal,
             ordinary,
-        )
+        ))
     }
 
     fn report_lookup<T>(
@@ -228,29 +230,34 @@ impl TypeExpressionBinder<'_> {
         definition: NamedTypeSymbolId,
     ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
         let (type_parameters, const_parameters) = match definition {
-            NamedTypeSymbolId::Struct(id) => self
-                .symbols
-                .structure(id)
-                .or_else(|| {
-                    self.imported_symbols
-                        .and_then(|symbols| symbols.structure(id))
-                })
-                .map(|symbol| {
-                    (
-                        symbol.generic_type_parameters(),
-                        symbol.generic_const_parameters(),
-                    )
+            NamedTypeSymbolId::Struct(id) => match self.symbols.structure(id) {
+                Some(symbol) => Some((
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters(),
+                )),
+                None => self.imports.imported_symbols()?.and_then(|symbols| {
+                    symbols.structure(id).map(|symbol| {
+                        (
+                            symbol.generic_type_parameters(),
+                            symbol.generic_const_parameters(),
+                        )
+                    })
                 }),
-            NamedTypeSymbolId::Union(id) => self
-                .symbols
-                .union(id)
-                .or_else(|| self.imported_symbols.and_then(|symbols| symbols.union(id)))
-                .map(|symbol| {
-                    (
-                        symbol.generic_type_parameters(),
-                        symbol.generic_const_parameters(),
-                    )
+            },
+            NamedTypeSymbolId::Union(id) => match self.symbols.union(id) {
+                Some(symbol) => Some((
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters(),
+                )),
+                None => self.imports.imported_symbols()?.and_then(|symbols| {
+                    symbols.union(id).map(|symbol| {
+                        (
+                            symbol.generic_type_parameters(),
+                            symbol.generic_const_parameters(),
+                        )
+                    })
                 }),
+            },
         }
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
@@ -261,19 +268,23 @@ impl TypeExpressionBinder<'_> {
         &self,
         definition: TraitSymbolId,
     ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
-        let symbol = self
-            .symbols
-            .trait_symbol(definition)
-            .or_else(|| {
-                self.imported_symbols
-                    .and_then(|symbols| symbols.trait_symbol(definition))
-            })
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+        let parameters = match self.symbols.trait_symbol(definition) {
+            Some(symbol) => Some((
+                symbol.generic_type_parameters(),
+                symbol.generic_const_parameters(),
+            )),
+            None => self.imports.imported_symbols()?.and_then(|symbols| {
+                symbols.trait_symbol(definition).map(|symbol| {
+                    (
+                        symbol.generic_type_parameters(),
+                        symbol.generic_const_parameters(),
+                    )
+                })
+            }),
+        }
+        .ok_or(BinderFactError::DependencyUnavailable)?;
 
-        self.generic_parameters(
-            symbol.generic_type_parameters(),
-            symbol.generic_const_parameters(),
-        )
+        self.generic_parameters(parameters.0, parameters.1)
     }
 
     fn generic_parameters(
@@ -284,29 +295,29 @@ impl TypeExpressionBinder<'_> {
         let mut parameters = Vec::with_capacity(type_parameters.len() + const_parameters.len());
 
         for parameter in type_parameters {
-            let ordinal = self
-                .symbols
-                .generic_type_parameter(*parameter)
-                .or_else(|| {
-                    self.imported_symbols
-                        .and_then(|symbols| symbols.generic_type_parameter(*parameter))
-                })
-                .map(|record| record.ordinal())
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+            let ordinal = match self.symbols.generic_type_parameter(*parameter) {
+                Some(record) => Some(record.ordinal()),
+                None => self
+                    .imports
+                    .imported_symbols()?
+                    .and_then(|symbols| symbols.generic_type_parameter(*parameter))
+                    .map(|record| record.ordinal()),
+            }
+            .ok_or(BinderFactError::DependencyUnavailable)?;
 
             parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
         }
 
         for parameter in const_parameters {
-            let ordinal = self
-                .symbols
-                .generic_const_parameter(*parameter)
-                .or_else(|| {
-                    self.imported_symbols
-                        .and_then(|symbols| symbols.generic_const_parameter(*parameter))
-                })
-                .map(|record| record.ordinal())
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+            let ordinal = match self.symbols.generic_const_parameter(*parameter) {
+                Some(record) => Some(record.ordinal()),
+                None => self
+                    .imports
+                    .imported_symbols()?
+                    .and_then(|symbols| symbols.generic_const_parameter(*parameter))
+                    .map(|record| record.ordinal()),
+            }
+            .ok_or(BinderFactError::DependencyUnavailable)?;
 
             parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
         }

@@ -1089,7 +1089,9 @@ func main(value: r16)
 
         assert_eq!(
             diagnostic_kinds(compilation.check_diagnostics()),
-            [DiagnosticKind::BindingUnresolvedName]
+            [DiagnosticKind::BindingUnresolvedName],
+            "{:#?}",
+            compilation.check_diagnostics()
         );
 
         let bound = match compilation.bound_unit(key) {

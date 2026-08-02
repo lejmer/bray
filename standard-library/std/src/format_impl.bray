@@ -1,5 +1,6 @@
 module std.format;
 
+using std.character;
 using std.string;
 
 internal func write_text(
@@ -62,27 +63,27 @@ internal func radix_value(pos options: &Options) -> u8
 {
     match options.radix
     {
-        case .Binary
+        case Radix.Binary
         {
             return 2;
         }
 
-        case .Octal
+        case Radix.Octal
         {
             return 8;
         }
 
-        case .Decimal
+        case Radix.Decimal
         {
             return 10;
         }
 
-        case .HexadecimalLowercase
+        case Radix.HexadecimalLowercase
         {
             return 16;
         }
 
-        case .HexadecimalUppercase
+        case Radix.HexadecimalUppercase
         {
             return 16;
         }
@@ -148,7 +149,7 @@ internal func uppercase_digits(pos options: &Options) -> bool
 {
     match options.radix
     {
-        case .HexadecimalUppercase
+        case Radix.HexadecimalUppercase
         {
             return true;
         }
@@ -169,12 +170,12 @@ internal func sign_length(pos negative: bool, pos options: &Options) -> usize
 
     match options.sign
     {
-        case .NegativeOnly
+        case Sign.NegativeOnly
         {
             return 0;
         }
 
-        case .Always | .Space
+        case Sign.Always | Sign.Space
         {
             return 1;
         }
@@ -235,17 +236,17 @@ internal func left_padding(pos padding: usize, pos options: &Options) -> usize
 {
     match options.alignment
     {
-        case .Left
+        case Alignment.Left
         {
             return 0;
         }
 
-        case .Center
+        case Alignment.Center
         {
             return padding / 2;
         }
 
-        case .Right
+        case Alignment.Right
         {
             return padding;
         }
@@ -325,16 +326,16 @@ internal func write_requested_sign(
 
     match options.sign
     {
-        case .NegativeOnly
+        case Sign.NegativeOnly
         {
         }
 
-        case .Always
+        case Sign.Always
         {
             try std.bytes.push(&mut destination.buffer, value = 43);
         }
 
-        case .Space
+        case Sign.Space
         {
             try std.bytes.push(&mut destination.buffer, value = 32);
         }
@@ -486,14 +487,14 @@ internal func write_string_value(
 {
     match options.escaping
     {
-        case .Raw
+        case Escaping.Raw
         {
             let content: &[u8] = std.string.utf8(value);
 
             return write_aligned(destination, content, options);
         }
 
-        case .Quoted
+        case Escaping.Quoted
         {
             let length: usize = escaped_string_length(value);
             let padding: usize = padding_count(options.width, length);
@@ -531,6 +532,116 @@ internal func boolean_text(pos value: bool) -> string
     return "false";
 }
 
+internal func character_is_escaped(pos scalar: u32) -> bool
+{
+    if scalar == 0 { return true; }
+    if scalar == 9 { return true; }
+    if scalar == 10 { return true; }
+    if scalar == 13 { return true; }
+    if scalar == 39 { return true; }
+
+    return scalar == 92;
+}
+
+internal func character_escape_byte(pos scalar: u32) -> u8
+{
+    if scalar == 0 { return 48; }
+    if scalar == 9 { return 116; }
+    if scalar == 10 { return 110; }
+    if scalar == 13 { return 114; }
+    if scalar == 39 { return 39; }
+
+    return 92;
+}
+
+internal func write_raw_character(
+    pos destination: &mut ByteSink,
+    pos value: char,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let length: usize = std.character.utf8_length(value = value);
+    let mut index: usize = 0;
+
+    while index < length
+    {
+        try std.bytes.push(
+            &mut destination.buffer,
+            value = std.character.utf8_byte(value = value, index = index),
+        );
+
+        index = index + 1;
+    }
+
+    return Ok(unit);
+}
+
+internal func write_character_value(
+    pos destination: &mut ByteSink,
+    pos value: char,
+    pos options: &Options,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let scalar: u32 = std.character.scalar_value(value = value);
+    let mut quoted: bool = false;
+
+    match options.escaping
+    {
+        case Escaping.Raw {}
+
+        case Escaping.Quoted
+        {
+            quoted = true;
+        }
+    }
+
+    let escaped: bool = quoted && character_is_escaped(scalar);
+    let mut content_length: usize = std.character.utf8_length(value = value);
+
+    if escaped
+    {
+        content_length = 2;
+    }
+
+    let mut rendered_length: usize = content_length;
+
+    if quoted
+    {
+        rendered_length = rendered_length + 2;
+    }
+
+    let padding: usize = padding_count(options.width, rendered_length);
+    let left: usize = left_padding(padding, options);
+
+    try write_padding(&mut destination, count = left);
+
+    if quoted
+    {
+        try std.bytes.push(&mut destination.buffer, value = 39);
+    }
+
+    if escaped
+    {
+        try std.bytes.push(&mut destination.buffer, value = 92);
+        try std.bytes.push(
+            &mut destination.buffer,
+            value = character_escape_byte(scalar),
+        );
+    }
+    else
+    {
+        try write_raw_character(&mut destination, value);
+    }
+
+    if quoted
+    {
+        try std.bytes.push(&mut destination.buffer, value = 39);
+    }
+
+    try write_padding(&mut destination, count = padding - left);
+
+    return Ok(unit);
+}
+
 impl StringFormat = string(Format)
 {
     func format(
@@ -550,6 +661,17 @@ impl BooleanFormat = bool(Format)
     ) -> Result<unit, std.memory.MemoryLayoutError>
     {
         return write_boolean_value(destination, self, options);
+    }
+}
+
+impl CharacterFormat = char(Format)
+{
+    func format(
+        pos destination: &mut ByteSink,
+        pos options: &Options,
+    ) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return write_character_value(destination, self, options);
     }
 }
 
@@ -661,176 +783,16 @@ impl IsizeFormat = isize(Format)
     }
 }
 
-func write_string(
+func write<Value>(
     pos destination: &mut ByteSink,
-    pos value: Argument<string>,
+    pos value: Argument<Value>,
 ) -> Result<unit, std.memory.MemoryLayoutError>
+    with(Value: Format)
 {
-    let formatted: string = value.value;
+    let formatted: Value = value.value;
     let formatting_options: Options = value.options;
 
-    return write_string_value(destination, &formatted, &formatting_options);
-}
-
-func write_boolean(
-    pos destination: &mut ByteSink,
-    pos value: Argument<bool>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: bool = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_boolean_value(destination, formatted, &formatting_options);
-}
-
-func write_u8(
-    pos destination: &mut ByteSink,
-    pos value: Argument<u8>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: u8 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_unsigned_integer(destination, formatted as u128, &formatting_options);
-}
-
-func write_u16(
-    pos destination: &mut ByteSink,
-    pos value: Argument<u16>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: u16 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_unsigned_integer(destination, formatted as u128, &formatting_options);
-}
-
-func write_u32(
-    pos destination: &mut ByteSink,
-    pos value: Argument<u32>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: u32 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_unsigned_integer(destination, formatted as u128, &formatting_options);
-}
-
-func write_u64(
-    pos destination: &mut ByteSink,
-    pos value: Argument<u64>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: u64 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_unsigned_integer(destination, formatted as u128, &formatting_options);
-}
-
-func write_u128(
-    pos destination: &mut ByteSink,
-    pos value: Argument<u128>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: u128 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_unsigned_integer(destination, formatted, &formatting_options);
-}
-
-func write_usize(
-    pos destination: &mut ByteSink,
-    pos value: Argument<usize>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: usize = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_unsigned_integer(destination, formatted as u128, &formatting_options);
-}
-
-func write_i8(
-    pos destination: &mut ByteSink,
-    pos value: Argument<i8>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: i8 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_signed_integer(destination, formatted as i128, &formatting_options);
-}
-
-func write_i16(
-    pos destination: &mut ByteSink,
-    pos value: Argument<i16>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: i16 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_signed_integer(destination, formatted as i128, &formatting_options);
-}
-
-func write_i32(
-    pos destination: &mut ByteSink,
-    pos value: Argument<i32>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: i32 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_signed_integer(destination, formatted as i128, &formatting_options);
-}
-
-func write_i64(
-    pos destination: &mut ByteSink,
-    pos value: Argument<i64>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: i64 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_signed_integer(destination, formatted as i128, &formatting_options);
-}
-
-func write_i128(
-    pos destination: &mut ByteSink,
-    pos value: Argument<i128>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: i128 = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_signed_integer(destination, formatted, &formatting_options);
-}
-
-func write_isize(
-    pos destination: &mut ByteSink,
-    pos value: Argument<isize>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    let formatted: isize = value.value;
-    let formatting_options: Options = value.options;
-
-    return write_signed_integer(destination, formatted as i128, &formatting_options);
-}
-
-overload write =
-{
-    write_string,
-    write_boolean,
-    write_u8,
-    write_u16,
-    write_u32,
-    write_u64,
-    write_u128,
-    write_usize,
-    write_i8,
-    write_i16,
-    write_i32,
-    write_i64,
-    write_i128,
-    write_isize,
+    return formatted.format(destination, &formatting_options);
 }
 
 // TODO(BRA-295): Add real and complex formatting after numeric text conversion is available.

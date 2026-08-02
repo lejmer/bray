@@ -15,9 +15,10 @@ mod unit;
 
 pub use binder::BinderDependency;
 pub use binding::{
-    CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding,
-    bind_callable_abi, bind_callable_type_directives, bind_directive_template,
-    bind_expression_candidates, malformed_directive_argument_diagnostic, qualified_union_variant,
+    CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports, TypeExpressionScope,
+    TypeParameterBinding, bind_callable_abi, bind_callable_type_directives,
+    bind_directive_template, bind_expression_candidates, malformed_directive_argument_diagnostic,
+    qualified_union_variant,
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{

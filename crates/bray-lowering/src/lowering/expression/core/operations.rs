@@ -544,6 +544,7 @@ impl Lowerer<'_> {
                 .implementation_witnesses()
                 .iter()
                 .copied(),
+            selection.resolution().generic_dispatch(),
             selection.witnesses().iter().copied(),
         );
 

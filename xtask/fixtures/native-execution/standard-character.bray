@@ -5,6 +5,7 @@ func exercise_character_operations(value: char, scalar: u32)
     let scalar_code: u32 = scalar_value(value = value);
     let character: char? = from_scalar_value(value = scalar);
     let encoded_length: usize = utf8_length(value = value);
+    let first_byte: u8 = utf8_byte(value = value, index = 0);
     let alphabetic: bool = is_alphabetic(value = value);
     let numeric: bool = is_numeric(value = value);
     let whitespace: bool = is_whitespace(value = value);

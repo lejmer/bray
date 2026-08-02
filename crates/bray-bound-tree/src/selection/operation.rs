@@ -3,9 +3,10 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     AnySymbolId, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImplementationRequirementKey, ReceiverParameterSignature,
-    StructFieldDefaultProviderSymbolId, StructFieldSymbolId, StructSymbolId, TypeId,
-    UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    CallableParameterSymbolId, CallableSignature, ImplementationRequirementKey,
+    ReceiverParameterSignature, StructFieldDefaultProviderSymbolId, StructFieldSymbolId,
+    StructSymbolId, TypeId, UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId,
+    UnionVariantSymbolId,
 };
 
 use crate::{
@@ -53,7 +54,8 @@ pub struct MemberTarget {
     member: AnySymbolId,
     result_type: TypeId,
     callable_instance: Option<CallableInstanceData>,
-    receiver: Option<ReceiverParameterSignature>,
+    callable_signature: Option<CallableSignature>,
+    generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
 
@@ -68,21 +70,30 @@ impl MemberTarget {
             member,
             result_type,
             callable_instance: None,
-            receiver: None,
+            callable_signature: None,
+            generic_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
 
-    /// Returns a member target with its exact substituted callable instance.
-    pub const fn with_callable_instance(mut self, callable: CallableInstanceData) -> Self {
+    /// Returns a member target with its exact substituted callable instance and signature.
+    pub fn with_callable(
+        mut self,
+        callable: CallableInstanceData,
+        signature: CallableSignature,
+    ) -> Self {
         self.callable_instance = Some(callable);
+        self.callable_signature = Some(signature);
 
         self
     }
 
-    /// Returns a member target with its resolved implicit receiver contract.
-    pub fn with_receiver(mut self, receiver: ReceiverParameterSignature) -> Self {
-        self.receiver = Some(receiver);
+    /// Returns a member target dispatched through one surrounding generic constraint.
+    pub const fn with_generic_dispatch(
+        mut self,
+        dispatch: bray_symbols::GenericConstraintDispatch,
+    ) -> Self {
+        self.generic_dispatch = Some(dispatch);
 
         self
     }
@@ -102,9 +113,22 @@ impl MemberTarget {
         self.callable_instance
     }
 
+    /// Returns the resolved callable signature when this target is callable.
+    pub const fn callable_signature(&self) -> Option<&CallableSignature> {
+        self.callable_signature.as_ref()
+    }
+
     /// Returns the resolved implicit receiver when this target is callable.
     pub const fn receiver(&self) -> Option<ReceiverParameterSignature> {
-        self.receiver
+        match &self.callable_signature {
+            Some(signature) => signature.receiver(),
+            None => None,
+        }
+    }
+
+    /// Returns the surrounding generic constraint that supplies dispatch.
+    pub const fn generic_dispatch(&self) -> Option<bray_symbols::GenericConstraintDispatch> {
+        self.generic_dispatch
     }
 
     /// Returns implementation requirements and witnesses in canonical order.

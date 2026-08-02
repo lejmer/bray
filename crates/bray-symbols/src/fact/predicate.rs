@@ -162,6 +162,30 @@ pub struct GenericConstraintSet {
     constraints: Arc<[CheckedConstraint]>,
 }
 
+/// One generic constraint that supplies a concrete implementation during specialization.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GenericConstraintDispatch {
+    owner: crate::GenericOwnerId,
+    ordinal: crate::SymbolOrdinal,
+}
+
+impl GenericConstraintDispatch {
+    /// Creates a dispatch reference to one declared generic constraint.
+    pub const fn new(owner: crate::GenericOwnerId, ordinal: crate::SymbolOrdinal) -> Self {
+        Self { owner, ordinal }
+    }
+
+    /// Returns the generic declaration owning the constraint.
+    pub const fn owner(self) -> crate::GenericOwnerId {
+        self.owner
+    }
+
+    /// Returns the constraint's declaration-order position.
+    pub const fn ordinal(self) -> crate::SymbolOrdinal {
+        self.ordinal
+    }
+}
+
 impl GenericConstraintSet {
     /// Creates a checked constraint set in canonical declaration order.
     pub fn new(constraints: impl IntoIterator<Item = CheckedConstraint>) -> Self {

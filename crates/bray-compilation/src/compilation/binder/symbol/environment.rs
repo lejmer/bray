@@ -19,7 +19,7 @@ pub(in crate::compilation) fn type_binder<'facts>(
 
     Ok(TypeExpressionBinder::new(
         context.symbols,
-        context.imported_symbols()?,
+        context,
         context.semantic_values,
         scope,
         context.cancellation,

@@ -26,18 +26,18 @@ runtime or operating system.
 
 The public modules are:
 
-| Module | Responsibility |
-|---|---|
-| `std.string` | UTF-8 validation, scalar and byte views, text search, comparison, and conversion |
-| `std.character` | Unicode scalar conversion, classification, and encoding utilities |
-| `std.bytes` | Borrowed byte views, owned byte buffers, copying, comparison, and encoding support |
-| `std.iteration` | Iterator adapters and algorithms over the compiler-known iteration traits |
-| `std.collection` | General-purpose sequences, maps, sets, queues, and their views |
-| `std.format` | Typed formatting, format arguments, formatters, and text or byte sinks |
-| `std.hash` | Hashing contracts, hash state, and standard hash implementations |
-| `std.order` | Ordering helpers and algorithms over compiler-known comparison contracts |
-| `std.numeric` | Numeric limits, checked arithmetic helpers, parsing, and explicit numeric policies |
-| `std.memory` | The separately specified low-level memory and allocation surface |
+| Module           | Responsibility                                                                     |
+|------------------|------------------------------------------------------------------------------------|
+| `std.string`     | UTF-8 validation, scalar and byte views, text search, comparison, and conversion   |
+| `std.character`  | Unicode scalar conversion, classification, and encoding utilities                  |
+| `std.bytes`      | Borrowed byte views, owned byte buffers, copying, comparison, and encoding support |
+| `std.iteration`  | Iterator adapters and algorithms over the compiler-known iteration traits          |
+| `std.collection` | General-purpose sequences, maps, sets, queues, and their views                     |
+| `std.format`     | Typed formatting, format arguments, formatters, and text or byte sinks             |
+| `std.hash`       | Hashing contracts, hash state, and standard hash implementations                   |
+| `std.order`      | Ordering helpers and algorithms over compiler-known comparison contracts           |
+| `std.numeric`    | Numeric limits, checked arithmetic helpers, parsing, and explicit numeric policies |
+| `std.memory`     | The separately specified low-level memory and allocation surface                   |
 
 Submodules may group focused families without changing these ownership boundaries. A module must not re-export another module's
 complete surface merely to shorten paths. Cross-module convenience functions belong with the abstraction whose contract they
@@ -164,6 +164,8 @@ extern func scalar_value(value: char) -> u32;
 extern func from_scalar_value(value: u32) -> char?;
 
 extern func utf8_length(value: char) -> usize;
+
+extern func utf8_byte(value: char, index: usize) -> u8;
 
 extern func is_alphabetic(value: char) -> bool;
 

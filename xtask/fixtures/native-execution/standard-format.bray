@@ -43,17 +43,19 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let spaced: u8 = 7;
     let aligned: string = "abc";
     let escaped: string = "a\n\"";
+    let character: char = '\u{3bb}';
+    let escaped_character: char = '\n';
 
     try write(&mut sink, argument<string>(greeting));
     try write(&mut sink, argument<string>(separator));
 
     let centered: Options = options(
-        radix = .Decimal,
+        radix = Decimal,
         precision = 0,
         width = 7,
-        alignment = .Center,
-        sign = .NegativeOnly,
-        escaping = .Raw,
+        alignment = Center,
+        sign = NegativeOnly,
+        escaping = Raw,
     );
 
     try write(
@@ -65,12 +67,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let binary_options: Options = options(
-        radix = .Binary,
+        radix = Binary,
         precision = 0,
         width = 0,
-        alignment = .Right,
-        sign = .NegativeOnly,
-        escaping = .Raw,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
     );
 
     try write(
@@ -80,12 +82,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let octal_options: Options = options(
-        radix = .Octal,
+        radix = Octal,
         precision = 0,
         width = 0,
-        alignment = .Right,
-        sign = .NegativeOnly,
-        escaping = .Raw,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
     );
 
     try write(
@@ -95,12 +97,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let lowercase_options: Options = options(
-        radix = .HexadecimalLowercase,
+        radix = HexadecimalLowercase,
         precision = 0,
         width = 0,
-        alignment = .Right,
-        sign = .NegativeOnly,
-        escaping = .Raw,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
     );
 
     try write(
@@ -110,12 +112,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let uppercase_options: Options = options(
-        radix = .HexadecimalUppercase,
+        radix = HexadecimalUppercase,
         precision = 4,
         width = 7,
-        alignment = .Right,
-        sign = .Always,
-        escaping = .Raw,
+        alignment = Right,
+        sign = Always,
+        escaping = Raw,
     );
 
     try write(
@@ -125,12 +127,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let negative_options: Options = options(
-        radix = .Binary,
+        radix = Binary,
         precision = 8,
         width = 12,
-        alignment = .Left,
-        sign = .NegativeOnly,
-        escaping = .Raw,
+        alignment = Left,
+        sign = NegativeOnly,
+        escaping = Raw,
     );
 
     try write(
@@ -140,12 +142,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let spaced_options: Options = options(
-        radix = .Decimal,
+        radix = Decimal,
         precision = 0,
         width = 0,
-        alignment = .Right,
-        sign = .Space,
-        escaping = .Raw,
+        alignment = Right,
+        sign = Space,
+        escaping = Raw,
     );
 
     try write(
@@ -155,12 +157,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, argument<string>(separator));
 
     let aligned_options: Options = options(
-        radix = .Decimal,
+        radix = Decimal,
         precision = 0,
         width = 5,
-        alignment = .Left,
-        sign = .NegativeOnly,
-        escaping = .Raw,
+        alignment = Left,
+        sign = NegativeOnly,
+        escaping = Raw,
     );
 
     try write(
@@ -169,23 +171,40 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     );
     try write(&mut sink, argument<string>(separator));
 
-    let escaped_options: Options = options(
-        radix = .Decimal,
+    let escaped_text_options: Options = options(
+        radix = Decimal,
         precision = 0,
         width = 0,
-        alignment = .Right,
-        sign = .NegativeOnly,
-        escaping = .Quoted,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Quoted,
     );
 
     try write(
         &mut sink,
-        argument_with<string>(escaped, options = escaped_options),
+        argument_with<string>(escaped, options = escaped_text_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, argument<char>(character));
+    try write(&mut sink, argument<string>(separator));
+
+    let escaped_character_options: Options = options(
+        radix = Decimal,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Quoted,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<char>(escaped_character, options = escaped_character_options),
     );
 
     let formatted: &[u8] = bytes(&sink);
 
-    assert(std.bytes.slice_length(formatted) == 73, "formatted length differs");
+    assert(std.bytes.slice_length(formatted) == 81, "formatted length differs");
     assert(matches_text_at(formatted, offset = 0, expected = &"Hello, world!|"), "string formatting differs");
     assert(matches_text_at(formatted, offset = 14, expected = &" true  |"), "boolean formatting differs");
     assert(matches_text_at(formatted, offset = 22, expected = &"42|"), "decimal formatting differs");
@@ -197,6 +216,8 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     assert(matches_text_at(formatted, offset = 57, expected = &" 7|"), "space-sign formatting differs");
     assert(matches_text_at(formatted, offset = 60, expected = &"abc  |"), "aligned string formatting differs");
     assert(matches_text_at(formatted, offset = 66, expected = &"\"a\\n\\\"\""), "escaped string formatting differs");
+    assert(matches_text_at(formatted, offset = 74, expected = &"\u{3bb}|"), "character formatting differs");
+    assert(matches_text_at(formatted, offset = 77, expected = &"'\\n'"), "escaped character formatting differs");
 
     return Ok(unit);
 }

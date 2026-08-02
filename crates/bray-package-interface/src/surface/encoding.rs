@@ -292,14 +292,18 @@ fn encode_exports(
 }
 
 fn collect_compiler_known_key_strings(key: &SymbolKey, values: &mut BTreeSet<String>) {
-    match key.data() {
-        SymbolKeyData::CompilerKnownDeclaration { key, .. } => {
-            values.insert(key.as_str().to_owned());
+    let mut current = key;
+
+    loop {
+        match current.data() {
+            SymbolKeyData::CompilerKnownDeclaration { key, .. } => {
+                values.insert(key.as_str().to_owned());
+
+                return;
+            }
+            SymbolKeyData::Synthesized(key) => current = key.subject(),
+            _ => unreachable!("validated compiler-known references have catalog roots"),
         }
-        SymbolKeyData::Synthesized(key) => {
-            collect_compiler_known_key_strings(key.subject(), values);
-        }
-        _ => unreachable!("validated compiler-known references have catalog roots"),
     }
 }
 

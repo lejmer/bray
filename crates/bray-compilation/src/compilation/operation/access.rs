@@ -7,10 +7,10 @@ use bray_checker::{resolve_callable_signature_template, resolve_type_expression_
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableSignature,
-    CallableSignatureFact, ExactSymbolId, ImplementationSelection, ImplementationSubjectFact,
-    MemberLookupResult, NamedTypeSymbolId, SelfTypeContext, StructFieldTypeFact,
-    SymbolFactContract, SymbolFactRequest, TraitCallableMemberSymbolId, TypeData,
-    TypeExpressionTemplate, TypeId,
+    CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, GenericConstraintsFact,
+    GenericOwnerId, ImplementationSelection, ImplementationSubjectFact, MemberLookupResult,
+    NamedTypeSymbolId, SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    TraitCallableMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
@@ -26,6 +26,26 @@ use super::query::expression_type;
 struct ResolvedCallableMember {
     signature: CallableSignature,
     instance: CallableInstanceData,
+}
+
+fn member_callable_signature(
+    signature: CallableSignature,
+    receiver_type: TypeId,
+) -> CallableSignature {
+    let receiver = signature.receiver().map(|receiver| {
+        bray_symbols::ReceiverParameterSignature::new(
+            receiver.parameter(),
+            receiver_type,
+            receiver.mode(),
+        )
+    });
+
+    CallableSignature::new(
+        signature.callable_type(),
+        receiver,
+        signature.parameters().iter().copied(),
+        signature.result(),
+    )
 }
 
 impl Compilation {
@@ -81,6 +101,19 @@ impl Compilation {
             )));
         }
 
+        if matches!(data.as_ref(), TypeData::TypeParameter(_))
+            && let Some(BoundMemberSelector::Name(name)) = selector
+        {
+            return self.resolve_constrained_member_operation(
+                facts,
+                unit,
+                expression,
+                receiver_type,
+                name.as_str(),
+                diagnostics,
+            );
+        }
+
         let (
             TypeData::Named {
                 definition,
@@ -132,17 +165,10 @@ impl Compilation {
                 };
 
                 let result_type = callable.signature.callable_type();
+                let signature = member_callable_signature(callable.signature, receiver_type);
 
-                let mut target = MemberTarget::new(member, result_type, [])
-                    .with_callable_instance(callable.instance);
-
-                if let Some(receiver) = callable.signature.receiver() {
-                    target = target.with_receiver(bray_symbols::ReceiverParameterSignature::new(
-                        receiver.parameter(),
-                        receiver_type,
-                        receiver.mode(),
-                    ));
-                }
+                let target = MemberTarget::new(member, result_type, [])
+                    .with_callable(callable.instance, signature);
 
                 let operation = SelectedOperation::Member(target);
 
@@ -157,6 +183,96 @@ impl Compilation {
             result_type,
             [],
             operation,
+        )))
+    }
+
+    fn resolve_constrained_member_operation(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        expression: BoundExpressionId,
+        receiver_type: TypeId,
+        name: &str,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<OperationResolution>, FactQueryError> {
+        let owner = facts
+            .symbols()
+            .symbol_for_key(unit.key().declared_owner())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let generic_owner =
+            GenericOwnerId::try_new(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let constraints = facts
+            .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+                generic_owner,
+            ))
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        *diagnostics = diagnostics.merged(constraints.diagnostics());
+
+        let mut matches = Vec::new();
+
+        for constraint in constraints.value().constraints() {
+            let CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } = constraint.kind()
+            else {
+                continue;
+            };
+
+            if subject != receiver_type {
+                continue;
+            }
+
+            let application_data = facts
+                .semantic_values()
+                .trait_application_data(application)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let MemberLookupResult::Found(member) = facts
+                .symbols()
+                .lookup_member(application_data.definition().into(), name)
+            else {
+                continue;
+            };
+
+            let Some(member) = TraitCallableMemberSymbolId::try_from_any(member) else {
+                continue;
+            };
+
+            matches.push((constraint.ordinal(), application_data, member));
+        }
+
+        let [(ordinal, application, member)] = matches.as_slice() else {
+            return Ok(None);
+        };
+
+        let callable = self.resolve_callable_signature(
+            facts,
+            (*member).into(),
+            [application.substitution()],
+            diagnostics,
+        )?;
+
+        let Some(callable) = callable else {
+            return Ok(None);
+        };
+
+        let result_type = callable.signature.callable_type();
+        let dispatch = bray_symbols::GenericConstraintDispatch::new(generic_owner, *ordinal);
+        let signature = member_callable_signature(callable.signature, receiver_type);
+
+        let target = MemberTarget::new((*member).into(), result_type, [])
+            .with_callable(callable.instance, signature)
+            .with_generic_dispatch(dispatch);
+
+        Ok(Some(OperationResolution::new(
+            expression,
+            result_type,
+            [],
+            Some(SelectedOperation::Member(target)),
         )))
     }
 
@@ -303,21 +419,14 @@ impl Compilation {
         };
 
         let result_type = callable.signature.callable_type();
+        let signature = member_callable_signature(callable.signature, receiver_type);
 
-        let mut target = MemberTarget::new(
+        let target = MemberTarget::new(
             fulfillment.into(),
             result_type,
             [SelectedImplementationWitness::new(requirement, *witness)],
         )
-        .with_callable_instance(callable.instance);
-
-        if let Some(receiver) = callable.signature.receiver() {
-            target = target.with_receiver(bray_symbols::ReceiverParameterSignature::new(
-                receiver.parameter(),
-                receiver_type,
-                receiver.mode(),
-            ));
-        }
+        .with_callable(callable.instance, signature);
 
         Ok(Some(OperationResolution::new(
             expression,

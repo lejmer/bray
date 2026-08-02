@@ -36,7 +36,7 @@ struct CandidateCancellation<'context, C: ?Sized>(&'context C);
 
 impl<C> Cancellation for CandidateCancellation<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
 {
     fn is_cancelled(&self) -> bool {
         self.0.is_cancelled()
@@ -76,7 +76,7 @@ pub(super) fn bind_call_candidates<C>(
     type_scope: &TypeExpressionScope,
 ) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
@@ -161,7 +161,7 @@ fn bind_reference_target<C>(
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<CandidateAbsence>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
@@ -212,7 +212,7 @@ fn bind_overload_candidates<C>(
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<CandidateAbsence>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
@@ -270,7 +270,7 @@ fn bind_source_overload_arm<C>(
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
@@ -345,7 +345,7 @@ fn bind_resolved_name_candidate<C>(
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
@@ -389,7 +389,7 @@ fn bind_declaration_candidate<C>(
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
@@ -478,7 +478,7 @@ fn bind_generic_arguments<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<Option<BoundGenericArguments>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
 {
     if !call.arguments.is_empty() && call.arguments.len() != declaration.parameters().len() {
         return Ok(None);
@@ -489,9 +489,10 @@ where
     } else {
         let cancellation = CandidateCancellation(context);
 
+        // Each overload candidate owns an isolated type-expression binding scope.
         match TypeExpressionBinder::new(
             context.symbols(),
-            context.imported_symbols()?,
+            context,
             context.semantic_values(),
             call.scope.clone(),
             &cancellation,
@@ -525,7 +526,7 @@ fn bind_predicate_candidate<C>(
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>,
 {

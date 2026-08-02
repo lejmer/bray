@@ -751,8 +751,8 @@ mod tests {
         assert_eq!(facts.callable_signatures().len(), 2);
         assert_eq!(facts.generic_declarations().len(), 4);
         assert_eq!(facts.constraints().len(), 1);
-        assert_eq!(facts.checked_templates().len(), 4);
-        assert_eq!(facts.declaration_templates().len(), 4);
+        assert_eq!(facts.checked_templates().len(), 3);
+        assert_eq!(facts.declaration_templates().len(), 3);
         assert_eq!(facts.declared_types().len(), 2);
         assert_eq!(facts.type_representations().len(), 2);
     }
@@ -923,6 +923,7 @@ mod tests {
                 "extern func utf8(pos value: &string) -> &[u8];\n",
                 "extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;\n",
             ),
+            include_str!("../../../../../standard-library/std/src/character.bray"),
             include_str!("../../../../../standard-library/std/src/format.bray"),
             include_str!("../../../../../standard-library/std/src/format_impl.bray"),
         ]);
@@ -989,7 +990,7 @@ mod tests {
                 "func render(pos destination: &mut std.format.ByteSink, pos value: string)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>\n",
                 "{\n",
-                "    return std.format.write_string(\n",
+                "    return std.format.write(\n",
                 "        destination,\n",
                 "        std.format.argument<string>(value),\n",
                 "    );\n",
@@ -997,7 +998,7 @@ mod tests {
                 "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>\n",
                 "{\n",
-                "    return std.format.write_i32(\n",
+                "    return std.format.write(\n",
                 "        destination,\n",
                 "        std.format.argument<i32>(value),\n",
                 "    );\n",

@@ -16,12 +16,40 @@ use bray_syntax::{
 };
 
 use super::contract::TypeExpressionScope;
-use crate::{BinderFactError, BinderFactResult};
+use crate::{BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot};
+
+/// Supplies imported symbols only when type binding reaches an imported path or declaration.
+pub trait TypeExpressionImports {
+    /// Selects an imported package root for a qualified source path.
+    fn imported_path_root(
+        &self,
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>>;
+
+    /// Returns the imported identity skeleton when imported declaration details are required.
+    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>>;
+}
+
+impl<T> TypeExpressionImports for T
+where
+    T: BinderFactContext + ?Sized,
+{
+    fn imported_path_root(
+        &self,
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+        BinderFactContext::imported_path_root(self, components)
+    }
+
+    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        BinderFactContext::imported_symbols(self)
+    }
+}
 
 /// Binds declaration type syntax while preserving unchecked constant-expression occurrences.
 pub struct TypeExpressionBinder<'facts> {
     pub(super) symbols: &'facts SymbolGraph,
-    pub(super) imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
+    pub(super) imports: &'facts dyn TypeExpressionImports,
     pub(super) semantic_values: &'facts SemanticValueStore,
     pub(super) owner: AnySymbolId,
     pub(super) module: Option<ModuleSymbolId>,
@@ -35,7 +63,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
     /// Creates a binder for one declaration surface and its lexical generic scope.
     pub fn new(
         symbols: &'facts SymbolGraph,
-        imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
+        imports: &'facts dyn TypeExpressionImports,
         semantic_values: &'facts SemanticValueStore,
         scope: TypeExpressionScope,
         cancellation: &'facts dyn Cancellation,
@@ -48,7 +76,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
 
         Self {
             symbols,
-            imported_symbols,
+            imports,
             semantic_values,
             owner: scope.owner,
             module: scope.module,
@@ -266,7 +294,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
     }
 
     fn bind_path_type(&mut self, path: &PathSyntax) -> BinderFactResult<TypeExpressionTemplate> {
-        let resolved = self.bind_type_path(path);
+        let resolved = self.bind_type_path(path)?;
 
         match resolved {
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {

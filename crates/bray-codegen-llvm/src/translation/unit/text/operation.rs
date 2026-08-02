@@ -31,6 +31,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.character_from_scalar_value(operation)?
             }
             MirTextOperationKind::CharacterUtf8Length => self.character_utf8_length(operation)?,
+            MirTextOperationKind::CharacterUtf8Byte => self.character_utf8_byte(operation)?,
             MirTextOperationKind::CharacterIsAlphabetic => self.character_predicate(
                 operation,
                 bray_runtime_interface::CHARACTER_IS_ALPHABETIC_SYMBOL,

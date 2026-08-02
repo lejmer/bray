@@ -32,6 +32,7 @@ const STANDARD_BUFFER_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/standard-buffer-memory.bray";
 const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes.bray";
 const STANDARD_BYTES_IMPLEMENTATION: &str = "standard-library/std/src/bytes_impl.bray";
+const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
 const STANDARD_FORMAT_SOURCE: &str = "standard-library/std/src/format.bray";
 const STANDARD_FORMAT_IMPLEMENTATION: &str = "standard-library/std/src/format_impl.bray";
 const STANDARD_FORMAT_FIXTURE: &str = "xtask/fixtures/native-execution/standard-format.bray";
@@ -75,6 +76,7 @@ pub(super) fn audit_standard_format(
         STANDARD_BYTES_SOURCE,
         STANDARD_BYTES_IMPLEMENTATION,
         STANDARD_STRING_SOURCE,
+        STANDARD_CHARACTER_SOURCE,
         STANDARD_FORMAT_SOURCE,
         STANDARD_FORMAT_IMPLEMENTATION,
         STANDARD_FORMAT_FIXTURE,

@@ -124,6 +124,8 @@ pub enum MirTextOperationKind {
     CharacterFromScalarValue,
     /// Return a character's UTF-8 encoded length.
     CharacterUtf8Length,
+    /// Return one byte from a character's UTF-8 encoding.
+    CharacterUtf8Byte,
     /// Test whether a character is alphabetic.
     CharacterIsAlphabetic,
     /// Test whether a character is numeric.

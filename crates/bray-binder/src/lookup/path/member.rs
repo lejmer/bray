@@ -29,7 +29,12 @@ where
         };
 
         let symbols = self.facts().symbols();
-        let imported_symbols = self.facts().imported_symbols()?;
+
+        let imported_symbols = if symbols.symbol_key(owner).is_some() {
+            None
+        } else {
+            self.facts().imported_symbols()?
+        };
 
         let mut ordinary = lookup_surface_name_with_imports(
             symbols,

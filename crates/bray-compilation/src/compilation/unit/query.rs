@@ -1702,11 +1702,11 @@ mod tests {
             "{\n",
             "    let selected: i32 = if condition\n",
             "    {\n",
-            "        value\n",
+            "        yield value;\n",
             "    }\n",
             "    else\n",
             "    {\n",
-            "        value\n",
+            "        yield value;\n",
             "    };\n",
             "    loop\n",
             "    {\n",
@@ -1727,7 +1727,7 @@ mod tests {
             Err(error) => panic!("cyclic liveness analysis must converge: {error:?}"),
         };
 
-        assert!(!facts.value().last_uses().is_empty());
+        assert!(!facts.value().last_uses().is_empty(), "{facts:#?}");
     }
 
     #[test]

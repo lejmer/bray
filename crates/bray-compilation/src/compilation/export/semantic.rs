@@ -39,17 +39,18 @@ use bray_symbols::{
     CallableInstanceId, CallableParameterDefaultTemplateFact, CallableParameterDefaultValue,
     CallablePhaseBehavior, CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, CurrentRunCancellation, DependencyGuard, DependencyProjection,
-    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
-    ExternalSymbolKey, GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
-    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
-    InterfaceSupportEntityId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
-    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
-    RuntimeDefaultTemplateReference, SemanticValueStore, StructFieldDefaultValue,
-    SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
+    ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind, DependencyGuard,
+    DependencyProjection, DependencyRequirement, DependencyRequirementKind, DependencySubject,
+    DependencySubjectRoot, ExternalSymbolKey, GenericArgument, GenericConstraintsFact,
+    GenericDeclarationTemplateFact, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericSubstitutionId, ImplementationCoherenceFact,
+    ImplementationInstanceId, ImplementationSymbolId, InterfaceSupportEntityId, NamedTypeSymbolId,
+    PredicateDefinitionFact, PredicateDefinitionState, RuntimeDefaultGenericContext,
+    RuntimeDefaultPresence, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
+    SemanticValueStore, StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind,
+    TraitApplicationId, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, TypeData, TypeExpressionTemplate, TypeId,
+    UnionPayloadDefaultValue,
 };
 
 use super::PackageInterfaceExportError;
@@ -203,6 +204,10 @@ fn export_callable_facts(
     };
 
     for expression in template.expressions() {
+        if expression.kind() == DeclarationPredicateClauseKind::Static {
+            continue;
+        }
+
         let clause = contracts
             .value()
             .invocation_preconditions()

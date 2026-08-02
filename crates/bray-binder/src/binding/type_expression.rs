@@ -10,4 +10,4 @@ mod lookup;
 
 pub use abi::bind_callable_abi;
 pub use contract::{CallableTypeQualifiers, TypeExpressionScope, TypeParameterBinding};
-pub use core::TypeExpressionBinder;
+pub use core::{TypeExpressionBinder, TypeExpressionImports};

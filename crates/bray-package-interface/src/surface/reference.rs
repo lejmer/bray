@@ -7,6 +7,7 @@ use bray_symbols::{
 };
 
 use super::decoding::{package_identity, read_string, read_tag, symbol_name};
+use super::model::MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS;
 use crate::InterfaceValidationError;
 use crate::decode::{DecodeBudget, read_optional_u32, read_u32};
 use crate::wire::WireReader;
@@ -77,7 +78,7 @@ pub(super) fn decode_compiler_known_key(
     let count =
         usize::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
 
-    if count == 0 {
+    if count == 0 || count > MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS {
         return Err(InterfaceValidationError::Malformed);
     }
 

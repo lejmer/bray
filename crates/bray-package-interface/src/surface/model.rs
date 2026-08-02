@@ -10,6 +10,8 @@ use bray_symbols::{
 
 use crate::InterfaceContentHash;
 
+pub(super) const MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS: usize = 256;
+
 /// Opaque package-layer identity of one selected product.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceProductIdentity(NonEmptySharedStr);
@@ -270,13 +272,24 @@ impl CompilerKnownSymbolReference {
 }
 
 fn is_compiler_known_key(key: &bray_symbols::SymbolKey) -> bool {
-    match key.data() {
-        bray_symbols::SymbolKeyData::CompilerKnownDeclaration { .. } => true,
-        bray_symbols::SymbolKeyData::Synthesized(key) => is_compiler_known_key(key.subject()),
-        bray_symbols::SymbolKeyData::Root(_)
-        | bray_symbols::SymbolKeyData::Module { .. }
-        | bray_symbols::SymbolKeyData::SourceDeclaration { .. }
-        | bray_symbols::SymbolKeyData::External(_) => false,
+    let mut current = key;
+    let mut component_count = 0;
+
+    loop {
+        component_count += 1;
+
+        if component_count > MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS {
+            return false;
+        }
+
+        match current.data() {
+            bray_symbols::SymbolKeyData::CompilerKnownDeclaration { .. } => return true,
+            bray_symbols::SymbolKeyData::Synthesized(key) => current = key.subject(),
+            bray_symbols::SymbolKeyData::Root(_)
+            | bray_symbols::SymbolKeyData::Module { .. }
+            | bray_symbols::SymbolKeyData::SourceDeclaration { .. }
+            | bray_symbols::SymbolKeyData::External(_) => return false,
+        }
     }
 }
 
@@ -455,5 +468,32 @@ impl PackageInterfaceSurface {
             .get_key_value(&(owner, SymbolName::try_new(name)?))?;
 
         self.exports.get(*index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compiler_known::CompilerKnownDeclarationKey;
+    use bray_symbols::{SymbolKey, SymbolKind, SynthesizedSymbolKey};
+
+    use super::{CompilerKnownSymbolReference, MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS};
+
+    #[test]
+    fn compiler_known_references_bound_synthesized_key_depth() {
+        let declaration = CompilerKnownDeclarationKey::try_new("TestFunction")
+            .unwrap_or_else(|| panic!("test compiler-known key must be valid"));
+
+        let mut key = SymbolKey::compiler_known_declaration(declaration, SymbolKind::Function)
+            .unwrap_or_else(|| panic!("test compiler-known function key must be valid"));
+
+        for _ in 1..MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS {
+            key = SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(key));
+        }
+
+        assert!(CompilerKnownSymbolReference::try_new(key.clone()).is_some());
+
+        let excessive = SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(key));
+
+        assert!(CompilerKnownSymbolReference::try_new(excessive).is_none());
     }
 }

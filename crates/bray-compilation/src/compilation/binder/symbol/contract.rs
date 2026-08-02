@@ -906,7 +906,9 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(contracts.diagnostics()),
-            [DiagnosticKind::CheckingIncompatibleExpressionType]
+            [DiagnosticKind::CheckingIncompatibleExpressionType],
+            "{:#?}",
+            contracts.diagnostics()
         );
     }
 

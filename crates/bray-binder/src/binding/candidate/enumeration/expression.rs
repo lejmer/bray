@@ -26,7 +26,7 @@ pub fn bind_expression_candidates<C>(
     type_scope: &TypeExpressionScope,
 ) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BinderFactContext,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
