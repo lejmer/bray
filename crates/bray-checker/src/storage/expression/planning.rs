@@ -1,7 +1,8 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget, SelectedOperation,
-    SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageProjection,
+    BoundPatternMode, BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget,
+    SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity,
+    StorageProjection,
 };
 use bray_symbols::{BorrowKind, ReceiverMode};
 
@@ -128,6 +129,29 @@ where
             BoundExpression::Match(expression) => {
                 let subject = self.plan_expression(expression.subject(), None)?;
 
+                let subject_purpose = match expression.arms().first() {
+                    Some(arm) => {
+                        let pattern = self
+                            .request
+                            .view()
+                            .pattern(arm.pattern())
+                            .ok_or_else(|| invalid_node(arm.pattern()))?;
+
+                        match pattern.mode() {
+                            BoundPatternMode::MatchConsume => StorageAccessPurpose::Move,
+                            BoundPatternMode::MatchObserve => StorageAccessPurpose::Read,
+                            BoundPatternMode::Declaration | BoundPatternMode::Assignment => {
+                                return Err(
+                                    CheckerInfrastructureError::InvalidStoragePlan.into()
+                                );
+                            }
+                        }
+                    }
+                    None => StorageAccessPurpose::Read,
+                };
+
+                self.record_purpose(expression.subject(), Some(subject_purpose), subject)?;
+
                 for arm in expression.arms() {
                     self.plan_pattern(arm.pattern(), expression.subject(), subject)?;
 
@@ -190,7 +214,6 @@ where
 
         let direct = selection
             .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)));
-
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
         }

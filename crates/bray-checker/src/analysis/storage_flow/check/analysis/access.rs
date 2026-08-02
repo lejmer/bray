@@ -41,13 +41,24 @@ where
 
         let access = self.operation_access(plan, purpose);
 
-        let Some(authorizing_borrows) = self.borrow_chain(access) else {
+        if let Some(kind) = self.projected_storage_borrow_kind(access) {
+            return requested == BorrowKind::Mutable && kind == BorrowKind::Shared;
+        }
+
+        let authority = match purpose {
+            StorageAccessPurpose::Borrow(_) => plan.access(),
+            _ => access,
+        };
+
+        let Some(authorizing_borrows) = self.borrow_chain(authority) else {
             return true;
         };
 
+        let created_borrow = self.input.borrow(plan);
+
         if authorizing_borrows
             .iter()
-            .any(|borrow| !state.active_borrows.contains(borrow))
+            .any(|borrow| Some(*borrow) != created_borrow && !state.active_borrows.contains(borrow))
         {
             return true;
         }
@@ -86,7 +97,8 @@ where
             StorageAccessRoot::Recovery(_) => false,
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => {
-                self.owned_storage_is_mutable(storage)
+                self.projected_storage_borrow_kind(access) == Some(BorrowKind::Mutable)
+                    || self.owned_storage_is_mutable(storage)
             }
         }
     }
@@ -147,9 +159,32 @@ where
     }
 
     pub(super) fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
-        self.storage
-            .access(access)
-            .is_some_and(|access| matches!(access.root(), StorageAccessRoot::Borrow(_)))
+        self.storage.access(access).is_some_and(|record| {
+            matches!(record.root(), StorageAccessRoot::Borrow(_))
+                || self.projected_storage_borrow_kind(access).is_some()
+        })
+    }
+
+    fn projected_storage_borrow_kind(&self, access: StorageAccessId) -> Option<BorrowKind> {
+        let access = self.storage.access(access)?;
+        let StorageAccessRoot::Storage(storage) = access.root() else {
+            return None;
+        };
+
+        let root_type = self.storage.storage_type(storage)?;
+
+        if access.projections().is_empty() && access.reached_type() == root_type {
+            return None;
+        }
+
+        self.request
+            .semantic_values()
+            .type_data(root_type)
+            .ok()
+            .and_then(|data| match data.as_ref() {
+                bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
+                _ => None,
+            })
     }
 
     pub(super) fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> bool {
@@ -204,11 +239,7 @@ where
     ) -> Option<StorageAccessId> {
         match purpose {
             StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => Some(plan.access()),
-            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => self
-                .input
-                .borrow(plan)
-                .and_then(|borrow| self.storage.borrow_capability(borrow))
-                .map(|borrow| borrow.access()),
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => Some(plan.access()),
             StorageAccessPurpose::Read
             | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Copy

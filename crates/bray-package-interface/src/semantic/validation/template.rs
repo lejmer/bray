@@ -324,7 +324,14 @@ fn validate_operation_references(
         } => {
             let declaration_kind = validate_template_reference(context, callable)?;
 
-            if !declaration_kind.is_callable() && declaration_kind != SymbolKind::Predicate {
+            if !declaration_kind.is_callable()
+                && !matches!(
+                    declaration_kind,
+                    SymbolKind::Predicate
+                        | SymbolKind::TraitPredicateMember
+                        | SymbolKind::TraitPredicateFulfillment
+                )
+            {
                 return Err(InterfaceValidationError::Malformed);
             }
 

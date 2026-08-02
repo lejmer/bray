@@ -190,7 +190,7 @@ pub enum InterfaceCheckedTemplateOperation {
     },
     /// Reads a declaration-owned value.
     Declaration(InterfaceTemplateReference),
-    /// Calls one selected declaration with deterministic argument order.
+    /// Applies one selected callable or predicate with deterministic argument order.
     Call {
         /// The selected callable or predicate declaration.
         callable: InterfaceTemplateReference,
@@ -245,7 +245,7 @@ pub enum InterfaceCheckedTemplateOperation {
 }
 
 impl InterfaceCheckedTemplateOperation {
-    /// Creates a selected call operation with stable argument order.
+    /// Creates a selected callable or predicate application with stable argument order.
     pub fn call(
         callable: InterfaceTemplateReference,
         substitution: InterfaceGenericSubstitutionId,

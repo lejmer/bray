@@ -108,8 +108,15 @@ where
         return Ok(false);
     };
 
-    Ok(scalar_shape(source).is_some_and(|source| {
-        scalar_shape(target).is_some_and(|target| source.can_represent(target))
+    let target_width = request
+        .context()
+        .selected_target()
+        .machine()
+        .pointer_width_bits()
+        .get();
+
+    Ok(scalar_shape(source, target_width).is_some_and(|source| {
+        scalar_shape(target, target_width).is_some_and(|target| source.can_represent(target))
     }))
 }
 
@@ -246,8 +253,6 @@ enum ScalarShape {
     Unsigned(u16),
     Real(u16),
     Complex(u16),
-    TargetSigned,
-    TargetUnsigned,
 }
 
 impl ScalarShape {
@@ -260,16 +265,12 @@ impl ScalarShape {
             (Self::Unsigned(source), Self::Real(mantissa)) => source <= mantissa,
             (Self::Real(source), Self::Real(target)) => source <= target,
             (Self::Complex(source), Self::Complex(target)) => source <= target,
-            (Self::TargetSigned, Self::Signed(128))
-            | (Self::TargetUnsigned, Self::Unsigned(128)) => true,
-            (Self::TargetSigned, Self::TargetSigned)
-            | (Self::TargetUnsigned, Self::TargetUnsigned) => true,
             _ => false,
         }
     }
 }
 
-const fn scalar_shape(role: RepresentationRole) -> Option<ScalarShape> {
+const fn scalar_shape(role: RepresentationRole, target_width: u16) -> Option<ScalarShape> {
     match role {
         RepresentationRole::ScalarI8 => Some(ScalarShape::Signed(8)),
         RepresentationRole::ScalarI16 => Some(ScalarShape::Signed(16)),
@@ -281,8 +282,8 @@ const fn scalar_shape(role: RepresentationRole) -> Option<ScalarShape> {
         RepresentationRole::ScalarU32 => Some(ScalarShape::Unsigned(32)),
         RepresentationRole::ScalarU64 => Some(ScalarShape::Unsigned(64)),
         RepresentationRole::ScalarU128 => Some(ScalarShape::Unsigned(128)),
-        RepresentationRole::ScalarIsize => Some(ScalarShape::TargetSigned),
-        RepresentationRole::ScalarUsize => Some(ScalarShape::TargetUnsigned),
+        RepresentationRole::ScalarIsize => Some(ScalarShape::Signed(target_width)),
+        RepresentationRole::ScalarUsize => Some(ScalarShape::Unsigned(target_width)),
         RepresentationRole::ScalarR16 => Some(ScalarShape::Real(11)),
         RepresentationRole::ScalarR32 => Some(ScalarShape::Real(24)),
         RepresentationRole::ScalarR64 => Some(ScalarShape::Real(53)),
@@ -311,6 +312,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundUnitId, ConversionTarget, SelectedConversion};
+    use bray_compiler_known::RepresentationRole;
 
     use crate::CheckerUnitView;
     use crate::test_support::{
@@ -318,14 +320,22 @@ mod tests {
         push_expression, tuple_type,
     };
 
-    use super::{ScalarShape, validate_conversion};
+    use super::{ScalarShape, scalar_shape, validate_conversion};
 
     #[test]
     fn target_sized_integers_convert_to_their_fixed_128_bit_domains() {
-        assert!(ScalarShape::TargetSigned.can_represent(ScalarShape::Signed(128)));
-        assert!(ScalarShape::TargetUnsigned.can_represent(ScalarShape::Unsigned(128)));
-        assert!(!ScalarShape::TargetSigned.can_represent(ScalarShape::Signed(64)));
-        assert!(!ScalarShape::TargetUnsigned.can_represent(ScalarShape::Unsigned(64)));
+        let Some(signed) = scalar_shape(RepresentationRole::ScalarIsize, 128) else {
+            panic!("target-sized signed integers must have a scalar shape");
+        };
+
+        let Some(unsigned) = scalar_shape(RepresentationRole::ScalarUsize, 128) else {
+            panic!("target-sized unsigned integers must have a scalar shape");
+        };
+
+        assert!(signed.can_represent(ScalarShape::Signed(128)));
+        assert!(unsigned.can_represent(ScalarShape::Unsigned(128)));
+        assert!(!signed.can_represent(ScalarShape::Signed(64)));
+        assert!(!unsigned.can_represent(ScalarShape::Unsigned(64)));
     }
 
     #[test]

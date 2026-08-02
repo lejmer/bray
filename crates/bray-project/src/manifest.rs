@@ -67,6 +67,15 @@ pub(crate) struct ProductManifest {
     pub source_roots: Vec<String>,
     pub targets: Vec<String>,
     pub outputs: Vec<OutputKindManifest>,
+    #[serde(default)]
+    pub platform_services: Vec<PlatformServiceManifest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PlatformServiceManifest {
+    pub role: String,
+    pub declaration: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]

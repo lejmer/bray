@@ -310,7 +310,9 @@ where
             return StorageOperationStatus::Recovered;
         }
 
-        if !self.refinements_allow_access(plan.access(), refinements) {
+        if !self.pattern_establishes_projection(plan.access())
+            && !self.refinements_allow_access(plan.access(), refinements)
+        {
             return StorageOperationStatus::InactiveProjection;
         }
 
@@ -330,7 +332,10 @@ where
             return StorageOperationStatus::Uninitialized;
         }
 
-        if requires_value && self.access_is_moved(state, plan.access()) {
+        if requires_value
+            && !self.pattern_establishes_projection(plan.access())
+            && self.access_is_moved(state, plan.access())
+        {
             return StorageOperationStatus::Moved;
         }
 
@@ -409,6 +414,18 @@ where
         }
     }
 
+    fn pattern_establishes_projection(&self, access: StorageAccessId) -> bool {
+        self.storage.access(access).is_some_and(|access| {
+            matches!(
+                access.source().syntax().syntax_kind(),
+                bray_syntax::SyntaxKind::IrrefutablePattern
+                    | bray_syntax::SyntaxKind::IrrefutablePatternEntry
+                    | bray_syntax::SyntaxKind::CasePattern
+                    | bray_syntax::SyntaxKind::CasePatternEntry
+            )
+        })
+    }
+
     fn move_consumes_complete_union_payload(&self, access: StorageAccessId) -> bool {
         let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) = self
             .storage
@@ -445,6 +462,11 @@ where
 
         state.live.extend(definitions.iter().copied());
         state.initialized.extend(definitions.iter().copied());
+        state.moved.retain(|access| {
+            self.storage
+                .root_identity(*access)
+                .is_none_or(|root| !definitions.contains(&root))
+        });
     }
 
     fn access_is_moved(&self, state: &StorageFlowState, access: StorageAccessId) -> bool {
@@ -492,9 +514,14 @@ where
                 };
 
                 let subject = BoundDependencySubject::BorrowCapability(*borrow);
+                let retained_for_suspension = self
+                    .liveness
+                    .live_across_suspensions()
+                    .iter()
+                    .any(|entry| entry.subject() == subject);
 
                 capability.entry_binding().is_none()
-                    && (moved_borrows.contains(borrow)
+                    && ((moved_borrows.contains(borrow) && !retained_for_suspension)
                         || self.liveness.is_last_use(operation, subject)
                         || capability.expression().is_some_and(|expression| {
                             self.liveness
@@ -537,7 +564,6 @@ where
                 .root_identity(*access)
                 .is_some_and(|storage| state.live.contains(&storage))
         });
-
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
                 || self

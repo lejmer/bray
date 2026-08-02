@@ -158,6 +158,15 @@ fn selection_exposes_internal(
                 )?;
             }
         }
+        SemanticSelection::Predicate(predicate) => {
+            dependencies.push(predicate.predicate().into_any());
+            semantic_values_expose_internal |= substitution_exposes_internal(
+                predicate.substitution(),
+                semantic_values,
+                symbols,
+                declarations,
+            );
+        }
         SemanticSelection::Operation(operation) => {
             semantic_values_expose_internal |= push_operation_dependencies(
                 semantic_values,

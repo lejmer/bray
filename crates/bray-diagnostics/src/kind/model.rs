@@ -340,6 +340,8 @@ define_diagnostic_kinds! {
     CheckingForeignCallableExecutionUnsupported,
     /// A declared value type cannot cross the selected foreign ABI.
     CheckingForeignAbiTypeUnsupported,
+    /// A platform-service declaration does not match its role's closed ABI shape.
+    CheckingPlatformServiceSignatureMismatch,
     /// A native link directive does not provide a valid dependency requirement.
     CheckingInvalidNativeLinkDirective,
     /// A native symbol directive does not provide a valid external symbol name.
@@ -568,6 +570,7 @@ impl DiagnosticKind {
             Self::CheckingForeignCallableRequiresCapability => 7055,
             Self::CheckingForeignCallableExecutionUnsupported => 7056,
             Self::CheckingForeignAbiTypeUnsupported => 7057,
+            Self::CheckingPlatformServiceSignatureMismatch => 7089,
             Self::CheckingInvalidNativeLinkDirective => 7058,
             Self::CheckingInvalidNativeSymbolDirective => 7059,
             Self::CheckingDuplicateNativeSymbol => 7060,
@@ -840,6 +843,9 @@ impl DiagnosticKind {
                 "checking_foreign_callable_execution_unsupported"
             }
             Self::CheckingForeignAbiTypeUnsupported => "checking_foreign_abi_type_unsupported",
+            Self::CheckingPlatformServiceSignatureMismatch => {
+                "checking_platform_service_signature_mismatch"
+            }
             Self::CheckingInvalidNativeLinkDirective => "checking_invalid_native_link_directive",
             Self::CheckingInvalidNativeSymbolDirective => {
                 "checking_invalid_native_symbol_directive"

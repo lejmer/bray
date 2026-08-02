@@ -1,74 +1,213 @@
 trusted module std.io;
 
-internal struct PlatformStreamStatus
+@layout(c)
+internal struct PlatformStatus
 {
     category: u32;
     reserved: u32;
     native_code: i64;
 }
 
-internal struct PlatformStreamTransfer
-{
-    status: PlatformStreamStatus;
-    transferred: usize;
-}
+@abi(c)
+extern trusted internal func platform_context_measure(
+    pos required: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call);
 
-extern trusted internal func platform_standard_input_handle() -> u64;
+@abi(c)
+extern trusted internal func platform_context_copy(
+    pos destination: RawPointer<u8>,
+    pos capacity: u64,
+    pos written_or_required: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call);
 
-extern trusted internal func platform_standard_output_handle() -> u64;
-
-extern trusted internal func platform_standard_error_handle() -> u64;
-
+@abi(c)
 extern trusted internal func platform_stream_read(
-    pos destination: &mut [u8],
-    handle: u64,
-) -> PlatformStreamTransfer;
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call);
 
+@abi(c)
 extern trusted internal func platform_stream_write(
-    pos source: &[u8],
-    handle: u64,
-) -> PlatformStreamTransfer;
+    pos handle: u64,
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call);
 
+@abi(c)
 extern trusted internal func platform_stream_flush(
-    handle: u64,
-) -> PlatformStreamStatus;
+    pos handle: u64,
+) -> PlatformStatus
+    uses(foreign_call);
 
-extern trusted internal async func platform_stream_read_async(
-    pos destination: &mut [u8],
-    handle: u64,
-) -> PlatformStreamTransfer;
+@abi(c)
+extern trusted internal func platform_stream_lock(
+    pos handle: u64,
+) -> PlatformStatus
+    uses(foreign_call);
 
-extern trusted internal async func platform_stream_write_async(
-    pos source: &[u8],
-    handle: u64,
-) -> PlatformStreamTransfer;
+@abi(c)
+extern trusted internal func platform_stream_unlock(
+    pos handle: u64,
+) -> PlatformStatus
+    uses(foreign_call);
 
-extern trusted internal async func platform_stream_flush_async(
-    handle: u64,
-) -> PlatformStreamStatus;
+internal struct StandardStreamLock
+{
+    handle: u64;
+    acquired: bool;
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.acquired
+        {
+            let _: PlatformStatus =
+                trusted platform_stream_unlock(handle = self.handle);
+        }
+    }
+}
 
 internal func support_standard_input() -> StandardInput
 {
     return StandardInput {
-        handle = trusted platform_standard_input_handle(),
+        handle = trusted process_context_stream_handle(offset = 16),
     };
 }
 
 internal func support_standard_output() -> StandardOutput
 {
     return StandardOutput {
-        handle = trusted platform_standard_output_handle(),
+        handle = trusted process_context_stream_handle(offset = 24),
     };
 }
 
 internal func support_standard_error() -> StandardError
 {
     return StandardError {
-        handle = trusted platform_standard_error_handle(),
+        handle = trusted process_context_stream_handle(offset = 32),
     };
 }
 
-internal func platform_error_kind(category: u32) -> IoErrorKind
+trusted internal func process_context_stream_handle(offset: usize) -> u64
+    uses(foreign_call)
+{
+    let mut required: u64 = 0;
+    let required_pointer: RawPointer<u64> =
+        std.memory.address_of_mut<u64>(&mut required);
+    let measured: PlatformStatus =
+        trusted platform_context_measure(required = required_pointer);
+
+    if measured.category != 0
+    {
+        return 0;
+    }
+
+    if measured.reserved != 0
+    {
+        return 0;
+    }
+
+    if required < 96
+    {
+        return 0;
+    }
+
+    let capacity: usize = required as usize;
+
+    if capacity as u64 != required
+    {
+        return 0;
+    }
+
+    let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> =
+        trusted std.memory.create_buffer<u8>(capacity = capacity);
+
+    match consume created
+    {
+        case Ok(buffer)
+        {
+            let mut buffer: std.memory.RawBuffer<u8> = buffer;
+            let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
+            let mut written: u64 = 0;
+            let written_pointer: RawPointer<u64> =
+                std.memory.address_of_mut<u64>(&mut written);
+
+            let copied: PlatformStatus = trusted platform_context_copy(
+                destination,
+                capacity = required,
+                written_or_required = written_pointer,
+            );
+
+            if copied.category != 0
+            {
+                return 0;
+            }
+
+            if copied.reserved != 0
+            {
+                return 0;
+            }
+
+            if written != required
+            {
+                return 0;
+            }
+
+            trusted std.memory.set_initialized_count<u8>(
+                &mut buffer,
+                count = capacity,
+            );
+
+            return read_context_u64(&buffer, offset = offset);
+        }
+
+        case Error(_)
+        {
+            return 0;
+        }
+    }
+}
+
+internal func read_context_u64(
+    pos buffer: &std.memory.RawBuffer<u8>,
+    offset: usize,
+) -> u64
+{
+    let pointer: RawPointer<u8> = std.memory.pointer<u8>(buffer);
+    let byte0: u64 = trusted std.memory.byte_buffer_read(pointer, index = offset) as u64;
+    let byte1: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 1) as u64;
+    let byte2: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 2) as u64;
+    let byte3: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 3) as u64;
+    let byte4: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 4) as u64;
+    let byte5: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 5) as u64;
+    let byte6: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 6) as u64;
+    let byte7: u64 =
+        trusted std.memory.byte_buffer_read(pointer, index = offset + 7) as u64;
+
+    return byte0
+        + byte1 * 256
+        + byte2 * 65536
+        + byte3 * 16777216
+        + byte4 * 4294967296
+        + byte5 * 1099511627776
+        + byte6 * 281474976710656
+        + byte7 * 72057594037927936;
+}
+
+internal func platform_error_kind(pos category: u32) -> IoErrorKind
 {
     if category == 1
     {
@@ -139,13 +278,17 @@ internal func support_io_error(
 }
 
 internal func platform_status_error(
-    pos status: PlatformStreamStatus,
+    pos status: PlatformStatus,
     transferred: usize = 0,
 ) -> IoError
 {
+    let category: u32 = status.category;
+    let kind: IoErrorKind = platform_error_kind(category);
+    let native_code: i64 = status.native_code;
+
     return support_io_error(
-        kind = platform_error_kind(status.category),
-        native_code = status.native_code,
+        kind = kind,
+        native_code = native_code,
         transferred = transferred,
     );
 }
@@ -177,69 +320,48 @@ internal func no_progress_error(transferred: usize = 0) -> IoError
     );
 }
 
-internal func checked_read_transfer(
-    pos transfer: PlatformStreamTransfer,
-    capacity: usize,
+internal func checked_transfer(
+    pos status: PlatformStatus,
+    transferred: u64,
+    maximum: usize,
+    require_progress: bool,
 ) -> Result<usize, IoError>
 {
-    if transfer.status.reserved != 0
+    if status.reserved != 0
     {
         return Error(invalid_transfer_error());
     }
 
-    if transfer.transferred > capacity
+    let transferred_count: usize = transferred as usize;
+
+    if transferred_count > maximum
     {
         return Error(invalid_transfer_error());
     }
 
-    if transfer.status.category != 0
+    if status.category != 0
     {
         return Error(platform_status_error(
-            transfer.status,
-            transferred = transfer.transferred,
+            status,
+            transferred = transferred_count,
         ));
     }
 
-    return Ok(transfer.transferred);
-}
-
-internal func checked_write_transfer(
-    pos transfer: PlatformStreamTransfer,
-    requested: usize,
-) -> Result<usize, IoError>
-{
-    if transfer.status.reserved != 0
+    if require_progress
     {
-        return Error(invalid_transfer_error());
-    }
-
-    if transfer.transferred > requested
-    {
-        return Error(invalid_transfer_error());
-    }
-
-    if transfer.status.category != 0
-    {
-        return Error(platform_status_error(
-            transfer.status,
-            transferred = transfer.transferred,
-        ));
-    }
-
-    if requested > 0
-    {
-        if transfer.transferred == 0
+        if maximum > 0
         {
-            return Error(no_progress_error());
+            if transferred_count == 0
+            {
+                return Error(no_progress_error());
+            }
         }
     }
 
-    return Ok(transfer.transferred);
+    return Ok(transferred_count);
 }
 
-internal func checked_flush_status(
-    pos status: PlatformStreamStatus,
-) -> Result<unit, IoError>
+internal func checked_status(pos status: PlatformStatus) -> Result<unit, IoError>
 {
     if status.reserved != 0
     {
@@ -254,73 +376,145 @@ internal func checked_flush_status(
     return Ok(unit);
 }
 
+trusted internal func acquire_standard_stream(
+    handle: u64,
+) -> Result<StandardStreamLock, IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if handle == 0
+    {
+        return Error(unavailable_stream_error());
+    }
+
+    let status: PlatformStatus = trusted platform_stream_lock(handle = handle);
+
+    match consume checked_status(status)
+    {
+        case Ok(_)
+        {
+            return Ok(StandardStreamLock {
+                handle = handle,
+                acquired = true,
+            });
+        }
+
+        case Error(error)
+        {
+            return Error(error);
+        }
+    }
+}
+
+trusted internal func write_standard_stream_unlocked(
+    pos source: &[u8],
+    handle: u64,
+) -> Result<usize, IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let requested: usize = internal std.memory.byte_slice_length(source);
+    let source_pointer: RawPointer<u8> =
+        internal std.memory.byte_slice_pointer(source);
+    let mut transferred: u64 = 0;
+    let transferred_pointer: RawPointer<u64> =
+        std.memory.address_of_mut<u64>(&mut transferred);
+
+    let status: PlatformStatus = trusted platform_stream_write(
+        handle = handle,
+        source = source_pointer,
+        length = requested as u64,
+        transferred = transferred_pointer,
+    );
+
+    return checked_transfer(
+        status,
+        transferred = transferred,
+        maximum = requested,
+        require_progress = true,
+    );
+}
+
 internal func write_standard_stream(
     pos source: &[u8],
     handle: u64,
 ) -> Result<usize, IoError>
     requires(blocking_execution())
 {
-    if handle == 0
-    {
-        return Error(unavailable_stream_error());
-    }
+    let lock: StandardStreamLock =
+        try trusted acquire_standard_stream(handle = handle);
+    let result: Result<usize, IoError> =
+        trusted write_standard_stream_unlocked(source, handle = handle);
 
-    let requested: usize = internal std.memory.byte_slice_length(source);
+    return result;
+}
 
-    let transfer: PlatformStreamTransfer = trusted platform_stream_write(
-        source,
-        handle = handle,
-    );
+trusted internal func flush_standard_stream_unlocked(handle: u64) -> Result<unit, IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let status: PlatformStatus = trusted platform_stream_flush(handle = handle);
 
-    return checked_write_transfer(transfer, requested = requested);
+    return checked_status(status);
 }
 
 internal func flush_standard_stream(handle: u64) -> Result<unit, IoError>
     requires(blocking_execution())
 {
-    if handle == 0
-    {
-        return Error(unavailable_stream_error());
-    }
+    let lock: StandardStreamLock =
+        try trusted acquire_standard_stream(handle = handle);
+    let result: Result<unit, IoError> =
+        trusted flush_standard_stream_unlocked(handle = handle);
 
-    let status: PlatformStreamStatus = trusted platform_stream_flush(handle = handle);
-
-    return checked_flush_status(status);
+    return result;
 }
 
 internal async func write_standard_stream_async(
     pos source: &[u8],
     handle: u64,
 ) -> Result<usize, IoError>
+    requires(blocking_execution())
 {
-    if handle == 0
-    {
-        return Error(unavailable_stream_error());
-    }
-
-    let requested: usize = internal std.memory.byte_slice_length(source);
-
-    let transfer: PlatformStreamTransfer = await trusted platform_stream_write_async(
-        source,
-        handle = handle,
-    );
-
-    return checked_write_transfer(transfer, requested = requested);
+    return write_standard_stream(source, handle = handle);
 }
 
 internal async func flush_standard_stream_async(
     handle: u64,
 ) -> Result<unit, IoError>
+    requires(blocking_execution())
 {
-    if handle == 0
-    {
-        return Error(unavailable_stream_error());
-    }
+    return flush_standard_stream(handle = handle);
+}
 
-    let status: PlatformStreamStatus =
-        await trusted platform_stream_flush_async(handle = handle);
+trusted internal func read_standard_stream(
+    pos destination: &mut [u8],
+    handle: u64,
+) -> Result<usize, IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let lock: StandardStreamLock =
+        try trusted acquire_standard_stream(handle = handle);
+    let capacity: usize = internal std.memory.byte_slice_length(&destination);
+    let destination_pointer: RawPointer<u8> =
+        internal std.memory.byte_slice_pointer_mut(destination);
+    let mut transferred: u64 = 0;
+    let transferred_pointer: RawPointer<u64> =
+        std.memory.address_of_mut<u64>(&mut transferred);
 
-    return checked_flush_status(status);
+    let status: PlatformStatus = trusted platform_stream_read(
+        handle = handle,
+        destination = destination_pointer,
+        length = capacity as u64,
+        transferred = transferred_pointer,
+    );
+
+    return checked_transfer(
+        status,
+        transferred = transferred,
+        maximum = capacity,
+        require_progress = false,
+    );
 }
 
 impl StandardInputReader = StandardInput(Reader)
@@ -330,19 +524,9 @@ impl StandardInputReader = StandardInput(Reader)
     ) -> Result<usize, IoError>
         requires(blocking_execution())
     {
-        if self.handle == 0
-        {
-            return Error(unavailable_stream_error());
-        }
+        let handle: u64 = self.handle;
 
-        let capacity: usize = internal std.memory.byte_slice_length(destination);
-
-        let transfer: PlatformStreamTransfer = trusted platform_stream_read(
-            destination,
-            handle = self.handle,
-        );
-
-        return checked_read_transfer(transfer, capacity = capacity);
+        return trusted read_standard_stream(destination, handle = handle);
     }
 }
 
@@ -351,13 +535,17 @@ impl StandardOutputWriter = StandardOutput(Writer)
     mut func write(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
-        return write_standard_stream(source, handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return write_standard_stream(source, handle = handle);
     }
 
     mut func flush() -> Result<unit, IoError>
         requires(blocking_execution())
     {
-        return flush_standard_stream(handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return flush_standard_stream(handle = handle);
     }
 }
 
@@ -366,13 +554,17 @@ impl StandardErrorWriter = StandardError(Writer)
     mut func write(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
-        return write_standard_stream(source, handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return write_standard_stream(source, handle = handle);
     }
 
     mut func flush() -> Result<unit, IoError>
         requires(blocking_execution())
     {
-        return flush_standard_stream(handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return flush_standard_stream(handle = handle);
     }
 }
 
@@ -381,20 +573,11 @@ impl StandardInputAsyncReader = StandardInput(AsyncReader)
     mut async func read_async(
         pos destination: &mut [u8],
     ) -> Result<usize, IoError>
+        requires(blocking_execution())
     {
-        if self.handle == 0
-        {
-            return Error(unavailable_stream_error());
-        }
+        let handle: u64 = self.handle;
 
-        let capacity: usize = internal std.memory.byte_slice_length(destination);
-
-        let transfer: PlatformStreamTransfer = await trusted platform_stream_read_async(
-            destination,
-            handle = self.handle,
-        );
-
-        return checked_read_transfer(transfer, capacity = capacity);
+        return trusted read_standard_stream(destination, handle = handle);
     }
 }
 
@@ -403,13 +586,19 @@ impl StandardOutputAsyncWriter = StandardOutput(AsyncWriter)
     mut async func write_async(
         pos source: &[u8],
     ) -> Result<usize, IoError>
+        requires(blocking_execution())
     {
-        return await write_standard_stream_async(source, handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return write_standard_stream(source, handle = handle);
     }
 
     mut async func flush_async() -> Result<unit, IoError>
+        requires(blocking_execution())
     {
-        return await flush_standard_stream_async(handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return flush_standard_stream(handle = handle);
     }
 }
 
@@ -418,12 +607,18 @@ impl StandardErrorAsyncWriter = StandardError(AsyncWriter)
     mut async func write_async(
         pos source: &[u8],
     ) -> Result<usize, IoError>
+        requires(blocking_execution())
     {
-        return await write_standard_stream_async(source, handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return write_standard_stream(source, handle = handle);
     }
 
     mut async func flush_async() -> Result<unit, IoError>
+        requires(blocking_execution())
     {
-        return await flush_standard_stream_async(handle = self.handle);
+        let handle: u64 = self.handle;
+
+        return flush_standard_stream(handle = handle);
     }
 }

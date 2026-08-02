@@ -331,6 +331,10 @@ fn require_owned_semantic_fact(
 }
 
 fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> InterfaceSemanticFacts {
+    for contract in Arc::make_mut(&mut facts.dependency_contracts) {
+        Arc::make_mut(&mut contract.requirements).sort();
+    }
+
     Arc::make_mut(&mut facts.constraints).sort();
     Arc::make_mut(&mut facts.callable_contracts).sort();
     Arc::make_mut(&mut facts.callable_signatures).sort();

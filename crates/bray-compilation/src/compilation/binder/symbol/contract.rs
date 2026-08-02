@@ -21,6 +21,7 @@ use bray_syntax::{
 use super::binding::CompilationSymbolFactBinding;
 use super::cache::CompilationSymbolFacts;
 use super::declaration_body::checked_source_predicate_sequence;
+use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::diagnostics::source_diagnostic;
@@ -536,6 +537,22 @@ fn resolve_trait_satisfaction_constraint(
         return Err(BinderFactError::DependencyUnavailable);
     };
 
+    let (subject, application) =
+        resolve_trait_satisfaction_templates(context, subject, application, diagnostics)?;
+
+    Ok(CheckedConstraint::trait_satisfaction(
+        constraint.ordinal(),
+        subject,
+        application,
+    ))
+}
+
+fn resolve_trait_satisfaction_templates(
+    context: &CompilationBinderFacts<'_>,
+    subject: &bray_symbols::TypeExpressionTemplate,
+    application: &bray_symbols::TraitApplicationTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<(bray_symbols::TypeId, bray_symbols::TraitApplicationId)> {
     let mut terms = BTreeMap::new();
 
     for occurrence in subject
@@ -571,11 +588,7 @@ fn resolve_trait_satisfaction_constraint(
     .map_err(|_| BinderFactError::DependencyUnavailable)?
     .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    Ok(CheckedConstraint::trait_satisfaction(
-        constraint.ordinal(),
-        subject,
-        application,
-    ))
+    Ok((subject, application))
 }
 
 fn bind_callable_static_constraints(
@@ -586,13 +599,25 @@ fn bind_callable_static_constraints(
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
     for expression in expressions {
-        let predicate = if expression.trait_satisfaction_constraint().is_some() {
-            let dependency = context
-                .semantic_values
-                .empty_dependency_contract_template()
-                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        let ordinal = symbol_ordinal(predicates.len())?;
 
-            bray_symbols::PredicateSemanticSummary::new(dependency)
+        let clause = if let Some(satisfaction) = expression.trait_satisfaction_constraint() {
+            let subject = type_binder(context, owner)?
+                .bind_type_expression(satisfaction.subject())?;
+            let application = type_binder(context, owner)?
+                .bind_trait_application(satisfaction.application())?;
+
+            *diagnostics = diagnostics.merged(subject.diagnostics());
+            *diagnostics = diagnostics.merged(application.diagnostics());
+
+            let (subject, application) = resolve_trait_satisfaction_templates(
+                context,
+                subject.value(),
+                application.value(),
+                diagnostics,
+            )?;
+
+            CallableContractClause::trait_satisfaction(ordinal, subject, application)
         } else {
             // The binder owns the expression while the clause view borrows the same syntax node.
             let result = bind_predicate_clause(
@@ -611,16 +636,14 @@ fn bind_callable_static_constraints(
                 return Err(BinderFactError::DependencyUnavailable);
             };
 
-            *predicate
+            CallableContractClause::new(
+                ordinal,
+                CallableContractClauseKind::Static,
+                *predicate,
+            )
         };
 
-        let ordinal = symbol_ordinal(predicates.len())?;
-
-        predicates.push(CallableContractClause::new(
-            ordinal,
-            CallableContractClauseKind::Static,
-            predicate,
-        ));
+        predicates.push(clause);
     }
 
     Ok(())
@@ -836,10 +859,14 @@ mod tests {
             panic!("requires clause must publish one precondition");
         };
 
+        let Some(predicate) = precondition.predicate() else {
+            panic!("requires clause must retain predicate meaning");
+        };
+
         let dependency = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
-            .dependency_contract_template_data(precondition.predicate().dependency_contract())
+            .dependency_contract_template_data(predicate.dependency_contract())
             .unwrap_or_else(|error| panic!("predicate dependency must be available: {error:?}"));
 
         assert!(!dependency.requirements().is_empty());

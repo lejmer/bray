@@ -306,8 +306,8 @@ where
         _ => ExpressionBinder::new(path_context, error_type),
     };
 
-    let root =
-        bind_root(&mut expression_binder, &mut binder, root_scope).map_err(map_binding_error)?;
+    let root = bind_root(&mut expression_binder, &mut binder, root_scope)
+        .map_err(map_binding_error)?;
 
     let output = binder
         .finish()

@@ -211,12 +211,26 @@ pub enum CallableContractClauseKind {
     Static,
 }
 
-/// One checked predicate-bearing callable contract clause.
+/// The checked meaning carried by one callable contract clause.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CallableContractClauseValue {
+    /// A predicate expression checked in the clause's contract context.
+    Predicate(PredicateSemanticSummary),
+    /// A subject type that must satisfy an exact applied trait.
+    TraitSatisfaction {
+        /// The implementation-eligible subject type.
+        subject: TypeId,
+        /// The required applied trait.
+        application: TraitApplicationId,
+    },
+}
+
+/// One checked callable contract clause.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableContractClause {
     ordinal: SymbolOrdinal,
     kind: CallableContractClauseKind,
-    predicate: PredicateSemanticSummary,
+    value: CallableContractClauseValue,
 }
 
 impl CallableContractClause {
@@ -229,7 +243,23 @@ impl CallableContractClause {
         Self {
             ordinal,
             kind,
-            predicate,
+            value: CallableContractClauseValue::Predicate(predicate),
+        }
+    }
+
+    /// Creates one checked static trait-satisfaction constraint.
+    pub const fn trait_satisfaction(
+        ordinal: SymbolOrdinal,
+        subject: TypeId,
+        application: TraitApplicationId,
+    ) -> Self {
+        Self {
+            ordinal,
+            kind: CallableContractClauseKind::Static,
+            value: CallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            },
         }
     }
 
@@ -243,9 +273,28 @@ impl CallableContractClause {
         self.kind
     }
 
-    /// Returns the checked predicate meaning.
-    pub const fn predicate(self) -> PredicateSemanticSummary {
-        self.predicate
+    /// Returns the checked clause meaning.
+    pub const fn value(self) -> CallableContractClauseValue {
+        self.value
+    }
+
+    /// Returns predicate meaning when this clause contains a predicate expression.
+    pub const fn predicate(self) -> Option<PredicateSemanticSummary> {
+        match self.value {
+            CallableContractClauseValue::Predicate(predicate) => Some(predicate),
+            CallableContractClauseValue::TraitSatisfaction { .. } => None,
+        }
+    }
+
+    /// Returns the subject and application for a trait-satisfaction constraint.
+    pub const fn trait_satisfaction_requirement(self) -> Option<(TypeId, TraitApplicationId)> {
+        match self.value {
+            CallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            } => Some((subject, application)),
+            CallableContractClauseValue::Predicate(_) => None,
+        }
     }
 }
 

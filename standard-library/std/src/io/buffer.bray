@@ -18,7 +18,7 @@ internal func create_fixed_buffer(
 
     match consume created
     {
-        case Result.Ok(buffer)
+        case Ok(buffer)
         {
             let mut buffer: std.bytes.Buffer = buffer;
 
@@ -30,19 +30,19 @@ internal func create_fixed_buffer(
 
             match consume resized
             {
-                case Result.Ok(_)
+                case Ok(_)
                 {
                     return Ok(buffer);
                 }
 
-                case Result.Error(_)
+                case Error(_)
                 {
                     return Error(buffer_allocation_error());
                 }
             }
         }
 
-        case Result.Error(_)
+        case Error(_)
         {
             return Error(buffer_allocation_error());
         }
@@ -54,20 +54,24 @@ internal func transferred_error(
     transferred: usize,
 ) -> IoError
 {
-    return support_io_error(
-        kind = error.kind,
-        native_code = match error.platform_code
+    let kind: IoErrorKind = error.kind;
+    let platform_code: i64? = error.platform_code;
+    let native_code: i64 = match platform_code
+    {
+        case ?code
         {
-            case ?code
-            {
-                yield code;
-            }
+            yield code;
+        }
 
-            case none
-            {
-                yield 0;
-            }
-        },
+        case none
+        {
+            yield 0;
+        }
+    };
+
+    return support_io_error(
+        kind = kind,
+        native_code = native_code,
         transferred = transferred,
     );
 }
@@ -84,13 +88,15 @@ internal func prefixed_error(
         return invalid_transfer_error(transferred = prefix);
     }
 
+    let transferred: usize = prefix + error.transferred;
+
     return transferred_error(
         error,
-        transferred = prefix + error.transferred,
+        transferred = transferred,
     );
 }
 
-internal func smaller(left: usize, right: usize) -> usize
+internal func smaller(pos left: usize, pos right: usize) -> usize
 {
     if left < right
     {

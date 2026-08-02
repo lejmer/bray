@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bray_runtime_interface::PlatformServiceBinding;
+
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
 
@@ -116,6 +118,7 @@ pub struct ProjectProduct {
     sources: Arc<[ProjectPath]>,
     targets: Arc<[TargetIdentity]>,
     outputs: Arc<[TargetOutputKind]>,
+    platform_services: Arc<[PlatformServiceBinding]>,
 }
 
 impl ProjectProduct {
@@ -125,6 +128,7 @@ impl ProjectProduct {
         sources: Arc<[ProjectPath]>,
         targets: Arc<[TargetIdentity]>,
         outputs: Arc<[TargetOutputKind]>,
+        platform_services: Arc<[PlatformServiceBinding]>,
     ) -> Self {
         Self {
             identity,
@@ -132,6 +136,7 @@ impl ProjectProduct {
             sources,
             targets,
             outputs,
+            platform_services,
         }
     }
 
@@ -158,6 +163,11 @@ impl ProjectProduct {
     /// Returns requested output categories in canonical order.
     pub fn outputs(&self) -> &[TargetOutputKind] {
         &self.outputs
+    }
+
+    /// Returns explicit private platform-service declaration bindings in role order.
+    pub fn platform_services(&self) -> &[PlatformServiceBinding] {
+        &self.platform_services
     }
 }
 

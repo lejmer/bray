@@ -63,27 +63,27 @@ internal func radix_value(pos options: &Options) -> u8
 {
     match options.radix
     {
-        case Radix.Binary
+        case Binary
         {
             return 2;
         }
 
-        case Radix.Octal
+        case Octal
         {
             return 8;
         }
 
-        case Radix.Decimal
+        case Decimal
         {
             return 10;
         }
 
-        case Radix.HexadecimalLowercase
+        case HexadecimalLowercase
         {
             return 16;
         }
 
-        case Radix.HexadecimalUppercase
+        case HexadecimalUppercase
         {
             return 16;
         }
@@ -149,7 +149,7 @@ internal func uppercase_digits(pos options: &Options) -> bool
 {
     match options.radix
     {
-        case Radix.HexadecimalUppercase
+        case HexadecimalUppercase
         {
             return true;
         }
@@ -170,12 +170,17 @@ internal func sign_length(pos negative: bool, pos options: &Options) -> usize
 
     match options.sign
     {
-        case Sign.NegativeOnly
+        case NegativeOnly
         {
             return 0;
         }
 
-        case Sign.Always | Sign.Space
+        case Always
+        {
+            return 1;
+        }
+
+        case Space
         {
             return 1;
         }
@@ -236,17 +241,17 @@ internal func left_padding(pos padding: usize, pos options: &Options) -> usize
 {
     match options.alignment
     {
-        case Alignment.Left
+        case Left
         {
             return 0;
         }
 
-        case Alignment.Center
+        case Center
         {
             return padding / 2;
         }
 
-        case Alignment.Right
+        case Right
         {
             return padding;
         }
@@ -326,16 +331,16 @@ internal func write_requested_sign(
 
     match options.sign
     {
-        case Sign.NegativeOnly
+        case NegativeOnly
         {
         }
 
-        case Sign.Always
+        case Always
         {
             try std.bytes.push(&mut destination.buffer, value = 43);
         }
 
-        case Sign.Space
+        case Space
         {
             try std.bytes.push(&mut destination.buffer, value = 32);
         }
@@ -487,14 +492,14 @@ internal func write_string_value(
 {
     match options.escaping
     {
-        case Escaping.Raw
+        case Raw
         {
             let content: &[u8] = std.string.utf8(value);
 
             return write_aligned(destination, content, options);
         }
 
-        case Escaping.Quoted
+        case Quoted
         {
             let length: usize = escaped_string_length(value);
             let padding: usize = padding_count(options.width, length);

@@ -206,7 +206,9 @@ fn select_required_children(
     for child in graph.declaration_children(owner).iter().copied() {
         if matches!(
             child.kind(),
-            SymbolKind::ReceiverParameter
+            SymbolKind::GenericTypeParameter
+                | SymbolKind::GenericConstParameter
+                | SymbolKind::ReceiverParameter
                 | SymbolKind::CallableParameterDefaultProvider
                 | SymbolKind::StructFieldDefaultProvider
                 | SymbolKind::UnionPayloadDefaultProvider
@@ -294,7 +296,9 @@ fn external_key(
         }
         _ => None,
     }
-    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
+    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+        symbol.kind(),
+    ))?;
 
     keys.insert(symbol, key.clone());
 

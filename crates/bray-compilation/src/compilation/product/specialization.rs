@@ -503,7 +503,7 @@ impl Compilation {
     {
         let values = self.semantic_value_store()?;
         let symbols = self.symbol_graph()?;
-        let mut concrete = Vec::new();
+        let mut concrete = BTreeMap::new();
 
         for witness in witnesses {
             let data = values
@@ -524,9 +524,14 @@ impl Compilation {
             let identity = CodegenImplementationWitness::try_new(definition, specialization)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            concrete.push((identity, witness));
+            match concrete.insert(identity, witness) {
+                Some(existing) if existing != witness => {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                }
+                Some(_) | None => {}
+            }
         }
 
-        Ok(concrete)
+        Ok(concrete.into_iter().collect())
     }
 }

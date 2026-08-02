@@ -51,7 +51,8 @@ pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbo
 pub use fact::CallableSignatureTemplateError;
 pub use fact::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,
-    CallableContractExpressionTemplate, CallableContractSet, CallableContractTemplate,
+    CallableContractClauseValue, CallableContractExpressionTemplate, CallableContractSet,
+    CallableContractTemplate,
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableEffectRequirement, CallableExecutionRequirement, CallableOverloadTemplateFact,
     CallableParameterDefaultFact, CallableParameterDefaultSurface,

@@ -165,11 +165,26 @@ fn decode_callable_clauses(
     let mut clauses = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
-        clauses.push(InterfaceCallableContractClause::new(
-            SymbolOrdinal::new(read_u32(reader)?),
-            kind,
-            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
-        ));
+        let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+        let clause = match read_u32(reader)? {
+            1 => InterfaceCallableContractClause::new(
+                ordinal,
+                kind,
+                InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(
+                    reader,
+                )?)),
+            ),
+            2 if kind == CallableContractClauseKind::Static => {
+                InterfaceCallableContractClause::trait_satisfaction(
+                    ordinal,
+                    crate::InterfaceTypeId::new(read_u32(reader)?),
+                    crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
+                )
+            }
+            _ => return Err(InterfaceValidationError::Malformed),
+        };
+
+        clauses.push(clause);
     }
 
     Ok(clauses)

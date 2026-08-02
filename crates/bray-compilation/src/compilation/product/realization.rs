@@ -60,15 +60,17 @@ impl Compilation {
             .map(|demand| self.concrete_codegen_callee(owner, &demand, target, cancellation))
             .collect::<Result<Vec<_>, _>>()?;
 
-        for reference in mir
-            .operations()
-            .iter()
-            .flat_map(|operation| operation.kind().helper_references())
-        {
-            if let Some(dependency) =
-                self.concrete_codegen_helper_dependency(owner, &reference, target, cancellation)?
-            {
-                dependencies.push(dependency);
+        for operation in mir.operations() {
+            for reference in operation.kind().helper_references() {
+                if let Some(dependency) = self.concrete_codegen_helper_dependency(
+                    owner,
+                    operation.kind(),
+                    &reference,
+                    target,
+                    cancellation,
+                )? {
+                    dependencies.push(dependency);
+                }
             }
         }
 
@@ -277,6 +279,7 @@ impl Compilation {
 
         if let Some(dependency) = self.concrete_codegen_helper_dependency(
             owner_realization,
+            operation,
             &reference,
             target,
             cancellation,
@@ -304,6 +307,7 @@ impl Compilation {
     pub(super) fn concrete_codegen_helper_dependency(
         &self,
         owner: &ConcreteCodegenInstance,
+        operation: &MirOperationKind,
         reference: &MirHelperReference,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -315,10 +319,27 @@ impl Compilation {
             MirHelperReference::AnonymousCallable(unit) => {
                 self.concrete_codegen_bound_helper(owner, unit.clone())?
             }
-            MirHelperReference::CallableDefault(provider) => self.concrete_codegen_bound_helper(
-                owner,
-                self.runtime_default_unit((*provider).into(), reference)?,
-            )?,
+            MirHelperReference::CallableDefault(provider) => {
+                let MirOperationKind::Call(call) = operation else {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                };
+
+                let MirCallTarget::Direct(callable) = call.target() else {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                };
+
+                let callee = self.concrete_codegen_callable_data(
+                    owner,
+                    &callable.instance(),
+                    target,
+                    cancellation,
+                )?;
+
+                self.concrete_codegen_bound_helper(
+                    &callee,
+                    self.runtime_default_unit((*provider).into(), reference)?,
+                )?
+            }
             MirHelperReference::ConstructionDefault(provider) => self
                 .concrete_codegen_bound_helper(
                     owner,
@@ -1543,7 +1564,7 @@ impl Compilation {
             .map(|receiver| receiver.ty())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver = concrete_lifecycle_receiver(values, receiver, ty)?;
+        let receiver = replace_contextual_self(values, receiver, ty)?;
 
         let callable_type = values
             .type_data(signature.callable_type())
@@ -1788,15 +1809,18 @@ impl Compilation {
         }
 
         for reference in codegen_runtime_references(unit, operations) {
-            let Some(binding) =
-                executable_host.and_then(|host| host.role_binding(reference.role()))
-            else {
-                return Err(CodegenFactError::MissingRuntimeRole(reference.role()));
-            };
+            let symbol_name = executable_host
+                .and_then(|host| host.role_binding(reference.role()))
+                .map(|binding| binding.symbol_name().clone())
+                .or_else(|| {
+                    bray_runtime_interface::native_runtime_role_symbol(reference.role())
+                        .and_then(BinarySymbolName::try_new)
+                })
+                .ok_or(CodegenFactError::MissingRuntimeRole(reference.role()))?;
 
             symbols.push(CodegenSymbolMapping::new(
                 CodegenSymbolKey::Runtime(reference),
-                binding.symbol_name().clone(),
+                symbol_name,
                 CodegenLinkage::Import,
                 self.codegen_runtime_signature(reference.role())?,
             ));
@@ -3206,14 +3230,22 @@ impl Compilation {
         let receiver = signature
             .receiver()
             .map(|receiver| {
+                let receiver_ty = concrete_callable_receiver(
+                    values,
+                    self.symbol_graph()?,
+                    definition.callable_symbol(),
+                    substitution,
+                    receiver.ty(),
+                )?;
+
                 let data = match receiver.mode() {
                     ReceiverMode::Shared => Some(TypeData::Borrow {
                         kind: BorrowKind::Shared,
-                        target: receiver.ty(),
+                        target: receiver_ty,
                     }),
                     ReceiverMode::Mutable => Some(TypeData::Borrow {
                         kind: BorrowKind::Mutable,
-                        target: receiver.ty(),
+                        target: receiver_ty,
                     }),
                     ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => None,
                 };
@@ -3222,7 +3254,7 @@ impl Compilation {
                     Some(data) => values
                         .intern_type(data)
                         .map_err(|_| FactQueryError::InfrastructureFailure),
-                    None => Ok(receiver.ty()),
+                    None => Ok(receiver_ty),
                 }
             })
             .transpose()?;
@@ -3720,7 +3752,33 @@ fn lifecycle_operation_block_kind(
     }
 }
 
-fn concrete_lifecycle_receiver(
+fn concrete_callable_receiver(
+    values: &bray_symbols::SemanticValueStore,
+    symbols: &bray_symbols::SymbolGraph,
+    callable: bray_symbols::CallableSymbolId,
+    substitution: GenericSubstitutionId,
+    receiver: TypeId,
+) -> Result<TypeId, FactQueryError> {
+    let Some(container) = symbols.containing_symbol(callable.into_any()) else {
+        return Ok(receiver);
+    };
+
+    let Some(definition) = NamedTypeSymbolId::try_from_any(container) else {
+        return Ok(receiver);
+    };
+
+    let substitution = substitution_for_owner(values, container, [substitution])?;
+    let concrete_self = values
+        .intern_type(TypeData::Named {
+            definition,
+            substitution,
+        })
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    replace_contextual_self(values, receiver, concrete_self)
+}
+
+fn replace_contextual_self(
     values: &bray_symbols::SemanticValueStore,
     receiver: TypeId,
     concrete_self: TypeId,
@@ -3732,7 +3790,7 @@ fn concrete_lifecycle_receiver(
     match receiver_data.as_ref() {
         TypeData::ContextualSelf(_) => Ok(concrete_self),
         TypeData::Borrow { kind, target } => {
-            let target = concrete_lifecycle_receiver(values, *target, concrete_self)?;
+            let target = replace_contextual_self(values, *target, concrete_self)?;
 
             values
                 .intern_type(TypeData::Borrow {

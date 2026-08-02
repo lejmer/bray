@@ -55,6 +55,7 @@ pub use semantic::{
     ImportedImplementationFact, ImportedPredicateDefinitionFact, ImportedRuntimeRequirement,
     ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
+    InterfaceCallableContractClauseValue,
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
     InterfaceCallableParameterDefault, InterfaceCallablePhaseBehavior, InterfaceCallableReceiver,
     InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,

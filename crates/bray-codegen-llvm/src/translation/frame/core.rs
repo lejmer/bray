@@ -133,6 +133,7 @@ fn translate_constructor<'context>(
         instance,
         context_type,
         storage,
+        types,
     )?;
 
     let adapter = frame_operation_function(
@@ -205,6 +206,7 @@ fn initialize_parameters(
     instance: &CodegenInstance,
     context_type: StructType<'_>,
     context: PointerValue<'_>,
+    types: &mut LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
     let storages = instance
         .mir()
@@ -253,8 +255,36 @@ fn initialize_parameters(
 
                 parameter_index += 1;
             }
-            CodegenParameterMapping::Indirect { .. } => {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+            CodegenParameterMapping::Indirect { pointee, .. } => {
+                let source = function
+                    .get_nth_param(parameter_index)
+                    .and_then(pointer_value)
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                let value = builder
+                    .build_load(types.map(*pointee)?, source, "frame.parameter.indirect")
+                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+                if let Some(storage) = storage {
+                    let destination = builder
+                        .build_struct_gep(
+                            context_type,
+                            context,
+                            storage
+                                .slot()
+                                .checked_add(3)
+                                .and_then(|index| u32::try_from(index).ok())
+                                .ok_or(CodegenFailure::ResourceExhausted)?,
+                            "frame.parameter",
+                        )
+                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+                    builder
+                        .build_store(destination, value)
+                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                }
+
+                parameter_index += 1;
             }
         }
     }

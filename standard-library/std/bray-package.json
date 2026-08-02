@@ -20,6 +20,36 @@
       "outputs": [
         "package_interface",
         "static_library"
+      ],
+      "platform_services": [
+        {
+          "role": "platform.context.measure",
+          "declaration": "std.io.platform_context_measure"
+        },
+        {
+          "role": "platform.context.copy",
+          "declaration": "std.io.platform_context_copy"
+        },
+        {
+          "role": "platform.stream.read",
+          "declaration": "std.io.platform_stream_read"
+        },
+        {
+          "role": "platform.stream.write",
+          "declaration": "std.io.platform_stream_write"
+        },
+        {
+          "role": "platform.stream.flush",
+          "declaration": "std.io.platform_stream_flush"
+        },
+        {
+          "role": "platform.stream.lock",
+          "declaration": "std.io.platform_stream_lock"
+        },
+        {
+          "role": "platform.stream.unlock",
+          "declaration": "std.io.platform_stream_unlock"
+        }
       ]
     }
   ]

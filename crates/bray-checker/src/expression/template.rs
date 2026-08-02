@@ -346,7 +346,7 @@ where
     })
 }
 
-fn resolve_generic_arguments<C>(
+pub(super) fn resolve_generic_arguments<C>(
     request: crate::CheckerUnitView<'_, C>,
     arguments: &[bray_symbols::GenericArgumentTemplate],
     diagnostics: &mut DiagnosticBag,

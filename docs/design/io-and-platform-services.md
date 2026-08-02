@@ -369,6 +369,8 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 | `0x0103` | `platform.stream.flush` | `handle_ref<stream>` | none | `stream` | `may_block`; handle retained |
 | `0x0104` | `platform.stream.seek` | `handle_ref<seekable_stream>`, `u64 offset_bits`, `u32 origin` | `out<u64> position` | `stream` | `may_block`; handle retained |
 | `0x0105` | `platform.stream.close` | `handle_owner<stream>` | none | `stream` | `may_block`; consumes the owner on every terminal status |
+| `0x0106` | `platform.stream.lock` | `handle_ref<stream>` | none | `stream` | `may_block`; acquires product-wide logical-operation serialization |
+| `0x0107` | `platform.stream.unlock` | `handle_ref<stream>` | none | `stream` | `nonblocking`; releases product-wide logical-operation serialization |
 | `0x0111` | `platform.stream.read.start` | `handle_ref<stream>`, `mut_bytes(operation)` | `out<start_result>` | `stream` | `starts_operation`; pending retains buffer and stream borrow |
 | `0x0112` | `platform.stream.write.start` | `handle_ref<stream>`, `const_bytes(operation)` | `out<start_result>` | `stream` | `starts_operation`; pending retains buffer and stream borrow |
 | `0x0113` | `platform.stream.flush.start` | `handle_ref<stream>` | `out<start_result>` | `stream` | `starts_operation`; pending retains stream borrow |
@@ -379,6 +381,11 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 Start roles return `Success` for both immediate and pending operation results. An immediate failure creates no operation and retains
 no buffer. The outer status from `platform.operation.complete` reports whether completion polling itself was valid. A terminal
 `AbiOperationResult.status` uses the status set of the originating role plus `Cancelled`.
+
+Stream locks are shared by every standard-stream wrapper in one product. A wrapper acquires the lock before the first transfer of a
+logical read, write-all, print, or flush operation and releases it after the operation's terminal success or failure. It does not
+hold the lock across an asynchronous suspension. Providers serialize equal stream handles and allow unrelated handles to progress
+independently.
 
 Seek origin `0` is `SeekFrom.Start` and interprets `offset_bits` as an unsigned absolute offset. Origins `1` and `2` are
 `SeekFrom.Current` and `SeekFrom.End` and interpret the same bits as a two's-complement `i64` offset. Other origins are invalid.

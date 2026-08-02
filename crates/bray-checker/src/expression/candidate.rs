@@ -83,6 +83,7 @@ impl PreparedExpressions {
     pub(super) fn built_in_operators(&self) -> &[PreparedBuiltInOperator] {
         &self.built_in_operators
     }
+
 }
 
 pub(super) fn prepare_calls<C>(

@@ -1,6 +1,7 @@
 mod diagnostic;
 mod directive;
 mod layout;
+mod platform;
 mod query;
 mod validation;
 

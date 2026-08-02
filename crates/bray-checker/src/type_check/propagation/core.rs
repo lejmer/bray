@@ -71,6 +71,18 @@ where
             inference,
         );
 
+        if let Some(BoundExpression::Await(expression)) = request.view().expression(expression_id) {
+            infer_await(
+                request,
+                expression_id,
+                expression.operand(),
+                variables,
+                inference,
+            )?;
+
+            continue;
+        }
+
         let Some(BoundExpression::Structured(expression)) =
             request.view().expression(expression_id)
         else {
@@ -135,6 +147,57 @@ where
     Ok(Some(inference.revision() != before))
 }
 
+fn infer_await<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    operand: BoundExpressionId,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(variable) = variables.get(&expression).copied() else {
+        return Ok(());
+    };
+
+    let Some(operand_variable) = variables.get(&operand).copied() else {
+        return Ok(());
+    };
+
+    if let Some(future) = inference.evidence(operand_variable)
+        && let Some(completion) = request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                request.semantic_values(),
+                RepresentationRole::Future,
+                future,
+            )
+    {
+        inference.add_evidence(variable, completion, expression);
+    }
+
+    let completion = inference
+        .evidence(variable)
+        .or(inference.unique_expectation(variable));
+
+    let Some(future) = completion.and_then(|completion| {
+        request
+            .available_compiler_known_symbols()
+            .unary_representation_type(
+                request.semantic_values(),
+                RepresentationRole::Future,
+                completion,
+            )
+    }) else {
+        return Ok(());
+    };
+
+    inference.add_evidence(operand_variable, future, operand);
+
+    Ok(())
+}
+
 fn infer_absence<C>(
     request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
@@ -181,10 +244,17 @@ where
         return Ok(());
     };
 
-    let Some(operand_type) = variables
-        .get(operand)
-        .and_then(|operand| inference.evidence(*operand))
-    else {
+    let Some(operand_variable) = variables.get(operand).copied() else {
+        return Ok(());
+    };
+
+    if inference.is_recovered(operand_variable) {
+        inference.mark_recovered(variable);
+
+        return Ok(());
+    }
+
+    let Some(operand_type) = inference.evidence(operand_variable) else {
         return Ok(());
     };
 

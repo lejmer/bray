@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundPatternEntryKind, BoundPatternId, BoundPatternKind, PatternOperation, StorageBinding,
-    StorageBindingTarget,
+    BoundPatternEntryKind, BoundPatternId, BoundPatternKind, PatternOperation, PatternPredicate,
+    PatternProjection, StorageBinding, StorageBindingTarget,
 };
 use bray_ir::{
     MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirStoreKind,
@@ -21,6 +21,7 @@ impl Lowerer<'_> {
         unmatched: MirBlockId,
     ) -> Result<(), LoweringError> {
         let pattern_node = self.pattern(pattern)?;
+        let subject = self.pattern_test_subject(pattern, subject)?;
 
         if pattern_node.kind() == BoundPatternKind::Alternative {
             return self.lower_alternative_pattern(pattern, subject, current, matched, unmatched);
@@ -49,6 +50,52 @@ impl Lowerer<'_> {
         )?;
 
         Ok(())
+    }
+
+    fn pattern_test_subject(
+        &self,
+        pattern: BoundPatternId,
+        subject: MirOperand,
+    ) -> Result<MirOperand, LoweringError> {
+        let fact = self
+            .input
+            .pattern_facts()
+            .pattern(pattern)
+            .ok_or(LoweringError::UnsupportedPattern(pattern))?;
+
+        if !matches!(
+            fact.test(),
+            Some(PatternPredicate::NullableAbsent | PatternPredicate::NullablePresent)
+        ) {
+            return Ok(subject);
+        }
+
+        let place = match &subject {
+            MirOperand::Copy(place) | MirOperand::Move(place) => place,
+            MirOperand::Value(_) | MirOperand::Immediate { .. } | MirOperand::Constant { .. } => {
+                return Ok(subject);
+            }
+        };
+
+        let Some(projection) = place.projections().last() else {
+            return Ok(subject);
+        };
+
+        if !matches!(projection.kind(), bray_ir::MirProjectionKind::NullableValue)
+            || projection.source_type() != fact.input_type()
+        {
+            return Ok(subject);
+        }
+
+        let source = MirPlace::new(
+            place.storage(),
+            place.projections()[..place.projections().len() - 1]
+                .iter()
+                .cloned(),
+            projection.source_type(),
+        );
+
+        Ok(MirOperand::Copy(source))
     }
 
     pub(in crate::lowering) fn lower_pattern_bindings(
@@ -169,10 +216,14 @@ impl Lowerer<'_> {
         let pattern_node = self.pattern(pattern)?;
         let source = self.source(pattern_node.origin());
 
-        let subject =
-            self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?;
-
         if pattern_node.kind() == BoundPatternKind::Alternative {
+            let subject = self.project_pattern_subject(
+                pattern,
+                subject,
+                current,
+                PatternOperation::Observe,
+            )?;
+
             let mut candidate = current;
 
             for (index, child) in pattern_node.children().iter().copied().enumerate() {
@@ -211,6 +262,25 @@ impl Lowerer<'_> {
             .pattern(pattern)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
+        let projects_after_test = matches!(
+            (fact.test(), fact.projection()),
+            (
+                Some(PatternPredicate::NullableAbsent | PatternPredicate::NullablePresent),
+                Some(PatternProjection::NullableValue)
+            )
+        );
+
+        let subject = if projects_after_test {
+            subject
+        } else {
+            self.project_pattern_subject(
+                pattern,
+                subject,
+                current,
+                PatternOperation::Observe,
+            )?
+        };
+
         let children_entry = match (fact.test(), pattern_node.children().is_empty()) {
             (Some(_), true) => matched,
             (Some(_), false) => self
@@ -231,6 +301,17 @@ impl Lowerer<'_> {
                 },
             )?;
         }
+
+        let subject = if projects_after_test && !pattern_node.children().is_empty() {
+            self.project_pattern_subject(
+                pattern,
+                subject,
+                children_entry,
+                PatternOperation::Observe,
+            )?
+        } else {
+            subject
+        };
 
         let mut candidate = children_entry;
 

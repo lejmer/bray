@@ -140,12 +140,13 @@ where
         return Ok(None);
     };
 
-    let Some(operand_type) = types
-        .expression(operand)
-        .filter(|result| !result.is_recovered())
-    else {
+    let Some(operand_type) = types.expression(operand) else {
         return Ok(None);
     };
+
+    if operand_type.is_recovered() {
+        return Ok(None);
+    }
 
     if structured.kind() == BoundStructuredExpressionKind::NullablePropagation {
         let TypeData::Nullable(_) = request
@@ -167,7 +168,9 @@ where
         ));
     }
 
-    match type_representation(request, operand_type.ty())? {
+    let representation = type_representation(request, operand_type.ty())?;
+
+    match representation {
         Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun))),
         Some(RepresentationRole::Result) => {
             let Some(error_type) = named_type_arguments(request, operand_type.ty())?

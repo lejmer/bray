@@ -324,7 +324,7 @@ pub enum CheckedTemplateOperation {
     },
     /// Reads a declaration-owned value through stable semantic identity.
     Declaration(ExternalSymbolKey),
-    /// Calls one selected declaration with deterministic argument order.
+    /// Applies one selected callable or predicate with deterministic argument order.
     Call {
         /// The selected callable or predicate declaration.
         callable: ExternalSymbolKey,
@@ -376,7 +376,7 @@ pub enum CheckedTemplateOperation {
 }
 
 impl CheckedTemplateOperation {
-    /// Creates a selected call operation with stable argument order.
+    /// Creates a selected callable or predicate application with stable argument order.
     pub fn call(
         callable: ExternalSymbolKey,
         substitution: GenericSubstitutionId,

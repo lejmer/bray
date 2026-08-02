@@ -8,7 +8,7 @@ internal func advance_write_all(
 {
     match consume result
     {
-        case Result.Ok(transferred)
+        case Ok(transferred)
         {
             if transferred == 0
             {
@@ -23,7 +23,7 @@ internal func advance_write_all(
             return Ok(written + transferred);
         }
 
-        case Result.Error(error)
+        case Error(error)
         {
             if error.transferred > remaining
             {
@@ -50,11 +50,24 @@ internal func write_all<Sink>(
         let remaining: &[u8] = &source[written..length];
         let result: Result<usize, IoError> = sink.write(remaining);
 
-        written = try advance_write_all(
+        let advanced: Result<usize, IoError> = advance_write_all(
             result = result,
             written = written,
             remaining = length - written,
         );
+
+        match consume advanced
+        {
+            case Ok(next)
+            {
+                written = next;
+            }
+
+            case Error(error)
+            {
+                return Error(error);
+            }
+        }
     }
 
     return Ok(written);
@@ -65,6 +78,7 @@ internal async func write_all_async<Sink>(
     pos source: &[u8],
 ) -> Result<usize, IoError>
     with(Sink: AsyncWriter)
+    requires(blocking_execution())
 {
     let length: usize = internal std.memory.byte_slice_length(source);
     let mut written: usize = 0;
@@ -74,11 +88,63 @@ internal async func write_all_async<Sink>(
         let remaining: &[u8] = &source[written..length];
         let result: Result<usize, IoError> = await sink.write_async(remaining);
 
-        written = try advance_write_all(
+        let advanced: Result<usize, IoError> = advance_write_all(
             result = result,
             written = written,
             remaining = length - written,
         );
+
+        match consume advanced
+        {
+            case Ok(next)
+            {
+                written = next;
+            }
+
+            case Error(error)
+            {
+                return Error(error);
+            }
+        }
+    }
+
+    return Ok(written);
+}
+
+internal func write_standard_output_all(
+    pos output: &mut StandardOutput,
+    pos source: &[u8],
+) -> Result<usize, IoError>
+    requires(blocking_execution())
+{
+    let length: usize = internal std.memory.byte_slice_length(source);
+    let mut written: usize = 0;
+
+    while written < length
+    {
+        let remaining: &[u8] = &source[written..length];
+        let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(
+            remaining,
+            handle = output.handle,
+        );
+        let advanced: Result<usize, IoError> = advance_write_all(
+            result = result,
+            written = written,
+            remaining = length - written,
+        );
+
+        match consume advanced
+        {
+            case Ok(next)
+            {
+                written = next;
+            }
+
+            case Error(error)
+            {
+                return Error(error);
+            }
+        }
     }
 
     return Ok(written);
@@ -91,12 +157,12 @@ internal func checked_flush_result(
 {
     match consume result
     {
-        case Result.Ok(_)
+        case Ok(_)
         {
             return Ok(unit);
         }
 
-        case Result.Error(error)
+        case Error(error)
         {
             return Error(prefixed_error(error, prefix = written));
         }
@@ -110,8 +176,10 @@ internal func flush_after_write<Sink>(
     with(Sink: Writer)
     requires(blocking_execution())
 {
+    let result: Result<unit, IoError> = sink.flush();
+
     return checked_flush_result(
-        result = sink.flush(),
+        result = result,
         written = written,
     );
 }
@@ -121,9 +189,12 @@ internal async func flush_after_write_async<Sink>(
     written: usize,
 ) -> Result<unit, IoError>
     with(Sink: AsyncWriter)
+    requires(blocking_execution())
 {
+    let result: Result<unit, IoError> = await sink.flush_async();
+
     return checked_flush_result(
-        result = await sink.flush_async(),
+        result = result,
         written = written,
     );
 }
@@ -132,38 +203,80 @@ internal func support_print(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let mut output: StandardOutput = standard_output();
+    let handle: u64 = output.handle;
+    let lock: StandardStreamLock =
+        try trusted acquire_standard_stream(handle = handle);
 
-    let bytes: &[u8] = std.string.utf8(&text);
-    let written: usize = try write_all(&mut output, bytes);
+    let text_ref: &string = &text;
+    let bytes: &[u8] = std.string.utf8(text_ref);
+    let write_result: Result<usize, IoError> =
+        write_standard_output_all(&mut output, bytes);
 
-    return flush_after_write(&mut output, written = written);
+    match consume write_result
+    {
+        case Ok(written)
+        {
+            let flush_result: Result<unit, IoError> =
+                trusted flush_standard_stream_unlocked(handle = handle);
+
+            return checked_flush_result(
+                result = flush_result,
+                written = written,
+            );
+        }
+
+        case Error(error)
+        {
+            return Error(error);
+        }
+    }
 }
 
 internal func support_print_line(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let mut output: StandardOutput = standard_output();
+    let handle: u64 = output.handle;
+    let lock: StandardStreamLock =
+        try trusted acquire_standard_stream(handle = handle);
 
-    let bytes: &[u8] = std.string.utf8(&text);
-    let written: usize = try write_all(&mut output, bytes);
+    let text_ref: &string = &text;
+    let bytes: &[u8] = std.string.utf8(text_ref);
+    let write_result: Result<usize, IoError> =
+        write_standard_output_all(&mut output, bytes);
 
-    let newline_text: string = "\n";
-    let newline: &[u8] = std.string.utf8(&newline_text);
-    let newline_written: Result<usize, IoError> = write_all(&mut output, newline);
-
-    match consume newline_written
+    match consume write_result
     {
-        case Result.Ok(count)
+        case Ok(written)
         {
-            return flush_after_write(
-                &mut output,
-                written = written + count,
-            );
+            let newline_text: string = "\n";
+            let newline: &[u8] = std.string.utf8(&newline_text);
+            let newline_written: Result<usize, IoError> =
+                write_standard_output_all(&mut output, newline);
+
+            match consume newline_written
+            {
+                case Ok(count)
+                {
+                    let flush_result: Result<unit, IoError> =
+                        trusted flush_standard_stream_unlocked(handle = handle);
+
+                    return checked_flush_result(
+                        result = flush_result,
+                        written = written + count,
+                    );
+                }
+
+                case Error(error)
+                {
+                    return Error(prefixed_error(error, prefix = written));
+                }
+            }
         }
 
-        case Result.Error(error)
+        case Error(error)
         {
-            return Error(prefixed_error(error, prefix = written));
+            return Error(error);
         }
     }
 }
@@ -171,42 +284,15 @@ internal func support_print_line(pos text: string) -> Result<unit, IoError>
 internal async func support_print_async(
     pos text: string,
 ) -> Result<unit, IoError>
+    requires(blocking_execution())
 {
-    let mut output: StandardOutput = standard_output();
-
-    let bytes: &[u8] = std.string.utf8(&text);
-    let written: usize = try await write_all_async(&mut output, bytes);
-
-    return await flush_after_write_async(&mut output, written = written);
+    return support_print(text);
 }
 
 internal async func support_print_line_async(
     pos text: string,
 ) -> Result<unit, IoError>
+    requires(blocking_execution())
 {
-    let mut output: StandardOutput = standard_output();
-
-    let bytes: &[u8] = std.string.utf8(&text);
-    let written: usize = try await write_all_async(&mut output, bytes);
-
-    let newline_text: string = "\n";
-    let newline: &[u8] = std.string.utf8(&newline_text);
-    let newline_written: Result<usize, IoError> =
-        await write_all_async(&mut output, newline);
-
-    match consume newline_written
-    {
-        case Result.Ok(count)
-        {
-            return await flush_after_write_async(
-                &mut output,
-                written = written + count,
-            );
-        }
-
-        case Result.Error(error)
-        {
-            return Error(prefixed_error(error, prefix = written));
-        }
-    }
+    return support_print_line(text);
 }

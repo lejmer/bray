@@ -35,9 +35,10 @@ use bray_package_interface::{
     InterfaceTypeRepresentation, InterfaceUnionTag, PackageInterfaceSurface,
 };
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplate, CallableContractTemplateFact, CallableContractsFact,
-    CallableInstanceId, CallableParameterDefaultTemplateFact, CallableParameterDefaultValue,
-    CallablePhaseBehavior, CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
+    AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
+    CallableContractTemplateFact, CallableContractsFact, CallableInstanceId,
+    CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
+    CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
     ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind, DependencyGuard,
     DependencyProjection, DependencyRequirement, DependencyRequirementKind, DependencySubject,
@@ -89,6 +90,7 @@ pub(super) fn build_semantic_facts(
         )?;
 
         export_generic_facts(compilation, &binder, symbol, &mut export, &mut declarations)?;
+
         export_predicate_fact(&binder, symbol, &export, &mut declarations)?;
 
         export_default_facts(
@@ -221,6 +223,10 @@ fn export_callable_facts(
             .bound_source(expression.unit_syntax())
             .map_err(|_| incomplete(symbol))?;
 
+        let Some(predicate) = clause.predicate() else {
+            continue;
+        };
+
         // The unit key must own its Arc-backed symbol identity beyond this graph borrow.
         let owner = graph
             .symbol_key(symbol)
@@ -244,7 +250,7 @@ fn export_callable_facts(
             CheckedTemplateKind::CallableContract,
             expression.expression().syntax(),
             inputs,
-            clause.predicate().dependency_contract(),
+            predicate.dependency_contract(),
         )?;
 
         push_declaration_template(
@@ -664,10 +670,60 @@ fn runtime_default_inputs(
             Ok(SourceTemplateInput::new(
                 kind,
                 Some(BoundReferenceTarget::Surface(symbol)),
-                symbol_type(compilation, export, symbol)?,
+                runtime_default_input_type(compilation, graph, export, symbol)?,
             ))
         })
         .collect()
+}
+
+fn runtime_default_input_type(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    export: &mut SemanticExporter<'_>,
+    symbol: AnySymbolId,
+) -> Result<TypeId, PackageInterfaceExportError> {
+    let (owner, parameter) = match symbol {
+        AnySymbolId::ReceiverParameter(receiver) => {
+            let receiver = graph
+                .receiver_parameter(receiver)
+                .ok_or_else(|| incomplete(symbol))?;
+
+            (receiver.owner(), None)
+        }
+        AnySymbolId::CallableParameter(parameter) => {
+            let parameter = graph
+                .callable_parameter(parameter)
+                .ok_or_else(|| incomplete(symbol))?;
+
+            (parameter.owner(), Some((parameter.id(), parameter.ordinal())))
+        }
+        _ => return Err(incomplete(symbol)),
+    };
+
+    let signature = compilation
+        .callable_signature_template(owner.into_any())
+        .map_err(|_| incomplete(symbol))?
+        .ok_or_else(|| incomplete(symbol))?;
+
+    if signature.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    match parameter {
+        Some((parameter, ordinal)) => {
+            let ty = signature
+                .value()
+                .parameter_type_template(parameter, ordinal, export.values)
+                .map_err(|_| incomplete(symbol))?;
+
+            export.resolve_type_template(symbol, &ty)
+        }
+        None => signature
+            .value()
+            .receiver()
+            .map(|receiver| receiver.ty())
+            .ok_or_else(|| incomplete(symbol)),
+    }
 }
 
 fn callable_template_inputs(
@@ -1121,11 +1177,23 @@ impl<'a> SemanticExporter<'a> {
             .chain(contract.normal_completion_postconditions())
             .copied()
             .map(|clause| {
-                Ok(InterfaceCallableContractClause::new(
-                    clause.ordinal(),
-                    clause.kind(),
-                    self.predicate_summary(clause.predicate())?,
-                ))
+                match clause.value() {
+                    CallableContractClauseValue::Predicate(predicate) => {
+                        Ok(InterfaceCallableContractClause::new(
+                            clause.ordinal(),
+                            clause.kind(),
+                            self.predicate_summary(predicate)?,
+                        ))
+                    }
+                    CallableContractClauseValue::TraitSatisfaction {
+                        subject,
+                        application,
+                    } => Ok(InterfaceCallableContractClause::trait_satisfaction(
+                        clause.ordinal(),
+                        self.type_id(subject)?,
+                        self.trait_application_id(application)?,
+                    )),
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 

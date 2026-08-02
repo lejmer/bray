@@ -40,16 +40,19 @@ trait AsyncReader
 {
     mut async func read_async(
         pos destination: &mut [u8],
-    ) -> Result<usize, IoError>;
+    ) -> Result<usize, IoError>
+        requires(blocking_execution());
 }
 
 trait AsyncWriter
 {
     mut async func write_async(
         pos source: &[u8],
-    ) -> Result<usize, IoError>;
+    ) -> Result<usize, IoError>
+        requires(blocking_execution());
 
-    mut async func flush_async() -> Result<unit, IoError>;
+    mut async func flush_async() -> Result<unit, IoError>
+        requires(blocking_execution());
 }
 
 struct StandardInput
@@ -71,6 +74,7 @@ struct BufferedReader<Source>
 {
     internal mut source: Source;
     internal mut storage: std.bytes.Buffer;
+    internal capacity: usize;
     internal mut start: usize;
     internal mut length: usize;
 }
@@ -79,6 +83,7 @@ struct BufferedWriter<Sink>
 {
     internal mut sink: Sink;
     internal mut storage: std.bytes.Buffer;
+    internal capacity: usize;
     internal mut start: usize;
     internal mut length: usize;
 }
@@ -135,11 +140,13 @@ func print_line(pos text: string) -> Result<unit, IoError>
 }
 
 async func print_async(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution())
 {
     return await support_print_async(text = text);
 }
 
 async func print_line_async(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution())
 {
     return await support_print_line_async(text = text);
 }

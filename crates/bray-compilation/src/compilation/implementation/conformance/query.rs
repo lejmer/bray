@@ -932,6 +932,46 @@ mod tests {
     }
 
     #[test]
+    fn inferred_async_cancellation_does_not_change_trait_fulfillment_compatibility() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "struct Holder\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "async func operation() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+            "\n",
+            "trait Provides\n",
+            "{\n",
+            "    async func get() -> i32;\n",
+            "}\n",
+            "\n",
+            "impl Holder(Provides)\n",
+            "{\n",
+            "    async func get() -> i32\n",
+            "    {\n",
+            "        return await operation();\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let result = compilation
+            .trait_implementation_conformance(source_implementation(&compilation))
+            .unwrap_or_else(|error| panic!("conformance must publish: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+        assert!(result.value().is_valid());
+    }
+
+    #[test]
     fn generic_parameter_categories_must_match() {
         let compilation = compilation(concat!(
             "module app;\n",
