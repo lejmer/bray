@@ -190,7 +190,7 @@ impl BoundLeadingDotVariantExpression {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundUnqualifiedVariantExpression {
     origin: BoundNodeOrigin,
-    name: bray_symbols::SymbolName,
+    name: SymbolName,
     ty: Option<TypeId>,
     is_recovered: bool,
 }
@@ -199,7 +199,7 @@ impl BoundUnqualifiedVariantExpression {
     /// Creates an unqualified variant reference after ordinary lookup found no declaration.
     pub const fn new(
         origin: BoundNodeOrigin,
-        name: bray_symbols::SymbolName,
+        name: SymbolName,
         ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
@@ -217,7 +217,7 @@ impl BoundUnqualifiedVariantExpression {
     }
 
     /// Returns the unqualified variant name.
-    pub const fn name(&self) -> &bray_symbols::SymbolName {
+    pub const fn name(&self) -> &SymbolName {
         &self.name
     }
 
