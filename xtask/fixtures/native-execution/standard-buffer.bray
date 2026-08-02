@@ -16,5 +16,5 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         assert(capacity(&allocated) == 5);
     }
 
-    return .Ok(unit);
+    return Ok(unit);
 }

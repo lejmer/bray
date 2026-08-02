@@ -12,5 +12,5 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     assert(length(&buffer) == 0);
 
-    return .Ok(unit);
+    return Ok(unit);
 }

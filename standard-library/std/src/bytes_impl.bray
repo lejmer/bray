@@ -9,7 +9,7 @@ trusted internal func support_create(
     let storage: std.memory.RawBuffer<u8> =
         try trusted std.memory.create_buffer<u8>(capacity = capacity);
 
-    return .Ok(Buffer { storage = storage, });
+    return Ok(Buffer { storage = storage, });
 }
 
 trusted internal func support_from_slice(
@@ -39,7 +39,7 @@ trusted internal func support_from_slice(
         count = byte_count,
     );
 
-    return .Ok(buffer);
+    return Ok(buffer);
 }
 
 internal func support_as_slice(pos buffer: &Buffer) -> &[u8]
@@ -62,16 +62,16 @@ trusted internal func support_reserve(
 
     if additional <= current_capacity - current_length
     {
-        return .Ok(unit);
+        return Ok(unit);
     }
 
     let maximum: usize = ~0;
 
     if additional > maximum - current_length
     {
-        let error: std.memory.MemoryLayoutError = .SizeOverflow;
+        let error: std.memory.MemoryLayoutError = SizeOverflow;
 
-        return .Error(error);
+        return Error(error);
     }
 
     let required: usize = current_length + additional;
@@ -94,7 +94,7 @@ trusted internal func support_reserve(
         initialized = current_length,
     );
 
-    return .Ok(unit);
+    return Ok(unit);
 }
 
 trusted internal func support_resize(
@@ -109,7 +109,7 @@ trusted internal func support_resize(
     {
         support_truncate(new_length = new_length, buffer = buffer);
 
-        return .Ok(unit);
+        return Ok(unit);
     }
 
     let additional: usize = new_length - current_length;
@@ -130,7 +130,7 @@ trusted internal func support_resize(
         count = new_length,
     );
 
-    return .Ok(unit);
+    return Ok(unit);
 }
 
 trusted internal func support_truncate(
@@ -170,7 +170,7 @@ trusted internal func support_push(
         count = current_length + 1,
     );
 
-    return .Ok(unit);
+    return Ok(unit);
 }
 
 trusted internal func support_append(
@@ -182,7 +182,7 @@ trusted internal func support_append(
 
     if byte_count == 0
     {
-        return .Ok(unit);
+        return Ok(unit);
     }
 
     try support_reserve(additional = byte_count, buffer = &mut buffer);
@@ -204,7 +204,7 @@ trusted internal func support_append(
         count = current_length + byte_count,
     );
 
-    return .Ok(unit);
+    return Ok(unit);
 }
 
 trusted internal func support_pop(pos buffer: &mut Buffer) -> u8?

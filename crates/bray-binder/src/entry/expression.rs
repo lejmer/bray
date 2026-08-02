@@ -299,7 +299,12 @@ where
     let path_context = path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
 
-    let mut expression_binder = ExpressionBinder::new(path_context, error_type);
+    let mut expression_binder = match binder.unit().key().kind() {
+        bray_bound_tree::BoundUnitKind::EmbeddedConstant => {
+            ExpressionBinder::with_unresolved_name_diagnostics(path_context, error_type)
+        }
+        _ => ExpressionBinder::new(path_context, error_type),
+    };
 
     let root =
         bind_root(&mut expression_binder, &mut binder, root_scope).map_err(map_binding_error)?;

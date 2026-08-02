@@ -75,7 +75,7 @@ func load_user(pos id: UserId) -> Result<User, LoadError>
     let row = try db.fetch_user(id);
     let user = try decode_user(row);
 
-    return Result.Ok(user);
+    return Ok(user);
 }
 ```
 
@@ -86,7 +86,7 @@ async func main_work(pos task: Task<Result<User, LoadError>>) -> Result<unit, Lo
     let user = try result;
 
     use(user);
-    return Result.Ok(unit);
+    return Ok(unit);
 }
 ```
 

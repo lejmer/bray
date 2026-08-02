@@ -2672,7 +2672,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    let point = Point { x = 1 };\n",
-            "    let present: Maybe = .Some(value = 1);\n",
+            "    let present: Maybe = Some(value = 1);\n",
             "}\n",
         ));
 
@@ -4378,7 +4378,7 @@ func other()
             "}\n",
             "func make_choice() -> Choice\n",
             "{\n",
-            "    return .First;\n",
+            "    return First;\n",
             "}\n",
         ));
 
@@ -4667,12 +4667,12 @@ func other()
 
         let bound = match compilation.bound_unit(key) {
             Ok(bound) => bound,
-            Err(error) => panic!("bare variant references must recover: {error:?}"),
+            Err(error) => panic!("bare variant references must bind: {error:?}"),
         };
 
         assert!(bound.value().local_symbols().bindings().is_empty());
 
-        let mut unresolved = 0;
+        let mut contextual_variants = 0;
 
         walk_bound_unit_view(bound.value().view(), bound.value().root(), |event| {
             let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
@@ -4681,15 +4681,15 @@ func other()
 
             if matches!(
                 bound.value().view().expression(expression),
-                Some(BoundExpression::UnresolvedReference(_))
+                Some(BoundExpression::UnqualifiedVariant(_))
             ) {
-                unresolved += 1;
+                contextual_variants += 1;
             }
 
             BoundWalkControl::Continue
         });
 
-        assert_eq!(unresolved, 2);
+        assert_eq!(contextual_variants, 2);
     }
 
     #[test]

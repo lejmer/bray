@@ -68,7 +68,7 @@ trusted func create_buffer<T>(
             initialized = empty_initialized,
         };
 
-        return .Ok(buffer);
+        return Ok(buffer);
     }
 
     let layout: MemoryLayout = try layout_of<T>(count = capacity);
@@ -86,7 +86,7 @@ trusted func create_buffer<T>(
         initialized = initialized,
     };
 
-    return .Ok(buffer);
+    return Ok(buffer);
 }
 
 extern func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;

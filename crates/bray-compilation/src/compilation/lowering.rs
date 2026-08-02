@@ -186,7 +186,8 @@ mod tests {
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
-        MirOperand, MirOperationKind, MirTerminatorKind, MirTextOperationKind, MirUnit,
+        MirCallTarget, MirOperand, MirOperationKind, MirTerminatorKind, MirTextOperationKind,
+        MirUnit,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
@@ -242,8 +243,8 @@ mod tests {
         "    let pair: Pair = Pair { first = tuple.0, second = array[0] };\n",
         "    let defaulted: Pair = Pair { first = 9 };\n",
         "    let widened: (i64, i64) = tuple as (i64, i64);\n",
-        "    let choice: Choice = .Value(value = pair.first);\n",
-        "    let empty: Choice = .Empty;\n",
+        "    let choice: Choice = Value(value = pair.first);\n",
+        "    let empty: Choice = Empty;\n",
         "    let owned: box i32 = box(8);\n",
         "    let owned_tuple: (box i32,) = (owned,);\n",
         "    let moved: box i32 = owned_tuple.0;\n",
@@ -1262,49 +1263,11 @@ mod tests {
 
     #[test]
     fn standard_text_sources_bind_primitive_hooks_and_cursor_bodies() {
-        let package = PackageIdentity::try_new("std")
-            .unwrap_or_else(|| panic!("standard library identity must be valid"));
-
-        let request = CompilationRequest::with_options(
-            package,
-            vec![
-                source_input(
-                    include_str!("../../../../standard-library/std/src/std.bray"),
-                    0,
-                ),
-                source_input(
-                    include_str!("../../../../standard-library/std/src/string.bray"),
-                    1,
-                ),
-                source_input(
-                    include_str!("../../../../standard-library/std/src/character.bray"),
-                    2,
-                ),
-                source_input(
-                    include_str!("../../../../xtask/fixtures/native-execution/standard-string.bray"),
-                    3,
-                ),
-                source_input(
-                    include_str!("../../../../xtask/fixtures/native-execution/standard-character.bray"),
-                    4,
-                ),
-                source_input(
-                    include_str!(
-                        "../../../../xtask/fixtures/native-execution/standard-text-cursor.bray"
-                    ),
-                    5,
-                ),
-            ],
-            CompilationOptions::new(
-                WorkerBudget::serial(),
-                ProductKind::Library,
-                SelectedTarget::baseline(),
-            ),
-        )
-        .with_standard_library_source_authority();
-
-        let compilation = Compilation::load(request)
-            .unwrap_or_else(|error| panic!("standard text compilation must load: {error:?}"));
+        let compilation = standard_text_compilation(&[
+            include_str!("../../../../xtask/fixtures/native-execution/standard-string.bray"),
+            include_str!("../../../../xtask/fixtures/native-execution/standard-character.bray"),
+            include_str!("../../../../xtask/fixtures/native-execution/standard-text-cursor.bray"),
+        ]);
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -1377,6 +1340,93 @@ mod tests {
 
             assert_eq!(operations, [expected], "{name}");
         }
+    }
+
+    #[test]
+    fn trait_qualified_standard_text_calls_lower_to_direct_calls() {
+        let compilation = standard_text_compilation(&[include_str!(
+            "../../../../xtask/fixtures/native-execution/standard-text-cursor.bray"
+        )]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("standard text cursor must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        let call_targets = lowered_mir(&lowered)
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call) => Some(call.target()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(call_targets.len(), 5);
+
+        assert!(
+            call_targets
+                .iter()
+                .all(|target| matches!(target, MirCallTarget::Direct(_)))
+        );
+
+        let mutable_receiver_borrows = lowered_mir(&lowered)
+            .operations()
+            .iter()
+            .filter(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Borrow {
+                        kind: bray_symbols::BorrowKind::Mutable,
+                        ..
+                    }
+                )
+            })
+            .count();
+
+        assert_eq!(mutable_receiver_borrows, 4);
+    }
+
+    fn standard_text_compilation(additional_sources: &[&str]) -> Compilation {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library identity must be valid"));
+
+        let sources = [
+            include_str!("../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../standard-library/std/src/string.bray"),
+            include_str!("../../../../standard-library/std/src/character.bray"),
+        ]
+        .into_iter()
+        .chain(additional_sources.iter().copied())
+        .enumerate()
+        .map(|(index, source)| {
+            let version = u32::try_from(index)
+                .unwrap_or_else(|_| panic!("standard text source index must fit in u32"));
+
+            source_input(source, version)
+        })
+        .collect();
+
+        let request = CompilationRequest::with_options(
+            package,
+            sources,
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        )
+        .with_standard_library_source_authority();
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard text compilation must load: {error:?}"))
     }
 
     fn implementation_hooks(

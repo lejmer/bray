@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use bray_compilation::{
-    CompilationOptions, CompilationRequest, ProductEmissionInputs, SelectedTarget, WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, ProductEmissionInputs, SelectedTarget,
+    WorkerBudget,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
@@ -70,30 +71,15 @@ pub(super) fn build_standard_library_fixtures(
     output: &Path,
     fixtures: &[&str],
 ) -> Result<(), String> {
-    let source_paths = fixtures.iter().map(|fixture| root.join(fixture));
-
-    let sources = source_inputs_from_file_arguments(source_paths)
-        .map_err(|error| format!("could not load standard-library fixture source: {error:?}"))?;
+    let compilation = standard_library_compilation(root, target, fixtures)?;
 
     let package = PackageIdentity::try_new("std")
         .ok_or_else(|| "standard-library package identity is invalid".to_owned())?;
 
-    let product = ProductIdentity::try_new(package.clone(), PRODUCT_NAME)
+    let product = ProductIdentity::try_new(package, PRODUCT_NAME)
         .ok_or_else(|| "standard-library fixture product identity is invalid".to_owned())?;
 
     let selected = SelectedTarget::for_native(target);
-
-    let options = CompilationOptions::new(
-        WorkerBudget::default(),
-        ProductKind::Executable,
-        selected.clone(),
-    );
-
-    let request = CompilationRequest::with_options(package, sources, options)
-        .with_standard_library_source_authority();
-
-    let compilation = load_llvm_compilation(request)
-        .ok_or_else(|| "LLVM compiler backend is unavailable".to_owned())?;
 
     let linker = native_linker(target)
         .ok_or_else(|| format!("native linker is unavailable for {}", target.as_str()))?;
@@ -155,6 +141,33 @@ pub(super) fn build_standard_library_fixtures(
             outcome.diagnostics()
         ))
     }
+}
+
+pub(super) fn standard_library_compilation(
+    root: &Path,
+    target: NativeTarget,
+    fixtures: &[&str],
+) -> Result<Compilation, String> {
+    let source_paths = fixtures.iter().map(|fixture| root.join(fixture));
+
+    let sources = source_inputs_from_file_arguments(source_paths)
+        .map_err(|error| format!("could not load standard-library fixture source: {error:?}"))?;
+
+    let package = PackageIdentity::try_new("std")
+        .ok_or_else(|| "standard-library package identity is invalid".to_owned())?;
+
+    let selected = SelectedTarget::for_native(target);
+
+    let options = CompilationOptions::new(
+        WorkerBudget::default(),
+        ProductKind::Executable,
+        selected.clone(),
+    );
+
+    let request = CompilationRequest::with_options(package, sources, options)
+        .with_standard_library_source_authority();
+
+    load_llvm_compilation(request).ok_or_else(|| "LLVM compiler backend is unavailable".to_owned())
 }
 
 fn load_runtime_artifact(metadata_path: &Path) -> Result<RuntimeArtifact, String> {

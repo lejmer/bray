@@ -1,13 +1,13 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, IndexTarget, SelectedOperation, StorageAccessId,
-    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StorageOperationStatus,
-    StorageProjection,
+    BoundExpression, BoundExpressionId, IndexTarget, SelectedOperation, SelectedReceiver,
+    StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
+    StorageOperationStatus, StorageProjection,
 };
 use bray_ir::{
     MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirOperand,
     MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStoreKind,
 };
-use bray_symbols::{AnySymbolId, CallableAbi, TypeData, TypeId};
+use bray_symbols::{AnySymbolId, BorrowKind, CallableAbi, ReceiverMode, TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -29,16 +29,7 @@ impl Lowerer<'_> {
             .borrow_kind()
             .ok_or(LoweringError::UnsupportedExpression(id))?;
 
-        let decision =
-            self.storage_decision(id, |purpose| purpose == StorageAccessPurpose::Borrow(kind))?;
-
         let source = self.source(expression.origin());
-
-        let (current, place) = match self.lower_access_place(id, decision.access(), current)? {
-            LoweredPlace::Continuing { block, place } => (block, place),
-            LoweredPlace::Terminated(completion) => return Ok(completion),
-        };
-
         let result_type = self.expression_type(id)?;
 
         let result_data = self
@@ -58,6 +49,62 @@ impl Lowerer<'_> {
         if *result_kind != kind {
             return Err(LoweringError::UnsupportedExpression(id));
         }
+
+        self.lower_storage_borrow(id, current, kind, *target, result_type, source)
+    }
+
+    pub(super) fn lower_call_receiver(
+        &mut self,
+        receiver: &SelectedReceiver,
+        current: MirBlockId,
+    ) -> Result<(LoweredExpression, TypeId), LoweringError> {
+        let target = receiver.conversion().target_type();
+
+        let kind = match receiver.mode() {
+            ReceiverMode::Shared => BorrowKind::Shared,
+            ReceiverMode::Mutable => BorrowKind::Mutable,
+            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
+                return self
+                    .lower_expression(receiver.expression(), current)
+                    .map(|lowered| (lowered, target));
+            }
+        };
+
+        let result_type = self
+            .input
+            .semantic_values()
+            .intern_type(TypeData::Borrow { kind, target })
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let source = self.expression_source(receiver.expression())?;
+
+        self.lower_storage_borrow(
+            receiver.expression(),
+            current,
+            kind,
+            target,
+            result_type,
+            source,
+        )
+        .map(|lowered| (lowered, result_type))
+    }
+
+    fn lower_storage_borrow(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        kind: BorrowKind,
+        target: TypeId,
+        result_type: TypeId,
+        source: bray_ir::MirSourceAnchor,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let decision =
+            self.storage_decision(id, |purpose| purpose == StorageAccessPurpose::Borrow(kind))?;
+
+        let (current, place) = match self.lower_access_place(id, decision.access(), current)? {
+            LoweredPlace::Continuing { block, place } => (block, place),
+            LoweredPlace::Terminated(completion) => return Ok(completion),
+        };
 
         let mut projections = place.projections().to_vec();
 
@@ -91,14 +138,19 @@ impl Lowerer<'_> {
             ));
         }
 
-        let place = MirPlace::new(place.storage(), projections, *target);
+        let place = MirPlace::new(place.storage(), projections, target);
 
-        let value = self.push_value_operation(
-            id,
+        let commit = self.builder.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Borrow { kind, place },
+            Some(result_type),
         )?;
+
+        let value = commit
+            .result()
+            .map(MirOperand::Value)
+            .ok_or(LoweringError::MissingOperationResult(id))?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }

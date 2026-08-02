@@ -19,5 +19,5 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     assert(values[3] == 1);
     assert(values[5] == 3);
 
-    return .Ok(unit);
+    return Ok(unit);
 }

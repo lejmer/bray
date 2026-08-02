@@ -1,8 +1,9 @@
 use bray_bound_tree::{
-    BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundReferenceTarget,
-    BoundStructuredExpressionKind, IndexTarget, SelectedOperation, SemanticSelection,
-    StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageProjection,
+    BoundCallableTarget, BoundControlTransferKind, BoundExpression, BoundExpressionId,
+    BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget, SelectedOperation,
+    SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageProjection,
 };
+use bray_symbols::{BorrowKind, ReceiverMode};
 
 use super::super::plan::{PlanError, Planner, invalid_node, iteration_purpose};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
@@ -179,13 +180,44 @@ where
         callee: BoundExpressionId,
         arguments: impl IntoIterator<Item = BoundExpressionId>,
     ) -> Result<StorageAccessId, PlanError> {
-        self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
+        let selection = self.selections.expression(id).and_then(|selection| {
+            let SemanticSelection::Call(call) = selection else {
+                return None;
+            };
+
+            Some(call)
+        });
+
+        let direct = selection.is_some_and(|call| {
+            matches!(call.target(), BoundCallableTarget::Declaration(_))
+        });
+
+        if !direct {
+            self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
+        }
+
+        if let Some(receiver) = selection.and_then(bray_bound_tree::SelectedCall::receiver) {
+            self.plan_expression(
+                receiver.expression(),
+                Some(Self::call_receiver_purpose(receiver.mode())),
+            )?;
+        }
 
         for argument in arguments {
             self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
         }
 
         self.temporary_access(id)
+    }
+
+    const fn call_receiver_purpose(mode: ReceiverMode) -> StorageAccessPurpose {
+        match mode {
+            ReceiverMode::Shared => StorageAccessPurpose::Borrow(BorrowKind::Shared),
+            ReceiverMode::Mutable => StorageAccessPurpose::Borrow(BorrowKind::Mutable),
+            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
+                StorageAccessPurpose::ValueTransfer
+            }
+        }
     }
 
     fn plan_assignment(

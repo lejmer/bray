@@ -35,5 +35,5 @@ pub use recovery::{
 pub use selection::{
     BoundLeadingDotVariantExpression, BoundMemberAccessExpression, BoundMemberSelector,
     BoundNameExpression, BoundPatternReferenceExpression, BoundReferenceTarget,
-    BoundTraitQualifiedMemberExpression,
+    BoundTraitQualifiedMemberExpression, BoundUnqualifiedVariantExpression,
 };

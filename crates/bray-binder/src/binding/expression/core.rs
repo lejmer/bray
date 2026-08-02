@@ -21,6 +21,13 @@ use crate::lookup::{NameAccess, PathBindingContext};
 pub(crate) struct ExpressionBinder {
     pub(in crate::binding::expression) path_context: PathBindingContext,
     pub(in crate::binding::expression) error_type: TypeId,
+    pub(in crate::binding::expression) unresolved_names: UnresolvedNameBinding,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(in crate::binding::expression) enum UnresolvedNameBinding {
+    ContextualVariant,
+    Diagnostic,
 }
 
 impl ExpressionBinder {
@@ -28,6 +35,18 @@ impl ExpressionBinder {
         Self {
             path_context,
             error_type,
+            unresolved_names: UnresolvedNameBinding::ContextualVariant,
+        }
+    }
+
+    pub(crate) const fn with_unresolved_name_diagnostics(
+        path_context: PathBindingContext,
+        error_type: TypeId,
+    ) -> Self {
+        Self {
+            path_context,
+            error_type,
+            unresolved_names: UnresolvedNameBinding::Diagnostic,
         }
     }
 
@@ -746,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_expressions_recover_without_losing_the_enclosing_block() {
+    fn unresolved_names_remain_available_for_contextual_variant_lookup() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
             "const size: i32 = 1;\n",
@@ -778,30 +797,25 @@ mod tests {
             Err(error) => panic!("recovered expression block must freeze: {error:?}"),
         };
 
-        assert_eq!(result.diagnostics().len(), 1);
+        assert!(result.diagnostics().is_empty());
 
         let Some(block) = result.unit().tree().block(block) else {
             panic!("recovered block must remain in the tree");
         };
 
-        assert!(block.is_recovered());
+        assert!(!block.is_recovered());
 
         let [bray_bound_tree::BoundBlockItem::Expression(expression)] = block.items() else {
             panic!("recovered block must retain its expression item");
         };
 
-        let Some(BoundExpression::UnresolvedReference(expression)) =
+        let Some(BoundExpression::UnqualifiedVariant(expression)) =
             result.unit().tree().expression(*expression)
         else {
-            panic!("unresolved name must retain reference recovery");
+            panic!("unresolved name must retain contextual variant lookup");
         };
 
-        assert_eq!(
-            expression.kind(),
-            bray_bound_tree::BoundUnresolvedReferenceKind::NotFound
-        );
-
-        assert!(expression.candidates().is_empty());
+        assert_eq!(expression.name().as_str(), "missing");
     }
 
     #[test]
@@ -871,7 +885,7 @@ mod tests {
         };
 
         assert!(conversion.target_syntax().is_recovered());
-        assert_eq!(result.diagnostics().len(), 2);
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

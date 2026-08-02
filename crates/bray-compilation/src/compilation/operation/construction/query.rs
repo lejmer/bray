@@ -29,6 +29,13 @@ impl Compilation {
         let Some(result_type) =
             self.construction_result_type(facts, unit, types, key.expression())?
         else {
+            if let Some(variant) = self.unqualified_variant_reference(unit, key.expression()) {
+                diagnostics.add(super::union::unqualified_variant_diagnostic(
+                    variant,
+                    bray_diagnostics::DiagnosticKind::BindingUnresolvedName,
+                ));
+            }
+
             return Ok(None);
         };
 
@@ -40,6 +47,19 @@ impl Compilation {
                 facts,
                 result_type,
                 variant.selector(),
+                diagnostics,
+            )?,
+            BoundExpression::UnqualifiedVariant(variant) => self.unqualified_variant_candidate(
+                facts,
+                result_type,
+                variant,
+                diagnostics,
+            )?,
+            BoundExpression::MemberAccess(_) => self.union_variant_construction_candidate(
+                facts,
+                unit,
+                key.expression(),
+                result_type,
                 diagnostics,
             )?,
             BoundExpression::Call(call) => {
@@ -93,6 +113,10 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
     ) -> Result<Option<TypeId>, FactQueryError> {
+        if let Some(result) = self.qualified_union_result_type(facts, unit, types, expression)? {
+            return Ok(Some(result));
+        }
+
         if let Some(result) = types.expression(expression)
             && !result.is_recovered()
         {
@@ -131,6 +155,61 @@ impl Compilation {
         super::super::super::substitution::named_type(
             facts.semantic_values(),
             NamedTypeSymbolId::Struct(structure),
+        )
+        .map(Some)
+    }
+
+    fn qualified_union_result_type(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+        expression: BoundExpressionId,
+    ) -> Result<Option<TypeId>, FactQueryError> {
+        let member = match unit.view().expression(expression) {
+            Some(BoundExpression::Call(call)) => {
+                let Some(BoundExpression::MemberAccess(member)) =
+                    unit.view().expression(call.callee())
+                else {
+                    return Ok(None);
+                };
+
+                member
+            }
+            Some(BoundExpression::MemberAccess(member)) => member,
+            _ => return Ok(None),
+        };
+
+        if let Some(result) = types.expression(member.receiver())
+            && !result.is_recovered()
+        {
+            let data = facts
+                .semantic_values()
+                .type_data(result.ty())
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            if matches!(
+                data.as_ref(),
+                bray_symbols::TypeData::Named {
+                    definition: NamedTypeSymbolId::Union(_),
+                    ..
+                }
+            ) {
+                return Ok(Some(result.ty()));
+            }
+        }
+
+        let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver()) else {
+            return Ok(None);
+        };
+
+        let BoundReferenceTarget::Surface(AnySymbolId::Union(union)) = receiver.target() else {
+            return Ok(None);
+        };
+
+        super::super::super::substitution::named_type(
+            facts.semantic_values(),
+            NamedTypeSymbolId::Union(union),
         )
         .map(Some)
     }

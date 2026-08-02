@@ -392,7 +392,9 @@ where
                 self.evaluate_member_projection(expression, member, ty)
             }
             BoundExpression::Call(_) => self.evaluate_selected_call(expression, ty),
-            BoundExpression::StructConstruction(_) | BoundExpression::LeadingDotVariant(_) => {
+            BoundExpression::StructConstruction(_)
+            | BoundExpression::LeadingDotVariant(_)
+            | BoundExpression::UnqualifiedVariant(_) => {
                 self.evaluate_construction(expression, ty)
             }
             BoundExpression::Block(_)

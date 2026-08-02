@@ -14,7 +14,7 @@ mod type_expression;
 #[cfg(test)]
 mod test_support;
 
-pub use candidate::bind_expression_candidates;
+pub use candidate::{bind_expression_candidates, qualified_union_variant};
 pub(crate) use contract::{callable_normal_completion_has_value, push_contract_scope};
 pub use directive::{
     bind_callable_type_directives, bind_directive_template, malformed_directive_argument_diagnostic,

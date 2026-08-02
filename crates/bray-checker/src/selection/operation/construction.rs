@@ -154,7 +154,9 @@ where
                 })
                 .collect()
         }
-        BoundExpression::LeadingDotVariant(_) | BoundExpression::MemberAccess(_) => Vec::new(),
+        BoundExpression::LeadingDotVariant(_)
+        | BoundExpression::UnqualifiedVariant(_)
+        | BoundExpression::MemberAccess(_) => Vec::new(),
         _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
     };
 

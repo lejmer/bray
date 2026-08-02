@@ -204,7 +204,7 @@ fn is_compile_time_path_expression(expression: &BoundExpression) -> bool {
             if matches!(
                 name.target(),
                 BoundReferenceTarget::Surface(
-                    AnySymbolId::Package(_) | AnySymbolId::Module(_)
+                    AnySymbolId::Package(_) | AnySymbolId::Module(_) | AnySymbolId::Union(_)
                 )
             )
     )

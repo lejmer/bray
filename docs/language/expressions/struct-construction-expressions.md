@@ -74,7 +74,7 @@ Expected field type can guide literal typing, union variant shorthand, nested st
 let shape: Shape =
 {
     center = { x = 0.0, y = 0.0, },
-    kind = .Circle(radius = 1.0),
+    kind = Circle(radius = 1.0),
 };
 ```
 

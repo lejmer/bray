@@ -3,8 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+use bray_tooling::{InspectionTarget, OutputFormat, render_lowered_inspection};
 
-use super::buffer::{audit_standard_buffer, build_standard_library_fixtures};
+use super::buffer::{
+    audit_standard_buffer, build_standard_library_fixtures, standard_library_compilation,
+};
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
 const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
@@ -151,37 +154,29 @@ fn audit_text_cursor(root: &Path, target: NativeTarget, runtime: &Path) -> Resul
 }
 
 fn require_lowered_layout_operations(root: &Path, target: NativeTarget) -> Result<(), String> {
-    let compiler = root
-        .join("target")
-        .join("debug")
-        .join(executable_name("brayc"));
+    let compilation = standard_library_compilation(
+        root,
+        target,
+        &[STANDARD_MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE],
+    )?;
 
-    let mut command = Command::new(compiler);
+    let inspection = render_lowered_inspection(
+        &compilation,
+        InspectionTarget::source(1),
+        OutputFormat::Json,
+    )
+    .map_err(|_| "could not inspect lowered memory layout operations".to_owned())?;
 
-    command.current_dir(root).args([
-        "inspect",
-        "lowered",
-        "--format",
-        "json",
-        "--source-id",
-        "1",
-        "--product-kind",
-        "executable",
-        "--package",
-        "std",
-        "--target",
-        target.as_str(),
-    ]);
+    let (report, diagnostics) = inspection.into_parts();
 
-    command
-        .arg(root.join(STANDARD_MEMORY_FIXTURE))
-        .arg(root.join(MEMORY_LAYOUT_FIXTURE));
-
-    let output = require_success(command, "inspecting lowered memory layout operations")?;
-    let report = String::from_utf8_lossy(&output.stdout);
+    if diagnostics.has_errors() {
+        return Err(format!(
+            "lowered memory layout inspection reported diagnostics: {diagnostics:?}"
+        ));
+    }
 
     require_evidence(
-        &report,
+        report.as_str(),
         &[
             r#""value": "size_of""#,
             r#""value": "align_of""#,

@@ -33,18 +33,18 @@ specifications.
 Example:
 
 ```bray
-let shape: Shape = .Circle(center = origin, radius = 10.0);
+let shape: Shape = Circle(center = origin, radius = 10.0);
 ```
 
-The expected type `Shape` lets `.Circle(...)` resolve as a variant construction expression for `Shape`.
+The expected type `Shape` lets `Circle(...)` resolve as a variant construction expression for `Shape` after ordinary lexical lookup finds no declaration named `Circle`.
 
 Example:
 
 ```bray
-let node: box List<i32> = box(.Empty);
+let node: box List<i32> = box(Empty);
 ```
 
-The expected type `box List<i32>` lets `box(...)` expect an inner `List<i32>`, which lets `.Empty` resolve as a variant of `List<i32>`.
+The expected type `box List<i32>` lets `box(...)` expect an inner `List<i32>`, which lets `Empty` resolve as a variant of `List<i32>`.
 
 ## Navigation
 

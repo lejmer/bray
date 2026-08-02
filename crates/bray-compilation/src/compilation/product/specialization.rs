@@ -17,7 +17,7 @@ use bray_symbols::{
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
-use super::super::substitution::{empty_substitution, named_type};
+use super::super::substitution::named_type;
 use super::specialization_identity::encoding::structural_type_identity;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -98,7 +98,6 @@ impl ConcreteCodegenInstance {
     pub(super) fn bound_helper(
         owner: &Self,
         template: bray_bound_tree::BoundUnitKey,
-        callable: CallableInstanceData,
     ) -> Self {
         Self {
             key: CodegenInstanceKey::new(
@@ -107,7 +106,7 @@ impl ConcreteCodegenInstance {
                 owner.key.witnesses().iter().cloned(),
                 owner.key.target().clone(),
             ),
-            callable: Some(callable),
+            callable: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
@@ -163,24 +162,7 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         template: bray_bound_tree::BoundUnitKey,
     ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
-        let symbol = self
-            .symbol_graph()?
-            .symbol_for_key(template.declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let definition = bray_symbols::CallableDefinitionId::try_new(symbol)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let substitution = match owner.substitution() {
-            Some(substitution) => substitution,
-            None => empty_substitution(self.semantic_value_store()?, definition.symbol())?,
-        };
-
-        Ok(ConcreteCodegenInstance::bound_helper(
-            owner,
-            template,
-            CallableInstanceData::new(definition, substitution),
-        ))
+        Ok(ConcreteCodegenInstance::bound_helper(owner, template))
     }
 
     pub(super) fn concrete_codegen_lifecycle(

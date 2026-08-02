@@ -62,7 +62,7 @@ The binding `p` has mutable local access authority. The fields `x` and `y` remai
 Assignment to a union value replaces the active variant when the union access path has mutation authority.
 
 ```bray
-shape = .Rectangle(min = a, max = b);
+shape = Rectangle(min = a, max = b);
 ```
 
 Whole-union replacement ends the old active variant payload and initializes the new active variant payload.

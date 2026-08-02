@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::core::UnitTranslator;
 use super::support::{
     aggregate_element, aggregate_value_length, extract_value, insert_value, integer_constant, llvm,
@@ -95,24 +97,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let helpers = self.operation_helpers(operation_id)?;
         let mut helpers = helpers.iter();
-        let mut inputs = Vec::with_capacity(construction.inputs().len());
-
-        for input in construction.inputs() {
-            let value = match input {
-                MirConstructionInput::Explicit { value, .. } => self.operand(value)?,
-                MirConstructionInput::Default { provider, .. } => {
-                    let helper = next_helper(
-                        &mut helpers,
-                        &MirHelperReference::ConstructionDefault(*provider),
-                    )?;
-
-                    self.invoke_helper(helper, &inputs)?
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
-                }
-            };
-
-            inputs.push(value);
-        }
+        let inputs = self.evaluate_construction_inputs(construction, &mut helpers)?;
 
         let result = self.operation_result_type(operation)?;
 
@@ -147,6 +132,76 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
+    fn evaluate_construction_inputs<'mapping>(
+        &mut self,
+        construction: &MirConstruction,
+        helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
+    ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
+        let mut values = BTreeMap::new();
+
+        for input in construction.inputs() {
+            let MirConstructionInput::Explicit { ordinal, value, .. } = input else {
+                continue;
+            };
+
+            let value = self.operand(value)?;
+
+            if values.insert(*ordinal, value).is_some() {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+        }
+
+        for input in construction.inputs() {
+            let MirConstructionInput::Default {
+                ordinal, provider, ..
+            } = input
+            else {
+                continue;
+            };
+
+            let helper = next_helper(
+                helpers,
+                &MirHelperReference::ConstructionDefault(*provider),
+            )?;
+
+            let parameter_count = helper
+                .symbol()
+                .and_then(|key| self.request.mappings().symbol(key))
+                .map(|symbol| symbol.signature().parameters().len())
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            let preceding = values
+                .range(..*ordinal)
+                .take(parameter_count)
+                .map(|(_, value)| *value)
+                .collect::<Vec<_>>();
+
+            if preceding.len() != parameter_count {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+
+            let value = self
+                .invoke_helper(helper, &preceding)?
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            if values.insert(*ordinal, value).is_some() {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+        }
+
+        (0..construction.inputs().len())
+            .map(|ordinal| {
+                let ordinal = u32::try_from(ordinal)
+                    .map_err(|_| CodegenFailure::ResourceExhausted)?;
+
+                values
+                    .get(&ordinal)
+                    .copied()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            })
+            .collect()
+    }
+
     pub(super) fn construct_product(
         &mut self,
         result: bray_symbols::TypeId,
@@ -167,9 +222,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let fields = fields.clone();
         let mut value = self.types.map(result)?.const_zero();
 
-        for (input, input_value) in construction.inputs().iter().zip(inputs) {
+        for construction_input in construction.inputs() {
             let (MirConstructionInput::Explicit { input, .. }
-            | MirConstructionInput::Default { input, .. }) = input;
+            | MirConstructionInput::Default { input, .. }) = construction_input;
+
+            let input_value = inputs
+                .get(
+                    usize::try_from(construction_input.ordinal())
+                        .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                )
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let ConstructionInputId::StructField(field) = input else {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -232,9 +294,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(self.builder.build_store(storage, tag_value))?;
 
-        for (input, input_value) in construction.inputs().iter().zip(inputs) {
+        for construction_input in construction.inputs() {
             let (MirConstructionInput::Explicit { input, .. }
-            | MirConstructionInput::Default { input, .. }) = input;
+            | MirConstructionInput::Default { input, .. }) = construction_input;
+
+            let input_value = inputs
+                .get(
+                    usize::try_from(construction_input.ordinal())
+                        .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                )
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let ConstructionInputId::UnionPayloadField(field) = input else {
                 return Err(CodegenFailure::GeneratedModuleInvariant);

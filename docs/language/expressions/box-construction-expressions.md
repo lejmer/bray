@@ -5,13 +5,13 @@ A **box construction expression** creates an owned indirection value.
 A default-storage box construction expression uses `box(...)`.
 
 ```bray
-let node: box List<i32> = box(List<i32>.Empty);
+let node: box List<i32> = box(Empty);
 ```
 
 An explicit-storage box construction expression uses `box[S](...)`, where `S` is the storage policy type.
 
 ```bray
-let node: box[Heap] List<i32> = box[Heap](List<i32>.Empty);
+let node: box[Heap] List<i32> = box[Heap](Empty);
 ```
 
 A box construction expression produces a value whose type uses the `box` type form.
@@ -72,7 +72,7 @@ let point: box[AllocatorStorage<MyAllocator>] Point =
 A box construction expression without explicit `[S]` uses the expected box type when one is available.
 
 ```bray
-let node: box[Heap] List<i32> = box(List<i32>.Empty);
+let node: box[Heap] List<i32> = box(Empty);
 ```
 
 Here the expected type provides storage policy `Heap` and contained type `List<i32>`.
@@ -80,10 +80,10 @@ Here the expected type provides storage policy `Heap` and contained type `List<i
 A box construction expression can propagate expected contained type into the contained value expression.
 
 ```bray
-let node: box List<i32> = box(.Empty);
+let node: box List<i32> = box(Empty);
 ```
 
-Here the expected type `box List<i32>` gives `box(...)` the contained expected type `List<i32>`, which lets `.Empty` resolve as a variant of `List<i32>`.
+Here the expected type `box List<i32>` gives `box(...)` the contained expected type `List<i32>`, which lets `Empty` resolve as a variant of `List<i32>`.
 
 When no expected box type is available and no explicit storage policy is supplied, the box construction expression uses the default storage policy and infers the contained type from the contained value expression.
 

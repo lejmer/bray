@@ -114,7 +114,9 @@ impl Lowerer<'_> {
             BoundExpression::ControlTransfer(expression) => {
                 self.lower_control_transfer(id, expression, current)
             }
-            BoundExpression::StructConstruction(_) | BoundExpression::LeadingDotVariant(_) => {
+            BoundExpression::StructConstruction(_)
+            | BoundExpression::LeadingDotVariant(_)
+            | BoundExpression::UnqualifiedVariant(_) => {
                 self.lower_construction(id, current)
             }
             BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
@@ -458,7 +460,7 @@ impl Lowerer<'_> {
         };
 
         if let Some(receiver) = selection.receiver() {
-            let lowered = self.lower_expression(receiver.expression(), current)?;
+            let (lowered, _) = self.lower_call_receiver(receiver, current)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);

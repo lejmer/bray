@@ -6,10 +6,11 @@ use bray_bound_tree::{
 use bray_checker::{resolve_callable_signature_template, resolve_type_expression_template};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableSignatureFact, ExactSymbolId,
-    ImplementationSelection, ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId,
-    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    TraitCallableMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableSignature,
+    CallableSignatureFact, ExactSymbolId, ImplementationSelection, ImplementationSubjectFact,
+    MemberLookupResult, NamedTypeSymbolId, SelfTypeContext, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, TraitCallableMemberSymbolId, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
@@ -21,6 +22,11 @@ use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
 use super::query::expression_type;
+
+struct ResolvedCallableMember {
+    signature: CallableSignature,
+    instance: CallableInstanceData,
+}
 
 impl Compilation {
     pub(super) fn resolve_member_operation(
@@ -112,10 +118,10 @@ impl Compilation {
                 let operation =
                     SelectedOperation::Member(MemberTarget::new(field.into(), result_type, []));
 
-                (result_type, operation)
+                (result_type, Some(operation))
             }
             member if CallableDefinitionId::try_new(member).is_some() => {
-                let Some(signature) = self.resolve_callable_member_signature(
+                let Some(callable) = self.resolve_callable_member_signature(
                     facts,
                     member,
                     *substitution,
@@ -125,10 +131,12 @@ impl Compilation {
                     return Ok(None);
                 };
 
-                let result_type = signature.callable_type();
-                let mut target = MemberTarget::new(member, result_type, []);
+                let result_type = callable.signature.callable_type();
 
-                if let Some(receiver) = signature.receiver() {
+                let mut target = MemberTarget::new(member, result_type, [])
+                    .with_callable_instance(callable.instance);
+
+                if let Some(receiver) = callable.signature.receiver() {
                     target = target.with_receiver(bray_symbols::ReceiverParameterSignature::new(
                         receiver.parameter(),
                         receiver_type,
@@ -138,8 +146,9 @@ impl Compilation {
 
                 let operation = SelectedOperation::Member(target);
 
-                (result_type, operation)
+                (result_type, Some(operation))
             }
+            AnySymbolId::UnionVariant(_) => (receiver_type, None),
             _ => return Ok(None),
         };
 
@@ -147,7 +156,7 @@ impl Compilation {
             expression,
             result_type,
             [],
-            Some(operation),
+            operation,
         )))
     }
 
@@ -288,26 +297,27 @@ impl Compilation {
             return Ok(None);
         };
 
-        let signature = self.resolve_callable_signature(
+        let callable = self.resolve_callable_signature(
             facts,
             fulfillment.into(),
             [application_data.substitution(), instance.substitution()],
             diagnostics,
         )?;
 
-        let Some(signature) = signature else {
+        let Some(callable) = callable else {
             return Ok(None);
         };
 
-        let result_type = signature.callable_type();
+        let result_type = callable.signature.callable_type();
 
         let mut target = MemberTarget::new(
             fulfillment.into(),
             result_type,
             [SelectedImplementationWitness::new(requirement, *witness)],
-        );
+        )
+        .with_callable_instance(callable.instance);
 
-        if let Some(receiver) = signature.receiver() {
+        if let Some(receiver) = callable.signature.receiver() {
             target = target.with_receiver(bray_symbols::ReceiverParameterSignature::new(
                 receiver.parameter(),
                 receiver_type,
@@ -329,7 +339,7 @@ impl Compilation {
         member: AnySymbolId,
         receiver_substitution: bray_symbols::GenericSubstitutionId,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<bray_symbols::CallableSignature>, FactQueryError> {
+    ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
         self.resolve_callable_signature(
             facts,
             member,
@@ -344,10 +354,11 @@ impl Compilation {
         member: AnySymbolId,
         substitutions: impl IntoIterator<Item = bray_symbols::GenericSubstitutionId>,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<bray_symbols::CallableSignature>, FactQueryError> {
-        let callable = CallableDefinitionId::try_new(member)
-            .ok_or(FactQueryError::InfrastructureFailure)?
-            .callable_symbol();
+    ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
+        let definition = CallableDefinitionId::try_new(member)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let callable = definition.callable_symbol();
 
         let result = facts
             .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
@@ -365,13 +376,18 @@ impl Compilation {
         let substitution =
             substitution_for_owner(facts.semantic_values(), member, substitutions)?;
 
-        resolve_callable_signature_template(
+        let signature = resolve_callable_signature_template(
             facts.semantic_values(),
             result.value(),
             substitution,
             checked.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)
+        .map_err(FactQueryError::CheckerInfrastructure)?;
+
+        Ok(signature.map(|signature| ResolvedCallableMember {
+            signature,
+            instance: CallableInstanceData::new(definition, substitution),
+        }))
     }
 
     pub(super) fn resolve_member_type<'facts, F>(

@@ -419,13 +419,28 @@ where
         source: &SourceSnapshot,
         token: SyntaxToken,
     ) -> NameLookupResult<ResolvedName> {
-        let Some(reference) = token_reference(source, token) else {
-            return malformed_lookup();
-        };
+        let (reference, result) = self.reference_identifier_lookup(context, source, token);
 
-        let result = self.lookup_reference_name(context, &reference);
+        if let Some(reference) = reference {
+            report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
+        }
 
-        report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
+        result
+    }
+
+    pub(crate) fn bind_contextual_variant_identifier(
+        &mut self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+    ) -> NameLookupResult<ResolvedName> {
+        let (reference, result) = self.reference_identifier_lookup(context, source, token);
+
+        if !matches!(result, MemberLookupResult::NotFound)
+            && let Some(reference) = reference
+        {
+            report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
+        }
 
         result
     }
@@ -436,11 +451,22 @@ where
         source: &SourceSnapshot,
         token: SyntaxToken,
     ) -> NameLookupResult<ResolvedName> {
+        self.reference_identifier_lookup(context, source, token).1
+    }
+
+    fn reference_identifier_lookup(
+        &self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+    ) -> (Option<NameReference>, NameLookupResult<ResolvedName>) {
         let Some(reference) = token_reference(source, token) else {
-            return malformed_lookup();
+            return (None, malformed_lookup());
         };
 
-        self.lookup_reference_name(context, &reference)
+        let result = self.lookup_reference_name(context, &reference);
+
+        (Some(reference), result)
     }
 
     pub(crate) fn lookup_module_route(

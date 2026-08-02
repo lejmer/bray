@@ -7,5 +7,5 @@ async func main() -> Result<unit, i32>
 
 async func child() -> Result<unit, i32>
 {
-    return .Error(42);
+    return Error(42);
 }

@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundAnonymousCallableExpression, BoundBlockExpression, BoundExpression, BoundExpressionId,
     BoundNameExpression, BoundPatternReferenceExpression, BoundStructuredExpressionKind,
-    BoundUnresolvedReferenceExpression,
+    BoundUnqualifiedVariantExpression, BoundUnresolvedReferenceExpression,
 };
 use bray_symbols::{LocalScopeId, SymbolName};
 use bray_syntax::{
@@ -14,6 +14,7 @@ use bray_syntax::{
 
 use super::super::{BindingError, BindingResult};
 use super::ExpressionBinder;
+use super::core::UnresolvedNameBinding;
 use super::support::{ReferenceResolution, classify_reference_result, structured_kind};
 use crate::BinderFactContext;
 use crate::binder::Binder;
@@ -405,10 +406,16 @@ impl ExpressionBinder {
 
         let context = self.path_context_for(scope, access);
 
-        if let Some(name) = name
-            && let Some((binding, pattern)) =
-                binder.contextual_pattern_binding(scope, name.as_str())?
-        {
+        let contextual_pattern = match name.as_ref() {
+            Some(name) => binder.contextual_pattern_binding(scope, name.as_str())?,
+            None => None,
+        };
+
+        if let Some((binding, pattern)) = contextual_pattern {
+            let Some(name) = name else {
+                return self.push_error(binder, Some(syntax));
+            };
+
             let resolution = classify_reference_result(binder.lookup_reference_identifier(
                 context,
                 syntax.source(),
@@ -434,15 +441,39 @@ impl ExpressionBinder {
             };
         }
 
-        let resolution = classify_reference_result(binder.bind_reference_identifier(
-            context,
-            syntax.source(),
-            token,
-        ));
+        let result = match self.unresolved_names {
+            UnresolvedNameBinding::ContextualVariant => binder
+                .bind_contextual_variant_identifier(context, syntax.source(), token),
+            UnresolvedNameBinding::Diagnostic => {
+                binder.bind_reference_identifier(context, syntax.source(), token)
+            }
+        };
+
+        let resolution = classify_reference_result(result);
 
         match resolution {
             ReferenceResolution::Resolved(target) => {
                 self.push_resolved_reference(binder, syntax, target)
+            }
+            ReferenceResolution::Unresolved(
+                bray_bound_tree::BoundUnresolvedReferenceKind::NotFound,
+                _,
+            ) if name.is_some()
+                && self.unresolved_names == UnresolvedNameBinding::ContextualVariant =>
+            {
+                let Some(name) = name else {
+                    return self.push_error(binder, Some(syntax));
+                };
+
+                self.push(
+                    binder,
+                    BoundExpression::UnqualifiedVariant(BoundUnqualifiedVariantExpression::new(
+                        binder.source_origin(syntax),
+                        name,
+                        None,
+                        syntax.is_recovered(),
+                    )),
+                )
             }
             ReferenceResolution::Unresolved(kind, candidates) => self.push(
                 binder,

@@ -52,6 +52,7 @@ impl SelectionKind {
 pub struct MemberTarget {
     member: AnySymbolId,
     result_type: TypeId,
+    callable_instance: Option<CallableInstanceData>,
     receiver: Option<ReceiverParameterSignature>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
@@ -66,9 +67,17 @@ impl MemberTarget {
         Self {
             member,
             result_type,
+            callable_instance: None,
             receiver: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
+    }
+
+    /// Returns a member target with its exact substituted callable instance.
+    pub const fn with_callable_instance(mut self, callable: CallableInstanceData) -> Self {
+        self.callable_instance = Some(callable);
+
+        self
     }
 
     /// Returns a member target with its resolved implicit receiver contract.
@@ -86,6 +95,11 @@ impl MemberTarget {
     /// Returns the member access result type.
     pub const fn result_type(&self) -> TypeId {
         self.result_type
+    }
+
+    /// Returns the exact substituted callable when this member can be invoked.
+    pub const fn callable_instance(&self) -> Option<CallableInstanceData> {
+        self.callable_instance
     }
 
     /// Returns the resolved implicit receiver when this target is callable.
@@ -436,6 +450,7 @@ impl SelectedOperation {
             (
                 Self::Construction(construction),
                 BoundExpression::LeadingDotVariant(_)
+                | BoundExpression::UnqualifiedVariant(_)
                 | BoundExpression::MemberAccess(_)
                 | BoundExpression::Call(_),
             ) => matches!(construction.target(), ConstructionTarget::UnionVariant(_)),

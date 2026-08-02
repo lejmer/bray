@@ -271,7 +271,9 @@ where
         (SelectionKind::Construction, BoundExpression::StructConstruction(_)) => true,
         (
             SelectionKind::Construction,
-            BoundExpression::LeadingDotVariant(_) | BoundExpression::MemberAccess(_),
+            BoundExpression::LeadingDotVariant(_)
+            | BoundExpression::UnqualifiedVariant(_)
+            | BoundExpression::MemberAccess(_),
         ) => true,
         (SelectionKind::Construction, BoundExpression::Call(call)) => {
             union_variant_reference(request, call.callee())
@@ -314,7 +316,9 @@ fn source_operands(
                 .map(bray_bound_tree::BoundArgument::expression)
                 .collect(),
         ),
-        BoundExpression::LeadingDotVariant(_) | BoundExpression::MemberAccess(_)
+        BoundExpression::LeadingDotVariant(_)
+        | BoundExpression::UnqualifiedVariant(_)
+        | BoundExpression::MemberAccess(_)
             if kind == SelectionKind::Construction =>
         {
             Some(Vec::new())
@@ -331,7 +335,11 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     match request.view().expression(expression) {
-        Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::MemberAccess(_)) => true,
+        Some(
+            BoundExpression::LeadingDotVariant(_)
+            | BoundExpression::UnqualifiedVariant(_)
+            | BoundExpression::MemberAccess(_),
+        ) => true,
         Some(BoundExpression::Name(name)) => matches!(
             name.target(),
             bray_bound_tree::BoundReferenceTarget::Surface(

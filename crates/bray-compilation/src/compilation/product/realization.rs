@@ -31,10 +31,14 @@ use bray_runtime_interface::{
 };
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
-    CallableSignature, CallableSignatureFact, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId,
-    ImplementationCoherenceFact, NamedTypeSymbolId, SelfTypeContext, StructSymbolId,
-    SymbolFactRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadFieldTypeFact,
+    CallableParameterDefaultFact, CallableParameterDefaultValue, CallableSignature,
+    CallableSignatureFact, ConstantTermData, ConstantValueKind, DeclaredLayoutMode,
+    ForeignCallableDirection, GenericSubstitutionId, ImplementationCoherenceFact,
+    NamedTypeSymbolId, ReceiverMode, RuntimeDefaultProviderInput, SelfTypeContext,
+    StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId, SymbolFactRequest,
+    TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultFact,
+    UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -1861,6 +1865,13 @@ impl Compilation {
             return Ok(None);
         }
 
+        if matches!(
+            instance.template(),
+            MirUnitKey::Bound(key) if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+        ) {
+            return Ok(None);
+        }
+
         let definition = self.codegen_callable_definition(instance)?;
 
         let bray_symbols::CallableSymbolId::Function(function) = definition.callable_symbol()
@@ -2739,6 +2750,14 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let fields = match pointee_data.as_ref() {
+            TypeData::Named { definition, .. }
+                if super::super::foreign::compiler_known_representation(self, *definition)
+                    == Some(RepresentationRole::String) =>
+            {
+                self.codegen_type(pointee, target, cancellation, mappings, pending)?;
+
+                return Ok(pointer_mapping(ty, pointee, target));
+            }
             TypeData::Slice(element) => {
                 self.codegen_type(pointee, target, cancellation, mappings, pending)?;
 
@@ -3134,6 +3153,12 @@ impl Compilation {
             return self.generated_lifecycle_signature(reference);
         }
 
+        if let MirUnitKey::Bound(key) = instance.key().template()
+            && key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+        {
+            return self.codegen_runtime_default_signature(instance, key, cancellation);
+        }
+
         let definition = match instance.key().template() {
             MirUnitKey::ExecutableHost(_) => return Ok(void_signature(CallableAbi::Bray)),
             MirUnitKey::Bound(_) | MirUnitKey::ExternalCallable(_) => {
@@ -3185,9 +3210,31 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure.into());
         };
 
-        let parameters = signature
+        let receiver = signature
             .receiver()
-            .map(|receiver| receiver.ty())
+            .map(|receiver| {
+                let data = match receiver.mode() {
+                    ReceiverMode::Shared => Some(TypeData::Borrow {
+                        kind: BorrowKind::Shared,
+                        target: receiver.ty(),
+                    }),
+                    ReceiverMode::Mutable => Some(TypeData::Borrow {
+                        kind: BorrowKind::Mutable,
+                        target: receiver.ty(),
+                    }),
+                    ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => None,
+                };
+
+                match data {
+                    Some(data) => values
+                        .intern_type(data)
+                        .map_err(|_| FactQueryError::InfrastructureFailure),
+                    None => Ok(receiver.ty()),
+                }
+            })
+            .transpose()?;
+
+        let parameters = receiver
             .into_iter()
             .chain(
                 signature
@@ -3216,6 +3263,152 @@ impl Compilation {
             callable.abi(),
             false,
         ))
+    }
+
+    fn codegen_runtime_default_signature(
+        &self,
+        instance: &ConcreteCodegenInstance,
+        key: &bray_bound_tree::BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenCallableSignature, CodegenFactError> {
+        let symbols = self.symbol_graph()?;
+
+        let provider = symbols
+            .symbol_for_key(key.declared_owner())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let owner = symbols
+            .runtime_default_subject(provider)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let (inputs, result) = match owner {
+            AnySymbolId::CallableParameter(owner) => {
+                let checked = facts
+                    .symbol_fact(SymbolFactRequest::<CallableParameterDefaultFact>::new(owner))
+                    .map_err(super::super::binder::binder_fact_error)?;
+
+                let CallableParameterDefaultValue::Valid(surface) = checked.value().value() else {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                };
+
+                (surface.inputs().to_vec(), surface.result())
+            }
+            AnySymbolId::StructField(owner) => {
+                let checked = facts
+                    .symbol_fact(SymbolFactRequest::<StructFieldDefaultFact>::new(owner))
+                    .map_err(super::super::binder::binder_fact_error)?;
+
+                let StructFieldDefaultValue::Valid(surface) = checked.value().value() else {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                };
+
+                (surface.inputs().to_vec(), surface.result())
+            }
+            AnySymbolId::UnionPayloadField(owner) => {
+                let checked = facts
+                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultFact>::new(owner))
+                    .map_err(super::super::binder::binder_fact_error)?;
+
+                let UnionPayloadDefaultValue::Valid(surface) = checked.value().value() else {
+                    return Err(FactQueryError::InfrastructureFailure.into());
+                };
+
+                (surface.inputs().to_vec(), surface.result())
+            }
+            _ => return Err(FactQueryError::InfrastructureFailure.into()),
+        };
+
+        let substitution = instance.substitution();
+
+        let parameters = inputs
+            .iter()
+            .copied()
+            .map(|input| {
+                self.codegen_runtime_default_input_type(input, substitution, cancellation)
+                    .map(|ty| CodegenParameterMapping::direct(ty, None, []))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = self.substitute_codegen_type(result, substitution, cancellation)?;
+
+        let result = if is_unit(self, result)? {
+            CodegenResultMapping::Void
+        } else {
+            CodegenResultMapping::direct(result, None, [])
+        };
+
+        Ok(CodegenCallableSignature::new(
+            parameters,
+            result,
+            CallableAbi::Bray,
+            false,
+        ))
+    }
+
+    fn codegen_runtime_default_input_type(
+        &self,
+        input: RuntimeDefaultProviderInput,
+        substitution: Option<GenericSubstitutionId>,
+        cancellation: &CancellationToken,
+    ) -> Result<TypeId, CodegenFactError> {
+        let symbols = self.symbol_graph()?;
+
+        let (owner, parameter) = match input {
+            RuntimeDefaultProviderInput::Receiver(parameter) => {
+                let owner = symbols
+                    .receiver_parameter(parameter)
+                    .map(bray_symbols::ReceiverParameterSymbol::owner)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                (owner, AnySymbolId::ReceiverParameter(parameter))
+            }
+            RuntimeDefaultProviderInput::EarlierParameter(parameter) => {
+                let owner = symbols
+                    .callable_parameter(parameter)
+                    .map(bray_symbols::CallableParameterSymbol::owner)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                (owner, AnySymbolId::CallableParameter(parameter))
+            }
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let template = facts
+            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))
+            .map_err(super::super::binder::binder_fact_error)?;
+
+        let substitution = substitution.ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let constants = self.checked_constant_terms_for_templates_with_cancellation(
+            [template.value().callable_type(), template.value().result()],
+            cancellation,
+        )?;
+
+        let signature = bray_checker::resolve_callable_signature_template(
+            self.semantic_value_store()?,
+            template.value(),
+            substitution,
+            constants.value(),
+        )
+        .map_err(FactQueryError::CheckerInfrastructure)?
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let ty = signature
+            .receiver()
+            .filter(|receiver| AnySymbolId::ReceiverParameter(receiver.parameter()) == parameter)
+            .map(|receiver| receiver.ty())
+            .or_else(|| {
+                signature.parameters().iter().find_map(|candidate| {
+                    (AnySymbolId::CallableParameter(candidate.parameter()) == parameter)
+                        .then_some(candidate.ty())
+                })
+            })
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        Ok(ty)
     }
 
     fn codegen_callable_definition(

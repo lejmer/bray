@@ -234,6 +234,8 @@ define_diagnostic_kinds! {
     CheckingConstantValueNotRepresentable,
     /// No available candidate can perform the requested semantic operation.
     CheckingNoApplicableCandidate,
+    /// A contextually selected union does not declare the requested variant.
+    CheckingUnknownUnionVariant,
     /// More than one candidate can perform the requested semantic operation.
     CheckingAmbiguousCandidate,
     /// Matching candidates exist but cannot be accessed from the current context.
@@ -513,6 +515,7 @@ impl DiagnosticKind {
             Self::CheckingConstantDivisionByZero => 7018,
             Self::CheckingConstantValueNotRepresentable => 7019,
             Self::CheckingNoApplicableCandidate => 7009,
+            Self::CheckingUnknownUnionVariant => 7088,
             Self::CheckingAmbiguousCandidate => 7010,
             Self::CheckingInaccessibleCandidate => 7011,
             Self::CheckingIncompatibleCandidate => 7012,
@@ -740,6 +743,7 @@ impl DiagnosticKind {
                 "checking_constant_value_not_representable"
             }
             Self::CheckingNoApplicableCandidate => "checking_no_applicable_candidate",
+            Self::CheckingUnknownUnionVariant => "checking_unknown_union_variant",
             Self::CheckingAmbiguousCandidate => "checking_ambiguous_candidate",
             Self::CheckingInaccessibleCandidate => "checking_inaccessible_candidate",
             Self::CheckingIncompatibleCandidate => "checking_incompatible_candidate",

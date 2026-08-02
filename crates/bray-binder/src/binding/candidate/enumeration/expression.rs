@@ -4,8 +4,9 @@ use bray_bound_tree::{
 use bray_checker::{ExpressionCandidateSet, OperationCandidateSource};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    CallableContractTemplateFact, CallableOverloadTemplateFact,
+    AnySymbolId, CallableContractTemplateFact, CallableOverloadTemplateFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, GenericDeclarationTemplateFact,
+    MemberLookupResult,
 };
 use bray_syntax::GenericArgumentSyntax;
 
@@ -45,7 +46,7 @@ where
     };
 
     let candidates = match bound {
-        BoundExpression::Call(call) if is_union_variant_call(unit, call.callee()) => operation(
+        BoundExpression::Call(call) if is_union_variant_call(context, unit, call.callee()) => operation(
             expression,
             SelectionKind::Construction,
             call.arguments()
@@ -76,6 +77,11 @@ where
                 type_scope,
             );
         }
+        BoundExpression::MemberAccess(_)
+            if qualified_union_variant(context, unit, expression).is_some() =>
+        {
+            operation(expression, SelectionKind::Construction, [])
+        }
         BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
             operation(expression, SelectionKind::Member, bound.child_expressions())
         }
@@ -97,7 +103,7 @@ where
                 .iter()
                 .map(bray_bound_tree::BoundStructFieldInitializer::expression),
         ),
-        BoundExpression::LeadingDotVariant(_) => {
+        BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_) => {
             operation(expression, SelectionKind::Construction, [])
         }
         BoundExpression::Structured(structured)
@@ -151,15 +157,55 @@ fn operation(
     ExpressionCandidateSet::Operation(OperationCandidateSource::new(expression, kind, operands))
 }
 
-fn is_union_variant_call(unit: &BoundUnit, callee: BoundExpressionId) -> bool {
+fn is_union_variant_call<C>(context: &C, unit: &BoundUnit, callee: BoundExpressionId) -> bool
+where
+    C: BinderFactContext + ?Sized,
+{
     match unit.view().expression(callee) {
-        Some(BoundExpression::LeadingDotVariant(_)) => true,
+        Some(
+            BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_),
+        ) => true,
         Some(BoundExpression::Name(name)) => matches!(
             name.target(),
             bray_bound_tree::BoundReferenceTarget::Surface(
                 bray_symbols::AnySymbolId::UnionVariant(_)
             )
         ),
+        Some(BoundExpression::MemberAccess(_)) => {
+            qualified_union_variant(context, unit, callee).is_some()
+        }
         _ => false,
+    }
+}
+
+/// Returns the variant named by an explicitly union-qualified member expression.
+pub fn qualified_union_variant<C>(
+    context: &C,
+    unit: &BoundUnit,
+    expression: BoundExpressionId,
+) -> Option<bray_symbols::UnionVariantSymbolId>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let Some(BoundExpression::MemberAccess(member)) = unit.view().expression(expression) else {
+        return None;
+    };
+
+    let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver()) else {
+        return None;
+    };
+
+    let bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::Union(union)) = receiver.target()
+    else {
+        return None;
+    };
+
+    let Some(bray_bound_tree::BoundMemberSelector::Name(name)) = member.selector() else {
+        return None;
+    };
+
+    match context.symbols().lookup_member(union.into(), name.as_str()) {
+        MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) => Some(variant),
+        _ => None,
     }
 }

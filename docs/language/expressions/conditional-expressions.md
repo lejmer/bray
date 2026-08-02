@@ -90,15 +90,15 @@ conditional expression must account for that change on every reachable normal br
 ```bray
 let grade: Grade = if score >= 90
 {
-    yield Grade.A;
+    yield A;
 }
 else if score >= 80
 {
-    yield Grade.B;
+    yield B;
 }
 else
 {
-    yield Grade.C;
+    yield C;
 };
 ```
 

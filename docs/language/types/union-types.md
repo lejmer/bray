@@ -200,11 +200,11 @@ Union construction is handled by union variant construction expressions.
 ```bray
 let shape = Shape.Circle(center = origin, radius = 10.0);
 
-let shape: Shape = .Circle(center = origin, radius = 10.0);
+let shape: Shape = Circle(center = origin, radius = 10.0);
 
 let end = ParseResult<i32>.EndOfInput;
 
-let end: ParseResult<i32> = .EndOfInput;
+let end: ParseResult<i32> = EndOfInput;
 ```
 
 Union variant construction expressions initialize the selected variant payload and create fully initialized union values.
@@ -267,7 +267,7 @@ Copying a payload field requires the payload field type to satisfy the copy cont
 A union value can be replaced as a whole through assignment when the union access path has mutation authority.
 
 ```bray
-shape = .Rectangle(min = a, max = b);
+shape = Rectangle(min = a, max = b);
 ```
 
 Whole-union replacement ends the old active variant payload according to destruction, finalization, and lifecycle rules.
