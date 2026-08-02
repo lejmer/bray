@@ -421,8 +421,7 @@ impl Compilation {
                         None => {
                             self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)
                         }
-                    }
-                    ?
+                    }?
                 };
 
                 let mut concrete_dependencies = self.concrete_codegen_dependencies_for_mir(

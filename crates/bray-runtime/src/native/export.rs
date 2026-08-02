@@ -4,12 +4,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
 use std::sync::atomic::AtomicUsize;
 
 use bray_runtime_interface::{
-    CHARACTER_UNICODE_DATA_VERSION,
-    NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart,
-    NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
-    NativeRuntimeStatus, NativeStringView, NativeSynchronousRootCallback, NativeTaskAllocation,
-    NativeTaskHandle, NativeWakeCallback,
+    CHARACTER_UNICODE_DATA_VERSION, NativeExecutionLaneResult, NativeFrameProgress,
+    NativeFrameProgressKind, NativeInactiveFrame, NativeProtectedFrame,
+    NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
+    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
+    NativeStringView, NativeSynchronousRootCallback, NativeTaskAllocation, NativeTaskHandle,
+    NativeWakeCallback,
 };
 
 const _: () = assert!(
@@ -699,27 +699,25 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_interface::{
-        CHARACTER_UNICODE_DATA_VERSION,
-        NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeLaneRequirements, NativeProtectedFrame,
+        CHARACTER_UNICODE_DATA_VERSION, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
+        NativeFrameProgressKind, NativeFrameState, NativeLaneRequirements, NativeProtectedFrame,
         NativeProtectedFrameTransfer, NativeRunState, NativeRuntimeConfiguration,
         NativeRuntimeStatus, NativeStringView,
     };
 
     use super::{
-        bray_runtime_character_from_scalar_value_v1,
-        bray_runtime_character_is_alphabetic_v1, bray_runtime_character_is_numeric_v1,
-        bray_runtime_character_is_whitespace_v1, bray_runtime_character_scalar_value_v1,
-        bray_runtime_character_utf8_length_v1,
+        bray_runtime_character_from_scalar_value_v1, bray_runtime_character_is_alphabetic_v1,
+        bray_runtime_character_is_numeric_v1, bray_runtime_character_is_whitespace_v1,
+        bray_runtime_character_scalar_value_v1, bray_runtime_character_utf8_length_v1,
         bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
         bray_runtime_main_thread_lane_startup_v1, bray_runtime_memory_allocation_v1,
         bray_runtime_memory_deallocation_v1, bray_runtime_root_completion_resolution_v1,
         bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
-        bray_runtime_structured_shutdown_v1, bray_runtime_synchronous_root_execution_v1,
         bray_runtime_string_equals_v1, bray_runtime_string_from_utf8_v1,
         bray_runtime_string_scalar_at_v1, bray_runtime_string_scalar_count_v1,
-        bray_runtime_string_scalar_slice_v1,
-        bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
+        bray_runtime_string_scalar_slice_v1, bray_runtime_structured_shutdown_v1,
+        bray_runtime_synchronous_root_execution_v1, bray_runtime_task_allocation_v1,
+        bray_runtime_task_start_v1,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -758,12 +756,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_string_equals_v1(
-                text.as_ptr(),
-                text.len(),
-                "Aé🙂".as_ptr(),
-                "Aé🙂".len(),
-            ),
+            bray_runtime_string_equals_v1(text.as_ptr(), text.len(), "Aé🙂".as_ptr(), "Aé🙂".len(),),
             1
         );
 
@@ -894,7 +887,11 @@ mod tests {
         assert_eq!(bray_runtime_character_is_alphabetic_v1(character), 0);
         assert_eq!(bray_runtime_character_is_numeric_v1(character), 1);
         assert_eq!(bray_runtime_character_is_whitespace_v1(character), 0);
-        assert_eq!(bray_runtime_character_is_whitespace_v1(u32::from('\u{2003}')), 1);
+
+        assert_eq!(
+            bray_runtime_character_is_whitespace_v1(u32::from('\u{2003}')),
+            1
+        );
 
         let mut scalar = 0;
 

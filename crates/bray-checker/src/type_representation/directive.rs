@@ -158,7 +158,10 @@ where
         tag_type: Option<RepresentationIntegerType>,
         recovered: &mut bool,
     ) -> CheckerFactResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
-        if matches!(definition.subject(), bray_symbols::NamedTypeSymbolId::Struct(_)) {
+        if matches!(
+            definition.subject(),
+            bray_symbols::NamedTypeSymbolId::Struct(_)
+        ) {
             return Ok((Vec::new(), None));
         }
 

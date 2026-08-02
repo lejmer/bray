@@ -6,8 +6,8 @@ use bray_bound_tree::{
 use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
 
 use super::core::StorageFlowCollector;
-use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
+use crate::analysis::storage_flow::model::StorageFlowState;
 
 const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
     matches!(
@@ -285,7 +285,7 @@ where
             | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. } => {}
-            | CheckedMemoryOperationKind::RawBufferReplace { .. } => {}
+            CheckedMemoryOperationKind::RawBufferReplace { .. } => {}
         }
 
         MemoryOperationStatus::Valid
@@ -345,7 +345,6 @@ where
             .iter()
             .map(|(expression, status)| MemoryOperationDecision::new(*expression, *status))
     }
-
 }
 
 fn apply_raw_read(

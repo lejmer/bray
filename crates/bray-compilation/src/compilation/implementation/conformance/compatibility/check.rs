@@ -3,15 +3,15 @@ use std::collections::BTreeMap;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableContractClause, CallableContractSet, CallableContractsFact, CallablePhaseBehavior,
-    CallableParameterTypeTemplate, CallableSignatureFact, CallableSignatureTemplate,
-    CallableSymbolId, CallableTypeTemplate, ConstantTermData, GenericArgument,
-    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
+    CallableContractClause, CallableContractSet, CallableContractsFact,
+    CallableParameterTypeTemplate, CallablePhaseBehavior, CallableSignatureFact,
+    CallableSignatureTemplate, CallableSymbolId, CallableTypeTemplate, ConstantTermData,
+    GenericArgument, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
     GenericDeclarationTemplateFact, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, RuntimeDefaultPresence, SymbolFactRequest,
-    TraitApplicationId, TraitMemberFulfillmentId, TraitMemberRequirementId,
-    TraitTypeFulfillmentValueFact, TypeData, TypeExpressionTemplate,
+    PredicateSignatureTemplateFact, RuntimeDefaultPresence, SymbolFactRequest, TraitApplicationId,
+    TraitMemberFulfillmentId, TraitMemberRequirementId, TraitTypeFulfillmentValueFact, TypeData,
+    TypeExpressionTemplate,
 };
 
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
@@ -289,16 +289,19 @@ fn callable_type_template(
                 .parameter_type_templates(values)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            let parameters = callable.parameters().iter().zip(parameter_types).map(
-                |(parameter, ty)| {
-                    CallableParameterTypeTemplate::new(
-                        parameter.name().clone(),
-                        parameter.position(),
-                        parameter.mode(),
-                        ty,
-                    )
-                },
-            );
+            let parameters =
+                callable
+                    .parameters()
+                    .iter()
+                    .zip(parameter_types)
+                    .map(|(parameter, ty)| {
+                        CallableParameterTypeTemplate::new(
+                            parameter.name().clone(),
+                            parameter.position(),
+                            parameter.mode(),
+                            ty,
+                        )
+                    });
 
             Ok(CallableTypeTemplate::new(
                 parameters,

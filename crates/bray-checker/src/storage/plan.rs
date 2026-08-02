@@ -319,8 +319,9 @@ where
                                 borrow: Some((kind, target)),
                             })
                         }
-                        None => self
-                            .entry_storage(BoundReferenceTarget::Surface(receiver.into()))?,
+                        None => {
+                            self.entry_storage(BoundReferenceTarget::Surface(receiver.into()))?
+                        }
                     };
 
                     self.bind_entry(

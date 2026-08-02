@@ -5,12 +5,11 @@ use super::{
     InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceCheckedTemplate,
     InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
     InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceDependencyContract,
-    InterfaceGenericDeclaration,
-    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfacePredicateDefinition, InterfaceRuntimeRequirement, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceSupportEntity,
-    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceType,
-    InterfaceTypeRepresentation,
+    InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceImplementationInstance,
+    InterfaceImplementationRecord, InterfacePredicateDefinition, InterfaceRuntimeRequirement,
+    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSourceProvenance,
+    InterfaceSupportEntity, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceType, InterfaceTypeRepresentation,
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
@@ -367,16 +366,14 @@ impl InterfaceSemanticFacts {
                     record: checked_record(index),
                 });
 
-        let declared_types =
-            self.declared_types
-                .iter()
-                .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner.clone(),
-                    kind: InterfaceSemanticFactKind::DeclaredType,
-                    section: crate::InterfaceSectionTag::DeclarationFacts,
-                    record: checked_record(index),
-                });
+        let declared_types = self.declared_types.iter().enumerate().map(|(index, fact)| {
+            InterfaceSemanticFactEntry {
+                owner: fact.owner.clone(),
+                kind: InterfaceSemanticFactKind::DeclaredType,
+                section: crate::InterfaceSectionTag::DeclarationFacts,
+                record: checked_record(index),
+            }
+        });
 
         let declaration_templates =
             self.declaration_templates

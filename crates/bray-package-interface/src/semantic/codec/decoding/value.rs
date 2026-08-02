@@ -607,7 +607,10 @@ mod tests {
             Err(error) => panic!("generator type must be interned: {error:?}"),
         };
 
-        assert_eq!(generator.as_ref(), &TypeData::Generator(imported.types()[0]));
+        assert_eq!(
+            generator.as_ref(),
+            &TypeData::Generator(imported.types()[0])
+        );
 
         let callable = match store.type_data(imported.types()[3]) {
             Ok(callable) => callable,

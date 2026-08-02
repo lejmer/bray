@@ -213,9 +213,7 @@ impl<'unit> Lowerer<'unit> {
     }
 }
 
-fn parameter_positions(
-    plan: &bray_bound_tree::StoragePlan,
-) -> BTreeMap<StorageIdentityId, u32> {
+fn parameter_positions(plan: &bray_bound_tree::StoragePlan) -> BTreeMap<StorageIdentityId, u32> {
     let entries = plan
         .identity_entries()
         .filter(|(_, identity)| is_parameter_identity(*identity))
@@ -232,9 +230,7 @@ fn parameter_positions(
                 .filter(|(_, identity)| !matches!(identity, StorageIdentity::Receiver(_))),
         )
         .enumerate()
-        .map(|(position, (identity, _))| {
-            (identity, u32::try_from(position).unwrap_or(u32::MAX))
-        })
+        .map(|(position, (identity, _))| (identity, u32::try_from(position).unwrap_or(u32::MAX)))
         .collect()
 }
 

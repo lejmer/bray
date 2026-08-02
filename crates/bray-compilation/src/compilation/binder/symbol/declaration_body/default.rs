@@ -7,13 +7,12 @@ use bray_symbols::{
     CallableSignatureFact, CheckedCallableParameterDefault, CheckedStructFieldDefault,
     CheckedUnionPayloadDefault, ErrorCallableParameterDefault, ErrorStructFieldDefault,
     ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, RuntimeDefaultBehavior,
-    RuntimeDefaultGenericContext, RuntimeDefaultOwnership, RuntimeDefaultTemplateReference,
-    StructFieldDefaultFact, StructFieldDefaultSurface, StructFieldDefaultTemplateFact,
-    StructFieldDefaultValue, StructFieldSymbolId, SymbolFactRequest, SymbolFactResult,
-    TrustedCapabilitySymbolId, TypeData, TypeId, UnevaluatedDefaultTemplate,
-    UnionPayloadDefaultSurface, UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact,
-    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
+    GenericSubstitutionData, RuntimeDefaultBehavior, RuntimeDefaultGenericContext,
+    RuntimeDefaultOwnership, RuntimeDefaultTemplateReference, StructFieldDefaultFact,
+    StructFieldDefaultSurface, StructFieldDefaultTemplateFact, StructFieldDefaultValue,
+    StructFieldSymbolId, SymbolFactRequest, SymbolFactResult, TrustedCapabilitySymbolId, TypeData,
+    TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
 };
 
 use super::super::binding::CompilationSymbolFactBinding;

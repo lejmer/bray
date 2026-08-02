@@ -49,12 +49,9 @@ impl Compilation {
                 variant.selector(),
                 diagnostics,
             )?,
-            BoundExpression::UnqualifiedVariant(variant) => self.unqualified_variant_candidate(
-                facts,
-                result_type,
-                variant,
-                diagnostics,
-            )?,
+            BoundExpression::UnqualifiedVariant(variant) => {
+                self.unqualified_variant_candidate(facts, result_type, variant, diagnostics)?
+            }
             BoundExpression::MemberAccess(_) => self.union_variant_construction_candidate(
                 facts,
                 unit,
@@ -199,7 +196,8 @@ impl Compilation {
             }
         }
 
-        let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver()) else {
+        let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver())
+        else {
             return Ok(None);
         };
 

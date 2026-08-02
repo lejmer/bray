@@ -131,11 +131,10 @@ impl Lowerer<'_> {
         if let Some((parameter_type, reached_type)) = parameter_borrow
             && !already_dereferenced
         {
-            projections.insert(0, MirProjection::new(
-                MirProjectionKind::Dereference,
-                parameter_type,
-                reached_type,
-            ));
+            projections.insert(
+                0,
+                MirProjection::new(MirProjectionKind::Dereference, parameter_type, reached_type),
+            );
         }
 
         let place = MirPlace::new(place.storage(), projections, target);
@@ -591,7 +590,8 @@ impl Lowerer<'_> {
             bray_bound_tree::BoundNodeOrigin::source(source),
         )?;
 
-        let mut lowered = Vec::with_capacity(projections.len() + usize::from(project_borrowed_root));
+        let mut lowered =
+            Vec::with_capacity(projections.len() + usize::from(project_borrowed_root));
 
         let mut source_type = if project_borrowed_root {
             self.append_entry_dereference(

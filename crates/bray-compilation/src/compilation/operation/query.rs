@@ -48,9 +48,7 @@ impl Compilation {
                 return BoundWalkControl::Stop;
             };
 
-            if selection_kind(expression).is_ok()
-                && !variant_construction_callees.contains(&id)
-            {
+            if selection_kind(expression).is_ok() && !variant_construction_callees.contains(&id) {
                 expressions.push(id);
             }
 
@@ -423,8 +421,9 @@ fn variant_construction_callees(
             let callee = unit.view().expression(call.callee())?;
 
             let is_variant = match callee {
-                BoundExpression::LeadingDotVariant(_)
-                | BoundExpression::UnqualifiedVariant(_) => true,
+                BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_) => {
+                    true
+                }
                 BoundExpression::MemberAccess(_) => {
                     qualified_union_variant(facts, unit, call.callee()).is_some()
                 }

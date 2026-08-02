@@ -9,9 +9,7 @@ use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
 
-pub(super) const fn text_operation_kind(
-    hook: ImplementationHook,
-) -> Option<MirTextOperationKind> {
+pub(super) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirTextOperationKind> {
     match hook {
         ImplementationHook::StringScalarCount => Some(MirTextOperationKind::ScalarCount),
         ImplementationHook::StringIsEmpty => Some(MirTextOperationKind::IsEmpty),
@@ -26,15 +24,11 @@ pub(super) const fn text_operation_kind(
         ImplementationHook::CharacterFromScalarValue => {
             Some(MirTextOperationKind::CharacterFromScalarValue)
         }
-        ImplementationHook::CharacterUtf8Length => {
-            Some(MirTextOperationKind::CharacterUtf8Length)
-        }
+        ImplementationHook::CharacterUtf8Length => Some(MirTextOperationKind::CharacterUtf8Length),
         ImplementationHook::CharacterIsAlphabetic => {
             Some(MirTextOperationKind::CharacterIsAlphabetic)
         }
-        ImplementationHook::CharacterIsNumeric => {
-            Some(MirTextOperationKind::CharacterIsNumeric)
-        }
+        ImplementationHook::CharacterIsNumeric => Some(MirTextOperationKind::CharacterIsNumeric),
         ImplementationHook::CharacterIsWhitespace => {
             Some(MirTextOperationKind::CharacterIsWhitespace)
         }
@@ -125,11 +119,7 @@ impl Lowerer<'_> {
             .map(MirOperand::Value)
             .ok_or(LoweringError::MissingOperationResult(id))?;
 
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(result),
-            source,
-        ))
+        Ok(LoweredExpression::continuing(current, Some(result), source))
     }
 
     fn lower_text_operand(
@@ -196,10 +186,7 @@ mod tests {
                 ImplementationHook::StringScalarSlice,
                 MirTextOperationKind::ScalarSlice,
             ),
-            (
-                ImplementationHook::StringUtf8,
-                MirTextOperationKind::Utf8,
-            ),
+            (ImplementationHook::StringUtf8, MirTextOperationKind::Utf8),
             (
                 ImplementationHook::StringFromUtf8,
                 MirTextOperationKind::FromUtf8,

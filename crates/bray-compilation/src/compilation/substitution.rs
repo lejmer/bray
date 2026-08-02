@@ -1,8 +1,8 @@
 use bray_binder::BinderFactContext;
 use bray_symbols::{
     AnySymbolId, ConstantTermData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SemanticValueStore, TypeData,
-    TypeId, SelfTypeContext,
+    GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext,
+    SemanticValueStore, TypeData, TypeId,
 };
 
 use super::binder::CompilationBinderFacts;

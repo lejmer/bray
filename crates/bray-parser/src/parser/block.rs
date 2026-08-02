@@ -380,7 +380,12 @@ mod tests {
 
             assert!(!expression.is_block_shaped(), "{expression_text}");
             assert!(sequence.semicolon_token().is_missing(), "{expression_text}");
-            assert_eq!(sequence.semicolon_token().range(), TextRange::empty(insertion));
+
+            assert_eq!(
+                sequence.semicolon_token().range(),
+                TextRange::empty(insertion)
+            );
+
             assert!(following_item.local_binding_declaration().is_some());
             assert_eq!(block.full_text(), source_text);
 

@@ -1,6 +1,4 @@
-use bray_bound_tree::{
-    CheckedMemoryOperationKind, MemoryOffsetUnit,
-};
+use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOffsetUnit};
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation, MirOperationId};
 use inkwell::IntPredicate;
@@ -136,19 +134,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
-            CheckedMemoryOperationKind::RawBufferCapacity => self
-                .translate_raw_buffer_field(memory, 1)
-                .map(Some),
-            CheckedMemoryOperationKind::RawBufferInitializedCount => self
-                .translate_raw_buffer_field(memory, 2)
-                .map(Some),
-            CheckedMemoryOperationKind::RawBufferPointer => self
-                .translate_raw_buffer_field(memory, 0)
-                .map(Some),
+            CheckedMemoryOperationKind::RawBufferCapacity => {
+                self.translate_raw_buffer_field(memory, 1).map(Some)
+            }
+            CheckedMemoryOperationKind::RawBufferInitializedCount => {
+                self.translate_raw_buffer_field(memory, 2).map(Some)
+            }
+            CheckedMemoryOperationKind::RawBufferPointer => {
+                self.translate_raw_buffer_field(memory, 0).map(Some)
+            }
             CheckedMemoryOperationKind::RawBufferInitializedSlice
-            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut => self
-                .translate_raw_buffer_slice(operation, memory)
-                .map(Some),
+            | CheckedMemoryOperationKind::RawBufferInitializedSliceMut => {
+                self.translate_raw_buffer_slice(operation, memory).map(Some)
+            }
             CheckedMemoryOperationKind::RawBufferSparePointer { element } => self
                 .translate_raw_buffer_spare_pointer(memory, element)
                 .map(|pointer| Some(pointer.into())),
@@ -320,7 +318,6 @@ mod tests {
             .count();
 
         assert_eq!(deallocations, 2);
-
     }
 
     #[test]

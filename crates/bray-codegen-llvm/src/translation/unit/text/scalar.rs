@@ -22,7 +22,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &[data.get_type().into(), integer.into()],
         );
 
-        self.call_value(function, &[data.into(), length.into()], "string.scalar_count")
+        self.call_value(
+            function,
+            &[data.into(), length.into()],
+            "string.scalar_count",
+        )
     }
 
     pub(super) fn text_is_empty(
@@ -134,7 +138,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "string.scalar.present",
         ))?;
 
-        let scalar = llvm(self.builder.build_load(scalar_type, scalar, "string.scalar.value"))?;
+        let scalar = llvm(
+            self.builder
+                .build_load(scalar_type, scalar, "string.scalar.value"),
+        )?;
 
         self.nullable_value(operation.result_type(), present, scalar)
     }

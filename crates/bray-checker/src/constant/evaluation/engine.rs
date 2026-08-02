@@ -394,9 +394,7 @@ where
             BoundExpression::Call(_) => self.evaluate_selected_call(expression, ty),
             BoundExpression::StructConstruction(_)
             | BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::UnqualifiedVariant(_) => {
-                self.evaluate_construction(expression, ty)
-            }
+            | BoundExpression::UnqualifiedVariant(_) => self.evaluate_construction(expression, ty),
             BoundExpression::Block(_)
             | BoundExpression::UnresolvedReference(_)
             | BoundExpression::Assignment(_)

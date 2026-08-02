@@ -4,7 +4,9 @@ use inkwell::AtomicOrdering;
 use inkwell::IntPredicate;
 use inkwell::builder::Builder;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::values::{
+    BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
+};
 
 use super::super::core::UnitTranslator;
 use super::super::support::{
@@ -24,15 +26,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTextOperationKind::ScalarSlice => self.text_scalar_slice(operation)?,
             MirTextOperationKind::Utf8 => self.text_utf8(operation)?,
             MirTextOperationKind::FromUtf8 => self.text_from_utf8(operation)?,
-            MirTextOperationKind::CharacterScalarValue => {
-                self.character_scalar_value(operation)?
-            }
+            MirTextOperationKind::CharacterScalarValue => self.character_scalar_value(operation)?,
             MirTextOperationKind::CharacterFromScalarValue => {
                 self.character_from_scalar_value(operation)?
             }
-            MirTextOperationKind::CharacterUtf8Length => {
-                self.character_utf8_length(operation)?
-            }
+            MirTextOperationKind::CharacterUtf8Length => self.character_utf8_length(operation)?,
             MirTextOperationKind::CharacterIsAlphabetic => self.character_predicate(
                 operation,
                 bray_runtime_interface::CHARACTER_IS_ALPHABETIC_SYMBOL,
@@ -230,7 +228,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "string.last_owner",
         ))?;
 
-        llvm(self.builder.build_conditional_branch(last, deallocate, done))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(last, deallocate, done),
+        )?;
 
         self.builder.position_at_end(deallocate);
 
@@ -304,8 +305,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         value: BasicValueEnum<'context>,
         borrow: bray_symbols::TypeId,
-    ) -> Result<(PointerValue<'context>, IntValue<'context>, PointerValue<'context>), CodegenFailure>
-    {
+    ) -> Result<
+        (
+            PointerValue<'context>,
+            IntValue<'context>,
+            PointerValue<'context>,
+        ),
+        CodegenFailure,
+    > {
         let target = self
             .request
             .mappings()
@@ -331,31 +338,49 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         value: BasicValueEnum<'context>,
         ty: bray_symbols::TypeId,
-    ) -> Result<(PointerValue<'context>, IntValue<'context>, PointerValue<'context>), CodegenFailure>
-    {
+    ) -> Result<
+        (
+            PointerValue<'context>,
+            IntValue<'context>,
+            PointerValue<'context>,
+        ),
+        CodegenFailure,
+    > {
         let fields = self.text_aggregate_fields(ty, 3)?;
 
         let data = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(self.request.mappings(), &fields, 0)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(aggregate_value_element(
+                self.request.mappings(),
+                &fields,
+                0,
+            )?)
+            .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_pointer_value();
 
         let owner = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(self.request.mappings(), &fields, 1)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(aggregate_value_element(
+                self.request.mappings(),
+                &fields,
+                1,
+            )?)
+            .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_pointer_value();
 
         let length = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(self.request.mappings(), &fields, 2)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(aggregate_value_element(
+                self.request.mappings(),
+                &fields,
+                2,
+            )?)
+            .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_int_value();
 
@@ -372,16 +397,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let data = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(self.request.mappings(), &fields, 0)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(aggregate_value_element(
+                self.request.mappings(),
+                &fields,
+                0,
+            )?)
+            .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_pointer_value();
 
         let length = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(self.request.mappings(), &fields, 1)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(aggregate_value_element(
+                self.request.mappings(),
+                &fields,
+                1,
+            )?)
+            .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_int_value();
 
@@ -391,8 +424,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn string_outputs(
         &self,
         pointer: PointerType<'context>,
-    ) -> Result<(PointerValue<'context>, PointerValue<'context>, PointerValue<'context>), CodegenFailure>
-    {
+    ) -> Result<
+        (
+            PointerValue<'context>,
+            PointerValue<'context>,
+            PointerValue<'context>,
+        ),
+        CodegenFailure,
+    > {
         let data = llvm(self.builder.build_alloca(pointer, "string.result.data"))?;
 
         let length = llvm(
@@ -465,7 +504,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let fields = self.text_aggregate_fields(ty, 3)?;
         let mut value = self.types.map(ty)?.const_zero();
 
-        for (index, field) in [data.into(), owner.into(), length.into()].into_iter().enumerate() {
+        for (index, field) in [data.into(), owner.into(), length.into()]
+            .into_iter()
+            .enumerate()
+        {
             value = insert_value(
                 &self.builder,
                 value,
@@ -543,7 +585,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let success = self.union_value(result, tag, &success, Some(string))?;
         let failure = self.union_value(result, tag, &failure, None)?;
 
-        llvm(self.builder.build_select(valid, success, failure, "string.utf8.result"))
+        llvm(
+            self.builder
+                .build_select(valid, success, failure, "string.utf8.result"),
+        )
     }
 
     fn union_value(
@@ -579,7 +624,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             llvm(self.builder.build_store(destination, payload))?;
         }
 
-        llvm(self.builder.build_load(llvm_type, storage, "string.result.value"))
+        llvm(
+            self.builder
+                .build_load(llvm_type, storage, "string.result.value"),
+        )
     }
 
     fn result_string_type(
@@ -605,9 +653,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     fn string_type(&self, ty: bray_symbols::TypeId) -> bool {
-        self.request.mappings().ty(ty).is_some_and(|mapping| {
-            mapping.behavior() == Some(CodegenTypeBehavior::String)
-        })
+        self.request
+            .mappings()
+            .ty(ty)
+            .is_some_and(|mapping| mapping.behavior() == Some(CodegenTypeBehavior::String))
     }
 
     fn text_aggregate_fields(
@@ -619,9 +668,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .mappings()
             .ty(ty)
             .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Aggregate(fields) if fields.len() == count => {
-                    Some(fields.clone())
-                }
+                CodegenTypeKind::Aggregate(fields) if fields.len() == count => Some(fields.clone()),
                 _ => None,
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)

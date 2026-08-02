@@ -27,12 +27,9 @@ where
     let contracts = callable_dependency_contracts(request, call.target())
         .map_err(DependencyContractInstantiationError::Resolution)?;
 
-    let contracts = callable_dependencies_for_implementation(
-        request,
-        contracts,
-        call.implementation_hook(),
-    )
-    .map_err(DependencyContractInstantiationError::Resolution)?;
+    let contracts =
+        callable_dependencies_for_implementation(request, contracts, call.implementation_hook())
+            .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let mut context = CallInstantiationContext::new(request, storage, expression, call);
 
@@ -58,19 +55,12 @@ where
 
     let source = DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
 
-    let dependency = DependencyRequirement::direct(
-        source,
-        DependencyRequirementKind::StorageAlive,
-    );
+    let dependency = DependencyRequirement::direct(source, DependencyRequirementKind::StorageAlive);
 
     let invocation = request
         .semantic_values()
         .intern_dependency_contract_template(DependencyContractTemplateData::new(
-            existing
-                .requirements()
-                .iter()
-                .cloned()
-                .chain([dependency]),
+            existing.requirements().iter().cloned().chain([dependency]),
         ))
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
@@ -287,7 +277,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bray_compiler_known::ImplementationHook;
     use bray_bound_tree::{
         BoundCallResult, BoundCallableTarget, BoundDependencyGuard, BoundDependencyRequirement,
         BoundDependencyRequirementKind, BoundDependencySubject, BoundErrorExpression,
@@ -295,6 +284,7 @@ mod tests {
         StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
         StoragePlanBuilder, StorageProjection,
     };
+    use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableDependencyContracts, CallableTrust,
         CallableTypeData, DependencyContractTemplateData, DependencyGuard, DependencyProjection,

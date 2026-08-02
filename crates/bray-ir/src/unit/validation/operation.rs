@@ -254,11 +254,7 @@ fn validate_operation_result(
         return Err(MirUnitBuildError::UnexpectedOperationResult(id));
     }
 
-    if let (
-        MirOperationKind::Text(text),
-        Some(result),
-    ) = (operation.kind(), operation.result())
-    {
+    if let (MirOperationKind::Text(text), Some(result)) = (operation.kind(), operation.result()) {
         let Some(result) = unit.value(result) else {
             return Err(MirUnitBuildError::MissingValue(result));
         };

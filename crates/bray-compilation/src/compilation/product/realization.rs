@@ -37,8 +37,7 @@ use bray_symbols::{
     NamedTypeSymbolId, ReceiverMode, RuntimeDefaultProviderInput, SelfTypeContext,
     StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId, SymbolFactRequest,
     TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
-    UnionPayloadFieldDefaultFact,
-    UnionPayloadFieldTypeFact,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -360,20 +359,12 @@ impl Compilation {
         let substitution = owner.substitution();
 
         Ok(match reference {
-            MirHelperReference::Finalize(ty) => {
-                MirHelperReference::Finalize(self.substitute_codegen_type(
-                    *ty,
-                    substitution,
-                    cancellation,
-                )?)
-            }
-            MirHelperReference::Destroy(ty) => {
-                MirHelperReference::Destroy(self.substitute_codegen_type(
-                    *ty,
-                    substitution,
-                    cancellation,
-                )?)
-            }
+            MirHelperReference::Finalize(ty) => MirHelperReference::Finalize(
+                self.substitute_codegen_type(*ty, substitution, cancellation)?,
+            ),
+            MirHelperReference::Destroy(ty) => MirHelperReference::Destroy(
+                self.substitute_codegen_type(*ty, substitution, cancellation)?,
+            ),
             MirHelperReference::Cleanup { phase, ty } => MirHelperReference::Cleanup {
                 phase: *phase,
                 ty: self.substitute_codegen_type(*ty, substitution, cancellation)?,
@@ -2132,7 +2123,9 @@ impl Compilation {
         let facts = self.binder_facts(cancellation)?;
 
         let coherence = facts
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(*implementation))
+            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+                *implementation,
+            ))
             .map_err(super::super::binder::binder_fact_error)?;
 
         Ok(coherence.value().subject())
@@ -3286,7 +3279,9 @@ impl Compilation {
         let (inputs, result) = match owner {
             AnySymbolId::CallableParameter(owner) => {
                 let checked = facts
-                    .symbol_fact(SymbolFactRequest::<CallableParameterDefaultFact>::new(owner))
+                    .symbol_fact(SymbolFactRequest::<CallableParameterDefaultFact>::new(
+                        owner,
+                    ))
                     .map_err(super::super::binder::binder_fact_error)?;
 
                 let CallableParameterDefaultValue::Valid(surface) = checked.value().value() else {
@@ -3308,7 +3303,9 @@ impl Compilation {
             }
             AnySymbolId::UnionPayloadField(owner) => {
                 let checked = facts
-                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultFact>::new(owner))
+                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultFact>::new(
+                        owner,
+                    ))
                     .map_err(super::super::binder::binder_fact_error)?;
 
                 let UnionPayloadDefaultValue::Valid(surface) = checked.value().value() else {

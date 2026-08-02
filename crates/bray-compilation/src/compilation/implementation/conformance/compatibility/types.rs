@@ -82,16 +82,14 @@ pub(super) fn type_templates_are_compatible(
                 type_bindings,
             )
         }
-        TypeExpressionTemplate::Nullable(requirement) => {
-            nullable_templates_are_compatible(
-                values,
-                trait_application,
-                generic_substitution,
-                requirement,
-                fulfillment,
-                type_bindings,
-            )
-        }
+        TypeExpressionTemplate::Nullable(requirement) => nullable_templates_are_compatible(
+            values,
+            trait_application,
+            generic_substitution,
+            requirement,
+            fulfillment,
+            type_bindings,
+        ),
         _ => Ok(requirement == fulfillment),
     }
 }

@@ -159,10 +159,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 continue;
             };
 
-            let helper = next_helper(
-                helpers,
-                &MirHelperReference::ConstructionDefault(*provider),
-            )?;
+            let helper = next_helper(helpers, &MirHelperReference::ConstructionDefault(*provider))?;
 
             let parameter_count = helper
                 .symbol()
@@ -191,8 +188,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         (0..construction.inputs().len())
             .map(|ordinal| {
-                let ordinal = u32::try_from(ordinal)
-                    .map_err(|_| CodegenFailure::ResourceExhausted)?;
+                let ordinal =
+                    u32::try_from(ordinal).map_err(|_| CodegenFailure::ResourceExhausted)?;
 
                 values
                     .get(&ordinal)

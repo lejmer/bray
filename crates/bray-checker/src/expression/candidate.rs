@@ -57,19 +57,18 @@ impl PreparedExpressions {
         self.diagnostics.extend(diagnostics.iter().cloned());
     }
 
-    pub(super) fn add_operation_selections(
-        &mut self,
-        selections: &[SemanticSelectionEntry],
-    ) {
-        self.member_targets.extend(selections.iter().filter_map(|entry| {
-            let SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Member(target)) =
-                entry.selection()
-            else {
-                return None;
-            };
+    pub(super) fn add_operation_selections(&mut self, selections: &[SemanticSelectionEntry]) {
+        self.member_targets
+            .extend(selections.iter().filter_map(|entry| {
+                let SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Member(
+                    target,
+                )) = entry.selection()
+                else {
+                    return None;
+                };
 
-            Some((entry.expression(), target.clone()))
-        }));
+                Some((entry.expression(), target.clone()))
+            }));
     }
 
     pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
@@ -383,12 +382,8 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(candidates) = materialize_call_candidates(
-            request,
-            types,
-            prepared_call,
-            &prepared.member_targets,
-        )?
+        let Some(candidates) =
+            materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
         else {
             continue;
         };
@@ -691,12 +686,8 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(candidates) = materialize_call_candidates(
-            request,
-            types,
-            prepared_call,
-            &prepared.member_targets,
-        )?
+        let Some(candidates) =
+            materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
         else {
             continue;
         };
@@ -810,12 +801,8 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     for prepared_call in &prepared.calls {
-        let Some(candidates) = materialize_call_candidates(
-            request,
-            types,
-            prepared_call,
-            &prepared.member_targets,
-        )?
+        let Some(candidates) =
+            materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
         else {
             continue;
         };

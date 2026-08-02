@@ -116,9 +116,7 @@ impl Lowerer<'_> {
             }
             BoundExpression::StructConstruction(_)
             | BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::UnqualifiedVariant(_) => {
-                self.lower_construction(id, current)
-            }
+            | BoundExpression::UnqualifiedVariant(_) => self.lower_construction(id, current),
             BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
                 self.lower_member_access(id, current)
             }

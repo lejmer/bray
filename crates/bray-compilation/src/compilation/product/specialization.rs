@@ -95,10 +95,7 @@ impl ConcreteCodegenInstance {
         }
     }
 
-    pub(super) fn bound_helper(
-        owner: &Self,
-        template: bray_bound_tree::BoundUnitKey,
-    ) -> Self {
+    pub(super) fn bound_helper(owner: &Self, template: bray_bound_tree::BoundUnitKey) -> Self {
         Self {
             key: CodegenInstanceKey::new(
                 MirUnitKey::Bound(template),

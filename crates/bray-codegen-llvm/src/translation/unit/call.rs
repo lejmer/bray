@@ -148,15 +148,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         for (ordinal, provider) in defaults {
             let helper = next_helper(helpers, &MirHelperReference::CallableDefault(provider))?;
-            let mut preceding = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
+
+            let mut preceding =
+                Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
 
             preceding.extend(receiver);
 
-            preceding.extend(
-                parameters
-                    .range(..ordinal)
-                    .map(|(_, value)| *value),
-            );
+            preceding.extend(parameters.range(..ordinal).map(|(_, value)| *value));
 
             let value = self
                 .invoke_helper(helper, &preceding)?

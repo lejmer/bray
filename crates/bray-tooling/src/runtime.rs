@@ -1,8 +1,6 @@
 use std::path::Path;
 
-use bray_runtime_interface::{
-    RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata,
-};
+use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata};
 use sha2::{Digest, Sha256};
 
 /// Loads and validates one runtime artifact from its metadata path.

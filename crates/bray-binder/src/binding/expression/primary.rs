@@ -442,8 +442,9 @@ impl ExpressionBinder {
         }
 
         let result = match self.unresolved_names {
-            UnresolvedNameBinding::ContextualVariant => binder
-                .bind_contextual_variant_identifier(context, syntax.source(), token),
+            UnresolvedNameBinding::ContextualVariant => {
+                binder.bind_contextual_variant_identifier(context, syntax.source(), token)
+            }
             UnresolvedNameBinding::Diagnostic => {
                 binder.bind_reference_identifier(context, syntax.source(), token)
             }

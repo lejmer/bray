@@ -69,8 +69,7 @@ pub const STRING_FROM_UTF8_SYMBOL: &str = "bray_runtime_string_from_utf8_v1";
 pub const CHARACTER_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_scalar_value_v1";
 
 /// Stable symbol constructing a character from a Unicode scalar value.
-pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str =
-    "bray_runtime_character_from_scalar_value_v1";
+pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_from_scalar_value_v1";
 
 /// Stable symbol returning a character's UTF-8 encoded length.
 pub const CHARACTER_UTF8_LENGTH_SYMBOL: &str = "bray_runtime_character_utf8_length_v1";

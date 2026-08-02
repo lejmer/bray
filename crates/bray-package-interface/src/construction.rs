@@ -125,10 +125,8 @@ pub struct ImportedInterfaceSymbolResolver<'surface> {
     current: LoadedInterfaceSurface<'surface>,
     package_index: BTreeMap<PackageIdentity, LoadedInterfaceSurface<'surface>>,
     symbols: &'surface ImportedSymbolSkeleton,
-    compiler_known: &'surface BTreeMap<
-        bray_compiler_known::CompilerKnownDeclarationKey,
-        AnySymbolId,
-    >,
+    compiler_known:
+        &'surface BTreeMap<bray_compiler_known::CompilerKnownDeclarationKey, AnySymbolId>,
 }
 
 impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
@@ -481,7 +479,8 @@ mod tests {
         let loaded = loaded(1, DEPENDENCY_HASH, &surface);
         let symbols = construct(&surface, &surface, [loaded]);
 
-        let Some(symbol) = symbols.symbol_by_external_key(&function_key("dependency.package", "run"))
+        let Some(symbol) =
+            symbols.symbol_by_external_key(&function_key("dependency.package", "run"))
         else {
             panic!("test function must resolve");
         };
@@ -492,13 +491,9 @@ mod tests {
 
         let compiler_known = BTreeMap::from([(key.clone(), symbol)]);
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
-            loaded,
-            [loaded],
-            &symbols,
-            &compiler_known,
-        )
-        .unwrap_or_else(|error| panic!("test resolver must be valid: {error:?}"));
+        let resolver =
+            ImportedInterfaceSymbolResolver::try_new(loaded, [loaded], &symbols, &compiler_known)
+                .unwrap_or_else(|error| panic!("test resolver must be valid: {error:?}"));
 
         assert_eq!(
             crate::InterfaceSymbolResolver::resolve(
