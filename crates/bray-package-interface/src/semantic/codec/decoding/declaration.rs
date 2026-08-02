@@ -112,7 +112,7 @@ pub(super) fn decode_declarations(
     Ok(())
 }
 
-fn decode_declared_type(
+pub(super) fn decode_declared_type(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceDeclaredType, InterfaceValidationError> {

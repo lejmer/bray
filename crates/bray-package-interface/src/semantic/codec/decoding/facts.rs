@@ -220,13 +220,13 @@ mod tests {
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
         InterfaceCallableParameterDefault, InterfaceCallableSignature,
-        InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceDependencyRequirement,
-        InterfaceDependencyRequirementKind, InterfaceDependencySubject,
-        InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
-        InterfacePredicateDefinitionState, InterfaceRuntimeRequirement, InterfaceSectionTag,
-        InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference,
-        InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
-        PackageInterfaceSurface,
+        InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceDependencyContract,
+        InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
+        InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
+        InterfaceGenericSubstitutionId, InterfacePredicateDefinitionState,
+        InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticFactKind,
+        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceType, InterfaceTypeId,
+        InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
     #[test]
@@ -530,6 +530,50 @@ mod tests {
             assert_eq!(predicate.predicate_definitions()[0].state(), expected_state);
             assert!(predicate.declaration_templates().is_empty());
         }
+    }
+
+    #[test]
+    fn declared_types_decode_with_their_transitive_type_graph() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+
+        let InterfaceSymbolReference::Local(owner) = local_by_kind(&surface, SymbolKind::Struct)
+        else {
+            panic!("test structure must be local");
+        };
+
+        let facts =
+            bundle
+                .semantic_facts()
+                .clone()
+                .with_declared_types([InterfaceDeclaredType::new(
+                    InterfaceSymbolReference::Local(owner),
+                    InterfaceTypeId::new(1),
+                )]);
+
+        let sections = semantic_sections(&facts, &surface);
+        let sections = owned_section_views(&sections);
+
+        let decoded = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::DeclaredType,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("declared type must decode: {error:?}"));
+
+        assert_eq!(decoded.declared_types().len(), 1);
+        assert_eq!(decoded.declared_types()[0].ty(), InterfaceTypeId::new(0));
+        assert_eq!(decoded.types().len(), 1);
+
+        assert!(matches!(
+            decoded.types()[0],
+            InterfaceType::Named {
+                substitution,
+                ..
+            } if substitution == InterfaceGenericSubstitutionId::new(0)
+        ));
     }
 
     #[test]

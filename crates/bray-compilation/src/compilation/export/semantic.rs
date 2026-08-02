@@ -3,52 +3,57 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::SymbolFactProvider;
-use bray_bound_tree::{CheckedTemplateConstantUsage, CheckedTemplateKind, CheckedTemplateNodeId};
+use bray_bound_tree::{
+    BoundReferenceTarget, BoundUnitKey, CheckedTemplateConstantUsage, CheckedTemplateKind,
+    CheckedTemplateNodeId,
+};
 use bray_checker::{
     CheckedConstantTerms, CheckerUnitView, ConstantChecker, ConstantEvaluationInput,
     ConstantEvaluationLimits, DefaultConstantChecker, resolve_type_expression_template,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_package_interface::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
-    InterfaceCheckedTemplateId, InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
+    DependencyInterfaceId, InterfaceCallableContract, InterfaceCallableContractClause,
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
-    InterfaceCallableParameterDefault, InterfaceCallablePhaseBehavior, InterfaceCallableContract,
-    InterfaceCallableContractClause, InterfaceCallableReceiver, InterfaceCallableSignature,
-    InterfaceCoherenceRecord, InterfaceConstraint, InterfaceConstantProjection,
-    InterfaceDeclarationTemplate, InterfaceDeclaredType,
+    InterfaceCallableParameterDefault, InterfaceCallablePhaseBehavior, InterfaceCallableReceiver,
+    InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
+    InterfaceCheckedTemplateExecution, InterfaceCheckedTemplateId,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplateOperation, InterfaceCoherenceRecord, InterfaceConstantProjection,
     InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
-    InterfaceConstantValueId, InterfaceConstantValueKind,
-    DependencyInterfaceId, InterfaceDependencyContract, InterfaceDependencyContractId,
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
-    InterfaceDependencyRequirementKind, InterfaceDependencySubject, InterfaceDependencySubjectRoot,
-    InterfaceGenericArgument,
-    InterfaceGenericBinding, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
-    InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
-    InterfaceImplementationInstanceId, InterfaceImplementationRecord,
-    InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
-    InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
-    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
-    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
-    PackageInterfaceSurface,
+    InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceConstraint,
+    InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceDependencyContract,
+    InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
+    InterfaceDependencyRequirement, InterfaceDependencyRequirementKind, InterfaceDependencySubject,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
+    InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
+    InterfaceImplementationInstance, InterfaceImplementationInstanceId,
+    InterfaceImplementationRecord, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
+    InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceSupportEntity,
+    InterfaceSymbolReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionTag, PackageInterfaceSurface,
 };
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultTemplateFact, CallablePhaseBehavior, CallableSignatureFact,
-    CallableContractsFact, CallableInstanceId, CallableSymbolId, CheckedConstraintKind,
+    AnySymbolId, CallableContractTemplate, CallableContractTemplateFact, CallableContractsFact,
+    CallableInstanceId, CallableParameterDefaultTemplateFact, CallableParameterDefaultValue,
+    CallablePhaseBehavior, CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, DependencyGuard, DependencyProjection, DependencyRequirement,
-    DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
-    CurrentRunCancellation, GenericArgument, GenericConstraintsFact,
-    GenericDeclarationTemplateFact, GenericOwnerId, GenericSubstitutionData,
-    GenericSubstitutionId, ImplementationCoherenceFact, ImplementationInstanceId,
-    ImplementationSymbolId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
-    InterfaceSupportEntityId, SemanticValueStore, SymbolFactRequest, SymbolKeyData, SymbolKind,
-    TraitApplicationId,
+    ConstantValueKind, CurrentRunCancellation, DependencyGuard, DependencyProjection,
+    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+    ExternalSymbolKey, GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
+    InterfaceSupportEntityId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
+    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
+    RuntimeDefaultTemplateReference, SemanticValueStore, StructFieldDefaultValue,
+    SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
     TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
-    TypeExpressionTemplate, TypeId,
+    TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
 
 use super::PackageInterfaceExportError;
+use super::template::{SourceTemplateInput, export_checked_source_template};
 use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
@@ -70,162 +75,37 @@ pub(super) fn build_semantic_facts(
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
     let mut export = SemanticExporter::new(graph, surface, keys, values);
-    let mut signatures = Vec::new();
-    let mut generic_declarations = Vec::new();
-    let mut parameter_defaults = Vec::new();
-    let mut constraints = Vec::new();
-    let mut callable_contracts = Vec::new();
-    let mut predicate_definitions = Vec::new();
-    let mut declared_types = Vec::new();
-    let mut type_representations = Vec::new();
-    let mut checked_templates = Vec::new();
-    let mut declaration_templates = Vec::new();
-    let mut support_entities = Vec::new();
+    let mut declarations = ExportedDeclarationFacts::default();
 
     for symbol in selected.iter().copied() {
-        if let Some(callable) = CallableSymbolId::try_from_any(symbol) {
-            let signature = binder
-                .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
-                .map_err(|_| incomplete(symbol))?;
+        export_callable_facts(
+            compilation,
+            graph,
+            &binder,
+            symbol,
+            &mut export,
+            &mut declarations,
+        )?;
 
-            if signature.diagnostics().has_errors() {
-                return Err(incomplete(symbol));
-            }
+        export_generic_facts(compilation, &binder, symbol, &mut export, &mut declarations)?;
+        export_predicate_fact(&binder, symbol, &export, &mut declarations)?;
 
-            signatures.push(export.callable_signature(symbol, signature.value())?);
+        export_default_facts(
+            compilation,
+            graph,
+            &binder,
+            symbol,
+            &mut export,
+            &mut declarations,
+        )?;
 
-            let contracts = binder
-                .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
-                .map_err(|_| incomplete(symbol))?;
-
-            if contracts.diagnostics().has_errors() {
-                return Err(incomplete(symbol));
-            }
-
-            callable_contracts.push(export.callable_contract(symbol, contracts.value())?);
-        }
-
-        if let Some(owner) = GenericOwnerId::try_new(symbol) {
-            let generic = binder
-                .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(owner))
-                .map_err(|_| incomplete(symbol))?;
-
-            if generic.diagnostics().has_errors() {
-                return Err(incomplete(symbol));
-            }
-
-            if !generic.value().parameters().is_empty() {
-                generic_declarations.push(export.generic_declaration(symbol, generic.value())?);
-            }
-
-            let checked = binder
-                .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(owner))
-                .map_err(|_| incomplete(symbol))?;
-
-            if checked.diagnostics().has_errors() {
-                return Err(incomplete(symbol));
-            }
-
-            constraints.extend(export.generic_constraints(symbol, checked.value())?);
-
-            for constraint in checked.value().constraints() {
-                let CheckedConstraintKind::Predicate(predicate) = constraint.kind() else {
-                    continue;
-                };
-
-                let source = generic
-                    .value()
-                    .constraints()
-                    .iter()
-                    .find(|source| source.ordinal() == constraint.ordinal())
-                    .ok_or_else(|| incomplete(symbol))?;
-
-                let unit = source.unit_syntax().ok_or_else(|| incomplete(symbol))?;
-                let expression = source.expression().ok_or_else(|| incomplete(symbol))?;
-
-                let checked_expression = checked_constraint_expression(
-                    compilation,
-                    generic.value(),
-                    unit,
-                    expression,
-                )?;
-
-                let checked_id = InterfaceCheckedTemplateId::new(index(checked_templates.len())?);
-                let entity = InterfaceSupportEntityId::new(index(support_entities.len())?);
-
-                checked_templates.push(export.checked_constant_template(
-                    CheckedTemplateKind::GenericConstraint,
-                    checked_expression,
-                    predicate.dependency_contract(),
-                )?);
-
-                support_entities.push(InterfaceSupportEntity::CheckedTemplate(checked_id));
-
-                declaration_templates.push(InterfaceDeclarationTemplate::new(
-                    export.symbol_reference(symbol)?,
-                    CheckedTemplateKind::GenericConstraint,
-                    constraint.ordinal(),
-                    entity,
-                ));
-            }
-        }
-
-        if let Some(state) = predicate_definition(&binder, symbol)? {
-            predicate_definitions.push(InterfacePredicateDefinition::new(
-                export.symbol_reference(symbol)?,
-                state,
-            ));
-        }
-
-        if let AnySymbolId::CallableParameter(parameter) = symbol {
-            let default = binder
-                .symbol_fact(SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(
-                    parameter,
-                ))
-                .map_err(|_| incomplete(symbol))?;
-
-            if default.diagnostics().has_errors() {
-                return Err(incomplete(symbol));
-            }
-
-            parameter_defaults.push(InterfaceCallableParameterDefault::new(
-                export.symbol_reference(symbol)?,
-                default.value().is_present(),
-            ));
-        }
-
-        if let Some(template) = compilation
-            .symbol_type_template(symbol)
-            .map_err(|_| incomplete(symbol))?
-        {
-            if template.diagnostics().has_errors() {
-                return Err(incomplete(symbol));
-            }
-
-            let ty = export.resolve_type_template(symbol, template.value())?;
-
-            declared_types.push(InterfaceDeclaredType::new(
-                export.symbol_reference(symbol)?,
-                export.type_id(ty)?,
-            ));
-        }
-
-        let Some(named_type) = NamedTypeSymbolId::try_from_any(symbol) else {
-            continue;
-        };
-
-        let representation = compilation
-            .declared_type_representation(named_type)
-            .map_err(|_| incomplete(symbol))?;
-
-        if representation.diagnostics().has_errors() || representation.value().is_recovered() {
-            return Err(incomplete(symbol));
-        }
-
-        type_representations.push(export.type_representation(symbol, representation.value())?);
+        export_type_facts(compilation, symbol, &mut export, &mut declarations)?;
     }
 
     let (implementations, coherence) = implementation_facts(&mut export, &binder, selected)?;
+
+    declarations.generic_declarations.sort_unstable();
+    declarations.declaration_templates.sort_unstable();
 
     Ok(InterfaceSemanticFacts::new()
         .with_applications(
@@ -240,21 +120,706 @@ pub(super) fn build_semantic_facts(
             export.constant_values,
             export.constant_terms,
         )
-        .with_contracts(constraints, callable_contracts)
+        .with_contracts(declarations.constraints, declarations.callable_contracts)
         .with_declarations(
-            signatures,
-            generic_declarations,
-            parameter_defaults,
-            predicate_definitions,
+            declarations.signatures,
+            declarations.generic_declarations,
+            declarations.parameter_defaults,
+            declarations.predicate_definitions,
         )
-        .with_declared_types(declared_types)
-        .with_type_representations(type_representations)
+        .with_declared_types(declarations.declared_types)
+        .with_type_representations(declarations.type_representations)
         .with_templates(
-            checked_templates,
-            declaration_templates,
-            support_entities,
+            declarations.checked_templates,
+            declarations.declaration_templates,
+            declarations.support_entities,
         )
         .with_implementations(implementations, coherence))
+}
+
+#[derive(Default)]
+struct ExportedDeclarationFacts {
+    signatures: Vec<InterfaceCallableSignature>,
+    generic_declarations: Vec<InterfaceGenericDeclaration>,
+    parameter_defaults: Vec<InterfaceCallableParameterDefault>,
+    constraints: Vec<InterfaceConstraint>,
+    callable_contracts: Vec<InterfaceCallableContract>,
+    predicate_definitions: Vec<InterfacePredicateDefinition>,
+    declared_types: Vec<InterfaceDeclaredType>,
+    type_representations: Vec<InterfaceTypeRepresentation>,
+    checked_templates: Vec<InterfaceCheckedTemplate>,
+    declaration_templates: Vec<InterfaceDeclarationTemplate>,
+    support_entities: Vec<InterfaceSupportEntity>,
+}
+
+fn export_callable_facts(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    binder: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+    export: &mut SemanticExporter<'_>,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    let Some(callable) = CallableSymbolId::try_from_any(symbol) else {
+        return Ok(());
+    };
+
+    let signature = binder
+        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+        .map_err(|_| incomplete(symbol))?;
+
+    if signature.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    facts
+        .signatures
+        .push(export.callable_signature(symbol, signature.value())?);
+
+    let contracts = binder
+        .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
+        .map_err(|_| incomplete(symbol))?;
+
+    if contracts.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    facts
+        .callable_contracts
+        .push(export.callable_contract(symbol, contracts.value())?);
+
+    let template = binder
+        .symbol_fact(SymbolFactRequest::<CallableContractTemplateFact>::new(
+            callable,
+        ))
+        .map_err(|_| incomplete(symbol))?;
+
+    if template.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    let CallableContractTemplate::Source(template) = template.value() else {
+        return Ok(());
+    };
+
+    for expression in template.expressions() {
+        let clause = contracts
+            .value()
+            .invocation_preconditions()
+            .iter()
+            .chain(contracts.value().static_constraints())
+            .chain(contracts.value().normal_completion_postconditions())
+            .find(|clause| clause.ordinal() == expression.ordinal())
+            .ok_or_else(|| incomplete(symbol))?;
+
+        let source = compilation
+            .bound_source(expression.unit_syntax())
+            .map_err(|_| incomplete(symbol))?;
+
+        // The unit key must own its Arc-backed symbol identity beyond this graph borrow.
+        let owner = graph
+            .symbol_key(symbol)
+            .cloned()
+            .ok_or_else(|| incomplete(symbol))?;
+
+        let key = BoundUnitKey::contract_clause(owner, source).ok_or_else(|| incomplete(symbol))?;
+
+        let inputs = callable_template_inputs(
+            compilation,
+            export,
+            symbol,
+            signature.value(),
+            generic_parameters(binder, symbol)?,
+        )?;
+
+        let checked = export_checked_source_template(
+            compilation,
+            export,
+            key,
+            CheckedTemplateKind::CallableContract,
+            expression.expression().syntax(),
+            inputs,
+            clause.predicate().dependency_contract(),
+        )?;
+
+        push_declaration_template(
+            export,
+            symbol,
+            CheckedTemplateKind::CallableContract,
+            expression.ordinal(),
+            checked,
+            &mut facts.checked_templates,
+            &mut facts.declaration_templates,
+            &mut facts.support_entities,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn export_generic_facts(
+    compilation: &Compilation,
+    binder: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+    export: &mut SemanticExporter<'_>,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    let Some(owner) = GenericOwnerId::try_new(symbol) else {
+        return Ok(());
+    };
+
+    let generic = binder
+        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+            owner,
+        ))
+        .map_err(|_| incomplete(symbol))?;
+
+    if generic.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    facts
+        .generic_declarations
+        .push(export.generic_declaration(symbol, generic.value())?);
+
+    let checked = binder
+        .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(owner))
+        .map_err(|_| incomplete(symbol))?;
+
+    if checked.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    facts
+        .constraints
+        .extend(export.generic_constraints(symbol, checked.value())?);
+
+    for constraint in checked.value().constraints() {
+        let CheckedConstraintKind::Predicate(predicate) = constraint.kind() else {
+            continue;
+        };
+
+        let source = generic
+            .value()
+            .constraints()
+            .iter()
+            .find(|source| source.ordinal() == constraint.ordinal())
+            .ok_or_else(|| incomplete(symbol))?;
+
+        let unit = source.unit_syntax().ok_or_else(|| incomplete(symbol))?;
+        let expression = source.expression().ok_or_else(|| incomplete(symbol))?;
+
+        let checked_expression =
+            checked_constraint_expression(compilation, generic.value(), unit, expression)?;
+
+        let checked_id = InterfaceCheckedTemplateId::new(index(facts.checked_templates.len())?);
+        let entity = InterfaceSupportEntityId::new(index(facts.support_entities.len())?);
+
+        facts
+            .checked_templates
+            .push(export.checked_constant_template(
+                CheckedTemplateKind::GenericConstraint,
+                checked_expression,
+                predicate.dependency_contract(),
+            )?);
+
+        facts
+            .support_entities
+            .push(InterfaceSupportEntity::CheckedTemplate(checked_id));
+
+        facts
+            .declaration_templates
+            .push(InterfaceDeclarationTemplate::new(
+                export.symbol_reference(symbol)?,
+                CheckedTemplateKind::GenericConstraint,
+                constraint.ordinal(),
+                entity,
+            ));
+    }
+
+    Ok(())
+}
+
+fn export_predicate_fact(
+    binder: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+    export: &SemanticExporter<'_>,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    let Some(state) = predicate_definition(binder, symbol)? else {
+        return Ok(());
+    };
+
+    facts
+        .predicate_definitions
+        .push(InterfacePredicateDefinition::new(
+            export.symbol_reference(symbol)?,
+            state,
+        ));
+
+    Ok(())
+}
+
+fn export_default_facts(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    binder: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+    export: &mut SemanticExporter<'_>,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    match symbol {
+        AnySymbolId::CallableParameter(parameter) => {
+            let default = binder
+                .symbol_fact(
+                    SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(parameter),
+                )
+                .map_err(|_| incomplete(symbol))?;
+
+            if default.diagnostics().has_errors() {
+                return Err(incomplete(symbol));
+            }
+
+            facts
+                .parameter_defaults
+                .push(InterfaceCallableParameterDefault::new(
+                    export.symbol_reference(symbol)?,
+                    default.value().is_present(),
+                ));
+
+            if default.value().is_present() {
+                let checked = compilation
+                    .callable_parameter_default(parameter)
+                    .map_err(|_| incomplete(symbol))?;
+
+                if checked.diagnostics().has_errors() {
+                    return Err(incomplete(symbol));
+                }
+
+                let CallableParameterDefaultValue::Valid(surface) = checked.value().value() else {
+                    return Err(incomplete(symbol));
+                };
+
+                export_runtime_default_surface(
+                    compilation,
+                    graph,
+                    export,
+                    checked.value().provider().into(),
+                    surface,
+                    facts,
+                )?;
+            }
+        }
+        AnySymbolId::StructField(field) => {
+            let Some(field) = graph.struct_field(field) else {
+                return Err(incomplete(symbol));
+            };
+
+            if field.default_presence() != RuntimeDefaultPresence::Absent {
+                let checked = compilation
+                    .struct_field_default(field.id())
+                    .map_err(|_| incomplete(symbol))?;
+
+                if checked.diagnostics().has_errors() {
+                    return Err(incomplete(symbol));
+                }
+
+                let StructFieldDefaultValue::Valid(surface) = checked.value().value() else {
+                    return Err(incomplete(symbol));
+                };
+
+                export_runtime_default_surface(
+                    compilation,
+                    graph,
+                    export,
+                    checked.value().provider().into(),
+                    surface,
+                    facts,
+                )?;
+            }
+        }
+        AnySymbolId::UnionPayloadField(field) => {
+            let Some(field) = graph.union_payload_field(field) else {
+                return Err(incomplete(symbol));
+            };
+
+            if field.default_presence() != RuntimeDefaultPresence::Absent {
+                let checked = compilation
+                    .union_payload_field_default(field.id())
+                    .map_err(|_| incomplete(symbol))?;
+
+                if checked.diagnostics().has_errors() {
+                    return Err(incomplete(symbol));
+                }
+
+                let UnionPayloadDefaultValue::Valid(surface) = checked.value().value() else {
+                    return Err(incomplete(symbol));
+                };
+
+                export_runtime_default_surface(
+                    compilation,
+                    graph,
+                    export,
+                    checked.value().provider().into(),
+                    surface,
+                    facts,
+                )?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn export_runtime_default_surface(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    export: &mut SemanticExporter<'_>,
+    provider: AnySymbolId,
+    surface: &impl RuntimeDefaultSurface,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    export_runtime_default(
+        compilation,
+        graph,
+        export,
+        provider,
+        surface.inputs(),
+        surface.generic_context(),
+        surface.template_reference(),
+        surface.dependency_contract(),
+        &mut facts.checked_templates,
+        &mut facts.declaration_templates,
+        &mut facts.support_entities,
+    )
+}
+
+trait RuntimeDefaultSurface {
+    fn inputs(&self) -> &[RuntimeDefaultProviderInput];
+    fn generic_context(&self) -> &RuntimeDefaultGenericContext;
+    fn template_reference(&self) -> &RuntimeDefaultTemplateReference;
+    fn dependency_contract(&self) -> bray_symbols::DependencyContractTemplateId;
+}
+
+macro_rules! impl_runtime_default_surface {
+    ($($surface:ty),+ $(,)?) => {
+        $(
+            impl RuntimeDefaultSurface for $surface {
+                fn inputs(&self) -> &[RuntimeDefaultProviderInput] {
+                    self.inputs()
+                }
+
+                fn generic_context(&self) -> &RuntimeDefaultGenericContext {
+                    self.generic_context()
+                }
+
+                fn template_reference(&self) -> &RuntimeDefaultTemplateReference {
+                    self.template_reference()
+                }
+
+                fn dependency_contract(&self) -> bray_symbols::DependencyContractTemplateId {
+                    self.behavior().dependency_contract()
+                }
+            }
+        )+
+    };
+}
+
+impl_runtime_default_surface!(
+    bray_symbols::CallableParameterDefaultSurface,
+    bray_symbols::StructFieldDefaultSurface,
+    bray_symbols::UnionPayloadDefaultSurface,
+);
+
+fn export_type_facts(
+    compilation: &Compilation,
+    symbol: AnySymbolId,
+    export: &mut SemanticExporter<'_>,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    if let Some(template) = compilation
+        .symbol_type_template(symbol)
+        .map_err(|_| incomplete(symbol))?
+    {
+        if template.diagnostics().has_errors() {
+            return Err(incomplete(symbol));
+        }
+
+        let ty = export.resolve_type_template(symbol, template.value())?;
+
+        facts.declared_types.push(InterfaceDeclaredType::new(
+            export.symbol_reference(symbol)?,
+            export.type_id(ty)?,
+        ));
+    }
+
+    let Some(named_type) = NamedTypeSymbolId::try_from_any(symbol) else {
+        return Ok(());
+    };
+
+    let representation = compilation
+        .declared_type_representation(named_type)
+        .map_err(|_| incomplete(symbol))?;
+
+    if representation.diagnostics().has_errors() || representation.value().is_recovered() {
+        return Err(incomplete(symbol));
+    }
+
+    facts
+        .type_representations
+        .push(export.type_representation(symbol, representation.value())?);
+
+    Ok(())
+}
+
+fn export_runtime_default(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    export: &mut SemanticExporter<'_>,
+    provider: AnySymbolId,
+    contextual_inputs: &[RuntimeDefaultProviderInput],
+    generic_context: &RuntimeDefaultGenericContext,
+    template: &RuntimeDefaultTemplateReference,
+    dependency: bray_symbols::DependencyContractTemplateId,
+    checked_templates: &mut Vec<InterfaceCheckedTemplate>,
+    declaration_templates: &mut Vec<InterfaceDeclarationTemplate>,
+    support_entities: &mut Vec<InterfaceSupportEntity>,
+) -> Result<(), PackageInterfaceExportError> {
+    let RuntimeDefaultTemplateReference::Source(expression) = template else {
+        return Err(incomplete(provider));
+    };
+
+    let key = compilation
+        .source_runtime_default_key(provider, *expression)
+        .map_err(|_| incomplete(provider))?;
+
+    let mut inputs = runtime_default_inputs(compilation, graph, export, contextual_inputs)?;
+
+    inputs.extend(generic_template_inputs(
+        compilation,
+        export,
+        generic_context.parameters().iter().copied(),
+    )?);
+
+    let checked = export_checked_source_template(
+        compilation,
+        export,
+        key,
+        CheckedTemplateKind::RuntimeDefault,
+        *expression,
+        inputs,
+        dependency,
+    )?;
+
+    push_declaration_template(
+        export,
+        provider,
+        CheckedTemplateKind::RuntimeDefault,
+        bray_symbols::SymbolOrdinal::new(0),
+        checked,
+        checked_templates,
+        declaration_templates,
+        support_entities,
+    )
+}
+
+fn runtime_default_inputs(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    export: &mut SemanticExporter<'_>,
+    inputs: &[RuntimeDefaultProviderInput],
+) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
+    inputs
+        .iter()
+        .copied()
+        .map(|input| {
+            let (kind, symbol) = match input {
+                RuntimeDefaultProviderInput::Receiver(receiver) => (
+                    InterfaceCheckedTemplateInputKind::Receiver,
+                    AnySymbolId::ReceiverParameter(receiver),
+                ),
+                RuntimeDefaultProviderInput::EarlierParameter(parameter) => {
+                    let ordinal = graph
+                        .callable_parameters()
+                        .iter()
+                        .find(|candidate| candidate.id() == parameter)
+                        .map(|parameter| parameter.ordinal())
+                        .ok_or_else(|| incomplete(parameter.into()))?;
+
+                    (
+                        InterfaceCheckedTemplateInputKind::Parameter(
+                            bray_symbols::SymbolOrdinal::new(ordinal),
+                        ),
+                        AnySymbolId::CallableParameter(parameter),
+                    )
+                }
+            };
+
+            Ok(SourceTemplateInput::new(
+                kind,
+                Some(BoundReferenceTarget::Surface(symbol)),
+                symbol_type(compilation, export, symbol)?,
+            ))
+        })
+        .collect()
+}
+
+fn callable_template_inputs(
+    compilation: &Compilation,
+    export: &mut SemanticExporter<'_>,
+    callable: AnySymbolId,
+    signature: &bray_symbols::CallableSignatureTemplate,
+    generic_parameters: Vec<GenericParameterSymbolId>,
+) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
+    let mut inputs = Vec::new();
+
+    if let Some(receiver) = signature.receiver() {
+        inputs.push(SourceTemplateInput::new(
+            InterfaceCheckedTemplateInputKind::Receiver,
+            Some(BoundReferenceTarget::Surface(
+                AnySymbolId::ReceiverParameter(receiver.parameter()),
+            )),
+            receiver.ty(),
+        ));
+    }
+
+    let parameter_types = signature
+        .parameter_type_templates(export.values)
+        .map_err(|_| incomplete(callable))?;
+
+    for (index, (parameter, ty)) in signature
+        .parameters()
+        .iter()
+        .copied()
+        .zip(parameter_types.iter())
+        .enumerate()
+    {
+        inputs.push(SourceTemplateInput::new(
+            InterfaceCheckedTemplateInputKind::Parameter(bray_symbols::SymbolOrdinal::new(
+                u32::try_from(index).map_err(|_| incomplete(parameter.into()))?,
+            )),
+            Some(BoundReferenceTarget::Surface(
+                AnySymbolId::CallableParameter(parameter),
+            )),
+            export.resolve_type_template(parameter.into(), ty)?,
+        ));
+    }
+
+    inputs.extend(generic_template_inputs(
+        compilation,
+        export,
+        generic_parameters,
+    )?);
+
+    Ok(inputs)
+}
+
+fn generic_template_inputs(
+    compilation: &Compilation,
+    export: &mut SemanticExporter<'_>,
+    parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
+) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
+    parameters
+        .into_iter()
+        .map(|parameter| match parameter {
+            GenericParameterSymbolId::Type(parameter) => {
+                let symbol = AnySymbolId::GenericTypeParameter(parameter);
+
+                let ty = export
+                    .values
+                    .intern_type(TypeData::TypeParameter(parameter))
+                    .map_err(|_| incomplete(symbol))?;
+
+                Ok(SourceTemplateInput::new(
+                    InterfaceCheckedTemplateInputKind::GenericType(
+                        export.symbol_reference(symbol)?,
+                    ),
+                    None,
+                    ty,
+                ))
+            }
+            GenericParameterSymbolId::Const(parameter) => {
+                let symbol = AnySymbolId::GenericConstParameter(parameter);
+
+                Ok(SourceTemplateInput::new(
+                    InterfaceCheckedTemplateInputKind::GenericConstant(
+                        export.symbol_reference(symbol)?,
+                    ),
+                    Some(BoundReferenceTarget::Surface(symbol)),
+                    symbol_type(compilation, export, symbol)?,
+                ))
+            }
+        })
+        .collect()
+}
+
+fn symbol_type(
+    compilation: &Compilation,
+    export: &mut SemanticExporter<'_>,
+    symbol: AnySymbolId,
+) -> Result<TypeId, PackageInterfaceExportError> {
+    let ty = compilation
+        .symbol_type_template(symbol)
+        .map_err(|_| incomplete(symbol))?
+        .ok_or_else(|| incomplete(symbol))?;
+
+    if ty.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    export.resolve_type_template(symbol, ty.value())
+}
+
+fn generic_parameters(
+    binder: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> Result<Vec<GenericParameterSymbolId>, PackageInterfaceExportError> {
+    let Some(owner) = GenericOwnerId::try_new(symbol) else {
+        return Ok(Vec::new());
+    };
+
+    let generic = binder
+        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+            owner,
+        ))
+        .map_err(|_| incomplete(symbol))?;
+
+    if generic.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    Ok(generic.value().parameters().to_vec())
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper commits one checked template and its correlated interface records"
+)]
+fn push_declaration_template(
+    export: &mut SemanticExporter<'_>,
+    owner: AnySymbolId,
+    kind: CheckedTemplateKind,
+    ordinal: bray_symbols::SymbolOrdinal,
+    checked: InterfaceCheckedTemplate,
+    checked_templates: &mut Vec<InterfaceCheckedTemplate>,
+    declaration_templates: &mut Vec<InterfaceDeclarationTemplate>,
+    support_entities: &mut Vec<InterfaceSupportEntity>,
+) -> Result<(), PackageInterfaceExportError> {
+    let checked_id = InterfaceCheckedTemplateId::new(index(checked_templates.len())?);
+    let entity = InterfaceSupportEntityId::new(index(support_entities.len())?);
+
+    checked_templates.push(checked);
+    support_entities.push(InterfaceSupportEntity::CheckedTemplate(checked_id));
+
+    declaration_templates.push(InterfaceDeclarationTemplate::new(
+        export.symbol_reference(owner)?,
+        kind,
+        ordinal,
+        entity,
+    ));
+
+    Ok(())
 }
 
 fn implementation_facts(
@@ -262,7 +827,10 @@ fn implementation_facts(
     binder: &CompilationBinderFacts<'_>,
     selected: &BTreeSet<AnySymbolId>,
 ) -> Result<
-    (Vec<InterfaceImplementationRecord>, Vec<InterfaceCoherenceRecord>),
+    (
+        Vec<InterfaceImplementationRecord>,
+        Vec<InterfaceCoherenceRecord>,
+    ),
     PackageInterfaceExportError,
 > {
     let mut implementations = Vec::new();
@@ -327,7 +895,7 @@ struct CheckedConstantExpression {
     ty: TypeId,
 }
 
-struct SemanticExporter<'a> {
+pub(super) struct SemanticExporter<'a> {
     graph: &'a bray_symbols::SymbolGraph,
     surface: &'a PackageInterfaceSurface,
     keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
@@ -437,7 +1005,7 @@ impl<'a> SemanticExporter<'a> {
         ))
     }
 
-    fn resolve_type_template(
+    pub(super) fn resolve_type_template(
         &self,
         owner: AnySymbolId,
         template: &TypeExpressionTemplate,
@@ -557,7 +1125,7 @@ impl<'a> SemanticExporter<'a> {
         ))
     }
 
-    fn type_id(
+    pub(super) fn type_id(
         &mut self,
         id: TypeId,
     ) -> Result<InterfaceTypeId, PackageInterfaceExportError> {
@@ -707,7 +1275,7 @@ impl<'a> SemanticExporter<'a> {
         ))
     }
 
-    fn dependency_contract_id(
+    pub(super) fn dependency_contract_id(
         &mut self,
         id: bray_symbols::DependencyContractTemplateId,
     ) -> Result<InterfaceDependencyContractId, PackageInterfaceExportError> {
@@ -756,10 +1324,7 @@ impl<'a> SemanticExporter<'a> {
                     .map(|requirement| self.dependency_requirement(requirement))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(InterfaceDependencyRequirement::guarded(
-                    guard,
-                    requirements,
-                ))
+                Ok(InterfaceDependencyRequirement::guarded(guard, requirements))
             }
         }
     }
@@ -820,16 +1385,14 @@ impl<'a> SemanticExporter<'a> {
                 DependencyProjection::UnionPayloadField(field) => self
                     .symbol_reference((*field).into())
                     .map(InterfaceDependencyProjection::UnionPayloadField),
-                DependencyProjection::OwnedTarget => {
-                    Ok(InterfaceDependencyProjection::OwnedTarget)
-                }
+                DependencyProjection::OwnedTarget => Ok(InterfaceDependencyProjection::OwnedTarget),
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(InterfaceDependencySubject::new(root, projections))
     }
 
-    fn substitution_id(
+    pub(super) fn substitution_id(
         &mut self,
         id: GenericSubstitutionId,
     ) -> Result<InterfaceGenericSubstitutionId, PackageInterfaceExportError> {
@@ -949,7 +1512,7 @@ impl<'a> SemanticExporter<'a> {
         Ok(exported)
     }
 
-    fn constant_term_id(
+    pub(super) fn constant_term_id(
         &mut self,
         id: ConstantTermId,
     ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
@@ -991,12 +1554,10 @@ impl<'a> SemanticExporter<'a> {
                 left: self.constant_term_id(*left)?,
                 right: self.constant_term_id(*right)?,
             },
-            ConstantTermData::Conversion { operand, target } => {
-                InterfaceConstantTerm::Conversion {
-                    operand: self.constant_term_id(*operand)?,
-                    target: self.type_id(*target)?,
-                }
-            }
+            ConstantTermData::Conversion { operand, target } => InterfaceConstantTerm::Conversion {
+                operand: self.constant_term_id(*operand)?,
+                target: self.type_id(*target)?,
+            },
             ConstantTermData::NullablePresent(value) => {
                 InterfaceConstantTerm::NullablePresent(self.constant_term_id(*value)?)
             }
@@ -1101,6 +1662,59 @@ impl<'a> SemanticExporter<'a> {
         Ok(exported)
     }
 
+    pub(super) fn constant_value_term_id(
+        &mut self,
+        value: ConstantValueId,
+    ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
+        let term = self
+            .values
+            .intern_constant_term(ConstantTermData::Value(value))
+            .map_err(|_| incomplete_type())?;
+
+        self.constant_term_id(term)
+    }
+
+    pub(super) fn callable_template_reference(
+        &mut self,
+        data: bray_symbols::CallableInstanceData,
+    ) -> Result<
+        (
+            bray_package_interface::InterfaceTemplateReference,
+            InterfaceGenericSubstitutionId,
+        ),
+        PackageInterfaceExportError,
+    > {
+        Ok((
+            bray_package_interface::InterfaceTemplateReference::Symbol(
+                self.symbol_reference(data.definition().symbol())?,
+            ),
+            self.substitution_id(data.substitution())?,
+        ))
+    }
+
+    pub(super) fn implementation_template_reference(
+        &mut self,
+        instance: ImplementationInstanceId,
+    ) -> Result<
+        (
+            bray_package_interface::InterfaceImplementationReference,
+            InterfaceGenericSubstitutionId,
+        ),
+        PackageInterfaceExportError,
+    > {
+        let data = self
+            .values
+            .implementation_instance_data(instance)
+            .map_err(|_| incomplete_type())?;
+
+        Ok((
+            bray_package_interface::InterfaceImplementationReference::Symbol(
+                self.symbol_reference(data.definition().into_any())?,
+            ),
+            self.substitution_id(data.substitution())?,
+        ))
+    }
+
     fn constant_value_id(
         &mut self,
         id: ConstantValueId,
@@ -1118,28 +1732,24 @@ impl<'a> SemanticExporter<'a> {
             ConstantValueKind::Error => return Err(incomplete_type()),
             ConstantValueKind::Boolean(value) => InterfaceConstantValueKind::Boolean(*value),
             ConstantValueKind::Character(value) => InterfaceConstantValueKind::Character(*value),
-            ConstantValueKind::Integer(value) => {
-                InterfaceConstantValueKind::Integer(value.clone())
-            }
+            ConstantValueKind::Integer(value) => InterfaceConstantValueKind::Integer(value.clone()),
             ConstantValueKind::Real(value) => InterfaceConstantValueKind::Real(*value),
             ConstantValueKind::Complex { real, imaginary } => InterfaceConstantValueKind::Complex {
                 real: *real,
                 imaginary: *imaginary,
             },
-            ConstantValueKind::String(value) => {
-                InterfaceConstantValueKind::String(value.clone())
-            }
+            ConstantValueKind::String(value) => InterfaceConstantValueKind::String(value.clone()),
             ConstantValueKind::Unit => InterfaceConstantValueKind::Unit,
             ConstantValueKind::NullableAbsent => InterfaceConstantValueKind::NullableAbsent,
             ConstantValueKind::NullablePresent(value) => {
                 InterfaceConstantValueKind::NullablePresent(self.constant_value_id(*value)?)
             }
-            ConstantValueKind::Tuple(values) => InterfaceConstantValueKind::Tuple(
-                self.constant_value_ids(values)?.into(),
-            ),
-            ConstantValueKind::Array(values) => InterfaceConstantValueKind::Array(
-                self.constant_value_ids(values)?.into(),
-            ),
+            ConstantValueKind::Tuple(values) => {
+                InterfaceConstantValueKind::Tuple(self.constant_value_ids(values)?.into())
+            }
+            ConstantValueKind::Array(values) => {
+                InterfaceConstantValueKind::Array(self.constant_value_ids(values)?.into())
+            }
             ConstantValueKind::Product(fields) => InterfaceConstantValueKind::Product(
                 fields
                     .iter()
@@ -1170,7 +1780,9 @@ impl<'a> SemanticExporter<'a> {
         let exported = InterfaceConstantValueId::new(index(self.constant_values.len())?);
         let ty = self.type_id(data.ty())?;
 
-        self.constant_values.push(InterfaceConstantValue::new(ty, kind));
+        self.constant_values
+            .push(InterfaceConstantValue::new(ty, kind));
+
         self.constant_value_ids.insert(id, exported);
 
         Ok(exported)
@@ -1215,22 +1827,24 @@ impl<'a> SemanticExporter<'a> {
             .map(|parameter| self.symbol_reference(parameter.into()))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(InterfaceTypeRepresentation::new(self.symbol_reference(owner)?)
-            .with_layout(
-                representation.layout(),
-                representation.alignment(),
-                representation.packing(),
-                union_tag_type,
-            )
-            .with_union_tags(union_tags)
-            .with_copy(representation.copy_contract(), copy_dependencies)
-            .with_properties(
-                representation.is_plain_storage(),
-                representation.has_finite_size(),
-            ))
+        Ok(
+            InterfaceTypeRepresentation::new(self.symbol_reference(owner)?)
+                .with_layout(
+                    representation.layout(),
+                    representation.alignment(),
+                    representation.packing(),
+                    union_tag_type,
+                )
+                .with_union_tags(union_tags)
+                .with_copy(representation.copy_contract(), copy_dependencies)
+                .with_properties(
+                    representation.is_plain_storage(),
+                    representation.has_finite_size(),
+                ),
+        )
     }
 
-    fn symbol_reference(
+    pub(super) fn symbol_reference(
         &self,
         symbol: AnySymbolId,
     ) -> Result<InterfaceSymbolReference, PackageInterfaceExportError> {
@@ -1367,13 +1981,11 @@ fn checked_constraint_expression(
         cancellation,
     );
 
-    let input = ConstantEvaluationInput::new(
-        &semantics.result().value().0,
-        &semantics.result().value().1,
-    )
-    .with_root(root)
-    .with_references(references)
-    .with_call_resolver(&resolver);
+    let input =
+        ConstantEvaluationInput::new(&semantics.result().value().0, &semantics.result().value().1)
+            .with_root(root)
+            .with_references(references)
+            .with_call_resolver(&resolver);
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
         .map_err(|_| incomplete(expression.owner()))?;
@@ -1422,9 +2034,9 @@ fn predicate_definition(
         }
         AnySymbolId::TraitPredicateMember(predicate) => {
             let fact = binder
-                .symbol_fact(SymbolFactRequest::<TraitPredicateMemberDefinitionFact>::new(
-                    predicate,
-                ))
+                .symbol_fact(
+                    SymbolFactRequest::<TraitPredicateMemberDefinitionFact>::new(predicate),
+                )
                 .map_err(|_| incomplete(symbol))?;
 
             if fact.diagnostics().has_errors() {
@@ -1435,9 +2047,9 @@ fn predicate_definition(
         }
         AnySymbolId::TraitPredicateFulfillment(predicate) => {
             let fact = binder
-                .symbol_fact(SymbolFactRequest::<TraitPredicateFulfillmentDefinitionFact>::new(
-                    predicate,
-                ))
+                .symbol_fact(
+                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionFact>::new(predicate),
+                )
                 .map_err(|_| incomplete(symbol))?;
 
             if fact.diagnostics().has_errors() {
@@ -1469,9 +2081,7 @@ const fn dependency_requirement_kind(
     kind: DependencyRequirementKind,
 ) -> InterfaceDependencyRequirementKind {
     match kind {
-        DependencyRequirementKind::StorageAlive => {
-            InterfaceDependencyRequirementKind::StorageAlive
-        }
+        DependencyRequirementKind::StorageAlive => InterfaceDependencyRequirementKind::StorageAlive,
         DependencyRequirementKind::StorageInitialized => {
             InterfaceDependencyRequirementKind::StorageInitialized
         }

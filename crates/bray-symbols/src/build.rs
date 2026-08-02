@@ -285,8 +285,7 @@ fn push_source_symbols(
         if let Some(default) = declaration.surface().runtime_default() {
             graph.add_runtime_default(id, default);
 
-            if let Some(provider) =
-                default_provider_record(id, synthesized_subject_key, owner.id, allocator)?
+            if let Some(provider) = default_provider_record(id, synthesized_subject_key, allocator)?
             {
                 graph.push_default_provider(provider);
             }
@@ -336,56 +335,53 @@ pub(crate) fn receiver_owner(symbol: AnySymbolId, is_static: bool) -> Option<Cal
 fn default_provider_record(
     subject: AnySymbolId,
     subject_key: SymbolKey,
-    containing_symbol: AnySymbolId,
     allocator: &mut SymbolIdAllocator,
 ) -> Result<Option<DefaultProviderRecord>, SymbolGraphBuildError> {
     let raw_id = allocator.next()?;
 
-    let provider = match subject {
-        AnySymbolId::CallableParameter(subject) => {
-            let id = CallableParameterDefaultProviderSymbolId::from_symbol_id(raw_id);
+    let provider =
+        match subject {
+            AnySymbolId::CallableParameter(subject) => {
+                let id = CallableParameterDefaultProviderSymbolId::from_symbol_id(raw_id);
 
-            let key = SymbolKey::synthesized(
-                SynthesizedSymbolKey::callable_parameter_default_provider(subject_key),
-            );
+                let key = SymbolKey::synthesized(
+                    SynthesizedSymbolKey::callable_parameter_default_provider(subject_key),
+                );
 
-            DefaultProviderRecord::CallableParameter(CallableParameterDefaultProviderSymbol::new(
-                id,
-                key,
-                containing_symbol,
-                subject,
-            ))
-        }
-        AnySymbolId::StructField(subject) => {
-            let id = StructFieldDefaultProviderSymbolId::from_symbol_id(raw_id);
+                DefaultProviderRecord::CallableParameter(
+                    CallableParameterDefaultProviderSymbol::new(id, key, subject.into(), subject),
+                )
+            }
+            AnySymbolId::StructField(subject) => {
+                let id = StructFieldDefaultProviderSymbolId::from_symbol_id(raw_id);
 
-            let key = SymbolKey::synthesized(SynthesizedSymbolKey::struct_field_default_provider(
-                subject_key,
-            ));
+                let key = SymbolKey::synthesized(
+                    SynthesizedSymbolKey::struct_field_default_provider(subject_key),
+                );
 
-            DefaultProviderRecord::StructField(StructFieldDefaultProviderSymbol::new(
-                id,
-                key,
-                containing_symbol,
-                subject,
-            ))
-        }
-        AnySymbolId::UnionPayloadField(subject) => {
-            let id = UnionPayloadDefaultProviderSymbolId::from_symbol_id(raw_id);
+                DefaultProviderRecord::StructField(StructFieldDefaultProviderSymbol::new(
+                    id,
+                    key,
+                    subject.into(),
+                    subject,
+                ))
+            }
+            AnySymbolId::UnionPayloadField(subject) => {
+                let id = UnionPayloadDefaultProviderSymbolId::from_symbol_id(raw_id);
 
-            let key = SymbolKey::synthesized(SynthesizedSymbolKey::union_payload_default_provider(
-                subject_key,
-            ));
+                let key = SymbolKey::synthesized(
+                    SynthesizedSymbolKey::union_payload_default_provider(subject_key),
+                );
 
-            DefaultProviderRecord::UnionPayload(UnionPayloadDefaultProviderSymbol::new(
-                id,
-                key,
-                containing_symbol,
-                subject,
-            ))
-        }
-        _ => return Ok(None),
-    };
+                DefaultProviderRecord::UnionPayload(UnionPayloadDefaultProviderSymbol::new(
+                    id,
+                    key,
+                    subject.into(),
+                    subject,
+                ))
+            }
+            _ => return Ok(None),
+        };
 
     Ok(Some(provider))
 }
@@ -904,7 +900,12 @@ mod tests {
         };
 
         assert_eq!(parameter_provider.subject(), first_parameter.id());
-        assert_eq!(parameter_provider.containing_symbol(), function.id().into());
+
+        assert_eq!(
+            parameter_provider.containing_symbol(),
+            first_parameter.id().into()
+        );
+
         assert_eq!(parameter_provider.origin(), SymbolOrigin::Synthesized);
 
         let Some(structure) = graph.structure(module.structures()[0]) else {

@@ -322,6 +322,7 @@ fn push_contract_expressions(
         output.push(CallableContractExpressionTemplate::new(
             ordinal,
             kind,
+            SyntaxAnchor::from_node(node),
             DeclarationExpressionTemplate::new(owner, SyntaxAnchor::from_node(&expression)),
         ));
     }

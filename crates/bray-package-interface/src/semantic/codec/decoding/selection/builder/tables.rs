@@ -52,6 +52,7 @@ impl<'bytes> SelectedTables<'bytes> {
             kind,
             InterfaceSemanticFactKind::CallableSignature
                 | InterfaceSemanticFactKind::GenericDeclaration
+                | InterfaceSemanticFactKind::DeclaredType
         ) {
             let section = facts::required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
 

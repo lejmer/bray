@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "selective decoding shares one recursive dependency traversal and remapping state")
+
 use std::collections::BTreeSet;
 
 use bray_symbols::InterfaceSymbolId;
@@ -60,6 +62,7 @@ enum PendingRecord {
     Constraint(u32),
     CallableSignature(u32),
     GenericDeclaration(u32),
+    DeclaredType(u32),
     Implementation(u32),
     Coherence(u32),
     Target(u32),
@@ -139,6 +142,16 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.enqueue(PendingRecord::GenericDeclaration(index));
         }
 
+        if kind == InterfaceSemanticFactKind::DeclaredType {
+            let index = self.one_record_index(
+                directory,
+                InterfaceSemanticFactKind::DeclaredType,
+                InterfaceSectionTag::DeclarationFacts,
+            )?;
+
+            self.enqueue(PendingRecord::DeclaredType(index));
+        }
+
         if kind == InterfaceSemanticFactKind::Implementation {
             let indexes = self.record_indexes(
                 directory,
@@ -195,6 +208,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 PendingRecord::GenericDeclaration(index) => {
                     self.include_generic_declaration(index)?;
                 }
+                PendingRecord::DeclaredType(index) => self.include_declared_type(index)?,
                 PendingRecord::Implementation(index) => self.include_implementation(index)?,
                 PendingRecord::Coherence(index) => self.include_coherence(index)?,
                 PendingRecord::Target(index) => self.include_target(index)?,
@@ -304,6 +318,29 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         self.records.generic_declarations.insert(index, declaration);
+
+        Ok(())
+    }
+
+    fn include_declared_type(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let tables = self
+            .tables
+            .declarations
+            .as_ref()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let declared_type = tables.declared_types.decode(
+            index,
+            &mut self.context,
+            declaration::decode_declared_type,
+        )?;
+
+        if declared_type.owner() != &self.owner {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        self.enqueue(PendingRecord::Type(declared_type.ty().raw()));
+        self.records.declared_types.insert(index, declared_type);
 
         Ok(())
     }

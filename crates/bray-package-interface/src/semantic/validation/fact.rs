@@ -392,8 +392,8 @@ impl InterfaceSemanticFacts {
         let owner = local_symbol(&declaration.owner)?;
         let owner_kind = validate_symbol_kind(&declaration.owner, surface)?;
 
-        if !bray_symbols::SymbolRelationshipKind::GenericParameter
-            .supports(owner_kind, SymbolKind::GenericTypeParameter)
+        if !owner_kind.supports_generic_substitutions()
+            || !declaration.parameters.is_empty() && !owner_kind.admits_generic_parameters()
         {
             return Err(InterfaceValidationError::Malformed);
         }
@@ -610,9 +610,7 @@ fn reference_key<'surface>(
             .map(|symbol| symbol.key())
             .ok_or(InterfaceValidationError::Malformed),
         InterfaceSymbolReference::Dependency { key, .. } => Ok(key),
-        InterfaceSymbolReference::CompilerKnown { .. } => {
-            Err(InterfaceValidationError::Malformed)
-        }
+        InterfaceSymbolReference::CompilerKnown { .. } => Err(InterfaceValidationError::Malformed),
     }
 }
 

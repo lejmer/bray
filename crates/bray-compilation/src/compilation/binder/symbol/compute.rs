@@ -186,6 +186,10 @@ fn bind_type_member_value<C>(
 where
     C: SymbolFactContract<Value = bray_symbols::TypeExpressionTemplate>,
 {
+    if let Some(address) = context.imported_fact_address(symbol)? {
+        return super::imported::imported_declared_type(context, address);
+    }
+
     let syntax = declaration_syntax::<ImplementationTypeMemberBindingSyntax>(context, symbol)?;
 
     type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())

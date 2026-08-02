@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{AnySymbolId, GenericParameterSymbolId, SymbolKind};
+use crate::{AnySymbolId, GenericParameterSymbolId};
 
 use super::{ConstantTermId, TypeId};
 
@@ -13,7 +13,7 @@ pub struct GenericOwnerId(AnySymbolId);
 impl GenericOwnerId {
     /// Creates a generic owner when the symbol category can introduce generic parameters.
     pub const fn try_new(symbol: AnySymbolId) -> Option<Self> {
-        if supports_generic_parameters(symbol.kind()) {
+        if symbol.kind().supports_generic_substitutions() {
             return Some(Self(symbol));
         }
 
@@ -24,43 +24,6 @@ impl GenericOwnerId {
     pub const fn symbol(self) -> AnySymbolId {
         self.0
     }
-}
-
-const fn supports_generic_parameters(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Constant
-            | SymbolKind::Function
-            | SymbolKind::Predicate
-            | SymbolKind::CallableContract
-            | SymbolKind::Struct
-            | SymbolKind::Union
-            | SymbolKind::Trait
-            | SymbolKind::InherentImplementation
-            | SymbolKind::UnnamedTraitImplementation
-            | SymbolKind::NamedTraitImplementation
-            | SymbolKind::TypeCallableMember
-            | SymbolKind::Constructor
-            | SymbolKind::Finalizer
-            | SymbolKind::Destructor
-            | SymbolKind::ScopeEnter
-            | SymbolKind::ScopeExit
-            | SymbolKind::InherentTypeMember
-            | SymbolKind::TraitCallableMember
-            | SymbolKind::TraitConstantMember
-            | SymbolKind::TraitTypeMember
-            | SymbolKind::TraitPredicateMember
-            | SymbolKind::TraitFinalizerRequirement
-            | SymbolKind::TraitDestructorRequirement
-            | SymbolKind::TraitScopeEnterRequirement
-            | SymbolKind::TraitScopeExitRequirement
-            | SymbolKind::TraitCallableFulfillment
-            | SymbolKind::TraitConstantFulfillment
-            | SymbolKind::TraitTypeFulfillment
-            | SymbolKind::TraitPredicateFulfillment
-            | SymbolKind::TraitScopeEnterFulfillment
-            | SymbolKind::TraitScopeExitFulfillment
-    )
 }
 
 /// Classifies one generic parameter or argument.
@@ -233,8 +196,7 @@ mod tests {
         StructFieldSymbolId, SymbolId,
     };
 
-    use super::{GenericOwnerId, supports_generic_parameters};
-    use crate::SymbolKind;
+    use super::GenericOwnerId;
 
     #[test]
     fn generic_owners_reject_non_generic_symbol_categories() {
@@ -245,7 +207,7 @@ mod tests {
         assert!(GenericOwnerId::try_new(function).is_some());
         assert!(GenericOwnerId::try_new(field).is_none());
 
-        assert!(supports_generic_parameters(SymbolKind::Trait));
+        assert!(crate::SymbolKind::Trait.supports_generic_substitutions());
     }
 
     #[test]

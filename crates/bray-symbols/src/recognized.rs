@@ -259,10 +259,7 @@ fn resolve_recognized_external_key(
 mod tests {
     use std::sync::Arc;
 
-    use bray_compiler_known::{
-        AvailabilityRule, RecognizedStandardLibraryDeclarationId,
-        RecognizedStandardLibraryDeclarationKey,
-    };
+    use bray_compiler_known::{AvailabilityRule, RecognizedStandardLibraryDeclarationKey};
 
     use super::{RecognizedStandardLibraryDeclarationMatch, RecognizedStandardLibraryDeclarations};
 
@@ -298,9 +295,13 @@ mod tests {
 
         assert_eq!(recognized.declarations().len(), 1);
 
+        let descriptor = bray_compiler_known::COMPILER_KNOWN_CATALOG
+            .recognized_standard_library_declaration_by_key(&recognized_key("StandardConvert"))
+            .unwrap_or_else(|| panic!("recognized catalog must contain StandardConvert"));
+
         assert_eq!(
             recognized.descriptor(function.into()),
-            Some(RecognizedStandardLibraryDeclarationId::new(0))
+            Some(descriptor.id())
         );
 
         assert_eq!(function.kind(), SymbolKind::Function);

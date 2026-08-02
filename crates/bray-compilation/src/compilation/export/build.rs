@@ -105,8 +105,8 @@ impl Compilation {
         )?;
 
         PackageInterfaceExportBundle::try_new(surface, semantic_facts, request.language_revision())
-        .map(Arc::new)
-        .map_err(PackageInterfaceExportError::Bundle)
+            .map(Arc::new)
+            .map_err(PackageInterfaceExportError::Bundle)
     }
 }
 
@@ -153,6 +153,18 @@ fn build_identity_surface(
         }
 
         selected.insert(module.id().into());
+    }
+
+    loop {
+        let previous_count = selected.len();
+
+        for owner in selected.iter().copied().collect::<Vec<_>>() {
+            select_required_children(graph, owner, &mut selected);
+        }
+
+        if selected.len() == previous_count {
+            break;
+        }
     }
 
     let mut keys = BTreeMap::new();
@@ -202,6 +214,30 @@ fn select_required_children(
             selected.insert(child);
         }
     }
+
+    selected.extend(
+        graph
+            .callable_parameter_default_providers()
+            .iter()
+            .filter(|provider| AnySymbolId::CallableParameter(provider.subject()) == owner)
+            .map(|provider| AnySymbolId::CallableParameterDefaultProvider(provider.id())),
+    );
+
+    selected.extend(
+        graph
+            .struct_field_default_providers()
+            .iter()
+            .filter(|provider| AnySymbolId::StructField(provider.subject()) == owner)
+            .map(|provider| AnySymbolId::StructFieldDefaultProvider(provider.id())),
+    );
+
+    selected.extend(
+        graph
+            .union_payload_default_providers()
+            .iter()
+            .filter(|provider| AnySymbolId::UnionPayloadField(provider.subject()) == owner)
+            .map(|provider| AnySymbolId::UnionPayloadDefaultProvider(provider.id())),
+    );
 }
 
 fn select_owner_chain(
@@ -213,9 +249,7 @@ fn select_owner_chain(
     while symbol != package {
         let owner = graph
             .containing_symbol(symbol)
-            .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-                symbol.kind(),
-            ))?;
+            .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
         selected.insert(owner);
         symbol = owner;
@@ -241,9 +275,7 @@ fn external_key(
 
     let owner = graph
         .containing_symbol(symbol)
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-            symbol.kind(),
-        ))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
     let owner_key = external_key(graph, owner, keys)?;
 
@@ -261,9 +293,7 @@ fn external_key(
         }
         _ => None,
     }
-    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-        symbol.kind(),
-    ))?;
+    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
     keys.insert(symbol, key.clone());
 
@@ -292,24 +322,22 @@ fn external_declaration_key(
     let use_ordinal = matches!(
         symbol.kind(),
         SymbolKind::InherentImplementation | SymbolKind::UnnamedTraitImplementation
-    )
-        || matches!(
-            symbol.kind(),
-            SymbolKind::GenericTypeParameter
-                | SymbolKind::GenericConstParameter
-                | SymbolKind::CallableParameter
-                | SymbolKind::PredicateParameter
-                | SymbolKind::Constructor
-                | SymbolKind::Finalizer
-                | SymbolKind::Destructor
-                | SymbolKind::ScopeEnter
-                | SymbolKind::ScopeExit
-                | SymbolKind::ImplementationOverload
-        )
-        || matches!(
-            owner.kind(),
-            SymbolKind::CallableOverload | SymbolKind::ImplementationOverload
-        );
+    ) || matches!(
+        symbol.kind(),
+        SymbolKind::GenericTypeParameter
+            | SymbolKind::GenericConstParameter
+            | SymbolKind::CallableParameter
+            | SymbolKind::PredicateParameter
+            | SymbolKind::Constructor
+            | SymbolKind::Finalizer
+            | SymbolKind::Destructor
+            | SymbolKind::ScopeEnter
+            | SymbolKind::ScopeExit
+            | SymbolKind::ImplementationOverload
+    ) || matches!(
+        owner.kind(),
+        SymbolKind::CallableOverload | SymbolKind::ImplementationOverload
+    );
 
     if !use_ordinal {
         if let Some(name) = graph.member_name(symbol) {
@@ -346,16 +374,15 @@ fn export_symbol(
     let key = keys
         .get(&symbol)
         .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-            symbol.kind(),
-        ))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
-    let containing_symbol = match graph.containing_symbol(symbol) {
-        Some(owner) => Some(keys.get(&owner).cloned().ok_or(
-            PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()),
-        )?),
-        None => None,
-    };
+    let containing_symbol =
+        match graph.containing_symbol(symbol) {
+            Some(owner) => Some(keys.get(&owner).cloned().ok_or(
+                PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()),
+            )?),
+            None => None,
+        };
 
     Ok(ExportSymbolInput::new(key, containing_symbol))
 }
@@ -380,23 +407,17 @@ fn export_relationship(
 
     let ordinal = relationship_ordinal(graph, owner, member)
         .map(SymbolOrdinal::raw)
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-            member.kind(),
-        ))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(member.kind()))?;
 
     let owner_key = keys
         .get(&owner)
         .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-            owner.kind(),
-        ))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()))?;
 
     let member_key = keys
         .get(&member)
         .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-            member.kind(),
-        ))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(member.kind()))?;
 
     let relationship = ExportRelationshipInput::new(kind, owner_key, member_key, ordinal);
 
@@ -491,9 +512,11 @@ fn module_keys(
             keys.get(&module.id().into())
                 .cloned()
                 .map(|key| (module.id(), key))
-                .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-                    SymbolKind::Module,
-                ))
+                .ok_or(
+                    PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+                        SymbolKind::Module,
+                    ),
+                )
         })
         .collect()
 }
@@ -562,7 +585,10 @@ mod tests {
         PackageInterfaceExportBundle, ValidatedPackageInterface, encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{PackageIdentity, ProductKind};
+    use bray_symbols::{
+        AnySymbolId, CallableParameterDefaultValue, PackageIdentity, ProductKind,
+        RuntimeDefaultTemplateReference, TypeExpressionTemplate,
+    };
 
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
@@ -656,7 +682,7 @@ mod tests {
             "    return value;\n",
             "}\n",
             "\n",
-            "public func count(pos value: i32) -> usize\n",
+            "public func count(pos value: i32 = 1) -> usize requires(value > 0)\n",
             "{\n",
             "    return 1;\n",
             "}\n",
@@ -682,10 +708,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic facts must decode: {error:?}"));
 
         assert_eq!(facts.callable_signatures().len(), 2);
-        assert_eq!(facts.generic_declarations().len(), 3);
+        assert_eq!(facts.generic_declarations().len(), 4);
         assert_eq!(facts.constraints().len(), 1);
-        assert_eq!(facts.checked_templates().len(), 1);
-        assert_eq!(facts.declaration_templates().len(), 1);
+        assert_eq!(facts.checked_templates().len(), 4);
+        assert_eq!(facts.declaration_templates().len(), 4);
         assert_eq!(facts.declared_types().len(), 2);
         assert_eq!(facts.type_representations().len(), 2);
     }
@@ -700,7 +726,22 @@ mod tests {
             "    value: T;\n",
             "}\n",
             "\n",
-            "public func count(pos value: i32) -> usize\n",
+            "public trait Provides\n",
+            "{\n",
+            "    type Item;\n",
+            "}\n",
+            "\n",
+            "public impl Boxed<i32>\n",
+            "{\n",
+            "    type Local = i32;\n",
+            "}\n",
+            "\n",
+            "public impl Boxed<i32>(Provides)\n",
+            "{\n",
+            "    type Item = i32;\n",
+            "}\n",
+            "\n",
+            "public func count(pos value: i32 = 1) -> usize requires(value > 0)\n",
             "{\n",
             "    return 1;\n",
             "}\n",
@@ -756,6 +797,50 @@ mod tests {
 
         assert_eq!(skeleton.structures().len(), 1);
         assert_eq!(skeleton.functions().len(), 1);
+
+        let [inherent_type_member] = skeleton.inherent_type_members() else {
+            panic!("provider must export one inherent type-valued member");
+        };
+
+        let [trait_type_fulfillment] = skeleton.trait_type_fulfillments() else {
+            panic!("provider must export one trait type-valued fulfillment");
+        };
+
+        for symbol in [
+            AnySymbolId::InherentTypeMember(inherent_type_member.id()),
+            AnySymbolId::TraitTypeFulfillment(trait_type_fulfillment.id()),
+        ] {
+            let fact = consumer
+                .symbol_type_template(symbol)
+                .unwrap_or_else(|error| panic!("imported type fact must resolve: {error:?}"))
+                .unwrap_or_else(|| panic!("imported symbol must carry a declared type"));
+
+            assert!(fact.diagnostics().is_empty(), "{:?}", fact.diagnostics());
+            assert!(matches!(fact.value(), TypeExpressionTemplate::Resolved(_)));
+        }
+
+        let [parameter] = skeleton.callable_parameters() else {
+            panic!("provider must export one callable parameter");
+        };
+
+        let default = consumer
+            .callable_parameter_default(parameter.id())
+            .unwrap_or_else(|error| panic!("imported parameter default must resolve: {error:?}"));
+
+        assert!(
+            default.diagnostics().is_empty(),
+            "{:?}",
+            default.diagnostics()
+        );
+
+        let CallableParameterDefaultValue::Valid(default) = default.value().value() else {
+            panic!("imported parameter default must be valid");
+        };
+
+        assert!(matches!(
+            default.template_reference(),
+            RuntimeDefaultTemplateReference::Interface { .. }
+        ));
     }
 
     #[test]
