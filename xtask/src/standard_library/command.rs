@@ -408,7 +408,13 @@ fn build_target(
 
     let outcome = compilation
         .emit_product(request, inputs)
-        .map_err(|error| BuildError::Emission(format!("{:?}", error.kind())))?;
+        .map_err(|error| {
+            BuildError::Emission(format!(
+                "{:?}; diagnostics={:?}",
+                error.kind(),
+                compilation.check_diagnostics()
+            ))
+        })?;
 
     if !matches!(outcome.status(), EmissionStatus::Complete) {
         return Err(BuildError::CompilationFailed {

@@ -9,8 +9,8 @@ use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
     CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
     CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument,
-    GenericSubstitutionData, GenericSubstitutionId, PredicateInstanceData, TypeData,
-    TypeExpressionTemplate, TypeId,
+    ConstantTermData, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
@@ -43,6 +43,36 @@ where
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
         };
 
+    resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)
+}
+
+pub(super) fn resolve_open_predicate_candidate<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    template: &PredicateCandidateTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<CallableCandidate, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let arguments = open_generic_arguments(request, template.generic().parameters())?;
+
+    match resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)? {
+        TemplateResolution::Resolved(candidate) => Ok(candidate),
+        TemplateResolution::Unsupported => {
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+        }
+    }
+}
+
+pub(super) fn resolve_predicate_candidate_with_arguments<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    template: &PredicateCandidateTemplate,
+    arguments: Vec<GenericArgument>,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
     let substitution = GenericSubstitutionData::try_new(
         template.generic().owner(),
         template.generic().parameters().iter().copied(),
@@ -125,6 +155,31 @@ where
         )
         .with_generic_constraints(template.generic().constraints().iter().cloned()),
     ))
+}
+
+fn open_generic_arguments<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    parameters: &[GenericParameterSymbolId],
+) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    parameters
+        .iter()
+        .copied()
+        .map(|parameter| match parameter {
+            GenericParameterSymbolId::Type(parameter) => request
+                .semantic_values()
+                .intern_type(TypeData::TypeParameter(parameter))
+                .map(GenericArgument::Type)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
+            GenericParameterSymbolId::Const(parameter) => request
+                .semantic_values()
+                .intern_constant_term(ConstantTermData::Parameter(parameter))
+                .map(GenericArgument::Constant)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
+        })
+        .collect()
 }
 
 pub(super) fn resolve_declaration_candidate<C>(

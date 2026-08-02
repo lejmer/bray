@@ -13,9 +13,11 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{GenericConstraintObligationKey, ProofOutcome, TypeId};
 
 use super::built_in_operator::{self, PreparedBuiltInOperator};
+use super::generic_inference::infer_call_generic_arguments;
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
-    resolve_predicate_candidate,
+    resolve_open_predicate_candidate, resolve_predicate_candidate,
+    resolve_predicate_candidate_with_arguments,
 };
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
@@ -85,6 +87,7 @@ pub(super) fn prepare_calls<C>(
     request: CheckerUnitView<'_, C>,
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
+    types: &bray_bound_tree::CheckedExpressionTypes,
 ) -> Result<SessionProgress<PreparedExpressions>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -153,8 +156,33 @@ where
                             }
                         }
                         CallableCandidateTemplate::Predicate(candidate) => {
-                            let materialized =
-                                resolve_predicate_candidate(request, candidate, &mut diagnostics)?;
+                            let materialized = if candidate.generic_arguments().is_empty()
+                                && !candidate.generic().parameters().is_empty()
+                            {
+                                let open = resolve_open_predicate_candidate(
+                                    request,
+                                    candidate,
+                                    &mut diagnostics,
+                                )?;
+
+                                match infer_call_generic_arguments(
+                                    request,
+                                    *expression,
+                                    &open,
+                                    candidate.generic().parameters(),
+                                    types,
+                                )? {
+                                    Some(arguments) => resolve_predicate_candidate_with_arguments(
+                                        request,
+                                        candidate,
+                                        arguments,
+                                        &mut diagnostics,
+                                    )?,
+                                    None => TemplateResolution::Unsupported,
+                                }
+                            } else {
+                                resolve_predicate_candidate(request, candidate, &mut diagnostics)?
+                            };
 
                             match materialized {
                                 TemplateResolution::Resolved(candidate) => {
@@ -999,7 +1027,13 @@ mod tests {
             Err(error) => panic!("test checker unit view must be valid: {error:?}"),
         };
 
-        let result = prepare_calls(request, &[], &candidates);
+        let types = bray_bound_tree::CheckedExpressionTypes::new(
+            unit.unit(),
+            request.view().kind(),
+            std::iter::empty::<bray_bound_tree::ExpressionTypeEntry>(),
+        );
+
+        let result = prepare_calls(request, &[], &candidates, &types);
 
         assert!(matches!(
             result,

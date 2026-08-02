@@ -424,7 +424,7 @@ where
         BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
     };
 
-    Ok(if arguments.len() == expected_count {
+    Ok(if arguments.is_empty() || arguments.len() == expected_count {
         Compatibility::Yes
     } else {
         Compatibility::No

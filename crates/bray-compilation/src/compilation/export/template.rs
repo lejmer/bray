@@ -426,11 +426,21 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             return Err(incomplete());
         };
 
-        let BoundCallableTarget::Declaration(callable) = call.target() else {
-            return Err(incomplete());
+        let (declaration, substitution) = match call.target() {
+            BoundCallableTarget::Declaration(callable) => {
+                (callable.definition().symbol(), callable.substitution())
+            }
+            BoundCallableTarget::Predicate(predicate) => {
+                (predicate.definition().into_any(), predicate.substitution())
+            }
+            BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => {
+                return Err(incomplete());
+            }
         };
 
-        let (callable, substitution) = self.export.callable_template_reference(callable)?;
+        let (callable, substitution) = self
+            .export
+            .declaration_template_reference(declaration, substitution)?;
 
         let mut arguments = Vec::new();
 
@@ -514,6 +524,6 @@ fn index(length: usize) -> Result<u32, PackageInterfaceExportError> {
     u32::try_from(length).map_err(|_| incomplete())
 }
 
-fn incomplete() -> PackageInterfaceExportError {
+const fn incomplete() -> PackageInterfaceExportError {
     PackageInterfaceExportError::InvalidCompilation
 }

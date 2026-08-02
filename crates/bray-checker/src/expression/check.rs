@@ -206,7 +206,25 @@ where
         diagnostics,
     } = declared;
 
-    let Some(mut prepared) = prepare_calls(request, nested_callables, candidate_sets)?.into_value()
+    let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
+        return Ok(SessionProgress::Cancelled);
+    };
+
+    session.apply_input(&input)?;
+    session.apply_input(operation_input)?;
+
+    for evidence in supplemental_evidence {
+        session.add_evidence(evidence.expression(), evidence.ty())?;
+    }
+
+    if session.propagate()?.is_cancelled() {
+        return Ok(SessionProgress::Cancelled);
+    }
+
+    let initial_types = session.preview();
+
+    let Some(mut prepared) =
+        prepare_calls(request, nested_callables, candidate_sets, &initial_types)?.into_value()
     else {
         return Ok(SessionProgress::Cancelled);
     };
@@ -217,19 +235,8 @@ where
     prepared.defer(deferred);
     prepared.defer(supplemental_deferred.iter().copied());
 
-    let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
-        return Ok(SessionProgress::Cancelled);
-    };
-
     if unsupported_callable_result {
         defer_return_operands(request, session.expressions(), prepared.deferred_mut());
-    }
-
-    session.apply_input(&input)?;
-    session.apply_input(operation_input)?;
-
-    for evidence in supplemental_evidence {
-        session.add_evidence(evidence.expression(), evidence.ty())?;
     }
 
     if converge(request, &prepared, &mut session)?.is_cancelled() {

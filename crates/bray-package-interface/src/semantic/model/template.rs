@@ -192,7 +192,7 @@ pub enum InterfaceCheckedTemplateOperation {
     Declaration(InterfaceTemplateReference),
     /// Calls one selected declaration with deterministic argument order.
     Call {
-        /// The selected callable declaration.
+        /// The selected callable or predicate declaration.
         callable: InterfaceTemplateReference,
         /// Ordered generic arguments applied to the callable declaration.
         substitution: InterfaceGenericSubstitutionId,
