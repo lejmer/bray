@@ -12,6 +12,7 @@ test-support = []
 blake3 = "1"
 bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree" }
+bray-compiler-known = { path = "../bray-compiler-known" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-symbols = { path = "../bray-symbols" }

@@ -130,6 +130,7 @@ fn selected_fact_sections(
         crate::InterfaceSemanticFactKind::PredicateDefinition => {
             Some(PREDICATE_DEFINITION_SECTIONS)
         }
+        crate::InterfaceSemanticFactKind::DeclaredType => Some(CALLABLE_SIGNATURE_SECTIONS),
         crate::InterfaceSemanticFactKind::TypeRepresentation => None,
         crate::InterfaceSemanticFactKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticFactKind::Implementation => Some(IMPLEMENTATION_SECTIONS),

@@ -71,6 +71,8 @@ pub enum InterfaceType {
     },
     /// A dynamically sized slice.
     Slice(InterfaceTypeId),
+    /// A lazy homogeneous generator value.
+    Generator(InterfaceTypeId),
     /// A nullable value.
     Nullable(InterfaceTypeId),
     /// A semantic borrow layer.

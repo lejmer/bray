@@ -4,7 +4,8 @@ use super::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableInstance,
     InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceCheckedTemplate,
     InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
-    InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceGenericDeclaration,
+    InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceDependencyContract,
+    InterfaceGenericDeclaration,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
     InterfacePredicateDefinition, InterfaceRuntimeRequirement, InterfaceSemanticFactEntry,
     InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceSupportEntity,
@@ -29,6 +30,7 @@ pub struct InterfaceSemanticFacts {
     pub(crate) generic_declarations: Arc<[InterfaceGenericDeclaration]>,
     pub(crate) callable_parameter_defaults: Arc<[InterfaceCallableParameterDefault]>,
     pub(crate) predicate_definitions: Arc<[InterfacePredicateDefinition]>,
+    pub(crate) declared_types: Arc<[InterfaceDeclaredType]>,
     pub(crate) type_representations: Arc<[InterfaceTypeRepresentation]>,
     pub(crate) checked_templates: Arc<[InterfaceCheckedTemplate]>,
     pub(crate) declaration_templates: Arc<[InterfaceDeclarationTemplate]>,
@@ -113,6 +115,16 @@ impl InterfaceSemanticFacts {
         type_representations: impl IntoIterator<Item = InterfaceTypeRepresentation>,
     ) -> Self {
         self.type_representations = type_representations.into_iter().collect();
+
+        self
+    }
+
+    /// Replaces declaration-owned checked types in canonical owner order.
+    pub fn with_declared_types(
+        mut self,
+        declared_types: impl IntoIterator<Item = InterfaceDeclaredType>,
+    ) -> Self {
+        self.declared_types = declared_types.into_iter().collect();
 
         self
     }
@@ -223,6 +235,11 @@ impl InterfaceSemanticFacts {
     /// Returns declared type representation contracts in canonical owner order.
     pub fn type_representations(&self) -> &[InterfaceTypeRepresentation] {
         &self.type_representations
+    }
+
+    /// Returns declaration-owned checked types in canonical owner order.
+    pub fn declared_types(&self) -> &[InterfaceDeclaredType] {
+        &self.declared_types
     }
 
     /// Returns source-independent checked templates in artifact-local ID order.
@@ -350,6 +367,17 @@ impl InterfaceSemanticFacts {
                     record: checked_record(index),
                 });
 
+        let declared_types =
+            self.declared_types
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.owner.clone(),
+                    kind: InterfaceSemanticFactKind::DeclaredType,
+                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                    record: checked_record(index),
+                });
+
         let declaration_templates =
             self.declaration_templates
                 .iter()
@@ -411,6 +439,7 @@ impl InterfaceSemanticFacts {
             .chain(generic_declarations)
             .chain(callable_parameter_defaults)
             .chain(predicate_definitions)
+            .chain(declared_types)
             .chain(type_representations)
             .chain(declaration_templates)
             .chain(implementations)

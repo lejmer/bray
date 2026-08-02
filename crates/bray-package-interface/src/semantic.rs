@@ -11,7 +11,8 @@ pub(crate) use codec::{
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
     ImportedCallableSignatureFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
-    ImportedGenericDeclarationFact, ImportedImplementationFact, ImportedPredicateDefinitionFact,
+    ImportedDeclaredTypeFact, ImportedGenericDeclarationFact, ImportedImplementationFact,
+    ImportedPredicateDefinitionFact,
     ImportedRuntimeRequirement, ImportedSemanticFact, ImportedSemanticFacts,
     ImportedSourceProvenance, ImportedTargetFact, InterfaceSemanticInternError,
     InterfaceSymbolResolver,
@@ -27,6 +28,7 @@ pub use model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
     InterfaceConstraint, InterfaceConstraintKind, InterfaceDeclarationTemplate,
+    InterfaceDeclaredType,
     InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceDependencyGuard,
     InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,

@@ -47,6 +47,10 @@ impl InterfaceSemanticFacts {
                 .windows(2)
                 .all(|pair| pair[0].owner < pair[1].owner)
             || !self
+                .declared_types
+                .windows(2)
+                .all(|pair| pair[0].owner < pair[1].owner)
+            || !self
                 .type_representations
                 .windows(2)
                 .all(|pair| pair[0].owner < pair[1].owner)
@@ -121,6 +125,11 @@ impl InterfaceSemanticFacts {
 
         for definition in &*self.predicate_definitions {
             validate_predicate_definition(definition, surface)?;
+        }
+
+        for declared in &*self.declared_types {
+            validate_symbol(&declared.owner, symbol_count, dependency_count)?;
+            validate_index(declared.ty.to_index(), self.types.len())?;
         }
 
         for representation in &*self.type_representations {
@@ -526,7 +535,7 @@ fn validate_owned_parameter(
     surface: &PackageInterfaceSurface,
 ) -> Result<(), InterfaceValidationError> {
     if validate_symbol_kind(parameter, surface)? != expected_kind
-        || reference_owner(parameter, surface)? != Some(reference_key(owner, surface)?)
+        || !reference_is_owned_by(parameter, owner, surface)?
     {
         return Err(InterfaceValidationError::Malformed);
     }
@@ -534,12 +543,31 @@ fn validate_owned_parameter(
     Ok(())
 }
 
+fn reference_is_owned_by(
+    member: &InterfaceSymbolReference,
+    owner: &InterfaceSymbolReference,
+    surface: &PackageInterfaceSurface,
+) -> Result<bool, InterfaceValidationError> {
+    match (member, owner) {
+        (
+            InterfaceSymbolReference::CompilerKnown { .. },
+            InterfaceSymbolReference::CompilerKnown { .. },
+        ) => Ok(true),
+        (InterfaceSymbolReference::CompilerKnown { .. }, _)
+        | (_, InterfaceSymbolReference::CompilerKnown { .. }) => Ok(false),
+        _ => Ok(reference_owner(member, surface)? == Some(reference_key(owner, surface)?)),
+    }
+}
+
 pub(super) fn local_symbol(
     reference: &InterfaceSymbolReference,
 ) -> Result<bray_symbols::InterfaceSymbolId, InterfaceValidationError> {
     match reference {
         InterfaceSymbolReference::Local(symbol) => Ok(*symbol),
-        InterfaceSymbolReference::Dependency { .. } => Err(InterfaceValidationError::Malformed),
+        InterfaceSymbolReference::Dependency { .. }
+        | InterfaceSymbolReference::CompilerKnown { .. } => {
+            Err(InterfaceValidationError::Malformed)
+        }
     }
 }
 
@@ -582,6 +610,9 @@ fn reference_key<'surface>(
             .map(|symbol| symbol.key())
             .ok_or(InterfaceValidationError::Malformed),
         InterfaceSymbolReference::Dependency { key, .. } => Ok(key),
+        InterfaceSymbolReference::CompilerKnown { .. } => {
+            Err(InterfaceValidationError::Malformed)
+        }
     }
 }
 
@@ -595,6 +626,7 @@ pub(super) fn validate_symbol(
         InterfaceSymbolReference::Dependency { dependency, .. } => {
             validate_index(dependency.to_index(), dependency_count)
         }
+        InterfaceSymbolReference::CompilerKnown { .. } => Ok(()),
     }
 }
 
@@ -622,6 +654,7 @@ pub(super) fn validate_symbol_kind(
 
             Ok(key.kind())
         }
+        InterfaceSymbolReference::CompilerKnown { kind, .. } => Ok(*kind),
     }
 }
 

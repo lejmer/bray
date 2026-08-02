@@ -227,6 +227,7 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
             *length = maps.constant_term_id(*length)?;
         }
         InterfaceType::Slice(target)
+        | InterfaceType::Generator(target)
         | InterfaceType::Nullable(target)
         | InterfaceType::Borrow { target, .. } => {
             *target = maps.type_id(*target)?;

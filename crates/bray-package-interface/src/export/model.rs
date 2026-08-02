@@ -337,6 +337,8 @@ fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> Inte
     Arc::make_mut(&mut facts.generic_declarations).sort();
     Arc::make_mut(&mut facts.callable_parameter_defaults).sort();
     Arc::make_mut(&mut facts.predicate_definitions).sort();
+    Arc::make_mut(&mut facts.declared_types).sort();
+    Arc::make_mut(&mut facts.type_representations).sort();
     Arc::make_mut(&mut facts.declaration_templates).sort();
     Arc::make_mut(&mut facts.implementations).sort();
     Arc::make_mut(&mut facts.coherence).sort();
@@ -360,6 +362,7 @@ const fn requires_owned_semantic_fact(kind: bray_symbols::SymbolKind) -> bool {
             | bray_symbols::SymbolKind::CallableParameterDefaultProvider
             | bray_symbols::SymbolKind::StructFieldDefaultProvider
             | bray_symbols::SymbolKind::UnionPayloadDefaultProvider
+            | bray_symbols::SymbolKind::UnionVariant
     )
 }
 

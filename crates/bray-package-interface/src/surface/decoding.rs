@@ -259,6 +259,17 @@ pub(crate) fn decode_exports(
                 dependency: DependencyInterfaceId::new(read_u32(&mut reader)?),
                 key: super::reference::decode_external_key(&mut reader, strings, budget)?,
             },
+            3 => {
+                let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(read_string(
+                    &mut reader,
+                    strings,
+                )?)
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+                let kind = read_tag(&mut reader)?;
+
+                InterfaceSymbolReference::CompilerKnown { key, kind }
+            }
             _ => return Err(InterfaceValidationError::Malformed),
         };
 

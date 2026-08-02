@@ -545,6 +545,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 self.enqueue(PendingRecord::ConstantTerm(length.raw()));
             }
             InterfaceType::Slice(target)
+            | InterfaceType::Generator(target)
             | InterfaceType::Nullable(target)
             | InterfaceType::Borrow { target, .. } => {
                 self.enqueue(PendingRecord::Type(target.raw()));

@@ -69,6 +69,7 @@ pub struct ImportedSemanticFacts {
     pub(super) generic_declarations: Arc<[ImportedGenericDeclarationFact]>,
     pub(super) callable_parameter_defaults: Arc<[ImportedCallableParameterDefaultFact]>,
     pub(super) predicate_definitions: Arc<[ImportedPredicateDefinitionFact]>,
+    pub(super) declared_types: Arc<[ImportedDeclaredTypeFact]>,
     pub(super) type_representations: Arc<[bray_symbols::DeclaredTypeRepresentation]>,
     pub(super) declaration_templates: Arc<[ImportedDeclarationTemplateFact]>,
     pub(super) constraints: Arc<[ImportedConstraintFact]>,
@@ -102,6 +103,8 @@ pub enum ImportedSemanticFact {
     CallableParameterDefault(ImportedCallableParameterDefaultFact),
     /// One predicate definition state.
     PredicateDefinition(ImportedPredicateDefinitionFact),
+    /// One declaration-owned checked type.
+    DeclaredType(ImportedDeclaredTypeFact),
     /// One declared type representation contract.
     TypeRepresentation(bray_symbols::DeclaredTypeRepresentation),
     /// One checked generic constraint.
@@ -118,6 +121,25 @@ pub enum ImportedSemanticFact {
     Abi(ImportedAbiDependency),
     /// One required private runtime ABI surface.
     Runtime(ImportedRuntimeRequirement),
+}
+
+/// One imported declaration-owned checked type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImportedDeclaredTypeFact {
+    pub(super) owner: AnySymbolId,
+    pub(super) ty: TypeId,
+}
+
+impl ImportedDeclaredTypeFact {
+    /// Returns the declaration owning this type.
+    pub const fn owner(self) -> AnySymbolId {
+        self.owner
+    }
+
+    /// Returns the checked declared type.
+    pub const fn ty(self) -> TypeId {
+        self.ty
+    }
 }
 
 impl ImportedDeclarationTemplateFact {
@@ -363,6 +385,13 @@ impl ImportedSemanticFacts {
                 .filter(|fact| fact.owner().into_any() == owner)
                 .map(ImportedSemanticFact::PredicateDefinition)
                 .collect(),
+            InterfaceSemanticFactKind::DeclaredType => self
+                .declared_types
+                .iter()
+                .copied()
+                .filter(|fact| fact.owner() == owner)
+                .map(ImportedSemanticFact::DeclaredType)
+                .collect(),
             InterfaceSemanticFactKind::TypeRepresentation => self
                 .type_representations
                 .iter()
@@ -480,6 +509,11 @@ impl ImportedSemanticFacts {
     /// Returns imported predicate definition states in interface order.
     pub fn predicate_definitions(&self) -> &[ImportedPredicateDefinitionFact] {
         &self.predicate_definitions
+    }
+
+    /// Returns imported declaration-owned checked types in interface order.
+    pub fn declared_types(&self) -> &[ImportedDeclaredTypeFact] {
+        &self.declared_types
     }
 
     /// Returns imported declared type representation contracts in interface order.

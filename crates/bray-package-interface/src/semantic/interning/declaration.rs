@@ -9,12 +9,33 @@ use bray_symbols::{
 use super::common::{invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
 use super::{
     ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact, ImportedConstraintFact,
-    ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact, InterfaceSemanticInternError,
-    InterfaceSymbolResolver, InternState,
+    ImportedDeclaredTypeFact, ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact,
+    InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 use crate::InterfaceSemanticFacts;
 
 impl InternState {
+    pub(super) fn convert_declared_types(
+        &self,
+        facts: &InterfaceSemanticFacts,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<ImportedDeclaredTypeFact>, InterfaceSemanticInternError> {
+        facts
+            .declared_types
+            .iter()
+            .map(|input| {
+                let ty = self
+                    .type_id(input.ty())
+                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+                Ok(ImportedDeclaredTypeFact {
+                    owner: resolve_symbol(symbols, input.owner())?,
+                    ty,
+                })
+            })
+            .collect()
+    }
+
     pub(super) fn convert_callable_signatures(
         &self,
         facts: &InterfaceSemanticFacts,

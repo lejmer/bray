@@ -5,8 +5,8 @@ use crate::semantic::codec::common::{
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
-    InterfaceGenericDeclaration, InterfacePredicateDefinition, InterfaceSemanticFacts,
-    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
+    InterfaceDeclaredType, InterfaceGenericDeclaration, InterfacePredicateDefinition,
+    InterfaceSemanticFacts, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -18,6 +18,7 @@ pub(super) struct DeclarationRecordTables<'bytes> {
     pub(super) generic_declarations: RecordTable<'bytes>,
     pub(super) callable_parameter_defaults: RecordTable<'bytes>,
     pub(super) predicate_definitions: RecordTable<'bytes>,
+    pub(super) declared_types: RecordTable<'bytes>,
     pub(super) type_representations: RecordTable<'bytes>,
 }
 
@@ -36,6 +37,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
     let generic_declarations = RecordTable::read_from(&mut reader, context)?;
     let callable_parameter_defaults = RecordTable::read_from(&mut reader, context)?;
     let predicate_definitions = RecordTable::read_from(&mut reader, context)?;
+    let declared_types = RecordTable::read_from(&mut reader, context)?;
     let type_representations = RecordTable::read_from(&mut reader, context)?;
 
     validate_record_count(
@@ -45,6 +47,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
             generic_declarations.len(),
             callable_parameter_defaults.len(),
             predicate_definitions.len(),
+            declared_types.len(),
             type_representations.len(),
         ],
     )?;
@@ -56,6 +59,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
         generic_declarations,
         callable_parameter_defaults,
         predicate_definitions,
+        declared_types,
         type_representations,
     })
 }
@@ -88,6 +92,10 @@ pub(super) fn decode_declarations(
         .predicate_definitions
         .decode_all(context, decode_predicate_definition)?;
 
+    let declared_types = tables
+        .declared_types
+        .decode_all(context, decode_declared_type)?;
+
     let type_representations = tables
         .type_representations
         .decode_all(context, |reader, context| {
@@ -98,9 +106,20 @@ pub(super) fn decode_declarations(
     facts.generic_declarations = generic_declarations.into();
     facts.callable_parameter_defaults = callable_parameter_defaults.into();
     facts.predicate_definitions = predicate_definitions.into();
+    facts.declared_types = declared_types.into();
     facts.type_representations = type_representations.into();
 
     Ok(())
+}
+
+fn decode_declared_type(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceDeclaredType, InterfaceValidationError> {
+    let owner = read_symbol_reference(reader, context)?;
+    let ty = InterfaceTypeId::new(read_u32(reader)?);
+
+    Ok(InterfaceDeclaredType::new(owner, ty))
 }
 
 fn decode_type_representation(

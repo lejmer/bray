@@ -426,11 +426,16 @@ macro_rules! define_symbol_graph {
                 }
             }
 
-            pub(crate) fn completion_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
+            /// Returns one symbol's directly owned declaration-surface children in stable order.
+            pub fn declaration_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
                 self.completion_children
                     .get(&symbol)
                     .map(Box::as_ref)
                     .unwrap_or_else(|| self.compiler_known.completion_children(symbol))
+            }
+
+            pub(crate) fn completion_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
+                self.declaration_children(symbol)
             }
 
             pub(crate) fn contains_symbol(&self, symbol: AnySymbolId) -> bool {

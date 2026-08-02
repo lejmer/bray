@@ -98,6 +98,22 @@ pub(super) fn imported_predicate_definition_state(
     ))
 }
 
+pub(super) fn imported_declared_type(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<bray_symbols::TypeExpressionTemplate>> {
+    let result = imported_facts(context, address, InterfaceSemanticFactKind::DeclaredType)?;
+
+    let [ImportedSemanticFact::DeclaredType(fact)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    Ok(DiagnosticResult::new(
+        bray_symbols::TypeExpressionTemplate::Resolved(fact.ty()),
+        result.diagnostics().clone(),
+    ))
+}
+
 pub(super) fn imported_callable_contract(
     context: &CompilationBinderFacts<'_>,
     address: ImportedSymbolFactAddress,

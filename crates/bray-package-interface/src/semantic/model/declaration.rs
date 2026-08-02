@@ -5,6 +5,30 @@ use bray_symbols::{DeclaredCopyContract, DeclaredLayoutMode, IntegerConstant, Re
 use super::InterfaceTypeId;
 use crate::InterfaceSymbolReference;
 
+/// One declaration's checked source-independent type.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceDeclaredType {
+    pub(crate) owner: InterfaceSymbolReference,
+    pub(crate) ty: InterfaceTypeId,
+}
+
+impl InterfaceDeclaredType {
+    /// Creates one declaration-owned type fact.
+    pub const fn new(owner: InterfaceSymbolReference, ty: InterfaceTypeId) -> Self {
+        Self { owner, ty }
+    }
+
+    /// Returns the declaration owning this type.
+    pub const fn owner(&self) -> &InterfaceSymbolReference {
+        &self.owner
+    }
+
+    /// Returns the checked declared type.
+    pub const fn ty(&self) -> InterfaceTypeId {
+        self.ty
+    }
+}
+
 /// One union variant tag in a declared type representation contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceUnionTag {

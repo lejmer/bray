@@ -38,7 +38,6 @@ pub(super) fn audit_standard_buffer(
     target: NativeTarget,
     runtime: &Path,
 ) -> Result<(), String> {
-    // TODO(BRA-342): Build through the packaged public standard-library interface once public struct facts are exportable.
     for fixture in STANDARD_BUFFER_FIXTURES {
         let output = native_output("bray-native-standard-buffer-")?;
 

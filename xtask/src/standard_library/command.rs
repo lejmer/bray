@@ -361,7 +361,6 @@ fn build_target(
     let request =
         CompilationRequest::with_options(product.identity().package().clone(), sources, options)
             .with_standard_library_source_authority()
-            // TODO(BRA-341): Publish callable declaration facts before building the public std interface.
             .with_package_interface_export(interface_export_request(product.identity())?);
 
     let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;

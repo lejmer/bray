@@ -147,6 +147,10 @@ fn bind_declaration_type<T>(
 where
     T: bray_syntax::SyntaxCast,
 {
+    if let Some(address) = context.imported_fact_address(symbol)? {
+        return super::imported::imported_declared_type(context, address);
+    }
+
     let syntax = declaration_syntax::<T>(context, symbol)?;
     let type_expression = type_expression(syntax);
 

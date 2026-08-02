@@ -416,8 +416,15 @@ impl super::super::Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         };
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(current, interfaces, skeleton)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let symbols = self.symbol_graph()?;
+
+        let resolver = ImportedInterfaceSymbolResolver::try_new(
+            current,
+            interfaces,
+            skeleton,
+            symbols.compiler_known_provider().declaration_symbols(),
+        )
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let semantic_values = self.semantic_value_store()?;
 
@@ -432,7 +439,7 @@ impl super::super::Compilation {
         }
     }
 
-    pub(super) fn loaded_interface_views(
+    pub(in crate::compilation) fn loaded_interface_views(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<Option<Vec<LoadedInterfaceSurface<'_>>>, FactQueryError> {

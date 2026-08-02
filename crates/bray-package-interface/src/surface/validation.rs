@@ -268,6 +268,11 @@ fn validate_export_target(
                 );
             }
         }
+        InterfaceSymbolReference::CompilerKnown { .. } => {
+            return Err(PackageInterfaceSurfaceBuildError::InvalidDirectExportTarget(
+                edge.owner(),
+            ));
+        }
     }
 
     Ok(())

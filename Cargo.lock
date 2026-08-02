@@ -409,6 +409,7 @@ dependencies = [
  "blake3",
  "bray-base",
  "bray-bound-tree",
+ "bray-compiler-known",
  "bray-diagnostics",
  "bray-messages",
  "bray-runtime-interface",

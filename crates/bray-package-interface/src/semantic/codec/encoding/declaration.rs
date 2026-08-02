@@ -72,6 +72,11 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
         },
     );
 
+    encode_record_table(&mut encoder, &facts.declared_types, |encoder, declared| {
+        write_symbol_reference(encoder, &declared.owner);
+        encoder.write_u32(declared.ty.raw());
+    });
+
     encode_record_table(
         &mut encoder,
         &facts.type_representations,
@@ -113,6 +118,7 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
             + facts.generic_declarations.len()
             + facts.callable_parameter_defaults.len()
             + facts.predicate_definitions.len()
+            + facts.declared_types.len()
             + facts.type_representations.len(),
         encoder,
     )
