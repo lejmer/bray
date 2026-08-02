@@ -1,0 +1,429 @@
+trusted module std.io;
+
+internal struct PlatformStreamStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+internal struct PlatformStreamTransfer
+{
+    status: PlatformStreamStatus;
+    transferred: usize;
+}
+
+extern trusted internal func platform_standard_input_handle() -> u64;
+
+extern trusted internal func platform_standard_output_handle() -> u64;
+
+extern trusted internal func platform_standard_error_handle() -> u64;
+
+extern trusted internal func platform_stream_read(
+    pos destination: &mut [u8],
+    handle: u64,
+) -> PlatformStreamTransfer;
+
+extern trusted internal func platform_stream_write(
+    pos source: &[u8],
+    handle: u64,
+) -> PlatformStreamTransfer;
+
+extern trusted internal func platform_stream_flush(
+    handle: u64,
+) -> PlatformStreamStatus;
+
+extern trusted internal async func platform_stream_read_async(
+    pos destination: &mut [u8],
+    handle: u64,
+) -> PlatformStreamTransfer;
+
+extern trusted internal async func platform_stream_write_async(
+    pos source: &[u8],
+    handle: u64,
+) -> PlatformStreamTransfer;
+
+extern trusted internal async func platform_stream_flush_async(
+    handle: u64,
+) -> PlatformStreamStatus;
+
+internal func support_standard_input() -> StandardInput
+{
+    return StandardInput {
+        handle = trusted platform_standard_input_handle(),
+    };
+}
+
+internal func support_standard_output() -> StandardOutput
+{
+    return StandardOutput {
+        handle = trusted platform_standard_output_handle(),
+    };
+}
+
+internal func support_standard_error() -> StandardError
+{
+    return StandardError {
+        handle = trusted platform_standard_error_handle(),
+    };
+}
+
+internal func platform_error_kind(category: u32) -> IoErrorKind
+{
+    if category == 1
+    {
+        return Unsupported;
+    }
+
+    if category == 2
+    {
+        return PermissionDenied;
+    }
+
+    if category == 3
+    {
+        return NotFound;
+    }
+
+    if category == 4
+    {
+        return AlreadyExists;
+    }
+
+    if category == 5
+    {
+        return InvalidInput;
+    }
+
+    if category == 6
+    {
+        return Interrupted;
+    }
+
+    if category == 7
+    {
+        return Exhausted;
+    }
+
+    if category == 8
+    {
+        return BrokenStream;
+    }
+
+    if category == 9
+    {
+        return TimedOut;
+    }
+
+    return Other;
+}
+
+internal func support_io_error(
+    kind: IoErrorKind,
+    native_code: i64,
+    transferred: usize,
+) -> IoError
+{
+    let mut platform_code: i64? = none;
+
+    if native_code != 0
+    {
+        platform_code = native_code;
+    }
+
+    return IoError {
+        kind = kind,
+        platform_code = platform_code,
+        transferred = transferred,
+    };
+}
+
+internal func platform_status_error(
+    pos status: PlatformStreamStatus,
+    transferred: usize = 0,
+) -> IoError
+{
+    return support_io_error(
+        kind = platform_error_kind(status.category),
+        native_code = status.native_code,
+        transferred = transferred,
+    );
+}
+
+internal func invalid_transfer_error(transferred: usize = 0) -> IoError
+{
+    return support_io_error(
+        kind = Other,
+        native_code = 0,
+        transferred = transferred,
+    );
+}
+
+internal func unavailable_stream_error() -> IoError
+{
+    return support_io_error(
+        kind = Unsupported,
+        native_code = 0,
+        transferred = 0,
+    );
+}
+
+internal func no_progress_error(transferred: usize = 0) -> IoError
+{
+    return support_io_error(
+        kind = BrokenStream,
+        native_code = 0,
+        transferred = transferred,
+    );
+}
+
+internal func checked_read_transfer(
+    pos transfer: PlatformStreamTransfer,
+    capacity: usize,
+) -> Result<usize, IoError>
+{
+    if transfer.status.reserved != 0
+    {
+        return Error(invalid_transfer_error());
+    }
+
+    if transfer.transferred > capacity
+    {
+        return Error(invalid_transfer_error());
+    }
+
+    if transfer.status.category != 0
+    {
+        return Error(platform_status_error(
+            transfer.status,
+            transferred = transfer.transferred,
+        ));
+    }
+
+    return Ok(transfer.transferred);
+}
+
+internal func checked_write_transfer(
+    pos transfer: PlatformStreamTransfer,
+    requested: usize,
+) -> Result<usize, IoError>
+{
+    if transfer.status.reserved != 0
+    {
+        return Error(invalid_transfer_error());
+    }
+
+    if transfer.transferred > requested
+    {
+        return Error(invalid_transfer_error());
+    }
+
+    if transfer.status.category != 0
+    {
+        return Error(platform_status_error(
+            transfer.status,
+            transferred = transfer.transferred,
+        ));
+    }
+
+    if requested > 0
+    {
+        if transfer.transferred == 0
+        {
+            return Error(no_progress_error());
+        }
+    }
+
+    return Ok(transfer.transferred);
+}
+
+internal func checked_flush_status(
+    pos status: PlatformStreamStatus,
+) -> Result<unit, IoError>
+{
+    if status.reserved != 0
+    {
+        return Error(invalid_transfer_error());
+    }
+
+    if status.category != 0
+    {
+        return Error(platform_status_error(status));
+    }
+
+    return Ok(unit);
+}
+
+internal func write_standard_stream(
+    pos source: &[u8],
+    handle: u64,
+) -> Result<usize, IoError>
+    requires(blocking_execution())
+{
+    if handle == 0
+    {
+        return Error(unavailable_stream_error());
+    }
+
+    let requested: usize = internal std.memory.byte_slice_length(source);
+
+    let transfer: PlatformStreamTransfer = trusted platform_stream_write(
+        source,
+        handle = handle,
+    );
+
+    return checked_write_transfer(transfer, requested = requested);
+}
+
+internal func flush_standard_stream(handle: u64) -> Result<unit, IoError>
+    requires(blocking_execution())
+{
+    if handle == 0
+    {
+        return Error(unavailable_stream_error());
+    }
+
+    let status: PlatformStreamStatus = trusted platform_stream_flush(handle = handle);
+
+    return checked_flush_status(status);
+}
+
+internal async func write_standard_stream_async(
+    pos source: &[u8],
+    handle: u64,
+) -> Result<usize, IoError>
+{
+    if handle == 0
+    {
+        return Error(unavailable_stream_error());
+    }
+
+    let requested: usize = internal std.memory.byte_slice_length(source);
+
+    let transfer: PlatformStreamTransfer = await trusted platform_stream_write_async(
+        source,
+        handle = handle,
+    );
+
+    return checked_write_transfer(transfer, requested = requested);
+}
+
+internal async func flush_standard_stream_async(
+    handle: u64,
+) -> Result<unit, IoError>
+{
+    if handle == 0
+    {
+        return Error(unavailable_stream_error());
+    }
+
+    let status: PlatformStreamStatus =
+        await trusted platform_stream_flush_async(handle = handle);
+
+    return checked_flush_status(status);
+}
+
+impl StandardInputReader = StandardInput(Reader)
+{
+    mut func read(
+        pos destination: &mut [u8],
+    ) -> Result<usize, IoError>
+        requires(blocking_execution())
+    {
+        if self.handle == 0
+        {
+            return Error(unavailable_stream_error());
+        }
+
+        let capacity: usize = internal std.memory.byte_slice_length(destination);
+
+        let transfer: PlatformStreamTransfer = trusted platform_stream_read(
+            destination,
+            handle = self.handle,
+        );
+
+        return checked_read_transfer(transfer, capacity = capacity);
+    }
+}
+
+impl StandardOutputWriter = StandardOutput(Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution())
+    {
+        return write_standard_stream(source, handle = self.handle);
+    }
+
+    mut func flush() -> Result<unit, IoError>
+        requires(blocking_execution())
+    {
+        return flush_standard_stream(handle = self.handle);
+    }
+}
+
+impl StandardErrorWriter = StandardError(Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution())
+    {
+        return write_standard_stream(source, handle = self.handle);
+    }
+
+    mut func flush() -> Result<unit, IoError>
+        requires(blocking_execution())
+    {
+        return flush_standard_stream(handle = self.handle);
+    }
+}
+
+impl StandardInputAsyncReader = StandardInput(AsyncReader)
+{
+    mut async func read_async(
+        pos destination: &mut [u8],
+    ) -> Result<usize, IoError>
+    {
+        if self.handle == 0
+        {
+            return Error(unavailable_stream_error());
+        }
+
+        let capacity: usize = internal std.memory.byte_slice_length(destination);
+
+        let transfer: PlatformStreamTransfer = await trusted platform_stream_read_async(
+            destination,
+            handle = self.handle,
+        );
+
+        return checked_read_transfer(transfer, capacity = capacity);
+    }
+}
+
+impl StandardOutputAsyncWriter = StandardOutput(AsyncWriter)
+{
+    mut async func write_async(
+        pos source: &[u8],
+    ) -> Result<usize, IoError>
+    {
+        return await write_standard_stream_async(source, handle = self.handle);
+    }
+
+    mut async func flush_async() -> Result<unit, IoError>
+    {
+        return await flush_standard_stream_async(handle = self.handle);
+    }
+}
+
+impl StandardErrorAsyncWriter = StandardError(AsyncWriter)
+{
+    mut async func write_async(
+        pos source: &[u8],
+    ) -> Result<usize, IoError>
+    {
+        return await write_standard_stream_async(source, handle = self.handle);
+    }
+
+    mut async func flush_async() -> Result<unit, IoError>
+    {
+        return await flush_standard_stream_async(handle = self.handle);
+    }
+}

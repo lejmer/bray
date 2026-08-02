@@ -1,0 +1,156 @@
+trusted module std.io;
+
+internal func support_buffered_reader<Source>(
+    pos source: Source,
+    capacity: usize,
+) -> Result<BufferedReader<Source>, IoError>
+{
+    if capacity == 0
+    {
+        return Error(support_io_error(
+            kind = InvalidInput,
+            native_code = 0,
+            transferred = 0,
+        ));
+    }
+
+    let storage: std.bytes.Buffer = try create_fixed_buffer(capacity = capacity);
+
+    let reader: BufferedReader<Source> = {
+        source = source,
+        storage = storage,
+        start = 0,
+        length = 0,
+    };
+
+    return Ok(reader);
+}
+
+internal func copy_buffered_bytes<Source>(
+    pos reader: &mut BufferedReader<Source>,
+    pos destination: &mut [u8],
+) -> usize
+{
+    let destination_length: usize =
+        internal std.memory.byte_slice_length(destination);
+    let available: usize = reader.length - reader.start;
+    let copied: usize = smaller(destination_length, available);
+    let source: &[u8] = std.bytes.as_slice(&reader.storage);
+    let mut index: usize = 0;
+
+    while index < copied
+    {
+        destination[index] = source[reader.start + index];
+        index = index + 1;
+    }
+
+    reader.start = reader.start + copied;
+
+    if reader.start == reader.length
+    {
+        reader.start = 0;
+        reader.length = 0;
+    }
+
+    return copied;
+}
+
+internal func buffered_read_result<Source>(
+    pos reader: &mut BufferedReader<Source>,
+    pos destination: &mut [u8],
+    result: Result<usize, IoError>,
+) -> Result<usize, IoError>
+{
+    let capacity: usize = std.bytes.length(&reader.storage);
+
+    match consume result
+    {
+        case Result.Ok(transferred)
+        {
+            if transferred > capacity
+            {
+                return Error(invalid_transfer_error());
+            }
+
+            reader.start = 0;
+            reader.length = transferred;
+
+            return Ok(copy_buffered_bytes(reader, destination));
+        }
+
+        case Result.Error(error)
+        {
+            if error.transferred > capacity
+            {
+                return Error(invalid_transfer_error());
+            }
+
+            reader.start = 0;
+            reader.length = error.transferred;
+
+            let copied: usize = copy_buffered_bytes(reader, destination);
+
+            return Error(transferred_error(error, transferred = copied));
+        }
+    }
+}
+
+impl BufferedReader<Source>
+{
+    consume func into_source() -> Source
+    {
+        return self.source;
+    }
+}
+
+impl BufferedReaderSourceReader = BufferedReader<Source>(Reader)
+    with(Source: Reader)
+{
+    mut func read(
+        pos destination: &mut [u8],
+    ) -> Result<usize, IoError>
+        requires(blocking_execution())
+    {
+        if internal std.memory.byte_slice_length(destination) == 0
+        {
+            return Ok(0);
+        }
+
+        if self.length > self.start
+        {
+            return Ok(copy_buffered_bytes(&mut self, destination));
+        }
+
+        let storage: &mut [u8] = std.bytes.as_slice_mut(&mut self.storage);
+
+        let result: Result<usize, IoError> = self.source.read(storage);
+
+        return buffered_read_result(&mut self, destination, result = result);
+    }
+}
+
+impl BufferedReaderSourceAsyncReader = BufferedReader<Source>(AsyncReader)
+    with(Source: AsyncReader)
+{
+    mut async func read_async(
+        pos destination: &mut [u8],
+    ) -> Result<usize, IoError>
+    {
+        if internal std.memory.byte_slice_length(destination) == 0
+        {
+            return Ok(0);
+        }
+
+        if self.length > self.start
+        {
+            return Ok(copy_buffered_bytes(&mut self, destination));
+        }
+
+        let storage: &mut [u8] = std.bytes.as_slice_mut(&mut self.storage);
+
+        let result: Result<usize, IoError> =
+            await self.source.read_async(storage);
+
+        return buffered_read_result(&mut self, destination, result = result);
+    }
+}

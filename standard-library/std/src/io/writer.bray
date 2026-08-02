@@ -1,0 +1,269 @@
+trusted module std.io;
+
+internal func support_buffered_writer<Sink>(
+    pos sink: Sink,
+    capacity: usize,
+) -> Result<BufferedWriter<Sink>, IoError>
+{
+    if capacity == 0
+    {
+        return Error(support_io_error(
+            kind = InvalidInput,
+            native_code = 0,
+            transferred = 0,
+        ));
+    }
+
+    let storage: std.bytes.Buffer = try create_fixed_buffer(capacity = capacity);
+
+    let writer: BufferedWriter<Sink> = {
+        sink = sink,
+        storage = storage,
+        start = 0,
+        length = 0,
+    };
+
+    return Ok(writer);
+}
+
+internal func buffer_bytes<Sink>(
+    pos writer: &mut BufferedWriter<Sink>,
+    pos source: &[u8],
+) -> usize
+{
+    let capacity: usize = std.bytes.length(&writer.storage);
+    let available: usize = capacity - writer.length;
+    let source_length: usize = internal std.memory.byte_slice_length(source);
+    let accepted: usize = smaller(source_length, available);
+    let destination: &mut [u8] = std.bytes.as_slice_mut(&mut writer.storage);
+    let mut index: usize = 0;
+
+    while index < accepted
+    {
+        destination[writer.length + index] = source[index];
+        index = index + 1;
+    }
+
+    writer.length = writer.length + accepted;
+
+    return accepted;
+}
+
+internal func commit_buffered_write<Sink>(
+    pos writer: &mut BufferedWriter<Sink>,
+    result: Result<usize, IoError>,
+    committed: usize,
+) -> Result<usize, IoError>
+{
+    let pending: usize = writer.length - writer.start;
+
+    match consume result
+    {
+        case Result.Ok(transferred)
+        {
+            if transferred > pending
+            {
+                return Error(invalid_transfer_error(transferred = committed));
+            }
+
+            if transferred == 0
+            {
+                return Error(no_progress_error(transferred = committed));
+            }
+
+            writer.start = writer.start + transferred;
+
+            return Ok(committed + transferred);
+        }
+
+        case Result.Error(error)
+        {
+            if error.transferred > pending
+            {
+                return Error(invalid_transfer_error(transferred = committed));
+            }
+
+            writer.start = writer.start + error.transferred;
+
+            return Error(prefixed_error(error, prefix = committed));
+        }
+    }
+}
+
+internal func finish_committed_buffer<Sink>(
+    pos writer: &mut BufferedWriter<Sink>,
+    committed: usize,
+) -> usize
+{
+    if writer.start == writer.length
+    {
+        writer.start = 0;
+        writer.length = 0;
+    }
+
+    return committed;
+}
+
+internal func flush_buffer_sync<Sink>(
+    pos writer: &mut BufferedWriter<Sink>,
+) -> Result<usize, IoError>
+    with(Sink: Writer)
+    requires(blocking_execution())
+{
+    let mut committed: usize = 0;
+
+    while writer.start < writer.length
+    {
+        let bytes: &[u8] = std.bytes.as_slice(&writer.storage);
+        let pending: &[u8] = &bytes[writer.start..writer.length];
+        let result: Result<usize, IoError> = writer.sink.write(pending);
+
+        committed = try commit_buffered_write(
+            writer,
+            result = result,
+            committed = committed,
+        );
+    }
+
+    return Ok(finish_committed_buffer(writer, committed = committed));
+}
+
+internal async func flush_buffer_async<Sink>(
+    pos writer: &mut BufferedWriter<Sink>,
+) -> Result<usize, IoError>
+    with(Sink: AsyncWriter)
+{
+    let mut committed: usize = 0;
+
+    while writer.start < writer.length
+    {
+        let bytes: &[u8] = std.bytes.as_slice(&writer.storage);
+        let pending: &[u8] = &bytes[writer.start..writer.length];
+        let result: Result<usize, IoError> =
+            await writer.sink.write_async(pending);
+
+        committed = try commit_buffered_write(
+            writer,
+            result = result,
+            committed = committed,
+        );
+    }
+
+    return Ok(finish_committed_buffer(writer, committed = committed));
+}
+
+internal func normalize_write_flush_error(pos error: IoError) -> IoError
+{
+    return transferred_error(error, transferred = 0);
+}
+
+internal func buffer_after_flush<Sink>(
+    pos writer: &mut BufferedWriter<Sink>,
+    pos source: &[u8],
+    result: Result<usize, IoError>,
+) -> Result<usize, IoError>
+{
+    match consume result
+    {
+        case Result.Ok(_)
+        {
+            return Ok(buffer_bytes(writer, source));
+        }
+
+        case Result.Error(error)
+        {
+            return Error(normalize_write_flush_error(error));
+        }
+    }
+}
+
+impl BufferedWriter<Sink>
+{
+    consume func into_sink() -> Result<Sink, IoError>
+        with(Sink: Writer)
+        requires(blocking_execution())
+    {
+        try self.flush();
+
+        return Ok(self.sink);
+    }
+}
+
+impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
+    with(Sink: Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution())
+    {
+        let capacity: usize = std.bytes.length(&self.storage);
+
+        if self.length == capacity
+        {
+            let flushed: Result<usize, IoError> = flush_buffer_sync(&mut self);
+
+            return buffer_after_flush(&mut self, source, result = flushed);
+        }
+
+        return Ok(buffer_bytes(&mut self, source));
+    }
+
+    mut func flush() -> Result<unit, IoError>
+        requires(blocking_execution())
+    {
+        let committed: usize = try flush_buffer_sync(&mut self);
+        let result: Result<unit, IoError> = self.sink.flush();
+
+        match consume result
+        {
+            case Result.Ok(_)
+            {
+                return Ok(unit);
+            }
+
+            case Result.Error(error)
+            {
+                return Error(prefixed_error(error, prefix = committed));
+            }
+        }
+    }
+}
+
+impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter)
+    with(Sink: AsyncWriter)
+{
+    mut async func write_async(
+        pos source: &[u8],
+    ) -> Result<usize, IoError>
+    {
+        let capacity: usize = std.bytes.length(&self.storage);
+
+        if self.length == capacity
+        {
+            let flushed: Result<usize, IoError> =
+                await flush_buffer_async(&mut self);
+
+            return buffer_after_flush(&mut self, source, result = flushed);
+        }
+
+        return Ok(buffer_bytes(&mut self, source));
+    }
+
+    mut async func flush_async() -> Result<unit, IoError>
+    {
+        let committed: usize = try await flush_buffer_async(&mut self);
+        let result: Result<unit, IoError> = await self.sink.flush_async();
+
+        match consume result
+        {
+            case Result.Ok(_)
+            {
+                return Ok(unit);
+            }
+
+            case Result.Error(error)
+            {
+                return Error(prefixed_error(error, prefix = committed));
+            }
+        }
+    }
+}

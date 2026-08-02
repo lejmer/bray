@@ -1,0 +1,101 @@
+trusted module std.io;
+
+internal func buffer_allocation_error() -> IoError
+{
+    return support_io_error(
+        kind = Exhausted,
+        native_code = 0,
+        transferred = 0,
+    );
+}
+
+internal func create_fixed_buffer(
+    capacity: usize,
+) -> Result<std.bytes.Buffer, IoError>
+{
+    let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> =
+        std.bytes.create(capacity = capacity);
+
+    match consume created
+    {
+        case Result.Ok(buffer)
+        {
+            let mut buffer: std.bytes.Buffer = buffer;
+
+            let resized: Result<unit, std.memory.MemoryLayoutError> =
+                std.bytes.resize(
+                    buffer = &mut buffer,
+                    new_length = capacity,
+                );
+
+            match consume resized
+            {
+                case Result.Ok(_)
+                {
+                    return Ok(buffer);
+                }
+
+                case Result.Error(_)
+                {
+                    return Error(buffer_allocation_error());
+                }
+            }
+        }
+
+        case Result.Error(_)
+        {
+            return Error(buffer_allocation_error());
+        }
+    }
+}
+
+internal func transferred_error(
+    pos error: IoError,
+    transferred: usize,
+) -> IoError
+{
+    return support_io_error(
+        kind = error.kind,
+        native_code = match error.platform_code
+        {
+            case ?code
+            {
+                yield code;
+            }
+
+            case none
+            {
+                yield 0;
+            }
+        },
+        transferred = transferred,
+    );
+}
+
+internal func prefixed_error(
+    pos error: IoError,
+    prefix: usize,
+) -> IoError
+{
+    let maximum: usize = ~0;
+
+    if error.transferred > maximum - prefix
+    {
+        return invalid_transfer_error(transferred = prefix);
+    }
+
+    return transferred_error(
+        error,
+        transferred = prefix + error.transferred,
+    );
+}
+
+internal func smaller(left: usize, right: usize) -> usize
+{
+    if left < right
+    {
+        return left;
+    }
+
+    return right;
+}
