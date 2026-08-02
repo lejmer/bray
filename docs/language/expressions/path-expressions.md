@@ -192,13 +192,13 @@ Shape.Circle(center = origin, radius = 1.0)
 Shape.Empty
 ```
 
-Expected-type propagation can make leading-dot variant paths available inside type-form construction expressions such as `box(...)`.
+Expected-type propagation can make contextual unqualified variant references available inside type-form construction expressions such as `box(...)`.
 
 ```bray
-let node: box List<i32> = box(.Empty);
+let node: box List<i32> = box(Empty);
 ```
 
-Here the expected type `box List<i32>` gives `box(...)` an inner expected type `List<i32>`, and `.Empty` resolves as a variant of `List<i32>`.
+Here the expected type `box List<i32>` gives `box(...)` an inner expected type `List<i32>`, and `Empty` resolves as a variant of `List<i32>`.
 
 ---
 

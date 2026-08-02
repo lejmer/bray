@@ -507,7 +507,7 @@ The outer representation of `box[S] T` has statically known finite size independ
 Box construction is handled by box construction expressions.
 
 ```bray
-let node: box List<i32> = box(.Empty);
+let node: box List<i32> = box(Empty);
 ```
 
 Box construction expression rules are defined in [Box construction expressions](../expressions/box-construction-expressions.md).

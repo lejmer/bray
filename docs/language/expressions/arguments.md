@@ -47,10 +47,10 @@ An argument expression is checked in the expected context of the corresponding p
 Expected parameter context can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, tuple element typing, array element typing, and conversion checking.
 
 ```bray
-draw(.Circle(center = origin, radius = 1.0))
+draw(Circle(center = origin, radius = 1.0))
 ```
 
-Here the `pos shape` parameter type can provide the expected union type for `.Circle(...)`.
+Here the `pos shape` parameter type can provide the expected union type for `Circle(...)`.
 
 Arguments can supply owned values.
 
@@ -73,7 +73,7 @@ fill(&mut buffer)
 Arguments can supply values constructed inline.
 
 ```bray
-draw(Shape.Circle(center = origin, radius = 1.0))
+draw(Point { x = 1.0, y = 2.0 })
 ```
 
 Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and fact-context refinement.

@@ -590,12 +590,15 @@ where
 
     let result = call_result(request, callable, callable.result())?;
 
-    let target = prepared.anonymous_target.map_or(
-        BoundCallableTarget::Indirect(callee_type.ty()),
-        BoundCallableTarget::Anonymous,
-    );
-
     let member = member_targets.get(&call.callee());
+
+    let target = match prepared.anonymous_target {
+        Some(anonymous) => BoundCallableTarget::Anonymous(anonymous),
+        None => member
+            .and_then(bray_bound_tree::MemberTarget::callable_instance)
+            .map(BoundCallableTarget::Declaration)
+            .unwrap_or(BoundCallableTarget::Indirect(callee_type.ty())),
+    };
 
     let witnesses = member
         .into_iter()

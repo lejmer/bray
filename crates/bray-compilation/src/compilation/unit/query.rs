@@ -2672,7 +2672,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    let point = Point { x = 1 };\n",
-            "    let present: Maybe = .Some(value = 1);\n",
+            "    let present: Maybe = Some(value = 1);\n",
             "}\n",
         ));
 
@@ -4378,7 +4378,7 @@ func other()
             "}\n",
             "func make_choice() -> Choice\n",
             "{\n",
-            "    return .First;\n",
+            "    return First;\n",
             "}\n",
         ));
 

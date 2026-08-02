@@ -32,12 +32,12 @@ trusted func copy_bytes_checked(
 {
     if count > destination.length
     {
-        return Result.Error(CopyError.DestinationTooSmall);
+        return Error(DestinationTooSmall);
     }
 
     if count > source.length
     {
-        return Result.Error(CopyError.SourceTooSmall);
+        return Error(SourceTooSmall);
     }
 
     ...

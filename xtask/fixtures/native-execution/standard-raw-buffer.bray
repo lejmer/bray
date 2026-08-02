@@ -7,5 +7,5 @@ func main() -> Result<unit, MemoryLayoutError>
     assert(initialized_count<u8>(&buffer) == 0);
     assert(capacity<u8>(&buffer) == 5);
 
-    return .Ok(unit);
+    return Ok(unit);
 }

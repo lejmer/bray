@@ -564,6 +564,7 @@ fn select_receiver(
         SelectedReceiver::new(
             actual.expression(),
             expected.parameter(),
+            expected.mode(),
             SelectedConversion::new(actual_type.ty(), expected.ty(), ConversionTarget::Identity),
         ),
     )))

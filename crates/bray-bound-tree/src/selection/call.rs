@@ -5,7 +5,7 @@ use bray_compiler_known::ImplementationHook;
 use bray_symbols::{
     CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallablePhaseBehaviors, ImplementationInstanceId,
-    ImplementationRequirementKey, ReceiverParameterSymbolId,
+    ImplementationRequirementKey, ReceiverMode, ReceiverParameterSymbolId,
 };
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
@@ -15,6 +15,7 @@ use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedC
 pub struct SelectedReceiver {
     expression: BoundExpressionId,
     parameter: ReceiverParameterSymbolId,
+    mode: ReceiverMode,
     conversion: SelectedConversion,
 }
 
@@ -23,11 +24,13 @@ impl SelectedReceiver {
     pub const fn new(
         expression: BoundExpressionId,
         parameter: ReceiverParameterSymbolId,
+        mode: ReceiverMode,
         conversion: SelectedConversion,
     ) -> Self {
         Self {
             expression,
             parameter,
+            mode,
             conversion,
         }
     }
@@ -40,6 +43,11 @@ impl SelectedReceiver {
     /// Returns the selected callable's receiver parameter.
     pub const fn parameter(&self) -> ReceiverParameterSymbolId {
         self.parameter
+    }
+
+    /// Returns the selected callable's receiver mode.
+    pub const fn mode(&self) -> ReceiverMode {
+        self.mode
     }
 
     /// Returns the checked receiver conversion.

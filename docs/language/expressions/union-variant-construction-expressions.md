@@ -108,8 +108,8 @@ The declared payload field type can provide expected type context to the initial
 Expected payload field type can guide literal typing, union variant shorthand, nested struct construction shorthand, box construction shorthand, tuple element typing, array element typing, and conversion checking.
 
 ```bray
-let event: Event = .Nested(
-    inner = .Started(time = now),
+let event: Event = Nested(
+    inner = Started(time = now),
 );
 ```
 

@@ -361,7 +361,7 @@ let pair: (i32, r64) = (1, 2.0);
 
 let values: [i64; 3] = [1, 2, 3];
 
-let shape: Shape = .Circle(radius = 1.0, center = origin);
+let shape: Shape = Circle(radius = 1.0, center = origin);
 ```
 
 In each example, the expected type controls literal typing.

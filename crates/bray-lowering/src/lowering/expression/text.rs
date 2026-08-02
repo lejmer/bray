@@ -56,13 +56,7 @@ impl Lowerer<'_> {
         let mut operand_types = Vec::with_capacity(capacity);
 
         if let Some(receiver) = selection.receiver() {
-            let lowered = self.lower_text_operand(
-                id,
-                receiver.expression(),
-                current,
-                &source,
-                receiver.conversion(),
-            )?;
+            let (lowered, operand_type) = self.lower_call_receiver(receiver, current)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -74,8 +68,16 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingOperationResult(receiver.expression()));
             };
 
+            let operand = self.convert_operand(
+                id,
+                current,
+                Self::retained_source(&source),
+                operand,
+                receiver.conversion(),
+            )?;
+
             operands.push(operand);
-            operand_types.push(receiver.conversion().target_type());
+            operand_types.push(operand_type);
         }
 
         for argument in selection.arguments() {

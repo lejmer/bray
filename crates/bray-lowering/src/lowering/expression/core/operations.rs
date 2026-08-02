@@ -460,7 +460,7 @@ impl Lowerer<'_> {
         };
 
         if let Some(receiver) = selection.receiver() {
-            let lowered = self.lower_expression(receiver.expression(), current)?;
+            let (lowered, _) = self.lower_call_receiver(receiver, current)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
