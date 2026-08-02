@@ -1,4 +1,7 @@
-use crate::{AnySymbolId, CallableSymbolId, ImplementationSymbolId, TraitSymbolId};
+use crate::{
+    AnySymbolId, CallableSymbolId, ImplementationSymbolId, PredicateDefinitionSymbolId,
+    TraitSymbolId,
+};
 
 use super::GenericSubstitutionId;
 
@@ -71,6 +74,36 @@ impl CallableInstanceData {
 
     /// Returns the exact callable definition.
     pub const fn definition(self) -> CallableDefinitionId {
+        self.definition
+    }
+
+    /// Returns the ordered generic substitution.
+    pub const fn substitution(self) -> GenericSubstitutionId {
+        self.substitution
+    }
+}
+
+/// The immutable structural key for one substituted predicate definition.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PredicateInstanceData {
+    definition: PredicateDefinitionSymbolId,
+    substitution: GenericSubstitutionId,
+}
+
+impl PredicateInstanceData {
+    /// Creates one predicate instance from its definition and ordered substitution.
+    pub const fn new(
+        definition: PredicateDefinitionSymbolId,
+        substitution: GenericSubstitutionId,
+    ) -> Self {
+        Self {
+            definition,
+            substitution,
+        }
+    }
+
+    /// Returns the exact predicate definition.
+    pub const fn definition(self) -> PredicateDefinitionSymbolId {
         self.definition
     }
 

@@ -272,6 +272,60 @@ impl MirTerminator {
 }
 
 impl MirTerminatorKind {
+    /// Visits every control-flow successor in deterministic operand order.
+    pub fn for_each_successor(&self, mut visit: impl FnMut(MirBlockId)) {
+        match self {
+            Self::Goto(edge) => visit(edge.target()),
+            Self::Branch {
+                then_edge,
+                else_edge,
+                ..
+            } => {
+                visit(then_edge.target());
+                visit(else_edge.target());
+            }
+            Self::PatternBranch {
+                matched, unmatched, ..
+            } => {
+                visit(matched.target());
+                visit(unmatched.target());
+            }
+            Self::Iterate {
+                item, exhausted, ..
+            } => {
+                visit(*item);
+                visit(exhausted.target());
+            }
+            Self::Switch {
+                cases, otherwise, ..
+            } => {
+                for case in cases.iter() {
+                    visit(case.edge().target());
+                }
+
+                visit(otherwise.target());
+            }
+            Self::Suspend {
+                resume,
+                cancellation,
+                ..
+            } => {
+                visit(resume.target());
+                visit(cancellation.edge().target());
+            }
+            Self::ForwardRunResult { edges, .. } => {
+                visit(edges.completed().target());
+                visit(edges.panicked().edge().target());
+                visit(edges.cancelled().edge().target());
+            }
+            Self::BeginCleanup(cleanup)
+            | Self::ContinueCleanup(cleanup)
+            | Self::Panic { cleanup, .. }
+            | Self::CancelCurrentRun { cleanup } => visit(cleanup.edge().target()),
+            Self::Return(_) | Self::Unreachable | Self::PropagatePanic { .. } => {}
+        }
+    }
+
     /// Returns whether a source literal pattern requires an externally materialized value.
     pub const fn requires_pattern_literal_mapping(&self) -> bool {
         matches!(

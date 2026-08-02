@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, CheckedExpressionTypes, ExpressionTypeEntry, ExpressionTypeResult,
-    ExpressionTypeStatus, walk_bound_unit_view,
+    AnyBoundNodeId, BoundBlockId, BoundExpression, BoundExpressionId, BoundWalkControl,
+    BoundWalkEvent, BoundWalkOutcome, CheckedExpressionTypes, ExpressionTypeEntry,
+    ExpressionTypeResult, ExpressionTypeStatus, walk_bound_unit_view,
 };
 use bray_symbols::TypeId;
 
@@ -229,6 +229,19 @@ where
         let variable = self.variables.get(&expression).copied()?;
 
         self.inference.result(variable)
+    }
+
+    pub(crate) fn unique_matching_expectation<E>(
+        &mut self,
+        expression: BoundExpressionId,
+        is_match: impl FnMut(TypeId) -> Result<bool, E>,
+    ) -> Result<Option<TypeId>, E> {
+        let Some(variable) = self.variables.get(&expression).copied() else {
+            return Ok(None);
+        };
+
+        self.inference
+            .try_unique_matching_expectation(variable, is_match)
     }
 
     pub(crate) fn preview(&mut self) -> CheckedExpressionTypes {
@@ -503,7 +516,7 @@ where
 
         variables.insert(expression, variable);
 
-        if let Some(ty) = bound.ty() {
+        if let Some(ty) = intrinsic_expression_type(bound) {
             request
                 .semantic_values()
                 .type_data(ty)
@@ -516,6 +529,22 @@ where
     }
 
     Ok(())
+}
+
+fn intrinsic_expression_type(expression: &BoundExpression) -> Option<TypeId> {
+    match expression {
+        BoundExpression::Name(name)
+            if matches!(
+                name.target(),
+                bray_bound_tree::BoundReferenceTarget::Surface(
+                    bray_symbols::AnySymbolId::ReceiverParameter(_)
+                )
+            ) =>
+        {
+            None
+        }
+        _ => expression.ty(),
+    }
 }
 
 fn initialize_block_variables<C>(

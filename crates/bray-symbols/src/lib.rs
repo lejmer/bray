@@ -193,8 +193,8 @@ pub use value::{
     DependencySubjectRoot, GenericArgument, GenericArgumentKind, GenericBinding, GenericOwnerId,
     GenericSubstitutionData, GenericSubstitutionId, GenericSubstitutionShapeError,
     GuardedDependencyRequirement, ImplementationInstanceData, ImplementationInstanceId,
-    IntegerConstant, IntegerSign, LifecycleObligationKind, RealConstantBits, SelfTypeContext,
-    SemanticValueKind, SemanticValueStore, SemanticValueStoreCreateError, SemanticValueStoreError,
-    SemanticValueStoreId, TargetSizedIntegerType, TraitApplicationData, TraitApplicationId,
-    TypeData, TypeId,
+    IntegerConstant, IntegerSign, LifecycleObligationKind, PredicateInstanceData, RealConstantBits,
+    SelfTypeContext, SemanticValueKind, SemanticValueStore, SemanticValueStoreCreateError,
+    SemanticValueStoreError, SemanticValueStoreId, TargetSizedIntegerType, TraitApplicationData,
+    TraitApplicationId, TypeData, TypeId,
 };

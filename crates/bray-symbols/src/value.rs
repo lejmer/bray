@@ -9,7 +9,8 @@ mod substitution_apply;
 mod ty;
 
 pub use application::{
-    CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, TraitApplicationData,
+    CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, PredicateInstanceData,
+    TraitApplicationData,
 };
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,

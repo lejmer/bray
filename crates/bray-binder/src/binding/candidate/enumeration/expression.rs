@@ -6,7 +6,7 @@ use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractTemplateFact, CallableOverloadTemplateFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, GenericDeclarationTemplateFact,
-    MemberLookupResult,
+    MemberLookupResult, PredicateSignatureTemplateFact,
 };
 use bray_syntax::GenericArgumentSyntax;
 
@@ -30,6 +30,7 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
+        + SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {

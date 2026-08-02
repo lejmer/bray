@@ -175,10 +175,10 @@ impl Compilation {
             .map_indexed(callables.len(), |index| {
                 cancellation.check()?;
 
+                let callable = callables[index];
+
                 binder
-                    .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
-                        callables[index],
-                    ))
+                    .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
                     .map_err(super::binder::binder_fact_error)
             })?;
 

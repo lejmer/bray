@@ -258,6 +258,13 @@ where
         return Ok(Some(result.ty()));
     }
 
+    if let Some(expected) = session.unique_matching_expectation(expression_id, |ty| {
+        Ok(type_representation(request, ty)?
+            .is_some_and(|role| representation_supports_operator(role, operator)))
+    })? {
+        return Ok(Some(expected));
+    }
+
     for operand in expression.child_expressions() {
         let Some(result) = session
             .expression_type(operand)

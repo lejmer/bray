@@ -16,7 +16,7 @@ pub(super) struct PathLookup {
     pub(super) reference: Option<NameReference>,
 }
 
-pub(super) fn lookup_surface_name_with_imports(
+pub(crate) fn lookup_surface_name_with_imports(
     symbols: &SymbolGraph,
     imported_symbols: Option<&ImportedSymbolSkeleton>,
     owner: AnySymbolId,
@@ -134,6 +134,61 @@ pub(super) fn next_imported_module_prefix(
     }
 
     None
+}
+
+pub(super) fn compiler_known_module_for_imported(
+    symbols: &SymbolGraph,
+    imported_symbols: &ImportedSymbolSkeleton,
+    module: ModuleSymbolId,
+) -> Option<ModuleSymbolId> {
+    let module = imported_symbols.module(module)?;
+
+    let ModuleOwnerId::Package(package) = module.owner() else {
+        return None;
+    };
+
+    let package = imported_symbols.package(package)?;
+
+    let path = ModulePathKey::try_new(
+        package
+            .identity()
+            .as_str()
+            .split('.')
+            .chain(module.path().segments()),
+    )?;
+
+    symbols
+        .module_by_path(
+            ModuleOwnerId::from(symbols.compiler_known_environment().id()),
+            &path,
+        )
+        .map(ModuleSymbol::id)
+}
+
+pub(super) fn compiler_known_module_for_owner(
+    symbols: &SymbolGraph,
+    imported_symbols: Option<&ImportedSymbolSkeleton>,
+    owner: AnySymbolId,
+) -> Option<ModuleSymbolId> {
+    let AnySymbolId::Module(module) = owner else {
+        return None;
+    };
+
+    symbols
+        .module(module)
+        .filter(|module| !matches!(module.owner(), ModuleOwnerId::CompilerKnownEnvironment(_)))
+        .and_then(|module| {
+            symbols.module_by_path(
+                ModuleOwnerId::from(symbols.compiler_known_environment().id()),
+                module.path(),
+            )
+        })
+        .map(ModuleSymbol::id)
+        .or_else(|| {
+            imported_symbols.and_then(|imported_symbols| {
+                compiler_known_module_for_imported(symbols, imported_symbols, module)
+            })
+        })
 }
 
 pub(super) fn module_prefix_as_path_prefix(

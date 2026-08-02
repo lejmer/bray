@@ -4,7 +4,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnonymousCallableSymbolId, CallableDefinitionId, CallableInstanceData,
-    ImplementationInstanceId, SymbolName, TypeId,
+    ImplementationInstanceId, PredicateInstanceData, SymbolName, TypeId,
 };
 
 use crate::{BoundExpressionId, BoundNodeOrigin};
@@ -78,6 +78,8 @@ pub enum BoundCallableTarget {
     /// Compiler-provided behavior is classified from this declaration identity, never from the
     /// callee's source spelling.
     Declaration(CallableInstanceData),
+    /// A compile-time predicate and its complete generic substitution.
+    Predicate(PredicateInstanceData),
     /// A separately bound anonymous callable unit.
     Anonymous(AnonymousCallableSymbolId),
     /// A dynamically selected callable value represented by its checked callable type.
@@ -89,7 +91,7 @@ impl BoundCallableTarget {
     pub const fn declaration(self) -> Option<CallableDefinitionId> {
         match self {
             Self::Declaration(instance) => Some(instance.definition()),
-            Self::Anonymous(_) | Self::Indirect(_) => None,
+            Self::Predicate(_) | Self::Anonymous(_) | Self::Indirect(_) => None,
         }
     }
 }

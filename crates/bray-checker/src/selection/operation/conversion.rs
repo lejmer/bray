@@ -260,6 +260,8 @@ impl ScalarShape {
             (Self::Unsigned(source), Self::Real(mantissa)) => source <= mantissa,
             (Self::Real(source), Self::Real(target)) => source <= target,
             (Self::Complex(source), Self::Complex(target)) => source <= target,
+            (Self::TargetSigned, Self::Signed(128))
+            | (Self::TargetUnsigned, Self::Unsigned(128)) => true,
             (Self::TargetSigned, Self::TargetSigned)
             | (Self::TargetUnsigned, Self::TargetUnsigned) => true,
             _ => false,
@@ -316,7 +318,15 @@ mod tests {
         push_expression, tuple_type,
     };
 
-    use super::validate_conversion;
+    use super::{ScalarShape, validate_conversion};
+
+    #[test]
+    fn target_sized_integers_convert_to_their_fixed_128_bit_domains() {
+        assert!(ScalarShape::TargetSigned.can_represent(ScalarShape::Signed(128)));
+        assert!(ScalarShape::TargetUnsigned.can_represent(ScalarShape::Unsigned(128)));
+        assert!(!ScalarShape::TargetSigned.can_represent(ScalarShape::Signed(64)));
+        assert!(!ScalarShape::TargetUnsigned.can_represent(ScalarShape::Unsigned(64)));
+    }
 
     #[test]
     fn composite_conversions_validate_and_retain_nested_conversion_plans() {

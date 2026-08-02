@@ -708,6 +708,26 @@ impl<'values> SemanticUnifier<'values> {
 
                 Ok(false)
             }
+            ConstantTermData::PredicateCall {
+                predicate,
+                arguments,
+            } => {
+                if self.substitution_contains_const_parameter(
+                    predicate.substitution(),
+                    parameter,
+                    visited,
+                )? {
+                    return Ok(true);
+                }
+
+                for argument in &**arguments {
+                    if self.constant_contains_parameter(*argument, parameter, visited)? {
+                        return Ok(true);
+                    }
+                }
+
+                Ok(false)
+            }
             ConstantTermData::Projection(projection) => {
                 self.constant_contains_parameter(projection.subject(), parameter, visited)
             }

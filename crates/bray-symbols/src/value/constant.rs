@@ -446,6 +446,13 @@ pub enum ConstantTermData {
         /// Ordered argument terms.
         arguments: Arc<[ConstantTermId]>,
     },
+    /// A checked predicate application that can remain open.
+    PredicateCall {
+        /// Exact substituted predicate.
+        predicate: crate::PredicateInstanceData,
+        /// Ordered argument terms.
+        arguments: Arc<[ConstantTermId]>,
+    },
     /// A checked projection from another term.
     Projection(ConstantProjection),
 }
@@ -488,6 +495,17 @@ impl ConstantTermData {
         Self::Call {
             callable,
             selected_implementation,
+            arguments: shared_slice(arguments),
+        }
+    }
+
+    /// Creates a checked predicate application.
+    pub fn predicate_call(
+        predicate: crate::PredicateInstanceData,
+        arguments: impl IntoIterator<Item = ConstantTermId>,
+    ) -> Self {
+        Self::PredicateCall {
+            predicate,
             arguments: shared_slice(arguments),
         }
     }

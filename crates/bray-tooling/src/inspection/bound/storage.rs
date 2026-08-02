@@ -202,6 +202,10 @@ impl InspectionStorageProvenance {
                 symbol_kind: "anonymous_callable_parameter",
                 id: symbol.ordinal(),
             }),
+            StorageIdentity::PostconditionResult(symbol) => Ok(Self::LocalSymbol {
+                symbol_kind: "postcondition_result",
+                id: symbol.ordinal(),
+            }),
             StorageIdentity::CompilerCreated(origin) => {
                 let synthesis = origin.synthesized_origin();
 

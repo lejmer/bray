@@ -133,7 +133,7 @@ impl StorageFlowState {
     fn entry(storage: &StoragePlan) -> Self {
         let initialized = storage
             .identity_entries()
-            .filter_map(|(id, identity)| identity_is_initialized_at_entry(identity).then_some(id))
+            .filter_map(|(id, identity)| identity.is_initialized_at_entry().then_some(id))
             .collect::<BTreeSet<_>>();
 
         let active_borrows = storage
@@ -358,16 +358,6 @@ where
     }
 }
 
-const fn identity_is_initialized_at_entry(identity: StorageIdentity) -> bool {
-    matches!(
-        identity,
-        StorageIdentity::Parameter(_)
-            | StorageIdentity::Receiver(_)
-            | StorageIdentity::AnonymousParameter(_)
-            | StorageIdentity::PredicateParameter(_)
-    )
-}
-
 fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
     match identity {
         StorageIdentity::LocalOwned(definition) => Some(definition),
@@ -380,6 +370,7 @@ fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId>
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::Result(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => None,

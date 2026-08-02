@@ -110,6 +110,13 @@ macro_rules! define_imported_symbol_skeleton {
                 symbol_key_from_provider(self, symbol)
             }
 
+            /// Returns whether recovery contributed to an imported symbol's public surface.
+            ///
+            /// Validated compiled interfaces cannot contain recovered public symbols.
+            pub fn symbol_is_recovered(&self, symbol: AnySymbolId) -> Option<bool> {
+                self.symbol_key(symbol).map(|_| false)
+            }
+
             /// Returns the compiled-interface address backing one imported declaration symbol.
             pub fn imported_fact_address(
                 &self,

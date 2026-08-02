@@ -185,6 +185,33 @@ pub struct SynthesizedSymbolKey {
 }
 
 impl SynthesizedSymbolKey {
+    /// Creates a synthesized key when the role and ordinal shape agree.
+    pub fn try_new(
+        role: SynthesizedSymbolRole,
+        subject: SymbolKey,
+        ordinal: Option<SymbolOrdinal>,
+    ) -> Option<Self> {
+        match (role, ordinal) {
+            (
+                SynthesizedSymbolRole::DeclaredGenericTypeParameter
+                | SynthesizedSymbolRole::DeclaredGenericConstParameter
+                | SynthesizedSymbolRole::CallableParameter
+                | SynthesizedSymbolRole::PredicateParameter
+                | SynthesizedSymbolRole::InferredImplementationTypeParameter
+                | SynthesizedSymbolRole::InferredImplementationConstParameter,
+                Some(ordinal),
+            ) => Some(Self::with_ordinal(role, subject, ordinal)),
+            (
+                SynthesizedSymbolRole::ReceiverParameter
+                | SynthesizedSymbolRole::CallableParameterDefaultProvider
+                | SynthesizedSymbolRole::StructFieldDefaultProvider
+                | SynthesizedSymbolRole::UnionPayloadDefaultProvider,
+                None,
+            ) => Some(Self::without_ordinal(role, subject)),
+            _ => None,
+        }
+    }
+
     /// Creates the implicit receiver key for a callable member.
     pub fn receiver_parameter(subject: SymbolKey) -> Self {
         Self::without_ordinal(SynthesizedSymbolRole::ReceiverParameter, subject)

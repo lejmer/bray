@@ -175,6 +175,22 @@ pub(super) fn validate_constant_term_data(
                 tables.constant_terms.get(store, argument)?;
             }
         }
+        ConstantTermData::PredicateCall {
+            predicate,
+            arguments,
+        } => {
+            let Some(expected) =
+                super::super::GenericOwnerId::try_new(predicate.definition().into_any())
+            else {
+                return Err(SemanticValueStoreError::OpenSubstitution);
+            };
+
+            validate_application_owner(tables, store, expected, predicate.substitution())?;
+
+            for argument in arguments.iter().copied() {
+                tables.constant_terms.get(store, argument)?;
+            }
+        }
         ConstantTermData::Projection(projection) => {
             tables.constant_terms.get(store, projection.subject())?;
 

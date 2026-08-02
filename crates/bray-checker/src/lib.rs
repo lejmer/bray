@@ -55,9 +55,9 @@ pub use selection::{
     CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
     ImplementationSelectionEvidence, IterationSourceCandidate, IterationSourceSelectionRequest,
     OperationCandidate, OperationCandidateSource, OperationCandidateState,
-    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
-    SelectionFailure, built_in_conversion_plan, compiler_known_operation_role,
-    composite_conversion_children,
+    OperationSelectionRequest, PredicateCandidateTemplate, ReceiverCapability, ReceiverSelection,
+    SelectionCandidateKey, SelectionFailure, built_in_conversion_plan,
+    compiler_known_operation_role, composite_conversion_children,
 };
 pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,

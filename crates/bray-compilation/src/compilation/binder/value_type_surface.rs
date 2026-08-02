@@ -7,8 +7,8 @@ use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, CallableSignatureFact, CallableSignatureTemplate,
     CallableSymbolId, ConstantDeclaredTypeFact, ConstantExpressionExpectedType,
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeFact,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, StructFieldTypeFact,
-    SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
+    ImplementationSubjectFact, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
+    StructFieldTypeFact, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
     TraitConstantMemberDeclaredTypeFact, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
 };
 use bray_syntax::LambdaExpressionSyntax;
@@ -45,7 +45,7 @@ impl DeclaredValueTypeBinding<'_> {
             BoundUnitKind::ConstantTemplate => self.bind_constant_surface(),
             BoundUnitKind::EmbeddedConstant => self.bind_embedded_constant_surface(),
             BoundUnitKind::PredicateDefinition => self.bind_predicate_surface(),
-            BoundUnitKind::Constraint => Ok(()),
+            BoundUnitKind::Constraint => self.bind_predicate_results(),
             BoundUnitKind::ContractClause => self.bind_contract_surface(),
             BoundUnitKind::TargetGate => self.bind_target_gate_surface(),
         }
@@ -66,24 +66,37 @@ impl DeclaredValueTypeBinding<'_> {
         let signature = result.value();
 
         if let Some(receiver) = signature.receiver() {
-            let receiver_type = self
+            let implementation = self
                 .context
-                .semantic_values()
-                .type_data(receiver.ty())
-                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+                .symbols()
+                .containing_symbol(self.owner)
+                .and_then(bray_symbols::ImplementationSymbolId::try_from_any);
 
-            let receiver_type = match receiver_type.as_ref() {
-                bray_symbols::TypeData::ContextualSelf(
-                    context @ bray_symbols::SelfTypeContext::NamedType(_),
-                ) => contextual_self_type(self.context, *context)
-                    .map_err(|_| BinderFactError::DependencyUnavailable)?,
-                _ => receiver.ty(),
+            let receiver_type = match implementation {
+                Some(implementation) => self.implementation_subject_type(implementation)?,
+                None => {
+                    let receiver_type = self
+                        .context
+                        .semantic_values()
+                        .type_data(receiver.ty())
+                        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+                    match receiver_type.as_ref() {
+                        bray_symbols::TypeData::ContextualSelf(
+                            context @ bray_symbols::SelfTypeContext::NamedType(_),
+                        ) => TypeExpressionTemplate::Resolved(
+                            contextual_self_type(self.context, *context)
+                                .map_err(|_| BinderFactError::DependencyUnavailable)?,
+                        ),
+                        bray_symbols::TypeData::ContextualSelf(
+                            bray_symbols::SelfTypeContext::Implementation(implementation),
+                        ) => self.implementation_subject_type(*implementation)?,
+                        _ => TypeExpressionTemplate::Resolved(receiver.ty()),
+                    }
+                }
             };
 
-            self.add_evidence(
-                surface_value(receiver.parameter().into()),
-                TypeExpressionTemplate::Resolved(receiver_type),
-            );
+            self.add_evidence(surface_value(receiver.parameter().into()), receiver_type);
         }
 
         for (parameter, ty) in callable_parameter_templates(self.context, signature)? {
@@ -151,6 +164,21 @@ impl DeclaredValueTypeBinding<'_> {
         });
 
         Ok(())
+    }
+
+    fn implementation_subject_type(
+        &mut self,
+        implementation: bray_symbols::ImplementationSymbolId,
+    ) -> BinderFactResult<TypeExpressionTemplate> {
+        let subject =
+            self.context
+                .symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
+                    implementation,
+                ))?;
+
+        self.diagnostics = self.diagnostics.merged(subject.diagnostics());
+
+        Ok(owned_template(subject.value().ty()))
     }
 
     fn bind_runtime_default_surface(&mut self) -> BinderFactResult<()> {
@@ -250,6 +278,7 @@ impl DeclaredValueTypeBinding<'_> {
 
     fn bind_contract_surface(&mut self) -> BinderFactResult<()> {
         self.bind_callable_surface(self.owner, false)?;
+        self.bind_predicate_results()?;
 
         let result = self
             .unit
@@ -283,6 +312,39 @@ impl DeclaredValueTypeBinding<'_> {
             DeclaredValueTypeTerm::Expression(expression),
             TypeExpressionTemplate::Resolved(boolean),
         );
+
+        Ok(())
+    }
+
+    fn bind_predicate_results(&mut self) -> BinderFactResult<()> {
+        let expressions = match self.unit.root() {
+            BoundUnitRoot::Expression(expression) => vec![expression],
+            BoundUnitRoot::ExpressionSequence(block) => self
+                .unit
+                .view()
+                .block(block)
+                .ok_or(BinderFactError::DependencyUnavailable)?
+                .items()
+                .iter()
+                .filter_map(|item| item.expression())
+                .collect(),
+            BoundUnitRoot::CallableBody { .. } | BoundUnitRoot::AnonymousCallable { .. } => {
+                return Err(BinderFactError::DependencyUnavailable);
+            }
+        };
+
+        let boolean = self
+            .context
+            .compilation()
+            .target_fact_type(TargetFactKind::ScalarBool)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        for expression in expressions {
+            self.add_evidence(
+                DeclaredValueTypeTerm::Expression(expression),
+                TypeExpressionTemplate::Resolved(boolean),
+            );
+        }
 
         Ok(())
     }

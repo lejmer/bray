@@ -7,8 +7,8 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     CallableContractTemplate, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    CallableSignature, GenericConstraintTemplate, ImplementationRequirementKey,
-    ImplementationSelection, TypeId,
+    CallableSignature, GenericConstraintTemplate, GenericSubstitutionId,
+    ImplementationRequirementKey, ImplementationSelection, TypeId,
 };
 
 use super::SelectionCandidateKey;
@@ -112,6 +112,7 @@ pub struct CallableCandidate {
         )],
     >,
     generic_constraints: Arc<[GenericConstraintTemplate]>,
+    generic_substitution: Option<GenericSubstitutionId>,
     implementation_selections: Arc<[ImplementationSelectionEvidence]>,
     state: CallableCandidateState,
 }
@@ -132,6 +133,11 @@ impl CallableCandidate {
     ) -> Self {
         let mut defaults = defaults.into_iter().collect::<Vec<_>>();
 
+        let substitution = match resolution.target() {
+            bray_bound_tree::BoundCallableTarget::Declaration(instance) => instance.substitution(),
+            _ => unreachable!("declaration candidates have declaration targets"),
+        };
+
         defaults.sort_unstable_by_key(|(parameter, _)| *parameter);
 
         Self {
@@ -143,6 +149,7 @@ impl CallableCandidate {
             contract: None,
             defaults: defaults.into(),
             generic_constraints: Arc::new([]),
+            generic_substitution: Some(substitution),
             implementation_selections: Arc::new([]),
             state,
         }
@@ -165,6 +172,31 @@ impl CallableCandidate {
             result,
             defaults: Arc::new([]),
             generic_constraints: Arc::new([]),
+            generic_substitution: None,
+            implementation_selections: Arc::new([]),
+            state,
+        }
+    }
+
+    /// Creates a compile-time predicate candidate with a concrete callable surface.
+    pub(crate) fn predicate(
+        key: impl Into<SelectionCandidateKey>,
+        resolution: BoundResolvedCall,
+        callable_type: TypeId,
+        result: TypeId,
+        substitution: GenericSubstitutionId,
+        state: CallableCandidateState,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            resolution,
+            callable_type,
+            declaration_signature: None,
+            contract: None,
+            result,
+            defaults: Arc::new([]),
+            generic_constraints: Arc::new([]),
+            generic_substitution: Some(substitution),
             implementation_selections: Arc::new([]),
             state,
         }
@@ -249,6 +281,10 @@ impl CallableCandidate {
 
     pub(crate) fn generic_constraints(&self) -> &[GenericConstraintTemplate] {
         &self.generic_constraints
+    }
+
+    pub(crate) const fn generic_substitution(&self) -> Option<GenericSubstitutionId> {
+        self.generic_substitution
     }
 
     pub(in crate::selection) fn implementation_selections(

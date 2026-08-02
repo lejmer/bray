@@ -127,10 +127,7 @@ impl Compilation {
             .expression(key.expression())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let mut diagnostics = DiagnosticBag::merged_all([
-            bound.result().diagnostics(),
-            semantics.result().diagnostics(),
-        ]);
+        let mut diagnostics = bound.result().diagnostics().clone();
 
         let selection_kind =
             selection_kind_for(&facts, bound.result().value(), key.expression(), expression)?;

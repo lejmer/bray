@@ -186,7 +186,13 @@ const fn can_be_external_declaration(kind: SymbolKind) -> bool {
 }
 
 const fn role_requires_ordinal(role: SynthesizedSymbolRole) -> bool {
-    !matches!(role, SynthesizedSymbolRole::ReceiverParameter)
+    !matches!(
+        role,
+        SynthesizedSymbolRole::ReceiverParameter
+            | SynthesizedSymbolRole::CallableParameterDefaultProvider
+            | SynthesizedSymbolRole::StructFieldDefaultProvider
+            | SynthesizedSymbolRole::UnionPayloadDefaultProvider
+    )
 }
 
 #[cfg(test)]

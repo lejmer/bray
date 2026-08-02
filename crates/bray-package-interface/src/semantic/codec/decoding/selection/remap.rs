@@ -365,6 +365,14 @@ fn remap_constant_term(
 
             remap_constant_term_ids(Arc::make_mut(arguments), maps)?;
         }
+        InterfaceConstantTerm::PredicateCall {
+            substitution,
+            arguments,
+            ..
+        } => {
+            *substitution = maps.substitution_id(*substitution)?;
+            remap_constant_term_ids(Arc::make_mut(arguments), maps)?;
+        }
         InterfaceConstantTerm::Projection { subject, kind } => {
             *subject = maps.constant_term_id(*subject)?;
 

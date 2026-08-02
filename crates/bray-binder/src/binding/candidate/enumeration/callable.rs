@@ -7,13 +7,16 @@ use bray_checker::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableValueCandidateTemplate, CandidateAbsence, ExpressionCandidateSet,
+    PredicateCandidateTemplate,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractTemplateFact, CallableDefinitionId, CallableOverloadSymbolId,
     CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
-    CallableSymbolId, GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult,
-    OverloadArmTemplate, SymbolFactContract, SymbolFactRequest,
+    CallableSymbolId, GenericArgumentTemplate, GenericDeclarationTemplate,
+    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, OverloadArmTemplate,
+    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, SymbolFactContract,
+    SymbolFactRequest,
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
@@ -77,6 +80,7 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
+        + SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {
@@ -161,6 +165,7 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
+        + SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {
@@ -172,6 +177,14 @@ where
             bind_declaration_candidate(context, symbol, state, generic, diagnostics, candidates)?
                 .absence(),
         ),
+        BoundReferenceTarget::Surface(symbol)
+            if PredicateDefinitionSymbolId::try_from_any(symbol).is_some() =>
+        {
+            Ok(
+                bind_predicate_candidate(context, symbol, state, generic, diagnostics, candidates)?
+                    .absence(),
+            )
+        }
         BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => {
             bind_callable_value(DeclaredValueTypeTerm::Value(target), state, candidates);
 
@@ -203,6 +216,7 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
+        + SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {
@@ -260,6 +274,7 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
+        + SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {
@@ -334,20 +349,32 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
         + SymbolFactProvider<CallableContractTemplateFact>
         + SymbolFactProvider<GenericDeclarationTemplateFact>
+        + SymbolFactProvider<PredicateSignatureTemplateFact>
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {
-    if let ResolvedName::Surface(symbol) = name
-        && symbol.kind().is_callable()
-    {
-        return bind_declaration_candidate(
-            context,
-            symbol,
-            state,
-            generic,
-            diagnostics,
-            candidates,
-        );
+    if let ResolvedName::Surface(symbol) = name {
+        if symbol.kind().is_callable() {
+            return bind_declaration_candidate(
+                context,
+                symbol,
+                state,
+                generic,
+                diagnostics,
+                candidates,
+            );
+        }
+
+        if PredicateDefinitionSymbolId::try_from_any(symbol).is_some() {
+            return bind_predicate_candidate(
+                context,
+                symbol,
+                state,
+                generic,
+                diagnostics,
+                candidates,
+            );
+        }
     }
 
     Ok(DeclarationCandidateOutcome::Ignored)
@@ -394,46 +421,18 @@ where
     let (generic, generic_diagnostics) =
         symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_owner)?;
 
-    if !call_generic.arguments.is_empty()
-        && call_generic.arguments.len() != generic.parameters().len()
-    {
+    let Some(generic_arguments) =
+        bind_generic_arguments(context, call_generic, &generic, diagnostics)?
+    else {
         return Ok(DeclarationCandidateOutcome::Ignored);
-    }
-
-    let generic_arguments = if call_generic.arguments.is_empty() {
-        DiagnosticResult::without_diagnostics(Vec::new())
-    } else {
-        let cancellation = CandidateCancellation(context);
-
-        // Each overload candidate owns an isolated type-expression binder scope.
-        match TypeExpressionBinder::new(
-            context.symbols(),
-            context.semantic_values(),
-            call_generic.scope.clone(),
-            &cancellation,
-        )
-        .bind_call_generic_arguments(call_generic.arguments, generic.parameters())
-        {
-            Ok(arguments) => arguments,
-            Err(BinderFactError::Cancelled) => return Err(BinderFactError::Cancelled),
-            Err(BinderFactError::DependencyUnavailable) => {
-                return Ok(DeclarationCandidateOutcome::Ignored);
-            }
-        }
     };
-
-    let (generic_arguments, generic_argument_diagnostics) = generic_arguments.into_parts();
-
-    let has_generic_argument_diagnostics = !generic_argument_diagnostics.is_empty();
-
-    *diagnostics = diagnostics.merged(&generic_argument_diagnostics);
 
     let mut defaults = Vec::with_capacity(signature.parameters().len());
 
     let mut has_diagnostics = signature_diagnostics
         || contract_diagnostics
         || generic_diagnostics
-        || has_generic_argument_diagnostics;
+        || generic_arguments.has_diagnostics;
 
     for parameter in signature.parameters() {
         let (value, default_diagnostics) =
@@ -458,10 +457,121 @@ where
             signature,
             contract,
             generic,
-            generic_arguments,
+            generic_arguments.arguments,
             state,
         )
         .with_defaults(defaults),
+    ));
+
+    Ok(DeclarationCandidateOutcome::Added)
+}
+
+struct BoundGenericArguments {
+    arguments: Vec<GenericArgumentTemplate>,
+    has_diagnostics: bool,
+}
+
+fn bind_generic_arguments<C>(
+    context: &C,
+    call: CallGenericContext<'_>,
+    declaration: &GenericDeclarationTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<Option<BoundGenericArguments>>
+where
+    C: BinderFactContext + ?Sized,
+{
+    if !call.arguments.is_empty() && call.arguments.len() != declaration.parameters().len() {
+        return Ok(None);
+    }
+
+    let result = if call.arguments.is_empty() {
+        DiagnosticResult::without_diagnostics(Vec::new())
+    } else {
+        let cancellation = CandidateCancellation(context);
+
+        match TypeExpressionBinder::new(
+            context.symbols(),
+            context.imported_symbols()?,
+            context.semantic_values(),
+            call.scope.clone(),
+            &cancellation,
+        )
+        .bind_call_generic_arguments(call.arguments, declaration.parameters())
+        {
+            Ok(arguments) => arguments,
+            Err(BinderFactError::Cancelled) => return Err(BinderFactError::Cancelled),
+            Err(BinderFactError::DependencyUnavailable) => return Ok(None),
+        }
+    };
+
+    let (arguments, argument_diagnostics) = result.into_parts();
+
+    let has_diagnostics = !argument_diagnostics.is_empty();
+
+    *diagnostics = diagnostics.merged(&argument_diagnostics);
+
+    Ok(Some(BoundGenericArguments {
+        arguments,
+        has_diagnostics,
+    }))
+}
+
+fn bind_predicate_candidate<C>(
+    context: &C,
+    symbol: AnySymbolId,
+    state: CallableCandidateTemplateState,
+    call_generic: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
+    candidates: &mut Vec<CallableCandidateTemplate>,
+) -> BinderFactResult<DeclarationCandidateOutcome>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>
+        + SymbolFactProvider<GenericDeclarationTemplateFact>,
+{
+    let Some(definition) = PredicateDefinitionSymbolId::try_from_any(symbol) else {
+        return Ok(DeclarationCandidateOutcome::Ignored);
+    };
+
+    let Some(generic_owner) = GenericOwnerId::try_new(symbol) else {
+        return Ok(DeclarationCandidateOutcome::Ignored);
+    };
+
+    let Some(key) = context.symbol_key(symbol)?.cloned() else {
+        return Ok(DeclarationCandidateOutcome::Ignored);
+    };
+
+    let (signature, signature_diagnostics) =
+        symbol_fact_value::<_, PredicateSignatureTemplateFact>(context, definition)?;
+
+    let (generic, generic_diagnostics) =
+        symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_owner)?;
+
+    let Some(generic_arguments) =
+        bind_generic_arguments(context, call_generic, &generic, diagnostics)?
+    else {
+        return Ok(DeclarationCandidateOutcome::Ignored);
+    };
+
+    let is_recovered = context.symbol_is_recovered(symbol)?.unwrap_or(true);
+
+    let state = combine_recovery(
+        state,
+        is_recovered
+            || signature_diagnostics
+            || generic_diagnostics
+            || generic_arguments.has_diagnostics,
+    );
+
+    candidates.push(CallableCandidateTemplate::Predicate(
+        PredicateCandidateTemplate::new(
+            key,
+            definition,
+            signature,
+            generic,
+            generic_arguments.arguments,
+            state,
+        ),
     ));
 
     Ok(DeclarationCandidateOutcome::Added)

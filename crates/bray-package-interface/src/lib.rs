@@ -81,8 +81,8 @@ pub use semantic::{
     InterfaceTypeRepresentation, InterfaceUnionTag, decode_semantic_facts, encode_semantic_facts,
 };
 pub use surface::{
-    DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,
-    InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,
+    CompilerKnownSymbolReference, DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind,
+    InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,
     PackageInterfaceIdentity, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
     SymbolRelationship, SymbolRelationshipKind,
 };

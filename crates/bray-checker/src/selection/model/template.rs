@@ -5,7 +5,8 @@ use bray_bound_tree::{BoundExpressionId, DeclaredValueTypeTerm, SelectionKind};
 use bray_symbols::{
     CallableContractTemplate, CallableDefinitionId, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallableSignatureTemplate, GenericArgumentTemplate,
-    GenericDeclarationTemplate, SymbolKey, UnevaluatedDefaultTemplate,
+    GenericDeclarationTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplate, SymbolKey,
+    UnevaluatedDefaultTemplate,
 };
 
 /// Why an exact semantic candidate request has no candidate surface.
@@ -162,6 +163,75 @@ impl CallableDeclarationCandidateTemplate {
     }
 }
 
+/// One predicate considered before substitution and applicability checking.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PredicateCandidateTemplate {
+    data: Arc<PredicateCandidateTemplateData>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct PredicateCandidateTemplateData {
+    key: SymbolKey,
+    definition: PredicateDefinitionSymbolId,
+    signature: PredicateSignatureTemplate,
+    generic: GenericDeclarationTemplate,
+    generic_arguments: Arc<[GenericArgumentTemplate]>,
+    state: CallableCandidateTemplateState,
+}
+
+impl PredicateCandidateTemplate {
+    /// Creates a predicate candidate with its complete unevaluated signature inputs.
+    pub fn new(
+        key: SymbolKey,
+        definition: PredicateDefinitionSymbolId,
+        signature: PredicateSignatureTemplate,
+        generic: GenericDeclarationTemplate,
+        generic_arguments: impl IntoIterator<Item = GenericArgumentTemplate>,
+        state: CallableCandidateTemplateState,
+    ) -> Self {
+        Self {
+            data: Arc::new(PredicateCandidateTemplateData {
+                key,
+                definition,
+                signature,
+                generic,
+                generic_arguments: shared_slice(generic_arguments),
+                state,
+            }),
+        }
+    }
+
+    /// Returns the candidate's stable semantic key.
+    pub fn key(&self) -> &SymbolKey {
+        &self.data.key
+    }
+
+    /// Returns the exact predicate declaration.
+    pub fn definition(&self) -> PredicateDefinitionSymbolId {
+        self.data.definition
+    }
+
+    /// Returns the complete unevaluated predicate signature.
+    pub fn signature(&self) -> &PredicateSignatureTemplate {
+        &self.data.signature
+    }
+
+    /// Returns generic parameters and constraint templates.
+    pub fn generic(&self) -> &GenericDeclarationTemplate {
+        &self.data.generic
+    }
+
+    /// Returns explicit generic arguments bound for this candidate.
+    pub fn generic_arguments(&self) -> &[GenericArgumentTemplate] {
+        &self.data.generic_arguments
+    }
+
+    /// Returns the participation state known before applicability checking.
+    pub fn state(&self) -> CallableCandidateTemplateState {
+        self.data.state
+    }
+}
+
 /// One value retained for callable classification by the type-selection fixed point.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableValueCandidateTemplate {
@@ -191,6 +261,8 @@ impl CallableValueCandidateTemplate {
 pub enum CallableCandidateTemplate {
     /// A callable declaration with exact signature facts.
     Declaration(CallableDeclarationCandidateTemplate),
+    /// A compile-time predicate with exact signature facts.
+    Predicate(PredicateCandidateTemplate),
     /// A value retained for callable classification by the type-selection fixed point.
     Value(CallableValueCandidateTemplate),
 }

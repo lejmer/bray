@@ -19,5 +19,5 @@ pub use template::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableValueCandidateTemplate, CandidateAbsence, ExpressionCandidateSet,
-    OperationCandidateSource,
+    OperationCandidateSource, PredicateCandidateTemplate,
 };

@@ -260,13 +260,16 @@ where
             .map(|result| result.id())
             .collect::<Vec<_>>();
 
-        let result_storage = self.result_storage;
-
         for result in results {
+            let storage = self
+                .builder_mut()?
+                .push_identity(StorageIdentity::PostconditionResult(result))
+                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
             self.builder_mut()?
                 .bind(
                     StorageBindingTarget::PostconditionResult(result),
-                    StorageBinding::Identity(result_storage),
+                    StorageBinding::Identity(storage),
                 )
                 .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
         }
@@ -305,7 +308,15 @@ where
                         .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
                     let entry = match borrow {
-                        Some((kind, target)) => {
+                        Some((kind, fallback_target)) => {
+                            let target = self
+                                .entry_storage(BoundReferenceTarget::Surface(receiver.into()))?
+                                .map(|entry| match entry.borrow {
+                                    Some((_, target)) => target,
+                                    None => entry.ty,
+                                })
+                                .unwrap_or(fallback_target);
+
                             let ty = self
                                 .request
                                 .semantic_values()

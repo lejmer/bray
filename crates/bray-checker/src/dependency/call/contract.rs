@@ -232,7 +232,7 @@ where
 
             Ok(callable.dependency_contracts())
         }
-        BoundCallableTarget::Anonymous(_) => request
+        BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => request
             .semantic_values()
             .empty_dependency_contract_template()
             .map(CallableDependencyContracts::synchronous)

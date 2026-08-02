@@ -111,12 +111,11 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .dependency_contracts_with_cancellation(key, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let block = bound
-        .result()
-        .value()
-        .view()
-        .block(root)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+    let block = bound.result().value().view().block(root);
+
+    let Some(block) = block else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
 
     let mut dependency_contracts = Vec::new();
 
@@ -125,8 +124,11 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             .result()
             .value()
             .expression(expression)
-            .and_then(|contract| dependencies.result().value().contract(contract))
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .and_then(|contract| dependencies.result().value().contract(contract));
+
+        let Some(contract) = contract else {
+            return Err(BinderFactError::DependencyUnavailable);
+        };
 
         dependency_contracts.push(portable_dependency_contract(
             context,

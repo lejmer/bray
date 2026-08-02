@@ -10,16 +10,14 @@ use bray_syntax::{PathSyntax, SyntaxToken};
 use super::super::binding::{
     NameLookupResult, combine_name_lookups, lookup_surface_name, lookup_unqualified_name,
 };
-use super::super::category::{
-    ResolvedMemberName, ResolvedName, ResolvedValueName, classify_member, classify_value,
-};
+use super::super::category::{ResolvedName, ResolvedValueName, classify_value};
 use super::super::diagnostic::{
     NameReference, lookup_diagnostic, malformed_lookup, report_lookup_result,
 };
 use super::prefix::{
-    PathLookup, combine_path_prefixes, imported_path_prefix, lookup_surface_name_with_imports,
-    module_prefix_as_path_prefix, next_imported_module_prefix, next_module_prefix, path_lookup,
-    path_references, source_module_prefix, token_reference,
+    PathLookup, combine_path_prefixes, compiler_known_module_for_owner, imported_path_prefix,
+    lookup_surface_name_with_imports, module_prefix_as_path_prefix, next_imported_module_prefix,
+    next_module_prefix, path_lookup, path_references, source_module_prefix, token_reference,
 };
 use crate::{BinderFactContext, BinderFactResult, ImportedPathRoot, binder::Binder};
 
@@ -27,7 +25,8 @@ use crate::{BinderFactContext, BinderFactResult, ImportedPathRoot, binder::Binde
 use super::super::binding::lookup_member_index;
 #[cfg(test)]
 use super::super::category::{
-    ResolvedTypeName, classify_callable_overload, classify_trait, classify_type,
+    ResolvedMemberName, ResolvedTypeName, classify_callable_overload, classify_member,
+    classify_trait, classify_type,
 };
 #[cfg(test)]
 use bray_symbols::{CallableOverloadSymbolId, MemberLookupIndex, MemberVisibility, TraitSymbolId};
@@ -115,6 +114,7 @@ where
 
 pub(crate) fn bind_source_path(
     symbols: &SymbolGraph,
+    imported_root: Option<ImportedPathRoot<'_>>,
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
@@ -130,7 +130,7 @@ pub(crate) fn bind_source_path(
 
     match bind_path_with_ordinary(
         symbols,
-        None,
+        imported_root,
         module.owner(),
         access,
         references,
@@ -471,40 +471,6 @@ where
         (Some(reference), result)
     }
 
-    pub(crate) fn lookup_module_route(
-        &self,
-        context: PathBindingContext,
-        source: &SourceSnapshot,
-        tokens: impl IntoIterator<Item = SyntaxToken>,
-    ) -> Option<(ModuleSymbolId, usize)> {
-        let references = tokens
-            .into_iter()
-            .map(|token| token_reference(source, token))
-            .collect::<Option<Vec<_>>>()?;
-
-        let source = next_module_prefix(
-            self.facts().symbols(),
-            context.module_owner,
-            None,
-            &references,
-            context.access,
-        );
-
-        source
-            .or_else(|| {
-                next_module_prefix(
-                    self.facts().symbols(),
-                    ModuleOwnerId::from(self.facts().symbols().compiler_known_environment().id()),
-                    None,
-                    &references,
-                    context.access,
-                )
-            })
-            .and_then(|(module, length, lookup)| {
-                matches!(lookup, MemberLookupResult::Found(_)).then_some((module, length))
-            })
-    }
-
     #[cfg(test)]
     pub(crate) fn bind_callable_overload_path(
         &mut self,
@@ -517,75 +483,6 @@ where
             DiagnosticNameKind::CallableOverload,
             classify_callable_overload,
         )
-    }
-
-    pub(crate) fn bind_member(
-        &mut self,
-        owner: AnySymbolId,
-        source: &SourceSnapshot,
-        token: SyntaxToken,
-        access: NameAccess,
-    ) -> NameLookupResult<ResolvedMemberName> {
-        let Some(reference) = token_reference(source, token) else {
-            return malformed_lookup();
-        };
-
-        let symbols = self.facts().symbols();
-        let mut ordinary = lookup_surface_name(symbols, owner, reference.text(), access);
-
-        if let AnySymbolId::Module(module) = owner
-            && let Some(module) = symbols.module(module)
-            && !matches!(module.owner(), ModuleOwnerId::CompilerKnownEnvironment(_))
-            && let Some(compiler_known) = symbols.module_by_path(
-                ModuleOwnerId::from(symbols.compiler_known_environment().id()),
-                module.path(),
-            )
-        {
-            ordinary = combine_name_lookups(
-                ordinary,
-                lookup_surface_name(
-                    symbols,
-                    compiler_known.id().into(),
-                    reference.text(),
-                    access,
-                ),
-            );
-        }
-
-        let module_prefix = match owner {
-            AnySymbolId::Module(module) => {
-                symbols
-                    .module(module)
-                    .map_or(MemberLookupResult::NotFound, |module| {
-                        let local = source_module_prefix(
-                            symbols,
-                            module.owner(),
-                            Some(module.path()),
-                            &reference,
-                            access,
-                        );
-
-                        if !matches!(local, MemberLookupResult::NotFound) {
-                            return local;
-                        }
-
-                        source_module_prefix(
-                            symbols,
-                            ModuleOwnerId::from(symbols.compiler_known_environment().id()),
-                            Some(module.path()),
-                            &reference,
-                            access,
-                        )
-                    })
-            }
-            _ => MemberLookupResult::NotFound,
-        };
-
-        let result = combine_name_lookups(ordinary, module_prefix).classify(classify_member);
-
-        report_lookup_result(self, &reference, DiagnosticNameKind::Member, &result);
-
-        result
     }
 
     fn lookup_reference_name(
@@ -726,12 +623,13 @@ fn bind_path_with_ordinary(
     let source_prefix = next_module_prefix(symbols, module_owner, None, &references, access);
     let compiler_known_owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
 
-    let compiler_known_prefix = source_prefix
-        .is_none()
-        .then(|| next_module_prefix(symbols, compiler_known_owner, None, &references, access))
-        .flatten();
-
     let imported_prefix = imported_root.map(|root| imported_path_prefix(root, &references, access));
+
+    let compiler_known_prefix = if source_prefix.is_none() && imported_prefix.is_none() {
+        next_module_prefix(symbols, compiler_known_owner, None, &references, access)
+    } else {
+        None
+    };
 
     let prefixes = std::iter::once((ordinary, 1))
         .chain(source_prefix.map(module_prefix_as_path_prefix))
@@ -778,19 +676,14 @@ fn bind_remaining_path(
             access,
         );
 
-        if let AnySymbolId::Module(module) = owner
-            && let Some(module) = symbols.module(module)
-            && !matches!(module.owner(), ModuleOwnerId::CompilerKnownEnvironment(_))
-            && let Some(compiler_known) = symbols.module_by_path(
-                ModuleOwnerId::from(symbols.compiler_known_environment().id()),
-                module.path(),
-            )
-        {
+        let compiler_known = compiler_known_module_for_owner(symbols, imported_symbols, owner);
+
+        if let Some(compiler_known) = compiler_known {
             ordinary = combine_name_lookups(
                 ordinary,
                 lookup_surface_name(
                     symbols,
-                    compiler_known.id().into(),
+                    compiler_known.into(),
                     references[consumed].text(),
                     access,
                 ),
@@ -960,7 +853,7 @@ mod tests {
                 member_token,
                 NameAccess::Internal,
             ),
-            MemberLookupResult::Found(member)
+            Ok(MemberLookupResult::Found(member))
                 if matches!(member.symbol(), AnySymbolId::StructField(_))
         ));
 

@@ -102,7 +102,7 @@ pub fn project_interface_path(
 /// Creates the linker composition available for one native toolchain target.
 #[cfg(feature = "compiler")]
 pub fn native_linker(target: NativeTarget) -> Option<Linker> {
-    let archive = llvm_tool("llvm-ar")?;
+    let archive = llvm_tool_path("llvm-ar")?;
 
     let host = Arc::new(NativeExternalToolHost::new(ExternalToolProcessBudget::new(
         NonZeroUsize::MIN,
@@ -179,7 +179,7 @@ fn system_linker_configuration(
         )),
         ObjectFormat::Coff if cfg!(windows) => Some((
             SystemLinkerFamily::MicrosoftCompiler,
-            llvm_tool("clang")?,
+            llvm_tool_path("clang")?,
             selected_environment(&[
                 "SystemRoot",
                 "USERPROFILE",
@@ -226,7 +226,8 @@ const fn system_linker_name(family: SystemLinkerFamily) -> &'static str {
 }
 
 #[cfg(feature = "compiler")]
-fn llvm_tool(name: &str) -> Option<PathBuf> {
+/// Locates one executable in the configured or bundled LLVM toolchain.
+pub fn llvm_tool_path(name: &str) -> Option<PathBuf> {
     let executable_name = if cfg!(windows) {
         format!("{name}.exe")
     } else {

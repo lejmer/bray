@@ -697,6 +697,7 @@ const fn identity_is_distinct_storage(identity: StorageIdentity) -> bool {
             | StorageIdentity::Receiver(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::PredicateParameter(_)
+            | StorageIdentity::PostconditionResult(_)
             | StorageIdentity::Result(_)
             | StorageIdentity::Temporary(_)
             | StorageIdentity::IterationCursor(_)

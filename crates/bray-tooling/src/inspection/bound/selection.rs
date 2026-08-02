@@ -335,6 +335,12 @@ fn callable_target(
         BoundCallableTarget::Declaration(instance) => Ok(InspectionSelectionTarget::Surface {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, instance.definition().symbol()),
         }),
+        BoundCallableTarget::Predicate(instance) => Ok(InspectionSelectionTarget::Surface {
+            symbol: InspectionSymbolIdentity::from_symbol(
+                symbols,
+                instance.definition().into_any(),
+            ),
+        }),
         BoundCallableTarget::Anonymous(callable) => local_target(callable.into(), locals),
         BoundCallableTarget::Indirect(ty) => indirect_target(semantic_values, symbols, ty),
     }

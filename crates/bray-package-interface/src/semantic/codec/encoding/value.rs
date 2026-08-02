@@ -331,6 +331,16 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
 
             write_ids(encoder, arguments, |id| id.raw());
         }
+        InterfaceConstantTerm::PredicateCall {
+            predicate,
+            substitution,
+            arguments,
+        } => {
+            encoder.write_u32(16);
+            write_symbol_reference(encoder, predicate);
+            encoder.write_u32(substitution.raw());
+            write_ids(encoder, arguments, |id| id.raw());
+        }
         InterfaceConstantTerm::Projection { subject, kind } => {
             encoder.write_u32(8);
             encoder.write_u32(subject.raw());

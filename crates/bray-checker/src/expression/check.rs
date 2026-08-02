@@ -8,7 +8,6 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
-use super::built_in_operator;
 use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use super::pattern_reference::{
@@ -232,8 +231,6 @@ where
     for evidence in supplemental_evidence {
         session.add_evidence(evidence.expression(), evidence.ty())?;
     }
-
-    built_in_operator::apply_evidence(request, prepared.built_in_operators(), &mut session)?;
 
     if converge(request, &prepared, &mut session)?.is_cancelled() {
         return Ok(SessionProgress::Cancelled);

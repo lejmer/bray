@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use bray_symbols::{
     ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, ModulePathKey,
-    PackageIdentity, SymbolKind, SymbolName, SymbolOrdinal, SynthesizedSymbolRole,
+    PackageIdentity, SymbolKey, SymbolKeyData, SymbolKind, SymbolName, SymbolOrdinal,
+    SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 
 use crate::decode::DecodeBudget;
@@ -33,10 +34,9 @@ pub(super) fn write_symbol_reference(
 
             write_external_key(encoder, key);
         }
-        InterfaceSymbolReference::CompilerKnown { key, kind } => {
+        InterfaceSymbolReference::CompilerKnown(reference) => {
             encoder.write_u32(3);
-            write_string(encoder, key.as_str());
-            encoder.write_u32(kind.to_wire());
+            write_compiler_known_key(encoder, reference.key());
         }
     }
 }
@@ -54,18 +54,101 @@ pub(super) fn read_symbol_reference(
             key: read_external_key(reader, context)?,
         }),
         3 => {
-            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(read_string(
-                reader, context,
-            )?)
-            .ok_or(InterfaceValidationError::Malformed)?;
+            let key = read_compiler_known_key(reader, context)?;
 
-            let kind = SymbolKind::from_wire(read_u32(reader)?)
+            let reference = crate::CompilerKnownSymbolReference::try_new(key)
                 .ok_or(InterfaceValidationError::Malformed)?;
 
-            Ok(InterfaceSymbolReference::CompilerKnown { key, kind })
+            Ok(InterfaceSymbolReference::CompilerKnown(reference))
         }
         _ => Err(InterfaceValidationError::Malformed),
     }
+}
+
+fn write_compiler_known_key(encoder: &mut WireEncoder, key: &SymbolKey) {
+    let mut components = Vec::new();
+    let mut current = key;
+
+    loop {
+        components.push(current);
+
+        match current.data() {
+            SymbolKeyData::Synthesized(key) => current = key.subject(),
+            SymbolKeyData::CompilerKnownDeclaration { .. } => break,
+            _ => unreachable!("validated compiler-known references have catalog roots"),
+        }
+    }
+
+    components.reverse();
+    write_count(encoder, components.len());
+
+    for component in components {
+        match component.data() {
+            SymbolKeyData::CompilerKnownDeclaration { key, kind } => {
+                encoder.write_u32(1);
+                write_string(encoder, key.as_str());
+                encoder.write_u32(kind.to_wire());
+            }
+            SymbolKeyData::Synthesized(key) => {
+                encoder.write_u32(2);
+                encoder.write_u32(key.role().to_wire());
+                write_optional_u32(encoder, key.ordinal().map(SymbolOrdinal::raw));
+            }
+            _ => unreachable!("validated compiler-known references contain known components"),
+        }
+    }
+}
+
+fn read_compiler_known_key(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<SymbolKey, InterfaceValidationError> {
+    let count = read_count(
+        reader,
+        context.limits(),
+        InterfaceLimit::ExternalReferenceCount,
+    )?;
+
+    context.charge_external_reference(count)?;
+
+    if count == 0 {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    let mut key = None;
+
+    for index in 0..count {
+        key = Some(match read_u32(reader)? {
+            1 if index == 0 => {
+                let declaration = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
+                    read_string(reader, context)?,
+                )
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+                let kind = SymbolKind::from_wire(read_u32(reader)?)
+                    .ok_or(InterfaceValidationError::Malformed)?;
+
+                SymbolKey::compiler_known_declaration(declaration, kind)
+                    .ok_or(InterfaceValidationError::Malformed)?
+            }
+            2 if index > 0 => {
+                let subject = key.ok_or(InterfaceValidationError::Malformed)?;
+
+                let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
+                    .ok_or(InterfaceValidationError::Malformed)?;
+
+                let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
+
+                let synthesized = SynthesizedSymbolKey::try_new(role, subject, ordinal)
+                    .ok_or(InterfaceValidationError::Malformed)?;
+
+                SymbolKey::synthesized(synthesized)
+            }
+            _ => return Err(InterfaceValidationError::Malformed),
+        });
+    }
+
+    key.ok_or(InterfaceValidationError::Malformed)
 }
 
 pub(super) fn write_symbol_references(

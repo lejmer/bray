@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
 
 use crate::{
-    AnySymbolId, ImplementationSubjectTemplate, ImplementationSymbolId,
+    AnySymbolId, CallableParameterName, ImplementationSubjectTemplate, ImplementationSymbolId,
     PredicateDefinitionSymbolId, PredicateParameterSymbolId, TraitApplicationTemplate,
     TypeExpressionTemplate,
 };
@@ -15,18 +15,32 @@ use super::GenericDeclarationTemplate;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PredicateParameterTemplate {
     parameter: PredicateParameterSymbolId,
+    name: CallableParameterName,
     ty: TypeExpressionTemplate,
 }
 
 impl PredicateParameterTemplate {
     /// Creates one predicate parameter template.
-    pub const fn new(parameter: PredicateParameterSymbolId, ty: TypeExpressionTemplate) -> Self {
-        Self { parameter, ty }
+    pub const fn new(
+        parameter: PredicateParameterSymbolId,
+        name: CallableParameterName,
+        ty: TypeExpressionTemplate,
+    ) -> Self {
+        Self {
+            parameter,
+            name,
+            ty,
+        }
     }
 
     /// Returns the exact parameter symbol.
     pub const fn parameter(&self) -> PredicateParameterSymbolId {
         self.parameter
+    }
+
+    /// Returns the parameter name used for named argument matching.
+    pub const fn name(&self) -> &CallableParameterName {
+        &self.name
     }
 
     /// Returns the declared parameter type template.

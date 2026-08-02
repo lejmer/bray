@@ -240,13 +240,44 @@ pub enum InterfaceSymbolReference {
         /// Stable symbol identity in the dependency interface.
         key: ExternalSymbolKey,
     },
-    /// A language-defined declaration supplied by every compatible compiler.
-    CompilerKnown {
-        /// Stable declaration identity in the compiler-known catalog.
-        key: bray_compiler_known::CompilerKnownDeclarationKey,
-        /// Exact semantic category expected from the compatible catalog.
-        kind: bray_symbols::SymbolKind,
-    },
+    /// A language-defined symbol supplied by every compatible compiler.
+    CompilerKnown(CompilerKnownSymbolReference),
+}
+
+/// A validated stable reference into the compiler-known symbol surface.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CompilerKnownSymbolReference(bray_symbols::SymbolKey);
+
+impl CompilerKnownSymbolReference {
+    /// Creates a reference for a compiler-known declaration or one of its synthesized children.
+    pub fn try_new(key: bray_symbols::SymbolKey) -> Option<Self> {
+        if is_compiler_known_key(&key) {
+            Some(Self(key))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the stable symbol key expected from the compatible compiler catalog.
+    pub const fn key(&self) -> &bray_symbols::SymbolKey {
+        &self.0
+    }
+
+    /// Returns the exact semantic category expected from the compatible compiler catalog.
+    pub fn kind(&self) -> bray_symbols::SymbolKind {
+        self.0.kind()
+    }
+}
+
+fn is_compiler_known_key(key: &bray_symbols::SymbolKey) -> bool {
+    match key.data() {
+        bray_symbols::SymbolKeyData::CompilerKnownDeclaration { .. } => true,
+        bray_symbols::SymbolKeyData::Synthesized(key) => is_compiler_known_key(key.subject()),
+        bray_symbols::SymbolKeyData::Root(_)
+        | bray_symbols::SymbolKeyData::Module { .. }
+        | bray_symbols::SymbolKeyData::SourceDeclaration { .. }
+        | bray_symbols::SymbolKeyData::External(_) => false,
+    }
 }
 
 /// Whether an exported name is declared at its owner or projected from elsewhere.

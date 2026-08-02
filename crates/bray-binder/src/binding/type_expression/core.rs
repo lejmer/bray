@@ -5,9 +5,10 @@ use bray_base::Cancellation;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, BorrowKind, GenericTypeParameterSymbolId, MemberLookupResult, ModuleSymbolId,
-    SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationTemplate,
-    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, GenericTypeParameterSymbolId, ImportedSymbolSkeleton,
+    MemberLookupResult, ModuleSymbolId, SelfTypeContext, SemanticValueStore, SymbolGraph,
+    SymbolName, TraitApplicationTemplate, TraitTypeMemberSymbolId, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,
@@ -20,6 +21,7 @@ use crate::{BinderFactError, BinderFactResult};
 /// Binds declaration type syntax while preserving unchecked constant-expression occurrences.
 pub struct TypeExpressionBinder<'facts> {
     pub(super) symbols: &'facts SymbolGraph,
+    pub(super) imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
     pub(super) semantic_values: &'facts SemanticValueStore,
     pub(super) owner: AnySymbolId,
     pub(super) module: Option<ModuleSymbolId>,
@@ -33,6 +35,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
     /// Creates a binder for one declaration surface and its lexical generic scope.
     pub fn new(
         symbols: &'facts SymbolGraph,
+        imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
         semantic_values: &'facts SemanticValueStore,
         scope: TypeExpressionScope,
         cancellation: &'facts dyn Cancellation,
@@ -45,6 +48,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
 
         Self {
             symbols,
+            imported_symbols,
             semantic_values,
             owner: scope.owner,
             module: scope.module,

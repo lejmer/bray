@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bray_symbols::{
     ExternalDeclarationIdentity, ExternalSymbolKey, ImportedSymbolIdentityInput, InterfaceSymbolId,
-    ModulePathKey, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
+    ModulePathKey, SymbolKey, SymbolKind, SymbolOrdinal, SynthesizedSymbolKey,
+    SynthesizedSymbolRole,
 };
 
 use super::decoding::{package_identity, read_string, read_tag, symbol_name};
@@ -63,6 +64,53 @@ pub(super) fn decode_external_key(
         key = Some(decode_external_key_component(
             reader, strings, key, kind, shape, budget,
         )?);
+    }
+
+    key.ok_or(InterfaceValidationError::Malformed)
+}
+
+pub(super) fn decode_compiler_known_key(
+    reader: &mut WireReader<'_>,
+    strings: &[Arc<str>],
+    budget: &mut DecodeBudget,
+) -> Result<SymbolKey, InterfaceValidationError> {
+    let count =
+        usize::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
+
+    if count == 0 {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    budget.charge_external_reference(count)?;
+    budget.charge_items::<SymbolKey>(count)?;
+
+    let mut key = None;
+
+    for index in 0..count {
+        key = Some(match read_u32(reader)? {
+            1 if index == 0 => {
+                let declaration = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
+                    Arc::clone(read_string(reader, strings)?),
+                )
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+                let kind = read_tag(reader)?;
+
+                SymbolKey::compiler_known_declaration(declaration, kind)
+                    .ok_or(InterfaceValidationError::Malformed)?
+            }
+            2 if index > 0 => {
+                let subject = key.ok_or(InterfaceValidationError::Malformed)?;
+                let role: SynthesizedSymbolRole = read_tag(reader)?;
+                let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
+
+                let synthesized = SynthesizedSymbolKey::try_new(role, subject, ordinal)
+                    .ok_or(InterfaceValidationError::Malformed)?;
+
+                SymbolKey::synthesized(synthesized)
+            }
+            _ => return Err(InterfaceValidationError::Malformed),
+        });
     }
 
     key.ok_or(InterfaceValidationError::Malformed)

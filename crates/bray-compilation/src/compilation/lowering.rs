@@ -99,8 +99,11 @@ impl Compilation {
         let selections = self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
         let literals = self.literal_values_with_cancellation(key.clone(), cancellation)?;
+
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+
         let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
+
         let refinements = self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
 
         let storage_flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
@@ -109,6 +112,7 @@ impl Compilation {
             self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
 
         let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
+
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         let diagnostics = DiagnosticBag::merged_all([

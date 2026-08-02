@@ -340,6 +340,22 @@ impl SemanticValueStore {
                         .collect::<Result<Vec<_>, _>>()?,
                 )
             }
+            ConstantTermData::PredicateCall {
+                predicate,
+                arguments,
+            } => ConstantTermData::predicate_call(
+                crate::PredicateInstanceData::new(
+                    predicate.definition(),
+                    self.substitute_generic_substitution_data(
+                        predicate.substitution(),
+                        substitution,
+                    )?,
+                ),
+                arguments
+                    .iter()
+                    .map(|argument| self.substitute_constant_term_data(*argument, substitution))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
             ConstantTermData::Projection(projection) => {
                 let kind = match projection.kind() {
                     ConstantProjectionKind::ArrayElement(index) => {

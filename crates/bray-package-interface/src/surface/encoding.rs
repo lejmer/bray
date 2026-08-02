@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_symbols::{
     ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, InterfaceSymbolId,
-    SymbolOrdinal,
+    SymbolKey, SymbolKeyData, SymbolOrdinal,
 };
 
 use super::{InterfaceSymbolReference, PackageInterfaceIdentity, PackageInterfaceSurface};
@@ -56,8 +56,8 @@ impl StringEncoder {
                 InterfaceSymbolReference::Dependency { key, .. } => {
                     collect_key_strings(key, &mut values);
                 }
-                InterfaceSymbolReference::CompilerKnown { key, .. } => {
-                    values.insert(key.as_str().to_owned());
+                InterfaceSymbolReference::CompilerKnown(reference) => {
+                    collect_compiler_known_key_strings(reference.key(), &mut values);
                 }
                 InterfaceSymbolReference::Local(_) => {}
             }
@@ -277,10 +277,9 @@ fn encode_exports(
                 encoder.write_u32(dependency.raw());
                 encode_external_key(&mut encoder, key, strings);
             }
-            InterfaceSymbolReference::CompilerKnown { key, kind } => {
+            InterfaceSymbolReference::CompilerKnown(reference) => {
                 encoder.write_u32(3);
-                encoder.write_u32(strings.id(key.as_str()));
-                encoder.write_u32(kind.to_wire());
+                encode_compiler_known_key(&mut encoder, reference.key(), strings);
             }
         }
     }
@@ -290,6 +289,52 @@ fn encode_exports(
         checked_u64(surface.exports().len()),
         encoder,
     )
+}
+
+fn collect_compiler_known_key_strings(key: &SymbolKey, values: &mut BTreeSet<String>) {
+    match key.data() {
+        SymbolKeyData::CompilerKnownDeclaration { key, .. } => {
+            values.insert(key.as_str().to_owned());
+        }
+        SymbolKeyData::Synthesized(key) => {
+            collect_compiler_known_key_strings(key.subject(), values);
+        }
+        _ => unreachable!("validated compiler-known references have catalog roots"),
+    }
+}
+
+fn encode_compiler_known_key(encoder: &mut WireEncoder, key: &SymbolKey, strings: &StringEncoder) {
+    let mut components = Vec::new();
+    let mut current = key;
+
+    loop {
+        components.push(current);
+
+        match current.data() {
+            SymbolKeyData::Synthesized(key) => current = key.subject(),
+            SymbolKeyData::CompilerKnownDeclaration { .. } => break,
+            _ => unreachable!("validated compiler-known references have catalog roots"),
+        }
+    }
+
+    components.reverse();
+    encoder.write_u32(checked_u32(components.len()));
+
+    for component in components {
+        match component.data() {
+            SymbolKeyData::CompilerKnownDeclaration { key, kind } => {
+                encoder.write_u32(1);
+                encoder.write_u32(strings.id(key.as_str()));
+                encoder.write_u32(kind.to_wire());
+            }
+            SymbolKeyData::Synthesized(key) => {
+                encoder.write_u32(2);
+                encoder.write_u32(key.role().to_wire());
+                write_optional_u32(encoder, key.ordinal().map(SymbolOrdinal::raw));
+            }
+            _ => unreachable!("validated compiler-known references contain known components"),
+        }
+    }
 }
 
 fn encode_external_key(

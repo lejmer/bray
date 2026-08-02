@@ -95,8 +95,8 @@ pub enum ImportedSymbolConstructionError {
         /// Missing stable external identity.
         key: bray_symbols::ExternalSymbolKey,
     },
-    /// An exported lookup attempted to project a compiler-known declaration.
-    CompilerKnownExportTarget(bray_compiler_known::CompilerKnownDeclarationKey),
+    /// An exported lookup attempted to project a compiler-known symbol.
+    CompilerKnownExportTarget(bray_symbols::SymbolKey),
     /// Origin-neutral semantic construction rejected the translated surfaces.
     Symbols(ImportedSymbolSkeletonBuildError),
 }
@@ -125,8 +125,7 @@ pub struct ImportedInterfaceSymbolResolver<'surface> {
     current: LoadedInterfaceSurface<'surface>,
     package_index: BTreeMap<PackageIdentity, LoadedInterfaceSurface<'surface>>,
     symbols: &'surface ImportedSymbolSkeleton,
-    compiler_known:
-        &'surface BTreeMap<bray_compiler_known::CompilerKnownDeclarationKey, AnySymbolId>,
+    compiler_known: &'surface BTreeMap<bray_symbols::SymbolKey, AnySymbolId>,
 }
 
 impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
@@ -135,10 +134,7 @@ impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
         current: LoadedInterfaceSurface<'surface>,
         surfaces: impl IntoIterator<Item = LoadedInterfaceSurface<'surface>>,
         symbols: &'surface ImportedSymbolSkeleton,
-        compiler_known: &'surface BTreeMap<
-            bray_compiler_known::CompilerKnownDeclarationKey,
-            AnySymbolId,
-        >,
+        compiler_known: &'surface BTreeMap<bray_symbols::SymbolKey, AnySymbolId>,
     ) -> Result<Self, ImportedSymbolConstructionError> {
         let surfaces: Vec<_> = surfaces.into_iter().collect();
         let package_index = package_index(&surfaces)?;
@@ -163,12 +159,12 @@ impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
 
 impl crate::InterfaceSymbolResolver for ImportedInterfaceSymbolResolver<'_> {
     fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
-        if let InterfaceSymbolReference::CompilerKnown { key, kind } = reference {
+        if let InterfaceSymbolReference::CompilerKnown(reference) = reference {
             return self
                 .compiler_known
-                .get(key)
+                .get(reference.key())
                 .copied()
-                .filter(|symbol| symbol.kind() == *kind);
+                .filter(|symbol| symbol.kind() == reference.kind());
         }
 
         let key = self.resolve_external_key(reference).ok()?;
@@ -177,7 +173,7 @@ impl crate::InterfaceSymbolResolver for ImportedInterfaceSymbolResolver<'_> {
     }
 
     fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
-        if matches!(reference, InterfaceSymbolReference::CompilerKnown { .. }) {
+        if matches!(reference, InterfaceSymbolReference::CompilerKnown(_)) {
             return None;
         }
 
@@ -321,8 +317,8 @@ fn lookup_target_key(
 
             Ok(key.clone())
         }
-        InterfaceSymbolReference::CompilerKnown { key, .. } => Err(
-            ImportedSymbolConstructionError::CompilerKnownExportTarget(key.clone()),
+        InterfaceSymbolReference::CompilerKnown(reference) => Err(
+            ImportedSymbolConstructionError::CompilerKnownExportTarget(reference.key().clone()),
         ),
     }
 }
@@ -489,7 +485,13 @@ mod tests {
             panic!("test compiler-known key must be valid");
         };
 
-        let compiler_known = BTreeMap::from([(key.clone(), symbol)]);
+        let Some(function_key) =
+            bray_symbols::SymbolKey::compiler_known_declaration(key.clone(), SymbolKind::Function)
+        else {
+            panic!("test compiler-known function key must be valid");
+        };
+
+        let compiler_known = BTreeMap::from([(function_key.clone(), symbol)]);
 
         let resolver =
             ImportedInterfaceSymbolResolver::try_new(loaded, [loaded], &symbols, &compiler_known)
@@ -498,10 +500,10 @@ mod tests {
         assert_eq!(
             crate::InterfaceSymbolResolver::resolve(
                 &resolver,
-                &InterfaceSymbolReference::CompilerKnown {
-                    key: key.clone(),
-                    kind: SymbolKind::Function,
-                },
+                &InterfaceSymbolReference::CompilerKnown(
+                    crate::CompilerKnownSymbolReference::try_new(function_key)
+                        .unwrap_or_else(|| panic!("test compiler-known reference must be valid")),
+                ),
             ),
             Some(symbol)
         );
@@ -509,10 +511,16 @@ mod tests {
         assert_eq!(
             crate::InterfaceSymbolResolver::resolve(
                 &resolver,
-                &InterfaceSymbolReference::CompilerKnown {
-                    key,
-                    kind: SymbolKind::Struct,
-                },
+                &InterfaceSymbolReference::CompilerKnown(
+                    crate::CompilerKnownSymbolReference::try_new(
+                        bray_symbols::SymbolKey::compiler_known_declaration(
+                            key,
+                            SymbolKind::Struct,
+                        )
+                        .unwrap_or_else(|| panic!("test compiler-known struct key must be valid")),
+                    )
+                    .unwrap_or_else(|| panic!("test compiler-known reference must be valid")),
+                ),
             ),
             None
         );

@@ -73,6 +73,18 @@ macro_rules! define_compiler_known_records {
                     _ => None,
                 }
             }
+
+            fn id(&self) -> AnySymbolId {
+                match self {
+                    $(Self::$variant(record) => record.id().into(),)+
+                }
+            }
+
+            fn key(&self) -> &SymbolKey {
+                match self {
+                    $(Self::$variant(record) => record.key(),)+
+                }
+            }
         }
 
         $(
@@ -110,6 +122,7 @@ pub struct CompilerKnownSymbolProvider {
     modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
     scope_symbols: BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
     declaration_symbols: BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
+    symbol_keys: BTreeMap<SymbolKey, AnySymbolId>,
     declaration_descriptors: BTreeMap<SymbolId, CompilerKnownDeclarationId>,
     target_facts: BTreeMap<bray_target::TargetFactKind, ConstantSymbolId>,
     symbol_target_facts: BTreeMap<ConstantSymbolId, bray_target::TargetFactKind>,
@@ -231,6 +244,16 @@ impl CompilerKnownSymbolProvider {
             environment_children.into_boxed_slice(),
         );
 
+        let symbol_keys = records
+            .values()
+            .map(|record| (record.key().clone(), record.id()))
+            .chain(
+                receivers
+                    .iter()
+                    .map(|receiver| (receiver.key().clone(), receiver.id().into())),
+            )
+            .collect();
+
         let receivers = TypedSymbolRecords::new(receivers, ReceiverParameterSymbol::id);
 
         let environment = CompilerKnownEnvironmentSymbol::new(
@@ -246,6 +269,7 @@ impl CompilerKnownSymbolProvider {
             modules,
             scope_symbols,
             declaration_symbols,
+            symbol_keys,
             declaration_descriptors: descriptor_symbols
                 .iter()
                 .map(|(descriptor, symbol)| (symbol.symbol_id(), *descriptor))
@@ -324,6 +348,11 @@ impl CompilerKnownSymbolProvider {
     /// Returns the complete stable declaration-key map for compilation infrastructure.
     pub const fn declaration_symbols(&self) -> &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId> {
         &self.declaration_symbols
+    }
+
+    /// Returns every declaration-surface symbol by its stable compiler-known key.
+    pub const fn symbol_keys(&self) -> &BTreeMap<SymbolKey, AnySymbolId> {
+        &self.symbol_keys
     }
 
     /// Returns compilation-local typed routes for compiler-known semantic roles.

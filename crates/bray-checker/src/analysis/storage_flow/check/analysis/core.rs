@@ -514,8 +514,12 @@ where
 
     fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {
         state.live.retain(|storage| {
-            self.liveness
-                .is_live_across_scope(block, BoundDependencySubject::Storage(*storage))
+            self.storage
+                .identity(*storage)
+                .is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry)
+                || self
+                    .liveness
+                    .is_live_across_scope(block, BoundDependencySubject::Storage(*storage))
         });
 
         state

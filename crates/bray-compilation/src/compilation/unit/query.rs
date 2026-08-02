@@ -2404,6 +2404,25 @@ mod tests {
     }
 
     #[test]
+    fn contextual_numeric_operations_do_not_retain_provisional_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func padding(pos width: usize, pos length: usize) -> usize\n",
+            "{\n",
+            "    let remaining: usize = width - length;\n",
+            "\n",
+            "    return remaining;\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
     fn memory_operations_publish_lazily_from_compiler_known_hooks() {
         let source = concat!(
             "module app;\n",

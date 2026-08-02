@@ -10,9 +10,9 @@ use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax, TypeExpr
 use super::core::{TypeExpressionBinder, token_text};
 use crate::lookup::{
     NameReference, ResolvedName, bind_source_path, classify_type, combine_name_lookups,
-    lookup_diagnostic, lookup_surface_name,
+    lookup_diagnostic, lookup_surface_name, lookup_surface_name_with_imports,
 };
-use crate::{BinderFactError, BinderFactResult};
+use crate::{BinderFactError, BinderFactResult, ImportedPathRoot};
 
 impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait(
@@ -115,8 +115,9 @@ impl TypeExpressionBinder<'_> {
             return MemberLookupResult::Malformed(Box::new([]));
         };
 
-        let lookup = lookup_surface_name(
+        let lookup = lookup_surface_name_with_imports(
             self.symbols,
+            self.imported_symbols,
             definition.into(),
             text,
             crate::lookup::NameAccess::Internal,
@@ -187,8 +188,13 @@ impl TypeExpressionBinder<'_> {
             ambient,
         );
 
+        let imported_root = self
+            .imported_symbols
+            .and_then(|symbols| ImportedPathRoot::select(symbols, &references));
+
         bind_source_path(
             self.symbols,
+            imported_root,
             module,
             path,
             crate::lookup::NameAccess::Internal,
@@ -222,18 +228,29 @@ impl TypeExpressionBinder<'_> {
         definition: NamedTypeSymbolId,
     ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
         let (type_parameters, const_parameters) = match definition {
-            NamedTypeSymbolId::Struct(id) => self.symbols.structure(id).map(|symbol| {
-                (
-                    symbol.generic_type_parameters(),
-                    symbol.generic_const_parameters(),
-                )
-            }),
-            NamedTypeSymbolId::Union(id) => self.symbols.union(id).map(|symbol| {
-                (
-                    symbol.generic_type_parameters(),
-                    symbol.generic_const_parameters(),
-                )
-            }),
+            NamedTypeSymbolId::Struct(id) => self
+                .symbols
+                .structure(id)
+                .or_else(|| {
+                    self.imported_symbols
+                        .and_then(|symbols| symbols.structure(id))
+                })
+                .map(|symbol| {
+                    (
+                        symbol.generic_type_parameters(),
+                        symbol.generic_const_parameters(),
+                    )
+                }),
+            NamedTypeSymbolId::Union(id) => self
+                .symbols
+                .union(id)
+                .or_else(|| self.imported_symbols.and_then(|symbols| symbols.union(id)))
+                .map(|symbol| {
+                    (
+                        symbol.generic_type_parameters(),
+                        symbol.generic_const_parameters(),
+                    )
+                }),
         }
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
@@ -247,6 +264,10 @@ impl TypeExpressionBinder<'_> {
         let symbol = self
             .symbols
             .trait_symbol(definition)
+            .or_else(|| {
+                self.imported_symbols
+                    .and_then(|symbols| symbols.trait_symbol(definition))
+            })
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
         self.generic_parameters(
@@ -266,6 +287,10 @@ impl TypeExpressionBinder<'_> {
             let ordinal = self
                 .symbols
                 .generic_type_parameter(*parameter)
+                .or_else(|| {
+                    self.imported_symbols
+                        .and_then(|symbols| symbols.generic_type_parameter(*parameter))
+                })
                 .map(|record| record.ordinal())
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
@@ -276,6 +301,10 @@ impl TypeExpressionBinder<'_> {
             let ordinal = self
                 .symbols
                 .generic_const_parameter(*parameter)
+                .or_else(|| {
+                    self.imported_symbols
+                        .and_then(|symbols| symbols.generic_const_parameter(*parameter))
+                })
                 .map(|record| record.ordinal())
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 

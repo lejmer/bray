@@ -33,10 +33,6 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let BoundCallableTarget::Declaration(callable) = call.target() else {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        };
-
         if !matches!(call.resolution().result(), BoundCallResult::Immediate(_)) {
             return Err(EvaluationFailure::invalid_expression(expression));
         }
@@ -62,6 +58,19 @@ where
             .into_iter()
             .map(|(_, expression)| expression)
             .collect::<Vec<_>>();
+
+        if let BoundCallableTarget::Predicate(predicate) = call.target() {
+            let arguments = arguments
+                .into_iter()
+                .map(|argument| self.evaluate(argument))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            return self.intern_term(ConstantTermData::predicate_call(predicate, arguments));
+        }
+
+        let BoundCallableTarget::Declaration(callable) = call.target() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
 
         let witnesses = call.resolution().implementation_witnesses();
 

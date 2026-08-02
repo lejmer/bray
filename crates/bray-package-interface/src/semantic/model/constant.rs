@@ -138,6 +138,15 @@ pub enum InterfaceConstantTerm {
         /// Ordered argument terms.
         arguments: Arc<[InterfaceConstantTermId]>,
     },
+    /// A checked predicate application.
+    PredicateCall {
+        /// Predicate declaration.
+        predicate: InterfaceSymbolReference,
+        /// Ordered generic substitution.
+        substitution: InterfaceGenericSubstitutionId,
+        /// Ordered argument terms.
+        arguments: Arc<[InterfaceConstantTermId]>,
+    },
     /// A checked projection from another term.
     Projection {
         /// Projected subject.

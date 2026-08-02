@@ -66,7 +66,7 @@ impl ExpressionBinder {
                 syntax.source(),
                 token,
                 self.path_context.access(),
-            );
+            )?;
 
             return match member {
                 MemberLookupResult::Found(member) => self.push_resolved_reference(

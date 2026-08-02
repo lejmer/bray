@@ -227,6 +227,8 @@ func as_slice(pos buffer: &Buffer) -> &[u8];
 
 func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8];
 
+func equals(pos left: &[u8], pos right: &[u8]) -> bool;
+
 func reserve(
     pos buffer: &mut Buffer,
     additional: usize,
@@ -256,9 +258,10 @@ func pop(pos buffer: &mut Buffer) -> u8?;
 ```
 
 `create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation failure follows
-the language allocation panic contract. `reserve` guarantees capacity for `length(buffer) + additional` without changing the byte
-sequence. `resize` preserves the existing prefix, truncates when shrinking, and appends `fill` bytes when growing. `truncate`
-leaves the buffer unchanged when `new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
+the language allocation panic contract. `equals` compares complete byte sequences without allocation. `reserve` guarantees
+capacity for `length(buffer) + additional` without changing the byte sequence. `resize` preserves the existing prefix, truncates
+when shrinking, and appends `fill` bytes when growing. `truncate` leaves the buffer unchanged when
+`new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
 
 `as_slice` and `as_slice_mut` return views dependent on `buffer`. Any operation requiring mutation or possible reallocation is
 rejected while an incompatible view remains live by ordinary borrowing rules. A caller therefore cannot pass a view reaching

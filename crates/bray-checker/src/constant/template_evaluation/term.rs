@@ -237,7 +237,8 @@ where
         }
         ConstantTermData::IntegerLiteral { .. }
         | ConstantTermData::Parameter(_)
-        | ConstantTermData::TargetFact(_) => Err(TemplateEvaluationFailure::invalid_input()),
+        | ConstantTermData::TargetFact(_)
+        | ConstantTermData::PredicateCall { .. } => Err(TemplateEvaluationFailure::invalid_input()),
     }
 }
 

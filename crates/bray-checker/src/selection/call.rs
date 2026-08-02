@@ -265,7 +265,7 @@ where
                     },
                     None => None,
                 },
-                BoundCallableTarget::Anonymous(_) => None,
+                BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => None,
             };
 
             Ok(Some(CandidateCheck::Applicable {
@@ -412,6 +412,12 @@ where
         BoundCallableTarget::Declaration(callable) => request
             .semantic_values()
             .generic_substitution_data(callable.substitution())
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
+            .bindings()
+            .len(),
+        BoundCallableTarget::Predicate(predicate) => request
+            .semantic_values()
+            .generic_substitution_data(predicate.substitution())
             .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
             .bindings()
             .len(),

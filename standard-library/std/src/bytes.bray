@@ -41,6 +41,38 @@ func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
     return support_as_slice_mut(buffer = buffer);
 }
 
+func slice_length(pos bytes: &[u8]) -> usize
+{
+    return support_slice_length(bytes);
+}
+
+func equals(pos left: &[u8], pos right: &[u8]) -> bool
+{
+    let count: usize = slice_length(left);
+
+    if count != slice_length(right)
+    {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let left_byte: u8 = left[index];
+        let right_byte: u8 = right[index];
+
+        if left_byte != right_byte
+        {
+            return false;
+        }
+
+        index = index + 1;
+    }
+
+    return true;
+}
+
 func reserve(
     pos buffer: &mut Buffer,
     additional: usize,
@@ -86,6 +118,19 @@ func append(
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
     return support_append(bytes = bytes, buffer = buffer);
+}
+
+func append_repeated(
+    pos buffer: &mut Buffer,
+    value: u8,
+    count: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return support_append_repeated(
+        value = value,
+        count = count,
+        buffer = buffer,
+    );
 }
 
 func pop(pos buffer: &mut Buffer) -> u8?

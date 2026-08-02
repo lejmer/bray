@@ -70,47 +70,9 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         &self,
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
-        let mut package_prefix = String::new();
-        let mut selected = None;
-
-        for component in components {
-            if !package_prefix.is_empty() {
-                package_prefix.push('.');
-            }
-
-            package_prefix.push_str(component);
-
-            let dependency = self
-                .compilation
-                .state
-                .dependency_interfaces
-                .binary_search_by(|dependency| {
-                    dependency.package().as_str().cmp(package_prefix.as_str())
-                })
-                .ok();
-
-            if let Some(dependency) = dependency {
-                selected = Some(dependency);
-            }
-        }
-
-        let Some(dependency) = selected else {
-            return Ok(None);
-        };
-
-        let identity = self.compilation.state.dependency_interfaces[dependency].package();
-
-        let symbols = self
+        Ok(self
             .imported_symbols()?
-            .ok_or(BinderFactError::DependencyUnavailable)?;
-
-        let package = symbols
-            .package_by_identity(identity)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
-
-        ImportedPathRoot::for_path(symbols, package.id(), components)
-            .map(Some)
-            .ok_or(BinderFactError::DependencyUnavailable)
+            .and_then(|symbols| ImportedPathRoot::select(symbols, components)))
     }
 
     pub(in crate::compilation) fn imported_symbols(
@@ -170,6 +132,16 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .and_then(|symbols| symbols.symbol_key(symbol)))
     }
 
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
+        if let Some(is_recovered) = self.symbols.symbol_is_recovered(symbol) {
+            return Ok(Some(is_recovered));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.symbol_is_recovered(symbol)))
+    }
+
     fn callable_parameter_default_provider(
         &self,
         parameter: CallableParameterSymbolId,
@@ -193,6 +165,10 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
         CompilationBinderFacts::imported_path_root(self, components)
+    }
+
+    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        CompilationBinderFacts::imported_symbols(self)
     }
 
     fn module_re_export_lookup(

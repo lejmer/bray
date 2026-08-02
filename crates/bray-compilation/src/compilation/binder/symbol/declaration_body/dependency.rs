@@ -231,7 +231,9 @@ fn portable_storage_identity(
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
         }
         StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
-        StorageIdentity::Result(_) => DependencySubjectRoot::Result,
+        StorageIdentity::Result(_) | StorageIdentity::PostconditionResult(_) => {
+            DependencySubjectRoot::Result
+        }
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Alternative { .. }
         | StorageIdentity::AnonymousParameter(_)

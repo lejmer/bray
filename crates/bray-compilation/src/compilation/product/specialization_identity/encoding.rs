@@ -283,6 +283,15 @@ impl<'a> StructuralValueEncoder<'a> {
                 self.optional_implementation(*selected_implementation)?;
                 self.constant_terms(arguments)?;
             }
+            ConstantTermData::PredicateCall {
+                predicate,
+                arguments,
+            } => {
+                self.tag(15);
+                self.symbol(predicate.definition().into_any())?;
+                self.substitution(predicate.substitution())?;
+                self.constant_terms(arguments)?;
+            }
             ConstantTermData::Projection(projection) => {
                 self.tag(14);
                 self.constant_projection(*projection)?;

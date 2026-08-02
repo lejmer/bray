@@ -15,6 +15,7 @@ use bray_symbols::{GenericConstraintObligationKey, ProofOutcome, TypeId};
 use super::built_in_operator::{self, PreparedBuiltInOperator};
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
+    resolve_predicate_candidate,
 };
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
@@ -151,6 +152,25 @@ where
                                 TemplateResolution::Unsupported => defer_call = true,
                             }
                         }
+                        CallableCandidateTemplate::Predicate(candidate) => {
+                            let materialized =
+                                resolve_predicate_candidate(request, candidate, &mut diagnostics)?;
+
+                            match materialized {
+                                TemplateResolution::Resolved(candidate) => {
+                                    match generic_constraint_outcome(
+                                        request,
+                                        &candidate,
+                                        &mut diagnostics,
+                                    )? {
+                                        ProofOutcome::Proven => resolved.push(candidate),
+                                        ProofOutcome::Disproven | ProofOutcome::Recovered => {}
+                                        ProofOutcome::Unknown => defer_call = true,
+                                    }
+                                }
+                                TemplateResolution::Unsupported => defer_call = true,
+                            }
+                        }
                         CallableCandidateTemplate::Value(candidate) => values.push(*candidate),
                     }
                 }
@@ -263,17 +283,16 @@ where
         return Ok(ProofOutcome::Proven);
     }
 
-    let BoundCallableTarget::Declaration(instance) = candidate.resolution().target() else {
+    let Some(substitution_id) = candidate.generic_substitution() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(instance.substitution())
+        .generic_substitution_data(substitution_id)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let obligation =
-        GenericConstraintObligationKey::new(substitution.owner(), instance.substitution());
+    let obligation = GenericConstraintObligationKey::new(substitution.owner(), substitution_id);
 
     let result = match request.generic_constraints(obligation) {
         Ok(result) => result,
@@ -644,6 +663,8 @@ where
         if session.propagate()?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
+
+        built_in_operator::apply_evidence(request, prepared.built_in_operators(), session)?;
 
         let types = session.preview();
 

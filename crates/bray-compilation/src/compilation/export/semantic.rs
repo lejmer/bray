@@ -1629,6 +1629,19 @@ impl<'a> SemanticExporter<'a> {
                     .collect::<Result<Vec<_>, _>>()?
                     .into(),
             },
+            ConstantTermData::PredicateCall {
+                predicate,
+                arguments,
+            } => InterfaceConstantTerm::PredicateCall {
+                predicate: self.symbol_reference(predicate.definition().into_any())?,
+                substitution: self.substitution_id(predicate.substitution())?,
+                arguments: arguments
+                    .iter()
+                    .copied()
+                    .map(|argument| self.constant_term_id(argument))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
+            },
             ConstantTermData::Projection(projection) => InterfaceConstantTerm::Projection {
                 subject: self.constant_term_id(projection.subject())?,
                 kind: match projection.kind() {
@@ -1858,11 +1871,18 @@ impl<'a> SemanticExporter<'a> {
         }
 
         match self.graph.symbol_key(symbol).map(|key| key.data()) {
-            Some(SymbolKeyData::CompilerKnownDeclaration { key, kind }) => {
-                Ok(InterfaceSymbolReference::CompilerKnown {
-                    key: key.clone(),
-                    kind: *kind,
-                })
+            Some(SymbolKeyData::CompilerKnownDeclaration { .. })
+            | Some(SymbolKeyData::Synthesized(_)) => {
+                let key = self
+                    .graph
+                    .symbol_key(symbol)
+                    .cloned()
+                    .ok_or_else(|| incomplete(symbol))?;
+
+                let reference = bray_package_interface::CompilerKnownSymbolReference::try_new(key)
+                    .ok_or_else(|| incomplete(symbol))?;
+
+                Ok(InterfaceSymbolReference::CompilerKnown(reference))
             }
             Some(SymbolKeyData::External(key)) => {
                 let dependency = self
@@ -2008,7 +2028,7 @@ fn checked_constraint_expression(
     })
 }
 
-const fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
+fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
     PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind())
 }
 

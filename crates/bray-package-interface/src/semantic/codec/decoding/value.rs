@@ -421,6 +421,11 @@ pub(super) fn decode_constant_term(
             variant: read_symbol_reference(reader, context)?,
             fields: read_constant_fields(reader, context, InterfaceConstantTermId::new)?,
         }),
+        16 => Ok(InterfaceConstantTerm::PredicateCall {
+            predicate: read_symbol_reference(reader, context)?,
+            substitution: InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+            arguments: read_ids(reader, context, InterfaceConstantTermId::new)?,
+        }),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }
