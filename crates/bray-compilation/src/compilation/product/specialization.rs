@@ -242,7 +242,7 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
-        if demand.generic_dispatch().is_some() {
+        if demand.trait_dispatch().is_some() {
             return self.concrete_codegen_generic_callee(owner, demand, target, cancellation);
         }
 
@@ -285,7 +285,7 @@ impl Compilation {
         cancellation.check()?;
 
         let dispatch = demand
-            .generic_dispatch()
+            .trait_dispatch()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let owner_substitution = owner

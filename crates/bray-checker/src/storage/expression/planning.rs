@@ -214,6 +214,7 @@ where
 
         let direct = selection
             .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)));
+
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
         }

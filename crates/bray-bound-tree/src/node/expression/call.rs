@@ -147,7 +147,7 @@ impl BoundCallResult {
 pub struct BoundResolvedCall {
     target: BoundCallableTarget,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
-    generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
+    trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     result: BoundCallResult,
 }
 
@@ -164,17 +164,17 @@ impl BoundResolvedCall {
         Self {
             target,
             implementation_witnesses: sorted_unique_shared_slice(implementation_witnesses),
-            generic_dispatch: None,
+            trait_dispatch: None,
             result,
         }
     }
 
     /// Returns this call with dispatch supplied by one surrounding generic constraint.
-    pub const fn with_generic_dispatch(
+    pub const fn with_trait_dispatch(
         mut self,
-        dispatch: bray_symbols::GenericConstraintDispatch,
+        dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> Self {
-        self.generic_dispatch = Some(dispatch);
+        self.trait_dispatch = Some(dispatch);
 
         self
     }
@@ -190,8 +190,8 @@ impl BoundResolvedCall {
     }
 
     /// Returns the generic constraint supplying member dispatch.
-    pub const fn generic_dispatch(&self) -> Option<bray_symbols::GenericConstraintDispatch> {
-        self.generic_dispatch
+    pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
+        self.trait_dispatch
     }
 
     /// Returns whether this call executes immediately or constructs a lazy future.

@@ -290,7 +290,7 @@ fn validate_call_inputs(
         validate_subject_type(
             types,
             receiver.expression(),
-            receiver.conversion().source_type(),
+            receiver.source_type(),
             selection,
             SemanticSelectionTableBuildError::OperandTypeMismatch,
         )?;

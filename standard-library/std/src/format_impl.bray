@@ -591,9 +591,9 @@ internal func write_character_value(
 
     match options.escaping
     {
-        case Escaping.Raw {}
+        case Raw {}
 
-        case Escaping.Quoted
+        case Quoted
         {
             quoted = true;
         }

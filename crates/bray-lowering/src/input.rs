@@ -451,12 +451,24 @@ fn validate_pattern_completeness(
         .map(|(pattern, _)| pattern)
         .eq(facts.patterns().iter().map(|entry| entry.pattern()));
 
-    let bindings_match = unit
-        .local_symbols()
-        .bindings()
-        .iter()
-        .map(bray_symbols::LocalBindingSymbol::id)
-        .eq(facts.binding_types().iter().map(|entry| entry.binding()));
+    let bindings_match = patterns_match && {
+        let mut introduced = Vec::new();
+
+        for ((_, pattern), checked) in unit.tree().patterns().zip(facts.patterns()) {
+            if checked.target().is_none() {
+                introduced.extend_from_slice(pattern.bindings());
+            }
+
+            introduced.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
+        }
+
+        introduced.sort_unstable();
+        introduced.dedup();
+
+        introduced
+            .into_iter()
+            .eq(facts.binding_types().iter().map(|entry| entry.binding()))
+    };
 
     let matches_match = unit
         .tree()

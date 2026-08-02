@@ -127,13 +127,19 @@ fn selection_exposes_internal(
             }
 
             if let Some(receiver) = call.receiver() {
-                semantic_values_expose_internal |= push_conversion_dependencies(
+                semantic_values_expose_internal |= resolved_type_exposes_internal(
+                    receiver.source_type(),
                     semantic_values,
                     symbols,
                     declarations,
-                    receiver.conversion(),
-                    &mut dependencies,
-                )?;
+                );
+
+                semantic_values_expose_internal |= resolved_type_exposes_internal(
+                    receiver.target_type(),
+                    semantic_values,
+                    symbols,
+                    declarations,
+                );
             }
 
             for argument in call.arguments() {
@@ -160,6 +166,7 @@ fn selection_exposes_internal(
         }
         SemanticSelection::Predicate(predicate) => {
             dependencies.push(predicate.predicate().into_any());
+
             semantic_values_expose_internal |= substitution_exposes_internal(
                 predicate.substitution(),
                 semantic_values,

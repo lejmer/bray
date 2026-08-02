@@ -6,9 +6,9 @@ use bray_binder::{
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedPatternFacts,
-    CheckedRefinementFacts, CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts,
-    StoragePlan, walk_bound_unit_view,
+    BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedMemoryOperations,
+    CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
+    DeclaredValueTypeTemplates, LivenessFacts, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
@@ -162,12 +162,13 @@ pub(super) fn analyze_liveness(
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
     storage: &StoragePlan,
+    memory: &CheckedMemoryOperations,
 ) -> Result<DiagnosticResult<LivenessFacts>, FactQueryError> {
     let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, storage))
+    checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, storage, memory))
 }
 
 pub(super) fn analyze_refinements(

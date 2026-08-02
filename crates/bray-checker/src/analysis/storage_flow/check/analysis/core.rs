@@ -462,11 +462,6 @@ where
 
         state.live.extend(definitions.iter().copied());
         state.initialized.extend(definitions.iter().copied());
-        state.moved.retain(|access| {
-            self.storage
-                .root_identity(*access)
-                .is_none_or(|root| !definitions.contains(&root))
-        });
     }
 
     fn access_is_moved(&self, state: &StorageFlowState, access: StorageAccessId) -> bool {
@@ -514,6 +509,7 @@ where
                 };
 
                 let subject = BoundDependencySubject::BorrowCapability(*borrow);
+
                 let retained_for_suspension = self
                     .liveness
                     .live_across_suspensions()
@@ -564,6 +560,7 @@ where
                 .root_identity(*access)
                 .is_some_and(|storage| state.live.contains(&storage))
         });
+
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
                 || self

@@ -216,6 +216,7 @@ fn lock_stream(handle: u64) -> NativePlatformStatus {
     }
 
     let (locks, available) = stream_locks();
+
     let Ok(mut held) = locks.lock() else {
         return NativePlatformStatus::OTHER;
     };
@@ -239,6 +240,7 @@ fn unlock_stream(handle: u64) -> NativePlatformStatus {
     }
 
     let (locks, available) = stream_locks();
+
     let Ok(mut held) = locks.lock() else {
         return NativePlatformStatus::OTHER;
     };
@@ -285,6 +287,7 @@ fn build_process_context() -> Box<[u8]> {
     let mut block = vec![0; payload_start];
 
     let working_directory_range = push_payload(&mut block, &working_directory);
+
     let argument_ranges = arguments
         .iter()
         .map(|argument| push_payload(&mut block, argument))
@@ -416,6 +419,7 @@ mod tests {
         assert_eq!(lock_stream(STANDARD_OUTPUT_HANDLE), NativePlatformStatus::SUCCESS);
 
         let (started, wait_started) = mpsc::channel();
+
         let (acquired, wait_acquired) = mpsc::channel();
 
         let waiter = thread::spawn(move || {

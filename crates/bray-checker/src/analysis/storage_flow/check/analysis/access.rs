@@ -167,6 +167,7 @@ where
 
     fn projected_storage_borrow_kind(&self, access: StorageAccessId) -> Option<BorrowKind> {
         let access = self.storage.access(access)?;
+
         let StorageAccessRoot::Storage(storage) = access.root() else {
             return None;
         };
@@ -239,7 +240,11 @@ where
     ) -> Option<StorageAccessId> {
         match purpose {
             StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => Some(plan.access()),
-            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => Some(plan.access()),
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => self
+                .input
+                .borrow(plan)
+                .and_then(|borrow| self.storage.borrow_capability(borrow))
+                .map(|borrow| borrow.access()),
             StorageAccessPurpose::Read
             | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Copy

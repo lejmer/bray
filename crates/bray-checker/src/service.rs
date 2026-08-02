@@ -26,7 +26,7 @@ use bray_bound_tree::{
     CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, SelectedCall,
     SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
-use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId};
+use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId, GenericConstraintsFact};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
 /// The standard Bray control-flow checker implementation.
@@ -196,8 +196,9 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
+        memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<LivenessFacts> {
-        analyze_storage_liveness(request, storage)
+        analyze_storage_liveness(request, storage, memory)
     }
 }
 
@@ -351,6 +352,8 @@ impl<C> BodyBehaviorCollector<C> for DefaultBodyBehaviorCollector where
 pub trait ExpressionSemanticChecker<C>: Sync
 where
     C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
+        + crate::CheckerSemanticFactProvider<GenericConstraintsFact>
         + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
         + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
         + ?Sized,
@@ -382,6 +385,8 @@ where
 
 impl<C> ExpressionSemanticChecker<C> for DefaultExpressionSemanticChecker where
     C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
+        + crate::CheckerSemanticFactProvider<GenericConstraintsFact>
         + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
         + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
         + ?Sized

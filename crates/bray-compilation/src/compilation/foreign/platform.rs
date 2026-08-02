@@ -10,6 +10,7 @@ pub(super) fn platform_service_role(
     function: FunctionSymbolId,
 ) -> Result<Option<PlatformServiceRole>, FactQueryError> {
     let symbols = compilation.symbol_graph()?;
+
     let declaration = symbols
         .function(function)
         .and_then(bray_symbols::FunctionSymbol::declaration)

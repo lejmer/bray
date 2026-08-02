@@ -315,6 +315,7 @@ extern trusted internal func flush(pos handle: u32) -> PlatformStatus
         );
 
         let function = source_function(&compilation, "flush");
+
         let result = compilation
             .foreign_callable_contract(function)
             .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
@@ -322,6 +323,7 @@ extern trusted internal func flush(pos handle: u32) -> PlatformStatus
         assert!(result.diagnostics().iter().any(|diagnostic| {
             diagnostic.kind() == DiagnosticKind::CheckingPlatformServiceSignatureMismatch
         }));
+
         assert!(result.value().is_none());
     }
 
@@ -347,6 +349,7 @@ extern trusted internal func flush(pos handle: u64) -> PlatformStatus
         );
 
         let function = source_function(&compilation, "flush");
+
         let result = compilation
             .foreign_callable_contract(function)
             .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));

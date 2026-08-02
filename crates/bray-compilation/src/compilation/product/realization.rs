@@ -3768,6 +3768,7 @@ fn concrete_callable_receiver(
     };
 
     let substitution = substitution_for_owner(values, container, [substitution])?;
+
     let concrete_self = values
         .intern_type(TypeData::Named {
             definition,

@@ -162,26 +162,26 @@ pub struct GenericConstraintSet {
     constraints: Arc<[CheckedConstraint]>,
 }
 
-/// One generic constraint that supplies a concrete implementation during specialization.
+/// One static trait constraint that supplies a concrete implementation during specialization.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct GenericConstraintDispatch {
-    owner: crate::GenericOwnerId,
-    ordinal: crate::SymbolOrdinal,
+pub struct TraitConstraintDispatch {
+    owner: GenericOwnerId,
+    ordinal: SymbolOrdinal,
 }
 
-impl GenericConstraintDispatch {
-    /// Creates a dispatch reference to one declared generic constraint.
-    pub const fn new(owner: crate::GenericOwnerId, ordinal: crate::SymbolOrdinal) -> Self {
+impl TraitConstraintDispatch {
+    /// Creates a dispatch reference to one declaration constraint.
+    pub const fn new(owner: GenericOwnerId, ordinal: SymbolOrdinal) -> Self {
         Self { owner, ordinal }
     }
 
     /// Returns the generic declaration owning the constraint.
-    pub const fn owner(self) -> crate::GenericOwnerId {
+    pub const fn owner(self) -> GenericOwnerId {
         self.owner
     }
 
     /// Returns the constraint's declaration-order position.
-    pub const fn ordinal(self) -> crate::SymbolOrdinal {
+    pub const fn ordinal(self) -> SymbolOrdinal {
         self.ordinal
     }
 }

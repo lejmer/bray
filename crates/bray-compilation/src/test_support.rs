@@ -341,6 +341,28 @@ pub(crate) fn source_trait_callable_fulfillment_body_key(
     source_symbol_body_key(compilation, symbols, member.id().into())
 }
 
+pub(crate) fn source_type_callable_member_body_key(
+    compilation: &Compilation,
+    name: &str,
+) -> BoundUnitKey {
+    let symbols = compilation
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+    let member = symbols
+        .type_callable_members()
+        .iter()
+        .find(|member| {
+            member.origin() == SymbolOrigin::Source
+                && symbols
+                    .member_name(member.id().into())
+                    .is_some_and(|member_name| member_name.as_str() == name)
+        })
+        .unwrap_or_else(|| panic!("source type callable member {name} must exist"));
+
+    source_symbol_body_key(compilation, symbols, member.id().into())
+}
+
 fn source_symbol_body_key(
     compilation: &Compilation,
     symbols: &SymbolGraph,

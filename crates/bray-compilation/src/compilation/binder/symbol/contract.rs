@@ -604,6 +604,7 @@ fn bind_callable_static_constraints(
         let clause = if let Some(satisfaction) = expression.trait_satisfaction_constraint() {
             let subject = type_binder(context, owner)?
                 .bind_type_expression(satisfaction.subject())?;
+
             let application = type_binder(context, owner)?
                 .bind_trait_application(satisfaction.application())?;
 

@@ -213,6 +213,7 @@ fn dependency_subject_has_exclusive_access(
         | BoundDependencySubject::ImplementationWitness(_)
         | BoundDependencySubject::LifecycleObligation(_) => return false,
     };
+
     let authorizing_borrows = authorizing_borrow
         .map(|capability| borrow_chain(storage, capability))
         .unwrap_or_default();
@@ -239,6 +240,7 @@ fn borrow_chain(
 
     while let Some(capability) = current {
         chain.insert(capability);
+
         current = storage
             .borrow_capability(capability)
             .and_then(|capability| capability.parent());
@@ -386,6 +388,7 @@ mod tests {
         );
 
         let mut builder = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
         let borrow_type = semantic_values()
             .intern_type(TypeData::Borrow {
                 kind: BorrowKind::Mutable,

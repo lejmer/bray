@@ -1059,6 +1059,37 @@ mod tests {
     }
 
     #[test]
+    fn contextual_variant_patterns_do_not_require_superseded_binding_candidates() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    First;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    match make_choice()\n",
+            "    {\n",
+            "        case First\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+            "func make_choice() -> Choice\n",
+            "{\n",
+            "    return First;\n",
+            "}\n",
+        ));
+
+        let result = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("contextual variant match must lower: {error:?}"));
+
+        assert!(result.value().is_some(), "{:#?}", result.diagnostics());
+        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+    }
+
+    #[test]
     fn consumed_match_subject_uses_the_unprojected_union_storage() {
         let compilation = compilation(concat!(
             "module app;\n",

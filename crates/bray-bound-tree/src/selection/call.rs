@@ -16,7 +16,8 @@ pub struct SelectedReceiver {
     expression: BoundExpressionId,
     parameter: ReceiverParameterSymbolId,
     mode: ReceiverMode,
-    conversion: SelectedConversion,
+    source_type: bray_symbols::TypeId,
+    target_type: bray_symbols::TypeId,
 }
 
 impl SelectedReceiver {
@@ -25,13 +26,15 @@ impl SelectedReceiver {
         expression: BoundExpressionId,
         parameter: ReceiverParameterSymbolId,
         mode: ReceiverMode,
-        conversion: SelectedConversion,
+        source_type: bray_symbols::TypeId,
+        target_type: bray_symbols::TypeId,
     ) -> Self {
         Self {
             expression,
             parameter,
             mode,
-            conversion,
+            source_type,
+            target_type,
         }
     }
 
@@ -50,9 +53,14 @@ impl SelectedReceiver {
         self.mode
     }
 
-    /// Returns the checked receiver conversion.
-    pub const fn conversion(&self) -> &SelectedConversion {
-        &self.conversion
+    /// Returns the receiver expression's checked type.
+    pub const fn source_type(&self) -> bray_symbols::TypeId {
+        self.source_type
+    }
+
+    /// Returns the selected callable's receiver type.
+    pub const fn target_type(&self) -> bray_symbols::TypeId {
+        self.target_type
     }
 }
 

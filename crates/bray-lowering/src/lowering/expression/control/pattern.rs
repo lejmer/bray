@@ -108,15 +108,17 @@ impl Lowerer<'_> {
         let operation = self.pattern_operation(pattern)?;
         let subject = self.project_pattern_subject(pattern, subject, current, operation)?;
 
-        for binding in pattern_node.bindings() {
-            self.store_pattern_binding(
-                pattern,
-                *binding,
-                Self::retained_operand(&subject),
-                pattern_node.origin(),
-                current,
-                false,
-            )?;
+        if self.pattern_introduces_direct_bindings(pattern)? {
+            for binding in pattern_node.bindings() {
+                self.store_pattern_binding(
+                    pattern,
+                    *binding,
+                    Self::retained_operand(&subject),
+                    pattern_node.origin(),
+                    current,
+                    false,
+                )?;
+            }
         }
 
         for entry in pattern_node.entries() {
@@ -388,15 +390,17 @@ impl Lowerer<'_> {
         subject: MirOperand,
         current: MirBlockId,
     ) -> Result<(), LoweringError> {
-        for binding in pattern.bindings() {
-            self.store_pattern_binding(
-                pattern_id,
-                *binding,
-                Self::retained_operand(&subject),
-                pattern.origin(),
-                current,
-                false,
-            )?;
+        if self.pattern_introduces_direct_bindings(pattern_id)? {
+            for binding in pattern.bindings() {
+                self.store_pattern_binding(
+                    pattern_id,
+                    *binding,
+                    Self::retained_operand(&subject),
+                    pattern.origin(),
+                    current,
+                    false,
+                )?;
+            }
         }
 
         for entry in pattern.entries() {
@@ -532,6 +536,17 @@ impl Lowerer<'_> {
             .pattern(pattern)
             .map(bray_bound_tree::PatternCheckEntry::operation)
             .filter(|operation| *operation != PatternOperation::Recovered)
+            .ok_or(LoweringError::UnsupportedPattern(pattern))
+    }
+
+    fn pattern_introduces_direct_bindings(
+        &self,
+        pattern: BoundPatternId,
+    ) -> Result<bool, LoweringError> {
+        self.input
+            .pattern_facts()
+            .pattern(pattern)
+            .map(|fact| fact.target().is_none())
             .ok_or(LoweringError::UnsupportedPattern(pattern))
     }
 

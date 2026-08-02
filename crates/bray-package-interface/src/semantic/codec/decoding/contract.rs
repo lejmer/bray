@@ -166,6 +166,7 @@ fn decode_callable_clauses(
 
     for _ in 0..count {
         let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+
         let clause = match read_u32(reader)? {
             1 => InterfaceCallableContractClause::new(
                 ordinal,

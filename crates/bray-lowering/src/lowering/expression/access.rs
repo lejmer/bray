@@ -58,7 +58,7 @@ impl Lowerer<'_> {
         receiver: &SelectedReceiver,
         current: MirBlockId,
     ) -> Result<(LoweredExpression, TypeId), LoweringError> {
-        let target = receiver.conversion().target_type();
+        let target = receiver.target_type();
 
         let kind = match receiver.mode() {
             ReceiverMode::Shared => BorrowKind::Shared,

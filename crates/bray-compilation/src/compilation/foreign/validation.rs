@@ -176,6 +176,7 @@ pub(super) fn validate_platform_service_surface(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<(), FactQueryError> {
     let expected = role.signature();
+
     let parameters_match = callable.parameters.len() == expected.parameters().len()
         && callable
             .parameters
@@ -261,6 +262,7 @@ fn type_has_representation(
     expected: RepresentationRole,
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
+
     let data = values
         .type_data(ty)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -278,6 +280,7 @@ fn raw_pointer_targets(
     expected_target: RepresentationRole,
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
+
     let data = values
         .type_data(ty)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -316,6 +319,7 @@ fn platform_status_matches(
     cancellation: &CancellationToken,
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
+
     let data = values
         .type_data(ty)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -336,6 +340,7 @@ fn platform_status_matches(
     }
 
     let facts = compilation.binder_facts(cancellation)?;
+
     let structure = facts
         .symbols()
         .structure(*structure)

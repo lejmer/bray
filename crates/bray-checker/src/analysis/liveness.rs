@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundUnit, LastUse,
-    LiveAcrossScope, LiveAcrossSuspension, LivenessFacts, StorageAccessRoot, StorageIdentity,
-    StoragePlan,
+    AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId,
+    CheckedMemoryOperations, BoundUnit, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    LivenessFacts, StorageAccessRoot, StorageIdentity, StoragePlan,
 };
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -19,6 +19,7 @@ use super::reachability::{ReachabilityResult, analyze_reachability};
 pub(crate) fn analyze_storage_liveness<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
+    memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<LivenessFacts>
 where
     C: CheckerRequestContext + ?Sized,
@@ -44,7 +45,7 @@ where
         return CheckerOutcome::Cancelled;
     };
 
-    let effects = OperationEffects::from_storage_plan(request.unit(), storage);
+    let effects = OperationEffects::from_storage_plan(request.unit(), storage, memory);
     let domain = LivenessDomain::new(&graph, &reachability, &effects);
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
@@ -88,7 +89,11 @@ struct OperationEffects {
 }
 
 impl OperationEffects {
-    fn from_storage_plan(unit: &BoundUnit, storage: &StoragePlan) -> Self {
+    fn from_storage_plan(
+        unit: &BoundUnit,
+        storage: &StoragePlan,
+        memory: &CheckedMemoryOperations,
+    ) -> Self {
         let mut effects = Self::default();
 
         for (identity, provenance) in storage.identity_entries() {
@@ -172,15 +177,32 @@ impl OperationEffects {
             .collect::<Vec<_>>();
 
         for (expression, subjects) in await_uses {
-            effects
-                .by_node
-                .entry(AnyBoundNodeId::Expression(expression))
-                .or_default()
-                .uses
-                .extend(subjects);
+            effects.extend_uses(expression, subjects);
+        }
+
+        for operation in memory.operations() {
+            let subjects = operation
+                .arguments()
+                .iter()
+                .flat_map(|argument| effects.subtree_subjects(unit, *argument))
+                .collect::<BTreeSet<_>>();
+
+            effects.extend_uses(operation.expression(), subjects);
         }
 
         effects
+    }
+
+    fn extend_uses(
+        &mut self,
+        expression: BoundExpressionId,
+        subjects: impl IntoIterator<Item = BoundDependencySubject>,
+    ) {
+        self.by_node
+            .entry(AnyBoundNodeId::Expression(expression))
+            .or_default()
+            .uses
+            .extend(subjects);
     }
 
     fn subtree_subjects(
@@ -519,6 +541,7 @@ fn collect_facts(
                         .iter()
                         .filter(|subject| {
                             matches!(subject, BoundDependencySubject::BorrowCapability(_))
+                                && !effect.uses.contains(subject)
                                 && !state.contains(subject)
                         })
                         .copied()
@@ -552,8 +575,8 @@ mod tests {
 
     use bray_bound_tree::{
         AnyBoundNodeId, BoundDependencySubject, BoundErrorExpression, BoundExpression,
-        BoundExpressionId, BoundNodeOrigin, BoundUnit, BoundUnitId, StorageAccess,
-        StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StoragePlanBuilder,
+        BoundExpressionId, BoundNodeOrigin, BoundUnit, BoundUnitId, CheckedMemoryOperations,
+        StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StoragePlanBuilder,
     };
 
     use super::{OperationEffects, transfer_operation};
@@ -593,7 +616,8 @@ mod tests {
             panic!("test access plan must be valid");
         }
 
-        let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish());
+        let memory = empty_memory_operations(unit);
+        let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish(), &memory);
         let node = AnyBoundNodeId::Expression(expression);
 
         let Some(effect) = effects.effect(node) else {
@@ -649,7 +673,8 @@ mod tests {
             panic!("test access plan must be valid");
         }
 
-        let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish());
+        let memory = empty_memory_operations(unit);
+        let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish(), &memory);
 
         let operation = AnalysisOperation::new(
             AnalysisOperationId::from_slot(unit, 0),
@@ -698,5 +723,15 @@ mod tests {
         });
 
         (unit, expressions[0], BoundNodeOrigin::source(callable_key().source()))
+    }
+
+    fn empty_memory_operations(unit: BoundUnitId) -> CheckedMemoryOperations {
+        CheckedMemoryOperations::try_new(
+            unit,
+            bray_bound_tree::BoundUnitKind::CallableBody,
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty memory operations must build: {error:?}"))
     }
 }

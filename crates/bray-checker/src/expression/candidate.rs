@@ -6,11 +6,15 @@ use std::{
 };
 
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundResolvedCall, SelectedArgument,
-    SelectionKind, SemanticSelection, SemanticSelectionEntry,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundReferenceTarget,
+    BoundResolvedCall, SelectedArgument, SelectionKind, SemanticSelection, SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{GenericConstraintObligationKey, ProofOutcome, TypeId};
+use bray_symbols::{
+    AnySymbolId, CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
+    GenericConstraintObligationKey, GenericConstraintsFact, GenericOwnerId, ProofOutcome,
+    ReceiverMode, SymbolFactRequest, TypeId,
+};
 
 use super::built_in_operator::{self, PreparedBuiltInOperator};
 use super::generic_inference::infer_call_generic_arguments;
@@ -24,8 +28,9 @@ use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
     CallableCandidate, CallableCandidateTemplate, CallableCandidateTemplates,
     CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
-    ExpressionCandidateSet, NestedCallableEvidence,
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
+    CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView, ExpressionCandidateSet,
+    NestedCallableEvidence,
 };
 
 struct PreparedCall {
@@ -83,7 +88,6 @@ impl PreparedExpressions {
     pub(super) fn built_in_operators(&self) -> &[PreparedBuiltInOperator] {
         &self.built_in_operators
     }
-
 }
 
 pub(super) fn prepare_calls<C>(
@@ -92,7 +96,7 @@ pub(super) fn prepare_calls<C>(
     candidate_sets: &[ExpressionCandidateSet],
 ) -> Result<SessionProgress<PreparedExpressions>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
 {
     let mut calls = Vec::new();
     let mut built_in_operators = Vec::new();
@@ -301,7 +305,7 @@ fn generic_constraint_outcome<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<ProofOutcome, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
 {
     if candidate.generic_constraints().is_empty() {
         return Ok(ProofOutcome::Proven);
@@ -318,6 +322,13 @@ where
 
     let obligation = GenericConstraintObligationKey::new(substitution.owner(), substitution_id);
 
+    match active_constraints_prove(request, obligation, diagnostics) {
+        Ok(true) => return Ok(ProofOutcome::Proven),
+        Ok(false) => {}
+        Err(CheckerFactError::Cancelled) => return Ok(ProofOutcome::Unknown),
+        Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+    }
+
     let result = match request.generic_constraints(obligation) {
         Ok(result) => result,
         Err(crate::CheckerFactError::Cancelled) => return Ok(ProofOutcome::Unknown),
@@ -327,6 +338,93 @@ where
     diagnostics.extend(result.diagnostics().iter().cloned());
 
     Ok(*result.value())
+}
+
+fn active_constraints_prove<C>(
+    request: CheckerUnitView<'_, C>,
+    obligation: GenericConstraintObligationKey,
+    diagnostics: &mut DiagnosticBag,
+) -> CheckerFactResult<bool>
+where
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+{
+    let required = request
+        .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+            obligation.owner(),
+        ))?;
+
+    if required.diagnostics().has_errors() {
+        diagnostics.extend(required.diagnostics().iter().cloned());
+
+        return Ok(false);
+    }
+
+    let mut active = BTreeSet::new();
+
+    let Some(mut owner) = request.containing_callable().map(CallableSymbolId::into_any) else {
+        return Ok(false);
+    };
+
+    loop {
+        if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
+            let constraints = request
+                .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(generic_owner))?;
+
+            if constraints.diagnostics().has_errors() {
+                diagnostics.extend(constraints.diagnostics().iter().cloned());
+            } else {
+                active.extend(constraints.value().constraints().iter().filter_map(
+                    |constraint| match constraint.kind() {
+                        CheckedConstraintKind::TraitSatisfaction {
+                            subject,
+                            application,
+                        } => Some((subject, application)),
+                        CheckedConstraintKind::Predicate(_) => None,
+                    },
+                ));
+            }
+        }
+
+        let Some(container) = request.symbols().containing_symbol(owner) else {
+            break;
+        };
+
+        owner = container;
+    }
+
+    for constraint in required.value().constraints() {
+        let CheckedConstraintKind::TraitSatisfaction {
+            subject,
+            application,
+        } = constraint.kind()
+        else {
+            return Ok(false);
+        };
+
+        let subject = request
+            .semantic_values()
+            .substitute_type(subject, obligation.substitution())
+            .map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+        let application = request
+            .semantic_values()
+            .substitute_trait_application(application, obligation.substitution())
+            .map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+        if !active.contains(&(subject, application)) {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 fn defer_callable_selection<C>(
@@ -418,7 +516,10 @@ fn add_candidate_expectations<C>(
     session: &mut ExpressionTypeSession<'_, C>,
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     for prepared_call in &prepared.calls {
         if request.is_cancelled() {
@@ -491,10 +592,14 @@ fn viable_candidates<'candidate, C>(
     candidates: &'candidate [CallableCandidate],
 ) -> Result<Option<Vec<&'candidate CallableCandidate>>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     // The probe borrows the prepared candidates while owning only the source call surface.
-    let input = call_selection_request(request, types, prepared, member_targets, [])?;
+    let input = match call_selection_request(request, types, prepared, member_targets, []) {
+        Ok(input) => input,
+        Err(CheckerFactError::Cancelled) => return Ok(None),
+        Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+    };
 
     let Some(indices) =
         crate::selection::viable_candidate_indices(request, types, &input, candidates)?
@@ -603,7 +708,7 @@ fn materialize_call_candidates<'prepared, C>(
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
 ) -> Result<Option<MaterializedCallCandidates<'prepared>>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
 {
     if prepared.generic_candidates.is_empty() && prepared.values.is_empty() {
         return Ok(Some(MaterializedCallCandidates {
@@ -719,8 +824,8 @@ where
 
     let mut resolution = BoundResolvedCall::new(target, witnesses, result);
 
-    if let Some(dispatch) = member.and_then(bray_bound_tree::MemberTarget::generic_dispatch) {
-        resolution = resolution.with_generic_dispatch(dispatch);
+    if let Some(dispatch) = member.and_then(bray_bound_tree::MemberTarget::trait_dispatch) {
+        resolution = resolution.with_trait_dispatch(dispatch);
     }
 
     // Each materialized value candidate owns its reusable resolved-call description.
@@ -770,7 +875,10 @@ pub(super) fn converge<C>(
     session: &mut ExpressionTypeSession<'_, C>,
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     loop {
         let revision = session.revision();
@@ -815,7 +923,10 @@ fn apply_selected_call_evidence<C>(
     session: &mut ExpressionTypeSession<'_, C>,
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     for prepared_call in &prepared.calls {
         if request.is_cancelled() {
@@ -933,7 +1044,10 @@ pub(super) fn final_selections<C>(
     prepared: &PreparedExpressions,
 ) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     let mut entries = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
@@ -988,11 +1102,14 @@ fn select_prepared_call<C>(
     candidates: &[CallableCandidate],
 ) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedCall>>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     let input = match call_selection_request(request, types, prepared, member_targets, []) {
         Ok(input) => input,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerFactError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
     };
 
     crate::selection::select_callable_candidates(request, types, &input, candidates)
@@ -1004,12 +1121,14 @@ fn call_selection_request<C>(
     prepared: &PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     candidates: impl IntoIterator<Item = CallableCandidate>,
-) -> Result<CallableSelectionRequest, CheckerInfrastructureError>
+) -> CheckerFactResult<CallableSelectionRequest>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerFactError::Infrastructure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
     };
 
     let member = member_targets.get(&call.callee()).cloned();
@@ -1022,7 +1141,7 @@ where
 
     let receiver = receiver
         .map(|receiver| {
-            receiver_capability(request, types, receiver)
+            receiver_capability(request, types, member_targets, receiver)
                 .map(|capability| crate::ReceiverSelection::new(receiver, capability))
         })
         .transpose()?;
@@ -1040,49 +1159,157 @@ where
 fn receiver_capability<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
+    member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     receiver: BoundExpressionId,
-) -> Result<crate::ReceiverCapability, CheckerInfrastructureError>
+) -> CheckerFactResult<crate::ReceiverCapability>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
-    let ty = types
-        .expression(receiver)
-        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    let mut expression = receiver;
+    let mut mutable_projection = true;
 
-    let data = request
-        .semantic_values()
-        .type_data(ty.ty())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+    loop {
+        let ty = types.expression(expression).ok_or_else(|| {
+            CheckerFactError::Infrastructure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            )
+        })?;
 
-    if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
-        return Ok(match kind {
-            bray_symbols::BorrowKind::Shared => crate::ReceiverCapability::Shared,
-            bray_symbols::BorrowKind::Mutable => crate::ReceiverCapability::Mutable,
-        });
+        let data = request
+            .semantic_values()
+            .type_data(ty.ty())
+            .map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+        if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
+            return Ok(match kind {
+                bray_symbols::BorrowKind::Shared => crate::ReceiverCapability::Shared,
+                bray_symbols::BorrowKind::Mutable if mutable_projection => {
+                    crate::ReceiverCapability::Mutable
+                }
+                bray_symbols::BorrowKind::Mutable => crate::ReceiverCapability::Shared,
+            });
+        }
+
+        match request.view().expression(expression) {
+            Some(BoundExpression::MemberAccess(member)) => {
+                let target = member_targets.get(&expression).ok_or_else(|| {
+                    CheckerFactError::Infrastructure(
+                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    )
+                })?;
+
+                mutable_projection &= member_allows_mutation(request, target.member());
+                expression = member.receiver();
+            }
+            Some(BoundExpression::Name(name)) => {
+                let capability = name_receiver_capability(request, name.target())?;
+
+                return Ok(projected_receiver_capability(
+                    capability,
+                    mutable_projection,
+                ));
+            }
+            Some(_) => return Ok(crate::ReceiverCapability::Owned),
+            None => {
+                return Err(CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                ));
+            }
+        }
     }
+}
 
-    let Some(BoundExpression::Name(name)) = request.view().expression(receiver) else {
-        return Ok(crate::ReceiverCapability::Owned);
-    };
+fn name_receiver_capability<C>(
+    request: CheckerUnitView<'_, C>,
+    target: BoundReferenceTarget,
+) -> CheckerFactResult<crate::ReceiverCapability>
+where
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    match target {
+        BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) => {
+            let is_mutable = request.unit().tree().patterns().any(|(_, pattern)| {
+                pattern.bindings().contains(&binding) && pattern.is_mutable()
+            });
 
-    let bray_bound_tree::BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(
-        binding,
-    )) = name.target()
-    else {
-        return Ok(crate::ReceiverCapability::Owned);
-    };
+            Ok(if is_mutable {
+                crate::ReceiverCapability::OwnedMutable
+            } else {
+                crate::ReceiverCapability::Owned
+            })
+        }
+        BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(parameter)) => {
+            let receiver = request
+                .symbols()
+                .receiver_parameter(parameter)
+                .ok_or_else(|| {
+                    CheckerFactError::Infrastructure(
+                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    )
+                })?;
 
-    let is_mutable = request
-        .unit()
-        .tree()
-        .patterns()
-        .any(|(_, pattern)| pattern.bindings().contains(&binding) && pattern.is_mutable());
+            let signature = request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+                receiver.owner(),
+            ))?;
 
-    Ok(if is_mutable {
-        crate::ReceiverCapability::OwnedMutable
-    } else {
-        crate::ReceiverCapability::Owned
-    })
+            let mode = signature
+                .value()
+                .receiver()
+                .filter(|signature| signature.parameter() == parameter)
+                .map(bray_symbols::ReceiverParameterSignature::mode)
+                .ok_or_else(|| {
+                    CheckerFactError::Infrastructure(
+                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    )
+                })?;
+
+            Ok(receiver_mode_capability(mode))
+        }
+        BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => {
+            Ok(crate::ReceiverCapability::Owned)
+        }
+    }
+}
+
+fn member_allows_mutation<C>(request: CheckerUnitView<'_, C>, member: AnySymbolId) -> bool
+where
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+{
+    match member {
+        AnySymbolId::StructField(field) => request
+            .symbols()
+            .struct_field(field)
+            .is_some_and(bray_symbols::StructFieldSymbol::allows_mutation),
+        AnySymbolId::UnionPayloadField(field) => request
+            .symbols()
+            .union_payload_field(field)
+            .is_some_and(bray_symbols::UnionPayloadFieldSymbol::allows_mutation),
+        _ => false,
+    }
+}
+
+const fn receiver_mode_capability(mode: ReceiverMode) -> crate::ReceiverCapability {
+    match mode {
+        ReceiverMode::Shared => crate::ReceiverCapability::Shared,
+        ReceiverMode::Mutable => crate::ReceiverCapability::Mutable,
+        ReceiverMode::Consuming => crate::ReceiverCapability::Owned,
+        ReceiverMode::ConsumingMutable => crate::ReceiverCapability::OwnedMutable,
+    }
+}
+
+const fn projected_receiver_capability(
+    capability: crate::ReceiverCapability,
+    allows_mutation: bool,
+) -> crate::ReceiverCapability {
+    match (capability, allows_mutation) {
+        (crate::ReceiverCapability::Mutable, false) => crate::ReceiverCapability::Shared,
+        (crate::ReceiverCapability::OwnedMutable, false) => crate::ReceiverCapability::Owned,
+        (capability, _) => capability,
+    }
 }
 
 #[cfg(test)]

@@ -817,15 +817,18 @@ mod tests {
     use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
-        ConstantValueKind, NamedTypeSymbolId, SymbolKind, SymbolOrdinal, TypeData,
+        ConstantValueKind, NamedTypeSymbolId, PackageIdentity, SymbolKind, SymbolOrdinal, TypeData,
         TypeExpressionTemplate,
     };
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
+    use crate::CompilationRequest;
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError, QueryPriority};
     use crate::test_support::{
         FactTestGate, compilation, compilation_with_sources_and_worker_budget,
-        compilation_with_target_operations, source_callable_body_key,
+        compilation_with_target_operations, source_callable_body_key, source_function_body_key,
+        source_input, source_trait_callable_fulfillment_body_key,
+        source_type_callable_member_body_key,
     };
 
     #[test]
@@ -1246,6 +1249,75 @@ mod tests {
             dependencies.contains(&crate::fact::CompilationFactKey::RefinementFacts(
                 key.clone()
             ))
+        );
+    }
+
+    #[test]
+    fn raw_pointer_use_does_not_extend_the_source_borrow() {
+        assert_standard_memory_body_has_no_conflicting_borrow(concat!(
+            "module std.test;\n",
+            "func main()\n",
+            "{\n",
+            "    let mut value: i32 = 1;\n",
+            "    let pointer: RawPointer<i32> = std.memory.address_of<i32>(&value);\n",
+            "    std.memory.is_null<i32>(pointer);\n",
+            "    value = 2;\n",
+            "}\n",
+        ));
+    }
+
+    #[test]
+    fn mutable_slice_element_can_be_reborrowed_for_a_raw_pointer() {
+        assert_standard_memory_body_has_no_conflicting_borrow(concat!(
+            "module std.test;\n",
+            "func main(pos bytes: & mut [u8]) -> RawPointer<u8>\n",
+            "{\n",
+            "    if std.memory.byte_slice_length(&bytes) == 0\n",
+            "    {\n",
+            "        return std.memory.null<u8>();\n",
+            "    }\n",
+            "\n",
+            "    return std.memory.address_of_mut<u8>(& mut bytes[0]);\n",
+            "}\n",
+        ));
+    }
+
+    fn assert_standard_memory_body_has_no_conflicting_borrow(source: &str) {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library identity must be valid"));
+
+        let request = CompilationRequest::new(
+            package,
+            vec![
+                source_input(include_str!("../../../../../standard-library/std/src/std.bray"), 0),
+                source_input(
+                    include_str!("../../../../../standard-library/std/src/memory.bray"),
+                    1,
+                ),
+                source_input(
+                    source,
+                    2,
+                ),
+            ],
+        )
+        .with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"));
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let facts = compilation
+            .storage_flow_facts(key)
+            .unwrap_or_else(|error| panic!("storage-flow checking must publish: {error:?}"));
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
+                .next()
+                .is_none(),
+            "{facts:#?}"
         );
     }
 
@@ -2773,6 +2845,125 @@ mod tests {
                 .by_kind(DiagnosticKind::CheckingIncompatibleCandidate)
                 .count(),
             1,
+            "{:?}",
+            selections.diagnostics()
+        );
+    }
+
+    #[test]
+    fn mutable_receiver_authority_reaches_mutable_projected_fields() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Writer\n",
+            "{\n",
+            "    mut func write(pos value: i32);\n",
+            "}\n",
+            "struct Wrapper<Sink>\n",
+            "{\n",
+            "    mut sink: Sink;\n",
+            "}\n",
+            "impl Wrapper<Sink>\n",
+            "{\n",
+            "    mut func forward()\n",
+            "        with(Sink: Writer)\n",
+            "    {\n",
+            "        self.sink.write(1);\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_type_callable_member_body_key(&compilation, "forward");
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("method selection must publish: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        assert!(selections.value().entries().iter().any(|entry| {
+            matches!(
+                entry.selection(),
+                SemanticSelection::Call(call) if call.resolution().trait_dispatch().is_some()
+            )
+        }));
+    }
+
+    #[test]
+    fn mutable_borrow_receivers_reborrow_for_mutable_methods() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Writer\n",
+            "{\n",
+            "    mut func write(pos value: i32);\n",
+            "}\n",
+            "func forward<Sink>(pos sink: &mut Sink)\n",
+            "    with(Sink: Writer)\n",
+            "{\n",
+            "    sink.write(1);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .unwrap_or_else(|error| panic!("borrowed receiver selection must publish: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("borrowed receiver call must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+    }
+
+    #[test]
+    fn generic_calls_infer_arguments_from_trait_fulfillment_receivers() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Reader\n",
+            "{\n",
+            "    mut func read(pos destination: &mut [i32]) -> i32;\n",
+            "}\n",
+            "struct BufferedReader<Source>\n",
+            "{\n",
+            "    mut source: Source;\n",
+            "}\n",
+            "func read_buffered<Source>(\n",
+            "    pos reader: &mut BufferedReader<Source>,\n",
+            "    pos destination: &mut [i32],\n",
+            ") -> i32\n",
+            "    with(Source: Reader)\n",
+            "{\n",
+            "    return 0;\n",
+            "}\n",
+            "impl BufferedReaderSourceReader = BufferedReader<Source>(Reader)\n",
+            "    with(Source: Reader)\n",
+            "{\n",
+            "    mut func read(pos destination: &mut [i32]) -> i32\n",
+            "    {\n",
+            "        return read_buffered(&mut self, destination);\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_trait_callable_fulfillment_body_key(&compilation, "read");
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("fulfillment selection must publish: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
             "{:?}",
             selections.diagnostics()
         );

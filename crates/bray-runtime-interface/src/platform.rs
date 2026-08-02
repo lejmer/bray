@@ -224,6 +224,7 @@ mod tests {
         assert_eq!(role.id(), 0x0102);
         assert_eq!(role.as_str(), "platform.stream.write");
         assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
+
         assert_eq!(
             role.signature().parameters(),
             [
@@ -233,6 +234,7 @@ mod tests {
                 PlatformAbiType::PointerU64,
             ]
         );
+
         assert_eq!(role.signature().result(), PlatformAbiType::Status);
     }
 
@@ -248,6 +250,7 @@ mod tests {
         assert_eq!(binding.module().collect::<Vec<_>>(), ["std", "io"]);
         assert_eq!(binding.declaration(), "platform_stream_flush");
         assert_eq!(binding.dotted_path(), "std.io.platform_stream_flush");
+
         assert_eq!(
             PlatformServiceBinding::try_new(PlatformServiceRole::StreamFlush, "flush"),
             None

@@ -514,6 +514,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         );
 
         let substitution = self.export.substitution_id(predicate.substitution())?;
+
         let arguments = predicate
             .arguments()
             .iter()

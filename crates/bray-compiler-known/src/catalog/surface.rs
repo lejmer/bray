@@ -351,7 +351,6 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                     parameter_list_depth = None;
                 }
 
-
                 if *kind == SyntaxKind::Parameter && callable_parameter_depth == Some(depth) {
                     callable_parameter_depth = None;
                 }

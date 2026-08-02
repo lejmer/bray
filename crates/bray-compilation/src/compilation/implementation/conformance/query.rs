@@ -968,6 +968,7 @@ mod tests {
             "{:?}",
             result.diagnostics()
         );
+
         assert!(result.value().is_valid());
     }
 
