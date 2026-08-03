@@ -5,6 +5,7 @@ use crate::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
     BoundUnit, CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
     SelectedConstructionInput, SelectedIterationSource, SelectedOperation, SelectedPropagation,
+    SelectedPredicateApplication,
 };
 
 /// The exact checked semantic choice attached to one expression occurrence.
@@ -14,6 +15,8 @@ pub enum SemanticSelection {
     Reference(BoundReferenceTarget),
     /// An exact callable, ABI, witness set, and argument mapping.
     Call(SelectedCall),
+    /// An exact predicate declaration, substitution, and argument mapping.
+    Predicate(SelectedPredicateApplication),
     /// An exact member, operator, index, construction, conversion, or implementation operation.
     Operation(SelectedOperation),
     /// Exact iteration protocols and operations.
@@ -189,6 +192,9 @@ fn selection_matches_expression(
         (SemanticSelection::Call(call), BoundExpression::Call(source)) => {
             call_matches_expression(unit, call, source)
         }
+        (SemanticSelection::Predicate(predicate), BoundExpression::Call(source)) => {
+            source.callee() == predicate.callee()
+        }
         (SemanticSelection::Operation(operation), expression)
             if operation.matches_expression(expression) =>
         {
@@ -232,6 +238,19 @@ fn validate_operation_subject(
         (SemanticSelection::Call(call), BoundExpression::Call(_)) => {
             validate_call_inputs(types, expression_id, call)
         }
+        (SemanticSelection::Predicate(predicate), BoundExpression::Call(_)) => {
+            for argument in predicate.arguments() {
+                validate_subject_type(
+                    types,
+                    argument.expression(),
+                    argument.ty(),
+                    expression_id,
+                    SemanticSelectionTableBuildError::OperandTypeMismatch,
+                )?;
+            }
+
+            Ok(())
+        }
         (
             SemanticSelection::Operation(SelectedOperation::Conversion(conversion)),
             BoundExpression::Conversion(source),
@@ -271,7 +290,7 @@ fn validate_call_inputs(
         validate_subject_type(
             types,
             receiver.expression(),
-            receiver.conversion().source_type(),
+            receiver.source_type(),
             selection,
             SemanticSelectionTableBuildError::OperandTypeMismatch,
         )?;
@@ -475,6 +494,7 @@ fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::
     match selection {
         SemanticSelection::Reference(_) => None,
         SemanticSelection::Call(call) => Some(call.resolution().result().ty()),
+        SemanticSelection::Predicate(predicate) => Some(predicate.result_type()),
         SemanticSelection::Operation(operation) => operation.result_type(),
         SemanticSelection::Iteration(_) => None,
         SemanticSelection::Propagation(_) => None,

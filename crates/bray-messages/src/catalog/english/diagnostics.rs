@@ -498,6 +498,11 @@ const CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" ABI boundary"),
 ];
 
+const CHECKING_PLATFORM_SERVICE_SIGNATURE_MISMATCH: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "platform service declaration does not match its required ABI signature",
+    )];
+
 const CHECKING_INVALID_NATIVE_LINK_DIRECTIVE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "link directive must provide a non-empty constant string name and a supported link kind",
@@ -1370,6 +1375,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingForeignAbiTypeUnsupported => {
             MessageTemplate::new(CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingPlatformServiceSignatureMismatch => {
+            MessageTemplate::new(CHECKING_PLATFORM_SERVICE_SIGNATURE_MISMATCH)
         }
         DiagnosticKind::CheckingInvalidNativeLinkDirective => {
             MessageTemplate::new(CHECKING_INVALID_NATIVE_LINK_DIRECTIVE)

@@ -25,7 +25,7 @@ extern trusted func reinterpret<Target, Source>(
 
 extern trusted func read<T>(pos pointer: RawPointer<T>) -> T
     requires(
-        trusted core.memory.valid_read(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<T>(pointer = pointer),
         trusted core.memory.initialized_as<T>(pointer = pointer),
     )
@@ -36,7 +36,7 @@ extern trusted func write<T>(
     pos value: T,
 ) -> unit
     requires(
-        trusted core.memory.valid_write(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<T>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<T>(pointer = pointer),
     )
     ensures(
@@ -50,13 +50,13 @@ extern trusted func copy<T>(
     count: usize,
 ) -> unit
     requires(
-        trusted core.memory.valid_read(pointer = source, count = count),
-        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.valid_read<T>(pointer = source, count = count),
+        trusted core.memory.valid_write<T>(pointer = destination, count = count),
         trusted core.memory.initialized_range_as<T>(
             pointer = source,
             count = count,
         ),
-        trusted core.memory.non_overlapping(
+        trusted core.memory.non_overlapping<T>(
             left = source,
             left_count = count,
             right = destination,
@@ -77,8 +77,8 @@ extern trusted func copy_overlapping<T>(
     count: usize,
 ) -> unit
     requires(
-        trusted core.memory.valid_read(pointer = source, count = count),
-        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.valid_read<T>(pointer = source, count = count),
+        trusted core.memory.valid_write<T>(pointer = destination, count = count),
         trusted core.memory.initialized_range_as<T>(
             pointer = source,
             count = count,
@@ -133,7 +133,7 @@ extern trusted func allocate(pos layout: MemoryLayout) -> RawAllocation
             bytes = result.bytes,
             align = result.align,
         ),
-        trusted core.memory.valid_write(
+        trusted core.memory.valid_write<u8>(
             pointer = result.pointer,
             count = result.bytes,
         ),
@@ -211,7 +211,7 @@ extern trusted func spare_pointer<T>(
     pos buffer: &mut RawBuffer<T>,
 ) -> RawPointer<T>
     ensures(
-        trusted core.memory.valid_write(
+        trusted core.memory.valid_write<T>(
             pointer = result,
             count = buffer.capacity - buffer.initialized,
         ),
@@ -272,4 +272,24 @@ extern internal func byte_slice_length(pos bytes: &[u8]) -> usize;
 internal func byte_address_of(pos value: &u8) -> RawPointer<u8>
 {
     return address_of<u8>(value);
+}
+
+internal func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>
+{
+    if byte_slice_length(bytes) == 0
+    {
+        return null<u8>();
+    }
+
+    return address_of<u8>(&bytes[0]);
+}
+
+internal func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>
+{
+    if byte_slice_length(&bytes) == 0
+    {
+        return null<u8>();
+    }
+
+    return address_of_mut<u8>(&mut bytes[0]);
 }

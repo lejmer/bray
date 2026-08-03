@@ -13,7 +13,7 @@ use crate::{CodegenInstanceKey, CodegenUnit};
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DemandedCallableInstance {
     reference: MirCallableReference,
-    generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
+    trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     witnesses: Arc<[ImplementationInstanceId]>,
 }
 
@@ -24,8 +24,8 @@ impl DemandedCallableInstance {
     }
 
     /// Returns the generic constraint supplying callable dispatch.
-    pub const fn generic_dispatch(&self) -> Option<bray_symbols::GenericConstraintDispatch> {
-        self.generic_dispatch
+    pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
+        self.trait_dispatch
     }
 
     /// Returns selected implementation witnesses in canonical semantic order.
@@ -122,7 +122,7 @@ fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedC
 
     Some(DemandedCallableInstance {
         reference: *reference,
-        generic_dispatch: call.generic_dispatch(),
+        trait_dispatch: call.trait_dispatch(),
         witnesses: witnesses.into(),
     })
 }
@@ -136,7 +136,7 @@ fn terminator_callable_instance(
 
     Some(DemandedCallableInstance {
         reference: *next,
-        generic_dispatch: None,
+        trait_dispatch: None,
         witnesses: Arc::from([]),
     })
 }

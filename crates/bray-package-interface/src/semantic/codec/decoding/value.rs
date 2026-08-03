@@ -583,6 +583,12 @@ mod tests {
         assert_eq!(callable_contract.invocation_preconditions().len(), 1);
         assert_eq!(callable_contract.static_constraints().len(), 1);
 
+        assert!(
+            callable_contract.static_constraints()[0]
+                .trait_satisfaction_requirement()
+                .is_some()
+        );
+
         assert_eq!(
             callable_contract.normal_completion_postconditions().len(),
             1
@@ -1091,6 +1097,7 @@ mod tests {
 
     fn facts(surface: &crate::PackageInterfaceSurface) -> InterfaceSemanticFacts {
         let struct_reference = symbol_reference(surface, SymbolKind::Struct);
+        let trait_reference = symbol_reference(surface, SymbolKind::Trait);
         let constant_reference = symbol_reference(surface, SymbolKind::Constant);
         let function_reference = symbol_reference(surface, SymbolKind::Function);
 
@@ -1100,11 +1107,14 @@ mod tests {
 
         InterfaceSemanticFacts::new()
             .with_applications(
-                [InterfaceGenericSubstitution::new(
-                    struct_reference.clone(),
-                    [],
+                [
+                    InterfaceGenericSubstitution::new(struct_reference.clone(), []),
+                    InterfaceGenericSubstitution::new(trait_reference.clone(), []),
+                ],
+                [InterfaceTraitApplication::new(
+                    trait_reference,
+                    InterfaceGenericSubstitutionId::new(1),
                 )],
-                [],
                 [],
                 [],
             )
@@ -1170,10 +1180,10 @@ mod tests {
                             bray_symbols::CallableContractClauseKind::Ensures,
                             InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
                         ),
-                        crate::InterfaceCallableContractClause::new(
+                        crate::InterfaceCallableContractClause::trait_satisfaction(
                             SymbolOrdinal::new(2),
-                            bray_symbols::CallableContractClauseKind::Static,
-                            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
+                            InterfaceTypeId::new(0),
+                            crate::InterfaceTraitApplicationId::new(0),
                         ),
                     ],
                     crate::test_support::callable_phase_behavior(),

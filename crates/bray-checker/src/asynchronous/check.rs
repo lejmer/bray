@@ -147,6 +147,7 @@ where
                     .is_none_or(|contract| {
                         suspension_state.is_some_and(|state| {
                             dependency_contract_is_satisfied(
+                                request.semantic_values(),
                                 storage,
                                 refinements,
                                 expression,
@@ -157,13 +158,14 @@ where
                     });
 
                 if !dependency_satisfied
-                    && let Err(error) = add_unavailable_await_dependency_diagnostic(
+                {
+                    if let Err(error) = add_unavailable_await_dependency_diagnostic(
                         request,
                         expression,
                         &mut diagnostics,
-                    )
-                {
-                    return CheckerOutcome::InfrastructureFailure(error);
+                    ) {
+                        return CheckerOutcome::InfrastructureFailure(error);
+                    }
                 }
 
                 let suspension_recovered = request

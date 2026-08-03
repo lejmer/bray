@@ -144,7 +144,11 @@ where
                 PatternOperation::Consume
                 | PatternOperation::Copy
                 | PatternOperation::Recovered => {
-                    self.bind_identity(target, StorageIdentity::LocalOwned(pattern.into()))?;
+                    self.bind_identity(
+                        target,
+                        StorageIdentity::LocalOwned(pattern.into()),
+                        Some(checked.ty()),
+                    )?;
 
                     None
                 }
@@ -249,6 +253,12 @@ where
 
             self.alternative_pattern_bindings.remove(&binding);
 
+            let ty = self
+                .patterns
+                .binding_type(binding)
+                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                .ty();
+
             let alternative = self
                 .builder_mut()?
                 .push_alternative(pattern_id, accesses)
@@ -260,6 +270,7 @@ where
                     pattern: pattern_id,
                     alternative,
                 },
+                Some(ty),
             )?;
         }
 

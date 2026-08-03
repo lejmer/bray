@@ -31,6 +31,7 @@ pub use dependency::{
 };
 pub use fact::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
+    InterfaceCallableContractClauseValue,
     InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord, InterfaceConstraint,
     InterfaceConstraintKind, InterfaceImplementationRecord, InterfacePredicateSummary,
     InterfaceRuntimeRequirement, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,

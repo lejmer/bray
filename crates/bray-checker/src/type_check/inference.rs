@@ -218,6 +218,12 @@ impl TypeInferenceContext {
         Ok(selected)
     }
 
+    pub(super) fn unique_expectation(&mut self, id: InferenceTypeId) -> Option<TypeId> {
+        self.try_unique_matching_expectation(id, |_| Ok::<_, std::convert::Infallible>(true))
+            .ok()
+            .flatten()
+    }
+
     pub(super) fn result(&mut self, id: InferenceTypeId) -> Option<ExpressionTypeResult> {
         let root = self.find(id);
         let index = root.to_index()?;

@@ -58,7 +58,7 @@ impl Lowerer<'_> {
         receiver: &SelectedReceiver,
         current: MirBlockId,
     ) -> Result<(LoweredExpression, TypeId), LoweringError> {
-        let target = receiver.conversion().target_type();
+        let target = receiver.target_type();
 
         let kind = match receiver.mode() {
             ReceiverMode::Shared => BorrowKind::Shared,
@@ -112,7 +112,7 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(decision.access())
-            .and_then(|identity| self.input.storage_plan().identity_type(identity))
+            .and_then(|identity| self.input.storage_plan().storage_type(identity))
             .and_then(|ty| {
                 self.input
                     .semantic_values()
@@ -628,20 +628,9 @@ impl Lowerer<'_> {
         &self,
         identity: StorageIdentityId,
     ) -> Result<TypeId, LoweringError> {
-        let plan = self.input.storage_plan();
-
-        if let Some(ty) = plan.identity_type(identity) {
-            return Ok(ty);
-        }
-
-        plan.access_entries()
-            .find_map(|(access, model)| {
-                (plan.root_identity(access) == Some(identity)
-                    && plan
-                        .resolved_projections(access)
-                        .is_some_and(<[_]>::is_empty))
-                .then_some(model.reached_type())
-            })
+        self.input
+            .storage_plan()
+            .storage_type(identity)
             .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
     }
 

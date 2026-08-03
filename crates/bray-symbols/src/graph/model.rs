@@ -257,6 +257,15 @@ macro_rules! define_symbol_graph {
                     .get(&owner)
                     .and_then(|index| index.name(member))
                     .or_else(|| self.compiler_known.member_name(owner, member))
+                    .or_else(|| match member {
+                        AnySymbolId::CallableParameter(parameter) => self
+                            .callable_parameter(parameter)
+                            .and_then(crate::CallableParameterSymbol::generated_name),
+                        AnySymbolId::PredicateParameter(parameter) => self
+                            .predicate_parameter(parameter)
+                            .and_then(crate::PredicateParameterSymbol::generated_name),
+                        _ => None,
+                    })
             }
 
             /// Returns one source or compiler-known member's immutable lookup entry.

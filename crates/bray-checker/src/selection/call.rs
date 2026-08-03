@@ -343,6 +343,7 @@ where
     }
 
     match select_receiver(
+        request,
         input.types,
         input.receiver,
         candidate
@@ -547,11 +548,15 @@ enum ReceiverApplicability {
     Recovered,
 }
 
-fn select_receiver(
+fn select_receiver<C>(
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     actual: Option<super::ReceiverSelection>,
     expected: Option<bray_symbols::ReceiverParameterSignature>,
-) -> Result<ReceiverApplicability, CheckerInfrastructureError> {
+) -> Result<ReceiverApplicability, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let (Some(actual), Some(expected)) = (actual, expected) else {
         return Ok(if actual.is_none() && expected.is_none() {
             ReceiverApplicability::Applicable(None)
@@ -566,7 +571,7 @@ fn select_receiver(
         return Ok(ReceiverApplicability::Recovered);
     }
 
-    if actual_type.ty() != expected.ty()
+    if !receiver_type_supports(request, actual_type.ty(), expected.ty())?
         || !receiver_capability_supports(actual.capability(), expected.mode())
     {
         return Ok(ReceiverApplicability::Incompatible);
@@ -577,9 +582,33 @@ fn select_receiver(
             actual.expression(),
             expected.parameter(),
             expected.mode(),
-            SelectedConversion::new(actual_type.ty(), expected.ty(), ConversionTarget::Identity),
+            actual_type.ty(),
+            expected.ty(),
         ),
     )))
+}
+
+fn receiver_type_supports<C>(
+    request: CheckerUnitView<'_, C>,
+    actual: bray_symbols::TypeId,
+    expected: bray_symbols::TypeId,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if actual == expected {
+        return Ok(true);
+    }
+
+    let data = request
+        .semantic_values()
+        .type_data(actual)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    Ok(matches!(
+        data.as_ref(),
+        TypeData::Borrow { target, .. } if *target == expected
+    ))
 }
 
 const fn receiver_capability_supports(actual: ReceiverCapability, expected: ReceiverMode) -> bool {
@@ -1062,14 +1091,8 @@ mod tests {
         assert_eq!(receiver.expression(), fixture.receiver);
         assert_eq!(receiver.parameter(), receiver_parameter());
 
-        assert_eq!(
-            receiver.conversion(),
-            &SelectedConversion::new(
-                fixture.value_type,
-                fixture.value_type,
-                ConversionTarget::Identity,
-            )
-        );
+        assert_eq!(receiver.source_type(), fixture.value_type);
+        assert_eq!(receiver.target_type(), fixture.value_type);
     }
 
     #[test]

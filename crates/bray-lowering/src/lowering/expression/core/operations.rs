@@ -470,17 +470,9 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingOperationResult(receiver.expression()));
             };
 
-            let value = self.convert_operand(
-                id,
-                current,
-                Self::retained_source(&source),
-                operand,
-                receiver.conversion(),
-            )?;
-
             arguments.push(MirCallArgument::Receiver {
                 parameter: receiver.parameter(),
-                value,
+                value: operand,
             });
         }
 
@@ -544,7 +536,7 @@ impl Lowerer<'_> {
                 .implementation_witnesses()
                 .iter()
                 .copied(),
-            selection.resolution().generic_dispatch(),
+            selection.resolution().trait_dispatch(),
             selection.witnesses().iter().copied(),
         );
 

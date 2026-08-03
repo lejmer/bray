@@ -50,6 +50,27 @@ pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation_v1";
 /// Stable symbol releasing manually managed Bray storage.
 pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation_v1";
 
+/// Stable symbol measuring the immutable process-context block.
+pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure_v1";
+
+/// Stable symbol copying the immutable process-context block.
+pub const PLATFORM_CONTEXT_COPY_SYMBOL: &str = "bray_platform_context_copy_v1";
+
+/// Stable symbol reading from a borrowed platform stream handle.
+pub const PLATFORM_STREAM_READ_SYMBOL: &str = "bray_platform_stream_read_v1";
+
+/// Stable symbol writing to a borrowed platform stream handle.
+pub const PLATFORM_STREAM_WRITE_SYMBOL: &str = "bray_platform_stream_write_v1";
+
+/// Stable symbol flushing a borrowed platform stream handle.
+pub const PLATFORM_STREAM_FLUSH_SYMBOL: &str = "bray_platform_stream_flush_v1";
+
+/// Stable symbol acquiring product-wide stream serialization.
+pub const PLATFORM_STREAM_LOCK_SYMBOL: &str = "bray_platform_stream_lock_v1";
+
+/// Stable symbol releasing product-wide stream serialization.
+pub const PLATFORM_STREAM_UNLOCK_SYMBOL: &str = "bray_platform_stream_unlock_v1";
+
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
 pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
 
@@ -118,6 +139,71 @@ pub const RUNTIME_EVENT_SYMBOL: &str = "bray_runtime_event_v1";
 
 /// Stable symbol selecting the lane for one task state.
 pub const COMPATIBLE_LANE_SELECTION_SYMBOL: &str = "bray_runtime_compatible_lane_selection_v1";
+
+/// Returns the canonical native symbol for a role implemented by the Bray runtime.
+pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&'static str> {
+    use crate::RuntimeAbiRole as Role;
+
+    match role {
+        Role::RootExecution => Some(ROOT_EXECUTION_SYMBOL),
+        Role::SynchronousRootExecution => Some(SYNCHRONOUS_ROOT_EXECUTION_SYMBOL),
+        Role::RootCancellationRequest => Some(ROOT_CANCELLATION_REQUEST_SYMBOL),
+        Role::TaskAllocation => Some(TASK_ALLOCATION_SYMBOL),
+        Role::TaskStart => Some(TASK_START_SYMBOL),
+        Role::SuspensionRegistration => Some(SUSPENSION_REGISTRATION_SYMBOL),
+        Role::Wake => Some(WAKE_SYMBOL),
+        Role::TaskCancellationRequest => Some(TASK_CANCELLATION_REQUEST_SYMBOL),
+        Role::CurrentRunCancellationObservation => {
+            Some(CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL)
+        }
+        Role::JoinRegistration => Some(JOIN_REGISTRATION_SYMBOL),
+        Role::TerminalPublication => Some(TERMINAL_PUBLICATION_SYMBOL),
+        Role::RuntimeEvent => Some(RUNTIME_EVENT_SYMBOL),
+        Role::CompatibleLaneSelection => Some(COMPATIBLE_LANE_SELECTION_SYMBOL),
+        Role::CleanupIncidentReporting => Some(CLEANUP_INCIDENT_REPORTING_SYMBOL),
+        Role::MainThreadLaneStartup => Some(MAIN_THREAD_LANE_STARTUP_SYMBOL),
+        Role::MainThreadLaneDrive => Some(MAIN_THREAD_LANE_DRIVE_SYMBOL),
+        Role::RootTerminalObservation => Some(ROOT_TERMINAL_OBSERVATION_SYMBOL),
+        Role::RootCompletionResolution => Some(ROOT_COMPLETION_RESOLUTION_SYMBOL),
+        Role::PanicReporting => Some(PANIC_REPORTING_SYMBOL),
+        Role::EntryFailureReporting => Some(ENTRY_FAILURE_REPORTING_SYMBOL),
+        Role::StructuredShutdown => Some(STRUCTURED_SHUTDOWN_SYMBOL),
+        Role::FrameCompletionMove => Some(FRAME_COMPLETION_MOVE_SYMBOL),
+        Role::PanicReportConstruction => Some(PANIC_REPORT_CONSTRUCTION_SYMBOL),
+        Role::PanicPropagation => Some(PANIC_PROPAGATION_SYMBOL),
+        Role::AwaitedFrameComposition => Some(AWAITED_FRAME_COMPOSITION_SYMBOL),
+        Role::FrameResume
+        | Role::CleanupIncidentTransfer
+        | Role::FrameTaskBroadcast
+        | Role::FrameLifecycleResolution
+        | Role::FrameDestruction
+        | Role::GeneratorBegin
+        | Role::GeneratorPush
+        | Role::GeneratorFinish
+        | Role::GeneratorCleanupBroadcast
+        | Role::GeneratorDestruction
+        | Role::FrameCreation
+        | Role::InactiveFrameMove
+        | Role::TaskDestruction => None,
+    }
+}
+
+/// Returns the canonical native symbol for a platform role implemented by the Bray provider.
+pub const fn native_platform_service_role_symbol(
+    role: crate::PlatformServiceRole,
+) -> &'static str {
+    use crate::PlatformServiceRole as Role;
+
+    match role {
+        Role::ContextMeasure => PLATFORM_CONTEXT_MEASURE_SYMBOL,
+        Role::ContextCopy => PLATFORM_CONTEXT_COPY_SYMBOL,
+        Role::StreamRead => PLATFORM_STREAM_READ_SYMBOL,
+        Role::StreamWrite => PLATFORM_STREAM_WRITE_SYMBOL,
+        Role::StreamFlush => PLATFORM_STREAM_FLUSH_SYMBOL,
+        Role::StreamLock => PLATFORM_STREAM_LOCK_SYMBOL,
+        Role::StreamUnlock => PLATFORM_STREAM_UNLOCK_SYMBOL,
+    }
+}
 
 /// Status returned by native runtime operations.
 #[repr(transparent)]

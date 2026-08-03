@@ -170,6 +170,7 @@ where
                     }
                     SemanticSelection::Reference(_)
                     | SemanticSelection::Call(_)
+                    | SemanticSelection::Predicate(_)
                     | SemanticSelection::Operation(_)
                     | SemanticSelection::Propagation(_) => None,
                 })
@@ -381,6 +382,7 @@ where
         &mut self,
         target: StorageBindingTarget,
         identity: StorageIdentity,
+        ty: Option<TypeId>,
     ) -> Result<(), PlanError> {
         if self.builder()?.binding(target).is_some() {
             return Ok(());
@@ -390,6 +392,12 @@ where
             .builder_mut()?
             .push_identity(identity)
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        if let Some(ty) = ty {
+            self.builder_mut()?
+                .set_identity_type(storage, ty)
+                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+        }
 
         if matches!(target, StorageBindingTarget::Receiver(_)) {
             self.receiver_storage = Some(storage);
@@ -568,7 +576,7 @@ where
             let target = StorageBindingTarget::Local(binding);
 
             if self.builder()?.binding(target).is_none() {
-                self.bind_identity(target, StorageIdentity::LocalOwned(root))?;
+                self.bind_identity(target, StorageIdentity::LocalOwned(root), None)?;
             }
         }
 

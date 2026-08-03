@@ -13,6 +13,7 @@ bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
+bray-syntax = { path = "../bray-syntax" }
 bray-target = { path = "../bray-target" }
 num-bigint = "0.4.6"
 rustc_apfloat = "0.2.3"
@@ -21,7 +22,6 @@ rustc_apfloat = "0.2.3"
 bray-bound-tree = { path = "../bray-bound-tree", features = ["test-support"] }
 bray-parser = { path = "../bray-parser" }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
-bray-syntax = { path = "../bray-syntax" }
 bray-testing = { path = "../bray-testing" }
 bray-target = { path = "../bray-target", features = ["test-support"] }
 

@@ -92,12 +92,26 @@ impl InterfaceConstraint {
     }
 }
 
+/// The checked meaning carried by one callable contract clause.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InterfaceCallableContractClauseValue {
+    /// A predicate expression checked in the clause's contract context.
+    Predicate(InterfacePredicateSummary),
+    /// A subject type that must satisfy an exact applied trait.
+    TraitSatisfaction {
+        /// The implementation-eligible subject type.
+        subject: InterfaceTypeId,
+        /// The required applied trait.
+        application: InterfaceTraitApplicationId,
+    },
+}
+
 /// One checked callable contract clause.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCallableContractClause {
     pub(crate) ordinal: SymbolOrdinal,
     pub(crate) kind: CallableContractClauseKind,
-    pub(crate) predicate: InterfacePredicateSummary,
+    pub(crate) value: InterfaceCallableContractClauseValue,
 }
 
 impl InterfaceCallableContractClause {
@@ -110,7 +124,23 @@ impl InterfaceCallableContractClause {
         Self {
             ordinal,
             kind,
-            predicate,
+            value: InterfaceCallableContractClauseValue::Predicate(predicate),
+        }
+    }
+
+    /// Creates one checked static trait-satisfaction constraint.
+    pub const fn trait_satisfaction(
+        ordinal: SymbolOrdinal,
+        subject: InterfaceTypeId,
+        application: InterfaceTraitApplicationId,
+    ) -> Self {
+        Self {
+            ordinal,
+            kind: CallableContractClauseKind::Static,
+            value: InterfaceCallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            },
         }
     }
 
@@ -124,9 +154,30 @@ impl InterfaceCallableContractClause {
         self.kind
     }
 
-    /// Returns the checked predicate meaning.
-    pub const fn predicate(self) -> InterfacePredicateSummary {
-        self.predicate
+    /// Returns the checked clause meaning.
+    pub const fn value(self) -> InterfaceCallableContractClauseValue {
+        self.value
+    }
+
+    /// Returns predicate meaning when this clause contains a predicate expression.
+    pub const fn predicate(self) -> Option<InterfacePredicateSummary> {
+        match self.value {
+            InterfaceCallableContractClauseValue::Predicate(predicate) => Some(predicate),
+            InterfaceCallableContractClauseValue::TraitSatisfaction { .. } => None,
+        }
+    }
+
+    /// Returns the subject and application for a trait-satisfaction constraint.
+    pub const fn trait_satisfaction_requirement(
+        self,
+    ) -> Option<(InterfaceTypeId, InterfaceTraitApplicationId)> {
+        match self.value {
+            InterfaceCallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            } => Some((subject, application)),
+            InterfaceCallableContractClauseValue::Predicate(_) => None,
+        }
     }
 }
 

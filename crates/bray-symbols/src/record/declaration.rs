@@ -799,6 +799,20 @@ impl GenericConstParameterSymbol {
 }
 
 impl CallableParameterSymbol {
+    /// Returns the generated parameter name when this is compiler-provided.
+    pub const fn generated_name(&self) -> Option<&SymbolName> {
+        self.identity.inferred_name()
+    }
+}
+
+impl PredicateParameterSymbol {
+    /// Returns the generated parameter name when this is compiler-provided.
+    pub const fn generated_name(&self) -> Option<&SymbolName> {
+        self.identity.inferred_name()
+    }
+}
+
+impl CallableParameterSymbol {
     /// Returns the callable that owns this parameter.
     pub const fn owner(&self) -> crate::CallableSymbolId {
         self.relationships.owner

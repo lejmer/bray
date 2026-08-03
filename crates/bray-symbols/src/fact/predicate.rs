@@ -162,26 +162,26 @@ pub struct GenericConstraintSet {
     constraints: Arc<[CheckedConstraint]>,
 }
 
-/// One generic constraint that supplies a concrete implementation during specialization.
+/// One static trait constraint that supplies a concrete implementation during specialization.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct GenericConstraintDispatch {
-    owner: crate::GenericOwnerId,
-    ordinal: crate::SymbolOrdinal,
+pub struct TraitConstraintDispatch {
+    owner: GenericOwnerId,
+    ordinal: SymbolOrdinal,
 }
 
-impl GenericConstraintDispatch {
-    /// Creates a dispatch reference to one declared generic constraint.
-    pub const fn new(owner: crate::GenericOwnerId, ordinal: crate::SymbolOrdinal) -> Self {
+impl TraitConstraintDispatch {
+    /// Creates a dispatch reference to one declaration constraint.
+    pub const fn new(owner: GenericOwnerId, ordinal: SymbolOrdinal) -> Self {
         Self { owner, ordinal }
     }
 
     /// Returns the generic declaration owning the constraint.
-    pub const fn owner(self) -> crate::GenericOwnerId {
+    pub const fn owner(self) -> GenericOwnerId {
         self.owner
     }
 
     /// Returns the constraint's declaration-order position.
-    pub const fn ordinal(self) -> crate::SymbolOrdinal {
+    pub const fn ordinal(self) -> SymbolOrdinal {
         self.ordinal
     }
 }
@@ -211,12 +211,26 @@ pub enum CallableContractClauseKind {
     Static,
 }
 
-/// One checked predicate-bearing callable contract clause.
+/// The checked meaning carried by one callable contract clause.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CallableContractClauseValue {
+    /// A predicate expression checked in the clause's contract context.
+    Predicate(PredicateSemanticSummary),
+    /// A subject type that must satisfy an exact applied trait.
+    TraitSatisfaction {
+        /// The implementation-eligible subject type.
+        subject: TypeId,
+        /// The required applied trait.
+        application: TraitApplicationId,
+    },
+}
+
+/// One checked callable contract clause.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableContractClause {
     ordinal: SymbolOrdinal,
     kind: CallableContractClauseKind,
-    predicate: PredicateSemanticSummary,
+    value: CallableContractClauseValue,
 }
 
 impl CallableContractClause {
@@ -229,7 +243,23 @@ impl CallableContractClause {
         Self {
             ordinal,
             kind,
-            predicate,
+            value: CallableContractClauseValue::Predicate(predicate),
+        }
+    }
+
+    /// Creates one checked static trait-satisfaction constraint.
+    pub const fn trait_satisfaction(
+        ordinal: SymbolOrdinal,
+        subject: TypeId,
+        application: TraitApplicationId,
+    ) -> Self {
+        Self {
+            ordinal,
+            kind: CallableContractClauseKind::Static,
+            value: CallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            },
         }
     }
 
@@ -243,9 +273,28 @@ impl CallableContractClause {
         self.kind
     }
 
-    /// Returns the checked predicate meaning.
-    pub const fn predicate(self) -> PredicateSemanticSummary {
-        self.predicate
+    /// Returns the checked clause meaning.
+    pub const fn value(self) -> CallableContractClauseValue {
+        self.value
+    }
+
+    /// Returns predicate meaning when this clause contains a predicate expression.
+    pub const fn predicate(self) -> Option<PredicateSemanticSummary> {
+        match self.value {
+            CallableContractClauseValue::Predicate(predicate) => Some(predicate),
+            CallableContractClauseValue::TraitSatisfaction { .. } => None,
+        }
+    }
+
+    /// Returns the subject and application for a trait-satisfaction constraint.
+    pub const fn trait_satisfaction_requirement(self) -> Option<(TypeId, TraitApplicationId)> {
+        match self.value {
+            CallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            } => Some((subject, application)),
+            CallableContractClauseValue::Predicate(_) => None,
+        }
     }
 }
 

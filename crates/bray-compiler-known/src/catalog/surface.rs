@@ -132,8 +132,8 @@ impl CatalogGenericParameter {
 pub struct CatalogDeclarationSignature {
     generic_parameters: Box<[CatalogGenericParameter]>,
     implementation_parameter_candidates: Box<[CatalogGenericParameter]>,
-    callable_parameters: u32,
-    predicate_parameters: u32,
+    callable_parameters: Box<[String]>,
+    predicate_parameters: Box<[String]>,
     is_static: bool,
     is_mutable: bool,
     is_positional: bool,
@@ -150,14 +150,14 @@ impl CatalogDeclarationSignature {
         &self.implementation_parameter_candidates
     }
 
-    /// Returns the number of written parameters in the direct callable parameter list.
-    pub const fn callable_parameters(&self) -> u32 {
-        self.callable_parameters
+    /// Returns callable parameter names in declaration order.
+    pub fn callable_parameters(&self) -> &[String] {
+        &self.callable_parameters
     }
 
-    /// Returns the number of written parameters in the direct predicate parameter list.
-    pub const fn predicate_parameters(&self) -> u32 {
-        self.predicate_parameters
+    /// Returns predicate parameter names in declaration order.
+    pub fn predicate_parameters(&self) -> &[String] {
+        &self.predicate_parameters
     }
 
     /// Returns whether the declaration carries a static modifier.
@@ -236,8 +236,8 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
 
     let mut generic_parameters = Vec::new();
     let mut implementation_parameter_candidates = Vec::new();
-    let mut callable_parameters = 0_u32;
-    let mut predicate_parameters = 0_u32;
+    let mut callable_parameters = Vec::new();
+    let mut predicate_parameters = Vec::new();
     let mut depth = 0_u32;
     let mut generic_list_depth = None;
     let mut generic_parameter = None;
@@ -245,6 +245,8 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
     let mut implementation_parameter_kind = None;
     let mut parameter_list_depth = None;
     let mut predicate_parameter_list_depth = None;
+    let mut callable_parameter_depth = None;
+    let mut predicate_parameter_depth = None;
     let mut mutable_modifier_depth = None;
     let mut is_static = false;
     let mut is_mutable = false;
@@ -288,12 +290,12 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                         generic_parameter = Some((CatalogGenericParameterKind::Const, depth));
                     }
                     (SyntaxKind::Parameter, 3) if parameter_list_depth == Some(2) => {
-                        callable_parameters = callable_parameters.saturating_add(1);
+                        callable_parameter_depth = Some(depth);
                     }
                     (SyntaxKind::PredicateParameter, 3)
                         if predicate_parameter_list_depth == Some(2) =>
                     {
-                        predicate_parameters = predicate_parameters.saturating_add(1);
+                        predicate_parameter_depth = Some(depth);
                     }
                     _ => {}
                 }
@@ -314,6 +316,16 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
                         kind,
                         name: token.spelling().to_owned(),
                     });
+                }
+
+                if token.is_identifier() && callable_parameter_depth.is_some() {
+                    callable_parameters.push(token.spelling().to_owned());
+                    callable_parameter_depth = None;
+                }
+
+                if token.is_identifier() && predicate_parameter_depth.is_some() {
+                    predicate_parameters.push(token.spelling().to_owned());
+                    predicate_parameter_depth = None;
                 }
 
                 if token.is_identifier()
@@ -337,6 +349,16 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
 
                 if *kind == SyntaxKind::ParameterList && parameter_list_depth == Some(depth) {
                     parameter_list_depth = None;
+                }
+
+                if *kind == SyntaxKind::Parameter && callable_parameter_depth == Some(depth) {
+                    callable_parameter_depth = None;
+                }
+
+                if *kind == SyntaxKind::PredicateParameter
+                    && predicate_parameter_depth == Some(depth)
+                {
+                    predicate_parameter_depth = None;
                 }
 
                 if *kind == SyntaxKind::PredicateParameterList
@@ -376,8 +398,8 @@ fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarati
     CatalogDeclarationSignature {
         generic_parameters: generic_parameters.into_boxed_slice(),
         implementation_parameter_candidates: implementation_parameter_candidates.into_boxed_slice(),
-        callable_parameters,
-        predicate_parameters,
+        callable_parameters: callable_parameters.into_boxed_slice(),
+        predicate_parameters: predicate_parameters.into_boxed_slice(),
         is_static,
         is_mutable,
         is_positional,

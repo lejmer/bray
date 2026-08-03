@@ -361,6 +361,7 @@ fn build_target(
     let request =
         CompilationRequest::with_options(product.identity().package().clone(), sources, options)
             .with_standard_library_source_authority()
+            .with_platform_services(product.platform_services().iter().cloned())
             .with_package_interface_export(interface_export_request(product.identity())?);
 
     let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;
@@ -714,7 +715,7 @@ mod tests {
 
     use bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME;
 
-    use super::{BuildError, BuildOptions, compare_bundles};
+    use super::{BuildError, BuildOptions, build, compare_bundles, read_manifest};
 
     #[test]
     fn build_options_require_an_output_and_reject_unknown_arguments() {
@@ -770,5 +771,35 @@ mod tests {
             compare_bundles(&first, &second),
             Err(BuildError::NonReproducibleManifest)
         ));
+    }
+
+    #[test]
+    #[ignore = "builds every production standard-library target"]
+    fn production_standard_library_build_emits_a_complete_bundle() {
+        let workspace = crate::workspace::root()
+            .unwrap_or_else(|error| panic!("workspace root must be available: {error}"));
+
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary output root must exist: {error}"));
+
+        let source = workspace.join("standard-library");
+        let output = directory.path().join("bundle");
+
+        build(&source, &output)
+            .unwrap_or_else(|error| panic!("production standard library must build: {error}"));
+
+        let manifest = read_manifest(&output)
+            .unwrap_or_else(|error| panic!("built manifest must decode: {error}"));
+
+        assert!(manifest.interface().beneath(&output).is_file());
+        assert!(!manifest.targets().is_empty());
+
+        for artifact in manifest
+            .targets()
+            .iter()
+            .flat_map(bray_standard_library::StandardLibraryTargetArtifacts::artifacts)
+        {
+            assert!(artifact.beneath(&output).is_file());
+        }
     }
 }

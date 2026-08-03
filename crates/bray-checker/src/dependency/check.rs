@@ -81,6 +81,7 @@ where
                 selected_iteration_contract(request, storage, iteration)
             }
             SemanticSelection::Reference(_)
+            | SemanticSelection::Predicate(_)
             | SemanticSelection::Operation(_)
             | SemanticSelection::Propagation(_) => continue,
         };

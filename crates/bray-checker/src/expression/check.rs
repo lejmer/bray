@@ -6,7 +6,9 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
+use bray_symbols::{
+    CallableSignatureFact, GenericConstraintsFact, StructFieldTypeFact, UnionPayloadFieldTypeFact,
+};
 
 use super::built_in_operator;
 use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
@@ -39,6 +41,8 @@ pub(crate) fn check_expression_semantics<C>(
 )>
 where
     C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
         + CheckerSemanticFactProvider<StructFieldTypeFact>
         + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
         + ?Sized,
@@ -114,7 +118,10 @@ fn check_provisional_expression_types<C>(
     deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
 ) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     let (session, prepared) = match prepare_expression_check(
         request,
@@ -146,7 +153,10 @@ fn check_expression_semantics_once<C>(
     bray_bound_tree::CheckedLiteralValues,
 )>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     let (session, prepared) = match prepare_expression_check(
         request,
@@ -186,7 +196,10 @@ fn prepare_expression_check<'view, C>(
     CheckerInfrastructureError,
 >
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     let supplemental_types = nested_callables
         .iter()
@@ -304,7 +317,10 @@ fn finish_expression_check<C>(
     bray_bound_tree::CheckedLiteralValues,
 )>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + ?Sized,
 {
     let type_result = match finish_expression_types_with_deferred(
         request,

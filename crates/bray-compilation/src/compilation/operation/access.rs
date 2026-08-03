@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundStructuredExpressionKind,
@@ -10,7 +12,8 @@ use bray_symbols::{
     CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, GenericConstraintsFact,
     GenericOwnerId, ImplementationSelection, ImplementationSubjectFact, MemberLookupResult,
     NamedTypeSymbolId, SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    TraitCallableMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
@@ -200,32 +203,12 @@ impl Compilation {
             .symbol_for_key(unit.key().declared_owner())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let generic_owner =
-            GenericOwnerId::try_new(owner).ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let constraints = facts
-            .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
-                generic_owner,
-            ))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        *diagnostics = diagnostics.merged(constraints.diagnostics());
+        let requirements =
+            self.trait_constraint_requirements(facts, owner, receiver_type, diagnostics)?;
 
         let mut matches = Vec::new();
 
-        for constraint in constraints.value().constraints() {
-            let CheckedConstraintKind::TraitSatisfaction {
-                subject,
-                application,
-            } = constraint.kind()
-            else {
-                continue;
-            };
-
-            if subject != receiver_type {
-                continue;
-            }
-
+        for (application, dispatch) in requirements {
             let application_data = facts
                 .semantic_values()
                 .trait_application_data(application)
@@ -242,10 +225,10 @@ impl Compilation {
                 continue;
             };
 
-            matches.push((constraint.ordinal(), application_data, member));
+            matches.push((dispatch, application_data, member));
         }
 
-        let [(ordinal, application, member)] = matches.as_slice() else {
+        let [(dispatch, application, member)] = matches.as_slice() else {
             return Ok(None);
         };
 
@@ -261,12 +244,11 @@ impl Compilation {
         };
 
         let result_type = callable.signature.callable_type();
-        let dispatch = bray_symbols::GenericConstraintDispatch::new(generic_owner, *ordinal);
         let signature = member_callable_signature(callable.signature, receiver_type);
 
         let target = MemberTarget::new((*member).into(), result_type, [])
             .with_callable(callable.instance, signature)
-            .with_generic_dispatch(dispatch);
+            .with_trait_dispatch(*dispatch);
 
         Ok(Some(OperationResolution::new(
             expression,
@@ -274,6 +256,50 @@ impl Compilation {
             [],
             Some(SelectedOperation::Member(target)),
         )))
+    }
+
+    fn trait_constraint_requirements(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        mut owner: AnySymbolId,
+        receiver_type: TypeId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<BTreeMap<TraitApplicationId, TraitConstraintDispatch>, FactQueryError> {
+        let mut requirements = BTreeMap::new();
+
+        loop {
+            if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
+                let constraints = facts
+                    .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(generic_owner))
+                    .map_err(binder_fact_error)?;
+
+                *diagnostics = diagnostics.merged(constraints.diagnostics());
+
+                for constraint in constraints.value().constraints() {
+                    let CheckedConstraintKind::TraitSatisfaction {
+                        subject,
+                        application,
+                    } = constraint.kind()
+                    else {
+                        continue;
+                    };
+
+                    if subject == receiver_type {
+                        requirements.entry(application).or_insert_with(|| {
+                            TraitConstraintDispatch::new(generic_owner, constraint.ordinal())
+                        });
+                    }
+                }
+            }
+
+            let Some(container) = facts.symbols().containing_symbol(owner) else {
+                break;
+            };
+
+            owner = container;
+        }
+
+        Ok(requirements)
     }
 
     fn resolve_access_subject_type(

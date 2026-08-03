@@ -141,18 +141,7 @@ pub(super) fn export_source_template<'values, 'unit>(
     export: &mut SemanticExporter<'values>,
     request: SourceTemplateRequest<'unit>,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
-    let root = request
-        .unit
-        .tree()
-        .expressions()
-        .find_map(|(id, expression)| {
-            let source = expression.origin().source_anchor().syntax();
-
-            (source.source_id() == request.expression.source_id()
-                && source.full_range() == request.expression.full_range())
-            .then_some(id)
-        })
-        .ok_or_else(incomplete)?;
+    let root = source_expression_root(request.unit, request.expression).ok_or_else(incomplete)?;
 
     let mut builder = SourceTemplateBuilder::new(export, &request)?;
 
@@ -166,6 +155,31 @@ pub(super) fn export_source_template<'values, 'unit>(
         result,
         request.behavior,
     ))
+}
+
+fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<BoundExpressionId> {
+    let mut postfix_root = None;
+
+    for (id, expression) in unit.tree().expressions() {
+        let source = expression.origin().source_anchor().syntax();
+
+        if source.source_id() != syntax.source_id() {
+            continue;
+        }
+
+        if source.full_range() == syntax.full_range() {
+            return Some(id);
+        }
+
+        if syntax.full_range().contains_range(source.full_range())
+            && source.full_range().end() == syntax.full_range().end()
+            && postfix_root.is_none_or(|(_, start)| source.full_range().start() > start)
+        {
+            postfix_root = Some((id, source.full_range().start()));
+        }
+    }
+
+    postfix_root.map(|(id, _)| id)
 }
 
 struct SourceTemplateBuilder<'export, 'values, 'unit> {
@@ -431,9 +445,17 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
-        let Some(SemanticSelection::Call(call)) = self.selections.expression(expression) else {
-            return Err(incomplete());
-        };
+        match self.selections.expression(expression) {
+            Some(SemanticSelection::Call(call)) => self.callable_call(call),
+            Some(SemanticSelection::Predicate(predicate)) => self.predicate_call(predicate),
+            _ => Err(incomplete()),
+        }
+    }
+
+    fn callable_call(
+        &mut self,
+        call: &bray_bound_tree::SelectedCall,
+    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
 
         let (declaration, substitution) = match call.target() {
             BoundCallableTarget::Declaration(callable) => {
@@ -479,6 +501,31 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             substitution,
             arguments,
             implementation,
+        ))
+    }
+
+    fn predicate_call(
+        &mut self,
+        predicate: &bray_bound_tree::SelectedPredicateApplication,
+    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
+        let callable = InterfaceTemplateReference::Symbol(
+            self.export
+                .symbol_reference(predicate.predicate().into_any())?,
+        );
+
+        let substitution = self.export.substitution_id(predicate.substitution())?;
+
+        let arguments = predicate
+            .arguments()
+            .iter()
+            .map(|argument| self.expression(argument.expression()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(InterfaceCheckedTemplateOperation::call(
+            callable,
+            substitution,
+            arguments,
+            None,
         ))
     }
 

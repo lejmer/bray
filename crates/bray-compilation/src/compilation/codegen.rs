@@ -300,15 +300,19 @@ fn codegen_mappings(
     }
 
     for reference in demanded_runtime_references(unit) {
-        let Some(binding) = executable_host.and_then(|host| host.role_binding(reference.role()))
-        else {
-            return Err(CodegenFactError::MissingRuntimeRole(reference.role()));
-        };
+        let symbol_name = executable_host
+            .and_then(|host| host.role_binding(reference.role()))
+            .map(|binding| binding.symbol_name().clone())
+            .or_else(|| {
+                bray_runtime_interface::native_runtime_role_symbol(reference.role())
+                    .and_then(BinarySymbolName::try_new)
+            })
+            .ok_or(CodegenFactError::MissingRuntimeRole(reference.role()))?;
 
         // The mapping owns the selected runtime spelling past the host-contract borrow.
         symbols.push(symbol_mapping(
             CodegenSymbolKey::Runtime(reference),
-            binding.symbol_name().clone(),
+            symbol_name,
             CodegenLinkage::Import,
         ));
     }

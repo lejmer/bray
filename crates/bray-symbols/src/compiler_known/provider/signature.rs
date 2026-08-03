@@ -236,18 +236,18 @@ fn signature_children(
     }
 
     children.extend(
-        (0..signature.callable_parameters()).map(|ordinal| SignatureChild {
+        signature.callable_parameters().iter().enumerate().map(|(ordinal, name)| SignatureChild {
             kind: SignatureChildKind::Callable,
-            ordinal: SymbolOrdinal::new(ordinal),
-            name: None,
+            ordinal: SymbolOrdinal::new(ordinal as u32),
+            name: SymbolName::try_new(name.clone()),
         }),
     );
 
     children.extend(
-        (0..signature.predicate_parameters()).map(|ordinal| SignatureChild {
+        signature.predicate_parameters().iter().enumerate().map(|(ordinal, name)| SignatureChild {
             kind: SignatureChildKind::Predicate,
-            ordinal: SymbolOrdinal::new(ordinal),
-            name: None,
+            ordinal: SymbolOrdinal::new(ordinal as u32),
+            name: SymbolName::try_new(name.clone()),
         }),
     );
 

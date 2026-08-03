@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
+use bray_base::NonEmptySharedStr;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, CallableContractsFact, CallableSignatureFact, CallableSymbolId, DirectiveKind,
@@ -16,6 +17,8 @@ use super::directive::{
     foreign_link_requirements, foreign_symbol_name, validate_foreign_import_requirements,
 };
 use super::validation::{callable_surface, validate_callable_surface};
+use super::validation::validate_platform_service_surface;
+use super::platform::platform_service_role;
 use crate::compilation::binder::binder_fact_error;
 use crate::compilation::directive::first_directive;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -105,11 +108,14 @@ impl Compilation {
             first_directive(declaration_directives.value(), DirectiveKind::Symbol);
 
         let is_extern = syntax.function_modifiers().extern_token().is_some();
+        let platform_role = platform_service_role(self, function)?;
 
-        let direction = match (is_extern, symbol_directive.is_some()) {
-            (true, _) => Some(ForeignCallableDirection::Import),
-            (false, true) => Some(ForeignCallableDirection::Export),
-            (false, false) => None,
+        let direction = match (platform_role, is_extern, symbol_directive.is_some()) {
+            (Some(_), true, _) => Some(ForeignCallableDirection::Import),
+            (Some(_), false, _) => None,
+            (None, true, _) => Some(ForeignCallableDirection::Import),
+            (None, false, true) => Some(ForeignCallableDirection::Export),
+            (None, false, false) => None,
         };
 
         if abi == CallableAbi::Bray && direction != Some(ForeignCallableDirection::Import) {
@@ -126,6 +132,17 @@ impl Compilation {
             &mut diagnostics,
         )?;
 
+        if let Some(role) = platform_role {
+            validate_platform_service_surface(
+                self,
+                role,
+                anchor,
+                &callable,
+                cancellation,
+                &mut diagnostics,
+            )?;
+        }
+
         let Some(direction) = direction else {
             return Ok(Arc::new(DiagnosticResult::new(None, diagnostics)));
         };
@@ -134,18 +151,21 @@ impl Compilation {
             return Ok(Arc::new(DiagnosticResult::new(None, diagnostics)));
         }
 
-        let symbol = match symbol_directive {
-            Some(directive) => {
+        let symbol = match (platform_role, symbol_directive) {
+            (Some(role), _) => NonEmptySharedStr::try_new(
+                bray_runtime_interface::native_platform_service_role_symbol(role),
+            ),
+            (None, Some(directive)) => {
                 foreign_symbol_name(self, directive, cancellation, &mut diagnostics)?
             }
-            None => {
+            (None, None) => {
                 diagnostics.add(missing_directive(anchor, SyntaxKind::SymbolDirective));
 
                 None
             }
         };
 
-        let links = if direction == ForeignCallableDirection::Import {
+        let links = if direction == ForeignCallableDirection::Import && platform_role.is_none() {
             foreign_link_requirements(
                 self,
                 function,
@@ -232,11 +252,14 @@ mod tests {
 
     use bray_base::NonEmptySharedStr;
     use bray_diagnostics::DiagnosticKind;
+    use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
     use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
     use bray_target::{TargetAbiFacts, TargetForeignAbiFacts, TargetProfile};
 
-    use crate::test_support::{compilation, compilation_with_options, source_function};
-    use crate::{CompilationOptions, WorkerBudget};
+    use crate::test_support::{
+        compilation, compilation_with_options, package_identity, source_function, source_input,
+    };
+    use crate::{CompilationOptions, CompilationRequest, WorkerBudget};
 
     #[test]
     fn valid_foreign_imports_publish_typed_boundary_contracts() {
@@ -268,6 +291,81 @@ extern trusted func native_read(pos value: i32) -> i32
         assert_eq!(contract.symbol(), "native_read");
         assert_eq!(contract.links().len(), 1);
         assert_eq!(contract.links()[0].name(), "c");
+    }
+
+    #[test]
+    fn platform_services_require_their_closed_abi_shape() {
+        let compilation = compilation_with_platform_service(
+            r#"trusted module app;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+extern trusted internal func flush(pos handle: u32) -> PlatformStatus
+    uses(foreign_call);
+"#,
+            PlatformServiceRole::StreamFlush,
+            "app.flush",
+        );
+
+        let function = source_function(&compilation, "flush");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
+
+        assert!(result.diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingPlatformServiceSignatureMismatch
+        }));
+
+        assert!(result.value().is_none());
+    }
+
+    #[test]
+    fn valid_platform_services_use_the_runtime_role_symbol() {
+        let compilation = compilation_with_platform_service(
+            r#"trusted module app;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+extern trusted internal func flush(pos handle: u64) -> PlatformStatus
+    uses(foreign_call);
+"#,
+            PlatformServiceRole::StreamFlush,
+            "app.flush",
+        );
+
+        let function = source_function(&compilation, "flush");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
+
+        assert!(result.diagnostics().is_empty(), "{:?}", result.diagnostics());
+
+        let Some(contract) = result.value() else {
+            panic!("valid platform service must publish a contract");
+        };
+
+        assert_eq!(
+            contract.symbol(),
+            bray_runtime_interface::native_platform_service_role_symbol(
+                PlatformServiceRole::StreamFlush,
+            ),
+        );
     }
 
     #[test]
@@ -615,6 +713,32 @@ func third()
 
     fn compilation_with_link(source: &str, name: &str) -> crate::Compilation {
         compilation_with_link_kind(source, name, NativeLinkKind::Dynamic)
+    }
+
+    fn compilation_with_platform_service(
+        source: &str,
+        role: PlatformServiceRole,
+        path: &str,
+    ) -> crate::Compilation {
+        let Some(binding) = PlatformServiceBinding::try_new(role, path) else {
+            panic!("test platform binding must be valid");
+        };
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        );
+
+        let request = CompilationRequest::with_options(
+            package_identity(),
+            vec![source_input(source, 0)],
+            options,
+        )
+        .with_platform_services([binding]);
+
+        crate::Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
     }
 
     fn compilation_with_link_kind(

@@ -18,9 +18,10 @@ pub use interning::{
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
-    InterfaceCallableParameterDefault, InterfaceCallablePhaseBehavior, InterfaceCallableReceiver,
-    InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
+    InterfaceCallableContractClauseValue, InterfaceCallableInstance, InterfaceCallableInstanceId,
+    InterfaceCallableParameter, InterfaceCallableParameterDefault, InterfaceCallablePhaseBehavior,
+    InterfaceCallableReceiver, InterfaceCallableSignature, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateBehavior,
     InterfaceCheckedTemplateExecution, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
     InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord,

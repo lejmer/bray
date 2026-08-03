@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
+use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
@@ -236,10 +237,57 @@ fn load_product(
     let sources = select_sources(manifest.source_roots, source_roots, manifest_path)?;
     let targets = select_targets(manifest.targets, targets, manifest_path)?;
     let outputs = select_outputs(manifest.outputs, manifest_path)?;
+    let platform_services = select_platform_services(manifest.platform_services, manifest_path)?;
 
     Ok(ProjectProduct::new(
-        identity, kind, sources, targets, outputs,
+        identity,
+        kind,
+        sources,
+        targets,
+        outputs,
+        platform_services,
     ))
+}
+
+fn select_platform_services(
+    manifests: Vec<crate::manifest::PlatformServiceManifest>,
+    manifest_path: &Path,
+) -> Result<Arc<[PlatformServiceBinding]>, ProjectLoadError> {
+    let mut bindings = manifests
+        .into_iter()
+        .map(|manifest| {
+            let Some(role) = PlatformServiceRole::from_name(&manifest.role) else {
+                return Err(ProjectLoadError::invalid(
+                    manifest_path.to_path_buf(),
+                    ProjectManifestProblem::InvalidName,
+                    manifest.role,
+                ));
+            };
+
+            PlatformServiceBinding::try_new(role, &manifest.declaration).ok_or_else(|| {
+                ProjectLoadError::invalid(
+                    manifest_path.to_path_buf(),
+                    ProjectManifestProblem::InvalidName,
+                    manifest.declaration,
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    bindings.sort_unstable();
+
+    if let Some(duplicate) = bindings.windows(2).find(|pair| {
+        pair[0].role() == pair[1].role()
+            || pair[0].dotted_path() == pair[1].dotted_path()
+    }) {
+        return Err(ProjectLoadError::invalid(
+            manifest_path.to_path_buf(),
+            ProjectManifestProblem::DuplicateSelection,
+            duplicate[1].dotted_path(),
+        ));
+    }
+
+    Ok(bindings.into())
 }
 
 fn select_sources(

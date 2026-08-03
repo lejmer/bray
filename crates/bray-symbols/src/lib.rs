@@ -51,7 +51,8 @@ pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbo
 pub use fact::CallableSignatureTemplateError;
 pub use fact::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,
-    CallableContractExpressionTemplate, CallableContractSet, CallableContractTemplate,
+    CallableContractClauseValue, CallableContractExpressionTemplate, CallableContractSet,
+    CallableContractTemplate,
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableEffectRequirement, CallableExecutionRequirement, CallableOverloadTemplateFact,
     CallableParameterDefaultFact, CallableParameterDefaultSurface,
@@ -70,7 +71,7 @@ pub use fact::{
     DirectiveTemplate, ErrorCallableParameterDefault, ErrorConstantDefinition,
     ErrorPredicateDefinition, ErrorStructFieldDefault, ErrorUnionPayloadDefault,
     ForeignCallableContract, ForeignCallableDirection, GenericArgumentTemplate,
-    GenericConstParameterDeclaredTypeFact, GenericConstraintDispatch,
+    GenericConstParameterDeclaredTypeFact,
     GenericConstraintObligationKey, GenericConstraintSatisfactionFact, GenericConstraintSet,
     GenericConstraintTemplate, GenericConstraintsFact, GenericDeclarationTemplate,
     GenericDeclarationTemplateFact, ImplementationAmbiguity, ImplementationAmbiguityError,
@@ -105,7 +106,8 @@ pub use fact::{
     TraitImplementationConformanceFact, TraitMemberFulfillmentId, TraitMemberRequirementId,
     TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
     TraitRequirementConformance, TraitRequirementResolution, TraitTypeFulfillmentValueFact,
-    TrustedCapabilityRequirement, TypeAssociatedImplementation, TypeAssociatedLifecycleMember,
+    TraitConstraintDispatch, TrustedCapabilityRequirement, TypeAssociatedImplementation,
+    TypeAssociatedLifecycleMember,
     TypeAssociatedLifecycleSlot, TypeAssociatedMember, TypeAssociatedMemberOrigin,
     TypeAssociatedSurface, TypeAssociatedSurfaceBuildError, TypeExpressionTemplate,
     UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,

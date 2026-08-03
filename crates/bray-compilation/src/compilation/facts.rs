@@ -75,6 +75,7 @@ pub(super) struct CompilationState {
     pub(super) source_diagnostics: DiagnosticBag,
     pub(super) package_interface_export: Option<PackageInterfaceExportRequest>,
     pub(super) dependency_interfaces: Box<[DependencyInterfaceInput]>,
+    pub(super) platform_services: Box<[bray_runtime_interface::PlatformServiceBinding]>,
     pub(super) fact_runtime: FactRuntime,
     pub(super) cancellation: CancellationToken,
     pub(super) source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
@@ -225,6 +226,7 @@ impl Compilation {
             options,
             source_inputs,
             mut dependency_interfaces,
+            platform_services,
             package_interface_export,
         ) = request.into_parts();
 
@@ -307,6 +309,7 @@ impl Compilation {
                 source_diagnostics: diagnostics,
                 package_interface_export,
                 dependency_interfaces: dependency_interfaces.into_boxed_slice(),
+                platform_services: platform_services.into_boxed_slice(),
                 fact_runtime: FactRuntime::new(worker_budget),
                 cancellation: CancellationToken::new(),
                 source_unit_syntax: empty_fact_caches(source_count),

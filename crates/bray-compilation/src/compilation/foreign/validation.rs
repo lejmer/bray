@@ -1,4 +1,5 @@
 use bray_bound_tree::BoundSourceAnchor;
+use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_checker::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetValidityRequest,
     TargetValidityRequirement,
@@ -7,8 +8,9 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticType};
 use bray_symbols::{
     CallableAbi, CallableExecution, CallableSignatureTemplate, CallableTrust, DeclaredLayoutMode,
-    FunctionSymbolId, GenericSubstitutionId, NamedTypeSymbolId, SemanticValueStore, StructSymbolId,
-    TypeData, TypeExpressionTemplate,
+    FunctionSymbolId, GenericArgument, GenericSubstitutionId, NamedTypeSymbolId,
+    SemanticValueStore, StructFieldTypeFact, StructSymbolId, SymbolFactRequest, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::FunctionDeclarationSyntax;
 use bray_target::TargetLayoutContract;
@@ -20,9 +22,9 @@ use crate::fact::{CancellationToken, FactQueryError};
 pub(super) struct CallableBoundarySurface {
     pub(super) abi: CallableAbi,
     trust: CallableTrust,
-    execution: CallableExecution,
-    parameters: Vec<TypeExpressionTemplate>,
-    result: TypeExpressionTemplate,
+    pub(super) execution: CallableExecution,
+    pub(super) parameters: Vec<TypeExpressionTemplate>,
+    pub(super) result: TypeExpressionTemplate,
 }
 
 pub(super) fn callable_surface(
@@ -163,6 +165,221 @@ pub(super) fn validate_callable_surface(
     }
 
     Ok(())
+}
+
+pub(super) fn validate_platform_service_surface(
+    compilation: &Compilation,
+    role: bray_runtime_interface::PlatformServiceRole,
+    anchor: bray_declarations::SyntaxAnchor,
+    callable: &CallableBoundarySurface,
+    cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<(), FactQueryError> {
+    let expected = role.signature();
+
+    let parameters_match = callable.parameters.len() == expected.parameters().len()
+        && callable
+            .parameters
+            .iter()
+            .zip(expected.parameters())
+            .map(|(actual, expected)| {
+                platform_abi_type_matches(compilation, actual, *expected, cancellation)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .all(|matches| matches);
+
+    let result_matches = platform_abi_type_matches(
+        compilation,
+        &callable.result,
+        expected.result(),
+        cancellation,
+    )?;
+
+    if callable.abi != CallableAbi::C
+        || callable.execution != CallableExecution::Synchronous
+        || !parameters_match
+        || !result_matches
+    {
+        diagnostics.add(source_diagnostic(
+            anchor,
+            bray_diagnostics::DiagnosticKind::CheckingPlatformServiceSignatureMismatch,
+        ));
+    }
+
+    Ok(())
+}
+
+fn platform_abi_type_matches(
+    compilation: &Compilation,
+    template: &TypeExpressionTemplate,
+    expected: bray_runtime_interface::PlatformAbiType,
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    let Some(ty) = resolve_template_type(compilation, template, cancellation)? else {
+        return Ok(false);
+    };
+
+    match expected {
+        bray_runtime_interface::PlatformAbiType::U64 => {
+            type_has_representation(compilation, ty, RepresentationRole::ScalarU64)
+        }
+        bray_runtime_interface::PlatformAbiType::PointerU8 => raw_pointer_targets(
+            compilation,
+            ty,
+            RepresentationRole::ScalarU8,
+        ),
+        bray_runtime_interface::PlatformAbiType::PointerU64 => raw_pointer_targets(
+            compilation,
+            ty,
+            RepresentationRole::ScalarU64,
+        ),
+        bray_runtime_interface::PlatformAbiType::Status => {
+            platform_status_matches(compilation, ty, cancellation)
+        }
+    }
+}
+
+fn resolve_template_type(
+    compilation: &Compilation,
+    template: &TypeExpressionTemplate,
+    cancellation: &CancellationToken,
+) -> Result<Option<TypeId>, FactQueryError> {
+    let constants = compilation
+        .checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
+
+    bray_checker::resolve_type_expression_template(
+        compilation.semantic_value_store()?,
+        template,
+        constants.value(),
+    )
+    .map_err(FactQueryError::CheckerInfrastructure)
+}
+
+fn type_has_representation(
+    compilation: &Compilation,
+    ty: TypeId,
+    expected: RepresentationRole,
+) -> Result<bool, FactQueryError> {
+    let values = compilation.semantic_value_store()?;
+
+    let data = values
+        .type_data(ty)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let TypeData::Named { definition, .. } = data.as_ref() else {
+        return Ok(false);
+    };
+
+    Ok(compiler_known_representation(compilation, *definition) == Some(expected))
+}
+
+fn raw_pointer_targets(
+    compilation: &Compilation,
+    ty: TypeId,
+    expected_target: RepresentationRole,
+) -> Result<bool, FactQueryError> {
+    let values = compilation.semantic_value_store()?;
+
+    let data = values
+        .type_data(ty)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let TypeData::Named {
+        definition,
+        substitution,
+    } = data.as_ref()
+    else {
+        return Ok(false);
+    };
+
+    if compiler_known_representation(compilation, *definition) != Some(RepresentationRole::RawPointer)
+    {
+        return Ok(false);
+    }
+
+    let substitution = values
+        .generic_substitution_data(*substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let [binding] = substitution.bindings() else {
+        return Ok(false);
+    };
+
+    let GenericArgument::Type(target) = binding.argument() else {
+        return Ok(false);
+    };
+
+    type_has_representation(compilation, target, expected_target)
+}
+
+fn platform_status_matches(
+    compilation: &Compilation,
+    ty: TypeId,
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    let values = compilation.semantic_value_store()?;
+
+    let data = values
+        .type_data(ty)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let TypeData::Named {
+        definition: NamedTypeSymbolId::Struct(structure),
+        substitution,
+    } = data.as_ref()
+    else {
+        return Ok(false);
+    };
+
+    let representation = compilation
+        .declared_type_representation_with_cancellation((*structure).into(), cancellation)?;
+
+    if representation.value().layout() != DeclaredLayoutMode::C {
+        return Ok(false);
+    }
+
+    let facts = compilation.binder_facts(cancellation)?;
+
+    let structure = facts
+        .symbols()
+        .structure(*structure)
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    if !structure.generic_type_parameters().is_empty()
+        || !structure.generic_const_parameters().is_empty()
+        || structure.fields().len() != 3
+    {
+        return Ok(false);
+    }
+
+    let substitution = values
+        .generic_substitution_data(*substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    if !substitution.bindings().is_empty() {
+        return Ok(false);
+    }
+
+    for (field, expected) in structure.fields().iter().zip([
+        RepresentationRole::ScalarU32,
+        RepresentationRole::ScalarU32,
+        RepresentationRole::ScalarI64,
+    ]) {
+        let field = facts
+            .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
+            .map_err(super::super::binder::binder_fact_error)?;
+
+        let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)? else {
+            return Ok(false);
+        };
+
+        if !type_has_representation(compilation, field_ty, expected)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 fn validate_foreign_type(

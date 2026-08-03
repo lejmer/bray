@@ -7,7 +7,7 @@ use bray_bound_tree::{
     PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId, StoragePlan,
     StorageRelationship, StorageSuspensionState,
 };
-use bray_symbols::BorrowKind;
+use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
 
 pub(super) fn retained_suspension_subjects(
     liveness: &LivenessFacts,
@@ -51,6 +51,7 @@ fn collect_requirement_subjects(
 }
 
 pub(super) fn dependency_contract_is_satisfied(
+    values: &SemanticValueStore,
     storage: &StoragePlan,
     refinements: &CheckedRefinementFacts,
     expression: BoundExpressionId,
@@ -58,11 +59,19 @@ pub(super) fn dependency_contract_is_satisfied(
     contract: &BoundDependencyContract,
 ) -> bool {
     contract.requirements().iter().all(|requirement| {
-        dependency_requirement_is_satisfied(storage, refinements, expression, state, requirement)
+        dependency_requirement_is_satisfied(
+            values,
+            storage,
+            refinements,
+            expression,
+            state,
+            requirement,
+        )
     })
 }
 
 fn dependency_requirement_is_satisfied(
+    values: &SemanticValueStore,
     storage: &StoragePlan,
     refinements: &CheckedRefinementFacts,
     expression: BoundExpressionId,
@@ -71,7 +80,7 @@ fn dependency_requirement_is_satisfied(
 ) -> bool {
     match requirement {
         BoundDependencyRequirement::Direct { subject, kind } => {
-            dependency_subject_is_satisfied(storage, state, *subject, *kind)
+            dependency_subject_is_satisfied(values, storage, state, *subject, *kind)
         }
         BoundDependencyRequirement::Guarded(guarded) => {
             !dependency_guard_may_apply(
@@ -81,6 +90,7 @@ fn dependency_requirement_is_satisfied(
                 guarded.guard(),
             ) || guarded.requirements().iter().all(|requirement| {
                 dependency_requirement_is_satisfied(
+                    values,
                     storage,
                     refinements,
                     expression,
@@ -93,6 +103,7 @@ fn dependency_requirement_is_satisfied(
 }
 
 fn dependency_subject_is_satisfied(
+    values: &SemanticValueStore,
     storage: &StoragePlan,
     state: &StorageSuspensionState,
     subject: BoundDependencySubject,
@@ -112,7 +123,7 @@ fn dependency_subject_is_satisfied(
             | BoundDependencySubject::LifecycleObligation(_) => false,
         },
         BoundDependencyRequirementKind::StorageInitialized => {
-            dependency_subject_is_initialized(storage, state, subject)
+            dependency_subject_is_initialized(values, storage, state, subject)
         }
         BoundDependencyRequirementKind::BorrowCapabilityActive(expected) => {
             let BoundDependencySubject::BorrowCapability(capability) = subject else {
@@ -125,7 +136,7 @@ fn dependency_subject_is_satisfied(
                     .is_some_and(|capability| capability.kind() == expected)
         }
         BoundDependencyRequirementKind::ExclusiveMutationAuthority => {
-            dependency_subject_has_exclusive_access(storage, state, subject)
+            dependency_subject_has_exclusive_access(values, storage, state, subject)
         }
         BoundDependencyRequirementKind::ScopedCapabilityLive => false,
         BoundDependencyRequirementKind::LifecycleObligationAttached(_) => false,
@@ -133,6 +144,7 @@ fn dependency_subject_is_satisfied(
 }
 
 fn dependency_subject_is_initialized(
+    values: &SemanticValueStore,
     storage: &StoragePlan,
     state: &StorageSuspensionState,
     subject: BoundDependencySubject,
@@ -152,7 +164,8 @@ fn dependency_subject_is_initialized(
 
             state.initialized().contains(&root)
                 && !state.moved().iter().any(|moved| {
-                    storage.relationship(*moved, access) != StorageRelationship::Disjoint
+                    !access_is_borrow_value(values, storage, *moved)
+                        && storage.relationship(*moved, access) != StorageRelationship::Disjoint
                 })
         }
         BoundDependencySubject::BorrowCapability(capability) => {
@@ -165,12 +178,23 @@ fn dependency_subject_is_initialized(
 }
 
 fn dependency_subject_has_exclusive_access(
+    values: &SemanticValueStore,
     storage: &StoragePlan,
     state: &StorageSuspensionState,
     subject: BoundDependencySubject,
 ) -> bool {
     let (access, authorizing_borrow) = match subject {
-        BoundDependencySubject::StorageAccess(access) => (access, None),
+        BoundDependencySubject::StorageAccess(access) => {
+            let authorizing_borrow = storage.access(access).and_then(|access| {
+                let bray_bound_tree::StorageAccessRoot::Borrow(capability) = access.root() else {
+                    return None;
+                };
+
+                Some(capability)
+            });
+
+            (access, authorizing_borrow)
+        }
         BoundDependencySubject::BorrowCapability(capability) => {
             let Some(capability_data) = storage.borrow_capability(capability) else {
                 return false;
@@ -190,16 +214,53 @@ fn dependency_subject_has_exclusive_access(
         | BoundDependencySubject::LifecycleObligation(_) => return false,
     };
 
+    let authorizing_borrows = authorizing_borrow
+        .map(|capability| borrow_chain(storage, capability))
+        .unwrap_or_default();
+
     dependency_subject_is_initialized(
+        values,
         storage,
         state,
         BoundDependencySubject::StorageAccess(access),
     ) && state.active_borrows().iter().copied().all(|active| {
-        Some(active) == authorizing_borrow
+        authorizing_borrows.contains(&active)
             || storage.borrow_capability(active).is_some_and(|capability| {
                 storage.relationship(capability.access(), access) == StorageRelationship::Disjoint
             })
     })
+}
+
+fn borrow_chain(
+    storage: &StoragePlan,
+    capability: bray_bound_tree::BorrowCapabilityId,
+) -> BTreeSet<bray_bound_tree::BorrowCapabilityId> {
+    let mut chain = BTreeSet::new();
+    let mut current = Some(capability);
+
+    while let Some(capability) = current {
+        chain.insert(capability);
+
+        current = storage
+            .borrow_capability(capability)
+            .and_then(|capability| capability.parent());
+    }
+
+    chain
+}
+
+fn access_is_borrow_value(
+    values: &SemanticValueStore,
+    storage: &StoragePlan,
+    access: StorageAccessId,
+) -> bool {
+    let Some(access) = storage.access(access) else {
+        return false;
+    };
+
+    values
+        .type_data(access.reached_type())
+        .is_ok_and(|data| matches!(data.as_ref(), TypeData::Borrow { .. }))
 }
 
 fn dependency_guard_may_apply(
@@ -292,7 +353,7 @@ mod tests {
         BoundTreeBuilder, BoundUnitId, BoundUnitKind, PlannedBorrowCapability, StorageAccess,
         StorageAccessRoot, StorageIdentity, StoragePlanBuilder, StorageSuspensionState,
     };
-    use bray_symbols::{BorrowKind, testing::implementation_instance};
+    use bray_symbols::{BorrowKind, TypeData, testing::implementation_instance};
 
     use super::{collect_requirement_subjects, dependency_subject_has_exclusive_access};
     use crate::test_support::{error_type, push_expression, semantic_values, test_source_origins};
@@ -328,6 +389,13 @@ mod tests {
 
         let mut builder = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
 
+        let borrow_type = semantic_values()
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: error_type(),
+            })
+            .unwrap_or_else(|error| panic!("test borrow type must intern: {error:?}"));
+
         let identity = builder
             .push_identity(StorageIdentity::Temporary(expression))
             .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
@@ -336,7 +404,7 @@ mod tests {
             .push_access(StorageAccess::new(
                 StorageAccessRoot::Storage(identity),
                 [],
-                error_type(),
+                borrow_type,
                 source,
                 false,
             ))
@@ -364,6 +432,17 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("test shared borrow must build: {error:?}"));
 
+        let reborrow = builder
+            .push_borrow_capability(PlannedBorrowCapability::new(
+                BorrowCapabilityOrigin::Expression(expression),
+                BorrowKind::Mutable,
+                access,
+                Some(mutable),
+                source,
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test mutable reborrow must build: {error:?}"));
+
         let storage = builder.finish();
 
         let mutable_state =
@@ -372,16 +451,43 @@ mod tests {
         let shared_state =
             StorageSuspensionState::new(expression, [identity], [identity], [], [shared]);
 
+        let moved_borrow_state =
+            StorageSuspensionState::new(expression, [identity], [identity], [access], [mutable]);
+
+        let reborrow_state = StorageSuspensionState::new(
+            expression,
+            [identity],
+            [identity],
+            [access],
+            [mutable, reborrow],
+        );
+
         assert!(dependency_subject_has_exclusive_access(
+            semantic_values(),
             &storage,
             &mutable_state,
             BoundDependencySubject::BorrowCapability(mutable)
         ));
 
         assert!(!dependency_subject_has_exclusive_access(
+            semantic_values(),
             &storage,
             &shared_state,
             BoundDependencySubject::BorrowCapability(shared)
+        ));
+
+        assert!(dependency_subject_has_exclusive_access(
+            semantic_values(),
+            &storage,
+            &moved_borrow_state,
+            BoundDependencySubject::BorrowCapability(mutable)
+        ));
+
+        assert!(dependency_subject_has_exclusive_access(
+            semantic_values(),
+            &storage,
+            &reborrow_state,
+            BoundDependencySubject::BorrowCapability(reborrow)
         ));
     }
 }

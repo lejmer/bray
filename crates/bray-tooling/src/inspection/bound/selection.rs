@@ -252,6 +252,7 @@ pub(super) const fn selection_kind(selection: &SemanticSelection) -> &'static st
     match selection {
         SemanticSelection::Reference(_) => "reference",
         SemanticSelection::Call(_) => "call",
+        SemanticSelection::Predicate(_) => "predicate",
         SemanticSelection::Operation(operation) => operation.kind().as_str(),
         SemanticSelection::Iteration(_) => "iteration",
         SemanticSelection::Propagation(_) => "propagation",
@@ -271,6 +272,12 @@ fn selection_target(
         SemanticSelection::Call(call) => {
             callable_target(call.target(), locals, symbols, semantic_values).map(Some)
         }
+        SemanticSelection::Predicate(predicate) => Ok(Some(InspectionSelectionTarget::Surface {
+            symbol: InspectionSymbolIdentity::from_symbol(
+                symbols,
+                predicate.predicate().into_any(),
+            ),
+        })),
         SemanticSelection::Operation(operation) => {
             operation_target(operation, symbols, semantic_values).map(Some)
         }

@@ -55,7 +55,7 @@ pub struct MemberTarget {
     result_type: TypeId,
     callable_instance: Option<CallableInstanceData>,
     callable_signature: Option<CallableSignature>,
-    generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
+    trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
 
@@ -71,7 +71,7 @@ impl MemberTarget {
             result_type,
             callable_instance: None,
             callable_signature: None,
-            generic_dispatch: None,
+            trait_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -89,11 +89,11 @@ impl MemberTarget {
     }
 
     /// Returns a member target dispatched through one surrounding generic constraint.
-    pub const fn with_generic_dispatch(
+    pub const fn with_trait_dispatch(
         mut self,
-        dispatch: bray_symbols::GenericConstraintDispatch,
+        dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> Self {
-        self.generic_dispatch = Some(dispatch);
+        self.trait_dispatch = Some(dispatch);
 
         self
     }
@@ -127,8 +127,8 @@ impl MemberTarget {
     }
 
     /// Returns the surrounding generic constraint that supplies dispatch.
-    pub const fn generic_dispatch(&self) -> Option<bray_symbols::GenericConstraintDispatch> {
-        self.generic_dispatch
+    pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
+        self.trait_dispatch
     }
 
     /// Returns implementation requirements and witnesses in canonical order.

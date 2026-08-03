@@ -7,6 +7,7 @@ use bray_package_interface::{
     PackageInterfaceIdentity,
 };
 use bray_source::{SourceInput, SourceSpan};
+use bray_runtime_interface::PlatformServiceBinding;
 pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
@@ -138,6 +139,7 @@ pub struct CompilationRequest {
     options: CompilationOptions,
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
+    platform_services: Vec<PlatformServiceBinding>,
     package_interface_export: Option<PackageInterfaceExportRequest>,
 }
 
@@ -347,6 +349,7 @@ impl CompilationRequest {
             options,
             sources,
             dependency_interfaces: Vec::new(),
+            platform_services: Vec::new(),
             package_interface_export: None,
         }
     }
@@ -377,6 +380,16 @@ impl CompilationRequest {
         dependency_interfaces: impl IntoIterator<Item = DependencyInterfaceInput>,
     ) -> Self {
         self.dependency_interfaces = dependency_interfaces.into_iter().collect();
+
+        self
+    }
+
+    /// Returns a copy with explicit private platform-service declaration bindings.
+    pub fn with_platform_services(
+        mut self,
+        bindings: impl IntoIterator<Item = PlatformServiceBinding>,
+    ) -> Self {
+        self.platform_services = bindings.into_iter().collect();
 
         self
     }
@@ -423,6 +436,11 @@ impl CompilationRequest {
         &self.dependency_interfaces
     }
 
+    /// Returns private platform-service declaration bindings in role order.
+    pub fn platform_services(&self) -> &[PlatformServiceBinding] {
+        &self.platform_services
+    }
+
     /// Returns the selected current-product interface export, when requested.
     pub const fn package_interface_export(&self) -> Option<&PackageInterfaceExportRequest> {
         self.package_interface_export.as_ref()
@@ -438,6 +456,7 @@ impl CompilationRequest {
         CompilationOptions,
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
+        Vec<PlatformServiceBinding>,
         Option<PackageInterfaceExportRequest>,
     ) {
         (
@@ -447,6 +466,7 @@ impl CompilationRequest {
             self.options,
             self.sources,
             self.dependency_interfaces,
+            self.platform_services,
             self.package_interface_export,
         )
     }

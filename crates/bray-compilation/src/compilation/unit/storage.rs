@@ -84,6 +84,7 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+                let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -94,6 +95,7 @@ impl Compilation {
                     &semantic_context,
                     &context,
                     storage.result().value(),
+                    memory.result().value(),
                 )?;
 
                 let (facts, liveness_diagnostics) = result.into_parts();
@@ -101,6 +103,7 @@ impl Compilation {
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
                     storage.result().diagnostics(),
+                    memory.result().diagnostics(),
                     &liveness_diagnostics,
                 ]);
 

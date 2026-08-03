@@ -1,6 +1,7 @@
 mod call;
 mod iteration;
 mod operation;
+mod predicate;
 mod propagation;
 mod table;
 
@@ -13,6 +14,7 @@ pub use operation::{
     IndexTarget, MemberTarget, OperatorTarget, SelectedConstruction, SelectedConstructionInput,
     SelectedConversion, SelectedOperation, SelectionKind,
 };
+pub use predicate::{SelectedPredicateApplication, SelectedPredicateArgument};
 pub use propagation::{SelectedPropagation, SelectedPropagationBoundary};
 pub use table::{
     CheckedSemanticSelections, SemanticSelection, SemanticSelectionEntry,

@@ -152,7 +152,7 @@ pub struct MirCall {
     phase_behaviors: Option<Arc<CallablePhaseBehaviors>>,
     contract: Option<Arc<CallableContractTemplate>>,
     dispatch_witnesses: Arc<[ImplementationInstanceId]>,
-    generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
+    trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
 
@@ -173,7 +173,7 @@ impl MirCall {
             phase_behaviors: None,
             contract: None,
             dispatch_witnesses: Arc::from([]),
-            generic_dispatch: None,
+            trait_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -186,7 +186,7 @@ impl MirCall {
         phase_behaviors: CallablePhaseBehaviors,
         contract: Option<CallableContractTemplate>,
         dispatch_witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
-        generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
+        trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
@@ -196,7 +196,7 @@ impl MirCall {
             phase_behaviors: Some(Arc::new(phase_behaviors)),
             contract: contract.map(Arc::new),
             dispatch_witnesses: sorted_unique_shared_slice(dispatch_witnesses),
-            generic_dispatch,
+            trait_dispatch,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -232,8 +232,8 @@ impl MirCall {
     }
 
     /// Returns the generic constraint supplying callable dispatch.
-    pub const fn generic_dispatch(&self) -> Option<bray_symbols::GenericConstraintDispatch> {
-        self.generic_dispatch
+    pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
+        self.trait_dispatch
     }
 
     /// Returns exact implementation requirements and witnesses in canonical order.

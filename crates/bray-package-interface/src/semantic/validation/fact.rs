@@ -476,10 +476,25 @@ impl InterfaceSemanticFacts {
         }
 
         for clause in clauses {
-            validate_index(
-                clause.predicate.dependency_contract.to_index(),
-                self.dependency_contracts.len(),
-            )?;
+            match clause.value {
+                crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                    validate_index(
+                        predicate.dependency_contract.to_index(),
+                        self.dependency_contracts.len(),
+                    )?;
+                }
+                crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    if clause.kind != bray_symbols::CallableContractClauseKind::Static {
+                        return Err(InterfaceValidationError::Malformed);
+                    }
+
+                    validate_index(subject.to_index(), self.types.len())?;
+                    validate_index(application.to_index(), self.trait_applications.len())?;
+                }
+            }
         }
 
         Ok(())

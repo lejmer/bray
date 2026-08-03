@@ -157,15 +157,31 @@ impl InternState {
                     .chain(input.static_constraints.iter())
                     .chain(input.normal_completion_postconditions.iter())
                 {
-                    let dependency = self
-                        .dependency_contract_id(clause.predicate.dependency_contract)
-                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+                    let clause = match clause.value {
+                        crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                            let dependency = self
+                                .dependency_contract_id(predicate.dependency_contract)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
-                    clauses.push(CallableContractClause::new(
-                        clause.ordinal,
-                        clause.kind,
-                        PredicateSemanticSummary::new(dependency),
-                    ));
+                            CallableContractClause::new(
+                                clause.ordinal,
+                                clause.kind,
+                                PredicateSemanticSummary::new(dependency),
+                            )
+                        }
+                        crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                            subject,
+                            application,
+                        } => CallableContractClause::trait_satisfaction(
+                            clause.ordinal,
+                            self.type_id(subject)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                            self.trait_application_id(application)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                        ),
+                    };
+
+                    clauses.push(clause);
                 }
 
                 let invocation_behavior =

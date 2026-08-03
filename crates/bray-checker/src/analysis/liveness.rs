@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencySubject, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId,
+    CheckedMemoryOperations, BoundUnit, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     LivenessFacts, StorageAccessRoot, StorageIdentity, StoragePlan,
 };
 
@@ -18,6 +19,7 @@ use super::reachability::{ReachabilityResult, analyze_reachability};
 pub(crate) fn analyze_storage_liveness<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
+    memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<LivenessFacts>
 where
     C: CheckerRequestContext + ?Sized,
@@ -43,7 +45,7 @@ where
         return CheckerOutcome::Cancelled;
     };
 
-    let effects = OperationEffects::from_storage_plan(storage);
+    let effects = OperationEffects::from_storage_plan(request.unit(), storage, memory);
     let domain = LivenessDomain::new(&graph, &reachability, &effects);
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
@@ -87,7 +89,11 @@ struct OperationEffects {
 }
 
 impl OperationEffects {
-    fn from_storage_plan(storage: &StoragePlan) -> Self {
+    fn from_storage_plan(
+        unit: &BoundUnit,
+        storage: &StoragePlan,
+        memory: &CheckedMemoryOperations,
+    ) -> Self {
         let mut effects = Self::default();
 
         for (identity, provenance) in storage.identity_entries() {
@@ -158,7 +164,69 @@ impl OperationEffects {
             }
         }
 
+        let await_uses = unit
+            .tree()
+            .expressions()
+            .filter_map(|(expression, node)| match node {
+                BoundExpression::Await(awaited) => Some((
+                    expression,
+                    effects.subtree_subjects(unit, awaited.operand()),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for (expression, subjects) in await_uses {
+            effects.extend_uses(expression, subjects);
+        }
+
+        for operation in memory.operations() {
+            let subjects = operation
+                .arguments()
+                .iter()
+                .flat_map(|argument| effects.subtree_subjects(unit, *argument))
+                .collect::<BTreeSet<_>>();
+
+            effects.extend_uses(operation.expression(), subjects);
+        }
+
         effects
+    }
+
+    fn extend_uses(
+        &mut self,
+        expression: BoundExpressionId,
+        subjects: impl IntoIterator<Item = BoundDependencySubject>,
+    ) {
+        self.by_node
+            .entry(AnyBoundNodeId::Expression(expression))
+            .or_default()
+            .uses
+            .extend(subjects);
+    }
+
+    fn subtree_subjects(
+        &self,
+        unit: &BoundUnit,
+        root: BoundExpressionId,
+    ) -> BTreeSet<BoundDependencySubject> {
+        let mut subjects = BTreeSet::new();
+        let mut pending = vec![root];
+
+        while let Some(expression) = pending.pop() {
+            let node = AnyBoundNodeId::Expression(expression);
+
+            if let Some(effect) = self.by_node.get(&node) {
+                subjects.extend(effect.uses.iter().copied());
+                subjects.extend(effect.definitions.iter().copied());
+            }
+
+            if let Some(node) = unit.tree().expression(expression) {
+                pending.extend(node.child_expressions());
+            }
+        }
+
+        subjects
     }
 
     fn effect(&self, node: AnyBoundNodeId) -> Option<&OperationEffect> {
@@ -443,6 +511,12 @@ fn collect_facts(
                     state
                         .iter()
                         .copied()
+                        .chain(
+                            effects
+                                .effect(operation.kind().node())
+                                .into_iter()
+                                .flat_map(|effect| effect.uses.iter().copied()),
+                        )
                         .map(|subject| LiveAcrossSuspension::new(expression, subject)),
                 );
             }
@@ -501,20 +575,20 @@ mod tests {
 
     use bray_bound_tree::{
         AnyBoundNodeId, BoundDependencySubject, BoundErrorExpression, BoundExpression,
-        BoundExpressionId, BoundNodeOrigin, BoundTreeBuilder, BoundUnitId, StorageAccess,
-        StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StoragePlanBuilder,
+        BoundExpressionId, BoundNodeOrigin, BoundUnit, BoundUnitId, CheckedMemoryOperations,
+        StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StoragePlanBuilder,
     };
 
     use super::{OperationEffects, transfer_operation};
     use crate::analysis::id::{AnalysisOperationId, ProgramPointId};
     use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind};
-    use crate::test_support::{callable_key, error_type, push_expression};
+    use crate::test_support::{callable_key, error_type, expression_unit, push_expression};
 
     #[test]
     fn storage_plans_produce_exact_uses_and_definitions() {
         let unit = BoundUnitId::new(7);
 
-        let (expression, origin) = test_expression(unit);
+        let (bound_unit, expression, origin) = test_expression(unit);
 
         let mut builder =
             StoragePlanBuilder::new(unit, bray_bound_tree::BoundUnitKind::CallableBody);
@@ -542,7 +616,8 @@ mod tests {
             panic!("test access plan must be valid");
         }
 
-        let effects = OperationEffects::from_storage_plan(&builder.finish());
+        let memory = empty_memory_operations(unit);
+        let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish(), &memory);
         let node = AnyBoundNodeId::Expression(expression);
 
         let Some(effect) = effects.effect(node) else {
@@ -570,7 +645,7 @@ mod tests {
     fn recovered_storage_accesses_keep_every_known_subject_live() {
         let unit = BoundUnitId::new(8);
 
-        let (expression, origin) = test_expression(unit);
+        let (bound_unit, expression, origin) = test_expression(unit);
 
         let mut builder =
             StoragePlanBuilder::new(unit, bray_bound_tree::BoundUnitKind::CallableBody);
@@ -598,7 +673,8 @@ mod tests {
             panic!("test access plan must be valid");
         }
 
-        let effects = OperationEffects::from_storage_plan(&builder.finish());
+        let memory = empty_memory_operations(unit);
+        let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish(), &memory);
 
         let operation = AnalysisOperation::new(
             AnalysisOperationId::from_slot(unit, 0),
@@ -625,7 +701,7 @@ mod tests {
         let key = callable_key();
         let unit = BoundUnitId::new(9);
 
-        let (expression, _) = test_expression(unit);
+        let (_, expression, _) = test_expression(unit);
 
         let origin = BoundNodeOrigin::source(key.source());
         let identity = StorageIdentity::CompilerCreated(origin);
@@ -638,15 +714,24 @@ mod tests {
         );
     }
 
-    fn test_expression(unit: BoundUnitId) -> (BoundExpressionId, BoundNodeOrigin) {
-        let origin = BoundNodeOrigin::source(callable_key().source());
-        let mut tree = BoundTreeBuilder::new(unit);
+    fn test_expression(unit: BoundUnitId) -> (BoundUnit, BoundExpressionId, BoundNodeOrigin) {
+        let (unit, expressions) = expression_unit(unit, |tree, origin| {
+            vec![push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+            )]
+        });
 
-        let expression = push_expression(
-            &mut tree,
-            BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-        );
+        (unit, expressions[0], BoundNodeOrigin::source(callable_key().source()))
+    }
 
-        (expression, origin)
+    fn empty_memory_operations(unit: BoundUnitId) -> CheckedMemoryOperations {
+        CheckedMemoryOperations::try_new(
+            unit,
+            bray_bound_tree::BoundUnitKind::CallableBody,
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty memory operations must build: {error:?}"))
     }
 }

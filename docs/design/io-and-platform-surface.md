@@ -76,13 +76,17 @@ trait Writer
 
 trait AsyncReader
 {
-    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>;
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
 }
 
 trait AsyncWriter
 {
-    mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>;
-    mut async func flush_async() -> Result<unit, IoError>;
+    mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+
+    mut async func flush_async() -> Result<unit, IoError>
+        requires(blocking_execution());
 }
 
 union SeekFrom
@@ -160,8 +164,11 @@ func print(pos text: string) -> Result<unit, IoError>
 func print_line(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution());
 
-async func print_async(pos text: string) -> Result<unit, IoError>;
-async func print_line_async(pos text: string) -> Result<unit, IoError>;
+async func print_async(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution());
+
+async func print_line_async(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution());
 ```
 
 `StandardInput` implements `Reader` and `AsyncReader`. `StandardOutput` and `StandardError` implement `Writer` and `AsyncWriter`.

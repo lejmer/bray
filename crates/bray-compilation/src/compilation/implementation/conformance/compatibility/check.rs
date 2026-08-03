@@ -664,16 +664,49 @@ fn contract_clauses_are_compatible(
     }
 
     for (requirement, fulfillment) in requirement.iter().zip(fulfillment) {
-        if requirement.ordinal() != fulfillment.ordinal()
-            || requirement.kind() != fulfillment.kind()
-            || !dependency_contracts_are_compatible(
+        if requirement.ordinal() != fulfillment.ordinal() || requirement.kind() != fulfillment.kind()
+        {
+            return Ok(false);
+        }
+
+        let compatible = match (requirement.value(), fulfillment.value()) {
+            (
+                bray_symbols::CallableContractClauseValue::Predicate(requirement),
+                bray_symbols::CallableContractClauseValue::Predicate(fulfillment),
+            ) => dependency_contracts_are_compatible(
                 values,
                 trait_application,
                 generic_substitution,
-                requirement.predicate().dependency_contract(),
-                fulfillment.predicate().dependency_contract(),
-            )?
-        {
+                requirement.dependency_contract(),
+                fulfillment.dependency_contract(),
+            )?,
+            (
+                bray_symbols::CallableContractClauseValue::TraitSatisfaction {
+                    subject: requirement_subject,
+                    application: requirement_application,
+                },
+                bray_symbols::CallableContractClauseValue::TraitSatisfaction {
+                    subject: fulfillment_subject,
+                    application: fulfillment_application,
+                },
+            ) => {
+                substitute_requirement_type(
+                    values,
+                    trait_application,
+                    generic_substitution,
+                    requirement_subject,
+                )? == fulfillment_subject
+                    && substitute_requirement_trait_application(
+                        values,
+                        trait_application,
+                        generic_substitution,
+                        requirement_application,
+                    )? == fulfillment_application
+            }
+            _ => false,
+        };
+
+        if !compatible {
             return Ok(false);
         }
     }
@@ -693,7 +726,6 @@ fn phase_behaviors_are_compatible(
         || requirement.trusted_capabilities() != fulfillment.trusted_capabilities()
         || requirement.execution_requirements() != fulfillment.execution_requirements()
         || requirement.lifecycle_obligations() != fulfillment.lifecycle_obligations()
-        || requirement.current_run_cancellation() != fulfillment.current_run_cancellation()
     {
         return Ok(false);
     }

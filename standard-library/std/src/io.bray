@@ -1,0 +1,152 @@
+trusted module std.io;
+
+union IoErrorKind
+{
+    Unsupported;
+    PermissionDenied;
+    NotFound;
+    AlreadyExists;
+    InvalidInput;
+    Interrupted;
+    Exhausted;
+    BrokenStream;
+    TimedOut;
+    Other;
+}
+
+struct IoError
+{
+    kind: IoErrorKind;
+    platform_code: i64?;
+    transferred: usize;
+}
+
+trait Reader
+{
+    mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+}
+
+trait Writer
+{
+    mut func write(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+
+    mut func flush() -> Result<unit, IoError>
+        requires(blocking_execution());
+}
+
+trait AsyncReader
+{
+    mut async func read_async(
+        pos destination: &mut [u8],
+    ) -> Result<usize, IoError>
+        requires(blocking_execution());
+}
+
+trait AsyncWriter
+{
+    mut async func write_async(
+        pos source: &[u8],
+    ) -> Result<usize, IoError>
+        requires(blocking_execution());
+
+    mut async func flush_async() -> Result<unit, IoError>
+        requires(blocking_execution());
+}
+
+struct StandardInput
+{
+    internal handle: u64;
+}
+
+struct StandardOutput
+{
+    internal handle: u64;
+}
+
+struct StandardError
+{
+    internal handle: u64;
+}
+
+struct BufferedReader<Source>
+{
+    internal mut source: Source;
+    internal mut storage: std.bytes.Buffer;
+    internal capacity: usize;
+    internal mut start: usize;
+    internal mut length: usize;
+}
+
+struct BufferedWriter<Sink>
+{
+    internal mut sink: Sink;
+    internal mut storage: std.bytes.Buffer;
+    internal capacity: usize;
+    internal mut start: usize;
+    internal mut length: usize;
+}
+
+func standard_input() -> StandardInput
+{
+    return support_standard_input();
+}
+
+func standard_output() -> StandardOutput
+{
+    return support_standard_output();
+}
+
+func standard_error() -> StandardError
+{
+    return support_standard_error();
+}
+
+func buffered_reader<Source>(
+    pos source: Source,
+    capacity: usize,
+) -> Result<BufferedReader<Source>, IoError>
+    requires(capacity > 0)
+{
+    return support_buffered_reader<Source>(
+        source = source,
+        capacity = capacity,
+    );
+}
+
+func buffered_writer<Sink>(
+    pos sink: Sink,
+    capacity: usize,
+) -> Result<BufferedWriter<Sink>, IoError>
+    requires(capacity > 0)
+{
+    return support_buffered_writer<Sink>(
+        sink = sink,
+        capacity = capacity,
+    );
+}
+
+func print(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution())
+{
+    return support_print(text = text);
+}
+
+func print_line(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution())
+{
+    return support_print_line(text = text);
+}
+
+async func print_async(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution())
+{
+    return await support_print_async(text = text);
+}
+
+async func print_line_async(pos text: string) -> Result<unit, IoError>
+    requires(blocking_execution())
+{
+    return await support_print_line_async(text = text);
+}
