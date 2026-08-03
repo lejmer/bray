@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-platform = { path = "../bray-platform" }
 bray-project = { path = "../bray-project" }

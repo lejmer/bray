@@ -1,7 +1,7 @@
-use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 
+use bray_base::{FileReplacementMode, StagedFile};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind,
     DiagnosticKind, SeverityKind,
@@ -86,6 +86,7 @@ pub(super) fn initialize_project(
     let entrypoint_path = source_directory.join(ENTRYPOINT_FILE_NAME);
 
     require_directory_or_absent(workspace_root)?;
+    require_directory_or_absent(&source_directory)?;
 
     for path in [
         &workspace_manifest_path,
@@ -179,20 +180,25 @@ fn create_directory(path: &Path) -> Result<(), DiagnosticBag> {
 }
 
 fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), DiagnosticBag> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::AlreadyExists {
-                path_conflict(path)
-            } else {
-                write_failed(path, error.kind())
-            }
-        })?;
+    let mut staging = StagedFile::create(path, FileReplacementMode::RequireAbsent, None)
+        .map_err(|error| publication_failed(path, error.kind()))?;
 
-    file.write_all(bytes)
-        .map_err(|error| write_failed(path, error.kind()))
+    staging
+        .write_all(bytes)
+        .map_err(|error| write_failed(path, error.kind()))?;
+
+    staging
+        .finish()
+        .and_then(|staged| staged.promote(path))
+        .map_err(|error| publication_failed(path, error.kind()))
+}
+
+fn publication_failed(path: &Path, kind: io::ErrorKind) -> DiagnosticBag {
+    if kind == io::ErrorKind::AlreadyExists {
+        path_conflict(path)
+    } else {
+        write_failed(path, kind)
+    }
 }
 
 fn invalid_identity(identity: impl Into<String>) -> DiagnosticBag {
