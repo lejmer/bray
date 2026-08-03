@@ -74,6 +74,14 @@ define_diagnostic_kinds! {
     ProjectCommandSelectionInvalid,
     /// A Bray Tack project operation failed.
     ProjectCommandFailed,
+    /// A Bray Tack initialization package identity is invalid.
+    ProjectInitializationIdentityInvalid,
+    /// A Bray Tack initialization output path already exists.
+    ProjectInitializationPathConflict,
+    /// A Bray Tack initialization output could not be written.
+    ProjectInitializationWriteFailed,
+    /// Bray Tack cannot initialize a project for the current host target.
+    ProjectInitializationTargetUnsupported,
     /// Selected Bray source does not match deterministic formatter output.
     FormatterSourceNotFormatted,
     /// Selected formatter source contains bytes that are not valid UTF-8.
@@ -437,6 +445,10 @@ impl DiagnosticKind {
             Self::ProjectPackageIdentityReserved => 1212,
             Self::ProjectStandardLibraryPackageIdentityRequired => 1213,
             Self::ProjectStandardLibraryRootPackageRequired => 1214,
+            Self::ProjectInitializationIdentityInvalid => 1215,
+            Self::ProjectInitializationPathConflict => 1216,
+            Self::ProjectInitializationWriteFailed => 1217,
+            Self::ProjectInitializationTargetUnsupported => 1218,
             Self::FormatterSourceNotFormatted => 1301,
             Self::FormatterSourceInvalidUtf8 => 1302,
             Self::FormatterSourceTooLarge => 1303,
@@ -650,6 +662,14 @@ impl DiagnosticKind {
             Self::ProjectDependencyCycle => "project_dependency_cycle",
             Self::ProjectCommandSelectionInvalid => "project_command_selection_invalid",
             Self::ProjectCommandFailed => "project_command_failed",
+            Self::ProjectInitializationIdentityInvalid => {
+                "project_initialization_identity_invalid"
+            }
+            Self::ProjectInitializationPathConflict => "project_initialization_path_conflict",
+            Self::ProjectInitializationWriteFailed => "project_initialization_write_failed",
+            Self::ProjectInitializationTargetUnsupported => {
+                "project_initialization_target_unsupported"
+            }
             Self::FormatterSourceNotFormatted => "formatter_source_not_formatted",
             Self::FormatterSourceInvalidUtf8 => "formatter_source_invalid_utf8",
             Self::FormatterSourceTooLarge => "formatter_source_too_large",

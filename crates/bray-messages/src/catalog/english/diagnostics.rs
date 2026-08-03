@@ -100,6 +100,27 @@ const PROJECT_COMMAND_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const PROJECT_INITIALIZATION_IDENTITY_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("invalid Bray package identity "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const PROJECT_INITIALIZATION_PATH_CONFLICT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot initialize a Bray project because this path already exists: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_INITIALIZATION_WRITE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not initialize a Bray project at "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const PROJECT_INITIALIZATION_TARGET_UNSUPPORTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "cannot initialize a Bray project for the current host target",
+)];
+
 const FORMATTER_SOURCE_NOT_FORMATTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("source needs formatting: "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
@@ -1141,6 +1162,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
         }
         DiagnosticKind::ProjectCommandFailed => MessageTemplate::new(PROJECT_COMMAND_FAILED),
+        DiagnosticKind::ProjectInitializationIdentityInvalid => {
+            MessageTemplate::new(PROJECT_INITIALIZATION_IDENTITY_INVALID)
+        }
+        DiagnosticKind::ProjectInitializationPathConflict => {
+            MessageTemplate::new(PROJECT_INITIALIZATION_PATH_CONFLICT)
+        }
+        DiagnosticKind::ProjectInitializationWriteFailed => {
+            MessageTemplate::new(PROJECT_INITIALIZATION_WRITE_FAILED)
+        }
+        DiagnosticKind::ProjectInitializationTargetUnsupported => {
+            MessageTemplate::new(PROJECT_INITIALIZATION_TARGET_UNSUPPORTED)
+        }
         DiagnosticKind::FormatterSourceNotFormatted => {
             MessageTemplate::new(FORMATTER_SOURCE_NOT_FORMATTED)
         }

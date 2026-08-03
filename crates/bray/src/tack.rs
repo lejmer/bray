@@ -4,6 +4,7 @@ mod cli;
 mod compiler;
 mod error;
 mod execute;
+mod init;
 mod inspection;
 mod install;
 mod model;

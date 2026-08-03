@@ -164,6 +164,7 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
+    Init(CliInit),
     Check(CliSelection),
     Build(CliSelection),
     Run(CliExecution),
@@ -179,6 +180,10 @@ enum CliCommand {
 impl CliCommand {
     fn into_command(self) -> TackCommand {
         match self {
+            Self::Init(init) => TackCommand::Init {
+                directory: init.directory,
+                package: init.package,
+            },
             Self::Check(selection) => TackCommand::Check(selection.into()),
             Self::Build(selection) => TackCommand::Build(selection.into()),
             Self::Run(execution) => TackCommand::Run {
@@ -205,6 +210,14 @@ impl CliCommand {
             Self::Vendor(vendor) => vendor.into_command(),
         }
     }
+}
+
+#[derive(Args, Debug)]
+struct CliInit {
+    #[arg(value_name = "DIRECTORY")]
+    directory: Option<PathBuf>,
+    #[arg(long, value_name = "IDENTITY")]
+    package: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -330,6 +343,7 @@ mod tests {
     #[test]
     fn routes_every_project_command() {
         let cases = [
+            (vec!["init"], TackCommandKind::Init),
             (vec!["check"], TackCommandKind::Check),
             (vec!["build"], TackCommandKind::Build),
             (vec!["run"], TackCommandKind::Run),
