@@ -365,10 +365,7 @@ mod tests {
     }
 
     impl ConstantTemplateResolver for UnusedTemplateResolver {
-        fn symbol(
-            &self,
-            _key: &bray_symbols::ExternalSymbolKey,
-        ) -> Option<bray_symbols::AnySymbolId> {
+        fn symbol(&self, _key: &bray_symbols::SymbolKey) -> Option<bray_symbols::AnySymbolId> {
             None
         }
 

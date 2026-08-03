@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableSymbolId, DependencyRequirementKind,
-    ExactSymbolId, ExternalSymbolKey, GenericParameterSymbolId, ImplementationSymbolId,
-    NamedTypeSymbolId, SymbolKey,
+    ExactSymbolId, GenericParameterSymbolId, ImplementationSymbolId, NamedTypeSymbolId, SymbolKey,
 };
 
 use crate::{
@@ -21,21 +20,14 @@ pub(super) fn resolve_symbol(
         .ok_or_else(|| InterfaceSemanticInternError::UnresolvedSymbol(reference.clone()))
 }
 
-pub(super) fn resolve_external_key(
-    symbols: &impl InterfaceSymbolResolver,
-    reference: &InterfaceSymbolReference,
-) -> Result<ExternalSymbolKey, InterfaceSemanticInternError> {
-    // Interface references are Arc-backed and errors own their stable reference.
-    symbols
-        .external_key(reference)
-        .ok_or_else(|| InterfaceSemanticInternError::UnresolvedSymbol(reference.clone()))
-}
-
-pub(super) fn resolve_stable_symbol_key(
+pub(super) fn resolve_symbol_key(
     symbols: &impl InterfaceSymbolResolver,
     reference: &InterfaceSymbolReference,
 ) -> Result<SymbolKey, InterfaceSemanticInternError> {
-    resolve_external_key(symbols, reference).map(SymbolKey::external)
+    // Interface references are Arc-backed and errors own their stable reference.
+    symbols
+        .symbol_key(reference)
+        .ok_or_else(|| InterfaceSemanticInternError::UnresolvedSymbol(reference.clone()))
 }
 
 pub(super) fn resolve_exact<I: ExactSymbolId>(

@@ -93,10 +93,10 @@ pub use selection::{
     ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
     SelectedArgument, SelectedCall, SelectedConstruction, SelectedConstructionInput,
     SelectedConversion, SelectedImplementationWitness, SelectedIterationProtocolOperation,
-    SelectedIterationSource, SelectedIterationTypes, SelectedOperation, SelectedPropagation,
-    SelectedPredicateApplication, SelectedPredicateArgument, SelectedPropagationBoundary,
-    SelectedReceiver, SelectionKind, SemanticSelection, SemanticSelectionEntry,
-    SemanticSelectionTableBuildError,
+    SelectedIterationSource, SelectedIterationTypes, SelectedOperation,
+    SelectedPredicateApplication, SelectedPredicateArgument, SelectedPropagation,
+    SelectedPropagationBoundary, SelectedReceiver, SelectionKind, SemanticSelection,
+    SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,

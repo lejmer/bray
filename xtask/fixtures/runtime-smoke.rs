@@ -389,10 +389,9 @@ fn main() {
     assert!(allocation.status == Status::SUCCESS);
 
     let task = TaskHandle(allocation.task);
-
     let frame = protected_frame(11, resume_frame, cancel_frame, ignore_action);
-
     let transfer = ProtectedFrameTransfer(&frame as *const ProtectedFrame as usize);
+
     assert!(bray_runtime_task_start_v1(task, transfer) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive_v1() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown_v1() == Status::SUCCESS);

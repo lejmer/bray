@@ -5,8 +5,9 @@ mod validation;
 
 pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
 pub(crate) use codec::{
-    decode_inspection_records, decode_semantic_fact_graph, decode_template_payload,
-    encode_template_payload, encode_validated_semantic_facts, validate_decode_allocation,
+    decode_inspection_records, decode_selected_semantic_fact_graph, decode_semantic_fact_graph,
+    decode_template_payload, encode_template_payload, encode_validated_semantic_facts,
+    validate_decode_allocation,
 };
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
@@ -21,15 +22,15 @@ pub use model::{
     InterfaceCallableContractClauseValue, InterfaceCallableInstance, InterfaceCallableInstanceId,
     InterfaceCallableParameter, InterfaceCallableParameterDefault, InterfaceCallablePhaseBehavior,
     InterfaceCallableReceiver, InterfaceCallableSignature, InterfaceCheckedTemplate,
-    InterfaceCheckedTemplateBehavior,
-    InterfaceCheckedTemplateExecution, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
-    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
-    InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord,
-    InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
-    InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
-    InterfaceConstraint, InterfaceConstraintKind, InterfaceDeclarationTemplate,
-    InterfaceDeclaredType, InterfaceDependencyContract, InterfaceDependencyContractId,
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
+    InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
+    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
+    InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord, InterfaceConstantProjection,
+    InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
+    InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceConstraint,
+    InterfaceConstraintKind, InterfaceDeclarationTemplate, InterfaceDeclaredType,
+    InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceDependencyGuard,
+    InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
     InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericArgument,
     InterfaceGenericBinding, InterfaceGenericDeclaration, InterfaceGenericSubstitution,

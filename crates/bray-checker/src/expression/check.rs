@@ -220,8 +220,7 @@ where
         diagnostics,
     } = declared;
 
-    let Some(mut prepared) =
-        prepare_calls(request, nested_callables, candidate_sets)?.into_value()
+    let Some(mut prepared) = prepare_calls(request, nested_callables, candidate_sets)?.into_value()
     else {
         return Ok(SessionProgress::Cancelled);
     };

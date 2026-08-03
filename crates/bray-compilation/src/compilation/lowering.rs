@@ -1086,7 +1086,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("contextual variant match must lower: {error:?}"));
 
         assert!(result.value().is_some(), "{:#?}", result.diagnostics());
-        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:#?}",
+            result.diagnostics()
+        );
     }
 
     #[test]
@@ -1119,7 +1124,11 @@ mod tests {
             .lowered_unit(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("consumed union match must lower: {error:?}"));
 
-        assert!(result.diagnostics().is_empty(), "{:?}", result.diagnostics());
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
 
         lowered_mir(&result);
     }

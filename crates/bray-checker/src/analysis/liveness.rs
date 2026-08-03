@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId,
-    CheckedMemoryOperations, BoundUnit, LastUse, LiveAcrossScope, LiveAcrossSuspension,
-    LivenessFacts, StorageAccessRoot, StorageIdentity, StoragePlan,
+    AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundUnit,
+    CheckedMemoryOperations, LastUse, LiveAcrossScope, LiveAcrossSuspension, LivenessFacts,
+    StorageAccessRoot, StorageIdentity, StoragePlan,
 };
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -576,7 +576,8 @@ mod tests {
     use bray_bound_tree::{
         AnyBoundNodeId, BoundDependencySubject, BoundErrorExpression, BoundExpression,
         BoundExpressionId, BoundNodeOrigin, BoundUnit, BoundUnitId, CheckedMemoryOperations,
-        StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StoragePlanBuilder,
+        StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity,
+        StoragePlanBuilder,
     };
 
     use super::{OperationEffects, transfer_operation};
@@ -722,7 +723,11 @@ mod tests {
             )]
         });
 
-        (unit, expressions[0], BoundNodeOrigin::source(callable_key().source()))
+        (
+            unit,
+            expressions[0],
+            BoundNodeOrigin::source(callable_key().source()),
+        )
     }
 
     fn empty_memory_operations(unit: BoundUnitId) -> CheckedMemoryOperations {

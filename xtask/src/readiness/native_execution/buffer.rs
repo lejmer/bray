@@ -106,6 +106,16 @@ pub(super) fn build_standard_library_fixtures(
     let product = ProductIdentity::try_new(package, PRODUCT_NAME)
         .ok_or_else(|| "standard-library fixture product identity is invalid".to_owned())?;
 
+    emit_native_executable(compilation, product, target, runtime, output)
+}
+
+pub(super) fn emit_native_executable(
+    compilation: Compilation,
+    product: ProductIdentity,
+    target: NativeTarget,
+    runtime: &Path,
+    output: &Path,
+) -> Result<(), String> {
     let selected = SelectedTarget::for_native(target);
 
     let linker = native_linker(target)
@@ -117,7 +127,7 @@ pub(super) fn build_standard_library_fixtures(
         .native_product_facts(product.clone(), Some(runtime), [], Some(&linker))
         .map_err(|error| {
             format!(
-                "could not build standard byte-buffer product: {error:?}; diagnostics={:?}",
+                "could not build native fixture product: {error:?}; diagnostics={:?}",
                 compilation.check_diagnostics()
             )
         })?;
@@ -151,7 +161,7 @@ pub(super) fn build_standard_library_fixtures(
 
     let outcome = compilation.emit_product(request, inputs).map_err(|error| {
         format!(
-            "standard byte-buffer emission failed: {:?}; diagnostics={:?}",
+            "native fixture emission failed: {:?}; diagnostics={:?}",
             error.kind(),
             compilation.check_diagnostics()
         )

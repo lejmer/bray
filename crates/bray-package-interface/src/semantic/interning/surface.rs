@@ -18,8 +18,8 @@ use crate::{
 };
 
 use super::common::{
-    finish_table, invalid_symbol, lookup, resolve_exact, resolve_family, resolve_stable_symbol_key,
-    resolve_symbol,
+    finish_table, invalid_symbol, lookup, resolve_exact, resolve_family, resolve_symbol,
+    resolve_symbol_key,
 };
 use super::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
@@ -360,7 +360,7 @@ impl InternState {
                             return Err(invalid_symbol(reference));
                         }
 
-                        let key = resolve_stable_symbol_key(symbols, reference)?;
+                        let key = resolve_symbol_key(symbols, reference)?;
 
                         Ok(ImplementationCoherenceParticipant::new(key, implementation))
                     })
@@ -395,7 +395,7 @@ impl InternState {
                 let owner = resolve_symbol(symbols, &input.owner)?;
                 let fact = resolve_exact(symbols, &input.fact)?;
 
-                let key = resolve_stable_symbol_key(symbols, &input.fact)?;
+                let key = resolve_symbol_key(symbols, &input.fact)?;
 
                 let value = self
                     .constant_value_id(input.value)

@@ -189,9 +189,7 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
 }
 
 /// Returns the canonical native symbol for a platform role implemented by the Bray provider.
-pub const fn native_platform_service_role_symbol(
-    role: crate::PlatformServiceRole,
-) -> &'static str {
+pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRole) -> &'static str {
     use crate::PlatformServiceRole as Role;
 
     match role {

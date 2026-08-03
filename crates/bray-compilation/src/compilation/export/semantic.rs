@@ -38,20 +38,19 @@ use bray_symbols::{
     AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
     CallableContractTemplateFact, CallableContractsFact, CallableInstanceId,
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
-    CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
-    ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind, DependencyGuard,
-    DependencyProjection, DependencyRequirement, DependencyRequirementKind, DependencySubject,
-    DependencySubjectRoot, ExternalSymbolKey, GenericArgument, GenericConstraintsFact,
-    GenericDeclarationTemplateFact, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericSubstitutionId, ImplementationCoherenceFact,
-    ImplementationInstanceId, ImplementationSymbolId, InterfaceSupportEntityId, NamedTypeSymbolId,
-    PredicateDefinitionFact, PredicateDefinitionState, RuntimeDefaultGenericContext,
-    RuntimeDefaultPresence, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
-    SemanticValueStore, StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind,
-    TraitApplicationId, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TypeData, TypeExpressionTemplate, TypeId,
-    UnionPayloadDefaultValue,
+    CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantField,
+    ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
+    CurrentRunCancellation, DeclarationPredicateClauseKind, DependencyGuard, DependencyProjection,
+    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+    ExternalSymbolKey, GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
+    InterfaceSupportEntityId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
+    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
+    RuntimeDefaultTemplateReference, SemanticValueStore, StructFieldDefaultValue,
+    SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
+    TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
 
 use super::PackageInterfaceExportError;
@@ -695,7 +694,10 @@ fn runtime_default_input_type(
                 .callable_parameter(parameter)
                 .ok_or_else(|| incomplete(symbol))?;
 
-            (parameter.owner(), Some((parameter.id(), parameter.ordinal())))
+            (
+                parameter.owner(),
+                Some((parameter.id(), parameter.ordinal())),
+            )
         }
         _ => return Err(incomplete(symbol)),
     };
@@ -1176,24 +1178,22 @@ impl<'a> SemanticExporter<'a> {
             .chain(contract.static_constraints())
             .chain(contract.normal_completion_postconditions())
             .copied()
-            .map(|clause| {
-                match clause.value() {
-                    CallableContractClauseValue::Predicate(predicate) => {
-                        Ok(InterfaceCallableContractClause::new(
-                            clause.ordinal(),
-                            clause.kind(),
-                            self.predicate_summary(predicate)?,
-                        ))
-                    }
-                    CallableContractClauseValue::TraitSatisfaction {
-                        subject,
-                        application,
-                    } => Ok(InterfaceCallableContractClause::trait_satisfaction(
+            .map(|clause| match clause.value() {
+                CallableContractClauseValue::Predicate(predicate) => {
+                    Ok(InterfaceCallableContractClause::new(
                         clause.ordinal(),
-                        self.type_id(subject)?,
-                        self.trait_application_id(application)?,
-                    )),
+                        clause.kind(),
+                        self.predicate_summary(predicate)?,
+                    ))
                 }
+                CallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => Ok(InterfaceCallableContractClause::trait_satisfaction(
+                    clause.ordinal(),
+                    self.type_id(subject)?,
+                    self.trait_application_id(application)?,
+                )),
             })
             .collect::<Result<Vec<_>, _>>()?;
 

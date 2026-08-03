@@ -270,7 +270,9 @@ impl Compilation {
         loop {
             if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
                 let constraints = facts
-                    .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(generic_owner))
+                    .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+                        generic_owner,
+                    ))
                     .map_err(binder_fact_error)?;
 
                 *diagnostics = diagnostics.merged(constraints.diagnostics());

@@ -126,6 +126,26 @@ impl ValidatedPackageInterface {
         crate::semantic::decode_semantic_fact_graph(&sections, surface, owner, kind, self.limits)
     }
 
+    /// Decodes the independently addressable semantic dependency graph for one symbol-owned fact.
+    ///
+    /// Returns `None` when the fact category requires the complete semantic graph.
+    pub fn decode_selected_semantic_fact_graph(
+        &self,
+        surface: &crate::PackageInterfaceSurface,
+        owner: bray_symbols::InterfaceSymbolId,
+        kind: crate::InterfaceSemanticFactKind,
+    ) -> Result<Option<crate::InterfaceSemanticFacts>, InterfaceValidationError> {
+        let sections: Vec<_> = self.sections().collect();
+
+        crate::semantic::decode_selected_semantic_fact_graph(
+            &sections,
+            surface,
+            owner,
+            kind,
+            self.limits,
+        )
+    }
+
     /// Decodes and validates the complete semantic closure of this interface.
     pub fn validate_complete(&self) -> Result<(), InterfaceValidationError> {
         let surface = self.decode_identity_surface()?;

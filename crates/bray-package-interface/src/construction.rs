@@ -155,16 +155,22 @@ impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
     ) -> Result<ExternalSymbolKey, ImportedSymbolConstructionError> {
         lookup_target_key(self.current, &self.package_index, reference)
     }
+
+    fn resolve_compiler_known(
+        &self,
+        reference: &crate::CompilerKnownSymbolReference,
+    ) -> Option<AnySymbolId> {
+        self.compiler_known
+            .get(reference.key())
+            .copied()
+            .filter(|symbol| symbol.kind() == reference.kind())
+    }
 }
 
 impl crate::InterfaceSymbolResolver for ImportedInterfaceSymbolResolver<'_> {
     fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
         if let InterfaceSymbolReference::CompilerKnown(reference) = reference {
-            return self
-                .compiler_known
-                .get(reference.key())
-                .copied()
-                .filter(|symbol| symbol.kind() == reference.kind());
+            return self.resolve_compiler_known(reference);
         }
 
         let key = self.resolve_external_key(reference).ok()?;
@@ -172,12 +178,17 @@ impl crate::InterfaceSymbolResolver for ImportedInterfaceSymbolResolver<'_> {
         self.symbols.symbol_by_external_key(&key)
     }
 
-    fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
-        if matches!(reference, InterfaceSymbolReference::CompilerKnown(_)) {
-            return None;
+    fn symbol_key(&self, reference: &InterfaceSymbolReference) -> Option<bray_symbols::SymbolKey> {
+        if let InterfaceSymbolReference::CompilerKnown(reference) = reference {
+            // Compiler-known keys are Arc-backed and imported templates retain the identity.
+            return self
+                .resolve_compiler_known(reference)
+                .map(|_| reference.key().clone());
         }
 
-        self.resolve_external_key(reference).ok()
+        self.resolve_external_key(reference)
+            .ok()
+            .map(bray_symbols::SymbolKey::external)
     }
 }
 
@@ -497,15 +508,19 @@ mod tests {
             ImportedInterfaceSymbolResolver::try_new(loaded, [loaded], &symbols, &compiler_known)
                 .unwrap_or_else(|error| panic!("test resolver must be valid: {error:?}"));
 
+        let compiler_known_reference = InterfaceSymbolReference::CompilerKnown(
+            crate::CompilerKnownSymbolReference::try_new(function_key.clone())
+                .unwrap_or_else(|| panic!("test compiler-known reference must be valid")),
+        );
+
         assert_eq!(
-            crate::InterfaceSymbolResolver::resolve(
-                &resolver,
-                &InterfaceSymbolReference::CompilerKnown(
-                    crate::CompilerKnownSymbolReference::try_new(function_key)
-                        .unwrap_or_else(|| panic!("test compiler-known reference must be valid")),
-                ),
-            ),
+            crate::InterfaceSymbolResolver::resolve(&resolver, &compiler_known_reference),
             Some(symbol)
+        );
+
+        assert_eq!(
+            crate::InterfaceSymbolResolver::symbol_key(&resolver, &compiler_known_reference),
+            Some(function_key)
         );
 
         assert_eq!(

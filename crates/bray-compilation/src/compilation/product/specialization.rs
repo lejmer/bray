@@ -182,8 +182,8 @@ impl Compilation {
             .lifecycle_type()
             .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
 
-        let identity =
-            structural_type_identity(self.semantic_value_store()?, self.symbol_graph()?, ty)?;
+        let facts = self.binder_facts(&self.state.cancellation)?;
+        let identity = structural_type_identity(self.semantic_value_store()?, &facts, ty)?;
 
         let key = CodegenInstanceKey::new(
             MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, identity)),
@@ -219,7 +219,7 @@ impl Compilation {
             .unwrap_or_else(|| MirUnitKey::ExternalCallable(callable.definition()));
 
         let specialization = self.codegen_specialization(callable.substitution())?;
-        let witnesses = self.concrete_codegen_witnesses(witnesses)?;
+        let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
 
         let key = CodegenInstanceKey::new(
             template,
@@ -499,10 +499,11 @@ impl Compilation {
     fn concrete_codegen_witnesses(
         &self,
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+        cancellation: &CancellationToken,
     ) -> Result<Vec<(CodegenImplementationWitness, ImplementationInstanceId)>, CodegenFactError>
     {
         let values = self.semantic_value_store()?;
-        let symbols = self.symbol_graph()?;
+        let facts = self.binder_facts(cancellation)?;
         let mut concrete = BTreeMap::new();
 
         for witness in witnesses {
@@ -514,10 +515,8 @@ impl Compilation {
                 .require_concrete_substitution(data.substitution())
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            let definition = symbols
-                .symbol_key(data.definition().into_any())
-                .cloned()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let definition =
+                self.portable_codegen_symbol_key(&facts, data.definition().into_any())?;
 
             let specialization = self.codegen_specialization(data.substitution())?;
 

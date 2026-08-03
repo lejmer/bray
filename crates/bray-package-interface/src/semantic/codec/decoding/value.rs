@@ -537,12 +537,18 @@ mod tests {
             self.symbols.get(id.to_index()?).copied()
         }
 
-        fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
+        fn symbol_key(
+            &self,
+            reference: &InterfaceSymbolReference,
+        ) -> Option<bray_symbols::SymbolKey> {
             let InterfaceSymbolReference::Local(id) = reference else {
                 return None;
             };
 
-            self.keys.get(id.to_index()?).cloned()
+            self.keys
+                .get(id.to_index()?)
+                .cloned()
+                .map(bray_symbols::SymbolKey::external)
         }
     }
 

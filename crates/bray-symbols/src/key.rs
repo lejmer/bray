@@ -467,6 +467,12 @@ impl SymbolKey {
     }
 }
 
+impl From<ExternalSymbolKey> for SymbolKey {
+    fn from(key: ExternalSymbolKey) -> Self {
+        Self::external(key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_declarations::DeclarationId;

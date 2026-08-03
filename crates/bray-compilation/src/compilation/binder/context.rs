@@ -6,8 +6,10 @@ use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImportedSymbolFactAddress, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceFact,
-    ModuleSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
+    FunctionSymbol, FunctionSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton,
+    MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId, SemanticValueStore, StructSymbol,
+    StructSymbolId, SymbolFactRequest, SymbolGraph, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
+    UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
 
@@ -138,6 +140,58 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         Ok(self
             .imported_symbols()?
             .and_then(|symbols| symbols.imported_fact_address(symbol)))
+    }
+
+    pub(in crate::compilation) fn structure(
+        &self,
+        id: StructSymbolId,
+    ) -> BinderFactResult<Option<&StructSymbol>> {
+        if let Some(record) = self.symbols.structure(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.structure(id)))
+    }
+
+    pub(in crate::compilation) fn function(
+        &self,
+        id: FunctionSymbolId,
+    ) -> BinderFactResult<Option<&FunctionSymbol>> {
+        if let Some(record) = self.symbols.function(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.function(id)))
+    }
+
+    pub(in crate::compilation) fn union(
+        &self,
+        id: UnionSymbolId,
+    ) -> BinderFactResult<Option<&UnionSymbol>> {
+        if let Some(record) = self.symbols.union(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.union(id)))
+    }
+
+    pub(in crate::compilation) fn union_variant(
+        &self,
+        id: UnionVariantSymbolId,
+    ) -> BinderFactResult<Option<&UnionVariantSymbol>> {
+        if let Some(record) = self.symbols.union_variant(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.union_variant(id)))
     }
 }
 

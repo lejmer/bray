@@ -427,8 +427,7 @@ mod tests {
     use std::thread;
 
     use bray_symbols::{
-        DependencyContractTemplateData, ExternalSymbolKey, PackageIdentity, SemanticValueStore,
-        TypeData,
+        DependencyContractTemplateData, PackageIdentity, SemanticValueStore, SymbolKey, TypeData,
     };
 
     use super::{CheckedTemplateBuildError, CheckedTemplateBuilder};
@@ -1085,11 +1084,11 @@ mod tests {
         );
     }
 
-    fn external_symbol() -> ExternalSymbolKey {
+    fn external_symbol() -> SymbolKey {
         let Some(package) = PackageIdentity::try_new("example.package") else {
             panic!("test package identity must be valid");
         };
 
-        ExternalSymbolKey::package(package)
+        SymbolKey::external(bray_symbols::ExternalSymbolKey::package(package))
     }
 }

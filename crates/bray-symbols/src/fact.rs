@@ -84,8 +84,8 @@ pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractClauseValue,
     CallableContractSet, CheckedConstraint, CheckedConstraintKind, ErrorPredicateDefinition,
     GenericConstraintObligationKey, GenericConstraintSet, PredicateDefinition,
-    PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome, TrustedCapabilityRequirement,
-    TraitConstraintDispatch,
+    PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome, TraitConstraintDispatch,
+    TrustedCapabilityRequirement,
 };
 pub use representation::{
     DeclaredCopyContract, DeclaredLayoutMode, DeclaredTypeRepresentation, DeclaredUnionTag,

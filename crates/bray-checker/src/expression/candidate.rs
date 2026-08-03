@@ -348,10 +348,9 @@ fn active_constraints_prove<C>(
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
 {
-    let required = request
-        .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
-            obligation.owner(),
-        ))?;
+    let required = request.symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+        obligation.owner(),
+    ))?;
 
     if required.diagnostics().has_errors() {
         diagnostics.extend(required.diagnostics().iter().cloned());
@@ -361,27 +360,35 @@ where
 
     let mut active = BTreeSet::new();
 
-    let Some(mut owner) = request.containing_callable().map(CallableSymbolId::into_any) else {
+    let Some(mut owner) = request
+        .containing_callable()
+        .map(CallableSymbolId::into_any)
+    else {
         return Ok(false);
     };
 
     loop {
         if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
-            let constraints = request
-                .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(generic_owner))?;
+            let constraints = request.symbol_fact(
+                SymbolFactRequest::<GenericConstraintsFact>::new(generic_owner),
+            )?;
 
             if constraints.diagnostics().has_errors() {
                 diagnostics.extend(constraints.diagnostics().iter().cloned());
             } else {
-                active.extend(constraints.value().constraints().iter().filter_map(
-                    |constraint| match constraint.kind() {
-                        CheckedConstraintKind::TraitSatisfaction {
-                            subject,
-                            application,
-                        } => Some((subject, application)),
-                        CheckedConstraintKind::Predicate(_) => None,
-                    },
-                ));
+                active.extend(
+                    constraints
+                        .value()
+                        .constraints()
+                        .iter()
+                        .filter_map(|constraint| match constraint.kind() {
+                            CheckedConstraintKind::TraitSatisfaction {
+                                subject,
+                                application,
+                            } => Some((subject, application)),
+                            CheckedConstraintKind::Predicate(_) => None,
+                        }),
+                );
             }
         }
 
@@ -1175,14 +1182,9 @@ where
             )
         })?;
 
-        let data = request
-            .semantic_values()
-            .type_data(ty.ty())
-            .map_err(|_| {
-                CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                )
-            })?;
+        let data = request.semantic_values().type_data(ty.ty()).map_err(|_| {
+            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })?;
 
         if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
             return Ok(match kind {
@@ -1232,9 +1234,10 @@ where
 {
     match target {
         BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) => {
-            let is_mutable = request.unit().tree().patterns().any(|(_, pattern)| {
-                pattern.bindings().contains(&binding) && pattern.is_mutable()
-            });
+            let is_mutable =
+                request.unit().tree().patterns().any(|(_, pattern)| {
+                    pattern.bindings().contains(&binding) && pattern.is_mutable()
+                });
 
             Ok(if is_mutable {
                 crate::ReceiverCapability::OwnedMutable
@@ -1252,9 +1255,9 @@ where
                     )
                 })?;
 
-            let signature = request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
-                receiver.owner(),
-            ))?;
+            let signature = request.symbol_fact(
+                SymbolFactRequest::<CallableSignatureFact>::new(receiver.owner()),
+            )?;
 
             let mode = signature
                 .value()

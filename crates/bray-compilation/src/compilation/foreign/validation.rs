@@ -1,5 +1,5 @@
-use bray_bound_tree::BoundSourceAnchor;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_bound_tree::BoundSourceAnchor;
 use bray_checker::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetValidityRequest,
     TargetValidityRequirement,
@@ -224,16 +224,12 @@ fn platform_abi_type_matches(
         bray_runtime_interface::PlatformAbiType::U64 => {
             type_has_representation(compilation, ty, RepresentationRole::ScalarU64)
         }
-        bray_runtime_interface::PlatformAbiType::PointerU8 => raw_pointer_targets(
-            compilation,
-            ty,
-            RepresentationRole::ScalarU8,
-        ),
-        bray_runtime_interface::PlatformAbiType::PointerU64 => raw_pointer_targets(
-            compilation,
-            ty,
-            RepresentationRole::ScalarU64,
-        ),
+        bray_runtime_interface::PlatformAbiType::PointerU8 => {
+            raw_pointer_targets(compilation, ty, RepresentationRole::ScalarU8)
+        }
+        bray_runtime_interface::PlatformAbiType::PointerU64 => {
+            raw_pointer_targets(compilation, ty, RepresentationRole::ScalarU64)
+        }
         bray_runtime_interface::PlatformAbiType::Status => {
             platform_status_matches(compilation, ty, cancellation)
         }
@@ -293,7 +289,8 @@ fn raw_pointer_targets(
         return Ok(false);
     };
 
-    if compiler_known_representation(compilation, *definition) != Some(RepresentationRole::RawPointer)
+    if compiler_known_representation(compilation, *definition)
+        != Some(RepresentationRole::RawPointer)
     {
         return Ok(false);
     }
@@ -370,7 +367,8 @@ fn platform_status_matches(
             .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
             .map_err(super::super::binder::binder_fact_error)?;
 
-        let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)? else {
+        let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
+        else {
             return Ok(false);
         };
 

@@ -23,11 +23,8 @@ pub trait InterfaceSymbolResolver {
     /// Resolves one validated interface symbol reference.
     fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId>;
 
-    /// Resolves one validated interface symbol reference to its stable external identity.
-    fn external_key(
-        &self,
-        reference: &InterfaceSymbolReference,
-    ) -> Option<bray_symbols::ExternalSymbolKey>;
+    /// Resolves one validated interface symbol reference to its stable semantic identity.
+    fn symbol_key(&self, reference: &InterfaceSymbolReference) -> Option<bray_symbols::SymbolKey>;
 }
 
 /// Failure while publishing decoded interface semantics into a compilation.

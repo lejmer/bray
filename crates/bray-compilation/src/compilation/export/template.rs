@@ -456,7 +456,6 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         &mut self,
         call: &bray_bound_tree::SelectedCall,
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
-
         let (declaration, substitution) = match call.target() {
             BoundCallableTarget::Declaration(callable) => {
                 (callable.definition().symbol(), callable.substitution())

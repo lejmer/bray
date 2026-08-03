@@ -277,8 +277,7 @@ fn select_platform_services(
     bindings.sort_unstable();
 
     if let Some(duplicate) = bindings.windows(2).find(|pair| {
-        pair[0].role() == pair[1].role()
-            || pair[0].dotted_path() == pair[1].dotted_path()
+        pair[0].role() == pair[1].role() || pair[0].dotted_path() == pair[1].dotted_path()
     }) {
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),

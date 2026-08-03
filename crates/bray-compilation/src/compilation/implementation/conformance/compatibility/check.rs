@@ -664,7 +664,8 @@ fn contract_clauses_are_compatible(
     }
 
     for (requirement, fulfillment) in requirement.iter().zip(fulfillment) {
-        if requirement.ordinal() != fulfillment.ordinal() || requirement.kind() != fulfillment.kind()
+        if requirement.ordinal() != fulfillment.ordinal()
+            || requirement.kind() != fulfillment.kind()
         {
             return Ok(false);
         }

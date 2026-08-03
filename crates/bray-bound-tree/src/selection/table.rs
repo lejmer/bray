@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
     BoundUnit, CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
-    SelectedConstructionInput, SelectedIterationSource, SelectedOperation, SelectedPropagation,
-    SelectedPredicateApplication,
+    SelectedConstructionInput, SelectedIterationSource, SelectedOperation,
+    SelectedPredicateApplication, SelectedPropagation,
 };
 
 /// The exact checked semantic choice attached to one expression occurrence.
