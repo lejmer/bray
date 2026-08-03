@@ -405,6 +405,11 @@ pub(super) fn compilation_request(
 
     request = request.with_dependency_interfaces(dependencies);
 
+    if let Some(root) = options.standard_library_root() {
+        // Compilation requests retain the selected immutable bundle-root identity.
+        request = request.with_standard_library_root(root.clone());
+    }
+
     if export_interface {
         request = request.with_package_interface_export(
             bray_tooling::package_interface_export_request(configuration.product().clone()),

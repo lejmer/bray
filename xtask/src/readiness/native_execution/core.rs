@@ -367,7 +367,14 @@ fn build_compiler(root: &Path) -> Result<(), String> {
 
     command
         .current_dir(root)
-        .args(["build", "--quiet", "--package", "brayc"]);
+        .args([
+            "build",
+            "--quiet",
+            "--package",
+            "brayc",
+            "--package",
+            "bray",
+        ]);
 
     require_success(command, "building brayc").map(|_| ())
 }
@@ -602,7 +609,7 @@ pub(super) fn executable_path(directory: &Path, target: NativeTarget) -> PathBuf
     directory.join(name)
 }
 
-fn require_success(mut command: Command, operation: &str) -> Result<Output, String> {
+pub(super) fn require_success(mut command: Command, operation: &str) -> Result<Output, String> {
     let output = command
         .output()
         .map_err(|error| format!("could not start {operation}: {error}"))?;
@@ -645,7 +652,7 @@ fn llvm_tool(root: &Path, name: &str) -> PathBuf {
     bray_tooling::llvm_tool_path(name).unwrap_or_else(|| crate::llvm::tool_path(root, name))
 }
 
-fn executable_name(name: &str) -> OsString {
+pub(super) fn executable_name(name: &str) -> OsString {
     if cfg!(windows) {
         format!("{name}.exe").into()
     } else {

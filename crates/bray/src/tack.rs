@@ -10,6 +10,7 @@ mod model;
 mod project;
 mod result;
 mod tool;
+mod toolchain;
 
 pub use cli::TackCliError;
 pub use execute::{run_tack, run_tack_result};

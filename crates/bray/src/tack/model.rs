@@ -110,6 +110,7 @@ impl TackCommand {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TackInvocation {
     workspace_root: PathBuf,
+    toolchain_root: Option<PathBuf>,
     worker_count: usize,
     output_format: OutputFormat,
     command: TackCommand,
@@ -118,12 +119,14 @@ pub struct TackInvocation {
 impl TackInvocation {
     pub(crate) const fn new(
         workspace_root: PathBuf,
+        toolchain_root: Option<PathBuf>,
         worker_count: usize,
         output_format: OutputFormat,
         command: TackCommand,
     ) -> Self {
         Self {
             workspace_root,
+            toolchain_root,
             worker_count,
             output_format,
             command,
@@ -133,6 +136,11 @@ impl TackInvocation {
     /// Returns the exact workspace root selected by this invocation.
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
+    }
+
+    /// Returns the explicitly selected toolchain root, when supplied.
+    pub fn toolchain_root(&self) -> Option<&Path> {
+        self.toolchain_root.as_deref()
     }
 
     /// Returns the maximum compiler worker count supplied to child tools.
@@ -150,9 +158,18 @@ impl TackInvocation {
         self.command.kind()
     }
 
-    pub(crate) fn into_parts(self) -> (PathBuf, usize, OutputFormat, TackCommand) {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        PathBuf,
+        Option<PathBuf>,
+        usize,
+        OutputFormat,
+        TackCommand,
+    ) {
         (
             self.workspace_root,
+            self.toolchain_root,
             self.worker_count,
             self.output_format,
             self.command,

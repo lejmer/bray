@@ -17,6 +17,7 @@ use crate::tack::project::{
 };
 use crate::tack::result::TackRunResult;
 use crate::tack::tool::{NativeToolExecutor, Tool, ToolExecutor, ToolOutput, ToolRequest};
+use crate::tack::toolchain::Toolchain;
 
 /// Runs Bray Tack using independently installed toolchain executables.
 pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -122,7 +123,8 @@ fn execute_invocation(
     mut stdin: Box<dyn Read + Send>,
     protocol_output: &mut dyn Write,
 ) -> TackRunResult {
-    let (workspace_root, worker_count, output_format, command) = invocation.into_parts();
+    let (workspace_root, toolchain_root, worker_count, output_format, command) =
+        invocation.into_parts();
 
     let workspace_root = match std::path::absolute(workspace_root) {
         Ok(workspace_root) => workspace_root,
@@ -149,6 +151,11 @@ fn execute_invocation(
         _ => {}
     }
 
+    let toolchain = match Toolchain::select(toolchain_root) {
+        Ok(toolchain) => toolchain,
+        Err(diagnostics) => return failure(diagnostics, output_format),
+    };
+
     let graph = match load_graph(&workspace_root) {
         Ok(graph) => graph,
         Err(diagnostics) => return failure(diagnostics, output_format),
@@ -158,6 +165,7 @@ fn execute_invocation(
         TackCommand::Check(selection) => run_check(
             &workspace_root,
             &graph,
+            &toolchain,
             worker_count,
             &selection,
             output_format,
@@ -166,6 +174,7 @@ fn execute_invocation(
         TackCommand::Build(selection) => run_build(
             &workspace_root,
             &graph,
+            &toolchain,
             worker_count,
             &selection,
             output_format,
@@ -177,6 +186,7 @@ fn execute_invocation(
         } => run_one(
             &workspace_root,
             &graph,
+            &toolchain,
             worker_count,
             &selection,
             arguments,
@@ -189,6 +199,7 @@ fn execute_invocation(
         } => run_tests(
             &workspace_root,
             &graph,
+            &toolchain,
             worker_count,
             &selection,
             arguments,
@@ -203,6 +214,7 @@ fn execute_invocation(
         } => run_inspect(
             &workspace_root,
             &graph,
+            &toolchain,
             worker_count,
             &selection,
             inspection,
@@ -230,6 +242,7 @@ fn execute_invocation(
 fn run_check(
     workspace_root: &Path,
     graph: &ProjectGraph,
+    toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
     output_format: OutputFormat,
@@ -240,8 +253,14 @@ fn run_check(
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let mut compiler =
-        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
+    let mut compiler = ProjectCompiler::new(
+        workspace_root,
+        graph,
+        toolchain,
+        worker_count,
+        output_format,
+        executor,
+    );
 
     let mut outputs = Vec::new();
 
@@ -258,6 +277,7 @@ fn run_check(
 fn run_build(
     workspace_root: &Path,
     graph: &ProjectGraph,
+    toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
     output_format: OutputFormat,
@@ -268,8 +288,14 @@ fn run_build(
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let mut compiler =
-        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
+    let mut compiler = ProjectCompiler::new(
+        workspace_root,
+        graph,
+        toolchain,
+        worker_count,
+        output_format,
+        executor,
+    );
 
     let mut outputs = Vec::new();
 
@@ -290,6 +316,7 @@ fn run_build(
 fn run_one(
     workspace_root: &Path,
     graph: &ProjectGraph,
+    toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
     arguments: Vec<OsString>,
@@ -305,8 +332,14 @@ fn run_one(
         return failure(selection_diagnostics("executable"), output_format);
     };
 
-    let mut compiler =
-        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
+    let mut compiler = ProjectCompiler::new(
+        workspace_root,
+        graph,
+        toolchain,
+        worker_count,
+        output_format,
+        executor,
+    );
 
     let (outputs, executable) = match compiler.build(product) {
         Ok(result) => result,
@@ -339,6 +372,7 @@ fn run_one(
 fn run_tests(
     workspace_root: &Path,
     graph: &ProjectGraph,
+    toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
     arguments: Vec<OsString>,
@@ -350,8 +384,14 @@ fn run_tests(
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let mut compiler =
-        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
+    let mut compiler = ProjectCompiler::new(
+        workspace_root,
+        graph,
+        toolchain,
+        worker_count,
+        output_format,
+        executor,
+    );
 
     let mut outputs = Vec::new();
     let mut tests_succeeded = true;
@@ -399,6 +439,7 @@ fn run_tests(
 fn run_inspect(
     workspace_root: &Path,
     graph: &ProjectGraph,
+    toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
     inspection: TackInspection,
@@ -429,8 +470,14 @@ fn run_inspect(
         return failure(selection_diagnostics("inspection_product"), output_format);
     };
 
-    let mut compiler =
-        ProjectCompiler::new(workspace_root, graph, worker_count, output_format, executor);
+    let mut compiler = ProjectCompiler::new(
+        workspace_root,
+        graph,
+        toolchain,
+        worker_count,
+        output_format,
+        executor,
+    );
 
     let outputs = match compiler.inspect(product, inspection, source_id, position) {
         Ok(outputs) => outputs,
@@ -837,6 +884,7 @@ mod tests {
     #[test]
     fn build_forwards_the_manifest_artifact_set_to_the_compiler() {
         let workspace = ProjectWorkspace::basic();
+        let toolchain = unique_temporary_directory();
         let executor = RecordingExecutor::default();
 
         let result = run_tack_result_with_input(
@@ -844,6 +892,8 @@ mod tests {
                 "bray".into(),
                 "--workspace".into(),
                 workspace.path().as_os_str().to_os_string(),
+                "--toolchain-root".into(),
+                toolchain.as_os_str().to_os_string(),
                 "build".into(),
             ],
             &executor,
@@ -863,6 +913,36 @@ mod tests {
             "--artifact",
             "executable"
         ));
+
+        let standard_library = std::path::absolute(&toolchain)
+            .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
+            .join("lib")
+            .join("bray")
+            .join("standard-library");
+
+        assert!(
+            request.arguments.windows(2).any(|pair| {
+                pair[0] == "--standard-library-root" && pair[1] == standard_library.as_os_str()
+            }),
+            "compiler request should contain standard-library root {standard_library:?}: {:#?}",
+            request.arguments
+        );
+
+        let runtime = std::path::absolute(&toolchain)
+            .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
+            .join("lib")
+            .join("bray")
+            .join("runtime")
+            .join("x86_64-unknown-linux-gnu")
+            .join("bray-runtime.brayrt");
+
+        assert!(
+            request.arguments.windows(2).any(|pair| {
+                pair[0] == "--runtime-artifact" && pair[1] == runtime.as_os_str()
+            }),
+            "compiler request should contain runtime metadata {runtime:?}: {:#?}",
+            request.arguments
+        );
     }
 
     #[test]

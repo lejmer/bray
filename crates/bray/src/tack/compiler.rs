@@ -11,10 +11,12 @@ use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::model::TackInspection;
 use crate::tack::project::PlannedProduct;
 use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
+use crate::tack::toolchain::Toolchain;
 
 pub(crate) struct ProjectCompiler<'project> {
     workspace_root: &'project Path,
     graph: &'project ProjectGraph,
+    toolchain: &'project Toolchain,
     worker_count: usize,
     output_format: OutputFormat,
     executor: &'project dyn ToolExecutor,
@@ -26,6 +28,7 @@ impl<'project> ProjectCompiler<'project> {
     pub(crate) fn new(
         workspace_root: &'project Path,
         graph: &'project ProjectGraph,
+        toolchain: &'project Toolchain,
         worker_count: usize,
         output_format: OutputFormat,
         executor: &'project dyn ToolExecutor,
@@ -33,6 +36,7 @@ impl<'project> ProjectCompiler<'project> {
         Self {
             workspace_root,
             graph,
+            toolchain,
             worker_count,
             output_format,
             executor,
@@ -208,6 +212,10 @@ impl<'project> ProjectCompiler<'project> {
     ) -> Result<ToolOutput, DiagnosticBag> {
         let mut request = ToolRequest::new(Tool::Compiler, self.workspace_root);
 
+        let runtime = action
+            .requires_runtime(product.kind())
+            .then(|| self.toolchain.runtime_metadata(target));
+
         request
             .arg("--cpu-count")
             .arg(self.worker_count.to_string())
@@ -220,7 +228,9 @@ impl<'project> ProjectCompiler<'project> {
             .arg("--product-kind")
             .arg(product_kind_text(product.kind()))
             .arg("--target")
-            .arg(target.as_str());
+            .arg(target.as_str())
+            .arg("--standard-library-root")
+            .arg(self.toolchain.standard_library_root().into_os_string());
 
         for dependency in self.dependencies(product, target)? {
             request
@@ -234,7 +244,7 @@ impl<'project> ProjectCompiler<'project> {
                 .arg(dependency.path.into_os_string());
         }
 
-        action.add_arguments(&mut request, product);
+        action.add_arguments(&mut request, product, runtime);
 
         request.args(
             product
@@ -369,7 +379,17 @@ enum CompilerAction {
 }
 
 impl CompilerAction {
-    fn add_arguments(self, request: &mut ToolRequest, product: &ProjectProduct) {
+    fn requires_runtime(&self, product_kind: ProductKind) -> bool {
+        matches!(self, Self::Build { .. })
+            && matches!(product_kind, ProductKind::Executable | ProductKind::Test)
+    }
+
+    fn add_arguments(
+        self,
+        request: &mut ToolRequest,
+        product: &ProjectProduct,
+        runtime: Option<PathBuf>,
+    ) {
         match self {
             Self::Check { interface } => {
                 request.arg("check");
@@ -385,6 +405,12 @@ impl CompilerAction {
                     .arg("build")
                     .arg("--output")
                     .arg(output.into_os_string());
+
+                if let Some(runtime) = runtime {
+                    request
+                        .arg("--runtime-artifact")
+                        .arg(runtime.into_os_string());
+                }
 
                 for kind in product.outputs() {
                     request.arg("--artifact").arg(artifact_text(*kind));
