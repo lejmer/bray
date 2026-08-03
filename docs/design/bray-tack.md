@@ -71,6 +71,39 @@ Machine-oriented compiler and formatter requests use structured JSON output. Bra
 multiple child reports for one project command, but it does not recreate compiler diagnostics or
 interpret language-server protocol messages.
 
+## Toolchain Artifacts
+
+Commands that request compiler facts select one immutable toolchain root. An explicit
+`--toolchain-root <directory>` takes precedence over `BRAY_TOOLCHAIN_ROOT`. Otherwise, an installed
+`bray` beneath `<toolchain>/bin` selects `<toolchain>`. A development executable outside a `bin`
+directory selects its containing directory, so development workflows should normally supply the
+explicit option or environment variable.
+
+The installed artifact layout is:
+
+```text
+<toolchain>/
+├─ bin/
+└─ lib/
+   └─ bray/
+      ├─ standard-library/
+      └─ runtime/
+         └─ <target>/
+            ├─ bray-runtime.brayrt
+            └─ <runtime archive>
+```
+
+The standard-library directory is the bundle root containing its canonical manifest, public
+package interface, and target artifacts. Each runtime directory contains metadata and the archive
+named by that metadata. Release assembly and development xtasks must publish this layout. Normal
+Bray Tack commands only consume it and never compile toolchain source.
+
+Every compiler request receives the selected standard-library root. The compilation resolver reads
+and validates its manifest, interface, target artifacts, digests, target identity, and runtime ABI
+only when the requested facts demand them. Executable and test builds also receive the exact runtime
+metadata path for their selected target. The compiler's existing runtime loader validates metadata,
+archive digest, capabilities, target, panic ABI, and native link requirements before emission.
+
 ## Dependency Acquisition
 
 Check, build, run, test, inspection, formatting, and language tooling never invoke Git or any

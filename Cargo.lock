@@ -292,6 +292,7 @@ dependencies = [
  "bray-package-interface",
  "bray-runtime-interface",
  "bray-source",
+ "bray-standard-library",
  "bray-symbols",
  "bray-target",
  "bray-testing",

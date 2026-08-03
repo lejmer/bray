@@ -128,6 +128,8 @@ fn invalid_worker_count() -> DiagnosticBag {
 struct Cli {
     #[arg(long, global = true, value_name = "DIRECTORY", default_value = ".")]
     workspace: PathBuf,
+    #[arg(long = "toolchain-root", global = true, value_name = "DIRECTORY")]
+    toolchain_root: Option<PathBuf>,
     #[arg(long = "cpu-count", global = true, value_name = "N")]
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
@@ -155,6 +157,7 @@ impl Cli {
 
         Ok(TackInvocation::new(
             self.workspace,
+            self.toolchain_root,
             worker_count,
             output_format,
             self.command.into_command(),
@@ -389,6 +392,19 @@ mod tests {
 
         assert_eq!(invocation.workspace_root(), Path::new("project"));
         assert_eq!(invocation.command_kind(), TackCommandKind::Check);
+    }
+
+    #[test]
+    fn keeps_explicit_toolchain_selection() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "--toolchain-root",
+            "toolchain",
+            "check",
+        ])
+        .unwrap_or_else(|error| panic!("toolchain selection should parse: {error:?}"));
+
+        assert_eq!(invocation.toolchain_root(), Some(Path::new("toolchain")));
     }
 
     #[test]

@@ -13,6 +13,7 @@ bray-emitter = { path = "../bray-emitter" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-source = { path = "../bray-source" }
+bray-standard-library = { path = "../bray-standard-library" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 bray-tooling = { path = "../bray-tooling" }

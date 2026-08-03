@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use bray_compilation::{CompilationOptions, WorkerBudget};
+use bray_standard_library::StandardLibraryRoot;
 use bray_tooling::{InspectionTarget, OutputFormat};
 
 use super::{DriverCompilationConfiguration, DriverProductConfiguration};
@@ -11,6 +12,7 @@ pub struct DriverOptions {
     worker_budget: WorkerBudget,
     output_format: OutputFormat,
     compilation: DriverCompilationConfiguration,
+    standard_library_root: Option<StandardLibraryRoot>,
 }
 
 impl DriverOptions {
@@ -19,11 +21,13 @@ impl DriverOptions {
         worker_budget: WorkerBudget,
         output_format: OutputFormat,
         compilation: DriverCompilationConfiguration,
+        standard_library_root: Option<StandardLibraryRoot>,
     ) -> Self {
         Self {
             worker_budget,
             output_format,
             compilation,
+            standard_library_root,
         }
     }
 
@@ -49,6 +53,11 @@ impl DriverOptions {
     /// Returns the exact package-product compilation context.
     pub const fn compilation(&self) -> &DriverCompilationConfiguration {
         &self.compilation
+    }
+
+    /// Returns the explicitly selected standard-library bundle root.
+    pub const fn standard_library_root(&self) -> Option<&StandardLibraryRoot> {
+        self.standard_library_root.as_ref()
     }
 }
 

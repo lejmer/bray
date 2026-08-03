@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_compilation::WorkerBudget;
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+};
+use bray_standard_library::StandardLibraryRoot;
 use bray_tooling::{
     InspectionTarget, OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text,
 };
@@ -157,6 +160,8 @@ struct CliOptions {
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
     format: OutputFormat,
+    #[arg(long = "standard-library-root", global = true, value_name = "DIRECTORY")]
+    standard_library_root: Option<PathBuf>,
     #[command(flatten)]
     compilation: CliCompilationOptions,
 }
@@ -177,8 +182,34 @@ impl CliOptions {
 
         let compilation = self.compilation.into_configuration()?;
 
-        Ok(DriverOptions::new(worker_budget, self.format, compilation))
+        let standard_library_root = self
+            .standard_library_root
+            .map(|root| {
+                let root = std::path::absolute(root)
+                    .map_err(|_| invalid_standard_library_root())?;
+
+                StandardLibraryRoot::try_new(root).ok_or_else(invalid_standard_library_root)
+            })
+            .transpose()?;
+
+        Ok(DriverOptions::new(
+            worker_budget,
+            self.format,
+            compilation,
+            standard_library_root,
+        ))
     }
+}
+
+fn invalid_standard_library_root() -> DiagnosticBag {
+    DiagnosticBag::single(
+        Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("standard_library_root")),
+    )
 }
 
 #[derive(Debug, Subcommand)]
@@ -301,6 +332,29 @@ mod tests {
         DriverBackend, DriverCommandKind, DriverInspectionArtifact, DriverInvocation,
         DriverRuntimeSelection,
     };
+
+    #[test]
+    fn accepts_an_explicit_standard_library_bundle_root() {
+        let root = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("test directory should be available: {error:?}"))
+            .join("standard-library");
+
+        let invocation = DriverInvocation::try_from_arguments([
+            OsString::from("brayc"),
+            OsString::from("--standard-library-root"),
+            root.as_os_str().to_os_string(),
+            OsString::from("check"),
+        ])
+        .unwrap_or_else(|error| panic!("standard-library root should parse: {error:?}"));
+
+        assert_eq!(
+            invocation
+                .options()
+                .standard_library_root()
+                .map(bray_standard_library::StandardLibraryRoot::path),
+            Some(root.as_path())
+        );
+    }
 
     #[test]
     fn parses_typed_build_product_configuration() {
