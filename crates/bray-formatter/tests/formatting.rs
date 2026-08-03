@@ -103,7 +103,7 @@ fn formatting_is_idempotent_across_representative_grammar() {
 #[test]
 fn repository_programs_remain_valid_and_idempotent() {
     let sources = [
-        include_str!("../../../examples/hello_world/hello_world.bray"),
+        include_str!("../../../examples/hello_world/src/main.bray"),
         include_str!("../../../xtask/fixtures/native-execution/control-flow.bray"),
         include_str!("../../../xtask/fixtures/native-execution/abi-primitive.bray"),
     ];

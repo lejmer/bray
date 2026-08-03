@@ -30,12 +30,12 @@ use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file
 
 use crate::workspace;
 
-const USAGE: &str = "usage: cargo xtask standard-library <build --output <directory> [--source <directory>] | verify>";
+const USAGE: &str = "usage: cargo xtask standard-library \
+    <build --output <directory> [--source <directory>] [--target <triple>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
-        Some("build") => BuildOptions::parse(arguments)
-            .and_then(|options| build(&options.source, &options.output)),
+        Some("build") => BuildOptions::parse(arguments).and_then(BuildOptions::build),
         Some("verify") => verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
     };
@@ -59,12 +59,14 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
 struct BuildOptions {
     source: PathBuf,
     output: PathBuf,
+    target: Option<NativeTarget>,
 }
 
 impl BuildOptions {
     fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, BuildError> {
         let mut source = None;
         let mut output = None;
+        let mut target = None;
 
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -73,6 +75,16 @@ impl BuildOptions {
                 }
                 "--output" if output.is_none() => {
                     output = Some(path_argument(&mut arguments, "--output")?);
+                }
+                "--target" if target.is_none() => {
+                    let value = arguments
+                        .next()
+                        .ok_or(BuildError::MissingValue("--target"))?;
+
+                    target = TargetIdentity::try_new(value.as_str())
+                        .and_then(|identity| NativeTarget::for_identity(&identity))
+                        .map(Some)
+                        .ok_or(BuildError::InvalidTarget(value))?;
                 }
                 _ => return Err(BuildError::UnexpectedArgument(argument)),
             }
@@ -87,7 +99,18 @@ impl BuildOptions {
                 .join("standard-library"),
         };
 
-        Ok(Self { source, output })
+        Ok(Self {
+            source,
+            output,
+            target,
+        })
+    }
+
+    fn build(self) -> Result<PathBuf, BuildError> {
+        match self.target {
+            Some(target) => build_target_bundle_inner(&self.source, &self.output, target),
+            None => build(&self.source, &self.output),
+        }
     }
 }
 
@@ -569,6 +592,7 @@ pub(super) enum BuildError {
     MissingEmittedArtifact(ArtifactKind),
     TargetDependentInterface(TargetIdentity),
     InvalidArtifactPath(PathBuf),
+    InvalidTarget(String),
     InvalidIdentity,
     MissingProduct,
     MissingInterface,
@@ -697,6 +721,9 @@ impl fmt::Display for BuildError {
             Self::InvalidArtifactPath(path) => {
                 write!(formatter, "artifact path is invalid: {}", path.display())
             }
+            Self::InvalidTarget(target) => {
+                write!(formatter, "unsupported standard library target: {target}")
+            }
             Self::InvalidIdentity => {
                 formatter.write_str("standard library identity contract is invalid")
             }
@@ -747,6 +774,7 @@ mod tests {
     use std::path::PathBuf;
 
     use bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME;
+    use bray_target::NativeTarget;
 
     use super::{BuildError, BuildOptions, build, compare_bundles, read_manifest};
 
@@ -778,6 +806,23 @@ mod tests {
 
         assert_eq!(options.source, PathBuf::from("source"));
         assert_eq!(options.output, PathBuf::from("output"));
+        assert_eq!(options.target, None);
+    }
+
+    #[test]
+    fn build_options_accept_one_exact_native_target() {
+        let options = BuildOptions::parse(
+            [
+                "--output".to_owned(),
+                "output".to_owned(),
+                "--target".to_owned(),
+                "x86_64-pc-windows-msvc".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_or_else(|error| panic!("build options must parse: {error}"));
+
+        assert_eq!(options.target, Some(NativeTarget::X86_64WindowsMsvc));
     }
 
     #[test]

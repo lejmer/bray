@@ -102,9 +102,9 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
 
         let identity = self.compilation.state.dependency_interfaces[dependency].package();
 
-        let symbols = self
-            .imported_symbols()?
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+        let Some(symbols) = self.imported_symbols()? else {
+            return Ok(None);
+        };
 
         let package = symbols
             .package_by_identity(identity)
@@ -267,13 +267,13 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         &self,
         module: ModuleSymbolId,
         name: &str,
-        access: bray_binder::NameAccess,
+        access: NameAccess,
     ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
         let surface = self.symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(module))?;
 
         Ok(match access {
-            bray_binder::NameAccess::Public => surface.value().lookup_public(name),
-            bray_binder::NameAccess::Internal => surface.value().lookup(name),
+            NameAccess::Public => surface.value().lookup_public(name),
+            NameAccess::Internal => surface.value().lookup(name),
         })
     }
 
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_invalid_dependencies_are_unavailable_instead_of_absent() {
+    fn selected_invalid_dependencies_leave_no_imported_path_root() {
         let dependency = DependencyInterfaceInput::new(
             package("invalid.package"),
             bray_package_interface::InterfaceProductIdentity::try_new("main")
@@ -478,7 +478,7 @@ mod tests {
 
         assert!(matches!(
             CompilationBinderFacts::imported_path_root(&facts, &["invalid", "package"]),
-            Err(BinderFactError::DependencyUnavailable)
+            Ok(None)
         ));
     }
 

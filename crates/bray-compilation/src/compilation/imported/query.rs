@@ -678,6 +678,37 @@ mod tests {
     }
 
     #[test]
+    fn unavailable_standard_library_imports_publish_diagnostics_without_panicking() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
+            .unwrap_or_else(|| panic!("temporary root must be absolute"));
+
+        let package = PackageIdentity::try_new("example.application")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let request = CompilationRequest::new(
+            package,
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(0),
+                "source",
+                SourceVersion::new(0),
+                "module application;\nusing std.io;\n",
+            )],
+        )
+        .with_standard_library_root(root);
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("I/O-free compilation load must succeed: {error:?}"));
+
+        assert!(
+            diagnostic_kinds(compilation.check_diagnostics())
+                .contains(&DiagnosticKind::StandardLibraryArtifactReadFailed)
+        );
+    }
+
+    #[test]
     fn dependency_interface_identity_mismatches_publish_exact_diagnostics() {
         let fixture = encoded_semantic_test_interface();
 
