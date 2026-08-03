@@ -116,9 +116,7 @@ pub(super) fn package_identity(
 ) -> Result<PackageIdentity, ProjectLoadError> {
     let permits_single_segment = value == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
 
-    if !value.split('.').all(is_package_segment)
-        || (!value.contains('.') && !permits_single_segment)
-    {
+    if !has_valid_package_identity_syntax(&value, permits_single_segment) {
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
             ProjectManifestProblem::InvalidName,
@@ -150,6 +148,16 @@ pub(super) fn package_identity(
     }
 
     Ok(identity)
+}
+
+/// Returns whether a package identity is valid for ordinary project source.
+pub fn is_valid_ordinary_package_identity(value: &str) -> bool {
+    if !has_valid_package_identity_syntax(value, false) {
+        return false;
+    }
+
+    PackageIdentity::try_new(Arc::<str>::from(value))
+        .is_some_and(|identity| PackageSourceAuthority::Ordinary.accepts(&identity))
 }
 
 pub(super) fn sorted_unique_names(
@@ -194,6 +202,10 @@ fn is_package_segment(value: &str) -> bool {
     !value.is_empty() && is_local_name(value) && !value.contains('_')
 }
 
+fn has_valid_package_identity_syntax(value: &str, permits_single_segment: bool) -> bool {
+    value.split('.').all(is_package_segment) && (value.contains('.') || permits_single_segment)
+}
+
 fn is_path_prefix(prefix: &str, path: &str) -> bool {
     prefix == path
         || prefix == "."
@@ -212,7 +224,10 @@ mod tests {
 
     use bray_standard_library::PackageSourceAuthority;
 
-    use super::{local_name, package_identity, paths_overlap, project_path};
+    use super::{
+        is_valid_ordinary_package_identity, local_name, package_identity, paths_overlap,
+        project_path,
+    };
 
     #[test]
     fn names_have_one_canonical_ascii_spelling() {
@@ -248,6 +263,10 @@ mod tests {
             )
             .is_err()
         );
+
+        assert!(is_valid_ordinary_package_identity("example.math"));
+        assert!(!is_valid_ordinary_package_identity("example"));
+        assert!(!is_valid_ordinary_package_identity("std.io"));
     }
 
     #[test]

@@ -6,6 +6,8 @@ use bray_tooling::OutputFormat;
 /// Stable category for one Bray Tack command.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TackCommandKind {
+    /// Initializes a Bray workspace and root package.
+    Init,
     /// Checks selected project products.
     Check,
     /// Builds selected project products.
@@ -62,6 +64,10 @@ impl TackInspection {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum TackCommand {
+    Init {
+        directory: Option<PathBuf>,
+        package: Option<String>,
+    },
     Check(TackSelection),
     Build(TackSelection),
     Run {
@@ -94,6 +100,7 @@ pub(crate) enum TackCommand {
 impl TackCommand {
     pub(crate) const fn kind(&self) -> TackCommandKind {
         match self {
+            Self::Init { .. } => TackCommandKind::Init,
             Self::Check(_) => TackCommandKind::Check,
             Self::Build(_) => TackCommandKind::Build,
             Self::Run { .. } => TackCommandKind::Run,

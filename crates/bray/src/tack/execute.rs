@@ -9,6 +9,7 @@ use bray_tooling::{OutputFormat, write_diagnostic_groups};
 
 use crate::tack::compiler::ProjectCompiler;
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
+use crate::tack::init::initialize_project;
 use crate::tack::inspection::render_project_inspection;
 use crate::tack::install::{install_git_repository, run_project_process};
 use crate::tack::model::{TackCommand, TackInspection, TackInvocation, TackSelection};
@@ -130,6 +131,19 @@ fn execute_invocation(
     };
 
     match command {
+        TackCommand::Init { directory, package } => {
+            let directory = directory.unwrap_or(workspace_root);
+
+            let directory = match std::path::absolute(directory) {
+                Ok(directory) => directory,
+                Err(_) => return failure(operation_diagnostics("workspace_path"), output_format),
+            };
+
+            return result_from_operation(
+                initialize_project(&directory, package.as_deref()),
+                output_format,
+            );
+        }
         TackCommand::VendorInstall { name, repository } => {
             return result_from_operation(
                 install_git_repository(&workspace_root, &name, &repository),
@@ -221,7 +235,9 @@ fn execute_invocation(
             stdin,
             protocol_output,
         ),
-        TackCommand::Format { .. } | TackCommand::VendorInstall { .. } => {
+        TackCommand::Init { .. }
+        | TackCommand::Format { .. }
+        | TackCommand::VendorInstall { .. } => {
             failure(operation_diagnostics("command_routing"), output_format)
         }
     }
@@ -737,6 +753,53 @@ mod tests {
 
             Ok(ToolOutput::new(true, String::new(), String::new()))
         }
+    }
+
+    #[test]
+    fn initialized_project_is_accepted_by_check() {
+        let parent = unique_temporary_directory();
+        let workspace = parent.join("sample-project");
+        let executor = RecordingExecutor::default();
+
+        let initialization = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "init".into(),
+                workspace.as_os_str().to_os_string(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(initialization.exit_code(), ExitCode::SUCCESS);
+        assert!(executor.requests().is_empty());
+
+        let check = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.as_os_str().to_os_string(),
+                "check".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(check.exit_code(), ExitCode::SUCCESS, "{check:#?}");
+
+        let requests = executor.requests();
+
+        let [request] = requests.as_slice() else {
+            panic!("check should invoke exactly one compiler: {requests:#?}");
+        };
+
+        assert!(has_argument_pair(
+            &request.arguments,
+            "--package",
+            "local.sample-project"
+        ));
+
+        let _ = std::fs::remove_dir_all(parent);
     }
 
     #[test]

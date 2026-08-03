@@ -16,6 +16,10 @@ deterministic before compiler work begins.
 
 ## Commands
 
+- `bray init [directory]` creates a minimal workspace and root executable package without invoking
+  any toolchain process. `--package <identity>` supplies the package identity explicitly. Otherwise,
+  Bray Tack derives `local.<directory-name>` when the directory name is a valid package-identity
+  segment.
 - `bray check` requests diagnostics for selected manifest products. Required dependency interfaces
   are produced through `brayc` and retained in a deterministic workspace cache. Check does not
   publish product build outputs.
@@ -37,6 +41,18 @@ deterministic before compiler work begins.
 
 Package, product, and target filters use `--package`, `--product`, and `--target`. Target names are
 workspace-local manifest names rather than host inference.
+
+## Project Initialization
+
+Initialization creates `bray-workspace.json`, `bray-package.json`, and `src/main.bray` beneath the
+selected directory. The root package uses project path `.`, source root `src`, output root `build`,
+workspace target name `native`, and an executable product named `application`. The target identity
+is the current supported native target.
+
+Every generated file has deterministic UTF-8 bytes and follows the project manifest schema. The
+command rejects an invalid package identity, an unsupported host target, a non-directory workspace
+root, and any existing generated-file path. It never replaces source or manifest contents and does
+not invoke Git, acquire dependencies, compile source, or build toolchain artifacts.
 
 ## Tool Integration
 
