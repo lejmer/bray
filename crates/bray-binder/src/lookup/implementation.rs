@@ -318,7 +318,11 @@ mod tests {
 
     #[test]
     fn imported_declarations_of_the_wrong_kind_retain_the_exact_candidate() {
-        let fixture = TestFixture::from_source("module app; const ready: bool = true;");
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "using dependency.api.DisplayVec;\n",
+            "const ready: bool = true;",
+        ));
 
         let imported = bray_symbols::testing::imported_lookup_fixture(
             "dependency",
@@ -345,7 +349,11 @@ mod tests {
 
     #[test]
     fn imported_path_lookup_is_repeatable_and_thread_safe() {
-        let fixture = TestFixture::from_source("module app; const ready: bool = true;");
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "using dependency.api.DisplayVec;\n",
+            "const ready: bool = true;",
+        ));
 
         let imported = bray_symbols::testing::imported_lookup_fixture(
             "dependency",
@@ -412,7 +420,9 @@ mod tests {
         imported: &bray_symbols::testing::ImportedLookupFixture,
         source_path: &str,
     ) {
-        let fixture = TestFixture::from_source("module app; const ready: bool = true;");
+        let source = format!("module app;\nusing {source_path};\nconst ready: bool = true;");
+
+        let fixture = TestFixture::from_source(&source);
         let facts = fixture.context_with_imported(&imported.symbols);
         let module = source_module(&facts).0;
 

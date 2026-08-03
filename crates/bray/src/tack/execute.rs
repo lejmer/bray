@@ -1000,9 +1000,10 @@ mod tests {
             .join("bray-runtime.brayrt");
 
         assert!(
-            request.arguments.windows(2).any(|pair| {
-                pair[0] == "--runtime-artifact" && pair[1] == runtime.as_os_str()
-            }),
+            request
+                .arguments
+                .windows(2)
+                .any(|pair| { pair[0] == "--runtime-artifact" && pair[1] == runtime.as_os_str() }),
             "compiler request should contain runtime metadata {runtime:?}: {:#?}",
             request.arguments
         );

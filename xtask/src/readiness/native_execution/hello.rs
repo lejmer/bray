@@ -39,7 +39,10 @@ pub(super) fn audit_standard_hello_world(
         .arg(&toolchain)
         .arg("build");
 
-    require_success(build, "building standard-library hello world through Bray Tack")?;
+    require_success(
+        build,
+        "building standard-library hello world through Bray Tack",
+    )?;
 
     let output_directory = workspace
         .join("build")
@@ -61,9 +64,15 @@ pub(super) fn audit_standard_hello_world(
         .arg(&toolchain)
         .arg("run");
 
-    let result = require_success(run, "running standard-library hello world through Bray Tack")?;
+    let result = require_success(
+        run,
+        "running standard-library hello world through Bray Tack",
+    )?;
 
-    require_hello_world_output(&result, "running standard-library hello world through Bray Tack")
+    require_hello_world_output(
+        &result,
+        "running standard-library hello world through Bray Tack",
+    )
 }
 
 fn assemble_toolchain(
@@ -142,10 +151,7 @@ fn write_workspace(root: &Path, target: NativeTarget, workspace: &Path) -> Resul
         }],
     });
 
-    write_json(
-        &workspace.join("bray-workspace.json"),
-        &workspace_manifest,
-    )?;
+    write_json(&workspace.join("bray-workspace.json"), &workspace_manifest)?;
 
     write_json(&workspace.join("bray-package.json"), &package_manifest)?;
 
@@ -165,15 +171,13 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
 }
 
 fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::copy(source, destination)
-        .map(|_| ())
-        .map_err(|error| {
-            format!(
-                "could not copy {} to {}: {error}",
-                source.display(),
-                destination.display()
-            )
-        })
+    fs::copy(source, destination).map(|_| ()).map_err(|error| {
+        format!(
+            "could not copy {} to {}: {error}",
+            source.display(),
+            destination.display()
+        )
+    })
 }
 
 fn require_hello_world_output(

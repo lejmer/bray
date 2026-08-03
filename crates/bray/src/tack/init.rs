@@ -3,12 +3,11 @@ use std::path::Path;
 
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind,
-    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_project::{
-    PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME,
-    is_valid_ordinary_package_identity,
+    PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME, is_valid_ordinary_package_identity,
 };
 use bray_target::NativeTarget;
 use serde::Serialize;
@@ -146,10 +145,7 @@ fn derive_package_identity(workspace_root: &Path) -> Option<String> {
     Some(directory_name.into_owned())
 }
 
-fn serialize_manifest(
-    manifest: &impl Serialize,
-    path: &Path,
-) -> Result<Vec<u8>, DiagnosticBag> {
+fn serialize_manifest(manifest: &impl Serialize, path: &Path) -> Result<Vec<u8>, DiagnosticBag> {
     let mut bytes = serde_json::to_vec_pretty(manifest)
         .map_err(|_| write_failed(path, io::ErrorKind::InvalidData))?;
 
@@ -233,10 +229,7 @@ fn write_failed(path: &Path, kind: io::ErrorKind) -> DiagnosticBag {
 }
 
 fn target_unsupported() -> DiagnosticBag {
-    diagnostic(
-        DiagnosticKind::ProjectInitializationTargetUnsupported,
-        [],
-    )
+    diagnostic(DiagnosticKind::ProjectInitializationTargetUnsupported, [])
 }
 
 fn diagnostic<const ARGUMENT_COUNT: usize>(

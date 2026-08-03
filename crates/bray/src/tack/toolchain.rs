@@ -21,8 +21,8 @@ impl Toolchain {
             .map(Ok)
             .unwrap_or_else(default_toolchain_root)?;
 
-        let root = std::path::absolute(root)
-            .map_err(|_| operation_diagnostics("toolchain_root"))?;
+        let root =
+            std::path::absolute(root).map_err(|_| operation_diagnostics("toolchain_root"))?;
 
         Ok(Self { root })
     }
@@ -44,8 +44,8 @@ impl Toolchain {
 }
 
 fn default_toolchain_root() -> Result<PathBuf, DiagnosticBag> {
-    let executable = std::env::current_exe()
-        .map_err(|_| operation_diagnostics("toolchain_executable"))?;
+    let executable =
+        std::env::current_exe().map_err(|_| operation_diagnostics("toolchain_executable"))?;
 
     let directory = executable
         .parent()

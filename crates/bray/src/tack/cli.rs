@@ -396,13 +396,9 @@ mod tests {
 
     #[test]
     fn keeps_explicit_toolchain_selection() {
-        let invocation = TackInvocation::try_from_arguments([
-            "bray",
-            "--toolchain-root",
-            "toolchain",
-            "check",
-        ])
-        .unwrap_or_else(|error| panic!("toolchain selection should parse: {error:?}"));
+        let invocation =
+            TackInvocation::try_from_arguments(["bray", "--toolchain-root", "toolchain", "check"])
+                .unwrap_or_else(|error| panic!("toolchain selection should parse: {error:?}"));
 
         assert_eq!(invocation.toolchain_root(), Some(Path::new("toolchain")));
     }

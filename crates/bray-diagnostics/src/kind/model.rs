@@ -662,9 +662,7 @@ impl DiagnosticKind {
             Self::ProjectDependencyCycle => "project_dependency_cycle",
             Self::ProjectCommandSelectionInvalid => "project_command_selection_invalid",
             Self::ProjectCommandFailed => "project_command_failed",
-            Self::ProjectInitializationIdentityInvalid => {
-                "project_initialization_identity_invalid"
-            }
+            Self::ProjectInitializationIdentityInvalid => "project_initialization_identity_invalid",
             Self::ProjectInitializationPathConflict => "project_initialization_path_conflict",
             Self::ProjectInitializationWriteFailed => "project_initialization_write_failed",
             Self::ProjectInitializationTargetUnsupported => {

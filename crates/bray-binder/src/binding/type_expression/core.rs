@@ -23,6 +23,7 @@ pub trait TypeExpressionImports {
     /// Selects an imported package root for a qualified source path.
     fn imported_path_root(
         &self,
+        module: ModuleSymbolId,
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>>;
 
@@ -36,9 +37,10 @@ where
 {
     fn imported_path_root(
         &self,
+        module: ModuleSymbolId,
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
-        BinderFactContext::imported_path_root(self, components)
+        crate::lookup::visible_imported_path_root(self, module, components)
     }
 
     fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {

@@ -365,16 +365,14 @@ pub(super) fn native_output(prefix: &str) -> Result<tempfile::TempDir, String> {
 fn build_compiler(root: &Path) -> Result<(), String> {
     let mut command = Command::new("cargo");
 
-    command
-        .current_dir(root)
-        .args([
-            "build",
-            "--quiet",
-            "--package",
-            "brayc",
-            "--package",
-            "bray",
-        ]);
+    command.current_dir(root).args([
+        "build",
+        "--quiet",
+        "--package",
+        "brayc",
+        "--package",
+        "bray",
+    ]);
 
     require_success(command, "building brayc").map(|_| ())
 }

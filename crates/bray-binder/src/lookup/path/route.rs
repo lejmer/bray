@@ -4,7 +4,7 @@ use bray_syntax::SyntaxToken;
 
 use super::super::category::ResolvedName;
 use super::super::diagnostic::NameReference;
-use super::core::PathBindingContext;
+use super::core::{PathBindingContext, visible_imported_path_root};
 use super::prefix::{imported_path_prefix, next_module_prefix, token_reference};
 use crate::{BinderFactContext, BinderFactResult, binder::Binder};
 
@@ -54,22 +54,23 @@ where
             .map(NameReference::text)
             .collect::<Vec<_>>();
 
-        let imported = self
-            .facts()
-            .imported_path_root(&components)?
-            .map(|root| imported_path_prefix(root, &references, context.access()))
-            .and_then(|(lookup, length)| match lookup {
-                MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(module))) => {
-                    Some((module, length))
-                }
-                MemberLookupResult::Found(ResolvedName::Local(_))
-                | MemberLookupResult::Found(ResolvedName::Surface(_))
-                | MemberLookupResult::NotFound
-                | MemberLookupResult::WrongKind(_)
-                | MemberLookupResult::Ambiguous(_)
-                | MemberLookupResult::Inaccessible(_)
-                | MemberLookupResult::Malformed(_) => None,
-            });
+        let imported = match context.module() {
+            Some(module) => visible_imported_path_root(self.facts(), module, &components)?,
+            None => None,
+        }
+        .map(|root| imported_path_prefix(root, &references, context.access()))
+        .and_then(|(lookup, length)| match lookup {
+            MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(module))) => {
+                Some((module, length))
+            }
+            MemberLookupResult::Found(ResolvedName::Local(_))
+            | MemberLookupResult::Found(ResolvedName::Surface(_))
+            | MemberLookupResult::NotFound
+            | MemberLookupResult::WrongKind(_)
+            | MemberLookupResult::Ambiguous(_)
+            | MemberLookupResult::Inaccessible(_)
+            | MemberLookupResult::Malformed(_) => None,
+        });
 
         Ok(match (local, imported) {
             (Some(local), Some(imported)) if imported.1 > local.1 => Some(imported),

@@ -192,7 +192,7 @@ impl TypeExpressionBinder<'_> {
             ambient,
         );
 
-        let imported_root = self.imports.imported_path_root(&references)?;
+        let imported_root = self.imports.imported_path_root(module, &references)?;
 
         Ok(bind_source_path(
             self.symbols,

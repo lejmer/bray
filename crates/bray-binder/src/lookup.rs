@@ -16,4 +16,5 @@ pub use implementation::{
 pub use path::{NameAccess, bind_surface_path_with_re_exports};
 pub(crate) use path::{
     PathBindingContext, bind_module_path, bind_source_path, lookup_surface_name_with_imports,
+    visible_imported_path_root,
 };

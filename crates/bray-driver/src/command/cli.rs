@@ -160,7 +160,11 @@ struct CliOptions {
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
     format: OutputFormat,
-    #[arg(long = "standard-library-root", global = true, value_name = "DIRECTORY")]
+    #[arg(
+        long = "standard-library-root",
+        global = true,
+        value_name = "DIRECTORY"
+    )]
     standard_library_root: Option<PathBuf>,
     #[command(flatten)]
     compilation: CliCompilationOptions,
@@ -185,8 +189,8 @@ impl CliOptions {
         let standard_library_root = self
             .standard_library_root
             .map(|root| {
-                let root = std::path::absolute(root)
-                    .map_err(|_| invalid_standard_library_root())?;
+                let root =
+                    std::path::absolute(root).map_err(|_| invalid_standard_library_root())?;
 
                 StandardLibraryRoot::try_new(root).ok_or_else(invalid_standard_library_root)
             })

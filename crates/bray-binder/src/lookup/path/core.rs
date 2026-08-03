@@ -1,11 +1,12 @@
 use bray_bound_tree::BoundPatternTarget;
+use bray_declarations::DeclarationKind;
 use bray_diagnostics::{DiagnosticBag, DiagnosticNameKind, DiagnosticResult};
 use bray_source::SourceSnapshot;
 use bray_symbols::{
     AnySymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleOwnerId, ModuleSymbolId,
     SymbolGraph,
 };
-use bray_syntax::{PathSyntax, SyntaxToken};
+use bray_syntax::{PathSyntax, SyntaxToken, UsingDeclarationSyntax};
 
 use super::super::binding::{
     NameLookupResult, combine_name_lookups, lookup_surface_name, lookup_unqualified_name,
@@ -142,6 +143,75 @@ pub(crate) fn bind_source_path(
     }
 }
 
+pub(crate) fn visible_imported_path_root<'facts, C>(
+    facts: &'facts C,
+    module: ModuleSymbolId,
+    components: &[&str],
+) -> BinderFactResult<Option<ImportedPathRoot<'facts>>>
+where
+    C: BinderFactContext + ?Sized,
+{
+    if !module_uses_path(facts, module, components)? {
+        return Ok(None);
+    }
+
+    facts.imported_path_root(components)
+}
+
+fn module_uses_path<C>(
+    facts: &C,
+    module: ModuleSymbolId,
+    components: &[&str],
+) -> BinderFactResult<bool>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let module = facts
+        .symbols()
+        .module(module)
+        .ok_or(crate::BinderFactError::DependencyUnavailable)?;
+
+    for part in module.module_parts() {
+        let part = facts
+            .declarations()
+            .module_part(*part)
+            .ok_or(crate::BinderFactError::DependencyUnavailable)?;
+
+        for declaration in part.declarations() {
+            let declaration = facts
+                .declarations()
+                .declaration(*declaration)
+                .ok_or(crate::BinderFactError::DependencyUnavailable)?;
+
+            if declaration.kind() != DeclarationKind::Using {
+                continue;
+            }
+
+            let Some(using) = declaration
+                .syntax_anchor()
+                .find_descendant::<UsingDeclarationSyntax>(facts.syntax())
+            else {
+                continue;
+            };
+
+            let Some(references) = path_references(&using.path()) else {
+                continue;
+            };
+
+            if references.len() <= components.len()
+                && references
+                    .iter()
+                    .map(NameReference::text)
+                    .eq(components.iter().take(references.len()).copied())
+            {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
 /// Resolves one module-relative surface path with caller-provided source re-export lookup.
 pub fn bind_surface_path_with_re_exports<C>(
     facts: &C,
@@ -262,7 +332,7 @@ where
         .map(NameReference::text)
         .collect::<Vec<_>>();
 
-    let imported_root = facts.imported_path_root(&components)?;
+    let imported_root = visible_imported_path_root(facts, module.id(), &components)?;
     let compiler_known = facts.symbols().compiler_known_environment();
 
     let ordinary = combine_name_lookups(
@@ -571,7 +641,10 @@ where
             .map(NameReference::text)
             .collect::<Vec<_>>();
 
-        let imported_root = self.facts().imported_path_root(&components)?;
+        let imported_root = match context.module {
+            Some(module) => visible_imported_path_root(self.facts(), module, &components)?,
+            None => None,
+        };
 
         let ordinary = lookup_unqualified_name(
             self.unit(),
@@ -767,6 +840,7 @@ mod tests {
     use crate::BinderFactContext;
     use crate::binder::Binder;
     use crate::fact::test_support::TestFixture as FactFixture;
+    use crate::lookup::binding::NameLookupResult;
     use crate::lookup::category::{ResolvedName, ResolvedTypeName, ResolvedValueName};
     use crate::lookup::test_support::{path, source_module, text_range};
     use crate::unit::test_support::{builder, fixture, push_binding};
@@ -922,6 +996,26 @@ mod tests {
         );
 
         assert_imported_surface_path(&imported);
+    }
+
+    #[test]
+    fn imported_paths_require_a_matching_using_declaration() {
+        let imported = bray_symbols::testing::imported_lookup_fixture(
+            "dependency",
+            "api",
+            SymbolKind::NamedTraitImplementation,
+            "DisplayVec",
+        );
+
+        let (result, output) =
+            bind_imported_surface_path(&imported, "module app; const ready: bool = true;");
+
+        assert_eq!(result, MemberLookupResult::NotFound);
+
+        assert_eq!(
+            output.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::BindingUnresolvedName
+        );
     }
 
     #[test]
@@ -1518,7 +1612,24 @@ mod tests {
     }
 
     fn assert_imported_surface_path(imported: &bray_symbols::testing::ImportedLookupFixture) {
-        let fact_fixture = FactFixture::from_source("module app; const ready: bool = true;");
+        let (result, output) = bind_imported_surface_path(
+            imported,
+            concat!(
+                "module app;\n",
+                "using dependency.api;\n",
+                "const ready: bool = true;",
+            ),
+        );
+
+        assert_eq!(result, MemberLookupResult::Found(imported.declaration));
+        assert!(output.diagnostics().is_empty());
+    }
+
+    fn bind_imported_surface_path(
+        imported: &bray_symbols::testing::ImportedLookupFixture,
+        source: &str,
+    ) -> (NameLookupResult<AnySymbolId>, crate::binder::BinderOutput) {
+        let fact_fixture = FactFixture::from_source(source);
         let facts = fact_fixture.context_with_imported(&imported.symbols);
 
         let unit_fixture = fixture();
@@ -1532,12 +1643,11 @@ mod tests {
 
         let implementation_path = path("dependency.api.DisplayVec");
 
-        assert_eq!(
-            binder.bind_surface_path(context, &implementation_path),
-            Ok(MemberLookupResult::Found(imported.declaration))
-        );
+        let result = binder
+            .bind_surface_path(context, &implementation_path)
+            .unwrap_or_else(|error| panic!("imported path must bind: {error:?}"));
 
-        assert!(finish(binder).diagnostics().is_empty());
+        (result, finish(binder))
     }
 
     fn finish<C: BinderFactContext + ?Sized>(binder: Binder<'_, C>) -> crate::binder::BinderOutput {

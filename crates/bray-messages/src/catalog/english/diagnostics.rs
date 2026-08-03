@@ -107,7 +107,9 @@ const PROJECT_INITIALIZATION_IDENTITY_INVALID: &[MessageTemplatePart] = &[
 ];
 
 const PROJECT_INITIALIZATION_PATH_CONFLICT: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("cannot initialize a Bray project because this path already exists: "),
+    MessageTemplatePart::Text(
+        "cannot initialize a Bray project because this path already exists: ",
+    ),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
@@ -118,9 +120,10 @@ const PROJECT_INITIALIZATION_WRITE_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
-const PROJECT_INITIALIZATION_TARGET_UNSUPPORTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "cannot initialize a Bray project for the current host target",
-)];
+const PROJECT_INITIALIZATION_TARGET_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "cannot initialize a Bray project for the current host target",
+    )];
 
 const FORMATTER_SOURCE_NOT_FORMATTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("source needs formatting: "),
