@@ -182,8 +182,8 @@ impl Compilation {
             .lifecycle_type()
             .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
 
-        let identity =
-            structural_type_identity(self.semantic_value_store()?, self.symbol_graph()?, ty)?;
+        let facts = self.binder_facts(&self.state.cancellation)?;
+        let identity = structural_type_identity(self.semantic_value_store()?, &facts, ty)?;
 
         let key = CodegenInstanceKey::new(
             MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, identity)),

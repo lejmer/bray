@@ -236,19 +236,27 @@ fn signature_children(
     }
 
     children.extend(
-        signature.callable_parameters().iter().enumerate().map(|(ordinal, name)| SignatureChild {
-            kind: SignatureChildKind::Callable,
-            ordinal: SymbolOrdinal::new(ordinal as u32),
-            name: SymbolName::try_new(name.clone()),
-        }),
+        signature
+            .callable_parameters()
+            .iter()
+            .enumerate()
+            .map(|(ordinal, name)| SignatureChild {
+                kind: SignatureChildKind::Callable,
+                ordinal: SymbolOrdinal::new(ordinal as u32),
+                name: SymbolName::try_new(name.clone()),
+            }),
     );
 
     children.extend(
-        signature.predicate_parameters().iter().enumerate().map(|(ordinal, name)| SignatureChild {
-            kind: SignatureChildKind::Predicate,
-            ordinal: SymbolOrdinal::new(ordinal as u32),
-            name: SymbolName::try_new(name.clone()),
-        }),
+        signature
+            .predicate_parameters()
+            .iter()
+            .enumerate()
+            .map(|(ordinal, name)| SignatureChild {
+                kind: SignatureChildKind::Predicate,
+                ordinal: SymbolOrdinal::new(ordinal as u32),
+                name: SymbolName::try_new(name.clone()),
+            }),
     );
 
     for candidate in signature.implementation_parameter_candidates() {

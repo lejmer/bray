@@ -274,7 +274,11 @@ impl Holder
             .type_associated_surface_result(subject)
             .unwrap_or_else(|error| panic!("type-associated surface must build: {error:?}"));
 
-        assert!(surface.diagnostics().is_empty());
+        assert!(
+            surface.diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            surface.diagnostics()
+        );
 
         assert_eq!(
             surface.value().generic().owner().symbol(),
@@ -561,7 +565,12 @@ impl Missing
             .type_associated_surface_result(subject)
             .unwrap_or_else(|error| panic!("type-associated surface must build: {error:?}"));
 
-        assert!(surface.diagnostics().is_empty());
+        assert!(
+            surface.diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            surface.diagnostics()
+        );
+
         assert_eq!(surface.value().subject(), subject);
 
         assert_eq!(

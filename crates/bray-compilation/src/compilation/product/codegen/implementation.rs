@@ -179,14 +179,13 @@ impl Compilation {
             ));
         }
 
-        let source_roots = self
-            .product_root_instances(semantic.value(), &target, cancellation)?;
+        let source_roots = self.product_root_instances(semantic.value(), &target, cancellation)?;
 
         let (host, units, mappings) = if source_roots.is_empty() {
             (None, Arc::from([]), Vec::new())
         } else {
-            let source_reachability = self
-                .codegen_reachability(source_roots.clone(), None, &target, cancellation)?;
+            let source_reachability =
+                self.codegen_reachability(source_roots.clone(), None, &target, cancellation)?;
 
             let host = self.executable_host(
                 &product,
@@ -247,8 +246,7 @@ impl Compilation {
                         cancellation,
                     )
                 })
-                .collect::<Result<Vec<_>, _>>()
-                ?;
+                .collect::<Result<Vec<_>, _>>()?;
 
             (host, units, mappings)
         };
@@ -414,17 +412,15 @@ impl Compilation {
                         None => {
                             self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)
                         }
-                    }
-                    ?
+                    }?
                 };
 
-                let mut concrete_dependencies = self
-                    .concrete_codegen_dependencies_for_mir(
-                        &realization,
-                        &mir,
-                        target,
-                        cancellation,
-                    )?;
+                let mut concrete_dependencies = self.concrete_codegen_dependencies_for_mir(
+                    &realization,
+                    &mir,
+                    target,
+                    cancellation,
+                )?;
 
                 if let Some((host_key, _, root)) = &generated_host
                     && key == host_key

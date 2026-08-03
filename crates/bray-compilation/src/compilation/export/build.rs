@@ -118,19 +118,31 @@ struct ExportIdentitySurface {
     keys: BTreeMap<AnySymbolId, ExternalSymbolKey>,
 }
 
+pub(in crate::compilation) fn external_symbol_key(
+    graph: &bray_symbols::SymbolGraph,
+    package_identity: &bray_symbols::PackageIdentity,
+    symbol: AnySymbolId,
+) -> Result<ExternalSymbolKey, PackageInterfaceExportError> {
+    let package = package_symbol(graph, package_identity)?;
+
+    // External keys retain the Arc-backed package identity beyond this request.
+    let mut keys = BTreeMap::from([(
+        package,
+        ExternalSymbolKey::package(package_identity.clone()),
+    )]);
+
+    external_key(graph, symbol, &mut keys)
+}
+
 fn build_identity_surface(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
     public_symbols: &[AnySymbolId],
 ) -> Result<ExportIdentitySurface, PackageInterfaceExportError> {
+    // The exported surface retains the Arc-backed package identity independently.
     let package_key = ExternalSymbolKey::package(compilation.package_identity().clone());
 
-    let package_symbol = graph
-        .packages()
-        .iter()
-        .find(|package| package.identity() == compilation.package_identity())
-        .map(|package| AnySymbolId::from(package.id()))
-        .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+    let package_symbol = package_symbol(graph, compilation.package_identity())?;
 
     let mut selected = BTreeSet::from_iter(public_symbols.iter().copied());
 
@@ -196,6 +208,18 @@ fn build_identity_surface(
         selected,
         keys,
     })
+}
+
+fn package_symbol(
+    graph: &bray_symbols::SymbolGraph,
+    package_identity: &bray_symbols::PackageIdentity,
+) -> Result<AnySymbolId, PackageInterfaceExportError> {
+    graph
+        .packages()
+        .iter()
+        .find(|package| package.identity() == package_identity)
+        .map(|package| AnySymbolId::from(package.id()))
+        .ok_or(PackageInterfaceExportError::InvalidCompilation)
 }
 
 fn select_required_children(
@@ -296,9 +320,7 @@ fn external_key(
         }
         _ => None,
     }
-    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(
-        symbol.kind(),
-    ))?;
+    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
     keys.insert(symbol, key.clone());
 

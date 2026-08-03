@@ -321,7 +321,7 @@ fn imported_generic_context(
         .filter_map(|input| match input.kind() {
             bray_bound_tree::CheckedTemplateInputKind::GenericType(key)
             | bray_bound_tree::CheckedTemplateInputKind::GenericConstant(key) => {
-                imported.symbol_by_external_key(key)
+                imported_template_symbol(context, imported, key)
             }
             bray_bound_tree::CheckedTemplateInputKind::Receiver
             | bray_bound_tree::CheckedTemplateInputKind::Parameter(_)
@@ -432,7 +432,7 @@ fn imported_runtime_default_behavior(
     let effects = behavior
         .effects()
         .iter()
-        .map(|requirement| imported.symbol_by_external_key(requirement.declaration()))
+        .map(|requirement| imported_template_symbol(context, imported, requirement.declaration()))
         .map(|symbol| {
             symbol
                 .map(bray_symbols::RuntimeDefaultEffectRequirement::new)
@@ -443,7 +443,7 @@ fn imported_runtime_default_behavior(
     let capabilities = behavior
         .capabilities()
         .iter()
-        .map(|requirement| imported.symbol_by_external_key(requirement.declaration()))
+        .map(|requirement| imported_template_symbol(context, imported, requirement.declaration()))
         .map(|symbol| {
             symbol
                 .map(bray_symbols::RuntimeDefaultCapabilityRequirement::new)
@@ -454,7 +454,7 @@ fn imported_runtime_default_behavior(
     let trusted = behavior
         .trusted_obligations()
         .iter()
-        .map(|requirement| imported.symbol_by_external_key(requirement.declaration()))
+        .map(|requirement| imported_template_symbol(context, imported, requirement.declaration()))
         .map(|symbol| {
             symbol
                 .and_then(TrustedCapabilitySymbolId::try_from_any)
@@ -473,6 +473,17 @@ fn imported_runtime_default_behavior(
         behavior.lifecycle_obligations().iter().copied(),
         behavior.dependency_contract(),
     ))
+}
+
+fn imported_template_symbol(
+    context: &CompilationBinderFacts<'_>,
+    imported: &bray_symbols::ImportedSymbolSkeleton,
+    key: &bray_symbols::SymbolKey,
+) -> Option<AnySymbolId> {
+    match key.data() {
+        bray_symbols::SymbolKeyData::External(key) => imported.symbol_by_external_key(key),
+        _ => context.symbols().symbol_for_key(key),
+    }
 }
 
 fn runtime_default_ownership(

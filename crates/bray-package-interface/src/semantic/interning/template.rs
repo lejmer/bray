@@ -7,7 +7,7 @@ use bray_bound_tree::{
     CheckedTemplateNode, CheckedTemplateOperation, CheckedTemplateTrustedObligation,
     CheckedTemplateWitness,
 };
-use bray_symbols::{ExternalSymbolKey, InterfaceSupportEntityId};
+use bray_symbols::{InterfaceSupportEntityId, SymbolKey};
 
 use crate::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateOperation,
@@ -15,7 +15,7 @@ use crate::{
     InterfaceTemplateReference,
 };
 
-use super::common::resolve_external_key;
+use super::common::resolve_symbol_key;
 use super::{
     ImportedDeclarationTemplateFact, InterfaceSemanticInternError, InterfaceSymbolResolver,
     InternState,
@@ -139,10 +139,10 @@ fn convert_input_kind(
 ) -> Result<CheckedTemplateInputKind, InterfaceSemanticInternError> {
     match kind {
         InterfaceCheckedTemplateInputKind::GenericType(reference) => {
-            resolve_external_key(symbols, reference).map(CheckedTemplateInputKind::GenericType)
+            resolve_symbol_key(symbols, reference).map(CheckedTemplateInputKind::GenericType)
         }
         InterfaceCheckedTemplateInputKind::GenericConstant(reference) => {
-            resolve_external_key(symbols, reference).map(CheckedTemplateInputKind::GenericConstant)
+            resolve_symbol_key(symbols, reference).map(CheckedTemplateInputKind::GenericConstant)
         }
         InterfaceCheckedTemplateInputKind::Receiver => Ok(CheckedTemplateInputKind::Receiver),
         InterfaceCheckedTemplateInputKind::Parameter(ordinal) => {
@@ -281,22 +281,20 @@ fn convert_behavior(
         behavior
             .effects()
             .iter()
-            .map(|reference| {
-                resolve_external_key(symbols, reference).map(CheckedTemplateEffect::new)
-            })
+            .map(|reference| resolve_symbol_key(symbols, reference).map(CheckedTemplateEffect::new))
             .collect::<Result<Vec<_>, _>>()?,
         behavior
             .capabilities()
             .iter()
             .map(|reference| {
-                resolve_external_key(symbols, reference).map(CheckedTemplateCapability::new)
+                resolve_symbol_key(symbols, reference).map(CheckedTemplateCapability::new)
             })
             .collect::<Result<Vec<_>, _>>()?,
         behavior
             .trusted_obligations()
             .iter()
             .map(|reference| {
-                resolve_external_key(symbols, reference).map(CheckedTemplateTrustedObligation::new)
+                resolve_symbol_key(symbols, reference).map(CheckedTemplateTrustedObligation::new)
             })
             .collect::<Result<Vec<_>, _>>()?,
         CheckedTemplateExecution::new(
@@ -304,7 +302,7 @@ fn convert_behavior(
                 .execution_requirements()
                 .iter()
                 .map(|reference| {
-                    resolve_external_key(symbols, reference)
+                    resolve_symbol_key(symbols, reference)
                         .map(CheckedTemplateExecutionRequirement::new)
                 })
                 .collect::<Result<Vec<_>, _>>()?,
@@ -326,9 +324,9 @@ fn template_key(
     facts: &InterfaceSemanticFacts,
     reference: &InterfaceTemplateReference,
     symbols: &impl InterfaceSymbolResolver,
-) -> Result<ExternalSymbolKey, InterfaceSemanticInternError> {
+) -> Result<SymbolKey, InterfaceSemanticInternError> {
     match reference {
-        InterfaceTemplateReference::Symbol(reference) => resolve_external_key(symbols, reference),
+        InterfaceTemplateReference::Symbol(reference) => resolve_symbol_key(symbols, reference),
         InterfaceTemplateReference::Support(entity) => support_declaration_key(facts, *entity),
     }
 }
@@ -337,10 +335,10 @@ fn implementation_key(
     facts: &InterfaceSemanticFacts,
     reference: &InterfaceImplementationReference,
     symbols: &impl InterfaceSymbolResolver,
-) -> Result<ExternalSymbolKey, InterfaceSemanticInternError> {
+) -> Result<SymbolKey, InterfaceSemanticInternError> {
     match reference {
         InterfaceImplementationReference::Symbol(reference) => {
-            resolve_external_key(symbols, reference)
+            resolve_symbol_key(symbols, reference)
         }
         InterfaceImplementationReference::Support(entity) => {
             let entity_data = support_entity(facts, *entity)?;
@@ -348,9 +346,9 @@ fn implementation_key(
             // External keys are Arc-backed and checked templates own stable keys.
             match entity_data {
                 InterfaceSupportEntity::Implementation(implementation) => {
-                    Ok(implementation.declaration().clone())
+                    Ok(implementation.declaration().clone().into())
                 }
-                InterfaceSupportEntity::Declaration(key) => Ok(key.clone()),
+                InterfaceSupportEntity::Declaration(key) => Ok(key.clone().into()),
                 InterfaceSupportEntity::CheckedTemplate(_) => {
                     Err(InterfaceSemanticInternError::InvalidSupportEntity(*entity))
                 }
@@ -362,12 +360,12 @@ fn implementation_key(
 fn support_declaration_key(
     facts: &InterfaceSemanticFacts,
     entity: InterfaceSupportEntityId,
-) -> Result<ExternalSymbolKey, InterfaceSemanticInternError> {
+) -> Result<SymbolKey, InterfaceSemanticInternError> {
     // External keys are Arc-backed and checked templates own stable keys.
     match support_entity(facts, entity)? {
-        InterfaceSupportEntity::Declaration(key) => Ok(key.clone()),
+        InterfaceSupportEntity::Declaration(key) => Ok(key.clone().into()),
         InterfaceSupportEntity::Implementation(implementation) => {
-            Ok(implementation.declaration().clone())
+            Ok(implementation.declaration().clone().into())
         }
         InterfaceSupportEntity::CheckedTemplate(_) => {
             Err(InterfaceSemanticInternError::InvalidSupportEntity(entity))

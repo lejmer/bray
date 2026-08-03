@@ -35,8 +35,8 @@ use bray_symbols::{
     CallableSignatureFact, ConstantTermData, ConstantValueKind, DeclaredLayoutMode,
     ForeignCallableDirection, GenericSubstitutionId, ImplementationCoherenceFact,
     NamedTypeSymbolId, ReceiverMode, RuntimeDefaultProviderInput, SelfTypeContext,
-    StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId, SymbolFactRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
+    StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId, SymbolFactRequest, SymbolKey,
+    SymbolKeyData, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
@@ -899,16 +899,16 @@ impl Compilation {
         let facts = self.binder_facts(cancellation)?;
 
         let union = facts
-            .symbols()
             .union(union)
+            .map_err(super::super::binder::binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let mut current = block;
 
         for variant in union.variants() {
             let variant_record = facts
-                .symbols()
                 .union_variant(*variant)
+                .map_err(super::super::binder::binder_fact_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let matched = builder
@@ -1609,8 +1609,8 @@ impl Compilation {
                 let facts = self.binder_facts(cancellation)?;
 
                 let structure = facts
-                    .symbols()
                     .structure(*structure)
+                    .map_err(super::super::binder::binder_fact_error)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 structure
@@ -1766,11 +1766,18 @@ impl Compilation {
                             }
                         });
 
-                    (
-                        boundary.map(|(name, _)| name).map_or_else(
-                            || generated_symbol_name(target, linkage, "instance", instance.key()),
-                            Ok,
+                    let name = match boundary {
+                        Some((name, _)) => name,
+                        None => self.generated_callable_symbol_name(
+                            target,
+                            linkage,
+                            realization,
+                            cancellation,
                         )?,
+                    };
+
+                    (
+                        name,
                         linkage,
                         self.codegen_instance_signature(realization, cancellation)?,
                     )
@@ -1797,12 +1804,16 @@ impl Compilation {
                 .map(|(_, linkage)| *linkage)
                 .unwrap_or(CodegenLinkage::Import);
 
+            let name = match boundary {
+                Some((name, _)) => name,
+                None => {
+                    self.generated_callable_symbol_name(target, linkage, realization, cancellation)?
+                }
+            };
+
             symbols.push(CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.clone()),
-                boundary.map(|(name, _)| name).map_or_else(
-                    || generated_instance_symbol_name(target, linkage, instance),
-                    Ok,
-                )?,
+                name,
                 linkage,
                 self.codegen_instance_signature(realization, cancellation)?,
             ));
@@ -1909,6 +1920,48 @@ impl Compilation {
         };
 
         Ok(Some((name, linkage)))
+    }
+
+    fn generated_callable_symbol_name(
+        &self,
+        target: &CodegenTarget,
+        linkage: CodegenLinkage,
+        realization: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<BinarySymbolName, CodegenFactError> {
+        let Some(callable) = realization.callable_instance() else {
+            return generated_instance_symbol_name(target, linkage, realization.key());
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let definition = facts
+            .symbol_key(callable.definition().symbol())
+            .map_err(super::super::binder::binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let definition = match definition.data() {
+            SymbolKeyData::SourceDeclaration { .. } => SymbolKey::external(
+                super::super::export::external_symbol_key(
+                    facts.symbols(),
+                    self.package_identity(),
+                    callable.definition().symbol(),
+                )
+                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            ),
+            // Symbol keys are Arc-backed and the generated mapping owns its identity input.
+            _ => definition.clone(),
+        };
+
+        let mut hasher = StableDigestHasher::new();
+
+        hasher.write(b"bray.codegen-callable-symbol");
+        definition.hash(&mut hasher);
+        realization.key().specialization().hash(&mut hasher);
+        realization.key().witnesses().hash(&mut hasher);
+        realization.key().target().hash(&mut hasher);
+
+        binary_symbol_name(target, linkage, "instance", hasher.finalize())
     }
 
     fn codegen_callables(
@@ -2439,8 +2492,8 @@ impl Compilation {
         match definition {
             NamedTypeSymbolId::Struct(structure) => {
                 let structure = facts
-                    .symbols()
                     .structure(structure)
+                    .map_err(super::super::binder::binder_fact_error)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let fields = structure
@@ -2613,8 +2666,8 @@ impl Compilation {
         let facts = self.binder_facts(cancellation)?;
 
         let union = facts
-            .symbols()
             .union(union)
+            .map_err(super::super::binder::binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let representation = self.declared_type_representation_with_cancellation(
@@ -2640,8 +2693,8 @@ impl Compilation {
 
         for variant in union.variants() {
             let record = facts
-                .symbols()
                 .union_variant(*variant)
+                .map_err(super::super::binder::binder_fact_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut offset = 0_u64;
@@ -3100,7 +3153,7 @@ impl Compilation {
             return Ok(CodegenParameterMapping::Ignore);
         }
 
-        if abi != CallableAbi::Bray || !indirect_abi_value(mapping.kind(), layout, target) {
+        if !indirect_abi_value(abi, mapping.kind(), layout, target) {
             return Ok(CodegenParameterMapping::direct(ty, None, []));
         }
 
@@ -3138,7 +3191,7 @@ impl Compilation {
             return Ok(CodegenResultMapping::Void);
         }
 
-        if abi != CallableAbi::Bray || !indirect_abi_value(mapping.kind(), layout, target) {
+        if !indirect_abi_value(abi, mapping.kind(), layout, target) {
             return Ok(CodegenResultMapping::direct(ty, None, []));
         }
 
@@ -3933,18 +3986,34 @@ fn ensure_target_alignment(
 }
 
 fn indirect_abi_value(
+    abi: CallableAbi,
     kind: &CodegenTypeKind,
     layout: TargetValueLayout,
     target: &CodegenTarget,
 ) -> bool {
-    let register_pair_bytes = pointer_layout(target).size().saturating_mul(2);
-
-    matches!(
+    let is_composite = matches!(
         kind,
         CodegenTypeKind::Aggregate(_)
             | CodegenTypeKind::Array { .. }
             | CodegenTypeKind::Union { .. }
-    ) && layout.size() > register_pair_bytes
+    );
+
+    if !is_composite {
+        return false;
+    }
+
+    if abi == CallableAbi::Bray {
+        let register_pair_bytes = pointer_layout(target).size().saturating_mul(2);
+
+        return layout.size() > register_pair_bytes;
+    }
+
+    match bray_target::NativeTarget::for_profile(target.profile()) {
+        Some(bray_target::NativeTarget::X86_64WindowsMsvc) => {
+            !matches!(layout.size(), 1 | 2 | 4 | 8)
+        }
+        _ => layout.size() > pointer_layout(target).size().saturating_mul(2),
+    }
 }
 
 fn align_to(value: u64, alignment: NonZeroU64) -> Option<u64> {
@@ -4033,6 +4102,7 @@ fn binary_symbol_name(
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::num::NonZeroU64;
 
     use bray_codegen::{
         CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
@@ -4053,10 +4123,12 @@ mod tests {
         BorrowKind, CallableAbi, NamedTypeSymbolId, SymbolOrigin, TraitApplicationData, TypeData,
         TypeId,
     };
-    use bray_target::TargetValueLayout;
+    use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
-    use super::{dependency_symbol, direct_helper_symbol, named_type, pointer_layout};
+    use super::{
+        dependency_symbol, direct_helper_symbol, indirect_abi_value, named_type, pointer_layout,
+    };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
     use crate::compilation::substitution::empty_substitution;
@@ -5243,6 +5315,41 @@ mod tests {
             ),
             Err(CodegenFactError::UnsizedTypeByValue(slice))
         );
+    }
+
+    #[test]
+    fn foreign_abi_uses_the_native_aggregate_passing_contract() {
+        let aggregate = CodegenTypeKind::aggregate([]);
+
+        let sixteen_bytes = TargetValueLayout::new(
+            16,
+            NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN),
+            TargetLayoutContract::Default,
+        );
+
+        let windows = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+        let linux = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
+
+        assert!(indirect_abi_value(
+            CallableAbi::C,
+            &aggregate,
+            sixteen_bytes,
+            &windows,
+        ));
+
+        assert!(!indirect_abi_value(
+            CallableAbi::C,
+            &aggregate,
+            sixteen_bytes,
+            &linux,
+        ));
+
+        assert!(!indirect_abi_value(
+            CallableAbi::Bray,
+            &aggregate,
+            sixteen_bytes,
+            &windows,
+        ));
     }
 
     #[test]

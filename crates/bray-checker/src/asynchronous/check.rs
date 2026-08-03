@@ -157,8 +157,7 @@ where
                         })
                     });
 
-                if !dependency_satisfied
-                {
+                if !dependency_satisfied {
                     if let Err(error) = add_unavailable_await_dependency_diagnostic(
                         request,
                         expression,

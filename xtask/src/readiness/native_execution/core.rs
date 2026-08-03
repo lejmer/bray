@@ -9,6 +9,7 @@ use super::buffer::{
     audit_standard_buffer, audit_standard_format, build_standard_library_fixtures,
     standard_library_compilation,
 };
+use super::hello::audit_standard_hello_world;
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
 const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
@@ -38,6 +39,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     let runtime = native_output("bray-native-runtime-")?;
     let runtime = crate::runtime_artifact::build_for_readiness(target, runtime.path())?;
 
+    audit_standard_hello_world(root, target, &runtime)?;
     audit_standard_format(root, target, &runtime)?;
     audit_standard_buffer(root, target, &runtime)?;
     audit_text_cursor(root, target, &runtime)?;
@@ -586,7 +588,7 @@ pub(super) fn execute_product(
     Err(command_failure(operation, &output))
 }
 
-fn product_output(executable: &Path, operation: &str) -> Result<Output, String> {
+pub(super) fn product_output(executable: &Path, operation: &str) -> Result<Output, String> {
     Command::new(executable)
         .output()
         .map_err(|error| format!("could not start {operation}: {error}"))
@@ -612,7 +614,7 @@ fn require_success(mut command: Command, operation: &str) -> Result<Output, Stri
     Err(command_failure(operation, &output))
 }
 
-fn command_failure(operation: &str, output: &Output) -> String {
+pub(super) fn command_failure(operation: &str, output: &Output) -> String {
     let mut details = Vec::new();
     let standard_output = String::from_utf8_lossy(&output.stdout);
     let standard_error = String::from_utf8_lossy(&output.stderr);

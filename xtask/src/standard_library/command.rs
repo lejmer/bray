@@ -25,7 +25,7 @@ use bray_standard_library::{
     encode_standard_library_manifest,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::{TargetIdentity, TargetOutputDescription, TargetOutputKind};
+use bray_target::{NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
 
 use crate::workspace;
@@ -182,6 +182,38 @@ pub(super) fn build(source: &Path, output: &Path) -> Result<PathBuf, BuildError>
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
     let product = standard_library_product(&graph)?;
+
+    build_product_bundle(product, source, output, product.targets())
+}
+
+pub(crate) fn build_target_bundle(
+    source: &Path,
+    output: &Path,
+    target: NativeTarget,
+) -> Result<PathBuf, String> {
+    build_target_bundle_inner(source, output, target).map_err(|error| error.to_string())
+}
+
+fn build_target_bundle_inner(
+    source: &Path,
+    output: &Path,
+    target: NativeTarget,
+) -> Result<PathBuf, BuildError> {
+    let graph = load_standard_library_project_graph(source)
+        .map_err(|error| BuildError::Project(format!("{error:?}")))?;
+
+    let product = standard_library_product(&graph)?;
+    let target = TargetIdentity::try_new(target.as_str()).ok_or(BuildError::InvalidIdentity)?;
+
+    build_product_bundle(product, source, output, std::slice::from_ref(&target))
+}
+
+fn build_product_bundle(
+    product: &ProjectProduct,
+    source: &Path,
+    output: &Path,
+    targets: &[TargetIdentity],
+) -> Result<PathBuf, BuildError> {
     let parent = output.parent().unwrap_or_else(|| Path::new("."));
 
     fs::create_dir_all(parent).map_err(|error| BuildError::write(parent, error))?;
@@ -202,7 +234,7 @@ pub(super) fn build(source: &Path, output: &Path) -> Result<PathBuf, BuildError>
     fs::create_dir(&bundle).map_err(|error| BuildError::write(&bundle, error))?;
 
     let work = staging.path().join("work");
-    let manifest = build_bundle(product, source, &work, &bundle)?;
+    let manifest = build_bundle(product, source, targets, &work, &bundle)?;
     let manifest_path = bundle.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
     let manifest_bytes = encode_standard_library_manifest(&manifest)
@@ -251,6 +283,7 @@ impl Drop for PublicationLock {
 fn build_bundle(
     product: &ProjectProduct,
     workspace_root: &Path,
+    targets: &[TargetIdentity],
     work: &Path,
     bundle: &Path,
 ) -> Result<StandardLibraryBundleManifest, BuildError> {
@@ -261,9 +294,9 @@ fn build_bundle(
         .collect();
 
     let mut interface = None;
-    let mut targets = Vec::new();
+    let mut built_targets = Vec::new();
 
-    for target in product.targets() {
+    for target in targets {
         let built = build_target(product, &source_paths, target, work)?;
 
         let BuiltTarget {
@@ -316,12 +349,12 @@ fn build_bundle(
         let target = StandardLibraryTargetArtifacts::try_new(target.clone(), abi, [archive])
             .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        targets.push(target);
+        built_targets.push(target);
     }
 
     let (_, interface) = interface.ok_or(BuildError::MissingInterface)?;
 
-    StandardLibraryBundleManifest::try_new(interface, targets)
+    StandardLibraryBundleManifest::try_new(interface, built_targets)
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))
 }
 

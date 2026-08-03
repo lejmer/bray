@@ -334,7 +334,7 @@ where
 
     fn evaluate_declaration(
         &mut self,
-        declaration: &bray_symbols::ExternalSymbolKey,
+        declaration: &bray_symbols::SymbolKey,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let Some(symbol) = self.resolver.symbol(declaration) else {
@@ -386,10 +386,10 @@ where
 
     fn evaluate_call(
         &mut self,
-        callable: &bray_symbols::ExternalSymbolKey,
+        callable: &bray_symbols::SymbolKey,
         substitution: GenericSubstitutionId,
         arguments: &[CheckedTemplateNodeId],
-        implementation: Option<&(bray_symbols::ExternalSymbolKey, GenericSubstitutionId)>,
+        implementation: Option<&(bray_symbols::SymbolKey, GenericSubstitutionId)>,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let arguments = self.evaluate_nodes(arguments)?;
@@ -520,7 +520,7 @@ where
     fn evaluate_projection(
         &self,
         subject: ConstantValueId,
-        member: &bray_symbols::ExternalSymbolKey,
+        member: &bray_symbols::SymbolKey,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let subject = self.constant_value(subject)?;

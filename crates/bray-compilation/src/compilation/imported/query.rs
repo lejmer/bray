@@ -305,20 +305,7 @@ impl super::super::Compilation {
         key: ImportedSemanticFactKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Arc<[ImportedSemanticFact]>>, FactQueryError> {
-        let graph = if matches!(
-            key.kind(),
-            bray_package_interface::InterfaceSemanticFactKind::GenericConstraint
-                | bray_package_interface::InterfaceSemanticFactKind::Implementation
-                | bray_package_interface::InterfaceSemanticFactKind::PredicateDefinition
-                | bray_package_interface::InterfaceSemanticFactKind::TargetFact
-        ) {
-            self.compute_selected_imported_semantic_graph(key, cancellation)?
-        } else {
-            // The exact result owns a shallow Arc-backed graph view beyond the cache borrow.
-            self.imported_semantic_graph_result_with_cancellation(key.interface(), cancellation)?
-                .ok_or(FactQueryError::InfrastructureFailure)?
-                .clone()
-        };
+        let graph = self.compute_selected_imported_semantic_graph(key, cancellation)?;
 
         let Some(graph) = graph.value() else {
             // The exact fact owns diagnostics so it can publish independently of the graph cache.
@@ -864,6 +851,16 @@ mod tests {
             signatures[0].value().as_ref(),
             [ImportedSemanticFact::CallableSignature(_)]
         ));
+
+        let interface_index = interface
+            .to_index()
+            .unwrap_or_else(|| panic!("test interface ID must fit the host index"));
+
+        assert!(
+            compilation.state.imported_semantic_graphs[interface_index]
+                .get()
+                .is_none()
+        );
     }
 
     #[test]

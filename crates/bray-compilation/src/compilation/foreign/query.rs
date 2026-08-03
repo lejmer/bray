@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
 use bray_base::NonEmptySharedStr;
+use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, CallableContractsFact, CallableSignatureFact, CallableSymbolId, DirectiveKind,
@@ -16,9 +16,9 @@ use super::diagnostic::{duplicate_native_symbol, missing_directive};
 use super::directive::{
     foreign_link_requirements, foreign_symbol_name, validate_foreign_import_requirements,
 };
-use super::validation::{callable_surface, validate_callable_surface};
-use super::validation::validate_platform_service_surface;
 use super::platform::platform_service_role;
+use super::validation::validate_platform_service_surface;
+use super::validation::{callable_surface, validate_callable_surface};
 use crate::compilation::binder::binder_fact_error;
 use crate::compilation::directive::first_directive;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -69,10 +69,11 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<Option<ForeignCallableContract>>>, FactQueryError> {
         cancellation.check()?;
 
-        let symbols = self.symbol_graph()?;
+        let facts = self.binder_facts(cancellation)?;
 
-        let record = symbols
+        let record = facts
             .function(function)
+            .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         if record.origin() != SymbolOrigin::Source {
@@ -86,8 +87,6 @@ impl Compilation {
         let syntax = anchor
             .find_descendant::<FunctionDeclarationSyntax>(self.syntax_tree())
             .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let facts = self.binder_facts(cancellation)?;
 
         let signature = facts
             .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
@@ -354,7 +353,11 @@ extern trusted internal func flush(pos handle: u64) -> PlatformStatus
             .foreign_callable_contract(function)
             .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
 
-        assert!(result.diagnostics().is_empty(), "{:?}", result.diagnostics());
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
 
         let Some(contract) = result.value() else {
             panic!("valid platform service must publish a contract");

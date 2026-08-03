@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableInstanceData, ConstantInstanceKey, ConstantValueId, ExternalSymbolKey,
-    ImplementationInstanceId, TypeId,
+    AnySymbolId, CallableInstanceData, ConstantInstanceKey, ConstantValueId,
+    ImplementationInstanceId, SymbolKey, TypeId,
 };
 
 use crate::CheckerFactResult;
@@ -112,7 +112,7 @@ pub trait ConstantCallResolver: Sync {
 /// Resolves stable references used by an imported const-callable body template.
 pub trait ConstantTemplateResolver: ConstantCallResolver {
     /// Resolves one stable declaration identity into the consuming compilation.
-    fn symbol(&self, key: &ExternalSymbolKey) -> Option<AnySymbolId>;
+    fn symbol(&self, key: &SymbolKey) -> Option<AnySymbolId>;
 
     /// Evaluates one constant declaration retained by a checked body template.
     fn resolve_constant(

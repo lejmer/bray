@@ -577,6 +577,32 @@ mod tests {
     }
 
     #[test]
+    fn absent_generic_declarations_decode_as_empty_facts() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+
+        let InterfaceSymbolReference::Local(owner) = local_by_kind(&surface, SymbolKind::Struct)
+        else {
+            panic!("test structure must be local");
+        };
+
+        let sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let sections = owned_section_views(&sections);
+
+        let decoded = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::GenericDeclaration,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("absent generic declaration must decode: {error:?}"));
+
+        assert!(decoded.generic_declarations().is_empty());
+        assert!(decoded.constraints().is_empty());
+    }
+
+    #[test]
     fn predicate_definition_decoding_rejects_opaque_state_with_definition_template() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();

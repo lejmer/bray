@@ -10,8 +10,8 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureFact, ExternalSymbolKey, ImportedSymbolSkeleton,
-    SymbolFactRequest, TypeData,
+    CallableConstness, CallableSignatureFact, ImportedSymbolSkeleton, SymbolFactRequest, SymbolKey,
+    SymbolKeyData, TypeData,
 };
 
 use super::super::Compilation;
@@ -102,8 +102,16 @@ impl ConstantCallResolver for CompilationConstantTemplateResolver<'_> {
 }
 
 impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
-    fn symbol(&self, key: &ExternalSymbolKey) -> Option<bray_symbols::AnySymbolId> {
-        self.symbols.symbol_by_external_key(key)
+    fn symbol(&self, key: &SymbolKey) -> Option<bray_symbols::AnySymbolId> {
+        match key.data() {
+            SymbolKeyData::External(key) => self.symbols.symbol_by_external_key(key),
+            _ => self
+                .calls
+                .compilation
+                .symbol_graph()
+                .ok()?
+                .symbol_for_key(key),
+        }
     }
 
     fn resolve_constant(

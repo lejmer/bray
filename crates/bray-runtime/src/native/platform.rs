@@ -295,7 +295,12 @@ fn build_process_context() -> Box<[u8]> {
 
     let environment_ranges = environment
         .iter()
-        .map(|(key, value)| (push_payload(&mut block, key), push_payload(&mut block, value)))
+        .map(|(key, value)| {
+            (
+                push_payload(&mut block, key),
+                push_payload(&mut block, value),
+            )
+        })
         .collect::<Vec<_>>();
 
     let block_length = length_u64(block.len());
@@ -416,14 +421,20 @@ mod tests {
 
     #[test]
     fn stream_lock_serializes_owners_until_release() {
-        assert_eq!(lock_stream(STANDARD_OUTPUT_HANDLE), NativePlatformStatus::SUCCESS);
+        assert_eq!(
+            lock_stream(STANDARD_OUTPUT_HANDLE),
+            NativePlatformStatus::SUCCESS
+        );
 
         let (started, wait_started) = mpsc::channel();
 
         let (acquired, wait_acquired) = mpsc::channel();
 
         let waiter = thread::spawn(move || {
-            started.send(()).unwrap_or_else(|_| panic!("test start receiver must remain"));
+            started
+                .send(())
+                .unwrap_or_else(|_| panic!("test start receiver must remain"));
+
             let status = lock_stream(STANDARD_OUTPUT_HANDLE);
 
             acquired
@@ -437,8 +448,16 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .unwrap_or_else(|_| panic!("waiter must start"));
 
-        assert!(wait_acquired.recv_timeout(Duration::from_millis(30)).is_err());
-        assert_eq!(unlock_stream(STANDARD_OUTPUT_HANDLE), NativePlatformStatus::SUCCESS);
+        assert!(
+            wait_acquired
+                .recv_timeout(Duration::from_millis(30))
+                .is_err()
+        );
+
+        assert_eq!(
+            unlock_stream(STANDARD_OUTPUT_HANDLE),
+            NativePlatformStatus::SUCCESS
+        );
 
         assert_eq!(
             wait_acquired
@@ -447,6 +466,8 @@ mod tests {
             NativePlatformStatus::SUCCESS
         );
 
-        waiter.join().unwrap_or_else(|_| panic!("waiter must finish"));
+        waiter
+            .join()
+            .unwrap_or_else(|_| panic!("waiter must finish"));
     }
 }

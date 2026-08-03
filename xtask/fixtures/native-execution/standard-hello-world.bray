@@ -1,0 +1,6 @@
+module hello;
+
+func main() -> Result<unit, std.io.IoError>
+{
+    return std.io.print("Hello world!");
+}

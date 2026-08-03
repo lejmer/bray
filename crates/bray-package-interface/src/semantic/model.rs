@@ -31,11 +31,10 @@ pub use dependency::{
 };
 pub use fact::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableContractClauseValue,
-    InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord, InterfaceConstraint,
-    InterfaceConstraintKind, InterfaceImplementationRecord, InterfacePredicateSummary,
-    InterfaceRuntimeRequirement, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSourceProvenance, InterfaceTargetFactDependency,
+    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
+    InterfaceConstraint, InterfaceConstraintKind, InterfaceImplementationRecord,
+    InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticFactEntry,
+    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceTargetFactDependency,
     InterfaceTrustedCapabilityRequirement,
 };
 pub use id::{

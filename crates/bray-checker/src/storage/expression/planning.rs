@@ -141,9 +141,7 @@ where
                             BoundPatternMode::MatchConsume => StorageAccessPurpose::Move,
                             BoundPatternMode::MatchObserve => StorageAccessPurpose::Read,
                             BoundPatternMode::Declaration | BoundPatternMode::Assignment => {
-                                return Err(
-                                    CheckerInfrastructureError::InvalidStoragePlan.into()
-                                );
+                                return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
                             }
                         }
                     }

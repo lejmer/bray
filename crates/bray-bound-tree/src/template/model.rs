@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation, CurrentRunCancellation,
-    DependencyContractTemplateId, ExternalSymbolKey, GenericSubstitutionId,
-    LifecycleObligationKind, SymbolKind, SymbolOrdinal, TypeId,
+    DependencyContractTemplateId, GenericSubstitutionId, LifecycleObligationKind, SymbolKey,
+    SymbolKind, SymbolOrdinal, TypeId,
 };
 
 use super::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTemporaryId};
@@ -70,9 +70,9 @@ pub enum CheckedTemplateCompletion {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedTemplateInputKind {
     /// A generic type parameter addressed by stable semantic identity.
-    GenericType(ExternalSymbolKey),
+    GenericType(SymbolKey),
     /// A generic constant parameter addressed by stable semantic identity.
-    GenericConstant(ExternalSymbolKey),
+    GenericConstant(SymbolKey),
     /// The receiver accepted by a declaration-owned provider.
     Receiver,
     /// A callable parameter addressed by declaration-stable ordinal.
@@ -109,16 +109,16 @@ macro_rules! define_stable_requirement {
     ($name:ident, $documentation:literal) => {
         #[doc = $documentation]
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub struct $name(ExternalSymbolKey);
+        pub struct $name(SymbolKey);
 
         impl $name {
             /// Creates a requirement from a stable declaration identity.
-            pub const fn new(declaration: ExternalSymbolKey) -> Self {
+            pub const fn new(declaration: SymbolKey) -> Self {
                 Self(declaration)
             }
 
             /// Returns the required declaration's stable identity.
-            pub const fn declaration(&self) -> &ExternalSymbolKey {
+            pub const fn declaration(&self) -> &SymbolKey {
                 &self.0
             }
         }
@@ -323,17 +323,17 @@ pub enum CheckedTemplateOperation {
         right: CheckedTemplateNodeId,
     },
     /// Reads a declaration-owned value through stable semantic identity.
-    Declaration(ExternalSymbolKey),
+    Declaration(SymbolKey),
     /// Applies one selected callable or predicate with deterministic argument order.
     Call {
         /// The selected callable or predicate declaration.
-        callable: ExternalSymbolKey,
+        callable: SymbolKey,
         /// Ordered generic arguments applied to the callable declaration.
         substitution: GenericSubstitutionId,
         /// Arguments in exact evaluation and parameter order.
         arguments: Arc<[CheckedTemplateNodeId]>,
         /// The selected implementation witness when dispatch requires one.
-        implementation: Option<(ExternalSymbolKey, GenericSubstitutionId)>,
+        implementation: Option<(SymbolKey, GenericSubstitutionId)>,
     },
     /// Applies an already checked semantic conversion.
     Convert {
@@ -351,7 +351,7 @@ pub enum CheckedTemplateOperation {
         /// The projected subject.
         subject: CheckedTemplateNodeId,
         /// The selected field, payload, or associated declaration.
-        member: ExternalSymbolKey,
+        member: SymbolKey,
     },
     /// Evaluates a condition once and then exactly one selected branch.
     Conditional {
@@ -378,10 +378,10 @@ pub enum CheckedTemplateOperation {
 impl CheckedTemplateOperation {
     /// Creates a selected callable or predicate application with stable argument order.
     pub fn call(
-        callable: ExternalSymbolKey,
+        callable: SymbolKey,
         substitution: GenericSubstitutionId,
         arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<(ExternalSymbolKey, GenericSubstitutionId)>,
+        implementation: Option<(SymbolKey, GenericSubstitutionId)>,
     ) -> Self {
         Self::Call {
             callable,
@@ -504,7 +504,7 @@ impl CheckedTemplateTemporary {
 /// Canonical type, constant-term, and dependency-contract handles are resolved through their
 /// semantic store when encoding. Their store-local numeric representations are never serialized.
 /// All operation identities are template-local, and all declaration references use stable
-/// external symbol keys.
+/// stable symbol keys.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedTemplate {
     kind: CheckedTemplateKind,
@@ -571,8 +571,8 @@ impl CheckedTemplate {
 #[cfg(test)]
 mod tests {
     use bray_symbols::{
-        DependencyContractTemplateData, ExternalSymbolKey, LifecycleObligationKind,
-        PackageIdentity, SemanticValueStore,
+        DependencyContractTemplateData, LifecycleObligationKind, PackageIdentity,
+        SemanticValueStore, SymbolKey,
     };
 
     use super::{
@@ -678,11 +678,11 @@ mod tests {
         dependencies
     }
 
-    fn external_key(package: &str) -> ExternalSymbolKey {
+    fn external_key(package: &str) -> SymbolKey {
         let Some(package) = PackageIdentity::try_new(package) else {
             panic!("test package identity must be valid");
         };
 
-        ExternalSymbolKey::package(package)
+        SymbolKey::external(bray_symbols::ExternalSymbolKey::package(package))
     }
 }

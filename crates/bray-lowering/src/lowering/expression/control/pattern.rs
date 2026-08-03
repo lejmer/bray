@@ -219,12 +219,8 @@ impl Lowerer<'_> {
         let source = self.source(pattern_node.origin());
 
         if pattern_node.kind() == BoundPatternKind::Alternative {
-            let subject = self.project_pattern_subject(
-                pattern,
-                subject,
-                current,
-                PatternOperation::Observe,
-            )?;
+            let subject =
+                self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?;
 
             let mut candidate = current;
 
@@ -275,12 +271,7 @@ impl Lowerer<'_> {
         let subject = if projects_after_test {
             subject
         } else {
-            self.project_pattern_subject(
-                pattern,
-                subject,
-                current,
-                PatternOperation::Observe,
-            )?
+            self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?
         };
 
         let children_entry = match (fact.test(), pattern_node.children().is_empty()) {

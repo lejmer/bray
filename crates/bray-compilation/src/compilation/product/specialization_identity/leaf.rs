@@ -9,7 +9,7 @@ use bray_symbols::{
 
 use super::encoding::StructuralValueEncoder;
 
-impl StructuralValueEncoder<'_> {
+impl StructuralValueEncoder<'_, '_> {
     pub(super) fn integer(&mut self, value: &IntegerConstant) {
         self.integer_sign(value.sign());
         self.bytes(value.magnitude());

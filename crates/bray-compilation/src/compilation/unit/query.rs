@@ -1289,15 +1289,15 @@ mod tests {
         let request = CompilationRequest::new(
             package,
             vec![
-                source_input(include_str!("../../../../../standard-library/std/src/std.bray"), 0),
+                source_input(
+                    include_str!("../../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
                 source_input(
                     include_str!("../../../../../standard-library/std/src/memory.bray"),
                     1,
                 ),
-                source_input(
-                    source,
-                    2,
-                ),
+                source_input(source, 2),
             ],
         )
         .with_standard_library_source_authority();
@@ -2923,7 +2923,11 @@ mod tests {
             .lowered_unit(key)
             .unwrap_or_else(|error| panic!("borrowed receiver call must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:?}",
+            lowered.diagnostics()
+        );
     }
 
     #[test]

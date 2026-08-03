@@ -6,8 +6,8 @@ use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
 };
-use bray_source::{SourceInput, SourceSpan};
 use bray_runtime_interface::PlatformServiceBinding;
+use bray_source::{SourceInput, SourceSpan};
 pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,

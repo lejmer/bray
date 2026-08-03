@@ -26,7 +26,9 @@ use bray_bound_tree::{
     CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, SelectedCall,
     SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
-use bray_symbols::{CallableSignatureFact, ConstantTermId, ConstantValueId, GenericConstraintsFact};
+use bray_symbols::{
+    CallableSignatureFact, ConstantTermId, ConstantValueId, GenericConstraintsFact,
+};
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
 /// The standard Bray control-flow checker implementation.

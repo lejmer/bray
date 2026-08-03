@@ -24,14 +24,12 @@ impl Compilation {
             return Ok(CodegenSpecialization::NonGeneric);
         }
 
-        let symbols = self.symbol_graph()?;
+        let facts = self.binder_facts(&self.state.cancellation)?;
 
         let arguments = substitution
             .bindings()
             .iter()
-            .map(|binding| {
-                StructuralValueEncoder::argument_key(values, symbols, binding.argument())
-            })
+            .map(|binding| StructuralValueEncoder::argument_key(values, &facts, binding.argument()))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(CodegenSpecialization::generic(arguments))

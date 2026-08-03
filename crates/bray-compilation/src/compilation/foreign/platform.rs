@@ -40,10 +40,14 @@ pub(super) fn platform_service_role(
         .iter()
         .filter(|binding| {
             binding.declaration() == name
-                && binding.module().eq(module.segments().iter().map(String::as_str))
+                && binding
+                    .module()
+                    .eq(module.segments().iter().map(String::as_str))
         });
 
-    let role = matched.next().map(bray_runtime_interface::PlatformServiceBinding::role);
+    let role = matched
+        .next()
+        .map(bray_runtime_interface::PlatformServiceBinding::role);
 
     if matched.next().is_some() {
         return Err(FactQueryError::InfrastructureFailure);

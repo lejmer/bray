@@ -133,13 +133,15 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         if kind == InterfaceSemanticFactKind::GenericDeclaration {
-            let index = self.one_record_index(
+            let index = self.optional_record_index(
                 directory,
                 InterfaceSemanticFactKind::GenericDeclaration,
                 InterfaceSectionTag::DeclarationFacts,
             )?;
 
-            self.enqueue(PendingRecord::GenericDeclaration(index));
+            if let Some(index) = index {
+                self.enqueue(PendingRecord::GenericDeclaration(index));
+            }
         }
 
         if kind == InterfaceSemanticFactKind::DeclaredType {
@@ -267,6 +269,21 @@ impl<'bytes> SelectionBuilder<'bytes> {
         };
 
         Ok(*index)
+    }
+
+    fn optional_record_index(
+        &self,
+        directory: &[InterfaceSemanticFactEntry],
+        kind: InterfaceSemanticFactKind,
+        section: InterfaceSectionTag,
+    ) -> Result<Option<u32>, InterfaceValidationError> {
+        let indexes = self.record_indexes(directory, kind, section)?;
+
+        match indexes.as_slice() {
+            [] => Ok(None),
+            [index] => Ok(Some(*index)),
+            _ => Err(InterfaceValidationError::Malformed),
+        }
     }
 
     fn include_callable_signature(&mut self, index: u32) -> Result<(), InterfaceValidationError> {

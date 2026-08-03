@@ -1,40 +1,41 @@
 use std::hash::{Hash, Hasher};
 
 use bray_base::StableDigestHasher;
+use bray_binder::BinderFactContext;
 use bray_codegen::{CodegenGenericArgument, CodegenValueKey};
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
     DependencyContractTemplateId, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionId,
-    ImplementationInstanceId, SemanticValueStore, SymbolGraph, TraitApplicationId, TypeData,
-    TypeId,
+    ImplementationInstanceId, SemanticValueStore, TraitApplicationId, TypeData, TypeId,
 };
 
+use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
 use crate::fact::FactQueryError;
 
 pub(in crate::compilation::product) fn structural_type_identity(
     values: &SemanticValueStore,
-    symbols: &SymbolGraph,
+    facts: &CompilationBinderFacts<'_>,
     ty: TypeId,
 ) -> Result<[u8; 32], FactQueryError> {
-    StructuralValueEncoder::type_identity(values, symbols, ty)
+    StructuralValueEncoder::type_identity(values, facts, ty)
 }
 
-pub(super) struct StructuralValueEncoder<'a> {
-    values: &'a SemanticValueStore,
-    symbols: &'a SymbolGraph,
+pub(super) struct StructuralValueEncoder<'facts, 'compilation> {
+    values: &'facts SemanticValueStore,
+    facts: &'facts CompilationBinderFacts<'compilation>,
     pub(super) digest: StableDigestHasher,
 }
 
-impl<'a> StructuralValueEncoder<'a> {
+impl<'facts, 'compilation> StructuralValueEncoder<'facts, 'compilation> {
     fn type_identity(
-        values: &'a SemanticValueStore,
-        symbols: &'a SymbolGraph,
+        values: &'facts SemanticValueStore,
+        facts: &'facts CompilationBinderFacts<'compilation>,
         ty: TypeId,
     ) -> Result<[u8; 32], FactQueryError> {
         let CodegenGenericArgument::Type(key) =
-            Self::argument_key(values, symbols, GenericArgument::Type(ty))?
+            Self::argument_key(values, facts, GenericArgument::Type(ty))?
         else {
             return Err(FactQueryError::InfrastructureFailure);
         };
@@ -43,8 +44,8 @@ impl<'a> StructuralValueEncoder<'a> {
     }
 
     pub(super) fn argument_key(
-        values: &'a SemanticValueStore,
-        symbols: &'a SymbolGraph,
+        values: &'facts SemanticValueStore,
+        facts: &'facts CompilationBinderFacts<'compilation>,
         argument: GenericArgument,
     ) -> Result<CodegenGenericArgument, FactQueryError> {
         let (domain, kind) = match argument {
@@ -60,7 +61,7 @@ impl<'a> StructuralValueEncoder<'a> {
 
         let mut encoder = Self {
             values,
-            symbols,
+            facts,
             digest: StableDigestHasher::new(),
         };
 
@@ -651,8 +652,9 @@ impl<'a> StructuralValueEncoder<'a> {
 
     fn symbol(&mut self, id: AnySymbolId) -> Result<(), FactQueryError> {
         let key = self
-            .symbols
+            .facts
             .symbol_key(id)
+            .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         key.hash(&mut self.digest);

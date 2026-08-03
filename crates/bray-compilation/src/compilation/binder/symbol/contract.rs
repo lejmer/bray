@@ -602,11 +602,11 @@ fn bind_callable_static_constraints(
         let ordinal = symbol_ordinal(predicates.len())?;
 
         let clause = if let Some(satisfaction) = expression.trait_satisfaction_constraint() {
-            let subject = type_binder(context, owner)?
-                .bind_type_expression(satisfaction.subject())?;
+            let subject =
+                type_binder(context, owner)?.bind_type_expression(satisfaction.subject())?;
 
-            let application = type_binder(context, owner)?
-                .bind_trait_application(satisfaction.application())?;
+            let application =
+                type_binder(context, owner)?.bind_trait_application(satisfaction.application())?;
 
             *diagnostics = diagnostics.merged(subject.diagnostics());
             *diagnostics = diagnostics.merged(application.diagnostics());
@@ -637,11 +637,7 @@ fn bind_callable_static_constraints(
                 return Err(BinderFactError::DependencyUnavailable);
             };
 
-            CallableContractClause::new(
-                ordinal,
-                CallableContractClauseKind::Static,
-                *predicate,
-            )
+            CallableContractClause::new(ordinal, CallableContractClauseKind::Static, *predicate)
         };
 
         predicates.push(clause);
