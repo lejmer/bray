@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_standard_library::{PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PackageSourceAuthority};
+use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
 use serde::de::DeserializeOwned;
 
@@ -114,9 +114,7 @@ pub(super) fn package_identity(
     manifest_path: &Path,
     source_authority: PackageSourceAuthority,
 ) -> Result<PackageIdentity, ProjectLoadError> {
-    let permits_single_segment = value == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY;
-
-    if !has_valid_package_identity_syntax(&value, permits_single_segment) {
+    if !has_valid_package_identity_syntax(&value) {
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
             ProjectManifestProblem::InvalidName,
@@ -152,7 +150,7 @@ pub(super) fn package_identity(
 
 /// Returns whether a package identity is valid for ordinary project source.
 pub fn is_valid_ordinary_package_identity(value: &str) -> bool {
-    if !has_valid_package_identity_syntax(value, false) {
+    if !has_valid_package_identity_syntax(value) {
         return false;
     }
 
@@ -199,11 +197,11 @@ fn is_local_name(value: &str) -> bool {
 }
 
 fn is_package_segment(value: &str) -> bool {
-    !value.is_empty() && is_local_name(value) && !value.contains('_')
+    is_local_name(value)
 }
 
-fn has_valid_package_identity_syntax(value: &str, permits_single_segment: bool) -> bool {
-    value.split('.').all(is_package_segment) && (value.contains('.') || permits_single_segment)
+fn has_valid_package_identity_syntax(value: &str) -> bool {
+    value.split('.').all(is_package_segment)
 }
 
 fn is_path_prefix(prefix: &str, path: &str) -> bool {
@@ -252,7 +250,7 @@ mod tests {
                 manifest,
                 PackageSourceAuthority::Ordinary,
             )
-            .is_err()
+            .is_ok()
         );
 
         assert!(
@@ -261,11 +259,12 @@ mod tests {
                 manifest,
                 PackageSourceAuthority::Ordinary,
             )
-            .is_err()
+            .is_ok()
         );
 
         assert!(is_valid_ordinary_package_identity("example.math"));
-        assert!(!is_valid_ordinary_package_identity("example"));
+        assert!(is_valid_ordinary_package_identity("example.math_core"));
+        assert!(is_valid_ordinary_package_identity("example"));
         assert!(!is_valid_ordinary_package_identity("std.io"));
     }
 

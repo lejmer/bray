@@ -51,6 +51,8 @@ pub enum DiagnosticNoteKind {
     SourceInputNeedsStableIdentity,
     /// Positive worker budget requirement.
     WorkerBudgetMustBePositive,
+    /// Accepted package identity spelling and authority.
+    PackageIdentityMustBeValid,
     /// Character rejected by the lexer.
     CharacterNotAccepted,
     /// Byte order mark placement rule.
@@ -90,6 +92,7 @@ impl DiagnosticNoteKind {
             Self::SourceInputRequired => "source_input_required",
             Self::SourceInputNeedsStableIdentity => "source_input_needs_stable_identity",
             Self::WorkerBudgetMustBePositive => "worker_budget_must_be_positive",
+            Self::PackageIdentityMustBeValid => "package_identity_must_be_valid",
             Self::CharacterNotAccepted => "character_not_accepted",
             Self::BomOnlyAllowedAtStart => "bom_only_allowed_at_start",
             Self::LineBreaksMustBeLfOrCrlf => "line_breaks_must_be_lf_or_crlf",
