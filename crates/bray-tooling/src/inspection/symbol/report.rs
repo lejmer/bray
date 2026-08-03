@@ -670,12 +670,12 @@ fn render_text_report(report: &SymbolInspectionReport) -> String {
 #[cfg(test)]
 mod tests {
     use bray_compilation::Compilation;
-    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::PackageIdentity;
+    use bray_testing::test_source_inputs;
     use serde_json::Value;
 
     use super::render_symbol_inspection;
     use crate::OutputFormat;
+    use crate::test_support::package_identity;
 
     const SOURCE: &str = concat!(
         "module example;\n",
@@ -847,28 +847,8 @@ mod tests {
     }
 
     fn compilation<const N: usize>(sources: [&str; N]) -> Compilation {
-        let inputs = sources
-            .into_iter()
-            .enumerate()
-            .map(|(index, text)| {
-                let identity = match u32::try_from(index) {
-                    Ok(index) => SourceIdentity::new(index),
-                    Err(_) => panic!("test source index must fit"),
-                };
-
-                SourceInput::virtual_text(
-                    identity,
-                    format!("test-{index}.bray"),
-                    SourceVersion::new(0),
-                    text,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let package = match PackageIdentity::try_new("test.package") {
-            Some(package) => package,
-            None => panic!("test package identity must be valid"),
-        };
+        let inputs = test_source_inputs("test", sources);
+        let package = package_identity();
 
         match Compilation::load_sources(package, inputs) {
             Ok(compilation) => compilation,

@@ -516,8 +516,13 @@ impl Workspace {
         request = request.with_dependency_interfaces(self.dependency_interfaces(product)?);
 
         if product.kind() == bray_symbols::ProductKind::Library {
+            let Some(package) = self.graph.package(product.identity().package()) else {
+                return Err(WorkspaceError::ProductNotFound);
+            };
+
             request = request.with_package_interface_export(package_interface_export_request(
                 product.identity().clone(),
+                package.version(),
             ));
         }
 
@@ -947,6 +952,7 @@ mod tests {
             fixture.path().join("bray-workspace.json"),
             r#"{
                 "format": 1,
+                "package": {"version": "0.1.0"},
                 "output_root": "build",
                 "targets": [
                     {
@@ -975,6 +981,7 @@ mod tests {
             r#"{
                 "format": 1,
                 "identity": "example.application",
+                "version": {"workspace": true},
                 "features": [],
                 "source_roots": [
                     {
@@ -1006,6 +1013,7 @@ mod tests {
             r#"{
                 "format": 1,
                 "identity": "example.math",
+                "version": "1.0.0",
                 "features": [],
                 "source_roots": [
                     {

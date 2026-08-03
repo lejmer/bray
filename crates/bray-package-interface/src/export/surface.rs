@@ -153,6 +153,7 @@ mod tests {
     use bray_symbols::{ExternalSymbolKey, ModulePathKey, PackageIdentity, SymbolName};
 
     use super::build_package_interface_surface;
+    use crate::test_support::package_version;
     use crate::{
         ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
         ExportedLookupKind, InterfaceContentHash, InterfaceDependency, InterfaceLanguageRevision,
@@ -207,6 +208,7 @@ mod tests {
 
         let Some(identity) = PackageInterfaceIdentity::try_new(
             package_identity,
+            package_version(),
             product("library"),
             InterfaceProductKind::Library,
             "public-v1",

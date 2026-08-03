@@ -2,7 +2,8 @@ use std::str;
 use std::sync::Arc;
 
 use bray_symbols::{
-    CallablePosition, ImportedSymbolIdentityInput, InterfaceSymbolId, PackageIdentity, SymbolName,
+    CallablePosition, ImportedSymbolIdentityInput, InterfaceSymbolId, PackageIdentity,
+    PackageVersion, SymbolName,
 };
 
 use super::{
@@ -133,14 +134,17 @@ pub(crate) fn decode_metadata(
     }
 
     let mut reader = WireReader::new(section.bytes());
+
     let package = package_identity(read_string(&mut reader, strings)?)?;
+    let version = package_version(read_string(&mut reader, strings)?)?;
     let product = product_identity(read_string(&mut reader, strings)?)?;
+
     let kind = read_tag(&mut reader)?;
     let public_surface = read_string(&mut reader, strings)?;
 
     reader.finish().map_err(map_wire_error)?;
 
-    PackageInterfaceIdentity::try_new(package, product, kind, Arc::clone(public_surface))
+    PackageInterfaceIdentity::try_new(package, version, product, kind, Arc::clone(public_surface))
         .ok_or(InterfaceValidationError::Malformed)
 }
 
@@ -293,6 +297,10 @@ pub(super) fn package_identity(
     value: &Arc<str>,
 ) -> Result<PackageIdentity, InterfaceValidationError> {
     PackageIdentity::try_new(Arc::clone(value)).ok_or(InterfaceValidationError::Malformed)
+}
+
+fn package_version(value: &str) -> Result<PackageVersion, InterfaceValidationError> {
+    PackageVersion::try_new(value).ok_or(InterfaceValidationError::Malformed)
 }
 
 fn product_identity(

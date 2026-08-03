@@ -1,6 +1,7 @@
 {
   "format": 1,
   "identity": "std",
+  "version": { "workspace": true },
   "source_roots": [
     { "name": "library", "path": "src" }
   ],

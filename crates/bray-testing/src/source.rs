@@ -1,6 +1,6 @@
 use bray_source::{
-    SourceId, SourceIdentity, SourceLoadError, SourceOrigin, SourceSnapshot, SourceStore,
-    SourceVersion,
+    SourceId, SourceIdentity, SourceInput, SourceLoadError, SourceOrigin, SourceSnapshot,
+    SourceStore, SourceVersion,
 };
 
 /// Creates a virtual source snapshot for tests.
@@ -23,6 +23,27 @@ pub fn test_source_store(texts: impl IntoIterator<Item = impl AsRef<str>>) -> So
         Ok(store) => store,
         Err(error) => panic!("test source should insert successfully: {error:?}"),
     }
+}
+
+/// Creates indexed virtual source inputs with readable test names.
+pub fn test_source_inputs(
+    name_prefix: &str,
+    texts: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Vec<SourceInput> {
+    texts
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| {
+            let identity = SourceIdentity::new(raw_source_identity(index));
+
+            SourceInput::virtual_text(
+                identity,
+                format!("{name_prefix}-{index}.bray"),
+                SourceVersion::new(0),
+                text.as_ref(),
+            )
+        })
+        .collect()
 }
 
 /// Returns a test source snapshot by compact source index.

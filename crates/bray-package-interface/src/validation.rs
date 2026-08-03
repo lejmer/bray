@@ -391,6 +391,7 @@ mod tests {
     use crate::header::InterfaceHeader;
     use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
     use crate::section::{DirectoryEntry, InterfaceSectionTag, OPTIONAL_NON_SEMANTIC_SECTION_FLAG};
+    use crate::test_support::package_version;
     use crate::{
         CURRENT_FORMAT_REVISION, InterfaceLanguageRevision, InterfaceProductIdentity,
         InterfaceProductKind, PackageInterfaceIdentity,
@@ -901,6 +902,7 @@ mod tests {
 
         PackageInterfaceIdentity::try_new(
             package,
+            package_version(),
             product,
             InterfaceProductKind::Library,
             "public-v1",

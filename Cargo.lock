@@ -504,6 +504,7 @@ dependencies = [
  "bray-syntax",
  "bray-target",
  "bray-testing",
+ "semver",
 ]
 
 [[package]]

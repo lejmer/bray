@@ -5,7 +5,7 @@ use bray_base::NonEmptySharedStr;
 pub use bray_symbols::SymbolRelationshipKind;
 use bray_symbols::{
     CallablePosition, ExternalSymbolKey, ImportedIdentitySurfaceError,
-    ImportedPackageIdentitySurface, InterfaceSymbolId, PackageIdentity, SymbolName,
+    ImportedPackageIdentitySurface, InterfaceSymbolId, PackageIdentity, PackageVersion, SymbolName,
 };
 
 use crate::InterfaceContentHash;
@@ -49,6 +49,7 @@ pub enum InterfaceProductKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PackageInterfaceIdentity {
     package: PackageIdentity,
+    version: PackageVersion,
     product: InterfaceProductIdentity,
     kind: InterfaceProductKind,
     public_surface: NonEmptySharedStr,
@@ -58,6 +59,7 @@ impl PackageInterfaceIdentity {
     /// Creates package metadata when the package layer supplied a non-empty surface identity.
     pub fn try_new(
         package: PackageIdentity,
+        version: PackageVersion,
         product: InterfaceProductIdentity,
         kind: InterfaceProductKind,
         public_surface: impl Into<Arc<str>>,
@@ -66,6 +68,7 @@ impl PackageInterfaceIdentity {
 
         Some(Self {
             package,
+            version,
             product,
             kind,
             public_surface,
@@ -75,6 +78,11 @@ impl PackageInterfaceIdentity {
     /// Returns the package identity shared by package products.
     pub const fn package(&self) -> &PackageIdentity {
         &self.package
+    }
+
+    /// Returns the semantic version of the package that produced this interface.
+    pub const fn version(&self) -> &PackageVersion {
+        &self.version
     }
 
     /// Returns the selected product identity.

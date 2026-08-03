@@ -481,6 +481,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_package_semantic_versions() {
+        let invocation = DriverInvocation::try_from_arguments([
+            "brayc",
+            "--package-version",
+            "2.3.4-beta.1+build.5",
+            "check",
+            "main.bray",
+        ])
+        .unwrap_or_else(|error| panic!("package version should parse: {error:?}"));
+
+        assert_eq!(
+            invocation
+                .options()
+                .compilation()
+                .package_version()
+                .to_string(),
+            "2.3.4-beta.1+build.5"
+        );
+    }
+
+    #[test]
     fn rejects_unpaired_dependency_inputs() {
         assert!(
             DriverInvocation::try_from_arguments([

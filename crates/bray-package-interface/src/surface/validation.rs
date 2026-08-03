@@ -280,6 +280,7 @@ fn validate_export_target(
 mod tests {
     use bray_symbols::PackageIdentity;
 
+    use crate::test_support::package_version;
     use crate::{
         InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind,
         PackageInterfaceIdentity, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
@@ -320,7 +321,13 @@ mod tests {
     }
 
     fn identity(kind: InterfaceProductKind) -> PackageInterfaceIdentity {
-        match PackageInterfaceIdentity::try_new(package("example"), product("main"), kind, "v1") {
+        match PackageInterfaceIdentity::try_new(
+            package("example"),
+            package_version(),
+            product("main"),
+            kind,
+            "v1",
+        ) {
             Some(identity) => identity,
             None => panic!("test package-interface identity must be valid"),
         }

@@ -65,7 +65,7 @@ but they remain a separate artifact contract. They must not be smuggled into imp
 
 A compiled package interface is an immutable `.brayi` artifact emitted for one successfully checked library product surface.
 
-The artifact contains package identity, dependency references, imported symbol identity records, semantic surface facts, target
+The artifact contains package identity and version, dependency references, imported symbol identity records, semantic surface facts, target
 dependencies, and checked declaration-owned templates.
 
 ### Interface Symbol ID
@@ -608,7 +608,7 @@ The binary header contains:
 - exact interface format revision,
 - language semantic revision,
 - canonical byte-order marker,
-- package identity,
+- package identity and semantic version,
 - product identity and product kind,
 - public-surface identity or build-surface key supplied by the package layer,
 - section-directory offset and length,
@@ -665,7 +665,7 @@ content identity, and otherwise ignore it. Known sections cannot use this flag.
 tags, lengths, and payloads in tag order. It excludes header offsets, section-directory offsets, optional provenance, and other
 explicitly non-semantic tooling sections.
 
-The content hash covers package and product identity, language semantic revision, every symbol, relationship, semantic fact, support
+The content hash covers package identity and version, product identity, language semantic revision, every symbol, relationship, semantic fact, support
 entity, dependency reference, and target dependency that can affect a consumer. Dependency tables record expected content hashes
 when exact dependency semantics are required.
 
@@ -683,7 +683,7 @@ Neither hash is a package signature or trust proof. Artifact authenticity belong
 
 The current library product's compiled interface is a lazy compilation fact, conceptually keyed by:
 
-- package identity,
+- package identity and semantic version,
 - product identity and selected public source graph,
 - selected dependency interface identities and hashes,
 - selected target profile facts relevant to the surface,
@@ -911,7 +911,7 @@ The cache identity of a loaded interface includes:
 - semantic content hash for imported semantic facts,
 - format revision,
 - language semantic revision,
-- package and product identity,
+- package identity and semantic version, and product identity,
 - required dependency hashes,
 - relevant target compatibility facts.
 

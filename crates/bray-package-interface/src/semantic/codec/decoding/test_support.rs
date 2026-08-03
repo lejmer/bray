@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use bray_symbols::{ExternalSymbolKey, PackageIdentity, SymbolKind};
 
-use crate::test_support::insert_key_and_owners;
+use crate::test_support::{insert_key_and_owners, package_version};
 use crate::{
     EncodedSemanticSection, ExportSymbolInput, InterfaceContentHash, InterfaceDependency,
     InterfaceProductIdentity, InterfaceProductKind, InterfaceSectionTag, PackageInterfaceIdentity,
@@ -230,6 +230,7 @@ pub(super) fn key_by_kind(
 fn package_interface_identity(package: PackageIdentity) -> PackageInterfaceIdentity {
     PackageInterfaceIdentity::try_new(
         package,
+        package_version(),
         product_identity("library"),
         InterfaceProductKind::Library,
         "test-surface",

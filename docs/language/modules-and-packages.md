@@ -8,6 +8,7 @@ Modules and packages define package identity, product source graphs, module iden
 
 - [Overview](modules-and-packages/overview.md)
 - [Module paths and package identity](modules-and-packages/module-paths-and-package-identity.md)
+- [Package versions](modules-and-packages/package-versions.md)
 - [Package products and source graphs](modules-and-packages/package-products-and-source-graphs.md)
 - [Conditional module contributions](modules-and-packages/conditional-module-contributions.md)
 - [Library and executable products](modules-and-packages/library-and-executable-products.md)

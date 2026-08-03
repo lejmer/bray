@@ -1,6 +1,9 @@
 {
   "format": 1,
   "identity": "hello_world",
+  "version": {
+    "workspace": true
+  },
   "features": [],
   "source_roots": [
     {

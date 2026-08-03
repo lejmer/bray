@@ -18,6 +18,7 @@ impl ProjectWorkspace {
             "bray-workspace.json",
             r#"{
                 "format": 1,
+                "package": {"version": "0.1.0"},
                 "output_root": "build",
                 "targets": [
                     {
@@ -40,6 +41,7 @@ impl ProjectWorkspace {
             r#"{
                 "format": 1,
                 "identity": "example.application",
+                "version": {"workspace": true},
                 "features": [],
                 "source_roots": [
                     {
@@ -72,6 +74,7 @@ impl ProjectWorkspace {
             "bray-workspace.json",
             r#"{
                 "format": 1,
+                "package": {"version": "0.1.0"},
                 "output_root": "build",
                 "targets": [
                     {
@@ -99,6 +102,7 @@ impl ProjectWorkspace {
             r#"{
                 "format": 1,
                 "identity": "example.application",
+                "version": {"workspace": true},
                 "features": [],
                 "source_roots": [
                     {
@@ -129,6 +133,7 @@ impl ProjectWorkspace {
             r#"{
                 "format": 1,
                 "identity": "example.math",
+                "version": "1.0.0",
                 "features": [],
                 "source_roots": [
                     {

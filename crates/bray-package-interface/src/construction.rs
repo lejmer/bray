@@ -341,14 +341,15 @@ mod tests {
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
         AnySymbolId, ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolIdentityInput,
-        InterfaceSymbolId, MemberLookupResult, ModulePathKey, PackageIdentity, SymbolId,
-        SymbolKind, SymbolName,
+        InterfaceSymbolId, MemberLookupResult, ModulePathKey, PackageIdentity, SymbolId, SymbolKind,
+        SymbolName,
     };
 
     use super::{
         ImportedInterfaceSymbolResolver, ImportedSymbolConstructionError, LoadedInterfaceSurface,
         construct_imported_symbol_skeletons,
     };
+    use crate::test_support::package_version;
     use crate::{
         DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceContentHash,
         InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind,
@@ -640,6 +641,7 @@ mod tests {
 
         let Some(identity) = PackageInterfaceIdentity::try_new(
             package,
+            package_version(),
             product(product_name),
             InterfaceProductKind::Library,
             "public-v1",

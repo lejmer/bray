@@ -2,7 +2,8 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote,
+    DiagnosticNoteKind, SeverityKind,
 };
 
 /// Exact validation failure in a syntactically valid project manifest.
@@ -14,6 +15,10 @@ pub enum ProjectManifestProblem {
     InvalidPath,
     /// A package, product, feature, source-root, or target name is malformed.
     InvalidName,
+    /// A package version is not a valid semantic version.
+    InvalidPackageVersion,
+    /// A package inherits a version not declared by its workspace.
+    MissingWorkspacePackageVersion,
     /// An ordinary project package claims the reserved standard library namespace.
     ReservedPackageIdentity,
     /// A standard library project package is outside the reserved namespace.
@@ -109,9 +114,23 @@ impl ProjectLoadError {
                 path,
                 problem,
                 value,
-            } => Diagnostic::new(id, diagnostic_kind(problem), SeverityKind::Error)
-                .with_arg(DiagnosticArg::file_path(path))
-                .with_arg(DiagnosticArg::referenced_name(value)),
+            } => {
+                let diagnostic = Diagnostic::new(id, diagnostic_kind(problem), SeverityKind::Error)
+                    .with_arg(DiagnosticArg::file_path(path))
+                    .with_arg(DiagnosticArg::referenced_name(value));
+
+                if matches!(
+                    problem,
+                    ProjectManifestProblem::InvalidPackageVersion
+                        | ProjectManifestProblem::MissingWorkspacePackageVersion
+                ) {
+                    diagnostic.with_note(DiagnosticNote::new(
+                        DiagnosticNoteKind::PackageVersionMustBeValid,
+                    ))
+                } else {
+                    diagnostic
+                }
+            }
         }
     }
 }
@@ -126,6 +145,10 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
             DiagnosticKind::ProjectDependencyProductInvalid
         }
         ProjectManifestProblem::DependencyCycle => DiagnosticKind::ProjectDependencyCycle,
+        ProjectManifestProblem::InvalidPackageVersion
+        | ProjectManifestProblem::MissingWorkspacePackageVersion => {
+            DiagnosticKind::ProjectPackageVersionInvalid
+        }
         ProjectManifestProblem::ReservedPackageIdentity => {
             DiagnosticKind::ProjectPackageIdentityReserved
         }

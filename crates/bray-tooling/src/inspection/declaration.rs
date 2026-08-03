@@ -504,7 +504,7 @@ fn render_text_report(report: &DeclarationInspectionReport) -> String {
 #[cfg(test)]
 mod tests {
     use bray_compilation::Compilation;
-    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_testing::test_source_inputs;
 
     use super::render_declaration_inspection;
     use crate::OutputFormat;
@@ -590,18 +590,7 @@ mod tests {
     }
 
     fn compilation<const N: usize>(sources: [&str; N]) -> Compilation {
-        let inputs = sources
-            .into_iter()
-            .enumerate()
-            .map(|(index, text)| {
-                SourceInput::virtual_text(
-                    SourceIdentity::new(u32::try_from(index).unwrap_or(u32::MAX)),
-                    format!("source-{index}.bray"),
-                    SourceVersion::new(0),
-                    text,
-                )
-            })
-            .collect::<Vec<_>>();
+        let inputs = test_source_inputs("source", sources);
 
         match Compilation::load_sources(package_identity(), inputs) {
             Ok(compilation) => compilation,

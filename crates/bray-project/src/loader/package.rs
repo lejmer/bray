@@ -4,12 +4,13 @@ use std::sync::Arc;
 use bray_base::sorted_unique_shared_slice;
 use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_standard_library::PackageSourceAuthority;
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
 
 use crate::manifest::{
     DependencyManifest, OutputKindManifest, PackageManifest, PackageRoleManifest,
-    ProductKindManifest, ProductManifest, SourceRootManifest, WorkspacePackageManifest,
+    PackageVersionManifest, ProductKindManifest, ProductManifest, SourceRootManifest,
+    WorkspacePackageManifest,
 };
 use crate::{
     FeatureName, PackageRole, ProjectLoadError, ProjectManifestProblem, ProjectPackage,
@@ -29,6 +30,7 @@ pub(super) struct PendingDependency {
 
 pub(super) struct PendingPackage {
     pub identity: PackageIdentity,
+    pub version: PackageVersion,
     pub role: PackageRole,
     pub path: ProjectPath,
     pub manifest_path: PathBuf,
@@ -43,6 +45,7 @@ impl PendingPackage {
     pub fn finish(self, dependencies: Arc<[crate::ProjectDependency]>) -> ProjectPackage {
         ProjectPackage::new(
             self.identity,
+            self.version,
             self.role,
             self.path,
             self.declared_features,
@@ -60,6 +63,7 @@ pub(super) fn load_package(
     targets: &[ProjectTarget],
     output_root: &ProjectPath,
     workspace_manifest_path: &Path,
+    workspace_package_version: Option<&PackageVersion>,
     source_authority: PackageSourceAuthority,
 ) -> Result<PendingPackage, ProjectLoadError> {
     let package_path = project_path(selection.path, true, workspace_manifest_path)?;
@@ -73,6 +77,7 @@ pub(super) fn load_package(
     require_format(manifest.format, &manifest_path)?;
 
     let identity = package_identity(manifest.identity, &manifest_path, source_authority)?;
+    let version = package_version(manifest.version, workspace_package_version, &manifest_path)?;
     let declared_feature_names = sorted_unique_names(manifest.features, &manifest_path)?;
     let enabled_feature_names = sorted_unique_names(selection.features, workspace_manifest_path)?;
 
@@ -125,6 +130,7 @@ pub(super) fn load_package(
 
     Ok(PendingPackage {
         identity,
+        version,
         role,
         path: package_path,
         manifest_path,
@@ -134,6 +140,37 @@ pub(super) fn load_package(
         dependencies,
         products,
     })
+}
+
+fn package_version(
+    manifest: PackageVersionManifest,
+    workspace_version: Option<&PackageVersion>,
+    manifest_path: &Path,
+) -> Result<PackageVersion, ProjectLoadError> {
+    match manifest {
+        PackageVersionManifest::Explicit(value) => PackageVersion::try_new(&value).ok_or_else(|| {
+            ProjectLoadError::invalid(
+                manifest_path.to_path_buf(),
+                ProjectManifestProblem::InvalidPackageVersion,
+                value,
+            )
+        }),
+        PackageVersionManifest::Inherited(inherited) if inherited.workspace => {
+            // Package nodes share the immutable Arc-backed workspace version.
+            workspace_version.cloned().ok_or_else(|| {
+                ProjectLoadError::invalid(
+                    manifest_path.to_path_buf(),
+                    ProjectManifestProblem::MissingWorkspacePackageVersion,
+                    "version",
+                )
+            })
+        }
+        PackageVersionManifest::Inherited(_) => Err(ProjectLoadError::invalid(
+            manifest_path.to_path_buf(),
+            ProjectManifestProblem::InvalidPackageVersion,
+            "workspace",
+        )),
+    }
 }
 
 fn load_source_roots(

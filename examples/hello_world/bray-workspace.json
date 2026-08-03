@@ -1,5 +1,8 @@
 {
   "format": 1,
+  "package": {
+    "version": "0.1.0"
+  },
   "output_root": "build",
   "targets": [
     {

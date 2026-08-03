@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bray_diagnostics::{DiagnosticId, DiagnosticKind};
+use bray_diagnostics::{DiagnosticId, DiagnosticKind, DiagnosticNoteKind};
 use bray_project::{
     PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, load_project_graph,
     load_standard_library_project_graph,
@@ -34,6 +34,7 @@ fn repository_standard_library_workspace_uses_the_reserved_source_boundary() {
     let package = &graph.packages()[0];
 
     assert_eq!(package.identity().as_str(), "std");
+    assert_eq!(package.version().to_string(), "0.1.0");
     assert_eq!(package.products()[0].identity().name(), "library");
     assert_eq!(package.products()[0].targets().len(), 6);
 }
@@ -75,6 +76,7 @@ fn manifests_load_an_exact_dependency_first_project_graph() {
         .unwrap_or_else(|| panic!("application package must be present"));
 
     assert_eq!(application.role(), PackageRole::Root);
+    assert_eq!(application.version().to_string(), "1.2.3");
 
     assert_eq!(
         application
@@ -116,6 +118,97 @@ fn manifests_load_an_exact_dependency_first_project_graph() {
         graph.package(&identity).map(|package| package.role()),
         Some(PackageRole::Vendored)
     );
+
+    assert_eq!(
+        graph.package(&identity).map(|package| package.version().to_string()),
+        Some(String::from("2.0.0-beta.1"))
+    );
+}
+
+#[test]
+fn package_versions_must_be_semantic_versions() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""version": {"workspace": true}"#,
+        r#""version": "1.2""#,
+    );
+
+    let Err(error) = load_project_graph(workspace.path()) else {
+        panic!("invalid package version must reject the graph");
+    };
+
+    let diagnostic = error.into_diagnostic(DiagnosticId::new(9));
+
+    assert_eq!(diagnostic.kind(), DiagnosticKind::ProjectPackageVersionInvalid);
+    assert_eq!(diagnostic.notes().len(), 1);
+
+    assert_eq!(
+        diagnostic.notes()[0].kind(),
+        DiagnosticNoteKind::PackageVersionMustBeValid
+    );
+}
+
+#[test]
+fn workspace_package_versions_must_be_semantic_versions() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("bray-workspace.json"),
+        r#""package": {"version": "1.2.3"}"#,
+        r#""package": {"version": "1.2"}"#,
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::InvalidPackageVersion,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn package_version_inheritance_must_be_enabled() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""version": {"workspace": true}"#,
+        r#""version": {"workspace": false}"#,
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::InvalidPackageVersion,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn inherited_package_versions_require_workspace_metadata() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("bray-workspace.json"),
+        r#""package": {"version": "1.2.3"},"#,
+        "",
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::MissingWorkspacePackageVersion,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -467,6 +560,7 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
         &format!(
             r#"{{
                 "format": 1,
+                "package": {{"version": "1.2.3"}},
                 "output_root": "build",
                 "targets": {targets},
                 "packages": {packages}
@@ -480,6 +574,7 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
             r#"{{
                 "format": 1,
                 "identity": "example.application",
+                "version": {{"workspace": true}},
                 "features": {app_features},
                 "source_roots": [{{"name": "main", "path": "src"}}],
                 "dependencies": [{{"package": "example.math", "product": "math"}}],
@@ -499,6 +594,7 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
         r#"{
             "format": 1,
             "identity": "example.math",
+            "version": "2.0.0-beta.1",
             "features": ["simd"],
             "source_roots": [{"name": "library", "path": "source"}],
             "dependencies": [],

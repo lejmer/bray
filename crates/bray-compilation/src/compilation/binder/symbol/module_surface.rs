@@ -475,11 +475,11 @@ fn export_conflict_diagnostic(declaration: &DeclarationRecord, name: &SymbolName
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
         AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSurfaceFact, PackageIdentity,
         SymbolFactRequest,
     };
+    use bray_testing::test_source_inputs;
 
     use super::super::test_support::{binder_facts, published_fact, symbol_graph};
     use crate::fact::CancellationToken;
@@ -735,19 +735,9 @@ mod tests {
         let package = PackageIdentity::try_new("example.package")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        let sources = sources.into_iter().enumerate().map(|(index, text)| {
-            let index = u32::try_from(index)
-                .unwrap_or_else(|_| panic!("test source count must fit source identities"));
+        let sources = test_source_inputs("test", sources);
 
-            SourceInput::virtual_text(
-                SourceIdentity::new(index),
-                format!("test-{index}.bray"),
-                SourceVersion::new(0),
-                text,
-            )
-        });
-
-        let result = Compilation::load(CompilationRequest::new(package, sources.collect()));
+        let result = Compilation::load(CompilationRequest::new(package, sources));
 
         match result {
             Ok(compilation) => compilation,

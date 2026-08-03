@@ -35,8 +35,8 @@ configuration evaluator, or second build DSL. The semantic contract is Bray-owne
 serialization change requires a deliberate format revision or a replacement design; it must not silently reinterpret existing
 project files.
 
-The manifests intentionally contain no package versions, version ranges, registries, repository URLs, lockfile references,
-resolution strategies, or acquisition instructions. There is no automatic dependency acquisition.
+Package manifests declare semantic package versions. They do not contain version ranges, registries, repository URLs, lockfile
+references, resolution strategies, or acquisition instructions. There is no automatic dependency acquisition.
 
 ## Portable Paths
 
@@ -63,6 +63,9 @@ The workspace manifest records the complete package inventory and build-wide sel
 ```json
 {
   "format": 1,
+  "package": {
+    "version": "1.4.0"
+  },
   "output_root": "build",
   "targets": [
     {
@@ -88,6 +91,10 @@ The workspace manifest records the complete package inventory and build-wide sel
 `output_root` is the sole workspace-relative root for project build outputs. It may not overlap any declared source root. Target
 entries map a workspace-local canonical name to an exact compiler-facing target identity. No target is inferred from the host.
 
+The optional workspace `package` object supplies metadata that package manifests may explicitly inherit. Its `version` is a
+Semantic Versioning value. The workspace itself is not a package and does not acquire a package identity or version from this
+object.
+
 Every package is listed exactly once by directory. A `root` package is an independently selected workspace build root. A `vendored`
 package is an exact project-owned dependency input. At least one root package is required.
 
@@ -106,6 +113,9 @@ build products:
 {
   "format": 1,
   "identity": "example.application",
+  "version": {
+    "workspace": true
+  },
   "features": ["logging"],
   "source_roots": [
     {
@@ -131,9 +141,13 @@ build products:
 }
 ```
 
-User and vendored package identities contain at least two lowercase ASCII dot-separated segments. Each segment starts with a letter
-and continues with lowercase letters, digits, or `-`. Package identity is independent of directory placement. The toolchain-owned
-`std` package is the sole one-segment exception and is supplied outside the workspace inventory.
+Package identities contain one or more lowercase ASCII dot-separated segments. Each segment starts with a letter and continues
+with lowercase letters, digits, `_`, or `-`. Package identity is independent of directory placement. The toolchain-owned `std`
+namespace is reserved and is supplied outside an ordinary workspace inventory.
+
+Every package declares a [Semantic Versioning](https://semver.org/) version. A package may provide the version directly as a string,
+or explicitly inherit the workspace package version with `{"workspace": true}`. Inheritance is invalid when the workspace has no
+package version. The resolved version is retained in the project graph and compiled package interface.
 
 Package-local names start with a lowercase ASCII letter and continue with lowercase letters, digits, `_`, or `-`. This rule covers
 features, source roots, products, and workspace target names. Every canonical selection is unique.
@@ -156,8 +170,9 @@ permissions, and reproducibility contract as explicit graph nodes before generat
 Each dependency edge names one exact package identity and one exact library product. The selected package must appear in the
 workspace inventory, and the product must appear in that package's manifest with kind `library`.
 
-Dependency edges contain no location, version, range, registry, URL, or fallback. Location is supplied exactly once by the
-workspace's project-owned package inventory. A missing package or product is an error; it never starts a search.
+Dependency edges contain no location, version requirement, range, registry, URL, or fallback. Location and the exact selected
+package version are supplied by the workspace's project-owned package inventory. A missing package or product is an error; it
+never starts a search.
 
 Package dependencies must be acyclic. A dependency package is built before its dependents. Independent packages are ordered by
 canonical package identity, so manifest ordering and parallel scheduling cannot affect the published build order.
@@ -205,7 +220,8 @@ A successful load publishes a `ProjectGraph` containing:
 - the canonical output root,
 - target configurations sorted by workspace-local name,
 - package nodes in dependency-first build order,
-- each package's role, portable directory, declared and enabled features, source roots, dependencies, and products,
+- each package's identity, resolved semantic version, role, portable directory, declared and enabled features, source roots,
+  dependencies, and products,
 - each source root's exact sorted source files,
 - and each product's exact source, target, and output selections.
 
@@ -240,7 +256,7 @@ This contract does not define or imply:
 - remote or ambient package discovery,
 - dependency downloads,
 - transitive acquisition,
-- version solving,
+- version requirement solving,
 - lockfile generation,
 - repository synchronization,
 - build scripts,

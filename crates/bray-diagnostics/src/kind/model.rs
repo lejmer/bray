@@ -54,6 +54,8 @@ define_diagnostic_kinds! {
     ProjectManifestParseFailed,
     /// A Bray project manifest value violates a project invariant.
     ProjectManifestInvalid,
+    /// A Bray package manifest declares an invalid or unavailable semantic version.
+    ProjectPackageVersionInvalid,
     /// An ordinary project package claims the reserved standard library namespace.
     ProjectPackageIdentityReserved,
     /// A standard library project package is outside the reserved namespace.
@@ -449,6 +451,7 @@ impl DiagnosticKind {
             Self::ProjectInitializationPathConflict => 1216,
             Self::ProjectInitializationWriteFailed => 1217,
             Self::ProjectInitializationTargetUnsupported => 1218,
+            Self::ProjectPackageVersionInvalid => 1219,
             Self::FormatterSourceNotFormatted => 1301,
             Self::FormatterSourceInvalidUtf8 => 1302,
             Self::FormatterSourceTooLarge => 1303,
@@ -648,6 +651,7 @@ impl DiagnosticKind {
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
             Self::ProjectManifestInvalid => "project_manifest_invalid",
+            Self::ProjectPackageVersionInvalid => "project_package_version_invalid",
             Self::ProjectPackageIdentityReserved => "project_package_identity_reserved",
             Self::ProjectStandardLibraryPackageIdentityRequired => {
                 "project_standard_library_package_identity_required"

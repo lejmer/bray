@@ -223,6 +223,12 @@ impl<'project> ProjectCompiler<'project> {
             .arg(self.output_format.as_str())
             .arg("--package")
             .arg(product.identity().package().as_str())
+            .arg("--package-version")
+            .arg(
+                self.project_package(product.identity().package())?
+                    .version()
+                    .to_string(),
+            )
             .arg("--product")
             .arg(product.identity().name())
             .arg("--product-kind")

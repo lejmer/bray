@@ -121,6 +121,7 @@ fn write_workspace(root: &Path, target: NativeTarget, workspace: &Path) -> Resul
 
     let workspace_manifest = serde_json::json!({
         "format": 1,
+        "package": { "version": "0.1.0" },
         "output_root": "build",
         "targets": [{
             "name": "native",
@@ -136,6 +137,7 @@ fn write_workspace(root: &Path, target: NativeTarget, workspace: &Path) -> Resul
     let package_manifest = serde_json::json!({
         "format": 1,
         "identity": "example.hello",
+        "version": { "workspace": true },
         "features": [],
         "source_roots": [{
             "name": "main",

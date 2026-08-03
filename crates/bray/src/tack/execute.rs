@@ -884,6 +884,12 @@ mod tests {
 
         assert!(has_argument_pair(
             &request.arguments,
+            "--package-version",
+            "0.1.0"
+        ));
+
+        assert!(has_argument_pair(
+            &request.arguments,
             "--product",
             "application"
         ));

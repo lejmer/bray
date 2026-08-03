@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_symbols::{
     ExternalSymbolKey, InterfaceSupportEntityId, InterfaceSymbolId, ModulePathKey, PackageIdentity,
-    SymbolKind, SymbolName, SymbolOrdinal, SynthesizedSymbolRole,
+    PackageVersion, SymbolKind, SymbolName, SymbolOrdinal, SynthesizedSymbolRole,
 };
 
 use crate::{
@@ -353,6 +353,7 @@ fn identity_surface(
 
     let identity = PackageInterfaceIdentity::try_new(
         package,
+        package_version(),
         product,
         InterfaceProductKind::Library,
         "test-surface",
@@ -361,6 +362,11 @@ fn identity_surface(
 
     build_package_interface_surface(identity, [], records, relationships, exports)
         .unwrap_or_else(|error| panic!("test interface surface must be valid: {error:?}"))
+}
+
+pub fn package_version() -> PackageVersion {
+    PackageVersion::try_new("1.0.0")
+        .unwrap_or_else(|| panic!("test package version must be valid"))
 }
 
 fn template_facts(

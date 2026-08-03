@@ -412,7 +412,10 @@ pub(super) fn compilation_request(
 
     if export_interface {
         request = request.with_package_interface_export(
-            bray_tooling::package_interface_export_request(configuration.product().clone()),
+            bray_tooling::package_interface_export_request(
+                configuration.product().clone(),
+                configuration.package_version(),
+            ),
         );
     }
 

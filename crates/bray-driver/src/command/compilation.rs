@@ -7,7 +7,7 @@ use bray_diagnostics::{
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
 };
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use clap::{Args, ValueEnum};
 
@@ -77,6 +77,7 @@ impl DriverDependencyInterface {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverCompilationConfiguration {
     product: ProductIdentity,
+    package_version: PackageVersion,
     product_kind: ProductKind,
     target: NativeTarget,
     dependencies: Vec<DriverDependencyInterface>,
@@ -86,6 +87,7 @@ impl DriverCompilationConfiguration {
     /// Creates an exact compiler-facing product context.
     pub fn new(
         product: ProductIdentity,
+        package_version: PackageVersion,
         product_kind: ProductKind,
         target: NativeTarget,
         mut dependencies: Vec<DriverDependencyInterface>,
@@ -98,6 +100,7 @@ impl DriverCompilationConfiguration {
 
         Self {
             product,
+            package_version,
             product_kind,
             target,
             dependencies,
@@ -107,6 +110,11 @@ impl DriverCompilationConfiguration {
     /// Returns the exact package-product identity.
     pub const fn product(&self) -> &ProductIdentity {
         &self.product
+    }
+
+    /// Returns the semantic version of the selected package.
+    pub const fn package_version(&self) -> &PackageVersion {
+        &self.package_version
     }
 
     /// Returns the language-level product category.
@@ -134,6 +142,13 @@ pub(crate) struct CliCompilationOptions {
         default_value = "command.line"
     )]
     package: String,
+    #[arg(
+        long = "package-version",
+        global = true,
+        value_name = "VERSION",
+        default_value = "0.0.0"
+    )]
+    package_version: String,
     #[arg(long, global = true, value_name = "NAME")]
     product: Option<String>,
     #[arg(
@@ -168,6 +183,9 @@ impl CliCompilationOptions {
         let package = PackageIdentity::try_new(self.package.clone())
             .ok_or_else(|| invalid_selection(&self.package))?;
 
+        let package_version = PackageVersion::try_new(&self.package_version)
+            .ok_or_else(|| invalid_selection(&self.package_version))?;
+
         let product_name = self
             .product
             .unwrap_or_else(|| self.product_kind.default_product_name().to_owned());
@@ -191,6 +209,7 @@ impl CliCompilationOptions {
 
         Ok(DriverCompilationConfiguration::new(
             product,
+            package_version,
             self.product_kind.into(),
             self.target.into(),
             dependencies,

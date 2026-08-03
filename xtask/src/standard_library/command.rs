@@ -24,7 +24,7 @@ use bray_standard_library::{
     StandardLibraryTargetArtifacts, decode_standard_library_manifest,
     encode_standard_library_manifest,
 };
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
 
@@ -205,8 +205,9 @@ pub(super) fn build(source: &Path, output: &Path) -> Result<PathBuf, BuildError>
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
     let product = standard_library_product(&graph)?;
+    let version = standard_library_version(&graph)?;
 
-    build_product_bundle(product, source, output, product.targets())
+    build_product_bundle(product, version, source, output, product.targets())
 }
 
 pub(crate) fn build_target_bundle(
@@ -226,13 +227,21 @@ fn build_target_bundle_inner(
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
     let product = standard_library_product(&graph)?;
+    let version = standard_library_version(&graph)?;
     let target = TargetIdentity::try_new(target.as_str()).ok_or(BuildError::InvalidIdentity)?;
 
-    build_product_bundle(product, source, output, std::slice::from_ref(&target))
+    build_product_bundle(
+        product,
+        version,
+        source,
+        output,
+        std::slice::from_ref(&target),
+    )
 }
 
 fn build_product_bundle(
     product: &ProjectProduct,
+    version: &PackageVersion,
     source: &Path,
     output: &Path,
     targets: &[TargetIdentity],
@@ -257,7 +266,7 @@ fn build_product_bundle(
     fs::create_dir(&bundle).map_err(|error| BuildError::write(&bundle, error))?;
 
     let work = staging.path().join("work");
-    let manifest = build_bundle(product, source, targets, &work, &bundle)?;
+    let manifest = build_bundle(product, version, source, targets, &work, &bundle)?;
     let manifest_path = bundle.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
     let manifest_bytes = encode_standard_library_manifest(&manifest)
@@ -305,6 +314,7 @@ impl Drop for PublicationLock {
 
 fn build_bundle(
     product: &ProjectProduct,
+    version: &PackageVersion,
     workspace_root: &Path,
     targets: &[TargetIdentity],
     work: &Path,
@@ -320,7 +330,7 @@ fn build_bundle(
     let mut built_targets = Vec::new();
 
     for target in targets {
-        let built = build_target(product, &source_paths, target, work)?;
+        let built = build_target(product, version, &source_paths, target, work)?;
 
         let BuiltTarget {
             selected,
@@ -390,6 +400,7 @@ struct BuiltTarget {
 
 fn build_target(
     product: &ProjectProduct,
+    version: &PackageVersion,
     source_paths: &[PathBuf],
     target: &TargetIdentity,
     work: &Path,
@@ -418,7 +429,7 @@ fn build_target(
         CompilationRequest::with_options(product.identity().package().clone(), sources, options)
             .with_standard_library_source_authority()
             .with_platform_services(product.platform_services().iter().cloned())
-            .with_package_interface_export(interface_export_request(product.identity())?);
+            .with_package_interface_export(interface_export_request(product.identity(), version)?);
 
     let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;
 
@@ -517,13 +528,16 @@ fn emitted_path(
 
 fn interface_export_request(
     product: &ProductIdentity,
+    version: &PackageVersion,
 ) -> Result<bray_compilation::PackageInterfaceExportRequest, BuildError> {
     let product_identity =
         InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
             .ok_or(BuildError::InvalidIdentity)?;
 
+    // The interface shares the immutable Arc-backed package version from the project graph.
     let identity = PackageInterfaceIdentity::try_new(
         product.package().clone(),
+        version.clone(),
         product_identity,
         InterfaceProductKind::Library,
         PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
@@ -534,6 +548,16 @@ fn interface_export_request(
         identity,
         InterfaceLanguageRevision::new(0),
     ))
+}
+
+fn standard_library_version(graph: &ProjectGraph) -> Result<&PackageVersion, BuildError> {
+    let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
+        .ok_or(BuildError::InvalidIdentity)?;
+
+    graph
+        .package(&package)
+        .map(bray_project::ProjectPackage::version)
+        .ok_or(BuildError::MissingProduct)
 }
 
 fn standard_library_product(graph: &ProjectGraph) -> Result<&ProjectProduct, BuildError> {

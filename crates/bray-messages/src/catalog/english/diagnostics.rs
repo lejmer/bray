@@ -55,6 +55,13 @@ const PROJECT_MANIFEST_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
+const PROJECT_PACKAGE_VERSION_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("invalid Bray package version declaration "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
 const PROJECT_MANIFEST_DUPLICATE_SELECTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("duplicate Bray project manifest selection "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -988,6 +995,10 @@ const NOTE_PACKAGE_IDENTITY_MUST_BE_VALID: &[MessageTemplatePart] = &[MessageTem
     "use a non-reserved lowercase name or dot-separated names, starting each name with a letter and using only letters, digits, underscores, or hyphens",
 )];
 
+const NOTE_PACKAGE_VERSION_MUST_BE_VALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "declare a Semantic Versioning value such as 1.2.3, or inherit a version declared by the workspace",
+)];
+
 const NOTE_CHARACTER_NOT_ACCEPTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "remove this character or replace it with valid Bray syntax",
 )];
@@ -1072,6 +1083,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::SourceInputNeedsStableIdentity
         | DiagnosticNoteKind::WorkerBudgetMustBePositive
         | DiagnosticNoteKind::PackageIdentityMustBeValid
+        | DiagnosticNoteKind::PackageVersionMustBeValid
         | DiagnosticNoteKind::CharacterNotAccepted
         | DiagnosticNoteKind::LineBreaksMustBeLfOrCrlf
         | DiagnosticNoteKind::IdentifierSpellingMustBeValid
@@ -1145,6 +1157,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(PROJECT_MANIFEST_PARSE_FAILED)
         }
         DiagnosticKind::ProjectManifestInvalid => MessageTemplate::new(PROJECT_MANIFEST_INVALID),
+        DiagnosticKind::ProjectPackageVersionInvalid => {
+            MessageTemplate::new(PROJECT_PACKAGE_VERSION_INVALID)
+        }
         DiagnosticKind::ProjectPackageIdentityReserved => {
             MessageTemplate::new(PROJECT_PACKAGE_IDENTITY_RESERVED)
         }
@@ -1644,6 +1659,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::PackageIdentityMustBeValid => {
             MessageTemplate::new(NOTE_PACKAGE_IDENTITY_MUST_BE_VALID)
+        }
+        DiagnosticNoteKind::PackageVersionMustBeValid => {
+            MessageTemplate::new(NOTE_PACKAGE_VERSION_MUST_BE_VALID)
         }
         DiagnosticNoteKind::CharacterNotAccepted => {
             MessageTemplate::new(NOTE_CHARACTER_NOT_ACCEPTED)

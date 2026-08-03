@@ -684,6 +684,7 @@ mod tests {
     };
 
     use super::{ProductEmissionErrorKind, ProductEmissionInputs, validate_executable_units};
+    use crate::test_support::package_version;
     use crate::{
         CancellationToken, Compilation, CompilationOptions, CompilationRequest,
         PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
@@ -862,6 +863,7 @@ mod tests {
 
         let identity = PackageInterfaceIdentity::try_new(
             package.clone(),
+            package_version(),
             product,
             InterfaceProductKind::Library,
             "public-v1",

@@ -1,5 +1,6 @@
 {
   "format": 1,
+  "package": { "version": "0.1.0" },
   "output_root": "build",
   "targets": [
     { "name": "aarch64-macos", "identity": "aarch64-apple-darwin" },

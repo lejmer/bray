@@ -32,6 +32,7 @@ mod surface_kind;
 #[cfg(test)]
 mod test_support;
 mod value;
+mod version;
 
 #[cfg(feature = "test-support")]
 pub mod testing;
@@ -198,3 +199,4 @@ pub use value::{
     SemanticValueStoreError, SemanticValueStoreId, TargetSizedIntegerType, TraitApplicationData,
     TraitApplicationId, TypeData, TypeId,
 };
+pub use version::PackageVersion;

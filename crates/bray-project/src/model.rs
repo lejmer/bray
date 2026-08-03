@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_runtime_interface::PlatformServiceBinding;
 
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
 
 use crate::ProjectPath;
@@ -175,6 +175,7 @@ impl ProjectProduct {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectPackage {
     identity: PackageIdentity,
+    version: PackageVersion,
     role: PackageRole,
     path: ProjectPath,
     declared_features: Arc<[FeatureName]>,
@@ -191,6 +192,7 @@ impl ProjectPackage {
     )]
     pub(crate) fn new(
         identity: PackageIdentity,
+        version: PackageVersion,
         role: PackageRole,
         path: ProjectPath,
         declared_features: Arc<[FeatureName]>,
@@ -201,6 +203,7 @@ impl ProjectPackage {
     ) -> Self {
         Self {
             identity,
+            version,
             role,
             path,
             declared_features,
@@ -214,6 +217,11 @@ impl ProjectPackage {
     /// Returns the canonical package identity.
     pub const fn identity(&self) -> &PackageIdentity {
         &self.identity
+    }
+
+    /// Returns the package's resolved semantic version.
+    pub const fn version(&self) -> &PackageVersion {
+        &self.version
     }
 
     /// Returns whether this is a root or exact vendored package.

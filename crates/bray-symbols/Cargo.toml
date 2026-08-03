@@ -16,6 +16,7 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
 bray-target = { path = "../bray-target" }
+semver = "1"
 
 [dev-dependencies]
 bray-parser = { path = "../bray-parser" }

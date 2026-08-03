@@ -45,6 +45,7 @@ impl ProjectInspection {
                 .iter()
                 .map(|package| ProjectPackageInspection {
                     identity: package.identity().as_str().to_owned(),
+                    version: package.version().to_string(),
                     role: match package.role() {
                         PackageRole::Root => "root",
                         PackageRole::Vendored => "vendored",
@@ -80,8 +81,8 @@ impl ProjectInspection {
 
         for package in &self.packages {
             text.push_str(&format!(
-                "package {} [{}] at {}\n",
-                package.identity, package.role, package.path
+                "package {} {} [{}] at {}\n",
+                package.identity, package.version, package.role, package.path
             ));
 
             for dependency in &package.dependencies {
@@ -106,6 +107,7 @@ struct ProjectTargetInspection {
 #[derive(Serialize)]
 struct ProjectPackageInspection {
     identity: String,
+    version: String,
     role: &'static str,
     path: String,
     dependencies: Vec<String>,

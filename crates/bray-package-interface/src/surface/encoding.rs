@@ -100,6 +100,7 @@ impl StringEncoder {
 
 fn collect_identity_strings(identity: &PackageInterfaceIdentity, values: &mut BTreeSet<String>) {
     values.insert(identity.package().as_str().to_owned());
+    values.insert(identity.version().to_string());
     values.insert(identity.product().as_str().to_owned());
     values.insert(identity.public_surface().to_owned());
 }
@@ -145,6 +146,7 @@ fn encode_metadata(
     let mut encoder = WireEncoder::new();
 
     encoder.write_u32(strings.id(identity.package().as_str()));
+    encoder.write_u32(strings.id(&identity.version().to_string()));
     encoder.write_u32(strings.id(identity.product().as_str()));
     encoder.write_u32(identity.kind().to_wire());
     encoder.write_u32(strings.id(identity.public_surface()));
@@ -409,6 +411,7 @@ mod tests {
 
     use super::{EncodedSurfaceSection, encode_surface};
     use crate::surface::decoding::{IdentitySections, decode_sections};
+    use crate::test_support::package_version;
     use crate::{
         DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceContentHash,
         InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind, InterfaceSectionTag,
@@ -513,6 +516,7 @@ mod tests {
 
         let Some(identity) = PackageInterfaceIdentity::try_new(
             package.clone(),
+            package_version(),
             product,
             InterfaceProductKind::Library,
             "surface-v1",

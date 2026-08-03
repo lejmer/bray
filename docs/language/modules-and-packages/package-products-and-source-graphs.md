@@ -47,5 +47,5 @@ graph, and target profile produce the same compiler input.
 
 - [Language index](../index.md)
 - [Modules and packages index](../modules-and-packages.md)
-- Previous: [Module paths and package identity](module-paths-and-package-identity.md)
+- Previous: [Package versions](package-versions.md)
 - Next: [Conditional module contributions](conditional-module-contributions.md)

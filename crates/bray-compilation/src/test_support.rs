@@ -14,8 +14,8 @@ use bray_source::{
     SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceSnapshot, SourceVersion,
 };
 use bray_symbols::{
-    AnySymbolId, FunctionSymbolId, ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey,
-    SymbolKind, SymbolOrigin, SymbolRootKey,
+    AnySymbolId, FunctionSymbolId, ModulePathKey, PackageIdentity, PackageVersion, SymbolGraph,
+    SymbolKey, SymbolKind, SymbolOrigin, SymbolRootKey,
 };
 
 use crate::fact::{
@@ -152,6 +152,11 @@ pub(crate) fn package_identity() -> PackageIdentity {
         Some(identity) => identity,
         None => panic!("test package identity must be valid"),
     }
+}
+
+pub(crate) fn package_version() -> PackageVersion {
+    PackageVersion::try_new("1.0.0")
+        .unwrap_or_else(|| panic!("test package version must be valid"))
 }
 
 pub(crate) fn source_input(text: &str, version: u32) -> SourceInput {

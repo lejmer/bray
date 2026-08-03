@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bray_standard_library::{PackageSourceAuthority, is_public_standard_library_package};
-use bray_symbols::ProductKind;
+use bray_symbols::{PackageVersion, ProductKind};
 use bray_target::TargetIdentity;
 
 use crate::manifest::{TargetManifest, WorkspaceManifest, WorkspacePackageManifest};
@@ -44,6 +44,11 @@ fn load_project_graph_with_authority(
 
     let output_root = project_path(manifest.output_root, false, &workspace_manifest_path)?;
 
+    let workspace_package_version = manifest
+        .package
+        .map(|package| workspace_package_version(package.version, &workspace_manifest_path))
+        .transpose()?;
+
     let targets = load_targets(manifest.targets, &workspace_manifest_path)?;
 
     let packages = load_packages(
@@ -52,6 +57,7 @@ fn load_project_graph_with_authority(
         &targets,
         &output_root,
         &workspace_manifest_path,
+        workspace_package_version.as_ref(),
         source_authority,
     )?;
 
@@ -124,6 +130,7 @@ fn load_packages(
     targets: &[ProjectTarget],
     output_root: &ProjectPath,
     workspace_manifest_path: &Path,
+    workspace_package_version: Option<&PackageVersion>,
     source_authority: PackageSourceAuthority,
 ) -> Result<Arc<[ProjectPackage]>, ProjectLoadError> {
     if selections.is_empty() {
@@ -167,6 +174,7 @@ fn load_packages(
                 targets,
                 output_root,
                 workspace_manifest_path,
+                workspace_package_version,
                 source_authority,
             )
         })
@@ -225,6 +233,19 @@ fn load_packages(
     }
 
     Ok(ordered.into())
+}
+
+fn workspace_package_version(
+    value: String,
+    manifest_path: &Path,
+) -> Result<PackageVersion, ProjectLoadError> {
+    PackageVersion::try_new(&value).ok_or_else(|| {
+        ProjectLoadError::invalid(
+            manifest_path.to_path_buf(),
+            ProjectManifestProblem::InvalidPackageVersion,
+            value,
+        )
+    })
 }
 
 fn validate_source_ownership(packages: &[PendingPackage]) -> Result<(), ProjectLoadError> {

@@ -4,9 +4,17 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub(crate) struct WorkspaceManifest {
     pub format: u32,
+    #[serde(default)]
+    pub package: Option<WorkspacePackageMetadataManifest>,
     pub output_root: String,
     pub targets: Vec<TargetManifest>,
     pub packages: Vec<WorkspacePackageManifest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorkspacePackageMetadataManifest {
+    pub version: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,12 +45,26 @@ pub(crate) enum PackageRoleManifest {
 pub(crate) struct PackageManifest {
     pub format: u32,
     pub identity: String,
+    pub version: PackageVersionManifest,
     #[serde(default)]
     pub features: Vec<String>,
     pub source_roots: Vec<SourceRootManifest>,
     #[serde(default)]
     pub dependencies: Vec<DependencyManifest>,
     pub products: Vec<ProductManifest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum PackageVersionManifest {
+    Explicit(String),
+    Inherited(WorkspacePackageVersionManifest),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorkspacePackageVersionManifest {
+    pub workspace: bool,
 }
 
 #[derive(Debug, Deserialize)]

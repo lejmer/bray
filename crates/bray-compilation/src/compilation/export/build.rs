@@ -654,9 +654,12 @@ mod tests {
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, MemberLookupResult, ModulePathKey,
-        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference, TypeExpressionTemplate,
+        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference,
+        TypeExpressionTemplate,
     };
+    use bray_testing::test_source_inputs;
 
+    use crate::test_support::package_version;
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
         PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
@@ -1013,6 +1016,7 @@ mod tests {
                 "using std.format;\n",
                 "using std.format.StringFormat;\n",
                 "using std.format.I32Format;\n",
+                "using std.memory;\n",
                 "func render(pos destination: &mut std.format.ByteSink, pos value: string)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>\n",
                 "{\n",
@@ -1131,6 +1135,7 @@ mod tests {
 
         let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
             package.clone(),
+            package_version(),
             product,
             bray_package_interface::InterfaceProductKind::Library,
             "public",
@@ -1140,17 +1145,7 @@ mod tests {
         let export =
             PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
 
-        let sources = sources.into_iter().enumerate().map(|(index, source)| {
-            let index = u32::try_from(index)
-                .unwrap_or_else(|_| panic!("test source count must fit source identities"));
-
-            SourceInput::virtual_text(
-                SourceIdentity::new(index),
-                format!("test-{index}.bray"),
-                SourceVersion::new(0),
-                source,
-            )
-        });
+        let sources = test_source_inputs("test", sources);
 
         let options = CompilationOptions::new(
             WorkerBudget::default(),
@@ -1158,7 +1153,7 @@ mod tests {
             SelectedTarget::default(),
         );
 
-        let request = CompilationRequest::with_options(package, sources.collect(), options)
+        let request = CompilationRequest::with_options(package, sources, options)
             .with_package_interface_export(export);
 
         Compilation::load(request)
@@ -1174,6 +1169,7 @@ mod tests {
 
         let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
             package.clone(),
+            package_version(),
             product,
             bray_package_interface::InterfaceProductKind::Library,
             "public",
@@ -1183,19 +1179,9 @@ mod tests {
         let export =
             PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
 
-        let sources = sources.into_iter().enumerate().map(|(index, source)| {
-            let index = u32::try_from(index)
-                .unwrap_or_else(|_| panic!("test source count must fit source identities"));
+        let sources = test_source_inputs("standard", sources);
 
-            SourceInput::virtual_text(
-                SourceIdentity::new(index),
-                format!("standard-{index}.bray"),
-                SourceVersion::new(0),
-                source,
-            )
-        });
-
-        let request = CompilationRequest::new(package, sources.collect())
+        let request = CompilationRequest::new(package, sources)
             .with_standard_library_source_authority()
             .with_package_interface_export(export);
 

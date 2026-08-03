@@ -482,6 +482,7 @@ mod tests {
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{PackageIdentity, ProductKind};
 
+    use crate::test_support::package_version;
     use crate::worker::WorkerBudget;
 
     use super::{
@@ -513,6 +514,7 @@ mod tests {
 
         let Some(export_identity) = bray_package_interface::PackageInterfaceIdentity::try_new(
             package_identity.clone(),
+            package_version(),
             product("library"),
             bray_package_interface::InterfaceProductKind::Library,
             "public-v1",

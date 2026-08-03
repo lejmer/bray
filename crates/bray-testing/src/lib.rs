@@ -22,7 +22,10 @@ pub use mir_unit::{
     test_executable_host_contract_for, test_executable_host_contract_with_result, test_mir_target,
     test_mir_type, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
 };
-pub use source::{test_source_at, test_source_snapshot, test_source_store, try_test_source_store};
+pub use source::{
+    test_source_at, test_source_inputs, test_source_snapshot, test_source_store,
+    try_test_source_store,
+};
 pub use syntax::{
     assert_single_final_eof, assert_tokens_cover_source_text, first_syntax_descendant,
     syntax_descendants,

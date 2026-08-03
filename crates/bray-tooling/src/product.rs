@@ -20,7 +20,7 @@ use bray_package_interface::{
     PackageInterfaceIdentity,
 };
 use bray_project::ProjectGraph;
-use bray_symbols::ProductIdentity;
+use bray_symbols::{PackageVersion, ProductIdentity};
 use bray_target::TargetIdentity;
 #[cfg(feature = "compiler")]
 use bray_target::{NativeTarget, ObjectFormat};
@@ -50,12 +50,17 @@ pub fn selected_target(identity: &TargetIdentity) -> Option<SelectedTarget> {
 }
 
 /// Creates the package-interface export request for a library product.
-pub fn package_interface_export_request(product: ProductIdentity) -> PackageInterfaceExportRequest {
+pub fn package_interface_export_request(
+    product: ProductIdentity,
+    version: &PackageVersion,
+) -> PackageInterfaceExportRequest {
     let interface_product = InterfaceProductIdentity::try_new(product.name())
         .unwrap_or_else(|| panic!("the product identity must be valid"));
 
+    // Export metadata shares the immutable Arc-backed package version.
     let identity = PackageInterfaceIdentity::try_new(
         product.package().clone(),
+        version.clone(),
         interface_product,
         InterfaceProductKind::Library,
         "public-v1",

@@ -19,9 +19,15 @@ const STARTER_SOURCE: &str = "module app;\n\nfunc main()\n{\n}\n";
 #[derive(Serialize)]
 struct WorkspaceManifest<'a> {
     format: u32,
+    package: WorkspacePackageMetadata,
     output_root: &'static str,
     targets: [WorkspaceTarget<'a>; 1],
     packages: [WorkspacePackage; 1],
+}
+
+#[derive(Serialize)]
+struct WorkspacePackageMetadata {
+    version: &'static str,
 }
 
 #[derive(Serialize)]
@@ -41,10 +47,16 @@ struct WorkspacePackage {
 struct PackageManifest<'a> {
     format: u32,
     identity: &'a str,
+    version: InheritedPackageVersion,
     features: [&'static str; 0],
     source_roots: [SourceRoot; 1],
     dependencies: [&'static str; 0],
     products: [Product; 1],
+}
+
+#[derive(Serialize)]
+struct InheritedPackageVersion {
+    workspace: bool,
 }
 
 #[derive(Serialize)]
@@ -97,6 +109,7 @@ pub(super) fn initialize_project(
 
     let workspace_manifest = WorkspaceManifest {
         format: 1,
+        package: WorkspacePackageMetadata { version: "0.1.0" },
         output_root: "build",
         targets: [WorkspaceTarget {
             name: "native",
@@ -112,6 +125,7 @@ pub(super) fn initialize_project(
     let package_manifest = PackageManifest {
         format: 1,
         identity: &package,
+        version: InheritedPackageVersion { workspace: true },
         features: [],
         source_roots: [SourceRoot {
             name: "main",
@@ -268,6 +282,7 @@ mod tests {
         };
 
         assert_eq!(package.identity().as_str(), "hello_world");
+        assert_eq!(package.version().to_string(), "0.1.0");
         assert_eq!(package.path().as_str(), ".");
         assert_eq!(package.products().len(), 1);
 

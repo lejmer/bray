@@ -59,6 +59,7 @@ fn write_synthetic_project(root: &Path) -> Result<(), BuildError> {
         &format!(
             r#"{{
                 "format": 1,
+                "package": {{"version": "0.1.0"}},
                 "output_root": "build",
                 "targets": [{{"name": "native", "identity": "{}"}}],
                 "packages": [{{"path": "std", "role": "root"}}]
@@ -72,6 +73,7 @@ fn write_synthetic_project(root: &Path) -> Result<(), BuildError> {
         r#"{
             "format": 1,
             "identity": "std",
+            "version": {"workspace": true},
             "source_roots": [{"name": "library", "path": "src"}],
             "products": [{
                 "name": "library",
