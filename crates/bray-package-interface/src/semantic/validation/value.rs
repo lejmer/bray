@@ -308,6 +308,18 @@ impl InterfaceSemanticFacts {
                     validate_index(id.to_index(), self.constant_terms.len())?;
                 }
             }
+            InterfaceConstantTerm::PredicateCall {
+                predicate,
+                substitution,
+                arguments,
+            } => {
+                validate_symbol(predicate, symbol_count, dependency_count)?;
+                validate_index(substitution.to_index(), self.substitutions.len())?;
+
+                for id in &**arguments {
+                    validate_index(id.to_index(), self.constant_terms.len())?;
+                }
+            }
             InterfaceConstantTerm::Projection { subject, kind } => {
                 validate_index(subject.to_index(), self.constant_terms.len())?;
                 self.validate_constant_projection(kind, symbol_count, dependency_count)?;

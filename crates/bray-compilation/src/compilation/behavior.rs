@@ -215,7 +215,15 @@ impl Compilation {
 
             let callable = instance.definition().callable_symbol();
 
-            match symbols.callable_origin(callable) {
+            let imported_symbols = facts.imported_symbols().map_err(binder_fact_error)?;
+
+            let origin = symbols.callable_origin(callable).or_else(|| {
+                imported_symbols
+                    .and_then(|symbols| symbols.symbol_key(callable.into_any()))
+                    .map(|_| SymbolOrigin::Imported)
+            });
+
+            match origin {
                 Some(SymbolOrigin::Source) => {
                     let CallableSymbolId::Function(function) = callable else {
                         continue;
@@ -246,7 +254,11 @@ impl Compilation {
                             .map(|requirement| requirement.capability()),
                     );
                 }
-                Some(SymbolOrigin::CompilerKnown | SymbolOrigin::CompilerProvided) => {
+                Some(
+                    SymbolOrigin::CompilerKnown
+                    | SymbolOrigin::CompilerProvided
+                    | SymbolOrigin::Imported,
+                ) => {
                     let contract = facts
                         .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
                         .map_err(binder_fact_error)?;
@@ -263,7 +275,7 @@ impl Compilation {
                         );
                     }
                 }
-                Some(SymbolOrigin::Imported | SymbolOrigin::Synthesized) => {}
+                Some(SymbolOrigin::Synthesized) => {}
                 None => return Err(FactQueryError::InfrastructureFailure),
             }
         }
@@ -366,6 +378,7 @@ impl Compilation {
                     builder.merge_phase(phase);
                 }
             }
+            BoundCallableTarget::Predicate(_) => {}
             BoundCallableTarget::Anonymous(_) => match call.anonymous_unit() {
                 Some(unit) => pending.push(unit.clone()),
                 None => builder.is_recovered = true,

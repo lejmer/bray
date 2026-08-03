@@ -437,6 +437,12 @@ where
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
         let definitions = self.input.definitions(node);
 
+        state.moved.retain(|access| {
+            self.storage
+                .root_identity(*access)
+                .is_none_or(|storage| !definitions.contains(&storage))
+        });
+
         state.live.extend(definitions.iter().copied());
         state.initialized.extend(definitions.iter().copied());
     }
@@ -514,8 +520,12 @@ where
 
     fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {
         state.live.retain(|storage| {
-            self.liveness
-                .is_live_across_scope(block, BoundDependencySubject::Storage(*storage))
+            self.storage
+                .identity(*storage)
+                .is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry)
+                || self
+                    .liveness
+                    .is_live_across_scope(block, BoundDependencySubject::Storage(*storage))
         });
 
         state

@@ -19,6 +19,25 @@ pub struct ImportedPathRoot<'symbols> {
 }
 
 impl<'symbols> ImportedPathRoot<'symbols> {
+    /// Selects the longest imported package identity that prefixes a source path.
+    pub fn select(symbols: &'symbols ImportedSymbolSkeleton, components: &[&str]) -> Option<Self> {
+        symbols
+            .packages()
+            .iter()
+            .filter_map(|package| {
+                let component_count = package.identity().as_str().split('.').count();
+
+                package
+                    .identity()
+                    .as_str()
+                    .split('.')
+                    .eq(components.iter().take(component_count).copied())
+                    .then_some((package.id(), component_count))
+            })
+            .max_by_key(|(_, component_count)| *component_count)
+            .and_then(|(package, _)| Self::for_path(symbols, package, components))
+    }
+
     /// Creates a root when the package identity is an exact prefix of the source path.
     pub fn for_path(
         symbols: &'symbols ImportedSymbolSkeleton,
@@ -102,6 +121,9 @@ pub trait BinderFactContext: Send + Sync {
         &self,
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>>;
+
+    /// Returns the selected dependencies' immutable imported symbol surface.
+    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>>;
 
     /// Resolves one name introduced by a source module export declaration.
     fn module_re_export_lookup(

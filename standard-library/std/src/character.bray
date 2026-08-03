@@ -6,6 +6,8 @@ extern func from_scalar_value(value: u32) -> char?;
 
 extern func utf8_length(value: char) -> usize;
 
+extern func utf8_byte(value: char, index: usize) -> u8;
+
 extern func is_alphabetic(value: char) -> bool;
 
 extern func is_numeric(value: char) -> bool;

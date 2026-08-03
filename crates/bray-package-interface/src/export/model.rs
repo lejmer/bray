@@ -354,6 +354,9 @@ const fn requires_owned_semantic_fact(kind: bray_symbols::SymbolKind) -> bool {
         kind,
         bray_symbols::SymbolKind::Package
             | bray_symbols::SymbolKind::Module
+            | bray_symbols::SymbolKind::Trait
+            | bray_symbols::SymbolKind::CallableOverload
+            | bray_symbols::SymbolKind::ImplementationOverload
             | bray_symbols::SymbolKind::GenericTypeParameter
             | bray_symbols::SymbolKind::GenericConstParameter
             | bray_symbols::SymbolKind::CallableParameter
@@ -377,6 +380,17 @@ mod tests {
         InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
         PackageInterfaceExportBuildError, PackageInterfaceExportBundle, encode_package_interface,
     };
+
+    #[test]
+    fn overload_sets_are_fully_described_by_surface_relationships() {
+        assert!(!super::requires_owned_semantic_fact(
+            SymbolKind::CallableOverload
+        ));
+
+        assert!(!super::requires_owned_semantic_fact(
+            SymbolKind::ImplementationOverload
+        ));
+    }
 
     #[test]
     fn bundles_reject_incomplete_support_graphs_before_encoding() {

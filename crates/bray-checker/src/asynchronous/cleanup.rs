@@ -285,6 +285,7 @@ where
             | StorageIdentity::Parameter(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::PredicateParameter(_)
+            | StorageIdentity::PostconditionResult(_)
             | StorageIdentity::Temporary(_)
             | StorageIdentity::IterationCursor(_)
             | StorageIdentity::IterationElement(_)

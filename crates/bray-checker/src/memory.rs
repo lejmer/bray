@@ -384,6 +384,7 @@ where
         | ImplementationHook::CharacterScalarValue
         | ImplementationHook::CharacterFromScalarValue
         | ImplementationHook::CharacterUtf8Length
+        | ImplementationHook::CharacterUtf8Byte
         | ImplementationHook::CharacterIsAlphabetic
         | ImplementationHook::CharacterIsNumeric
         | ImplementationHook::CharacterIsWhitespace => return Ok(None),

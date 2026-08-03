@@ -58,30 +58,38 @@ pub(super) fn export_checked_source_template(
         .map(|requirement| export.symbol_reference(requirement.declaration()))
         .collect::<Result<Vec<_>, _>>()?;
 
+    let effects = behavior
+        .effects()
+        .iter()
+        .map(|requirement| export.symbol_reference(requirement.declaration()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let capabilities = behavior
+        .capabilities()
+        .iter()
+        .map(|requirement| export.symbol_reference(requirement.declaration()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let trusted_capabilities = behavior
+        .trusted_capabilities()
+        .iter()
+        .copied()
+        .map(Into::into)
+        .map(|requirement| export.symbol_reference(requirement))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let dependency = export.dependency_contract_id(dependency)?;
+
     let interface_behavior = InterfaceCheckedTemplateBehavior::new(
-        behavior
-            .effects()
-            .iter()
-            .map(|requirement| export.symbol_reference(requirement.declaration()))
-            .collect::<Result<Vec<_>, _>>()?,
-        behavior
-            .capabilities()
-            .iter()
-            .map(|requirement| export.symbol_reference(requirement.declaration()))
-            .collect::<Result<Vec<_>, _>>()?,
-        behavior
-            .trusted_capabilities()
-            .iter()
-            .copied()
-            .map(Into::into)
-            .map(|requirement| export.symbol_reference(requirement))
-            .collect::<Result<Vec<_>, _>>()?,
+        effects,
+        capabilities,
+        trusted_capabilities,
         bray_package_interface::InterfaceCheckedTemplateExecution::new(
             execution_requirements,
             behavior.current_run_cancellation(),
         ),
         behavior.lifecycle_obligations().iter().copied(),
-        export.dependency_contract_id(dependency)?,
+        dependency,
         [],
     );
 
@@ -147,6 +155,7 @@ pub(super) fn export_source_template<'values, 'unit>(
         .ok_or_else(incomplete)?;
 
     let mut builder = SourceTemplateBuilder::new(export, &request)?;
+
     let result = builder.expression(root)?;
 
     Ok(InterfaceCheckedTemplate::new(
@@ -426,11 +435,21 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             return Err(incomplete());
         };
 
-        let BoundCallableTarget::Declaration(callable) = call.target() else {
-            return Err(incomplete());
+        let (declaration, substitution) = match call.target() {
+            BoundCallableTarget::Declaration(callable) => {
+                (callable.definition().symbol(), callable.substitution())
+            }
+            BoundCallableTarget::Predicate(predicate) => {
+                (predicate.definition().into_any(), predicate.substitution())
+            }
+            BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => {
+                return Err(incomplete());
+            }
         };
 
-        let (callable, substitution) = self.export.callable_template_reference(callable)?;
+        let (callable, substitution) = self
+            .export
+            .declaration_template_reference(declaration, substitution)?;
 
         let mut arguments = Vec::new();
 
@@ -514,6 +533,6 @@ fn index(length: usize) -> Result<u32, PackageInterfaceExportError> {
     u32::try_from(length).map_err(|_| incomplete())
 }
 
-fn incomplete() -> PackageInterfaceExportError {
+const fn incomplete() -> PackageInterfaceExportError {
     PackageInterfaceExportError::InvalidCompilation
 }

@@ -452,7 +452,7 @@ impl Lowerer<'_> {
                     abi: selection.abi(),
                 }
             }
-            BoundCallableTarget::Anonymous(_) => {
+            BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => {
                 return Err(LoweringError::UnsupportedExpression(id));
             }
         };
@@ -544,6 +544,7 @@ impl Lowerer<'_> {
                 .implementation_witnesses()
                 .iter()
                 .copied(),
+            selection.resolution().generic_dispatch(),
             selection.witnesses().iter().copied(),
         );
 
@@ -777,6 +778,7 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         }
         StorageIdentity::Result(_) => MirStorageKind::Return,
         StorageIdentity::Temporary(_)
+        | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)
         | StorageIdentity::Allocation(_)

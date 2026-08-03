@@ -123,6 +123,7 @@ where
             | ConstantTermData::Union { .. }
             | ConstantTermData::DefinitionApplication { .. }
             | ConstantTermData::Call { .. }
+            | ConstantTermData::PredicateCall { .. }
             | ConstantTermData::Projection(_) => None,
         })
     }

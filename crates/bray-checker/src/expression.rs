@@ -2,6 +2,7 @@ mod built_in_operator;
 mod candidate;
 mod check;
 mod declared;
+mod generic_inference;
 mod literal;
 mod nested;
 mod pattern_reference;

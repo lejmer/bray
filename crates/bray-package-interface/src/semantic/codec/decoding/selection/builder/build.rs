@@ -737,6 +737,17 @@ impl<'bytes> SelectionBuilder<'bytes> {
                     self.enqueue(PendingRecord::ConstantTerm(argument.raw()));
                 }
             }
+            InterfaceConstantTerm::PredicateCall {
+                substitution,
+                arguments,
+                ..
+            } => {
+                self.enqueue(PendingRecord::Substitution(substitution.raw()));
+
+                for argument in &**arguments {
+                    self.enqueue(PendingRecord::ConstantTerm(argument.raw()));
+                }
+            }
             InterfaceConstantTerm::Projection { subject, kind } => {
                 self.enqueue(PendingRecord::ConstantTerm(subject.raw()));
 

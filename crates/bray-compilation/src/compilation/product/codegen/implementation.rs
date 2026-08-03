@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_binder::SymbolFactProvider;
+use bray_binder::BinderFactContext;
 use bray_codegen::{
     AssemblySyntaxKind, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
     CodegenMappings, CodegenOptions, CodegenReachabilityBuilder, CodegenTarget, CodegenUnit,
@@ -18,12 +18,12 @@ use bray_linker::{
 };
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericDeclarationTemplateFact,
-    GenericOwnerId, NativeLinkKind, NativeLinkRequirement, ProductIdentity, ProductKind,
-    SymbolFactRequest,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, NativeLinkKind, NativeLinkRequirement,
+    ProductIdentity, ProductKind,
 };
 
 use super::super::super::Compilation;
+use super::super::super::binder::has_visible_generic_parameters;
 use super::super::super::substitution::empty_substitution;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductFactError;
@@ -320,22 +320,13 @@ impl Compilation {
         let facts = self.binder_facts(cancellation)?;
 
         for symbol in symbols {
+            if has_visible_generic_parameters(facts.symbols(), symbol) {
+                continue;
+            }
+
             let Some(definition) = CallableDefinitionId::try_new(symbol) else {
                 continue;
             };
-
-            let owner =
-                GenericOwnerId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let generic = facts
-                .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
-                    owner,
-                ))
-                .map_err(super::super::super::binder::binder_fact_error)?;
-
-            if !generic.value().parameters().is_empty() {
-                continue;
-            }
 
             let substitution = empty_substitution(self.semantic_value_store()?, symbol)?;
 
@@ -1224,6 +1215,48 @@ mod tests {
 
         assert!(saw_concrete_generic_signature);
         assert!(saw_const_specialization);
+    }
+
+    #[test]
+    fn library_roots_exclude_members_of_open_generic_containers() {
+        let compilation = crate::test_support::compilation_with_product(
+            concat!(
+                "module app;\n",
+                "struct Holder<T>\n",
+                "{\n",
+                "    value: T;\n",
+                "\n",
+                "    destruct()\n",
+                "    {\n",
+                "    }\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), &target, &cancellation)
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        assert!(roots.is_empty());
     }
 
     #[test]

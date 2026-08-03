@@ -363,11 +363,11 @@ mod tests {
         CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
     };
     use bray_symbols::{
-        AnySymbolId, CallableParameterDefaultProviderSymbolId, ConstantSymbolId, ExternalSymbolKey,
-        FunctionSymbolId, GenericConstParameterSymbolId, GenericTypeParameterSymbolId,
-        InterfaceSupportEntityId, LifecycleObligationKind, ModuleSymbolId, PackageIdentity,
-        PackageSymbolId, PredicateSymbolId, SemanticValueStore, StructSymbolId, SymbolId,
-        SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
+        AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+        ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId, GenericConstParameterSymbolId,
+        GenericTypeParameterSymbolId, InterfaceSupportEntityId, LifecycleObligationKind,
+        ModuleSymbolId, PackageIdentity, PackageSymbolId, PredicateSymbolId, SemanticValueStore,
+        StructSymbolId, SymbolId, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
     };
 
     use super::super::decode_semantic_facts;
@@ -1086,10 +1086,17 @@ mod tests {
         let function = named_key(module.clone(), SymbolKind::Function, "run");
         let structure = named_key(module.clone(), SymbolKind::Struct, "record");
 
-        let runtime_provider = ExternalSymbolKey::synthesized(
+        let parameter = ExternalSymbolKey::ordinal(
             function.clone(),
+            SymbolKind::CallableParameter,
+            SymbolOrdinal::new(0),
+        )
+        .unwrap_or_else(|| panic!("test runtime default parameter key must be valid"));
+
+        let runtime_provider = ExternalSymbolKey::synthesized(
+            parameter.clone(),
             SynthesizedSymbolRole::CallableParameterDefaultProvider,
-            Some(SymbolOrdinal::new(0)),
+            None,
         )
         .unwrap_or_else(|| panic!("test runtime default provider key must be valid"));
 
@@ -1110,6 +1117,7 @@ mod tests {
         let symbols = [
             function,
             structure,
+            parameter,
             runtime_provider,
             generic_type,
             generic_constant,
@@ -1163,6 +1171,9 @@ mod tests {
                     SymbolKind::Module => ModuleSymbolId::from_symbol_id(id).into(),
                     SymbolKind::Function => FunctionSymbolId::from_symbol_id(id).into(),
                     SymbolKind::Struct => StructSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::CallableParameter => {
+                        CallableParameterSymbolId::from_symbol_id(id).into()
+                    }
                     SymbolKind::CallableParameterDefaultProvider => {
                         CallableParameterDefaultProviderSymbolId::from_symbol_id(id).into()
                     }

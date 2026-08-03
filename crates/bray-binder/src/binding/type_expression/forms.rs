@@ -33,7 +33,7 @@ impl TypeExpressionBinder<'_> {
 
         let subject = self.bind_type(&subject)?;
         let application = self.bind_trait(&application)?;
-        let member = self.bind_trait_type_member(application.definition(), syntax);
+        let member = self.bind_trait_type_member(application.definition(), syntax)?;
 
         let MemberLookupResult::Found(member) = member else {
             return self.error_type_template();

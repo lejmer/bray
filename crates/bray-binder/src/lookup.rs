@@ -14,4 +14,6 @@ pub use implementation::{
     BoundImplementationUsing, bind_implementation_using, bind_named_trait_implementation_path,
 };
 pub use path::{NameAccess, bind_surface_path_with_re_exports};
-pub(crate) use path::{PathBindingContext, bind_module_path, bind_source_path};
+pub(crate) use path::{
+    PathBindingContext, bind_module_path, bind_source_path, lookup_surface_name_with_imports,
+};

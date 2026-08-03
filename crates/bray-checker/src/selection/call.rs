@@ -265,7 +265,7 @@ where
                     },
                     None => None,
                 },
-                BoundCallableTarget::Anonymous(_) => None,
+                BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => None,
             };
 
             Ok(Some(CandidateCheck::Applicable {
@@ -415,14 +415,22 @@ where
             .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
             .bindings()
             .len(),
+        BoundCallableTarget::Predicate(predicate) => request
+            .semantic_values()
+            .generic_substitution_data(predicate.substitution())
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
+            .bindings()
+            .len(),
         BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
     };
 
-    Ok(if arguments.len() == expected_count {
-        Compatibility::Yes
-    } else {
-        Compatibility::No
-    })
+    Ok(
+        if arguments.is_empty() || arguments.len() == expected_count {
+            Compatibility::Yes
+        } else {
+            Compatibility::No
+        },
+    )
 }
 
 fn callable_surface_is_consistent(
@@ -967,7 +975,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_generic_argument_arity_matches_the_selected_substitution() {
+    fn generic_argument_arity_accepts_omitted_inferred_arguments() {
         let fixture = call_fixture(BoundUnitId::new(79), false);
         let generic_argument = BoundGenericArgument::new(fixture.unit.key().source().syntax());
 
@@ -989,7 +997,7 @@ mod tests {
 
         assert!(matches!(
             super::generic_arguments_are_compatible(request, &[], target),
-            Ok(super::Compatibility::No)
+            Ok(super::Compatibility::Yes)
         ));
     }
 

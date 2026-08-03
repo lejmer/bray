@@ -113,7 +113,7 @@ impl super::super::Compilation {
             current,
             interfaces,
             skeleton,
-            symbols.compiler_known_provider().declaration_symbols(),
+            symbols.compiler_known_provider().symbol_keys(),
         )
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 

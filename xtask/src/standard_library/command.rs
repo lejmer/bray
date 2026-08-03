@@ -406,9 +406,13 @@ fn build_target(
     let inputs =
         ProductEmissionInputs::new(&output_description).with_native_product(&native_facts, &linker);
 
-    let outcome = compilation
-        .emit_product(request, inputs)
-        .map_err(|error| BuildError::Emission(format!("{:?}", error.kind())))?;
+    let outcome = compilation.emit_product(request, inputs).map_err(|error| {
+        BuildError::Emission(format!(
+            "{:?}; diagnostics={:?}",
+            error.kind(),
+            compilation.check_diagnostics()
+        ))
+    })?;
 
     if !matches!(outcome.status(), EmissionStatus::Complete) {
         return Err(BuildError::CompilationFailed {

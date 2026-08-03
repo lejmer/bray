@@ -331,10 +331,11 @@ impl StoragePlanBuilder {
                     | StorageIdentity::Error(_),
                 ),
             )
-            | (
-                StorageBindingTarget::PostconditionResult(_) | StorageBindingTarget::Result,
-                Some(StorageIdentity::Result(_)),
-            ) => true,
+            | (StorageBindingTarget::Result, Some(StorageIdentity::Result(_))) => true,
+            (
+                StorageBindingTarget::PostconditionResult(expected),
+                Some(StorageIdentity::PostconditionResult(actual)),
+            ) => expected == actual,
             _ => false,
         }
     }

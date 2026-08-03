@@ -222,6 +222,15 @@ native_export! {
 }
 
 native_export! {
+    pub extern "C" fn bray_runtime_character_utf8_byte_v1(value: u32, index: usize) -> u8 {
+        let mut bytes = [0; 4];
+        let encoded = native_character(value).encode_utf8(&mut bytes);
+
+        encoded.as_bytes().get(index).copied().unwrap_or(0)
+    }
+}
+
+native_export! {
     pub extern "C" fn bray_runtime_character_is_alphabetic_v1(value: u32) -> u8 {
         u8::from(native_character(value).is_alphabetic())
     }
@@ -708,16 +717,16 @@ mod tests {
     use super::{
         bray_runtime_character_from_scalar_value_v1, bray_runtime_character_is_alphabetic_v1,
         bray_runtime_character_is_numeric_v1, bray_runtime_character_is_whitespace_v1,
-        bray_runtime_character_scalar_value_v1, bray_runtime_character_utf8_length_v1,
-        bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
-        bray_runtime_main_thread_lane_startup_v1, bray_runtime_memory_allocation_v1,
-        bray_runtime_memory_deallocation_v1, bray_runtime_root_completion_resolution_v1,
-        bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
-        bray_runtime_string_equals_v1, bray_runtime_string_from_utf8_v1,
-        bray_runtime_string_scalar_at_v1, bray_runtime_string_scalar_count_v1,
-        bray_runtime_string_scalar_slice_v1, bray_runtime_structured_shutdown_v1,
-        bray_runtime_synchronous_root_execution_v1, bray_runtime_task_allocation_v1,
-        bray_runtime_task_start_v1,
+        bray_runtime_character_scalar_value_v1, bray_runtime_character_utf8_byte_v1,
+        bray_runtime_character_utf8_length_v1, bray_runtime_join_registration_v1,
+        bray_runtime_main_thread_lane_drive_v1, bray_runtime_main_thread_lane_startup_v1,
+        bray_runtime_memory_allocation_v1, bray_runtime_memory_deallocation_v1,
+        bray_runtime_root_completion_resolution_v1, bray_runtime_root_execution_v1,
+        bray_runtime_root_terminal_observation_v1, bray_runtime_string_equals_v1,
+        bray_runtime_string_from_utf8_v1, bray_runtime_string_scalar_at_v1,
+        bray_runtime_string_scalar_count_v1, bray_runtime_string_scalar_slice_v1,
+        bray_runtime_structured_shutdown_v1, bray_runtime_synchronous_root_execution_v1,
+        bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -884,6 +893,9 @@ mod tests {
 
         assert_eq!(bray_runtime_character_scalar_value_v1(character), character);
         assert_eq!(bray_runtime_character_utf8_length_v1(character), 2);
+        assert_eq!(bray_runtime_character_utf8_byte_v1(character, 0), 0xd9);
+        assert_eq!(bray_runtime_character_utf8_byte_v1(character, 1), 0xa3);
+        assert_eq!(bray_runtime_character_utf8_byte_v1(character, 2), 0);
         assert_eq!(bray_runtime_character_is_alphabetic_v1(character), 0);
         assert_eq!(bray_runtime_character_is_numeric_v1(character), 1);
         assert_eq!(bray_runtime_character_is_whitespace_v1(character), 0);

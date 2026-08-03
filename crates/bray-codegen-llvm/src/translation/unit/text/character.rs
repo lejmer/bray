@@ -77,6 +77,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.call_value(function, &[value.into()], "character.utf8_length")
     }
 
+    pub(super) fn character_utf8_byte(
+        &mut self,
+        operation: &MirTextOperation,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let operands = self.text_operands(operation)?;
+
+        let [(value, _), (index, _)] = operands.as_slice() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let value = value.into_int_value();
+        let index = index.into_int_value();
+        let result = self.types.context().i8_type();
+
+        let function = self.text_function(
+            bray_runtime_interface::CHARACTER_UTF8_BYTE_SYMBOL,
+            Some(result.into()),
+            &[value.get_type().into(), index.get_type().into()],
+        );
+
+        self.call_value(
+            function,
+            &[value.into(), index.into()],
+            "character.utf8_byte",
+        )
+    }
+
     pub(super) fn character_predicate(
         &mut self,
         operation: &MirTextOperation,

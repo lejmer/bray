@@ -32,6 +32,11 @@ const STANDARD_BUFFER_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/standard-buffer-memory.bray";
 const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes.bray";
 const STANDARD_BYTES_IMPLEMENTATION: &str = "standard-library/std/src/bytes_impl.bray";
+const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
+const STANDARD_FORMAT_SOURCE: &str = "standard-library/std/src/format.bray";
+const STANDARD_FORMAT_IMPLEMENTATION: &str = "standard-library/std/src/format_impl.bray";
+const STANDARD_FORMAT_FIXTURE: &str = "xtask/fixtures/native-execution/standard-format.bray";
+const STANDARD_STRING_SOURCE: &str = "standard-library/std/src/string.bray";
 
 pub(super) fn audit_standard_buffer(
     root: &Path,
@@ -57,6 +62,33 @@ pub(super) fn audit_standard_buffer(
     }
 
     Ok(())
+}
+
+pub(super) fn audit_standard_format(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+) -> Result<(), String> {
+    let output = native_output("bray-native-standard-format-")?;
+
+    let fixtures = [
+        STANDARD_BUFFER_MEMORY_FIXTURE,
+        STANDARD_BYTES_SOURCE,
+        STANDARD_BYTES_IMPLEMENTATION,
+        STANDARD_STRING_SOURCE,
+        STANDARD_CHARACTER_SOURCE,
+        STANDARD_FORMAT_SOURCE,
+        STANDARD_FORMAT_IMPLEMENTATION,
+        STANDARD_FORMAT_FIXTURE,
+    ];
+
+    build_standard_library_fixtures(root, target, runtime, output.path(), &fixtures)?;
+
+    execute_product(
+        &executable_path(output.path(), target),
+        0,
+        "executing standard formatting fixture",
+    )
 }
 
 pub(super) fn build_standard_library_fixtures(

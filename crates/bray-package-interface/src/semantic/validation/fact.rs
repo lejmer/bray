@@ -550,11 +550,11 @@ fn reference_is_owned_by(
 ) -> Result<bool, InterfaceValidationError> {
     match (member, owner) {
         (
-            InterfaceSymbolReference::CompilerKnown { .. },
-            InterfaceSymbolReference::CompilerKnown { .. },
+            InterfaceSymbolReference::CompilerKnown(_),
+            InterfaceSymbolReference::CompilerKnown(_),
         ) => Ok(true),
-        (InterfaceSymbolReference::CompilerKnown { .. }, _)
-        | (_, InterfaceSymbolReference::CompilerKnown { .. }) => Ok(false),
+        (InterfaceSymbolReference::CompilerKnown(_), _)
+        | (_, InterfaceSymbolReference::CompilerKnown(_)) => Ok(false),
         _ => Ok(reference_owner(member, surface)? == Some(reference_key(owner, surface)?)),
     }
 }
@@ -565,9 +565,7 @@ pub(super) fn local_symbol(
     match reference {
         InterfaceSymbolReference::Local(symbol) => Ok(*symbol),
         InterfaceSymbolReference::Dependency { .. }
-        | InterfaceSymbolReference::CompilerKnown { .. } => {
-            Err(InterfaceValidationError::Malformed)
-        }
+        | InterfaceSymbolReference::CompilerKnown(_) => Err(InterfaceValidationError::Malformed),
     }
 }
 
@@ -610,7 +608,7 @@ fn reference_key<'surface>(
             .map(|symbol| symbol.key())
             .ok_or(InterfaceValidationError::Malformed),
         InterfaceSymbolReference::Dependency { key, .. } => Ok(key),
-        InterfaceSymbolReference::CompilerKnown { .. } => Err(InterfaceValidationError::Malformed),
+        InterfaceSymbolReference::CompilerKnown(_) => Err(InterfaceValidationError::Malformed),
     }
 }
 
@@ -624,7 +622,7 @@ pub(super) fn validate_symbol(
         InterfaceSymbolReference::Dependency { dependency, .. } => {
             validate_index(dependency.to_index(), dependency_count)
         }
-        InterfaceSymbolReference::CompilerKnown { .. } => Ok(()),
+        InterfaceSymbolReference::CompilerKnown(_) => Ok(()),
     }
 }
 
@@ -652,7 +650,7 @@ pub(super) fn validate_symbol_kind(
 
             Ok(key.kind())
         }
-        InterfaceSymbolReference::CompilerKnown { kind, .. } => Ok(*kind),
+        InterfaceSymbolReference::CompilerKnown(reference) => Ok(reference.kind()),
     }
 }
 

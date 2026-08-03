@@ -26,18 +26,18 @@ runtime or operating system.
 
 The public modules are:
 
-| Module | Responsibility |
-|---|---|
-| `std.string` | UTF-8 validation, scalar and byte views, text search, comparison, and conversion |
-| `std.character` | Unicode scalar conversion, classification, and encoding utilities |
-| `std.bytes` | Borrowed byte views, owned byte buffers, copying, comparison, and encoding support |
-| `std.iteration` | Iterator adapters and algorithms over the compiler-known iteration traits |
-| `std.collection` | General-purpose sequences, maps, sets, queues, and their views |
-| `std.format` | Typed formatting, format arguments, formatters, and text or byte sinks |
-| `std.hash` | Hashing contracts, hash state, and standard hash implementations |
-| `std.order` | Ordering helpers and algorithms over compiler-known comparison contracts |
-| `std.numeric` | Numeric limits, checked arithmetic helpers, parsing, and explicit numeric policies |
-| `std.memory` | The separately specified low-level memory and allocation surface |
+| Module           | Responsibility                                                                     |
+|------------------|------------------------------------------------------------------------------------|
+| `std.string`     | UTF-8 validation, scalar and byte views, text search, comparison, and conversion   |
+| `std.character`  | Unicode scalar conversion, classification, and encoding utilities                  |
+| `std.bytes`      | Borrowed byte views, owned byte buffers, copying, comparison, and encoding support |
+| `std.iteration`  | Iterator adapters and algorithms over the compiler-known iteration traits          |
+| `std.collection` | General-purpose sequences, maps, sets, queues, and their views                     |
+| `std.format`     | Typed formatting, format arguments, formatters, and text or byte sinks             |
+| `std.hash`       | Hashing contracts, hash state, and standard hash implementations                   |
+| `std.order`      | Ordering helpers and algorithms over compiler-known comparison contracts           |
+| `std.numeric`    | Numeric limits, checked arithmetic helpers, parsing, and explicit numeric policies |
+| `std.memory`     | The separately specified low-level memory and allocation surface                   |
 
 Submodules may group focused families without changing these ownership boundaries. A module must not re-export another module's
 complete surface merely to shorten paths. Cross-module convenience functions belong with the abstraction whose contract they
@@ -165,6 +165,8 @@ extern func from_scalar_value(value: u32) -> char?;
 
 extern func utf8_length(value: char) -> usize;
 
+extern func utf8_byte(value: char, index: usize) -> u8;
+
 extern func is_alphabetic(value: char) -> bool;
 
 extern func is_numeric(value: char) -> bool;
@@ -227,6 +229,8 @@ func as_slice(pos buffer: &Buffer) -> &[u8];
 
 func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8];
 
+func equals(pos left: &[u8], pos right: &[u8]) -> bool;
+
 func reserve(
     pos buffer: &mut Buffer,
     additional: usize,
@@ -256,9 +260,10 @@ func pop(pos buffer: &mut Buffer) -> u8?;
 ```
 
 `create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation failure follows
-the language allocation panic contract. `reserve` guarantees capacity for `length(buffer) + additional` without changing the byte
-sequence. `resize` preserves the existing prefix, truncates when shrinking, and appends `fill` bytes when growing. `truncate`
-leaves the buffer unchanged when `new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
+the language allocation panic contract. `equals` compares complete byte sequences without allocation. `reserve` guarantees
+capacity for `length(buffer) + additional` without changing the byte sequence. `resize` preserves the existing prefix, truncates
+when shrinking, and appends `fill` bytes when growing. `truncate` leaves the buffer unchanged when
+`new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
 
 `as_slice` and `as_slice_mut` return views dependent on `buffer`. Any operation requiring mutation or possible reallocation is
 rejected while an incompatible view remains live by ordinary borrowing rules. A caller therefore cannot pass a view reaching

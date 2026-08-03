@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
-    AnonymousCallableParameterSymbolId, CallableParameterSymbolId, PredicateParameterSymbolId,
-    ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal, TypeId,
-    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    AnonymousCallableParameterSymbolId, CallableParameterSymbolId, PostconditionResultSymbolId,
+    PredicateParameterSymbolId, ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal,
+    TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::identity::define_unit_scoped_id;
@@ -61,6 +61,8 @@ pub enum StorageIdentity {
     AnonymousParameter(AnonymousCallableParameterSymbolId),
     /// Storage supplied through a predicate parameter.
     PredicateParameter(PredicateParameterSymbolId),
+    /// A callable result supplied to a postcondition.
+    PostconditionResult(PostconditionResultSymbolId),
     /// Storage receiving the value produced by this semantic unit.
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
@@ -93,6 +95,7 @@ impl StorageIdentity {
             Self::Receiver(_) => "receiver",
             Self::AnonymousParameter(_) => "anonymous_parameter",
             Self::PredicateParameter(_) => "predicate_parameter",
+            Self::PostconditionResult(_) => "postcondition_result",
             Self::Result(_) => "result",
             Self::Temporary(_) => "temporary",
             Self::IterationCursor(_) => "iteration_cursor",
@@ -102,6 +105,18 @@ impl StorageIdentity {
             Self::Alternative { .. } => "alternative",
             Self::Error(_) => "error",
         }
+    }
+
+    /// Returns whether this storage receives an initialized value at unit entry.
+    pub const fn is_initialized_at_entry(self) -> bool {
+        matches!(
+            self,
+            Self::Parameter(_)
+                | Self::Receiver(_)
+                | Self::AnonymousParameter(_)
+                | Self::PredicateParameter(_)
+                | Self::PostconditionResult(_)
+        )
     }
 
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
@@ -118,6 +133,7 @@ impl StorageIdentity {
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::PredicateParameter(_)
+            | Self::PostconditionResult(_)
             | Self::Receiver(_)
             | Self::CompilerCreated(_)
             | Self::Error(_) => true,

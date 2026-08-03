@@ -183,6 +183,7 @@ const fn identity_definition(identity: StorageIdentity) -> Option<AnyBoundNodeId
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => None,
     }
@@ -225,7 +226,6 @@ struct LivenessDomain<'analysis> {
     reachability: &'analysis ReachabilityResult,
     effects: &'analysis OperationEffects,
     transfers: Box<[BlockTransfer]>,
-    has_suspension: bool,
 }
 
 impl<'analysis> LivenessDomain<'analysis> {
@@ -240,16 +240,10 @@ impl<'analysis> LivenessDomain<'analysis> {
             .map(|block| block_transfer(graph, block, effects))
             .collect();
 
-        let has_suspension = graph
-            .operations()
-            .iter()
-            .any(|operation| matches!(operation.kind(), AnalysisOperationKind::DirectAwait(_)));
-
         Self {
             reachability,
             effects,
             transfers,
-            has_suspension,
         }
     }
 
@@ -277,8 +271,7 @@ impl FixedPointDomain for LivenessDomain<'_> {
     }
 
     fn should_seed(&self, block: &AnalysisBlock) -> bool {
-        self.has_suspension
-            && self.reachability.is_block_reachable(block.id())
+        self.reachability.is_block_reachable(block.id())
             && self
                 .transfer(block)
                 .is_some_and(|transfer| !transfer.generated.is_empty())

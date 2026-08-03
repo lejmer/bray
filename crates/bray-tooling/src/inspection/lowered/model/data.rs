@@ -727,6 +727,7 @@ fn operation_parts(
                         "character_from_scalar_value"
                     }
                     bray_ir::MirTextOperationKind::CharacterUtf8Length => "character_utf8_length",
+                    bray_ir::MirTextOperationKind::CharacterUtf8Byte => "character_utf8_byte",
                     bray_ir::MirTextOperationKind::CharacterIsAlphabetic => {
                         "character_is_alphabetic"
                     }

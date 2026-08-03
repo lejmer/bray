@@ -62,7 +62,7 @@ impl TypeExpressionBinder<'_> {
         path: &PathSyntax,
         arguments: Option<&GenericArgumentListSyntax>,
     ) -> BinderFactResult<TypeExpressionTemplate> {
-        let resolved = self.bind_type_path(path);
+        let resolved = self.bind_type_path(path)?;
 
         let MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) =
             resolved

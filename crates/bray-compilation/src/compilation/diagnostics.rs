@@ -175,10 +175,10 @@ impl Compilation {
             .map_indexed(callables.len(), |index| {
                 cancellation.check()?;
 
+                let callable = callables[index];
+
                 binder
-                    .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
-                        callables[index],
-                    ))
+                    .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
                     .map_err(super::binder::binder_fact_error)
             })?;
 
@@ -1089,7 +1089,9 @@ func main(value: r16)
 
         assert_eq!(
             diagnostic_kinds(compilation.check_diagnostics()),
-            [DiagnosticKind::BindingUnresolvedName]
+            [DiagnosticKind::BindingUnresolvedName],
+            "{:#?}",
+            compilation.check_diagnostics()
         );
 
         let bound = match compilation.bound_unit(key) {

@@ -13,7 +13,7 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) enum TranslationError {
     Cancelled,
@@ -85,6 +85,7 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) types: &'types mut LlvmTypeMappings<'context, 'request>,
     pub(super) builder: Builder<'context>,
     pub(super) blocks: BTreeMap<MirBlockId, BasicBlock<'context>>,
+    pub(super) reachable_blocks: BTreeSet<MirBlockId>,
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
     pub(super) storages: BTreeMap<MirStorageId, PointerValue<'context>>,
     pub(super) values: BTreeMap<MirValueId, BasicValueEnum<'context>>,
@@ -120,6 +121,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .collect();
 
+        let reachable_blocks = reachable_blocks(unit);
+
         Ok(Self {
             module,
             request,
@@ -130,6 +133,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             types,
             builder,
             blocks,
+            reachable_blocks,
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
@@ -171,6 +175,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .collect();
 
+        let reachable_blocks = reachable_blocks(unit);
+
         Ok(Self {
             module,
             request,
@@ -181,6 +187,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             types,
             builder: context.create_builder(),
             blocks,
+            reachable_blocks,
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
@@ -204,6 +211,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let llvm_block = self.block(id)?;
 
             self.builder.position_at_end(llvm_block);
+
+            if !self.reachable_blocks.contains(&id) {
+                llvm(self.builder.build_unreachable())?;
+
+                continue;
+            }
 
             for operation_id in block.operations() {
                 let operation = self
@@ -526,4 +539,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         Ok(())
     }
+}
+
+fn reachable_blocks(unit: &MirUnit) -> BTreeSet<MirBlockId> {
+    let mut reachable = BTreeSet::new();
+    let mut pending = vec![unit.entry()];
+
+    while let Some(block) = pending.pop() {
+        if !reachable.insert(block) {
+            continue;
+        }
+
+        let Some(block) = unit.block(block) else {
+            continue;
+        };
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|successor| pending.push(successor));
+    }
+
+    reachable
 }

@@ -567,6 +567,7 @@ mod tests {
             "StandardCharacterIsNumeric",
             "StandardCharacterIsWhitespace",
             "StandardCharacterScalarValue",
+            "StandardCharacterUtf8Byte",
             "StandardCharacterUtf8Length",
             "StandardConvert",
             "StandardMemoryAddressOf",

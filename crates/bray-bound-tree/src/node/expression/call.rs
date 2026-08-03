@@ -4,7 +4,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnonymousCallableSymbolId, CallableDefinitionId, CallableInstanceData,
-    ImplementationInstanceId, SymbolName, TypeId,
+    ImplementationInstanceId, PredicateInstanceData, SymbolName, TypeId,
 };
 
 use crate::{BoundExpressionId, BoundNodeOrigin};
@@ -78,6 +78,8 @@ pub enum BoundCallableTarget {
     /// Compiler-provided behavior is classified from this declaration identity, never from the
     /// callee's source spelling.
     Declaration(CallableInstanceData),
+    /// A compile-time predicate and its complete generic substitution.
+    Predicate(PredicateInstanceData),
     /// A separately bound anonymous callable unit.
     Anonymous(AnonymousCallableSymbolId),
     /// A dynamically selected callable value represented by its checked callable type.
@@ -89,7 +91,7 @@ impl BoundCallableTarget {
     pub const fn declaration(self) -> Option<CallableDefinitionId> {
         match self {
             Self::Declaration(instance) => Some(instance.definition()),
-            Self::Anonymous(_) | Self::Indirect(_) => None,
+            Self::Predicate(_) | Self::Anonymous(_) | Self::Indirect(_) => None,
         }
     }
 }
@@ -145,6 +147,7 @@ impl BoundCallResult {
 pub struct BoundResolvedCall {
     target: BoundCallableTarget,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
+    generic_dispatch: Option<bray_symbols::GenericConstraintDispatch>,
     result: BoundCallResult,
 }
 
@@ -161,8 +164,19 @@ impl BoundResolvedCall {
         Self {
             target,
             implementation_witnesses: sorted_unique_shared_slice(implementation_witnesses),
+            generic_dispatch: None,
             result,
         }
+    }
+
+    /// Returns this call with dispatch supplied by one surrounding generic constraint.
+    pub const fn with_generic_dispatch(
+        mut self,
+        dispatch: bray_symbols::GenericConstraintDispatch,
+    ) -> Self {
+        self.generic_dispatch = Some(dispatch);
+
+        self
     }
 
     /// Returns the exact declared, anonymous, or indirect callable target.
@@ -173,6 +187,11 @@ impl BoundResolvedCall {
     /// Returns selected implementation witnesses in canonical semantic-set order.
     pub fn implementation_witnesses(&self) -> &[ImplementationInstanceId] {
         &self.implementation_witnesses
+    }
+
+    /// Returns the generic constraint supplying member dispatch.
+    pub const fn generic_dispatch(&self) -> Option<bray_symbols::GenericConstraintDispatch> {
+        self.generic_dispatch
     }
 
     /// Returns whether this call executes immediately or constructs a lazy future.

@@ -25,6 +25,7 @@ pub(super) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirT
             Some(MirTextOperationKind::CharacterFromScalarValue)
         }
         ImplementationHook::CharacterUtf8Length => Some(MirTextOperationKind::CharacterUtf8Length),
+        ImplementationHook::CharacterUtf8Byte => Some(MirTextOperationKind::CharacterUtf8Byte),
         ImplementationHook::CharacterIsAlphabetic => {
             Some(MirTextOperationKind::CharacterIsAlphabetic)
         }
@@ -164,7 +165,7 @@ mod tests {
     use super::text_operation_kind;
 
     #[test]
-    fn recognized_string_hooks_map_to_text_operations() {
+    fn recognized_text_hooks_map_to_text_operations() {
         let cases = [
             (
                 ImplementationHook::StringScalarCount,
@@ -202,6 +203,10 @@ mod tests {
             (
                 ImplementationHook::CharacterUtf8Length,
                 MirTextOperationKind::CharacterUtf8Length,
+            ),
+            (
+                ImplementationHook::CharacterUtf8Byte,
+                MirTextOperationKind::CharacterUtf8Byte,
             ),
             (
                 ImplementationHook::CharacterIsAlphabetic,

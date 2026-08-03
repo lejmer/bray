@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use bray_binder::SymbolFactProvider;
 use bray_codegen::{
     CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability, CodegenSpecialization,
     CodegenTarget, DemandedCallableInstance,
@@ -10,13 +11,20 @@ use bray_ir::{
     MirUnitKey,
 };
 use bray_symbols::{
-    CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind, GenericArgument,
+    CallableInstanceData, CheckedConstraintKind, ConstantTermData, ConstantValueData,
+    ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsFact,
     GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
-    ImplementationInstanceId, NamedTypeSymbolId, StructSymbolId, TargetSizedIntegerType,
+    ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
+    NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, TargetSizedIntegerType,
+    TraitCallableMemberSymbolId,
 };
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
+use super::super::binder::binder_fact_error;
+use super::super::implementation::{
+    callable_instance, implementation_fulfillments, selected_callable,
+};
 use super::super::substitution::named_type;
 use super::specialization_identity::encoding::structural_type_identity;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -234,6 +242,10 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        if demand.generic_dispatch().is_some() {
+            return self.concrete_codegen_generic_callee(owner, demand, target, cancellation);
+        }
+
         let values = self.semantic_value_store()?;
         let reference = demand.reference();
         let callable = reference.instance();
@@ -257,8 +269,110 @@ impl Compilation {
 
         let callable = CallableInstanceData::new(callable.definition(), substitution);
 
-        let witnesses = demand
-            .witnesses()
+        let witnesses =
+            self.concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
+
+        self.concrete_codegen_callable(callable, witnesses, target, cancellation)
+    }
+
+    fn concrete_codegen_generic_callee(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        demand: &DemandedCallableInstance,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        cancellation.check()?;
+
+        let dispatch = demand
+            .generic_dispatch()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let owner_substitution = owner
+            .substitution()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let member = TraitCallableMemberSymbolId::try_from_any(
+            demand.reference().instance().definition().symbol(),
+        )
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let values = self.semantic_value_store()?;
+        let facts = self.binder_facts(cancellation)?;
+
+        let constraints = facts
+            .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+                dispatch.owner(),
+            ))
+            .map_err(binder_fact_error)?;
+
+        let constraint = constraints
+            .value()
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.ordinal() == dispatch.ordinal())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let CheckedConstraintKind::TraitSatisfaction {
+            subject,
+            application,
+        } = constraint.kind()
+        else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        let subject = values
+            .substitute_type(subject, owner_substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let application = values
+            .substitute_trait_application(application, owner_substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let requirement = ImplementationRequirementKey::new(subject, application);
+
+        let selection =
+            self.implementation_selection_result_with_cancellation(requirement, cancellation)?;
+
+        let ImplementationSelection::Selected(witness) = selection.value() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        let implementation = values
+            .implementation_instance_data(*witness)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let fulfillments = implementation_fulfillments(&facts, implementation.definition())?;
+
+        let fulfillment = selected_callable(&facts, fulfillments.callables, member)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let application = values
+            .trait_application_data(application)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let callable = callable_instance(
+            values,
+            fulfillment.into(),
+            [application.substitution(), implementation.substitution()],
+        )?;
+
+        let mut witnesses =
+            self.concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
+
+        witnesses.push(*witness);
+
+        self.concrete_codegen_callable(callable, witnesses, target, cancellation)
+    }
+
+    fn concrete_codegen_demand_witnesses(
+        &self,
+        witnesses: &[ImplementationInstanceId],
+        owner_substitution: GenericSubstitutionId,
+    ) -> Result<Vec<ImplementationInstanceId>, CodegenFactError> {
+        let values = self.semantic_value_store()?;
+
+        witnesses
             .iter()
             .map(|witness| -> Result<_, CodegenFactError> {
                 let data = values
@@ -278,9 +392,7 @@ impl Compilation {
                     ))
                     .map_err(|_| FactQueryError::InfrastructureFailure.into())
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        self.concrete_codegen_callable(callable, witnesses, target, cancellation)
+            .collect()
     }
 
     pub(super) fn concrete_codegen_callable_data(

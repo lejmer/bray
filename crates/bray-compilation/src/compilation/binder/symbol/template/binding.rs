@@ -16,9 +16,9 @@ use bray_symbols::{
     UnionPayloadFieldDefaultTemplateFact,
 };
 use bray_syntax::{
-    ExpressionSyntax, PredicateDeclarationSyntax, PredicateParameterListSyntax, SyntaxKind,
-    SyntaxNodeView, SyntaxWalkControl, TraitPredicateMemberDeclarationSyntax, UsesClauseSyntax,
-    WithClauseSyntax, walk_direct_child_nodes,
+    ExpressionSyntax, PredicateDeclarationSyntax, PredicateParameterListSyntax, SourceSyntaxNode,
+    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, TraitPredicateMemberDeclarationSyntax,
+    UsesClauseSyntax, WithClauseSyntax, walk_direct_child_nodes,
 };
 
 use super::super::binding::CompilationSymbolFactBinding;
@@ -365,8 +365,18 @@ fn bind_predicate_signature_template(
         let entries = parameters
             .iter()
             .copied()
+            .zip(syntax)
             .zip(types)
-            .map(|(parameter, ty)| PredicateParameterTemplate::new(parameter, ty));
+            .map(|((parameter, syntax), ty)| {
+                let name = syntax
+                    .identifier_token()
+                    .text(syntax.source().text())
+                    .and_then(bray_symbols::CallableParameterName::try_new)
+                    .ok_or(BinderFactError::DependencyUnavailable)?;
+
+                Ok(PredicateParameterTemplate::new(parameter, name, ty))
+            })
+            .collect::<BinderFactResult<Vec<_>>>()?;
 
         let is_trusted = predicate_is_trusted(&root, owner)?;
 

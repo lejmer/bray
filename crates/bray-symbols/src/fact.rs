@@ -82,9 +82,9 @@ pub use implementation::{
 pub use module::{ModuleReExport, ModuleSurface, ModuleUsing};
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
-    CheckedConstraintKind, ErrorPredicateDefinition, GenericConstraintObligationKey,
-    GenericConstraintSet, PredicateDefinition, PredicateDefinitionState, PredicateSemanticSummary,
-    ProofOutcome, TrustedCapabilityRequirement,
+    CheckedConstraintKind, ErrorPredicateDefinition, GenericConstraintDispatch,
+    GenericConstraintObligationKey, GenericConstraintSet, PredicateDefinition,
+    PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome, TrustedCapabilityRequirement,
 };
 pub use representation::{
     DeclaredCopyContract, DeclaredLayoutMode, DeclaredTypeRepresentation, DeclaredUnionTag,

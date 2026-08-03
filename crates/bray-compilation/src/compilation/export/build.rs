@@ -8,9 +8,9 @@ use bray_package_interface::{
     SymbolRelationshipKind, build_package_interface_surface,
 };
 use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, ModuleSurfaceFact, ModuleSymbolId, ProductKind,
+    AnySymbolId, ExternalSymbolKey, ModulePathKey, ModuleSurfaceFact, ModuleSymbolId, ProductKind,
     SymbolFactRequest, SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin,
-    SynthesizedSymbolRole,
+    SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 
 use super::PackageInterfaceExportError;
@@ -274,19 +274,20 @@ fn external_key(
     }
 
     let owner = graph
-        .containing_symbol(symbol)
+        .runtime_default_subject(symbol)
+        .or_else(|| graph.containing_symbol(symbol))
         .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
     let owner_key = external_key(graph, owner, keys)?;
 
     let key = match graph.symbol_key(symbol).map(|key| key.data()) {
         Some(SymbolKeyData::Module { path, .. }) => {
-            ExternalSymbolKey::module(owner_key, path.clone())
+            ExternalSymbolKey::module(owner_key.clone(), external_module_path(&owner_key, path))
         }
         Some(SymbolKeyData::Synthesized(synthesized)) => ExternalSymbolKey::synthesized(
             owner_key,
             synthesized.role(),
-            external_synthesized_ordinal(synthesized.role(), synthesized.ordinal()),
+            external_synthesized_ordinal(synthesized),
         ),
         Some(SymbolKeyData::SourceDeclaration { .. }) => {
             external_declaration_key(graph, owner, owner_key, symbol)
@@ -300,17 +301,32 @@ fn external_key(
     Ok(key)
 }
 
-fn external_synthesized_ordinal(
-    role: SynthesizedSymbolRole,
-    ordinal: Option<SymbolOrdinal>,
-) -> Option<SymbolOrdinal> {
-    match role {
+fn external_synthesized_ordinal(key: &SynthesizedSymbolKey) -> Option<SymbolOrdinal> {
+    match key.role() {
         SynthesizedSymbolRole::ReceiverParameter => None,
         SynthesizedSymbolRole::CallableParameterDefaultProvider
         | SynthesizedSymbolRole::StructFieldDefaultProvider
-        | SynthesizedSymbolRole::UnionPayloadDefaultProvider => Some(SymbolOrdinal::new(0)),
-        _ => ordinal,
+        | SynthesizedSymbolRole::UnionPayloadDefaultProvider => None,
+        _ => key.ordinal(),
     }
+}
+
+fn external_module_path(package: &ExternalSymbolKey, path: &ModulePathKey) -> ModulePathKey {
+    let package_segments = package
+        .package_identity()
+        .as_str()
+        .split('.')
+        .collect::<Vec<_>>();
+
+    let path_segments = path.segments().collect::<Vec<_>>();
+
+    if path_segments.len() > package_segments.len() && path_segments.starts_with(&package_segments)
+    {
+        return ModulePathKey::try_new(path_segments[package_segments.len()..].iter().copied())
+            .unwrap_or_else(|| path.clone());
+    }
+
+    path.clone()
 }
 
 fn external_declaration_key(
@@ -377,7 +393,10 @@ fn export_symbol(
         .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
 
     let containing_symbol =
-        match graph.containing_symbol(symbol) {
+        match graph
+            .runtime_default_subject(symbol)
+            .or_else(|| graph.containing_symbol(symbol))
+        {
             Some(owner) => Some(keys.get(&owner).cloned().ok_or(
                 PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()),
             )?),
@@ -393,7 +412,10 @@ fn export_relationship(
     selected: &BTreeSet<AnySymbolId>,
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
 ) -> Result<Option<ExportRelationshipInput>, PackageInterfaceExportError> {
-    let Some(owner) = graph.containing_symbol(member) else {
+    let Some(owner) = graph
+        .runtime_default_subject(member)
+        .or_else(|| graph.containing_symbol(member))
+    else {
         return Ok(None);
     };
 
@@ -405,7 +427,7 @@ fn export_relationship(
         return Ok(None);
     };
 
-    let ordinal = relationship_ordinal(graph, owner, member)
+    let ordinal = exported_relationship_ordinal(graph, owner, member, selected)
         .map(SymbolOrdinal::raw)
         .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(member.kind()))?;
 
@@ -422,6 +444,25 @@ fn export_relationship(
     let relationship = ExportRelationshipInput::new(kind, owner_key, member_key, ordinal);
 
     Ok(Some(with_field_properties(graph, member, relationship)))
+}
+
+fn exported_relationship_ordinal(
+    graph: &bray_symbols::SymbolGraph,
+    owner: AnySymbolId,
+    member: AnySymbolId,
+    selected: &BTreeSet<AnySymbolId>,
+) -> Option<SymbolOrdinal> {
+    let kind = SymbolRelationshipKind::between(owner.kind(), member.kind())?;
+
+    graph
+        .declaration_children(owner)
+        .iter()
+        .copied()
+        .filter(|child| selected.contains(child))
+        .filter(|child| SymbolRelationshipKind::between(owner.kind(), child.kind()) == Some(kind))
+        .position(|child| child == member)
+        .and_then(|ordinal| u32::try_from(ordinal).ok())
+        .map(SymbolOrdinal::new)
 }
 
 fn with_field_properties(
@@ -586,8 +627,8 @@ mod tests {
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
-        AnySymbolId, CallableParameterDefaultValue, PackageIdentity, ProductKind,
-        RuntimeDefaultTemplateReference, TypeExpressionTemplate,
+        AnySymbolId, CallableParameterDefaultValue, MemberLookupResult, ModulePathKey,
+        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference, TypeExpressionTemplate,
     };
 
     use crate::{
@@ -710,8 +751,8 @@ mod tests {
         assert_eq!(facts.callable_signatures().len(), 2);
         assert_eq!(facts.generic_declarations().len(), 4);
         assert_eq!(facts.constraints().len(), 1);
-        assert_eq!(facts.checked_templates().len(), 4);
-        assert_eq!(facts.declaration_templates().len(), 4);
+        assert_eq!(facts.checked_templates().len(), 3);
+        assert_eq!(facts.declaration_templates().len(), 3);
         assert_eq!(facts.declared_types().len(), 2);
         assert_eq!(facts.type_representations().len(), 2);
     }
@@ -844,6 +885,187 @@ mod tests {
     }
 
     #[test]
+    fn standard_formatting_surface_round_trips_without_provider_source() {
+        let provider = standard_library_compilation([
+            "module std;\n",
+            concat!(
+                "module std.memory;\n",
+                "union MemoryLayoutError\n",
+                "{\n",
+                "    SizeOverflow;\n",
+                "    UnsupportedAlignment;\n",
+                "}\n",
+            ),
+            concat!(
+                "module std.bytes;\n",
+                "using std.memory;\n",
+                "struct Buffer {}\n",
+                "extern func create(capacity: usize = 0)\n",
+                "    -> Result<Buffer, std.memory.MemoryLayoutError>;\n",
+                "extern func as_slice(pos buffer: &Buffer) -> &[u8];\n",
+                "extern func length(pos buffer: &Buffer) -> usize;\n",
+                "extern func slice_length(pos bytes: &[u8]) -> usize;\n",
+                "extern func push(pos buffer: &mut Buffer, value: u8)\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
+                "extern func append(pos buffer: &mut Buffer, bytes: &[u8])\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
+                "extern func append_repeated(pos buffer: &mut Buffer, value: u8, count: usize)\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
+                "extern func resize(pos buffer: &mut Buffer, new_length: usize, fill: u8 = 0)\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
+            ),
+            concat!(
+                "module std.string;\n",
+                "union Utf8Error\n",
+                "{\n",
+                "    InvalidEncoding;\n",
+                "}\n",
+                "extern func utf8(pos value: &string) -> &[u8];\n",
+                "extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;\n",
+            ),
+            include_str!("../../../../../standard-library/std/src/character.bray"),
+            include_str!("../../../../../standard-library/std/src/format.bray"),
+            include_str!("../../../../../standard-library/std/src/format_impl.bray"),
+        ]);
+
+        assert!(
+            provider.syntax_tree_result().diagnostics().is_empty(),
+            "{:?}",
+            provider.syntax_tree_result().diagnostics()
+        );
+
+        assert!(
+            provider.declaration_diagnostics().is_empty(),
+            "{:?}",
+            provider.declaration_diagnostics()
+        );
+
+        let product = provider
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("formatting product facts must build: {error:?}"));
+
+        assert!(
+            product.diagnostics().is_empty(),
+            "{:?}",
+            product.diagnostics()
+        );
+
+        assert!(!product.value().is_recovered());
+
+        assert!(
+            provider.check_diagnostics().is_empty(),
+            "{:?}",
+            provider.check_diagnostics()
+        );
+
+        let artifact = encode_package_interface(export(&provider))
+            .unwrap_or_else(|error| panic!("formatting interface must encode: {error:?}"));
+
+        let provider_package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+
+        let provider_product = InterfaceProductIdentity::try_new("library")
+            .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
+
+        let dependency = DependencyInterfaceInput::new(
+            provider_package.clone(),
+            provider_product,
+            "std.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let consumer_package = PackageIdentity::try_new("example.application")
+            .unwrap_or_else(|| panic!("consumer package identity must be valid"));
+
+        let source = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "consumer.bray",
+            SourceVersion::new(0),
+            concat!(
+                "module app;\n",
+                "using std.format;\n",
+                "using std.format.StringFormat;\n",
+                "using std.format.I32Format;\n",
+                "func render(pos destination: &mut std.format.ByteSink, pos value: string)\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>\n",
+                "{\n",
+                "    return std.format.write(\n",
+                "        destination,\n",
+                "        std.format.argument<string>(value),\n",
+                "    );\n",
+                "}\n",
+                "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>\n",
+                "{\n",
+                "    return std.format.write(\n",
+                "        destination,\n",
+                "        std.format.argument<i32>(value),\n",
+                "    );\n",
+                "}\n",
+            ),
+        );
+
+        let options = CompilationOptions::new(
+            WorkerBudget::default(),
+            ProductKind::Library,
+            SelectedTarget::default(),
+        );
+
+        let request = CompilationRequest::with_options(consumer_package, vec![source], options)
+            .with_dependency_interfaces([dependency]);
+
+        let consumer = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("consumer compilation must load: {error:?}"));
+
+        assert!(
+            consumer.imported_diagnostics().is_empty(),
+            "{:?}",
+            consumer.imported_diagnostics()
+        );
+
+        let imported = consumer
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("formatting skeleton must build: {error:?}"));
+
+        let skeleton = imported
+            .value()
+            .as_deref()
+            .unwrap_or_else(|| panic!("formatting interface must contribute a skeleton"));
+
+        let package = skeleton
+            .package_by_identity(&provider_package)
+            .unwrap_or_else(|| panic!("standard-library package must be imported"));
+
+        let format_path = ModulePathKey::try_new(["format"])
+            .unwrap_or_else(|| panic!("format module path must be valid"));
+
+        let format = skeleton
+            .module_by_path(package.id(), &format_path)
+            .unwrap_or_else(|| panic!("format module must be imported"));
+
+        assert!(matches!(
+            skeleton.lookup(format.id().into(), "ByteSink"),
+            MemberLookupResult::Found(_)
+        ));
+
+        assert!(matches!(
+            skeleton.lookup(format.id().into(), "argument"),
+            MemberLookupResult::Found(_)
+        ));
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+
+        assert!(!skeleton.traits().is_empty());
+        assert!(!skeleton.structures().is_empty());
+        assert!(!skeleton.named_trait_implementations().is_empty());
+    }
+
+    #[test]
     fn non_library_products_cannot_export_package_interfaces() {
         for product_kind in [ProductKind::Executable, ProductKind::Test] {
             let compilation = compilation_from_sources_for_product(["module app;"], product_kind);
@@ -915,5 +1137,43 @@ mod tests {
 
         Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
+    }
+
+    fn standard_library_compilation<const N: usize>(sources: [&str; N]) -> Compilation {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+
+        let product = InterfaceProductIdentity::try_new("library")
+            .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
+
+        let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
+            package.clone(),
+            product,
+            bray_package_interface::InterfaceProductKind::Library,
+            "public",
+        )
+        .unwrap_or_else(|| panic!("standard-library export identity must be valid"));
+
+        let export =
+            PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+
+        let sources = sources.into_iter().enumerate().map(|(index, source)| {
+            let index = u32::try_from(index)
+                .unwrap_or_else(|_| panic!("test source count must fit source identities"));
+
+            SourceInput::virtual_text(
+                SourceIdentity::new(index),
+                format!("standard-{index}.bray"),
+                SourceVersion::new(0),
+                source,
+            )
+        });
+
+        let request = CompilationRequest::new(package, sources.collect())
+            .with_standard_library_source_authority()
+            .with_package_interface_export(export);
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard-library compilation must load: {error:?}"))
     }
 }

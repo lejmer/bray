@@ -1702,11 +1702,11 @@ mod tests {
             "{\n",
             "    let selected: i32 = if condition\n",
             "    {\n",
-            "        value\n",
+            "        yield value;\n",
             "    }\n",
             "    else\n",
             "    {\n",
-            "        value\n",
+            "        yield value;\n",
             "    };\n",
             "    loop\n",
             "    {\n",
@@ -1727,7 +1727,7 @@ mod tests {
             Err(error) => panic!("cyclic liveness analysis must converge: {error:?}"),
         };
 
-        assert!(!facts.value().last_uses().is_empty());
+        assert!(!facts.value().last_uses().is_empty(), "{facts:#?}");
     }
 
     #[test]
@@ -2401,6 +2401,25 @@ mod tests {
 
         assert!(Arc::ptr_eq(&types, &repeated_types));
         assert!(Arc::ptr_eq(&selections, &repeated_selections));
+    }
+
+    #[test]
+    fn contextual_numeric_operations_do_not_retain_provisional_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func padding(pos width: usize, pos length: usize) -> usize\n",
+            "{\n",
+            "    let remaining: usize = width - length;\n",
+            "\n",
+            "    return remaining;\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
     }
 
     #[test]

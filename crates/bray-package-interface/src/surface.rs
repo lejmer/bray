@@ -6,8 +6,8 @@ mod reference;
 mod validation;
 
 pub use model::{
-    DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,
-    InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,
+    CompilerKnownSymbolReference, DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind,
+    InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,
     PackageInterfaceIdentity, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
     SymbolRelationship, SymbolRelationshipKind,
 };

@@ -63,8 +63,10 @@ where
             None => parent_access,
         };
 
-        for binding in pattern.bindings() {
-            self.bind_pattern_local(*binding, id, subject_expression, access)?;
+        if checked.target().is_none() {
+            for binding in pattern.bindings() {
+                self.bind_pattern_local(*binding, id, subject_expression, access)?;
+            }
         }
 
         for entry in pattern.entries() {
@@ -101,7 +103,10 @@ where
             self.bind_pattern_local(binding, id, subject_expression, access)?;
         }
 
-        if let Some(target) = pattern.target() {
+        if let Some(target) = checked
+            .target()
+            .filter(|target| pattern.mode() == BoundPatternMode::Assignment || target.is_constant())
+        {
             self.plan_pattern_target(subject_expression, pattern.mode(), target)?;
         }
 

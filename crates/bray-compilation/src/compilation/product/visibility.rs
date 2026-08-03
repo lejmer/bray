@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "public surface validation shares one recursive semantic dependency closure")
+
 use std::collections::BTreeSet;
 
 use bray_binder::SymbolFactProvider;
@@ -665,6 +667,29 @@ fn constant_term_exposes_internal(
             if let Some(implementation) = selected_implementation {
                 pending.push(SemanticValueDependency::Implementation(*implementation));
             }
+
+            pending.extend(
+                arguments
+                    .iter()
+                    .copied()
+                    .map(SemanticValueDependency::ConstantTerm),
+            );
+        }
+        ConstantTermData::PredicateCall {
+            predicate,
+            arguments,
+        } => {
+            if source_symbol_is_not_publicly_reachable(
+                predicate.definition().into_any(),
+                declarations,
+                symbols,
+            ) {
+                return true;
+            }
+
+            pending.push(SemanticValueDependency::Substitution(
+                predicate.substitution(),
+            ));
 
             pending.extend(
                 arguments

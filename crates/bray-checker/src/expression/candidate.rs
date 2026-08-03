@@ -13,8 +13,12 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{GenericConstraintObligationKey, ProofOutcome, TypeId};
 
 use super::built_in_operator::{self, PreparedBuiltInOperator};
+use super::generic_inference::infer_call_generic_arguments;
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
+    resolve_declaration_candidate_with_arguments, resolve_open_declaration_candidate,
+    resolve_open_predicate_candidate, resolve_predicate_candidate,
+    resolve_predicate_candidate_with_arguments,
 };
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
@@ -27,6 +31,7 @@ use crate::{
 struct PreparedCall {
     expression: BoundExpressionId,
     candidates: Vec<CallableCandidate>,
+    generic_candidates: Vec<CallableCandidateTemplate>,
     values: Vec<CallableValueCandidateTemplate>,
     anonymous_target: Option<bray_symbols::AnonymousCallableSymbolId>,
 }
@@ -120,21 +125,56 @@ where
                 candidates,
             }) => {
                 let mut resolved = Vec::with_capacity(candidates.len());
+                let mut generic_candidates = Vec::new();
                 let mut values = Vec::new();
                 let mut defer_call = false;
 
+                // Deferred inference retains these Arc-backed templates after this borrowed input.
                 for candidate in candidates.iter() {
                     if request.is_cancelled() {
                         return Ok(SessionProgress::Cancelled);
                     }
 
                     match candidate {
+                        CallableCandidateTemplate::Declaration(candidate)
+                            if candidate.generic_arguments().is_empty()
+                                && !candidate.generic().parameters().is_empty() =>
+                        {
+                            generic_candidates
+                                .push(CallableCandidateTemplate::Declaration(candidate.clone()));
+                        }
                         CallableCandidateTemplate::Declaration(candidate) => {
                             let materialized = resolve_declaration_candidate(
                                 request,
                                 candidate,
                                 &mut diagnostics,
                             )?;
+
+                            match materialized {
+                                TemplateResolution::Resolved(candidate) => {
+                                    match generic_constraint_outcome(
+                                        request,
+                                        &candidate,
+                                        &mut diagnostics,
+                                    )? {
+                                        ProofOutcome::Proven => resolved.push(candidate),
+                                        ProofOutcome::Disproven | ProofOutcome::Recovered => {}
+                                        ProofOutcome::Unknown => defer_call = true,
+                                    }
+                                }
+                                TemplateResolution::Unsupported => defer_call = true,
+                            }
+                        }
+                        CallableCandidateTemplate::Predicate(candidate)
+                            if candidate.generic_arguments().is_empty()
+                                && !candidate.generic().parameters().is_empty() =>
+                        {
+                            generic_candidates
+                                .push(CallableCandidateTemplate::Predicate(candidate.clone()));
+                        }
+                        CallableCandidateTemplate::Predicate(candidate) => {
+                            let materialized =
+                                resolve_predicate_candidate(request, candidate, &mut diagnostics)?;
 
                             match materialized {
                                 TemplateResolution::Resolved(candidate) => {
@@ -164,6 +204,7 @@ where
                     calls.push(PreparedCall {
                         expression: *expression,
                         candidates: CallableSelectionRequest::canonical_candidates(resolved),
+                        generic_candidates,
                         values,
                         anonymous_target: nested_callable_target(
                             request,
@@ -179,6 +220,7 @@ where
             }) => calls.push(PreparedCall {
                 expression: *expression,
                 candidates: Vec::new(),
+                generic_candidates: Vec::new(),
                 values: Vec::new(),
                 anonymous_target: None,
             }),
@@ -192,6 +234,7 @@ where
                 calls.push(PreparedCall {
                     expression: *expression,
                     candidates: Vec::new(),
+                    generic_candidates: Vec::new(),
                     values: vec![CallableValueCandidateTemplate::new(
                         bray_bound_tree::DeclaredValueTypeTerm::Expression(callee),
                         crate::CallableCandidateTemplateState::Visible,
@@ -263,17 +306,16 @@ where
         return Ok(ProofOutcome::Proven);
     }
 
-    let BoundCallableTarget::Declaration(instance) = candidate.resolution().target() else {
+    let Some(substitution_id) = candidate.generic_substitution() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(instance.substitution())
+        .generic_substitution_data(substitution_id)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let obligation =
-        GenericConstraintObligationKey::new(substitution.owner(), instance.substitution());
+    let obligation = GenericConstraintObligationKey::new(substitution.owner(), substitution_id);
 
     let result = match request.generic_constraints(obligation) {
         Ok(result) => result,
@@ -382,11 +424,13 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(candidates) =
+        let Some(materialized) =
             materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
         else {
             continue;
         };
+
+        let candidates = &materialized.candidates;
 
         let Some(BoundExpression::Call(call)) = request.view().expression(prepared_call.expression)
         else {
@@ -414,7 +458,7 @@ where
             types,
             prepared_call,
             &prepared.member_targets,
-            &candidates,
+            candidates,
         )?
         else {
             return Ok(SessionProgress::Cancelled);
@@ -546,21 +590,90 @@ fn common_candidate_value<T: Copy + Eq>(
         .then_some(first)
 }
 
+struct MaterializedCallCandidates<'prepared> {
+    candidates: Cow<'prepared, [CallableCandidate]>,
+    diagnostics: DiagnosticBag,
+}
+
 fn materialize_call_candidates<'prepared, C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &'prepared PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
-) -> Result<Option<Cow<'prepared, [CallableCandidate]>>, CheckerInfrastructureError>
+) -> Result<Option<MaterializedCallCandidates<'prepared>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if prepared.values.is_empty() {
-        return Ok(Some(Cow::Borrowed(&prepared.candidates)));
+    if prepared.generic_candidates.is_empty() && prepared.values.is_empty() {
+        return Ok(Some(MaterializedCallCandidates {
+            candidates: Cow::Borrowed(&prepared.candidates),
+            diagnostics: DiagnosticBag::new(),
+        }));
     }
 
-    // Value materialization appends to a task-local candidate list without mutating preparation.
     let mut candidates = prepared.candidates.clone();
+    let mut diagnostics = DiagnosticBag::new();
+
+    for template in &prepared.generic_candidates {
+        let (parameters, open) = match template {
+            CallableCandidateTemplate::Declaration(template) => (
+                template.generic().parameters(),
+                resolve_open_declaration_candidate(request, template, &mut diagnostics)?,
+            ),
+            CallableCandidateTemplate::Predicate(template) => (
+                template.generic().parameters(),
+                resolve_open_predicate_candidate(request, template, &mut diagnostics)?,
+            ),
+            CallableCandidateTemplate::Value(_) => {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            }
+        };
+
+        let Some(arguments) =
+            infer_call_generic_arguments(request, prepared.expression, &open, parameters, types)?
+        else {
+            continue;
+        };
+
+        let resolved = match template {
+            CallableCandidateTemplate::Declaration(template) => {
+                resolve_declaration_candidate_with_arguments(
+                    request,
+                    template,
+                    arguments,
+                    &mut diagnostics,
+                )?
+            }
+            CallableCandidateTemplate::Predicate(template) => {
+                resolve_predicate_candidate_with_arguments(
+                    request,
+                    template,
+                    arguments,
+                    &mut diagnostics,
+                )?
+            }
+            CallableCandidateTemplate::Value(_) => {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            }
+        };
+
+        let TemplateResolution::Resolved(candidate) = resolved else {
+            continue;
+        };
+
+        if generic_constraint_outcome(request, &candidate, &mut diagnostics)?
+            == ProofOutcome::Proven
+        {
+            candidates.push(candidate);
+        }
+    }
+
+    if prepared.values.is_empty() {
+        return Ok(Some(MaterializedCallCandidates {
+            candidates: Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
+            diagnostics,
+        }));
+    }
 
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -580,7 +693,10 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-        return Ok(Some(Cow::Owned(candidates)));
+        return Ok(Some(MaterializedCallCandidates {
+            candidates: Cow::Owned(candidates),
+            diagnostics,
+        }));
     };
 
     let result = call_result(request, callable, callable.result())?;
@@ -600,17 +716,33 @@ where
         .flat_map(bray_bound_tree::MemberTarget::witnesses)
         .map(|witness| witness.witness());
 
-    let resolution = BoundResolvedCall::new(target, witnesses, result);
+    let mut resolution = BoundResolvedCall::new(target, witnesses, result);
+
+    if let Some(dispatch) = member.and_then(bray_bound_tree::MemberTarget::generic_dispatch) {
+        resolution = resolution.with_generic_dispatch(dispatch);
+    }
 
     // Each materialized value candidate owns its reusable resolved-call description.
     candidates.extend(prepared.values.iter().map(|template| {
-        let candidate = CallableCandidate::value(
-            template.value(),
-            resolution.clone(),
-            callee_type.ty(),
-            callable.result(),
-            candidate_state(template.state()),
-        );
+        let state = candidate_state(template.state());
+
+        let candidate = match member.and_then(bray_bound_tree::MemberTarget::callable_signature) {
+            Some(signature) => CallableCandidate::value(
+                template.value(),
+                resolution.clone(),
+                callee_type.ty(),
+                callable.result(),
+                state,
+            )
+            .with_declaration_signature(signature.clone()),
+            None => CallableCandidate::value(
+                template.value(),
+                resolution.clone(),
+                callee_type.ty(),
+                callable.result(),
+                state,
+            ),
+        };
 
         candidate.with_implementation_selections(
             member
@@ -625,9 +757,10 @@ where
         )
     }));
 
-    Ok(Some(Cow::Owned(
-        CallableSelectionRequest::canonical_candidates(candidates),
-    )))
+    Ok(Some(MaterializedCallCandidates {
+        candidates: Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
+        diagnostics,
+    }))
 }
 
 pub(super) fn converge<C>(
@@ -644,6 +777,8 @@ where
         if session.propagate()?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
+
+        built_in_operator::apply_evidence(request, prepared.built_in_operators(), session)?;
 
         let types = session.preview();
 
@@ -686,18 +821,20 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(candidates) =
+        let Some(materialized) =
             materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
         else {
             continue;
         };
+
+        let candidates = &materialized.candidates;
 
         let outcome = select_prepared_call(
             request,
             types,
             prepared_call,
             &prepared.member_targets,
-            &candidates,
+            candidates,
         );
 
         match outcome {
@@ -706,7 +843,7 @@ where
                     apply_selected_signature(
                         request,
                         prepared_call,
-                        &candidates,
+                        candidates,
                         selection,
                         session,
                     )?;
@@ -801,18 +938,20 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     for prepared_call in &prepared.calls {
-        let Some(candidates) =
+        let Some(materialized) =
             materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
         else {
             continue;
         };
+
+        diagnostics.add_range(materialized.diagnostics);
 
         match select_prepared_call(
             request,
             types,
             prepared_call,
             &prepared.member_targets,
-            &candidates,
+            &materialized.candidates,
         ) {
             CheckerOutcome::Complete(result) => {
                 let (selection, selection_diagnostics) = result.into_parts();

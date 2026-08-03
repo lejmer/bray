@@ -312,13 +312,17 @@ impl ExpressionBinder {
 
         let context = self.path_context_for(scope, access);
 
-        let route = root_token.as_ref().and_then(|token| {
+        let route = if let Some(token) = root_token.as_ref() {
             let root = binder.lookup_reference_identifier(context, syntax.source(), token.clone());
 
-            matches!(root, bray_symbols::MemberLookupResult::NotFound)
-                .then(|| binder.lookup_module_route(context, syntax.source(), route_tokens))
-                .flatten()
-        });
+            if matches!(root, bray_symbols::MemberLookupResult::NotFound) {
+                binder.lookup_module_route(context, syntax.source(), route_tokens)?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let mut current = match (route, root_token) {
             (Some((module, _)), _) => self.push_resolved_reference(

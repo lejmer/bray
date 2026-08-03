@@ -123,6 +123,10 @@ impl BinderFactContext for TestContext<'_> {
             .and_then(|(package, _)| ImportedPathRoot::for_path(symbols, package.id(), components)))
     }
 
+    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        Ok(self.imported_symbols)
+    }
+
     fn module_re_export_lookup(
         &self,
         _module: ModuleSymbolId,

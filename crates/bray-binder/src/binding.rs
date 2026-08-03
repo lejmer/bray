@@ -22,8 +22,8 @@ pub use directive::{
 pub(crate) use error::{BindingError, BindingResult};
 pub(crate) use expression::ExpressionBinder;
 pub use type_expression::{
-    CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding,
-    bind_callable_abi,
+    CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports, TypeExpressionScope,
+    TypeParameterBinding, bind_callable_abi,
 };
 
 #[cfg(test)]

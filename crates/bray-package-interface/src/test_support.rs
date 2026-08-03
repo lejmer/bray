@@ -197,7 +197,7 @@ fn package_interface_export_bundle_for(
     let default_provider = ExternalSymbolKey::synthesized(
         parameter.clone(),
         SynthesizedSymbolRole::CallableParameterDefaultProvider,
-        Some(SymbolOrdinal::new(0)),
+        None,
     )
     .unwrap_or_else(|| panic!("test callable default provider key must be valid"));
 

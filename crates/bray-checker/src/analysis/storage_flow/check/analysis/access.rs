@@ -249,6 +249,7 @@ where
                 StorageIdentity::LocalOwned(_)
                 | StorageIdentity::AnonymousParameter(_)
                 | StorageIdentity::PredicateParameter(_)
+                | StorageIdentity::PostconditionResult(_)
                 | StorageIdentity::Error(_),
             )
             | None => false,

@@ -326,7 +326,7 @@ pub enum CheckedTemplateOperation {
     Declaration(ExternalSymbolKey),
     /// Calls one selected declaration with deterministic argument order.
     Call {
-        /// The selected callable declaration.
+        /// The selected callable or predicate declaration.
         callable: ExternalSymbolKey,
         /// Ordered generic arguments applied to the callable declaration.
         substitution: GenericSubstitutionId,

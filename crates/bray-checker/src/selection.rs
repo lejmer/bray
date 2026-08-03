@@ -25,8 +25,8 @@ pub use model::{
     CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
     ImplementationSelectionEvidence, IterationSourceCandidate, IterationSourceSelectionRequest,
     OperationCandidate, OperationCandidateSource, OperationCandidateState,
-    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
-    SelectionFailure,
+    OperationSelectionRequest, PredicateCandidateTemplate, ReceiverCapability, ReceiverSelection,
+    SelectionCandidateKey, SelectionFailure,
 };
 pub use operation::{
     built_in_conversion_plan, compiler_known_operation_role, composite_conversion_children,

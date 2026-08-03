@@ -6,7 +6,8 @@ use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use bray_tooling::{InspectionTarget, OutputFormat, render_lowered_inspection};
 
 use super::buffer::{
-    audit_standard_buffer, build_standard_library_fixtures, standard_library_compilation,
+    audit_standard_buffer, audit_standard_format, build_standard_library_fixtures,
+    standard_library_compilation,
 };
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
@@ -37,6 +38,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     let runtime = native_output("bray-native-runtime-")?;
     let runtime = crate::runtime_artifact::build_for_readiness(target, runtime.path())?;
 
+    audit_standard_format(root, target, &runtime)?;
     audit_standard_buffer(root, target, &runtime)?;
     audit_text_cursor(root, target, &runtime)?;
     audit_startup(root, target, &runtime)?;
@@ -638,7 +640,7 @@ fn output_contains(output: &Output, required: &str) -> bool {
 }
 
 fn llvm_tool(root: &Path, name: &str) -> PathBuf {
-    crate::llvm::tool_path(root, name)
+    bray_tooling::llvm_tool_path(name).unwrap_or_else(|| crate::llvm::tool_path(root, name))
 }
 
 fn executable_name(name: &str) -> OsString {

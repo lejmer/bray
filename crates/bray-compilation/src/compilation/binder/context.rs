@@ -170,6 +170,16 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .and_then(|symbols| symbols.symbol_key(symbol)))
     }
 
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
+        if let Some(is_recovered) = self.symbols.symbol_is_recovered(symbol) {
+            return Ok(Some(is_recovered));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.symbol_is_recovered(symbol)))
+    }
+
     fn callable_parameter_default_provider(
         &self,
         parameter: CallableParameterSymbolId,
@@ -193,6 +203,10 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         components: &[&str],
     ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
         CompilationBinderFacts::imported_path_root(self, components)
+    }
+
+    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        CompilationBinderFacts::imported_symbols(self)
     }
 
     fn module_re_export_lookup(

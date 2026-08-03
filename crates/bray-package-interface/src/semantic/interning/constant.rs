@@ -11,7 +11,9 @@ use crate::{
     InterfaceSemanticFacts,
 };
 
-use super::common::{collect_ids, resolve_constant_definition, resolve_exact};
+use super::common::{
+    collect_ids, invalid_symbol, resolve_constant_definition, resolve_exact, resolve_symbol,
+};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
 impl InternState {
@@ -287,6 +289,31 @@ impl InternState {
                 Some(ConstantTermData::call(
                     callable,
                     selected_implementation,
+                    arguments,
+                ))
+            }
+            InterfaceConstantTerm::PredicateCall {
+                predicate,
+                substitution,
+                arguments,
+            } => {
+                let predicate_symbol = resolve_symbol(symbols, predicate)?;
+
+                let predicate =
+                    bray_symbols::PredicateDefinitionSymbolId::try_from_any(predicate_symbol)
+                        .ok_or_else(|| invalid_symbol(predicate))?;
+
+                let Some(substitution) = self.substitution_id(*substitution) else {
+                    return Ok(None);
+                };
+
+                let Some(arguments) = collect_ids(arguments, |id| self.constant_term_id(*id))
+                else {
+                    return Ok(None);
+                };
+
+                Some(ConstantTermData::predicate_call(
+                    bray_symbols::PredicateInstanceData::new(predicate, substitution),
                     arguments,
                 ))
             }

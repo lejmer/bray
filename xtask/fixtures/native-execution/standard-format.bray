@@ -1,0 +1,223 @@
+module std.format;
+
+func matches_text_at(pos bytes: &[u8], pos expected: &string, offset: usize) -> bool
+{
+    let expected_bytes: &[u8] = std.string.utf8(expected);
+    let expected_count: usize = std.bytes.slice_length(expected_bytes);
+
+    if offset + expected_count > std.bytes.slice_length(bytes)
+    {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < expected_count
+    {
+        let actual: u8 = bytes[offset + index];
+        let expected_byte: u8 = expected_bytes[index];
+
+        if actual != expected_byte
+        {
+            return false;
+        }
+
+        index = index + 1;
+    }
+
+    return true;
+}
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut sink: ByteSink = try byte_sink(capacity = 0);
+    let separator: string = "|";
+    let greeting: string = "Hello, world!";
+    let truth: bool = true;
+    let decimal: i32 = 42;
+    let binary: u8 = 10;
+    let octal: u8 = 10;
+    let hexadecimal_lowercase: u8 = 31;
+    let hexadecimal_uppercase: u32 = 255;
+    let negative: i32 = -10;
+    let spaced: u8 = 7;
+    let aligned: string = "abc";
+    let escaped: string = "a\n\"";
+    let character: char = '\u{3bb}';
+    let escaped_character: char = '\n';
+
+    try write(&mut sink, argument<string>(greeting));
+    try write(&mut sink, argument<string>(separator));
+
+    let centered: Options = options(
+        radix = Decimal,
+        precision = 0,
+        width = 7,
+        alignment = Center,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<bool>(truth, options = centered),
+    );
+    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, argument<i32>(decimal));
+    try write(&mut sink, argument<string>(separator));
+
+    let binary_options: Options = options(
+        radix = Binary,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<u8>(binary, options = binary_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let octal_options: Options = options(
+        radix = Octal,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<u8>(octal, options = octal_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let lowercase_options: Options = options(
+        radix = HexadecimalLowercase,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<u8>(hexadecimal_lowercase, options = lowercase_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let uppercase_options: Options = options(
+        radix = HexadecimalUppercase,
+        precision = 4,
+        width = 7,
+        alignment = Right,
+        sign = Always,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<u32>(hexadecimal_uppercase, options = uppercase_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let negative_options: Options = options(
+        radix = Binary,
+        precision = 8,
+        width = 12,
+        alignment = Left,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<i32>(negative, options = negative_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let spaced_options: Options = options(
+        radix = Decimal,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = Space,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<u8>(spaced, options = spaced_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let aligned_options: Options = options(
+        radix = Decimal,
+        precision = 0,
+        width = 5,
+        alignment = Left,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<string>(aligned, options = aligned_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+
+    let escaped_text_options: Options = options(
+        radix = Decimal,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Quoted,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<string>(escaped, options = escaped_text_options),
+    );
+    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, argument<char>(character));
+    try write(&mut sink, argument<string>(separator));
+
+    let escaped_character_options: Options = options(
+        radix = Decimal,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Quoted,
+    );
+
+    try write(
+        &mut sink,
+        argument_with<char>(escaped_character, options = escaped_character_options),
+    );
+
+    let formatted: &[u8] = bytes(&sink);
+
+    assert(std.bytes.slice_length(formatted) == 81, "formatted length differs");
+    assert(matches_text_at(formatted, offset = 0, expected = &"Hello, world!|"), "string formatting differs");
+    assert(matches_text_at(formatted, offset = 14, expected = &" true  |"), "boolean formatting differs");
+    assert(matches_text_at(formatted, offset = 22, expected = &"42|"), "decimal formatting differs");
+    assert(matches_text_at(formatted, offset = 25, expected = &"1010|"), "binary formatting differs");
+    assert(matches_text_at(formatted, offset = 30, expected = &"12|"), "octal formatting differs");
+    assert(matches_text_at(formatted, offset = 33, expected = &"1f|"), "lowercase hexadecimal formatting differs");
+    assert(matches_text_at(formatted, offset = 36, expected = &"  +00FF|"), "uppercase hexadecimal formatting differs");
+    assert(matches_text_at(formatted, offset = 44, expected = &"-00001010   |"), "signed formatting differs");
+    assert(matches_text_at(formatted, offset = 57, expected = &" 7|"), "space-sign formatting differs");
+    assert(matches_text_at(formatted, offset = 60, expected = &"abc  |"), "aligned string formatting differs");
+    assert(matches_text_at(formatted, offset = 66, expected = &"\"a\\n\\\"\""), "escaped string formatting differs");
+    assert(matches_text_at(formatted, offset = 74, expected = &"\u{3bb}|"), "character formatting differs");
+    assert(matches_text_at(formatted, offset = 77, expected = &"'\\n'"), "escaped character formatting differs");
+
+    return Ok(unit);
+}

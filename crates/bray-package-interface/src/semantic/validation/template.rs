@@ -322,9 +322,9 @@ fn validate_operation_references(
             arguments,
             implementation,
         } => {
-            let callable_kind = validate_template_reference(context, callable)?;
+            let declaration_kind = validate_template_reference(context, callable)?;
 
-            if !callable_kind.is_callable() {
+            if !declaration_kind.is_callable() && declaration_kind != SymbolKind::Predicate {
                 return Err(InterfaceValidationError::Malformed);
             }
 

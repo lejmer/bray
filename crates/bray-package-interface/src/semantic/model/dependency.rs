@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_base::sorted_unique_shared_slice;
 use bray_symbols::{BorrowKind, LifecycleObligationKind, SymbolOrdinal};
 
 use super::{InterfaceConstantTermId, InterfaceImplementationInstanceId};
@@ -96,7 +97,7 @@ impl InterfaceDependencyRequirement {
         Self {
             value: InterfaceDependencyRequirementValue::Guarded {
                 guard,
-                requirements: requirements.into_iter().collect(),
+                requirements: sorted_unique_shared_slice(requirements),
             },
         }
     }
@@ -148,7 +149,75 @@ impl InterfaceDependencyContract {
     /// Creates a dependency contract in canonical requirement order.
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
-            requirements: requirements.into_iter().collect(),
+            requirements: sorted_unique_shared_slice(requirements),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::SymbolOrdinal;
+
+    use super::{
+        InterfaceDependencyContract, InterfaceDependencyGuard, InterfaceDependencyRequirement,
+        InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
+        InterfaceDependencySubject, InterfaceDependencySubjectRoot,
+    };
+
+    fn requirement(
+        ordinal: u32,
+        kind: InterfaceDependencyRequirementKind,
+    ) -> InterfaceDependencyRequirement {
+        InterfaceDependencyRequirement::new(
+            InterfaceDependencySubject::new(
+                InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal)),
+                [],
+            ),
+            kind,
+        )
+    }
+
+    #[test]
+    fn dependency_contract_canonicalizes_requirements() {
+        let first = requirement(0, InterfaceDependencyRequirementKind::StorageAlive);
+        let second = requirement(1, InterfaceDependencyRequirementKind::StorageInitialized);
+        let contract = InterfaceDependencyContract::new([second.clone(), first.clone(), second]);
+
+        assert_eq!(
+            &*contract.requirements,
+            &[
+                first,
+                requirement(1, InterfaceDependencyRequirementKind::StorageInitialized),
+            ]
+        );
+    }
+
+    #[test]
+    fn guarded_requirement_canonicalizes_nested_requirements() {
+        let subject = InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+            [],
+        );
+
+        let first = requirement(0, InterfaceDependencyRequirementKind::StorageAlive);
+        let second = requirement(1, InterfaceDependencyRequirementKind::StorageInitialized);
+
+        let guarded = InterfaceDependencyRequirement::guarded(
+            InterfaceDependencyGuard::NullablePresent(subject),
+            [second.clone(), first.clone(), second],
+        );
+
+        let InterfaceDependencyRequirementValue::Guarded { requirements, .. } = guarded.value
+        else {
+            panic!("guarded constructor must produce a guarded requirement");
+        };
+
+        assert_eq!(
+            &*requirements,
+            &[
+                first,
+                requirement(1, InterfaceDependencyRequirementKind::StorageInitialized),
+            ]
+        );
     }
 }

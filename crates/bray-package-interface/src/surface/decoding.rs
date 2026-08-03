@@ -260,15 +260,13 @@ pub(crate) fn decode_exports(
                 key: super::reference::decode_external_key(&mut reader, strings, budget)?,
             },
             3 => {
-                let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(read_string(
-                    &mut reader,
-                    strings,
-                )?)
-                .ok_or(InterfaceValidationError::Malformed)?;
+                let key =
+                    super::reference::decode_compiler_known_key(&mut reader, strings, budget)?;
 
-                let kind = read_tag(&mut reader)?;
+                let reference = crate::CompilerKnownSymbolReference::try_new(key)
+                    .ok_or(InterfaceValidationError::Malformed)?;
 
-                InterfaceSymbolReference::CompilerKnown { key, kind }
+                InterfaceSymbolReference::CompilerKnown(reference)
             }
             _ => return Err(InterfaceValidationError::Malformed),
         };

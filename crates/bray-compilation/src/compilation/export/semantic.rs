@@ -39,17 +39,18 @@ use bray_symbols::{
     CallableInstanceId, CallableParameterDefaultTemplateFact, CallableParameterDefaultValue,
     CallablePhaseBehavior, CallableSignatureFact, CallableSymbolId, CheckedConstraintKind,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, CurrentRunCancellation, DependencyGuard, DependencyProjection,
-    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
-    ExternalSymbolKey, GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
-    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
-    InterfaceSupportEntityId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
-    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
-    RuntimeDefaultTemplateReference, SemanticValueStore, StructFieldDefaultValue,
-    SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
+    ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind, DependencyGuard,
+    DependencyProjection, DependencyRequirement, DependencyRequirementKind, DependencySubject,
+    DependencySubjectRoot, ExternalSymbolKey, GenericArgument, GenericConstraintsFact,
+    GenericDeclarationTemplateFact, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericSubstitutionId, ImplementationCoherenceFact,
+    ImplementationInstanceId, ImplementationSymbolId, InterfaceSupportEntityId, NamedTypeSymbolId,
+    PredicateDefinitionFact, PredicateDefinitionState, RuntimeDefaultGenericContext,
+    RuntimeDefaultPresence, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
+    SemanticValueStore, StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind,
+    TraitApplicationId, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, TypeData, TypeExpressionTemplate, TypeId,
+    UnionPayloadDefaultValue,
 };
 
 use super::PackageInterfaceExportError;
@@ -203,6 +204,10 @@ fn export_callable_facts(
     };
 
     for expression in template.expressions() {
+        if expression.kind() == DeclarationPredicateClauseKind::Static {
+            continue;
+        }
+
         let clause = contracts
             .value()
             .invocation_preconditions()
@@ -759,6 +764,10 @@ fn symbol_type(
     export: &mut SemanticExporter<'_>,
     symbol: AnySymbolId,
 ) -> Result<TypeId, PackageInterfaceExportError> {
+    if let Some(ty) = callable_input_type(compilation, export, symbol)? {
+        return Ok(ty);
+    }
+
     let ty = compilation
         .symbol_type_template(symbol)
         .map_err(|_| incomplete(symbol))?
@@ -769,6 +778,61 @@ fn symbol_type(
     }
 
     export.resolve_type_template(symbol, ty.value())
+}
+
+fn callable_input_type(
+    compilation: &Compilation,
+    export: &mut SemanticExporter<'_>,
+    symbol: AnySymbolId,
+) -> Result<Option<TypeId>, PackageInterfaceExportError> {
+    let (owner, parameter_ordinal) = match symbol {
+        AnySymbolId::CallableParameter(parameter) => {
+            let parameter = export
+                .graph
+                .callable_parameter(parameter)
+                .ok_or_else(|| incomplete(symbol))?;
+
+            (parameter.owner(), Some(parameter.ordinal()))
+        }
+        AnySymbolId::ReceiverParameter(receiver) => {
+            let receiver = export
+                .graph
+                .receiver_parameter(receiver)
+                .ok_or_else(|| incomplete(symbol))?;
+
+            (receiver.owner(), None)
+        }
+        _ => return Ok(None),
+    };
+
+    let signature = compilation
+        .callable_signature_template(owner.into_any())
+        .map_err(|_| incomplete(symbol))?
+        .ok_or_else(|| incomplete(symbol))?;
+
+    if signature.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    let Some(ordinal) = parameter_ordinal else {
+        return signature
+            .value()
+            .receiver()
+            .map(|receiver| Some(receiver.ty()))
+            .ok_or_else(|| incomplete(symbol));
+    };
+
+    let parameter_types = signature
+        .value()
+        .parameter_type_templates(export.values)
+        .map_err(|_| incomplete(symbol))?;
+
+    let template = parameter_types
+        .get(usize::try_from(ordinal).map_err(|_| incomplete(symbol))?)
+        .ok_or_else(|| incomplete(symbol))?
+        .clone();
+
+    export.resolve_type_template(symbol, &template).map(Some)
 }
 
 fn generic_parameters(
@@ -1629,6 +1693,19 @@ impl<'a> SemanticExporter<'a> {
                     .collect::<Result<Vec<_>, _>>()?
                     .into(),
             },
+            ConstantTermData::PredicateCall {
+                predicate,
+                arguments,
+            } => InterfaceConstantTerm::PredicateCall {
+                predicate: self.symbol_reference(predicate.definition().into_any())?,
+                substitution: self.substitution_id(predicate.substitution())?,
+                arguments: arguments
+                    .iter()
+                    .copied()
+                    .map(|argument| self.constant_term_id(argument))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
+            },
             ConstantTermData::Projection(projection) => InterfaceConstantTerm::Projection {
                 subject: self.constant_term_id(projection.subject())?,
                 kind: match projection.kind() {
@@ -1674,9 +1751,10 @@ impl<'a> SemanticExporter<'a> {
         self.constant_term_id(term)
     }
 
-    pub(super) fn callable_template_reference(
+    pub(super) fn declaration_template_reference(
         &mut self,
-        data: bray_symbols::CallableInstanceData,
+        declaration: AnySymbolId,
+        substitution: GenericSubstitutionId,
     ) -> Result<
         (
             bray_package_interface::InterfaceTemplateReference,
@@ -1686,9 +1764,9 @@ impl<'a> SemanticExporter<'a> {
     > {
         Ok((
             bray_package_interface::InterfaceTemplateReference::Symbol(
-                self.symbol_reference(data.definition().symbol())?,
+                self.symbol_reference(declaration)?,
             ),
-            self.substitution_id(data.substitution())?,
+            self.substitution_id(substitution)?,
         ))
     }
 
@@ -1858,11 +1936,18 @@ impl<'a> SemanticExporter<'a> {
         }
 
         match self.graph.symbol_key(symbol).map(|key| key.data()) {
-            Some(SymbolKeyData::CompilerKnownDeclaration { key, kind }) => {
-                Ok(InterfaceSymbolReference::CompilerKnown {
-                    key: key.clone(),
-                    kind: *kind,
-                })
+            Some(SymbolKeyData::CompilerKnownDeclaration { .. })
+            | Some(SymbolKeyData::Synthesized(_)) => {
+                let key = self
+                    .graph
+                    .symbol_key(symbol)
+                    .cloned()
+                    .ok_or_else(|| incomplete(symbol))?;
+
+                let reference = bray_package_interface::CompilerKnownSymbolReference::try_new(key)
+                    .ok_or_else(|| incomplete(symbol))?;
+
+                Ok(InterfaceSymbolReference::CompilerKnown(reference))
             }
             Some(SymbolKeyData::External(key)) => {
                 let dependency = self
@@ -2008,7 +2093,7 @@ fn checked_constraint_expression(
     })
 }
 
-const fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
+fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
     PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind())
 }
 

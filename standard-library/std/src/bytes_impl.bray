@@ -52,6 +52,11 @@ internal func support_as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
     return trusted std.memory.initialized_slice_mut<u8>(&mut buffer.storage);
 }
 
+internal func support_slice_length(pos bytes: &[u8]) -> usize
+{
+    return internal std.memory.byte_slice_length(bytes);
+}
+
 trusted internal func support_reserve(
     pos buffer: &mut Buffer,
     additional: usize,
@@ -202,6 +207,37 @@ trusted internal func support_append(
     trusted std.memory.set_initialized_count<u8>(
         buffer = &mut buffer.storage,
         count = current_length + byte_count,
+    );
+
+    return Ok(unit);
+}
+
+trusted internal func support_append_repeated(
+    pos buffer: &mut Buffer,
+    value: u8,
+    count: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    if count == 0
+    {
+        return Ok(unit);
+    }
+
+    try support_reserve(additional = count, buffer = &mut buffer);
+
+    let current_length: usize = buffer.storage.initialized;
+    let destination: RawPointer<u8> =
+        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+
+    trusted internal std.memory.byte_buffer_fill(
+        destination = destination,
+        value = value,
+        count = count,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(
+        buffer = &mut buffer.storage,
+        count = current_length + count,
     );
 
     return Ok(unit);

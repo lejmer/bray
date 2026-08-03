@@ -10,6 +10,8 @@ use bray_symbols::{
 
 use crate::InterfaceContentHash;
 
+pub(super) const MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS: usize = 256;
+
 /// Opaque package-layer identity of one selected product.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceProductIdentity(NonEmptySharedStr);
@@ -240,13 +242,55 @@ pub enum InterfaceSymbolReference {
         /// Stable symbol identity in the dependency interface.
         key: ExternalSymbolKey,
     },
-    /// A language-defined declaration supplied by every compatible compiler.
-    CompilerKnown {
-        /// Stable declaration identity in the compiler-known catalog.
-        key: bray_compiler_known::CompilerKnownDeclarationKey,
-        /// Exact semantic category expected from the compatible catalog.
-        kind: bray_symbols::SymbolKind,
-    },
+    /// A language-defined symbol supplied by every compatible compiler.
+    CompilerKnown(CompilerKnownSymbolReference),
+}
+
+/// A validated stable reference into the compiler-known symbol surface.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CompilerKnownSymbolReference(bray_symbols::SymbolKey);
+
+impl CompilerKnownSymbolReference {
+    /// Creates a reference for a compiler-known declaration or one of its synthesized children.
+    pub fn try_new(key: bray_symbols::SymbolKey) -> Option<Self> {
+        if is_compiler_known_key(&key) {
+            Some(Self(key))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the stable symbol key expected from the compatible compiler catalog.
+    pub const fn key(&self) -> &bray_symbols::SymbolKey {
+        &self.0
+    }
+
+    /// Returns the exact semantic category expected from the compatible compiler catalog.
+    pub fn kind(&self) -> bray_symbols::SymbolKind {
+        self.0.kind()
+    }
+}
+
+fn is_compiler_known_key(key: &bray_symbols::SymbolKey) -> bool {
+    let mut current = key;
+    let mut component_count = 0;
+
+    loop {
+        component_count += 1;
+
+        if component_count > MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS {
+            return false;
+        }
+
+        match current.data() {
+            bray_symbols::SymbolKeyData::CompilerKnownDeclaration { .. } => return true,
+            bray_symbols::SymbolKeyData::Synthesized(key) => current = key.subject(),
+            bray_symbols::SymbolKeyData::Root(_)
+            | bray_symbols::SymbolKeyData::Module { .. }
+            | bray_symbols::SymbolKeyData::SourceDeclaration { .. }
+            | bray_symbols::SymbolKeyData::External(_) => return false,
+        }
+    }
 }
 
 /// Whether an exported name is declared at its owner or projected from elsewhere.
@@ -424,5 +468,32 @@ impl PackageInterfaceSurface {
             .get_key_value(&(owner, SymbolName::try_new(name)?))?;
 
         self.exports.get(*index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compiler_known::CompilerKnownDeclarationKey;
+    use bray_symbols::{SymbolKey, SymbolKind, SynthesizedSymbolKey};
+
+    use super::{CompilerKnownSymbolReference, MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS};
+
+    #[test]
+    fn compiler_known_references_bound_synthesized_key_depth() {
+        let declaration = CompilerKnownDeclarationKey::try_new("TestFunction")
+            .unwrap_or_else(|| panic!("test compiler-known key must be valid"));
+
+        let mut key = SymbolKey::compiler_known_declaration(declaration, SymbolKind::Function)
+            .unwrap_or_else(|| panic!("test compiler-known function key must be valid"));
+
+        for _ in 1..MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS {
+            key = SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(key));
+        }
+
+        assert!(CompilerKnownSymbolReference::try_new(key.clone()).is_some());
+
+        let excessive = SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(key));
+
+        assert!(CompilerKnownSymbolReference::try_new(excessive).is_none());
     }
 }
