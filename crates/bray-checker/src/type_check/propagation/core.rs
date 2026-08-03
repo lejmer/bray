@@ -5,20 +5,18 @@ use bray_bound_tree::{
     BoundStructuredExpressionKind, BoundUnitView,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_symbols::{
-    GenericArgument, TypeData,
-};
+use bray_symbols::{GenericArgument, TypeData};
 
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
-use super::aggregate::{
-    infer_array, infer_array_generator, infer_catch, infer_general_generator, infer_tuple,
-};
 use super::super::constraints::add_operand_expectation;
 use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::ExpressionTypeRegions;
+use super::aggregate::{
+    infer_array, infer_array_generator, infer_catch, infer_general_generator, infer_tuple,
+};
 
 pub(crate) fn propagate_dynamic_constraints<C>(
     request: CheckerUnitView<'_, C>,

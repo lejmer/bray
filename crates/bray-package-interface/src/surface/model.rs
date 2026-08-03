@@ -240,6 +240,13 @@ pub enum InterfaceSymbolReference {
         /// Stable symbol identity in the dependency interface.
         key: ExternalSymbolKey,
     },
+    /// A language-defined declaration supplied by every compatible compiler.
+    CompilerKnown {
+        /// Stable declaration identity in the compiler-known catalog.
+        key: bray_compiler_known::CompilerKnownDeclarationKey,
+        /// Exact semantic category expected from the compatible catalog.
+        kind: bray_symbols::SymbolKind,
+    },
 }
 
 /// Whether an exported name is declared at its owner or projected from elsewhere.

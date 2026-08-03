@@ -33,6 +33,11 @@ pub(super) fn write_symbol_reference(
 
             write_external_key(encoder, key);
         }
+        InterfaceSymbolReference::CompilerKnown { key, kind } => {
+            encoder.write_u32(3);
+            write_string(encoder, key.as_str());
+            encoder.write_u32(kind.to_wire());
+        }
     }
 }
 
@@ -48,6 +53,17 @@ pub(super) fn read_symbol_reference(
             dependency: DependencyInterfaceId::new(read_u32(reader)?),
             key: read_external_key(reader, context)?,
         }),
+        3 => {
+            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(read_string(
+                reader, context,
+            )?)
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+            let kind = SymbolKind::from_wire(read_u32(reader)?)
+                .ok_or(InterfaceValidationError::Malformed)?;
+
+            Ok(InterfaceSymbolReference::CompilerKnown { key, kind })
+        }
         _ => Err(InterfaceValidationError::Malformed),
     }
 }

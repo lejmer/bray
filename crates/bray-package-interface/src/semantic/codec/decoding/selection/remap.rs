@@ -148,6 +148,17 @@ pub(super) fn remap_selected_records(
     let generic_declarations = records.generic_declarations.into_values();
     let callable_parameter_defaults = records.callable_parameter_defaults.into_values();
 
+    let declared_types = records
+        .declared_types
+        .into_values()
+        .map(|declared_type| {
+            Ok(crate::InterfaceDeclaredType::new(
+                declared_type.owner().clone(),
+                maps.type_id(declared_type.ty())?,
+            ))
+        })
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     let implementations = records
         .implementations
         .into_values()
@@ -201,6 +212,7 @@ pub(super) fn remap_selected_records(
             callable_parameter_defaults,
             [],
         )
+        .with_declared_types(declared_types)
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
@@ -227,6 +239,7 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
             *length = maps.constant_term_id(*length)?;
         }
         InterfaceType::Slice(target)
+        | InterfaceType::Generator(target)
         | InterfaceType::Nullable(target)
         | InterfaceType::Borrow { target, .. } => {
             *target = maps.type_id(*target)?;

@@ -334,20 +334,20 @@ where
 
             CheckedMemoryOperationKind::RawBufferInitializedSliceMut
         }
-        ImplementationHook::RawBufferSparePointer => CheckedMemoryOperationKind::RawBufferSparePointer {
-            element: one()?,
-        },
+        ImplementationHook::RawBufferSparePointer => {
+            CheckedMemoryOperationKind::RawBufferSparePointer { element: one()? }
+        }
         ImplementationHook::RawBufferSetInitializedCount => {
             one()?;
 
             CheckedMemoryOperationKind::RawBufferSetInitializedCount
         }
-        ImplementationHook::RawBufferRelease => CheckedMemoryOperationKind::RawBufferRelease {
-            element: one()?,
-        },
-        ImplementationHook::RawBufferReplace => CheckedMemoryOperationKind::RawBufferReplace {
-            element: one()?,
-        },
+        ImplementationHook::RawBufferRelease => {
+            CheckedMemoryOperationKind::RawBufferRelease { element: one()? }
+        }
+        ImplementationHook::RawBufferReplace => {
+            CheckedMemoryOperationKind::RawBufferReplace { element: one()? }
+        }
         ImplementationHook::ByteBufferFill => {
             ensure_no_type_arguments(types)?;
 

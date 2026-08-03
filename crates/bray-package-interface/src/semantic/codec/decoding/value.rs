@@ -189,6 +189,9 @@ pub(super) fn decode_type(
         6 => Ok(InterfaceType::Slice(InterfaceTypeId::new(read_u32(
             reader,
         )?))),
+        13 => Ok(InterfaceType::Generator(InterfaceTypeId::new(read_u32(
+            reader,
+        )?))),
         7 => Ok(InterfaceType::Nullable(InterfaceTypeId::new(read_u32(
             reader,
         )?))),
@@ -563,7 +566,7 @@ mod tests {
             .intern(&store, &resolver)
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
 
-        assert_eq!(imported.types().len(), 3);
+        assert_eq!(imported.types().len(), 4);
         assert_eq!(imported.constant_values().len(), 1);
         assert_eq!(imported.constant_terms().len(), 1);
         assert_eq!(imported.dependency_contracts().len(), 1);
@@ -599,13 +602,23 @@ mod tests {
             )))
         );
 
-        let callable = match store.type_data(imported.types()[2]) {
+        let generator = match store.type_data(imported.types()[2]) {
+            Ok(generator) => generator,
+            Err(error) => panic!("generator type must be interned: {error:?}"),
+        };
+
+        assert_eq!(
+            generator.as_ref(),
+            &TypeData::Generator(imported.types()[0])
+        );
+
+        let callable = match store.type_data(imported.types()[3]) {
             Ok(callable) => callable,
             Err(error) => panic!("callable type must be interned: {error:?}"),
         };
 
         let TypeData::Callable(callable) = callable.as_ref() else {
-            panic!("third imported type must be callable");
+            panic!("fourth imported type must be callable");
         };
 
         assert_eq!(callable.execution(), CallableExecution::Asynchronous);
@@ -1098,6 +1111,7 @@ mod tests {
                         substitution: InterfaceGenericSubstitutionId::new(0),
                     },
                     InterfaceType::ContextualSelf(struct_reference.clone()),
+                    InterfaceType::Generator(InterfaceTypeId::new(0)),
                     InterfaceType::Callable {
                         parameters: [InterfaceCallableParameter::new(
                             "arg",

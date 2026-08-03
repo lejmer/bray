@@ -543,7 +543,7 @@ impl Compilation {
             == Some(definition))
     }
 
-    fn constraint_unit_key(
+    pub(in crate::compilation) fn constraint_unit_key(
         &self,
         owner: bray_symbols::AnySymbolId,
         syntax: bray_declarations::SyntaxAnchor,
@@ -580,7 +580,7 @@ fn constant_predicate_outcome(
     }
 }
 
-fn constraint_expression(
+pub(in crate::compilation) fn constraint_expression(
     unit: &BoundUnit,
     syntax: bray_declarations::SyntaxAnchor,
 ) -> Option<BoundExpressionId> {

@@ -175,11 +175,8 @@ impl Compilation {
             match data.as_ref() {
                 TypeData::Borrow { target, .. } => ty = *target,
                 TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) => {
-                    ty = self.resolve_implementation_self_type(
-                        facts,
-                        *implementation,
-                        diagnostics,
-                    )?;
+                    ty =
+                        self.resolve_implementation_self_type(facts, *implementation, diagnostics)?;
                 }
                 TypeData::ContextualSelf(context) => {
                     ty = contextual_self_type(facts, *context)?;
@@ -195,7 +192,6 @@ impl Compilation {
         implementation: bray_symbols::ImplementationSymbolId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<TypeId, FactQueryError> {
-
         let subject = facts
             .symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
                 implementation,
@@ -274,10 +270,8 @@ impl Compilation {
         let requirement =
             bray_symbols::ImplementationRequirementKey::new(receiver_type, application);
 
-        let selected = self.implementation_selection_result_with_cancellation(
-            requirement,
-            facts.cancellation(),
-        )?;
+        let selected = self
+            .implementation_selection_result_with_cancellation(requirement, facts.cancellation())?;
 
         *diagnostics = diagnostics.merged(selected.diagnostics());
 
@@ -340,12 +334,7 @@ impl Compilation {
         receiver_substitution: bray_symbols::GenericSubstitutionId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        self.resolve_callable_signature(
-            facts,
-            member,
-            [receiver_substitution],
-            diagnostics,
-        )
+        self.resolve_callable_signature(facts, member, [receiver_substitution], diagnostics)
     }
 
     fn resolve_callable_signature(
@@ -355,8 +344,8 @@ impl Compilation {
         substitutions: impl IntoIterator<Item = bray_symbols::GenericSubstitutionId>,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        let definition = CallableDefinitionId::try_new(member)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let definition =
+            CallableDefinitionId::try_new(member).ok_or(FactQueryError::InfrastructureFailure)?;
 
         let callable = definition.callable_symbol();
 
@@ -373,8 +362,7 @@ impl Compilation {
 
         *diagnostics = diagnostics.merged(checked.diagnostics());
 
-        let substitution =
-            substitution_for_owner(facts.semantic_values(), member, substitutions)?;
+        let substitution = substitution_for_owner(facts.semantic_values(), member, substitutions)?;
 
         let signature = resolve_callable_signature_template(
             facts.semantic_values(),

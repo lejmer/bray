@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 use crate::semantic::model::{
     InterfaceCallableInstance, InterfaceCallableParameterDefault, InterfaceCallableSignature,
     InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
-    InterfaceDependencyContract, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
-    InterfaceImplementationInstance, InterfaceImplementationRecord, InterfaceRuntimeRequirement,
-    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceType,
+    InterfaceDeclaredType, InterfaceDependencyContract, InterfaceGenericDeclaration,
+    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
+    InterfaceRuntimeRequirement, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceType,
 };
 
 pub(super) struct RecordSet<T> {
@@ -45,6 +46,7 @@ pub(super) struct SelectedRecords {
     pub(super) callable_signatures: RecordSet<InterfaceCallableSignature>,
     pub(super) generic_declarations: RecordSet<InterfaceGenericDeclaration>,
     pub(super) callable_parameter_defaults: RecordSet<InterfaceCallableParameterDefault>,
+    pub(super) declared_types: RecordSet<InterfaceDeclaredType>,
     pub(super) implementations: RecordSet<InterfaceImplementationRecord>,
     pub(super) coherence: RecordSet<InterfaceCoherenceRecord>,
     pub(super) target_dependencies: RecordSet<InterfaceTargetFactDependency>,
@@ -66,6 +68,7 @@ impl SelectedRecords {
             callable_signatures: RecordSet::new(),
             generic_declarations: RecordSet::new(),
             callable_parameter_defaults: RecordSet::new(),
+            declared_types: RecordSet::new(),
             implementations: RecordSet::new(),
             coherence: RecordSet::new(),
             target_dependencies: RecordSet::new(),

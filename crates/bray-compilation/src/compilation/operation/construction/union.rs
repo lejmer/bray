@@ -63,13 +63,9 @@ impl Compilation {
             ContextualVariantTarget::Found {
                 variant: target,
                 substitution,
-            } => self.union_variant_candidate(
-                facts,
-                target,
-                result_type,
-                substitution,
-                diagnostics,
-            ),
+            } => {
+                self.union_variant_candidate(facts, target, result_type, substitution, diagnostics)
+            }
             ContextualVariantTarget::ExpectedTypeIsNotUnion => {
                 diagnostics.add(unqualified_variant_diagnostic(
                     variant,
@@ -193,8 +189,9 @@ impl Compilation {
             return Ok(ContextualVariantTarget::ExpectedTypeIsNotUnion);
         };
 
-        let MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) =
-            facts.symbols().lookup_member((*union).into(), name.as_str())
+        let MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) = facts
+            .symbols()
+            .lookup_member((*union).into(), name.as_str())
         else {
             return Ok(ContextualVariantTarget::Missing);
         };
@@ -393,11 +390,7 @@ mod tests {
         let compilation = compilation(&union_source(
             "func main()",
             "    accept(Some(value = 1));\n",
-            concat!(
-                "func accept(pos value: Maybe)\n",
-                "{\n",
-                "}\n",
-            ),
+            concat!("func accept(pos value: Maybe)\n", "{\n", "}\n",),
         ));
 
         let key = source_function_body_key(&compilation, "main");
@@ -480,9 +473,13 @@ mod tests {
             .semantic_selections(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("shadowing callable must select: {error:?}"));
 
-        assert!(selections.value().entries().iter().any(|entry| {
-            matches!(entry.selection(), SemanticSelection::Call(_))
-        }));
+        assert!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .any(|entry| { matches!(entry.selection(), SemanticSelection::Call(_)) })
+        );
 
         assert!(!has_union_construction(selections.value()));
         assert!(selections.diagnostics().is_empty(), "{selections:?}");
@@ -492,10 +489,7 @@ mod tests {
     fn ordinary_value_lookup_precedes_contextual_variant_lookup() {
         let compilation = compilation(&union_source(
             "func main()",
-            concat!(
-                "    let None: i32 = 1;\n",
-                "    let value: Maybe = None;\n",
-            ),
+            concat!("    let None: i32 = 1;\n", "    let value: Maybe = None;\n",),
             "",
         ));
 
@@ -537,9 +531,7 @@ mod tests {
                 "}}\n",
                 "{}",
             ),
-            signature,
-            body,
-            declarations,
+            signature, body, declarations,
         )
     }
 }

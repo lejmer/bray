@@ -13,7 +13,6 @@ use super::super::support::{
 };
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
-
     pub(super) fn translate_raw_buffer_field(
         &mut self,
         memory: &MirMemoryOperation,
@@ -132,10 +131,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let initialized = self.memory_aggregate_integer(value, &fields, 2)?;
         let stride = self.memory_layout(element)?.size();
 
-        let alignment = self.pointer_integer_type().const_int(
-            self.memory_layout(element)?.alignment().get(),
-            false,
-        );
+        let alignment = self
+            .pointer_integer_type()
+            .const_int(self.memory_layout(element)?.alignment().get(), false);
 
         let bytes = llvm(self.builder.build_int_mul(
             capacity,
@@ -160,7 +158,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .context()
             .append_basic_block(self.function, "memory.buffer.released");
 
-        llvm(self.builder.build_conditional_branch(present, release, done))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(present, release, done),
+        )?;
+
         self.builder.position_at_end(release);
 
         self.destroy_raw_buffer_elements(operation, pointer, initialized, stride)?;
@@ -304,12 +306,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         buffer: &bray_ir::MirOperand,
         buffer_type: bray_symbols::TypeId,
-    ) -> Result<(
-        PointerValue<'context>,
-        BasicTypeEnum<'context>,
-        BasicValueEnum<'context>,
-        Arc<[CodegenFieldLayout]>,
-    ), CodegenFailure> {
+    ) -> Result<
+        (
+            PointerValue<'context>,
+            BasicTypeEnum<'context>,
+            BasicValueEnum<'context>,
+            Arc<[CodegenFieldLayout]>,
+        ),
+        CodegenFailure,
+    > {
         self.load_owned_memory(buffer, buffer_type, 3, "memory.buffer")
     }
 }

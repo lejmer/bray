@@ -250,6 +250,66 @@ impl SymbolKind {
                 | Self::NamedTraitImplementation
         )
     }
+
+    /// Returns whether declarations of this kind may introduce generic parameters.
+    pub const fn admits_generic_parameters(self) -> bool {
+        matches!(
+            self,
+            Self::Function
+                | Self::Predicate
+                | Self::CallableContract
+                | Self::CallableOverload
+                | Self::ImplementationOverload
+                | Self::Struct
+                | Self::Union
+                | Self::Trait
+                | Self::InherentImplementation
+                | Self::UnnamedTraitImplementation
+                | Self::NamedTraitImplementation
+                | Self::TypeCallableMember
+                | Self::Constructor
+                | Self::TraitCallableMember
+                | Self::TraitCallableFulfillment
+        )
+    }
+
+    /// Returns whether this kind may be instantiated through generic substitution.
+    pub const fn supports_generic_substitutions(self) -> bool {
+        matches!(
+            self,
+            Self::Constant
+                | Self::Function
+                | Self::Predicate
+                | Self::CallableContract
+                | Self::Struct
+                | Self::Union
+                | Self::Trait
+                | Self::InherentImplementation
+                | Self::UnnamedTraitImplementation
+                | Self::NamedTraitImplementation
+                | Self::TypeCallableMember
+                | Self::Constructor
+                | Self::Finalizer
+                | Self::Destructor
+                | Self::ScopeEnter
+                | Self::ScopeExit
+                | Self::InherentTypeMember
+                | Self::TraitCallableMember
+                | Self::TraitConstantMember
+                | Self::TraitTypeMember
+                | Self::TraitPredicateMember
+                | Self::TraitFinalizerRequirement
+                | Self::TraitDestructorRequirement
+                | Self::TraitScopeEnterRequirement
+                | Self::TraitScopeExitRequirement
+                | Self::TraitCallableFulfillment
+                | Self::TraitConstantFulfillment
+                | Self::TraitTypeFulfillment
+                | Self::TraitPredicateFulfillment
+                | Self::TraitScopeEnterFulfillment
+                | Self::TraitScopeExitFulfillment
+        )
+    }
 }
 
 /// Closed typed relationship between ordinary semantic symbols.
@@ -351,7 +411,7 @@ impl SymbolRelationshipKind {
                 owner == SymbolKind::UnionVariant && member == SymbolKind::UnionPayloadField
             }
             Self::GenericParameter => {
-                supports_interface_generic_parameters(owner)
+                owner.admits_generic_parameters()
                     && matches!(
                         member,
                         SymbolKind::GenericTypeParameter | SymbolKind::GenericConstParameter
@@ -424,27 +484,6 @@ const fn is_trait_member(kind: SymbolKind) -> bool {
             | SymbolKind::TraitDestructorRequirement
             | SymbolKind::TraitScopeEnterRequirement
             | SymbolKind::TraitScopeExitRequirement
-    )
-}
-
-const fn supports_interface_generic_parameters(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Function
-            | SymbolKind::Predicate
-            | SymbolKind::CallableContract
-            | SymbolKind::CallableOverload
-            | SymbolKind::ImplementationOverload
-            | SymbolKind::Struct
-            | SymbolKind::Union
-            | SymbolKind::Trait
-            | SymbolKind::InherentImplementation
-            | SymbolKind::UnnamedTraitImplementation
-            | SymbolKind::NamedTraitImplementation
-            | SymbolKind::TypeCallableMember
-            | SymbolKind::Constructor
-            | SymbolKind::TraitCallableMember
-            | SymbolKind::TraitCallableFulfillment
     )
 }
 

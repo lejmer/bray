@@ -348,7 +348,11 @@ where
         candidate
             .declaration_signature()
             .and_then(CallableSignature::receiver)
-            .or_else(|| input.callee_member.and_then(bray_bound_tree::MemberTarget::receiver)),
+            .or_else(|| {
+                input
+                    .callee_member
+                    .and_then(bray_bound_tree::MemberTarget::receiver)
+            }),
     )? {
         ReceiverApplicability::Incompatible => {
             return Ok(CandidateApplicability::Incompatible);

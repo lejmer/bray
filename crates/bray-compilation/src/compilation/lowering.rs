@@ -1317,17 +1317,17 @@ mod tests {
                 source_function_body_key(&compilation, "scalars"),
                 MirTextOperationKind::ScalarCount,
             ),
-            (
-                "next",
-                next_key,
-                MirTextOperationKind::ScalarAt,
-            ),
+            ("next", next_key, MirTextOperationKind::ScalarAt),
         ] {
-            let lowered = compilation
-                .lowered_unit(key)
-                .unwrap_or_else(|error| panic!("{name} must lower through its Bray body: {error:?}"));
+            let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {
+                panic!("{name} must lower through its Bray body: {error:?}")
+            });
 
-            assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+            assert!(
+                lowered.diagnostics().is_empty(),
+                "{:#?}",
+                lowered.diagnostics()
+            );
 
             let operations = lowered_mir(&lowered)
                 .operations()
@@ -1358,7 +1358,11 @@ mod tests {
             .lowered_unit(source_function_body_key(&compilation, "main"))
             .unwrap_or_else(|error| panic!("standard text cursor must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
 
         let call_targets = lowered_mir(&lowered)
             .operations()
@@ -1429,10 +1433,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("standard text compilation must load: {error:?}"))
     }
 
-    fn implementation_hooks(
-        compilation: &Compilation,
-        name: &str,
-    ) -> Vec<ImplementationHook> {
+    fn implementation_hooks(compilation: &Compilation, name: &str) -> Vec<ImplementationHook> {
         let key = source_function_body_key(compilation, name);
 
         implementation_hooks_for_key(compilation, name, key)

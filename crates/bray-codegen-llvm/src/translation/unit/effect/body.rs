@@ -207,7 +207,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Aggregate(fields)
                     if fields.len() == 3
-                        && mapping.behavior() == Some(bray_codegen::CodegenTypeBehavior::String) =>
+                        && mapping.behavior()
+                            == Some(bray_codegen::CodegenTypeBehavior::String) =>
                 {
                     Some(fields.clone())
                 }

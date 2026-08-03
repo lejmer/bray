@@ -3,8 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinementFacts, LivenessFacts, MemoryOperationStatus,
-    RefinementFact,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
+    RefinementFact, StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
     StorageExitDecision, StorageFlowFacts, StorageOperationDecision, StorageOperationStatus,
     StoragePlan, StorageProjection, StorageRelationship, StorageSuspensionState,
 };

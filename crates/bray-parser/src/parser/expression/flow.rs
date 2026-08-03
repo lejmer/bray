@@ -125,8 +125,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{
-        assert_expression_cases_to_eof_for_test,
-        assert_expression_cases_until_semicolon_for_test,
+        assert_expression_cases_to_eof_for_test, assert_expression_cases_until_semicolon_for_test,
     };
 
     #[test]

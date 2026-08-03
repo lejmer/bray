@@ -52,8 +52,14 @@ impl StringEncoder {
         for edge in surface.exports() {
             values.insert(edge.name().as_str().to_owned());
 
-            if let InterfaceSymbolReference::Dependency { key, .. } = edge.target() {
-                collect_key_strings(key, &mut values);
+            match edge.target() {
+                InterfaceSymbolReference::Dependency { key, .. } => {
+                    collect_key_strings(key, &mut values);
+                }
+                InterfaceSymbolReference::CompilerKnown { key, .. } => {
+                    values.insert(key.as_str().to_owned());
+                }
+                InterfaceSymbolReference::Local(_) => {}
             }
         }
 
@@ -270,6 +276,11 @@ fn encode_exports(
                 encoder.write_u32(2);
                 encoder.write_u32(dependency.raw());
                 encode_external_key(&mut encoder, key, strings);
+            }
+            InterfaceSymbolReference::CompilerKnown { key, kind } => {
+                encoder.write_u32(3);
+                encoder.write_u32(strings.id(key.as_str()));
+                encoder.write_u32(kind.to_wire());
             }
         }
     }

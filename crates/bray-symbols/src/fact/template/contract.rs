@@ -23,6 +23,7 @@ pub enum DeclarationPredicateClauseKind {
 pub struct CallableContractExpressionTemplate {
     ordinal: SymbolOrdinal,
     kind: DeclarationPredicateClauseKind,
+    unit_syntax: SyntaxAnchor,
     expression: DeclarationExpressionTemplate,
 }
 
@@ -31,11 +32,13 @@ impl CallableContractExpressionTemplate {
     pub const fn new(
         ordinal: SymbolOrdinal,
         kind: DeclarationPredicateClauseKind,
+        unit_syntax: SyntaxAnchor,
         expression: DeclarationExpressionTemplate,
     ) -> Self {
         Self {
             ordinal,
             kind,
+            unit_syntax,
             expression,
         }
     }
@@ -48,6 +51,11 @@ impl CallableContractExpressionTemplate {
     /// Returns the clause semantics attached to the expression.
     pub const fn kind(self) -> DeclarationPredicateClauseKind {
         self.kind
+    }
+
+    /// Returns the contract clause that forms the bound semantic unit.
+    pub const fn unit_syntax(self) -> SyntaxAnchor {
+        self.unit_syntax
     }
 
     /// Returns the exact source expression retained for checking.

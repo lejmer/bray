@@ -75,10 +75,8 @@ impl DeclaredValueTypeBinding<'_> {
             let receiver_type = match receiver_type.as_ref() {
                 bray_symbols::TypeData::ContextualSelf(
                     context @ bray_symbols::SelfTypeContext::NamedType(_),
-                ) => {
-                    contextual_self_type(self.context, *context)
-                        .map_err(|_| BinderFactError::DependencyUnavailable)?
-                }
+                ) => contextual_self_type(self.context, *context)
+                    .map_err(|_| BinderFactError::DependencyUnavailable)?,
                 _ => receiver.ty(),
             };
 

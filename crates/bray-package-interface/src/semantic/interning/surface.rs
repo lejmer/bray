@@ -44,6 +44,7 @@ impl InternState {
             self.convert_callable_parameter_defaults(facts, symbols)?;
 
         let predicate_definitions = self.convert_predicate_definitions(facts, symbols)?;
+        let declared_types = self.convert_declared_types(facts, symbols)?;
         let type_representations = self.convert_type_representations(facts, symbols)?;
 
         let callable_contracts = self.convert_callable_contracts(facts, symbols)?;
@@ -77,6 +78,7 @@ impl InternState {
             generic_declarations: generic_declarations.into(),
             callable_parameter_defaults: callable_parameter_defaults.into(),
             predicate_definitions: predicate_definitions.into(),
+            declared_types: declared_types.into(),
             type_representations: type_representations.into(),
             declaration_templates: declaration_templates.into(),
             constraints: constraints.into(),

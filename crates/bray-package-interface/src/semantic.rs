@@ -11,10 +11,10 @@ pub(crate) use codec::{
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
     ImportedCallableSignatureFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
-    ImportedGenericDeclarationFact, ImportedImplementationFact, ImportedPredicateDefinitionFact,
-    ImportedRuntimeRequirement, ImportedSemanticFact, ImportedSemanticFacts,
-    ImportedSourceProvenance, ImportedTargetFact, InterfaceSemanticInternError,
-    InterfaceSymbolResolver,
+    ImportedDeclaredTypeFact, ImportedGenericDeclarationFact, ImportedImplementationFact,
+    ImportedPredicateDefinitionFact, ImportedRuntimeRequirement, ImportedSemanticFact,
+    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
+    InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
@@ -27,8 +27,8 @@ pub use model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
     InterfaceConstraint, InterfaceConstraintKind, InterfaceDeclarationTemplate,
-    InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceDependencyGuard,
-    InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceDeclaredType, InterfaceDependencyContract, InterfaceDependencyContractId,
+    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
     InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericArgument,
     InterfaceGenericBinding, InterfaceGenericDeclaration, InterfaceGenericSubstitution,

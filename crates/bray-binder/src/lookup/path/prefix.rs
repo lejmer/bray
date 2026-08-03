@@ -5,10 +5,10 @@ use bray_symbols::{
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxToken};
 
-use super::core::NameAccess;
 use super::super::binding::{NameLookupResult, combine_name_lookups, lookup_surface_name};
 use super::super::category::ResolvedName;
 use super::super::diagnostic::NameReference;
+use super::core::NameAccess;
 use crate::ImportedPathRoot;
 
 pub(super) struct PathLookup {

@@ -46,13 +46,15 @@ where
     };
 
     let candidates = match bound {
-        BoundExpression::Call(call) if is_union_variant_call(context, unit, call.callee()) => operation(
-            expression,
-            SelectionKind::Construction,
-            call.arguments()
-                .iter()
-                .map(bray_bound_tree::BoundArgument::expression),
-        ),
+        BoundExpression::Call(call) if is_union_variant_call(context, unit, call.callee()) => {
+            operation(
+                expression,
+                SelectionKind::Construction,
+                call.arguments()
+                    .iter()
+                    .map(bray_bound_tree::BoundArgument::expression),
+            )
+        }
         BoundExpression::Call(call) => {
             let arguments = generic_argument_syntax(context, call.generic_arguments())?;
 
@@ -162,9 +164,9 @@ where
     C: BinderFactContext + ?Sized,
 {
     match unit.view().expression(callee) {
-        Some(
-            BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_),
-        ) => true,
+        Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_)) => {
+            true
+        }
         Some(BoundExpression::Name(name)) => matches!(
             name.target(),
             bray_bound_tree::BoundReferenceTarget::Surface(
@@ -195,7 +197,8 @@ where
         return None;
     };
 
-    let bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::Union(union)) = receiver.target()
+    let bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::Union(union)) =
+        receiver.target()
     else {
         return None;
     };

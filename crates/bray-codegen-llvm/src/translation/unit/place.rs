@@ -576,11 +576,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         if let Some(layout) = self.equivalent_codegen_layout(source, target) {
-            let storage = self.aligned_alloca(
-                source,
-                layout.alignment().get(),
-                "convert.representation",
-            )?;
+            let storage =
+                self.aligned_alloca(source, layout.alignment().get(), "convert.representation")?;
 
             llvm(self.builder.build_store(storage, value))?;
 

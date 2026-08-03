@@ -223,6 +223,7 @@ wire_tags!(InterfaceSemanticFactKind {
     10 => InterfaceSemanticFactKind::PredicateDefinition,
     11 => InterfaceSemanticFactKind::TypeRepresentation,
     12 => InterfaceSemanticFactKind::Runtime,
+    13 => InterfaceSemanticFactKind::DeclaredType,
 });
 
 wire_tags!(RuntimeCapability {

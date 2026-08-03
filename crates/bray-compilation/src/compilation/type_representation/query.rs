@@ -504,6 +504,7 @@ mod tests {
         assert!(result.diagnostics().is_empty());
         assert_eq!(result.value().layout(), DeclaredLayoutMode::Stable);
         assert_eq!(result.value().alignment(), Some(16));
+        assert_eq!(result.value().union_tag_type(), None);
 
         assert_eq!(
             result.value().copy_contract(),

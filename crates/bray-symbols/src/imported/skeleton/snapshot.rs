@@ -120,6 +120,18 @@ macro_rules! define_imported_symbol_skeleton {
                         .$singular(id)?
                         .imported_fact_key()
                         .map(crate::ImportedSymbolFactAddress::from),)+
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)?
+                        .imported_fact_key()
+                        .map(crate::ImportedSymbolFactAddress::from),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)?
+                        .imported_fact_key()
+                        .map(crate::ImportedSymbolFactAddress::from),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)?
+                        .imported_fact_key()
+                        .map(crate::ImportedSymbolFactAddress::from),
                     _ => None,
                 }
             }

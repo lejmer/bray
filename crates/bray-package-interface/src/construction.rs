@@ -95,6 +95,8 @@ pub enum ImportedSymbolConstructionError {
         /// Missing stable external identity.
         key: bray_symbols::ExternalSymbolKey,
     },
+    /// An exported lookup attempted to project a compiler-known declaration.
+    CompilerKnownExportTarget(bray_compiler_known::CompilerKnownDeclarationKey),
     /// Origin-neutral semantic construction rejected the translated surfaces.
     Symbols(ImportedSymbolSkeletonBuildError),
 }
@@ -123,6 +125,8 @@ pub struct ImportedInterfaceSymbolResolver<'surface> {
     current: LoadedInterfaceSurface<'surface>,
     package_index: BTreeMap<PackageIdentity, LoadedInterfaceSurface<'surface>>,
     symbols: &'surface ImportedSymbolSkeleton,
+    compiler_known:
+        &'surface BTreeMap<bray_compiler_known::CompilerKnownDeclarationKey, AnySymbolId>,
 }
 
 impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
@@ -131,6 +135,10 @@ impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
         current: LoadedInterfaceSurface<'surface>,
         surfaces: impl IntoIterator<Item = LoadedInterfaceSurface<'surface>>,
         symbols: &'surface ImportedSymbolSkeleton,
+        compiler_known: &'surface BTreeMap<
+            bray_compiler_known::CompilerKnownDeclarationKey,
+            AnySymbolId,
+        >,
     ) -> Result<Self, ImportedSymbolConstructionError> {
         let surfaces: Vec<_> = surfaces.into_iter().collect();
         let package_index = package_index(&surfaces)?;
@@ -141,6 +149,7 @@ impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
             current,
             package_index,
             symbols,
+            compiler_known,
         })
     }
 
@@ -154,12 +163,24 @@ impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
 
 impl crate::InterfaceSymbolResolver for ImportedInterfaceSymbolResolver<'_> {
     fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
+        if let InterfaceSymbolReference::CompilerKnown { key, kind } = reference {
+            return self
+                .compiler_known
+                .get(key)
+                .copied()
+                .filter(|symbol| symbol.kind() == *kind);
+        }
+
         let key = self.resolve_external_key(reference).ok()?;
 
         self.symbols.symbol_by_external_key(&key)
     }
 
     fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
+        if matches!(reference, InterfaceSymbolReference::CompilerKnown { .. }) {
+            return None;
+        }
+
         self.resolve_external_key(reference).ok()
     }
 }
@@ -300,11 +321,17 @@ fn lookup_target_key(
 
             Ok(key.clone())
         }
+        InterfaceSymbolReference::CompilerKnown { key, .. } => Err(
+            ImportedSymbolConstructionError::CompilerKnownExportTarget(key.clone()),
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
         AnySymbolId, ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolIdentityInput,
         InterfaceSymbolId, MemberLookupResult, ModulePathKey, PackageIdentity, SymbolId,
@@ -444,6 +471,51 @@ mod tests {
 
         assert_send_sync::<ImportedInterfaceSymbolResolver<'static>>();
         assert_send_sync::<LoadedInterfaceSurface<'static>>();
+    }
+
+    #[test]
+    fn compiler_known_resolution_requires_the_declared_symbol_kind() {
+        let surface = dependency_surface("dependency-product");
+        let loaded = loaded(1, DEPENDENCY_HASH, &surface);
+        let symbols = construct(&surface, &surface, [loaded]);
+
+        let Some(symbol) =
+            symbols.symbol_by_external_key(&function_key("dependency.package", "run"))
+        else {
+            panic!("test function must resolve");
+        };
+
+        let Some(key) = CompilerKnownDeclarationKey::try_new("TestFunction") else {
+            panic!("test compiler-known key must be valid");
+        };
+
+        let compiler_known = BTreeMap::from([(key.clone(), symbol)]);
+
+        let resolver =
+            ImportedInterfaceSymbolResolver::try_new(loaded, [loaded], &symbols, &compiler_known)
+                .unwrap_or_else(|error| panic!("test resolver must be valid: {error:?}"));
+
+        assert_eq!(
+            crate::InterfaceSymbolResolver::resolve(
+                &resolver,
+                &InterfaceSymbolReference::CompilerKnown {
+                    key: key.clone(),
+                    kind: SymbolKind::Function,
+                },
+            ),
+            Some(symbol)
+        );
+
+        assert_eq!(
+            crate::InterfaceSymbolResolver::resolve(
+                &resolver,
+                &InterfaceSymbolReference::CompilerKnown {
+                    key,
+                    kind: SymbolKind::Struct,
+                },
+            ),
+            None
+        );
     }
 
     fn dependency_surface(product_name: &str) -> PackageInterfaceSurface {

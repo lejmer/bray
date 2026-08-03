@@ -38,7 +38,6 @@ pub(super) fn audit_standard_buffer(
     target: NativeTarget,
     runtime: &Path,
 ) -> Result<(), String> {
-    // TODO(BRA-342): Build through the packaged public standard-library interface once public struct facts are exportable.
     for fixture in STANDARD_BUFFER_FIXTURES {
         let output = native_output("bray-native-standard-buffer-")?;
 
@@ -54,11 +53,7 @@ pub(super) fn audit_standard_buffer(
 
         let context = format!("executing standard byte-buffer fixture {fixture}");
 
-        execute_product(
-            &executable_path(output.path(), target),
-            0,
-            &context,
-        )?;
+        execute_product(&executable_path(output.path(), target), 0, &context)?;
     }
 
     Ok(())
@@ -122,15 +117,13 @@ pub(super) fn build_standard_library_fixtures(
 
     let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, &linker);
 
-    let outcome = compilation
-        .emit_product(request, inputs)
-        .map_err(|error| {
-            format!(
-                "standard byte-buffer emission failed: {:?}; diagnostics={:?}",
-                error.kind(),
-                compilation.check_diagnostics()
-            )
-        })?;
+    let outcome = compilation.emit_product(request, inputs).map_err(|error| {
+        format!(
+            "standard byte-buffer emission failed: {:?}; diagnostics={:?}",
+            error.kind(),
+            compilation.check_diagnostics()
+        )
+    })?;
 
     if matches!(outcome.status(), EmissionStatus::Complete) {
         Ok(())

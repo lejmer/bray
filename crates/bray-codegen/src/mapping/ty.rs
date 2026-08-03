@@ -410,10 +410,7 @@ impl CodegenTypeMapping {
     }
 
     /// Returns this mapping with its optional semantic behavior.
-    pub const fn with_behavior(
-        mut self,
-        behavior: Option<CodegenTypeBehavior>,
-    ) -> Self {
+    pub const fn with_behavior(mut self, behavior: Option<CodegenTypeBehavior>) -> Self {
         self.behavior = behavior;
 
         self

@@ -103,6 +103,7 @@ impl InternState {
                 Some(TypeData::Array { element, length })
             }
             InterfaceType::Slice(id) => self.type_id(*id).map(TypeData::Slice),
+            InterfaceType::Generator(id) => self.type_id(*id).map(TypeData::Generator),
             InterfaceType::Nullable(id) => self.type_id(*id).map(TypeData::Nullable),
             InterfaceType::Borrow { kind, target } => {
                 self.type_id(*target).map(|target| TypeData::Borrow {

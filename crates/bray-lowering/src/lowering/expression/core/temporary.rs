@@ -19,14 +19,14 @@ impl Lowerer<'_> {
             return Ok(lowered);
         };
 
-        let temporary = self
-            .input
-            .storage_plan()
-            .identity_entries()
-            .find_map(|(identity, model)| {
-                matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
-                    .then_some(identity)
-            });
+        let temporary =
+            self.input
+                .storage_plan()
+                .identity_entries()
+                .find_map(|(identity, model)| {
+                    matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
+                        .then_some(identity)
+                });
 
         let Some(temporary) = temporary else {
             return Ok(LoweredExpression::continuing(
@@ -42,9 +42,7 @@ impl Lowerer<'_> {
             .scope_exits()
             .iter()
             .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)
-            .any(|access| {
-                self.input.storage_plan().root_identity(*access) == Some(temporary)
-            });
+            .any(|access| self.input.storage_plan().root_identity(*access) == Some(temporary));
 
         if !requires_lifecycle_storage {
             return Ok(LoweredExpression::continuing(
@@ -94,5 +92,4 @@ impl Lowerer<'_> {
             lowered.source,
         ))
     }
-
 }

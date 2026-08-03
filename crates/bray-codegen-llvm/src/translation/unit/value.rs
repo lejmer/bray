@@ -37,10 +37,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperand::Copy(place) => {
                 let pointer = self.place(place)?;
 
-                let value = llvm(
-                    self.builder
-                        .build_load(self.types.map(place.ty())?, pointer, "load"),
-                )?;
+                let value = llvm(self.builder.build_load(
+                    self.types.map(place.ty())?,
+                    pointer,
+                    "load",
+                ))?;
 
                 if matches!(operand, MirOperand::Copy(_)) {
                     self.retain_copied_value(value, place.ty())?;
@@ -115,31 +116,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match kind {
             CodegenTypeKind::Aggregate(fields) => {
                 for (index, field) in fields.iter().enumerate() {
-                    let element = aggregate_value_element(
-                        self.request.mappings(),
-                        &fields,
-                        index,
-                    )?;
+                    let element = aggregate_value_element(self.request.mappings(), &fields, index)?;
 
-                    let element = u32::try_from(element)
-                        .map_err(|_| CodegenFailure::ResourceExhausted)?;
+                    let element =
+                        u32::try_from(element).map_err(|_| CodegenFailure::ResourceExhausted)?;
 
-                    let field_value = super::support::extract_value(
-                        &self.builder,
-                        value,
-                        element,
-                    )?;
+                    let field_value = super::support::extract_value(&self.builder, value, element)?;
 
                     self.retain_copied_value(field_value, field.ty())?;
                 }
             }
             CodegenTypeKind::Array { element, length } => {
                 for index in 0..length {
-                    let index = u32::try_from(index)
-                        .map_err(|_| CodegenFailure::ResourceExhausted)?;
+                    let index =
+                        u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?;
 
-                    let element_value =
-                        super::support::extract_value(&self.builder, value, index)?;
+                    let element_value = super::support::extract_value(&self.builder, value, index)?;
 
                     self.retain_copied_value(element_value, element)?;
                 }
@@ -175,8 +167,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let tag = llvm(self.builder.build_load(tag_type, storage, "copy.union.tag"))?
-            .into_int_value();
+        let tag =
+            llvm(self.builder.build_load(tag_type, storage, "copy.union.tag"))?.into_int_value();
 
         let done = self
             .types
@@ -189,10 +181,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(|(index, variant)| {
                 (
                     integer_constant(tag_type, variant.tag()),
-                    self.types.context().append_basic_block(
-                        self.function,
-                        &format!("copy.union.variant.{index}"),
-                    ),
+                    self.types
+                        .context()
+                        .append_basic_block(self.function, &format!("copy.union.variant.{index}")),
                 )
             })
             .collect::<Vec<_>>();
@@ -203,8 +194,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.builder.position_at_end(*block);
 
             for field in variant.fields() {
-                let field_pointer =
-                    self.constant_offset_pointer(storage, field.offset_bytes())?;
+                let field_pointer = self.constant_offset_pointer(storage, field.offset_bytes())?;
 
                 let field_value = llvm(self.builder.build_load(
                     self.types.map(field.ty())?,
@@ -647,21 +637,22 @@ mod tests {
 
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target};
     use bray_codegen::{
-        CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout, CodegenLinkage,
-        CodegenMappings, CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey,
+        CodeGenerator, CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout,
+        CodegenLinkage, CodegenMappings, CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey,
         CodegenSymbolMapping, CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping,
-        CodegenUnionVariantLayout, CodegenUnit, CodeGenerator, TargetAddressSpaceKind,
+        CodegenUnionVariantLayout, CodegenUnit, TargetAddressSpaceKind,
     };
     use bray_ir::{
         MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
-        MirStorageKind, MirStoreKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+        MirStorageKind, MirStoreKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder,
+        MirUnitKind,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
+    use bray_symbols::testing::intern_type;
     use bray_symbols::{
         CallableAbi, IntegerConstant, SemanticValueStore, SymbolId, TypeData, TypeId,
         UnionVariantSymbolId,
     };
-    use bray_symbols::testing::intern_type;
     use bray_target::{TargetLayoutContract, TargetValueLayout};
     use inkwell::context::Context;
 
@@ -882,11 +873,7 @@ mod tests {
                             IntegerConstant::from_u64(0),
                             [CodegenFieldLayout::new(None, types.string, 8)],
                         ),
-                        CodegenUnionVariantLayout::new(
-                            absent,
-                            IntegerConstant::from_u64(1),
-                            [],
-                        ),
+                        CodegenUnionVariantLayout::new(absent, IntegerConstant::from_u64(1), []),
                     ],
                 ),
             ),

@@ -107,8 +107,15 @@ impl super::super::Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         };
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(current, interfaces, skeleton)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let symbols = self.symbol_graph()?;
+
+        let resolver = ImportedInterfaceSymbolResolver::try_new(
+            current,
+            interfaces,
+            skeleton,
+            symbols.compiler_known_provider().declaration_symbols(),
+        )
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let template = match graph.intern_checked_template(body.template(), &resolver) {
             Ok(template) => template,

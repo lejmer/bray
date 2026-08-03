@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     AnySymbolId, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImplementationRequirementKey, StructFieldDefaultProviderSymbolId,
-    ReceiverParameterSignature, StructFieldSymbolId, StructSymbolId, TypeId,
+    CallableParameterSymbolId, ImplementationRequirementKey, ReceiverParameterSignature,
+    StructFieldDefaultProviderSymbolId, StructFieldSymbolId, StructSymbolId, TypeId,
     UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 

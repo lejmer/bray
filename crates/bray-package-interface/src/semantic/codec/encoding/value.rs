@@ -119,6 +119,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             encoder.write_u32(length.raw());
         }
         InterfaceType::Slice(element) => write_tagged_id(encoder, 6, element.raw()),
+        InterfaceType::Generator(element) => write_tagged_id(encoder, 13, element.raw()),
         InterfaceType::Nullable(target) => write_tagged_id(encoder, 7, target.raw()),
         InterfaceType::Borrow { kind, target } => {
             encoder.write_u32(8);

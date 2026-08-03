@@ -154,12 +154,7 @@ impl<'unit> LoweringInput<'unit> {
         validate_literal_target(literal_values, &target)?;
         validate_literal_values(literal_values, semantic_values)?;
 
-        validate_semantic_completeness(
-            unit,
-            expression_types,
-            semantic_selections,
-            storage_plan,
-        )?;
+        validate_semantic_completeness(unit, expression_types, semantic_selections, storage_plan)?;
 
         validate_pattern_completeness(unit, pattern_facts)?;
 

@@ -13,7 +13,9 @@ use super::super::binding::{
 use super::super::category::{
     ResolvedMemberName, ResolvedName, ResolvedValueName, classify_member, classify_value,
 };
-use super::super::diagnostic::{NameReference, lookup_diagnostic, malformed_lookup, report_lookup_result};
+use super::super::diagnostic::{
+    NameReference, lookup_diagnostic, malformed_lookup, report_lookup_result,
+};
 use super::prefix::{
     PathLookup, combine_path_prefixes, imported_path_prefix, lookup_surface_name_with_imports,
     module_prefix_as_path_prefix, next_imported_module_prefix, next_module_prefix, path_lookup,
