@@ -796,7 +796,7 @@ mod tests {
         assert!(has_argument_pair(
             &request.arguments,
             "--package",
-            "local.sample-project"
+            "sample-project"
         ));
 
         let _ = std::fs::remove_dir_all(parent);

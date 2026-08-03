@@ -46,6 +46,10 @@ A package has a package identity supplied outside Bray source.
 
 The compiler receives package identity from the package and build layer.
 
+A package identity consists of one or more names separated by `.`. Each name starts with a
+lowercase ASCII letter and continues with lowercase ASCII letters, decimal digits, `_`, or `-`.
+The spelling is exact and is not normalized by the toolchain.
+
 Package identity determines how other packages refer to the compiled package.
 
 Package identity is not a module declaration.

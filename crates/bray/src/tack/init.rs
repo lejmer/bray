@@ -4,7 +4,7 @@ use std::path::Path;
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind,
-    DiagnosticKind, SeverityKind,
+    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_project::{
     PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME,
@@ -143,7 +143,7 @@ pub(super) fn initialize_project(
 fn derive_package_identity(workspace_root: &Path) -> Option<String> {
     let directory_name = workspace_root.file_name()?.to_string_lossy();
 
-    Some(format!("local.{directory_name}"))
+    Some(directory_name.into_owned())
 }
 
 fn serialize_manifest(
@@ -202,10 +202,17 @@ fn publication_failed(path: &Path, kind: io::ErrorKind) -> DiagnosticBag {
 }
 
 fn invalid_identity(identity: impl Into<String>) -> DiagnosticBag {
-    diagnostic(
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
         DiagnosticKind::ProjectInitializationIdentityInvalid,
-        [DiagnosticArg::referenced_name(identity)],
+        SeverityKind::Error,
     )
+    .with_arg(DiagnosticArg::referenced_name(identity))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::PackageIdentityMustBeValid,
+    ));
+
+    DiagnosticBag::single(diagnostic)
 }
 
 fn path_conflict(path: &Path) -> DiagnosticBag {
@@ -246,7 +253,7 @@ fn diagnostic<const ARGUMENT_COUNT: usize>(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticKind, DiagnosticNote, DiagnosticNoteKind};
     use bray_project::load_project_graph;
 
     use super::initialize_project;
@@ -255,7 +262,7 @@ mod tests {
     #[test]
     fn initialization_produces_a_loadable_root_package() {
         let parent = unique_temporary_directory();
-        let workspace = parent.join("sample-project");
+        let workspace = parent.join("hello_world");
 
         initialize_project(&workspace, None)
             .unwrap_or_else(|diagnostics| panic!("project should initialize: {diagnostics:?}"));
@@ -267,7 +274,7 @@ mod tests {
             panic!("generated project should have one package");
         };
 
-        assert_eq!(package.identity().as_str(), "local.sample-project");
+        assert_eq!(package.identity().as_str(), "hello_world");
         assert_eq!(package.path().as_str(), ".");
         assert_eq!(package.products().len(), 1);
 
@@ -317,15 +324,22 @@ mod tests {
         let parent = unique_temporary_directory();
         let workspace = parent.join("sample-project");
 
-        let Err(diagnostics) = initialize_project(&workspace, Some("invalid")) else {
+        let Err(diagnostics) = initialize_project(&workspace, Some("Invalid Package")) else {
             panic!("invalid package identity should be rejected");
         };
 
+        let Some(diagnostic) = diagnostics
+            .by_kind(DiagnosticKind::ProjectInitializationIdentityInvalid)
+            .next()
+        else {
+            panic!("invalid package identity should produce a diagnostic: {diagnostics:?}");
+        };
+
         assert_eq!(
-            diagnostics
-                .by_kind(DiagnosticKind::ProjectInitializationIdentityInvalid)
-                .count(),
-            1
+            diagnostic.notes(),
+            &[DiagnosticNote::new(
+                DiagnosticNoteKind::PackageIdentityMustBeValid
+            )]
         );
 
         assert!(!workspace.exists());

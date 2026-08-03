@@ -18,8 +18,7 @@ deterministic before compiler work begins.
 
 - `bray init [directory]` creates a minimal workspace and root executable package without invoking
   any toolchain process. `--package <identity>` supplies the package identity explicitly. Otherwise,
-  Bray Tack derives `local.<directory-name>` when the directory name is a valid package-identity
-  segment.
+  Bray Tack uses the directory name when it is a valid package identity.
 - `bray check` requests diagnostics for selected manifest products. Required dependency interfaces
   are produced through `brayc` and retained in a deterministic workspace cache. Check does not
   publish product build outputs.

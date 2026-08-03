@@ -409,6 +409,40 @@ mod tests {
     }
 
     #[test]
+    fn renderer_explains_valid_project_initialization_identities() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::ProjectInitializationIdentityInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("Invalid Package"))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::PackageIdentityMustBeValid,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "cannot use 'Invalid Package' as a Bray package identity"
+        );
+
+        let [note] = rendered.notes() else {
+            panic!("expected package identity help: {rendered:?}");
+        };
+
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+
+        assert_eq!(
+            note.message(),
+            concat!(
+                "use a non-reserved lowercase name or dot-separated names, starting each name ",
+                "with a letter and using only letters, digits, underscores, or hyphens",
+            )
+        );
+    }
+
+    #[test]
     fn renderer_formats_typed_arguments_for_utf8_diagnostics() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(2),
