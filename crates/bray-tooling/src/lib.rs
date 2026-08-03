@@ -1,4 +1,4 @@
-//! Shared compiler command tooling used by the loose-file and project drivers.
+//! Shared compiler command tooling used by the loose-file compiler and Bray Tack.
 
 #![forbid(unsafe_code)]
 

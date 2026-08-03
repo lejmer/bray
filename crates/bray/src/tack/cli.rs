@@ -121,7 +121,7 @@ fn invalid_worker_count() -> DiagnosticBag {
 #[command(
     name = "bray",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Bray Tack project and workspace driver",
+    about = "Bray Tack, Bray's build tool",
     styles = clap_styles(),
     arg_required_else_help = true
 )]

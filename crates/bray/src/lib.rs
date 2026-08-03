@@ -1,4 +1,4 @@
-//! Bray Tack project and workspace command driver.
+//! Bray Tack, Bray's build tool and toolchain frontend.
 
 #![forbid(unsafe_code)]
 

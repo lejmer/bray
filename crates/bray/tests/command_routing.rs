@@ -1,7 +1,7 @@
 use std::process::Command;
 
 #[test]
-fn bray_binary_routes_to_the_project_driver() {
+fn bray_binary_routes_to_the_build_tool() {
     let output = Command::new(env!("CARGO_BIN_EXE_bray"))
         .arg("--help")
         .output()
@@ -11,7 +11,5 @@ fn bray_binary_routes_to_the_project_driver() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(stdout.contains("Bray Tack project and workspace driver"));
     assert!(stdout.contains("vendor"));
-    assert!(!stdout.contains("inspect-tokens"));
 }

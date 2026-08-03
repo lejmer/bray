@@ -84,7 +84,7 @@ inventory, and publishes one immutable dependency-first graph. Compilation, insp
 they do not search for packages or consult ambient dependency state.
 
 The user-facing command boundary and its explicit acquisition non-goals are defined in
-[Bray Tack project driver](bray-tack.md).
+[Bray Tack build tool](bray-tack.md).
 
 Bray Tack remains a project orchestrator rather than a container for compiler, formatter, or
 language-server implementations. It communicates with the independently installable `brayc`,

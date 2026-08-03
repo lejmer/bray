@@ -1,4 +1,4 @@
-# Bray Tack Project Driver
+# Bray Tack Build Tool
 
 Bray Tack is the user-facing `bray` command. It owns project and workspace command policy while
 `bray-project` owns manifest semantics and immutable project graphs. The compiler executable
