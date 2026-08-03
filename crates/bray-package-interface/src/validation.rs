@@ -456,15 +456,19 @@ mod tests {
     #[test]
     fn header_identity_and_compatibility_are_exact() {
         let bytes = artifact(&[]);
+        let unsupported_revision = unsupported_format_revision();
+
+        let unsupported_revision_byte = u8::try_from(unsupported_revision.raw())
+            .unwrap_or_else(|error| panic!("test format revision must fit one byte: {error}"));
 
         assert_mutation_error(&bytes, 0, 0, InterfaceValidationError::InvalidMagic);
 
         assert_mutation_error(
             &bytes,
             8,
-            9,
+            unsupported_revision_byte,
             InterfaceValidationError::UnsupportedFormatRevision {
-                actual: crate::InterfaceFormatRevision::new(9),
+                actual: unsupported_revision,
             },
         );
 
@@ -813,14 +817,22 @@ mod tests {
             "package-interface section checksum does not match for contracts"
         );
 
+        let unsupported_revision = unsupported_format_revision();
+
         let revision = InterfaceValidationError::UnsupportedFormatRevision {
-            actual: crate::InterfaceFormatRevision::new(9),
+            actual: unsupported_revision,
         }
         .into_diagnostic(DiagnosticId::new(6));
 
+        let expected = format!(
+            "unsupported package-interface format revision {}; expected {}",
+            unsupported_revision.raw(),
+            CURRENT_FORMAT_REVISION.raw()
+        );
+
         assert_eq!(
             DiagnosticRenderer::english().render(&revision).message(),
-            "unsupported package-interface format revision 9; expected 8"
+            expected
         );
     }
 
@@ -919,6 +931,15 @@ mod tests {
 
     const fn policy() -> InterfaceValidationPolicy {
         InterfaceValidationPolicy::new(LANGUAGE_REVISION)
+    }
+
+    fn unsupported_format_revision() -> crate::InterfaceFormatRevision {
+        let raw = CURRENT_FORMAT_REVISION
+            .raw()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("test format revision must have a successor"));
+
+        crate::InterfaceFormatRevision::new(raw)
     }
 
     fn assert_mutation_error(
