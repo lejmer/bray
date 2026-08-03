@@ -59,8 +59,21 @@ pub(crate) fn decode_semantic_fact_graph(
     kind: crate::InterfaceSemanticFactKind,
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+    match decode_selected_semantic_fact_graph(sections, surface, owner, kind, limits)? {
+        Some(facts) => Ok(facts),
+        None => decode_semantic_facts(sections, surface, limits),
+    }
+}
+
+pub(crate) fn decode_selected_semantic_fact_graph(
+    sections: &[ValidatedInterfaceSection<'_>],
+    surface: &PackageInterfaceSurface,
+    owner: bray_symbols::InterfaceSymbolId,
+    kind: crate::InterfaceSemanticFactKind,
+    limits: InterfaceValidationLimits,
+) -> Result<Option<InterfaceSemanticFacts>, InterfaceValidationError> {
     let Some(required_tags) = selected_fact_sections(kind) else {
-        return decode_semantic_facts(sections, surface, limits);
+        return Ok(None);
     };
 
     let selected_sections = sections
@@ -71,7 +84,7 @@ pub(crate) fn decode_semantic_fact_graph(
 
     validate_decode_allocation(&selected_sections, limits)?;
 
-    selection::decode_selected_fact_graph(sections, surface, owner, kind, limits)
+    selection::decode_selected_fact_graph(sections, surface, owner, kind, limits).map(Some)
 }
 
 fn selected_fact_sections(

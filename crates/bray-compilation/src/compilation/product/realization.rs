@@ -43,6 +43,7 @@ use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
+use super::super::binder::CompilationBinderFacts;
 use super::super::substitution::{named_type, substitution_for_owner};
 use super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -1935,23 +1936,8 @@ impl Compilation {
 
         let facts = self.binder_facts(cancellation)?;
 
-        let definition = facts
-            .symbol_key(callable.definition().symbol())
-            .map_err(super::super::binder::binder_fact_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let definition = match definition.data() {
-            SymbolKeyData::SourceDeclaration { .. } => SymbolKey::external(
-                super::super::export::external_symbol_key(
-                    facts.symbols(),
-                    self.package_identity(),
-                    callable.definition().symbol(),
-                )
-                .map_err(|_| FactQueryError::InfrastructureFailure)?,
-            ),
-            // Symbol keys are Arc-backed and the generated mapping owns its identity input.
-            _ => definition.clone(),
-        };
+        let definition =
+            self.portable_codegen_symbol_key(&facts, callable.definition().symbol())?;
 
         let mut hasher = StableDigestHasher::new();
 
@@ -1962,6 +1948,30 @@ impl Compilation {
         realization.key().target().hash(&mut hasher);
 
         binary_symbol_name(target, linkage, "instance", hasher.finalize())
+    }
+
+    pub(super) fn portable_codegen_symbol_key(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        symbol: AnySymbolId,
+    ) -> Result<SymbolKey, CodegenFactError> {
+        let definition = facts
+            .symbol_key(symbol)
+            .map_err(super::super::binder::binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        match definition.data() {
+            SymbolKeyData::SourceDeclaration { .. } => Ok(SymbolKey::external(
+                super::super::export::external_symbol_key(
+                    facts.symbols(),
+                    self.package_identity(),
+                    symbol,
+                )
+                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            )),
+            // Symbol keys are Arc-backed and the generated mapping owns its identity input.
+            _ => Ok(definition.clone()),
+        }
     }
 
     fn codegen_callables(
@@ -3153,7 +3163,7 @@ impl Compilation {
             return Ok(CodegenParameterMapping::Ignore);
         }
 
-        if !indirect_abi_value(abi, mapping.kind(), layout, target) {
+        if !indirect_abi_value(abi, mapping.kind(), layout, target, mappings) {
             return Ok(CodegenParameterMapping::direct(ty, None, []));
         }
 
@@ -3191,7 +3201,7 @@ impl Compilation {
             return Ok(CodegenResultMapping::Void);
         }
 
-        if !indirect_abi_value(abi, mapping.kind(), layout, target) {
+        if !indirect_abi_value(abi, mapping.kind(), layout, target, mappings) {
             return Ok(CodegenResultMapping::direct(ty, None, []));
         }
 
@@ -3990,6 +4000,7 @@ fn indirect_abi_value(
     kind: &CodegenTypeKind,
     layout: TargetValueLayout,
     target: &CodegenTarget,
+    mappings: &BTreeMap<TypeId, CodegenTypeMapping>,
 ) -> bool {
     let is_composite = matches!(
         kind,
@@ -4008,12 +4019,71 @@ fn indirect_abi_value(
         return layout.size() > register_pair_bytes;
     }
 
+    if target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
+        && is_homogeneous_float_aggregate(kind, mappings)
+    {
+        return false;
+    }
+
     match bray_target::NativeTarget::for_profile(target.profile()) {
         Some(bray_target::NativeTarget::X86_64WindowsMsvc) => {
             !matches!(layout.size(), 1 | 2 | 4 | 8)
         }
         _ => layout.size() > pointer_layout(target).size().saturating_mul(2),
     }
+}
+
+fn is_homogeneous_float_aggregate(
+    root: &CodegenTypeKind,
+    mappings: &BTreeMap<TypeId, CodegenTypeMapping>,
+) -> bool {
+    let mut pending = vec![(root, 1_u64)];
+    let mut element_width = None;
+    let mut element_count = 0_u64;
+
+    while let Some((kind, multiplicity)) = pending.pop() {
+        match kind {
+            CodegenTypeKind::Float(width) => {
+                if element_width.is_some_and(|element_width| element_width != *width) {
+                    return false;
+                }
+
+                element_width = Some(*width);
+                element_count = element_count.saturating_add(multiplicity);
+
+                if element_count > 4 {
+                    return false;
+                }
+            }
+            CodegenTypeKind::Aggregate(fields) => {
+                for field in fields.iter().rev() {
+                    let Some(mapping) = mappings.get(&field.ty()) else {
+                        return false;
+                    };
+
+                    pending.push((mapping.kind(), multiplicity));
+                }
+            }
+            CodegenTypeKind::Array { element, length } => {
+                let Some(mapping) = mappings.get(element) else {
+                    return false;
+                };
+
+                let Some(multiplicity) = multiplicity.checked_mul(*length) else {
+                    return false;
+                };
+
+                if multiplicity == 0 || multiplicity > 4 {
+                    return false;
+                }
+
+                pending.push((mapping.kind(), multiplicity));
+            }
+            _ => return false,
+        }
+    }
+
+    element_width.is_some() && element_count > 0
 }
 
 fn align_to(value: u64, alignment: NonZeroU64) -> Option<u64> {
@@ -4102,7 +4172,7 @@ fn binary_symbol_name(
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
-    use std::num::NonZeroU64;
+    use std::num::{NonZeroU16, NonZeroU64};
 
     use bray_codegen::{
         CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
@@ -5320,6 +5390,7 @@ mod tests {
     #[test]
     fn foreign_abi_uses_the_native_aggregate_passing_contract() {
         let aggregate = CodegenTypeKind::aggregate([]);
+        let mappings = BTreeMap::new();
 
         let sixteen_bytes = TargetValueLayout::new(
             16,
@@ -5335,6 +5406,7 @@ mod tests {
             &aggregate,
             sixteen_bytes,
             &windows,
+            &mappings,
         ));
 
         assert!(!indirect_abi_value(
@@ -5342,6 +5414,7 @@ mod tests {
             &aggregate,
             sixteen_bytes,
             &linux,
+            &mappings,
         ));
 
         assert!(!indirect_abi_value(
@@ -5349,6 +5422,59 @@ mod tests {
             &aggregate,
             sixteen_bytes,
             &windows,
+            &mappings,
+        ));
+    }
+
+    #[test]
+    fn aarch64_foreign_abi_passes_homogeneous_float_aggregates_directly() {
+        let compilation = compilation("module app;\n");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let element = intern_type(values, TypeData::Error);
+        let alignment = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
+        let element_layout = TargetValueLayout::new(8, alignment, TargetLayoutContract::Default);
+
+        let mappings = BTreeMap::from([(
+            element,
+            CodegenTypeMapping::new(
+                element,
+                element_layout,
+                CodegenTypeKind::Float(NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN)),
+            ),
+        )]);
+
+        let aggregate = CodegenTypeKind::aggregate([
+            CodegenFieldLayout::new(None, element, 0),
+            CodegenFieldLayout::new(None, element, 8),
+            CodegenFieldLayout::new(None, element, 16),
+        ]);
+
+        let aggregate_layout = TargetValueLayout::new(24, alignment, TargetLayoutContract::Default);
+
+        for native in [
+            NativeTarget::Aarch64LinuxGnu,
+            NativeTarget::Aarch64WindowsMsvc,
+            NativeTarget::Aarch64MacOs,
+        ] {
+            assert!(!indirect_abi_value(
+                CallableAbi::C,
+                &aggregate,
+                aggregate_layout,
+                &CodegenTarget::for_native(native),
+                &mappings,
+            ));
+        }
+
+        assert!(indirect_abi_value(
+            CallableAbi::C,
+            &aggregate,
+            aggregate_layout,
+            &CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu),
+            &mappings,
         ));
     }
 

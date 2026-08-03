@@ -846,7 +846,7 @@ mod tests {
                 .state
                 .imported_semantic_graphs
                 .iter()
-                .all(|graph| graph.get().is_none())
+                .any(|graph| graph.get().is_some())
         );
     }
 
