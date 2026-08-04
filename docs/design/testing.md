@@ -76,18 +76,22 @@ Every catalog entry carries one of these constraints:
 - `parallel`: the entry can run concurrently subject to the active resource budget,
 - `serial`: the entry runs alone with respect to other entries in the same test command.
 
-The test declaration surface must provide an explicit way to select `serial`. The syntax and parser must publish that choice as
-typed directive metadata before the runner consumes it. Absence selects `parallel`. A command-wide sequential mode does not rewrite
-entry metadata; it sets the scheduler concurrency budget to one.
+`@test(serial)` selects the serial constraint for a function test entry. Bare `@test` selects `parallel`. Module-level `@test`
+remains argumentless because it controls source contribution rather than entry scheduling. The parser publishes the optional
+constraint as typed directive metadata, and semantic validation rejects any other argument or use of `serial` on a module.
+A command-wide sequential mode does not rewrite entry metadata; it sets the global scheduler concurrency budget to one.
 
-Serial entries form deterministic barriers. The scheduler finishes all earlier work, executes the serial entry alone, and then
-admits later work. This gives serial tests predictable exclusion without defining a language-level execution order.
+Serial entries form deterministic global barriers across all selected products. Bray Tack owns the global admission permit. It
+finishes every admitted invocation, grants the serial entry the only permit, waits for its terminal outcome, and only then grants
+later permits. A product host cannot begin an entry until Tack sends that entry's start command. This gives serial tests predictable
+command-wide exclusion without defining a language-level execution order.
 
 ## Runner Protocol
 
-Bray Tack starts each selected native test host with dedicated protocol input and output channels. The child process's stdout and
-stderr remain available exclusively for captured test streams. Protocol messages use a bounded, canonical, length-prefixed binary
-encoding so arbitrary user output cannot be interpreted as control data.
+Bray Tack starts each selected native test host with dedicated protocol input and output channels that are distinct from the child
+process's stdout and stderr handles. Runtime-provided per-test stream sinks convert test writes into test-identified protocol events.
+The raw process streams are not a capture transport and any unframed host write is an infrastructure failure. Protocol messages use
+a bounded, canonical, length-prefixed binary encoding so arbitrary user output cannot be interpreted as control data.
 
 The connection begins with a handshake that establishes:
 
@@ -100,18 +104,19 @@ The connection begins with a handshake that establishes:
 Incompatible versions, identities, or required capabilities fail before any test starts. Unknown optional fields can be skipped only
 when the enclosing protocol version permits them. All lengths, counts, and nesting depths are validated before allocation.
 
-The runner sends one immutable invocation plan containing:
+The runner first sends one immutable selection plan containing:
 
 - selected test identities in canonical order,
-- maximum concurrent invocations,
 - per-test timeout policy,
 - capture policy and byte limits,
 - command cancellation identity,
 - deterministic resource budget.
 
-The host emits typed events for invocation start, captured stream chunks, terminal outcome, cleanup completion, host diagnostics,
-and host shutdown. Every event carries its test identity and a per-test monotonic sequence number. Completion can arrive in any
-order. The final report is assembled in catalog order.
+Bray Tack then sends one start command per entry after acquiring the global admission permit. The command carries the test identity
+and timeout deadline. A host can execute multiple admitted entries up to the plan's host-local limit, but it never selects or admits
+work independently. The host emits typed events for invocation start, captured stdout or stderr chunks, terminal outcome, cleanup
+completion, host diagnostics, and host shutdown. Every event carries its test identity and a per-test monotonic sequence number.
+Completion can arrive in any order. The final report is assembled in catalog order.
 
 Live events are observational and can reflect actual completion order. They are not stored as reproducible facts. JSON reports
 separate canonical result data from explicitly volatile timing and live-progress fields.
@@ -172,9 +177,9 @@ The scheduler accepts a positive concurrency limit and explicit budgets for acti
 and protocol memory. Sequential execution is the same scheduler with concurrency one. Parallel execution never means unbounded
 execution.
 
-Within a product host, ready parallel entries are admitted in catalog order. Bray Tack applies the same deterministic rule when
-multiple product hosts compete for the global process budget. Scheduling order is deterministic even though operating-system and
-runtime interleaving are not.
+Bray Tack considers ready parallel entries in global package, product, and catalog order, acquires one global permit, and sends the
+corresponding host a start command. Product hosts enforce their local capacity but do not reorder or independently admit entries.
+Scheduling order is deterministic even though operating-system and runtime interleaving are not.
 
 The scheduler stops admitting work after command cancellation. Fail-fast policy can stop admission after the first unsuccessful
 outcome but still waits for already admitted work to finish or cancel cleanly. Resource exhaustion is a structured infrastructure
@@ -187,11 +192,22 @@ are local to the test root, and their finalizers and destructors run before the 
 owned synchronization and must not bypass language ownership or cleanup rules. The runner does not introduce hidden parameter
 injection or a second object-lifecycle system.
 
-The public `std.testing` surface remains intentionally small:
+The complete public `std.testing` declaration surface is:
 
-- a typed `fail` operation for an explicit non-assertion test failure,
-- read-only access to the current test identity when a test needs it for generated data or logging,
-- fixture utility types only where they express ownership or lifecycle behavior that ordinary language constructs cannot express.
+```bray
+module std.testing;
+
+func fail(pos message: string) -> never;
+```
+
+`fail` evaluates and consumes its message once, constructs an explicit structured test failure at the call source, and terminates the
+current test root without a normal continuation. A generated test host reports it as `explicit_failure`, not as an unclassified
+panic. Calling it outside a test root panics with the same owned failure payload so it can never return. The operation requires no
+I/O capability and does not write the message to a stream.
+
+No public fixture base type, hidden parameter injection, current-runner context, or runner-control API is defined. Ordinary values,
+constructors, lifecycle declarations, and shared synchronized owners are the fixture surface. A focused utility can be added only
+when a concrete fixture behavior cannot be expressed by those language mechanisms.
 
 The built-in `assert(...)` expression remains the primary assertion surface. Its lowered failure carries a source anchor, optional
 user message, and compiler-known assertion identity as structured data. Comparison operands can be attached only when their values
@@ -202,16 +218,77 @@ equality and type checking.
 
 ## Reports And Exit Status
 
-The canonical report contains:
+The machine report uses this logical schema. The wire codec and JSON projection preserve these distinctions rather than flattening
+them into strings:
 
-- package and product identities,
-- selected and filtered test counts,
-- one ordered result per selected test,
-- typed outcome and failure payload,
-- captured stdout and stderr with truncation metadata,
-- cleanup incidents and suppressed panics,
-- host and protocol failures,
-- explicitly volatile duration fields.
+```text
+TestCommandReport {
+    format: 1,
+    selection: TestSelectionSummary,
+    products: [TestProductReport],
+    summary: TestOutcomeCounts,
+    duration: VolatileDuration?,
+}
+
+TestSelectionSummary {
+    discovered: integer,
+    selected: integer,
+    filtered_out: integer,
+    filters: [TestFilter],
+    execution: sequential | parallel { maximum_concurrency: integer },
+    capture: TestCapturePolicy,
+}
+
+TestProductReport {
+    package: PackageIdentity,
+    product: ProductIdentity,
+    target: TargetIdentity,
+    catalog_digest: Digest,
+    tests: [TestResult],
+    host_failures: [TestInfrastructureFailure],
+    shutdown: clean | failed(TestInfrastructureFailure),
+    duration: VolatileDuration?,
+}
+
+TestResult {
+    identity: TestIdentity,
+    declaration_path: DeclarationPath,
+    source: SourceAnchor,
+    constraint: parallel | serial,
+    outcome: TestOutcome,
+    stdout: CapturedStream,
+    stderr: CapturedStream,
+    cleanup_incidents: [CleanupIncident],
+    suppressed_panics: [PanicReport],
+    duration: VolatileDuration?,
+}
+
+TestOutcome =
+      passed
+    | returned_error { error_type: TypeIdentity, value: FormattedValue? }
+    | explicit_failure { message: string, source: SourceAnchor }
+    | assertion_failure { assertion: AssertionFailure }
+    | panicked { report: PanicReport }
+    | timed_out { limit: Duration }
+    | cancelled { source: CancellationSource }
+    | infrastructure_failed { failure: TestInfrastructureFailure };
+
+CapturedStream {
+    policy: captured | inherited | discarded,
+    bytes: byte_string?,
+    truncated: bool,
+    discarded_byte_count: integer?,
+}
+
+VolatileDuration {
+    nanoseconds: integer,
+}
+```
+
+`AssertionFailure`, `CleanupIncident`, `PanicReport`, `CancellationSource`, `TestFilter`, and `TestInfrastructureFailure` are closed
+typed records with their own stable category and payload variants. Optional fields above are absent only when their associated fact
+is unavailable or the selected policy does not produce it. Unknown outcome variants are never treated as passes. The report format
+version governs both the binary protocol record and its JSON field contract.
 
 Human output is a localized projection rendered through `bray-messages`. JSON output serializes the typed report directly and does
 not contain pre-rendered diagnostic or failure prose.

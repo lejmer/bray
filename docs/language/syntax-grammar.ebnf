@@ -79,7 +79,7 @@ target-directive =
     directive-marker "target" "(" constant-expression ")" ;
 
 test-directive =
-    directive-marker "test" ;
+    directive-marker "test" [ "(" "serial" ")" ] ;
 
 module-modifiers =
     [ trusted-modifier ] [ visibility-modifier ] ;

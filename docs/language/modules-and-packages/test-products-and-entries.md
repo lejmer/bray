@@ -73,6 +73,18 @@ An `@test` function must still be lexically and syntactically valid Bray source.
 
 Only one `@test` directive can apply to a function declaration.
 
+`@test(serial)` marks a function test entry as command-wide serial. Bare `@test` marks it as parallel. A serial entry cannot overlap
+another test entry selected by the same test command, including an entry from another package or product. `serial` is not permitted
+on a module-level `@test` directive, and no other test-directive argument is defined.
+
+```bray
+@test(serial)
+func uses_process_global_state()
+{
+    ...
+}
+```
+
 An `@test` function:
 
 - is a module-level function declaration,
@@ -121,7 +133,8 @@ It does not make the test function visible in any other module.
 
 Helper functions in test-only modules are ordinary functions unless they are marked `@test`.
 
-Test execution order is not language-defined.
+Test execution order is not language-defined. The serial constraint provides exclusion, not a specified position relative to other
+entries.
 
 Each test entry is reported independently.
 
