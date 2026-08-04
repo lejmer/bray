@@ -2,9 +2,9 @@ use bray_diagnostics::{
     DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticNoteKind, SeverityKind,
 };
 
-use crate::LanguageServerMessage;
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
+use crate::{BuildProgressMessage, LanguageServerMessage};
 
 use super::english::{
     diagnostic_template as english_diagnostic_template, label_style as english_label_style,
@@ -30,6 +30,15 @@ impl MessageCatalog {
     ) -> &'static str {
         match self.locale {
             DiagnosticLocale::English => super::english::language_server_message(message),
+        }
+    }
+
+    pub(crate) const fn build_progress_message(
+        self,
+        message: BuildProgressMessage,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => super::english::build_progress_message(message),
         }
     }
 

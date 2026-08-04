@@ -46,7 +46,8 @@ pub(crate) enum TackInspection {
     Mir,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum TackBuildConfiguration {
     #[default]
     Debug,
@@ -141,6 +142,7 @@ pub struct TackInvocation {
     toolchain_root: Option<PathBuf>,
     worker_count: usize,
     output_format: OutputFormat,
+    verbose: bool,
     command: TackCommand,
 }
 
@@ -150,6 +152,7 @@ impl TackInvocation {
         toolchain_root: Option<PathBuf>,
         worker_count: usize,
         output_format: OutputFormat,
+        verbose: bool,
         command: TackCommand,
     ) -> Self {
         Self {
@@ -157,6 +160,7 @@ impl TackInvocation {
             toolchain_root,
             worker_count,
             output_format,
+            verbose,
             command,
         }
     }
@@ -181,12 +185,19 @@ impl TackInvocation {
         self.output_format
     }
 
+    /// Returns whether detailed workflow activity was requested.
+    pub const fn verbose(&self) -> bool {
+        self.verbose
+    }
+
     /// Returns the stable command category.
     pub const fn command_kind(&self) -> TackCommandKind {
         self.command.kind()
     }
 
-    pub(crate) fn into_parts(self) -> (PathBuf, Option<PathBuf>, usize, OutputFormat, TackCommand) {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (PathBuf, Option<PathBuf>, usize, OutputFormat, TackCommand) {
         (
             self.workspace_root,
             self.toolchain_root,
