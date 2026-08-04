@@ -1,0 +1,40 @@
+module bray.standard_library_conformance.character;
+
+using std.character;
+
+@test
+func character_operations()
+{
+    let value: char = 'é';
+
+    let scalar: u32 = std.character.scalar_value(value = value);
+    let encoded_length: usize = std.character.utf8_length(value = value);
+    let first_byte: u8 = std.character.utf8_byte(value = value, index = 0);
+    let second_byte: u8 = std.character.utf8_byte(value = value, index = 1);
+    let alphabetic: bool = std.character.is_alphabetic(value = value);
+    let numeric: bool = std.character.is_numeric(value = value);
+    let whitespace: bool = std.character.is_whitespace(value = value);
+
+    assert(scalar == 233);
+    assert(encoded_length == 2);
+    assert(first_byte == 195);
+    assert(second_byte == 169);
+    assert(alphabetic);
+    assert(!numeric);
+    assert(!whitespace);
+
+    let decoded: char? = std.character.from_scalar_value(value = scalar);
+
+    match decoded
+    {
+        case ?character
+        {
+            assert(character == value);
+        }
+
+        case none
+        {
+            assert(false);
+        }
+    }
+}

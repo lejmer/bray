@@ -67,7 +67,7 @@ impl BuildError {
         }
     }
 
-    pub(super) fn write(path: &Path, source: std::io::Error) -> Self {
+    pub(in crate::standard_library) fn write(path: &Path, source: std::io::Error) -> Self {
         Self::Io {
             action: "write",
             path: path.to_path_buf(),

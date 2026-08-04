@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -33,7 +32,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         "native execution readiness requires a supported compiler host".to_owned()
     })?;
 
-    build_compiler(root)?;
+    crate::native_toolchain::build_compiler(root)?;
     audit_memory_rejection(root, target)?;
 
     let runtime = native_output("bray-native-runtime-")?;
@@ -61,7 +60,7 @@ fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), Strin
     let compiler = root
         .join("target")
         .join("debug")
-        .join(executable_name("brayc"));
+        .join(crate::native_toolchain::executable_name("brayc"));
 
     let fixture = root.join(INVALID_MEMORY_FIXTURE);
     let mut command = Command::new(compiler);
@@ -86,7 +85,7 @@ fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), Strin
     if output_contains(&output, "E7087") {
         Ok(())
     } else {
-        Err(command_failure(
+        Err(crate::command::failure(
             "checking invalid memory obligations",
             &output,
         ))
@@ -342,7 +341,7 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         let output = product_output(&first_executable, name)?;
 
         if output.status.code() != Some(expected) {
-            return Err(command_failure(name, &output));
+            return Err(crate::command::failure(name, &output));
         }
 
         if let Some(required) = stderr
@@ -360,21 +359,6 @@ pub(super) fn native_output(prefix: &str) -> Result<tempfile::TempDir, String> {
         .prefix(prefix)
         .tempdir()
         .map_err(|error| format!("could not create native output directory: {error}"))
-}
-
-fn build_compiler(root: &Path) -> Result<(), String> {
-    let mut command = Command::new("cargo");
-
-    command.current_dir(root).args([
-        "build",
-        "--quiet",
-        "--package",
-        "brayc",
-        "--package",
-        "bray",
-    ]);
-
-    require_success(command, "building brayc").map(|_| ())
 }
 
 fn build_fixture(
@@ -398,7 +382,7 @@ fn build_fixtures(
     let compiler = root
         .join("target")
         .join("debug")
-        .join(executable_name("brayc"));
+        .join(crate::native_toolchain::executable_name("brayc"));
 
     let mut command = Command::new(compiler);
 
@@ -427,7 +411,7 @@ fn build_fixtures(
 
     let operation = format!("building native execution fixtures {fixtures:?}");
 
-    require_success(command, &operation).map(|_| ())
+    crate::command::require_success(command, &operation).map(|_| ())
 }
 
 fn compile_host(root: &Path, output: &Path) -> Result<(), String> {
@@ -440,7 +424,7 @@ fn compile_host(root: &Path, output: &Path) -> Result<(), String> {
         .arg("-o")
         .arg(output);
 
-    require_success(command, "compiling the native ABI host").map(|_| ())
+    crate::command::require_success(command, "compiling the native ABI host").map(|_| ())
 }
 
 fn link_host(
@@ -457,7 +441,7 @@ fn link_host(
         .arg(host)
         .args(bray_objects);
 
-    require_success(command, "linking the native ABI host").map(|_| ())
+    crate::command::require_success(command, "linking the native ABI host").map(|_| ())
 }
 
 fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), String> {
@@ -533,7 +517,7 @@ fn inspect_objects(root: &Path, objects: &[PathBuf]) -> Result<String, String> {
 
         command.arg(object);
 
-        let output = require_success(command, "inspecting native object")?;
+        let output = crate::command::require_success(command, "inspecting native object")?;
 
         report.push_str(&String::from_utf8_lossy(&output.stdout));
     }
@@ -590,7 +574,7 @@ pub(super) fn execute_product(
         return Ok(());
     }
 
-    Err(command_failure(operation, &output))
+    Err(crate::command::failure(operation, &output))
 }
 
 pub(super) fn product_output(executable: &Path, operation: &str) -> Result<Output, String> {
@@ -607,40 +591,6 @@ pub(super) fn executable_path(directory: &Path, target: NativeTarget) -> PathBuf
     directory.join(name)
 }
 
-pub(super) fn require_success(mut command: Command, operation: &str) -> Result<Output, String> {
-    let output = command
-        .output()
-        .map_err(|error| format!("could not start {operation}: {error}"))?;
-
-    if output.status.success() {
-        return Ok(output);
-    }
-
-    Err(command_failure(operation, &output))
-}
-
-pub(super) fn command_failure(operation: &str, output: &Output) -> String {
-    let mut details = Vec::new();
-    let standard_output = String::from_utf8_lossy(&output.stdout);
-    let standard_error = String::from_utf8_lossy(&output.stderr);
-
-    if !standard_output.trim().is_empty() {
-        details.push(format!("stdout: {}", standard_output.trim()));
-    }
-
-    if !standard_error.trim().is_empty() {
-        details.push(format!("stderr: {}", standard_error.trim()));
-    }
-
-    let details = if details.is_empty() {
-        String::new()
-    } else {
-        format!(": {}", details.join("; "))
-    };
-
-    format!("{operation} failed with status {}{details}", output.status)
-}
-
 fn output_contains(output: &Output, required: &str) -> bool {
     String::from_utf8_lossy(&output.stdout).contains(required)
         || String::from_utf8_lossy(&output.stderr).contains(required)
@@ -648,12 +598,4 @@ fn output_contains(output: &Output, required: &str) -> bool {
 
 fn llvm_tool(root: &Path, name: &str) -> PathBuf {
     bray_tooling::llvm_tool_path(name).unwrap_or_else(|| crate::llvm::tool_path(root, name))
-}
-
-pub(super) fn executable_name(name: &str) -> OsString {
-    if cfg!(windows) {
-        format!("{name}.exe").into()
-    } else {
-        name.into()
-    }
 }
