@@ -9,6 +9,7 @@ mod execution;
 mod failure;
 mod filter;
 mod identity;
+mod scheduling;
 
 pub use capture::{
     CapturedStream, CapturedStreamPolicy, TestCaptureLimits, TestCapturePolicy, TestStreamFailure,
@@ -24,3 +25,7 @@ pub use execution::{
 pub use failure::{AssertionFailure, ExplicitTestFailure};
 pub use filter::{TestFilter, TestSelection, TestSelectionQuery, TestShard};
 pub use identity::{TestDeclarationPath, TestIdentity, TestSourceAnchor};
+pub use scheduling::{
+    TestAdmission, TestAdmissionSchedule, TestExecutionMode, TestExecutionPlan,
+    TestExecutionPlanBuildError, TestSchedulingError, TestStopReason,
+};
