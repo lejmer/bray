@@ -4,7 +4,7 @@ use bray_codegen::{CodegenLinkage, CodegenTarget, CodegenUnit, demanded_runtime_
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    ExecutableHostEntryContract, RootExecution, RuntimeAbiRole, RuntimeArtifact,
+    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact,
     RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
@@ -49,7 +49,7 @@ impl Compilation {
                 self.executable_entry_result(root_realization, entry_result_type, cancellation)?;
 
             let entry = match root.protected_frame_identity() {
-                Some(frame) => ExecutableHostEntryContract::asynchronous(
+                Some(frame) => ExecutableHostEntry::asynchronous(
                     frame,
                     super::super::realization::generated_frame_symbol_name(
                         target,
@@ -58,7 +58,7 @@ impl Compilation {
                     )?,
                     result,
                 ),
-                None => ExecutableHostEntryContract::synchronous(result),
+                None => ExecutableHostEntry::synchronous(result),
             };
 
             entries.push(entry);

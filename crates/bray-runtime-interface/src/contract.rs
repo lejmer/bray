@@ -160,13 +160,13 @@ impl ExecutableHostEntryId {
 
 /// One source entry executed by a compiler-generated native host.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ExecutableHostEntryContract {
+pub struct ExecutableHostEntry {
     root: RootExecution,
     root_frame_adapter: Option<BinarySymbolName>,
     result: ExecutableEntryResult,
 }
 
-impl ExecutableHostEntryContract {
+impl ExecutableHostEntry {
     /// Creates one synchronous source entry and its checked result mapping.
     pub const fn synchronous(result: ExecutableEntryResult) -> Self {
         Self {
@@ -215,7 +215,7 @@ pub struct ExecutableHostContract {
 struct ExecutableHostContractData {
     product: ProductIdentity,
     native_entry: BinarySymbolName,
-    entries: Arc<[ExecutableHostEntryContract]>,
+    entries: Arc<[ExecutableHostEntry]>,
     requirements: RuntimeRequirements,
     runtime: Option<RuntimeContract>,
     host_role_bindings: Arc<[RuntimeRoleBinding]>,
@@ -227,7 +227,7 @@ struct ExecutableHostContractData {
 pub struct ExecutableHostContractBuilder {
     product: ProductIdentity,
     native_entry: BinarySymbolName,
-    entries: Vec<ExecutableHostEntryContract>,
+    entries: Vec<ExecutableHostEntry>,
     requirements: RuntimeRequirements,
     runtime: Option<RuntimeContract>,
     host_role_bindings: Vec<RuntimeRoleBinding>,
@@ -256,7 +256,7 @@ impl ExecutableHostContractBuilder {
     pub fn new(
         product: ProductIdentity,
         native_entry: BinarySymbolName,
-        entry: ExecutableHostEntryContract,
+        entry: ExecutableHostEntry,
         requirements: RuntimeRequirements,
     ) -> Self {
         let mut builder = Self::empty(product, native_entry, requirements);
@@ -271,7 +271,7 @@ impl ExecutableHostContractBuilder {
     }
 
     /// Adds another source entry in deterministic execution order.
-    pub fn push_entry(&mut self, entry: ExecutableHostEntryContract) {
+    pub fn push_entry(&mut self, entry: ExecutableHostEntry) {
         self.entries.push(entry);
     }
 
@@ -363,12 +363,12 @@ impl ExecutableHostContract {
     }
 
     /// Returns source entries in deterministic execution order.
-    pub fn entries(&self) -> &[ExecutableHostEntryContract] {
+    pub fn entries(&self) -> &[ExecutableHostEntry] {
         &self.data.entries
     }
 
     /// Returns the source entry at an exact contract position.
-    pub fn entry(&self, entry: ExecutableHostEntryId) -> Option<&ExecutableHostEntryContract> {
+    pub fn entry(&self, entry: ExecutableHostEntryId) -> Option<&ExecutableHostEntry> {
         usize::try_from(entry.slot())
             .ok()
             .and_then(|entry| self.data.entries.get(entry))
@@ -539,7 +539,7 @@ mod tests {
 
     use super::{
         ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuildError,
-        ExecutableHostContractBuilder, ExecutableHostEntryContract, RootExecution,
+        ExecutableHostContractBuilder, ExecutableHostEntry, RootExecution,
         RuntimeCapability,
     };
     use crate::{
@@ -666,9 +666,9 @@ mod tests {
 
         let host_entry = match root {
             RootExecution::Synchronous => {
-                ExecutableHostEntryContract::synchronous(ExecutableEntryResult::Unit)
+                ExecutableHostEntry::synchronous(ExecutableEntryResult::Unit)
             }
-            RootExecution::Asynchronous { frame } => ExecutableHostEntryContract::asynchronous(
+            RootExecution::Asynchronous { frame } => ExecutableHostEntry::asynchronous(
                 frame,
                 BinarySymbolName::try_new("test_root_frame_adapter")
                     .unwrap_or_else(|| panic!("test frame adapter must be valid")),

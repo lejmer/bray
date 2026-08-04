@@ -71,7 +71,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let adapter_name = host
                         .entry(*entry)
                         .and_then(
-                            bray_runtime_interface::ExecutableHostEntryContract::root_frame_adapter,
+                            bray_runtime_interface::ExecutableHostEntry::root_frame_adapter,
                         )
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -449,7 +449,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let entry_result = host
             .entry(entry)
-            .map(bray_runtime_interface::ExecutableHostEntryContract::result)
+            .map(bray_runtime_interface::ExecutableHostEntry::result)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let result_type = match entry_result {

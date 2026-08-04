@@ -4,7 +4,7 @@ use bray_ir::{
 };
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract,
-    ExecutableHostContractBuilder, ExecutableHostEntryContract, PanicAbiIdentity,
+    ExecutableHostContractBuilder, ExecutableHostEntry, PanicAbiIdentity,
     ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution, RuntimeAbiRole,
     RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity,
     RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
@@ -160,8 +160,8 @@ fn test_host_contract(
     ];
 
     let host_entry = match root {
-        RootExecution::Synchronous => ExecutableHostEntryContract::synchronous(entry_result),
-        RootExecution::Asynchronous { frame } => ExecutableHostEntryContract::asynchronous(
+        RootExecution::Synchronous => ExecutableHostEntry::synchronous(entry_result),
+        RootExecution::Asynchronous { frame } => ExecutableHostEntry::asynchronous(
             frame,
             BinarySymbolName::try_new("__bray_test_root_frame_adapter")
                 .unwrap_or_else(|| panic!("test frame adapter symbol must be valid")),
