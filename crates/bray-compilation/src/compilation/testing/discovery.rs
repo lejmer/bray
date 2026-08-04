@@ -1,6 +1,6 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_base::shared_slice;
 use bray_diagnostics::DiagnosticResult;
 use bray_source::SourceSpan;
 use bray_symbols::{FunctionSymbolId, ProductIdentity, ProductKind};
@@ -15,14 +15,17 @@ use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestDiscovery {
     catalog: TestCatalog,
-    functions: Arc<[FunctionSymbolId]>,
+    functions: BTreeMap<TestIdentity, FunctionSymbolId>,
 }
 
 impl TestDiscovery {
-    fn new(catalog: TestCatalog, functions: impl IntoIterator<Item = FunctionSymbolId>) -> Self {
+    fn new(
+        catalog: TestCatalog,
+        functions: impl IntoIterator<Item = (TestIdentity, FunctionSymbolId)>,
+    ) -> Self {
         Self {
             catalog,
-            functions: shared_slice(functions),
+            functions: functions.into_iter().collect(),
         }
     }
 
@@ -33,11 +36,7 @@ impl TestDiscovery {
 
     /// Returns the compilation-local function for an exact catalog entry.
     pub fn function(&self, identity: &TestIdentity) -> Option<FunctionSymbolId> {
-        self.catalog
-            .entries()
-            .binary_search_by(|entry| entry.identity().cmp(identity))
-            .ok()
-            .and_then(|index| self.functions.get(index).copied())
+        self.functions.get(identity).copied()
     }
 }
 
@@ -118,17 +117,15 @@ impl Compilation {
             }
         }
 
-        entries.sort_by(|(left, _), (right, _)| {
-            left.identity()
-                .cmp(right.identity())
-                .then_with(|| left.source().cmp(&right.source()))
-        });
-
         let catalog = TestCatalog::try_new(product, entries.iter().map(|(entry, _)| entry.clone()))
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let discovery =
-            TestDiscovery::new(catalog, entries.into_iter().map(|(_, function)| function));
+        let discovery = TestDiscovery::new(
+            catalog,
+            entries
+                .into_iter()
+                .map(|(entry, function)| (entry.identity().clone(), function)),
+        );
 
         Ok(DiagnosticResult::new(
             discovery,
