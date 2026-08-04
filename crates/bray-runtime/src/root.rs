@@ -87,10 +87,12 @@ pub fn execute_synchronous_root<T>(
         cancellation: cancellation.clone(),
     });
 
-    with_run_cancellation_context(cancellation, || match catch_unwind(AssertUnwindSafe(root)) {
-        Ok(value) => RunOutcome::Completed(value),
-        Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
-        Err(payload) => RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload)),
+    with_run_cancellation_context(cancellation, || {
+        match catch_unwind(AssertUnwindSafe(root)) {
+            Ok(value) => RunOutcome::Completed(value),
+            Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
+            Err(payload) => RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload)),
+        }
     })
 }
 

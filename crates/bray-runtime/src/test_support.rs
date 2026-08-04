@@ -72,9 +72,7 @@ impl TestFrame {
     pub(crate) fn yielding_then_completing(value: i32) -> Self {
         Self::sequence(
             [
-                FrameProgress::Suspended(FrameSuspension::yielding(
-                    ProtectedFrameStateId::new(1),
-                )),
+                FrameProgress::Suspended(FrameSuspension::yielding(ProtectedFrameStateId::new(1))),
                 FrameProgress::Completed(value),
             ],
             2,

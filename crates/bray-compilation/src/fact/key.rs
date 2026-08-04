@@ -359,6 +359,8 @@ pub(crate) enum CompilationFactKey {
     ProductSourceGraph,
     /// Selected product roots and validated public semantic surface.
     ProductSemantics,
+    /// Canonical metadata discovery for one exact test package product.
+    TestDiscovery(ProductIdentity),
     /// The complete source identity skeleton used while selecting contributions.
     DiscoverySymbolGraph,
     /// Structural validation and identity decoding for one compiled dependency interface.
@@ -464,6 +466,7 @@ impl CompilationFactKey {
             | Self::DeclarationTable
             | Self::ProductSourceGraph
             | Self::ProductSemantics
+            | Self::TestDiscovery(_)
             | Self::DiscoverySymbolGraph
             | Self::DependencyInterface(_)
             | Self::ImportedDiagnostics

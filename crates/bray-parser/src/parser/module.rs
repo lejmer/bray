@@ -183,7 +183,10 @@ impl Parser {
             }
 
             if self.at_directive_name(TEST_DIRECTIVE_NAME) {
-                builder.push_test_directive(self.parse_test_directive());
+                builder.push_test_directive(
+                    self.parse_test_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
+                );
+
                 continue;
             }
 
@@ -438,8 +441,9 @@ impl Parser {
     fn consume_module_directives_for_scan(&mut self) {
         self.consume_directives_for_scan(&MODULE_DECLARATION_START_KINDS, |directive_name| {
             match directive_name {
-                TARGET_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-                TEST_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+                TARGET_DIRECTIVE_NAME | TEST_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME => {
+                    DirectiveScanKind::ArgumentList
+                }
                 _ => DirectiveScanKind::Unknown,
             }
         });

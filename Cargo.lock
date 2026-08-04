@@ -248,6 +248,7 @@ dependencies = [
  "bray-symbols",
  "bray-syntax",
  "bray-target",
+ "bray-test-protocol",
  "bray-testing",
  "rayon",
  "tempfile",
@@ -522,6 +523,15 @@ name = "bray-target"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+]
+
+[[package]]
+name = "bray-test-protocol"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-source",
+ "bray-symbols",
 ]
 
 [[package]]

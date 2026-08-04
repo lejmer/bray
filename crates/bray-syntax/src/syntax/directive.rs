@@ -246,9 +246,9 @@ define_bare_directive_syntax! {
     }
 }
 
-define_bare_directive_syntax! {
-    /// `@test` directive.
-    TestDirectiveSyntax {
+define_source_syntax_node! {
+    /// `@test` or `@test(...)` directive.
+    pub struct TestDirectiveSyntax {
         builder: TestDirectiveSyntaxBuilder,
         kind: SyntaxKind::TestDirective,
         source_slot: "test_directive.source",
@@ -256,8 +256,44 @@ define_bare_directive_syntax! {
         range_description: "test-directive",
         debug_name: "TestDirectiveSyntax",
         builder_debug_name: "TestDirectiveSyntaxBuilder",
-        marker_slot: "test_directive.directive_marker_token",
-        name_slot: "test_directive.name_token",
+        skipped_syntax: false,
+        required_tokens: [
+            {
+                /// Returns the required directive marker token.
+                directive_marker_token;
+                /// Appends the directive marker token.
+                push_directive_marker_token;
+                kind: SyntaxKind::AtToken;
+                slot: "test_directive.directive_marker_token";
+            },
+            {
+                /// Returns the required directive name token.
+                name_token;
+                /// Appends the directive name token.
+                push_name_token;
+                kind: SyntaxKind::IdentifierToken;
+                slot: "test_directive.name_token";
+            }
+        ],
+        optional_tokens: [],
+        required_children: [],
+        repeated_children: [
+            {
+                /// Returns the optional directive argument list.
+                directive_argument_lists;
+                /// Appends the directive argument list.
+                push_directive_argument_list;
+                ty: DirectiveArgumentListSyntax;
+                kind: SyntaxKind::DirectiveArgumentList;
+            }
+        ],
+    }
+}
+
+impl TestDirectiveSyntax {
+    /// Returns the optional directive argument list.
+    pub fn directive_argument_list(&self) -> Option<DirectiveArgumentListSyntax> {
+        self.directive_argument_lists().next()
     }
 }
 

@@ -12,7 +12,7 @@ use bray_symbols::{
     DirectiveKind, DirectiveSurface, DirectiveTemplate, ModuleSymbolId, SymbolFactContract,
     SymbolFactRequest, SymbolFactResult, SymbolKeyData,
 };
-use bray_syntax::{ExpressionSyntax, SyntaxNodeView, SyntaxWalkControl, walk_direct_child_nodes};
+use bray_syntax::{SyntaxNodeView, SyntaxWalkControl, walk_direct_child_nodes};
 
 use super::binding::{CompilationSymbolFactBinding, binder_error};
 use super::cache::CompilationSymbolFacts;
@@ -305,20 +305,17 @@ fn directive_argument_is_bare_symbol(
     context: &CompilationBinderFacts<'_>,
     syntax: SyntaxAnchor,
 ) -> BinderFactResult<bool> {
-    let expression = syntax_node_for_anchor(context, syntax)?
-        .cast::<ExpressionSyntax>()
+    let source = context
+        .compilation()
+        .source(syntax.source_id())
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    let Some(access) = expression
-        .primary_expression()
-        .and_then(|primary| primary.access_expression())
-    else {
-        return Ok(false);
-    };
-
-    Ok(access
-        .identifier_token()
-        .is_some_and(|identifier| identifier.range() == expression.full_range()))
+    Ok(crate::compilation::directive::bare_directive_argument_name(
+        context.compilation().syntax_tree_result().syntax_tree(),
+        source,
+        syntax,
+    )
+    .is_some())
 }
 
 fn bind_compiler_known_directives(

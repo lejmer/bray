@@ -22,8 +22,8 @@ mod test_support;
 
 pub use cancellation::{CancellationContext, CancellationShield};
 pub use context::{
-    TaskExecutionContext, current_run_cancellation_observable,
-    current_run_cancellation_requested, current_task_execution_context,
+    TaskExecutionContext, current_run_cancellation_observable, current_run_cancellation_requested,
+    current_task_execution_context,
 };
 pub use event::{
     RuntimeEvent, RuntimeEventError, RuntimeEventGeneration, RuntimeEventRegistration,

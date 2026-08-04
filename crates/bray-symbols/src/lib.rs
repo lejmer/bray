@@ -159,7 +159,10 @@ pub use member::{
 };
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
-pub use product::{ProductIdentity, ProductKind, ProductSemanticFacts};
+pub use product::{
+    ProductIdentity, ProductKind, ProductSemanticFacts, ProductTestEntry, TestExecutionConstraint,
+    TestResultShape,
+};
 pub use provider::{SymbolProvider, SymbolRecordId};
 pub use recognized::{
     RecognizedStandardLibraryDeclarationMatch, RecognizedStandardLibraryDeclarations,

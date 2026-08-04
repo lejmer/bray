@@ -418,6 +418,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::CallableTypeDirectives(*key)
     });
 
+    reuse!(test_discoveries, |key| {
+        CompilationFactKey::TestDiscovery(key.clone())
+    });
+
     reuse!(foreign_callable_contracts, |key| {
         CompilationFactKey::ForeignCallableContract(*key)
     });

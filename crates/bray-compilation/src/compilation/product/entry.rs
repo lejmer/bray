@@ -7,7 +7,7 @@ use bray_symbols::{
     CallableContractTemplateFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
     CallableSignatureTemplate, DeclarationPredicateClauseKind, FunctionSymbolId, GenericArgument,
     GenericArgumentTemplate, NamedTypeSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TypeData, TypeExpressionTemplate,
+    TestResultShape, TypeData, TypeExpressionTemplate,
 };
 use bray_syntax::TrustBoundaryExpressionSyntax;
 
@@ -19,6 +19,26 @@ use crate::fact::FactQueryError;
 pub(super) enum ProductEntryKind {
     Executable,
     Test,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ProductEntryValidation {
+    execution: CallableExecution,
+    test_result: Option<TestResultShape>,
+}
+
+impl ProductEntryValidation {
+    pub(super) const fn execution(self) -> CallableExecution {
+        self.execution
+    }
+
+    pub(super) const fn is_async(self) -> bool {
+        matches!(self.execution, CallableExecution::Asynchronous)
+    }
+
+    pub(super) const fn test_result(self) -> Option<TestResultShape> {
+        self.test_result
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -111,8 +131,8 @@ pub(super) fn select_executable_entrypoint(
             diagnostics,
         )?;
 
-        if let Some(is_async) = validation {
-            valid.push((function, is_async));
+        if let Some(validation) = validation {
+            valid.push((function, validation.is_async()));
         }
     }
 
@@ -168,7 +188,7 @@ fn validated_selection(
 
     Ok(EntrypointSelection {
         function: validation.map(|_| function),
-        is_async: validation.unwrap_or(false),
+        is_async: validation.is_some_and(ProductEntryValidation::is_async),
         is_recovered: validation.is_none(),
     })
 }
@@ -181,7 +201,7 @@ pub(super) fn validate_entry(
     function: FunctionSymbolId,
     kind: ProductEntryKind,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<bool>, FactQueryError> {
+) -> Result<Option<ProductEntryValidation>, FactQueryError> {
     let Some(symbol) = symbols.function(function) else {
         return Err(FactQueryError::InfrastructureFailure);
     };
@@ -258,21 +278,23 @@ pub(super) fn validate_entry(
         is_valid = false;
     }
 
+    let unit_result = is_unit(signature.value().result(), semantic_values, available);
+
+    let recoverable_result =
+        is_result_of_unit(signature.value().result(), semantic_values, available);
+
     let valid_result = match kind {
         ProductEntryKind::Executable => {
-            is_unit(signature.value().result(), semantic_values, available)
+            unit_result
                 || is_role(
                     signature.value().result(),
                     semantic_values,
                     available,
                     RepresentationRole::ScalarI32,
                 )
-                || is_result_of_unit(signature.value().result(), semantic_values, available)
+                || recoverable_result
         }
-        ProductEntryKind::Test => {
-            is_unit(signature.value().result(), semantic_values, available)
-                || is_result_of_unit(signature.value().result(), semantic_values, available)
-        }
+        ProductEntryKind::Test => unit_result || recoverable_result,
     };
 
     if !valid_result {
@@ -286,7 +308,16 @@ pub(super) fn validate_entry(
         is_valid = false;
     }
 
-    Ok(is_valid.then_some(execution == CallableExecution::Asynchronous))
+    let test_result = match kind {
+        ProductEntryKind::Test if unit_result => Some(TestResultShape::Unit),
+        ProductEntryKind::Test if recoverable_result => Some(TestResultShape::Recoverable),
+        ProductEntryKind::Executable | ProductEntryKind::Test => None,
+    };
+
+    Ok(is_valid.then_some(ProductEntryValidation {
+        execution,
+        test_result,
+    }))
 }
 
 fn callable_properties(

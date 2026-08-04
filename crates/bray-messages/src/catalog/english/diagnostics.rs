@@ -611,6 +611,19 @@ const CHECKING_INVALID_TEST_RESULT: &[MessageTemplatePart] = &[MessageTemplatePa
     "test entry result must be unit or Result<unit, E>",
 )];
 
+const CHECKING_INVALID_TEST_ENTRY_DIRECTIVE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "@test on a function accepts no arguments or the positional argument serial",
+)];
+
+const CHECKING_INVALID_TEST_MODULE_DIRECTIVE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "@test on a module does not accept arguments",
+    )];
+
+const CHECKING_DUPLICATE_TEST_IDENTITY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "more than one test has the same fully qualified declaration path",
+)];
+
 const CHECKING_ENTRY_CANNOT_BE_CONSTANT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "product entry function cannot be constant",
 )];
@@ -1486,6 +1499,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingInvalidTestResult => {
             MessageTemplate::new(CHECKING_INVALID_TEST_RESULT)
+        }
+        DiagnosticKind::CheckingInvalidTestEntryDirective => {
+            MessageTemplate::new(CHECKING_INVALID_TEST_ENTRY_DIRECTIVE)
+        }
+        DiagnosticKind::CheckingInvalidTestModuleDirective => {
+            MessageTemplate::new(CHECKING_INVALID_TEST_MODULE_DIRECTIVE)
+        }
+        DiagnosticKind::CheckingDuplicateTestIdentity => {
+            MessageTemplate::new(CHECKING_DUPLICATE_TEST_IDENTITY)
         }
         DiagnosticKind::CheckingEntryCannotBeConstant => {
             MessageTemplate::new(CHECKING_ENTRY_CANNOT_BE_CONSTANT)

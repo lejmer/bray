@@ -25,8 +25,8 @@ pub use bray_bound_tree::{
     PatternPredicate, PatternProjection, SelectedConversion,
 };
 pub use control::{
-    MirCleanupEdge, MirCleanupPhase, MirEdge, MirRunResultEdges, MirSwitchCase, MirTerminator,
-    MirSuspensionKind, MirTerminatorKind,
+    MirCleanupEdge, MirCleanupPhase, MirEdge, MirRunResultEdges, MirSuspensionKind, MirSwitchCase,
+    MirTerminator, MirTerminatorKind,
 };
 pub use frame::{
     MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameStateFacts,

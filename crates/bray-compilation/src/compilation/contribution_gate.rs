@@ -26,6 +26,7 @@ use super::Compilation;
 use super::binder::bind_module_part_directives_for_selection;
 use super::checker::checker_result;
 use super::constant::collect_constant_references;
+use super::diagnostics::source_diagnostic;
 use super::directive::first_directive;
 use super::substitution::named_type;
 use super::unit::semantic_unit_context_for;
@@ -145,8 +146,19 @@ impl Compilation {
 
         add_duplicate_gate_diagnostics(&directives, &mut diagnostics);
 
-        let test_enabled = first_directive(&directives, DirectiveKind::Test)
-            .is_none_or(|_| self.options().product_kind() == ProductKind::Test);
+        let test_directive = first_directive(&directives, DirectiveKind::Test);
+
+        if let Some(directive) = test_directive
+            && !directive.arguments().is_empty()
+        {
+            diagnostics.add(source_diagnostic(
+                directive.syntax(),
+                DiagnosticKind::CheckingInvalidTestModuleDirective,
+            ));
+        }
+
+        let test_enabled =
+            test_directive.is_none_or(|_| self.options().product_kind() == ProductKind::Test);
 
         let target_gate = match first_directive(&directives, DirectiveKind::Target) {
             Some(directive) => match directive.arguments().first() {
@@ -386,6 +398,7 @@ fn unsigned_integer(value: u64) -> IntegerConstant {
 mod tests {
     use std::sync::Arc;
 
+    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
         AnyConstantDefinitionId, ConstantInstanceKey, ConstantValueKind, TargetFactDependency,
     };
@@ -541,6 +554,17 @@ mod tests {
                 .declarations()
                 .module_parts()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn module_test_directives_reject_entry_constraints() {
+        let compilation = compilation("@test(serial) module app;");
+        let gate = module_gate(&compilation);
+
+        assert!(
+            gate.diagnostics().iter().any(|diagnostic| diagnostic.kind()
+                == DiagnosticKind::CheckingInvalidTestModuleDirective)
         );
     }
 
