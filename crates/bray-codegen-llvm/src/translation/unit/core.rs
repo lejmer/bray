@@ -74,8 +74,14 @@ fn translate_instance<'context, 'request>(
         .map(bray_ir::MirBlock::source)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let debug_scope =
-        debug.and_then(|debug| debug.attach_function(function, symbol.name().as_str(), source));
+    let debug_scope = debug.and_then(|debug| {
+        debug.attach_function(
+            function,
+            symbol.name().as_str(),
+            symbol.name().as_str(),
+            source,
+        )
+    });
 
     UnitTranslator::new(
         context,

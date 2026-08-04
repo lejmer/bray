@@ -71,6 +71,7 @@ impl LlvmCodeGenerator {
             request.mappings(),
             request.options().debug_information(),
             request.options().optimization() != OptimizationLevel::None,
+            request.target().machine().object_format(),
         );
 
         match translate_instances(context, &module, request, &mut types, debug.as_ref()) {

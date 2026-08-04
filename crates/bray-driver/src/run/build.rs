@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn development_coff_executables_request_a_linker_debug_companion() {
+    fn development_executables_request_target_required_debug_companions() {
         let configuration = DriverProductConfiguration::new(
             DriverBackend::Llvm,
             bray_compilation::BuildConfiguration::Development,
@@ -383,6 +383,20 @@ mod tests {
         let artifacts = required_artifacts(
             ProductKind::Executable,
             bray_target::NativeTarget::X86_64WindowsMsvc,
+            &configuration,
+        );
+
+        assert_eq!(
+            artifacts,
+            [
+                bray_target::TargetOutputKind::Executable,
+                bray_target::TargetOutputKind::LinkedCompanion,
+            ]
+        );
+
+        let artifacts = required_artifacts(
+            ProductKind::Executable,
+            bray_target::NativeTarget::Aarch64MacOs,
             &configuration,
         );
 

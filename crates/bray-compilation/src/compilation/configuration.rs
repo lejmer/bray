@@ -17,7 +17,10 @@ impl BuildConfiguration {
         object_format: bray_target::ObjectFormat,
     ) -> bool {
         matches!(self, Self::Development)
-            && matches!(object_format, bray_target::ObjectFormat::Coff)
+            && matches!(
+                object_format,
+                bray_target::ObjectFormat::Coff | bray_target::ObjectFormat::MachO
+            )
     }
 
     pub(super) const fn codegen_options(self) -> CodegenOptions {
@@ -60,5 +63,19 @@ mod tests {
 
         assert_eq!(release.optimization(), OptimizationLevel::Full);
         assert_eq!(release.debug_information(), DebugInformationMode::None);
+    }
+
+    #[test]
+    fn development_builds_require_durable_platform_debug_companions() {
+        let development = BuildConfiguration::Development;
+
+        assert!(development.requires_linked_debug_companion(bray_target::ObjectFormat::Coff));
+        assert!(development.requires_linked_debug_companion(bray_target::ObjectFormat::MachO));
+        assert!(!development.requires_linked_debug_companion(bray_target::ObjectFormat::Elf));
+
+        assert!(
+            !BuildConfiguration::Release
+                .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
+        );
     }
 }

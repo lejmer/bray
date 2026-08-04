@@ -46,7 +46,11 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .map(bray_ir::MirBlock::source)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let debug_scope = debug.and_then(|debug| debug.attach_function(resume, "frame.resume", source));
+    let debug_scope = debug.and_then(|debug| {
+        let linkage_name = resume.get_name().to_str().ok()?;
+
+        debug.attach_function(resume, "frame.resume", linkage_name, source)
+    });
 
     UnitTranslator::for_frame_resume(
         context,

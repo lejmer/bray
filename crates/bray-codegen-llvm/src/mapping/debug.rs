@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_codegen::{CodegenMappings, DebugInformationMode};
 use bray_ir::MirSourceAnchor;
+use bray_target::ObjectFormat;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::debug_info::{
@@ -30,7 +31,8 @@ impl<'context> LlvmDebugInfo<'context> {
     pub(crate) fn attach_function(
         &self,
         function: FunctionValue<'context>,
-        name: &str,
+        display_name: &str,
+        linkage_name: &str,
         source: &MirSourceAnchor,
     ) -> Option<DISubprogram<'context>> {
         let location = self.locations.get(source).copied()?;
@@ -41,8 +43,8 @@ impl<'context> LlvmDebugInfo<'context> {
 
         let subprogram = self.builder.create_function(
             self.compile_unit.as_debug_info_scope(),
-            name,
-            Some(name),
+            display_name,
+            Some(linkage_name),
             location.file,
             location.line,
             function_type,
@@ -92,6 +94,7 @@ pub(crate) fn create_debug_metadata<'context>(
     mappings: &CodegenMappings,
     mode: DebugInformationMode,
     optimized: bool,
+    object_format: ObjectFormat,
 ) -> Option<LlvmDebugInfo<'context>> {
     if mode == DebugInformationMode::None {
         return None;
@@ -114,6 +117,14 @@ pub(crate) fn create_debug_metadata<'context>(
         FlagBehavior::Warning,
         context.i32_type().const_int(3, false),
     );
+
+    if object_format == ObjectFormat::Coff {
+        module.add_basic_value_flag(
+            "CodeView",
+            FlagBehavior::Warning,
+            context.i32_type().const_int(1, false),
+        );
+    }
 
     let (builder, compile_unit) = module.create_debug_info_builder(
         true,
@@ -182,6 +193,7 @@ mod tests {
             fixture.request().mappings(),
             DebugInformationMode::LineTables,
             fixture.request().options().optimization() != OptimizationLevel::None,
+            bray_target::ObjectFormat::Coff,
         ) else {
             panic!("line-table debug information must create metadata");
         };
@@ -195,7 +207,7 @@ mod tests {
 
         let source = fixture.request().mappings().debug_locations()[0].anchor();
 
-        let Some(subprogram) = debug.attach_function(function, "main", source) else {
+        let Some(subprogram) = debug.attach_function(function, "display", "linkage", source) else {
             panic!("mapped source must attach a function subprogram");
         };
 
@@ -214,5 +226,7 @@ mod tests {
         assert!(text.contains("!DILocation"));
         assert!(text.contains("!dbg"));
         assert!(text.contains("test.bray"));
+        assert!(text.contains("!\"CodeView\""));
+        assert!(text.contains("name: \"display\", linkageName: \"linkage\""));
     }
 }
