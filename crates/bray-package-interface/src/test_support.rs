@@ -365,8 +365,7 @@ fn identity_surface(
 }
 
 pub fn package_version() -> PackageVersion {
-    PackageVersion::try_new("1.0.0")
-        .unwrap_or_else(|| panic!("test package version must be valid"))
+    PackageVersion::try_new("1.0.0").unwrap_or_else(|| panic!("test package version must be valid"))
 }
 
 fn template_facts(

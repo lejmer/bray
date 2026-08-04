@@ -148,13 +148,15 @@ fn package_version(
     manifest_path: &Path,
 ) -> Result<PackageVersion, ProjectLoadError> {
     match manifest {
-        PackageVersionManifest::Explicit(value) => PackageVersion::try_new(&value).ok_or_else(|| {
-            ProjectLoadError::invalid(
-                manifest_path.to_path_buf(),
-                ProjectManifestProblem::InvalidPackageVersion,
-                value,
-            )
-        }),
+        PackageVersionManifest::Explicit(value) => {
+            PackageVersion::try_new(&value).ok_or_else(|| {
+                ProjectLoadError::invalid(
+                    manifest_path.to_path_buf(),
+                    ProjectManifestProblem::InvalidPackageVersion,
+                    value,
+                )
+            })
+        }
         PackageVersionManifest::Inherited(inherited) if inherited.workspace => {
             // Package nodes share the immutable Arc-backed workspace version.
             workspace_version.cloned().ok_or_else(|| {

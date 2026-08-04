@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use bray_compilation::{
-    Compilation, CompilationOptions, CompilationRequest, ProductEmissionInputs, SelectedTarget,
-    WorkerBudget,
+    BuildConfiguration, Compilation, CompilationOptions, CompilationRequest,
+    ProductEmissionInputs, SelectedTarget, WorkerBudget,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
@@ -124,7 +124,13 @@ pub(super) fn emit_native_executable(
     let runtime = load_runtime_artifact(runtime)?;
 
     let native = compilation
-        .native_product_facts(product.clone(), Some(runtime), [], Some(&linker))
+        .native_product_facts(
+            product.clone(),
+            BuildConfiguration::Release,
+            Some(runtime),
+            [],
+            Some(&linker),
+        )
         .map_err(|error| {
             format!(
                 "could not build native fixture product: {error:?}; diagnostics={:?}",

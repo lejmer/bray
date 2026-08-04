@@ -13,8 +13,8 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
-    CodegenFactError, Compilation, CompilationLoadError, CompletionCandidate, EmissionCodegenError,
-    EmissionCodegenErrorKind, NativeProductFactError, NativeProductFacts,
+    BuildConfiguration, CodegenFactError, Compilation, CompilationLoadError, CompletionCandidate,
+    EmissionCodegenError, EmissionCodegenErrorKind, NativeProductFactError, NativeProductFacts,
     PackageInterfaceExportError, ProductEmissionError, ProductEmissionErrorKind,
     ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
 };

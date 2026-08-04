@@ -3,20 +3,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
-use std::num::{NonZeroU16, NonZeroU64};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use bray_base::StableDigestHasher;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenFieldLayout, CodegenHelperMapping,
+    CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
     CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage, CodegenMappings,
-    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
-    CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping, CodegenTypeKind,
-    CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit, CodegenValueAttribute,
-    TargetAddressSpaceKind, child_constants, demanded_callable_instances,
+    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
+    CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit,
+    CodegenValueAttribute, TargetAddressSpaceKind, child_constants, demanded_callable_instances,
     demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
-    mapped_runtime_references,
+    demanded_debug_sources, mapped_runtime_references,
 };
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
@@ -29,6 +29,7 @@ use bray_ir::{
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
 };
+use bray_source::{LineIndex, SourceSnapshot};
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultFact, CallableParameterDefaultValue, CallableSignature,
@@ -95,6 +96,7 @@ impl Compilation {
         target: &CodegenTarget,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         reachability: &ConcreteCodegenReachability,
+        include_debug_locations: bool,
         cancellation: &CancellationToken,
     ) -> Result<CodegenMappings, CodegenFactError> {
         let operations = self.codegen_operations(unit, target, reachability, cancellation)?;
@@ -168,6 +170,12 @@ impl Compilation {
 
         symbols.sort_unstable_by(|left, right| left.key().cmp(right.key()));
 
+        let debug_locations = if include_debug_locations {
+            self.codegen_debug_locations(unit)?
+        } else {
+            Vec::new()
+        };
+
         CodegenMappings::try_new(
             unit,
             target,
@@ -178,9 +186,74 @@ impl Compilation {
             callables,
             operations,
             terminators,
-            [],
+            debug_locations,
         )
         .map_err(CodegenFactError::InvalidMappings)
+    }
+
+    fn codegen_debug_locations(
+        &self,
+        unit: &CodegenUnit,
+    ) -> Result<Vec<CodegenDebugLocation>, CodegenFactError> {
+        let mut sources = BTreeMap::new();
+
+        let generated_file = CodegenSourceFile::try_new("generated.bray")
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let mut locations = Vec::new();
+
+        for anchor in demanded_debug_sources(unit) {
+            let debug_location = match &anchor {
+                MirSourceAnchor::Source(origin) => {
+                    let source_anchor = origin.source_anchor();
+                    let syntax = source_anchor.syntax();
+
+                    if !sources.contains_key(&syntax.source_id()) {
+                        let source = self
+                            .source(syntax.source_id())
+                            .filter(|source| source.version() == source_anchor.source_version())
+                            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                        let index = LineIndex::new(source.text())
+                            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                        let file = codegen_source_file(source)?;
+
+                        sources.insert(syntax.source_id(), (index, file));
+                    }
+
+                    let (index, file) = sources
+                        .get(&syntax.source_id())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    let location = index
+                        .line_column(syntax.full_range().start())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    let line = NonZeroU32::new(location.line())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    let column = NonZeroU32::new(location.column())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    // The clone retains the shared immutable normalized path.
+                    CodegenDebugLocation::new(anchor, file.clone(), line, column)
+                }
+                MirSourceAnchor::ExecutableHost(_) | MirSourceAnchor::GeneratedLifecycle(_) => {
+                    // The clone retains the shared immutable generated path.
+                    CodegenDebugLocation::new(
+                        anchor,
+                        generated_file.clone(),
+                        NonZeroU32::MIN,
+                        NonZeroU32::MIN,
+                    )
+                }
+            };
+
+            locations.push(debug_location);
+        }
+
+        Ok(locations)
     }
 
     fn codegen_operations(
@@ -3626,6 +3699,23 @@ impl Compilation {
             NamedTypeSymbolId::Struct(definition),
         )
     }
+}
+
+fn codegen_source_file(source: &SourceSnapshot) -> Result<CodegenSourceFile, CodegenFactError> {
+    let origin = source.origin();
+
+    let path = origin
+        .file_path()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .or_else(|| origin.virtual_name().map(str::to_owned))
+        .or_else(|| origin.generated_name().map(str::to_owned))
+        .or_else(|| origin.lsp_uri().map(str::to_owned))
+        .or_else(|| origin.test_fixture_name().map(str::to_owned))
+        .unwrap_or_else(|| format!("source-{}.bray", source.identity().raw()));
+
+    CodegenSourceFile::try_new(path)
+        .ok_or(FactQueryError::InfrastructureFailure)
+        .map_err(CodegenFactError::from)
 }
 
 const fn target_layout_contract(layout: DeclaredLayoutMode) -> TargetLayoutContract {

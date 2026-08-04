@@ -371,6 +371,7 @@ mod tests {
             "x86_64-unknown-linux-gnu",
             "--backend",
             "llvm",
+            "--release",
             "--runtime-profile",
             "native",
             "--require-capability",
@@ -406,6 +407,12 @@ mod tests {
         );
 
         assert_eq!(configuration.backend(), DriverBackend::Llvm);
+
+        assert_eq!(
+            configuration.build(),
+            bray_compilation::BuildConfiguration::Release
+        );
+
         assert_eq!(configuration.artifacts(), &[TargetOutputKind::Executable]);
 
         assert_eq!(
@@ -565,9 +572,7 @@ mod tests {
         };
 
         assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
-
         assert_eq!(invocation.options().output_format(), OutputFormat::Json);
-
         assert_eq!(invocation.command().kind(), DriverCommandKind::Check);
 
         let files = [PathBuf::from("main.bray")];
@@ -593,7 +598,6 @@ mod tests {
         };
 
         assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
-
         assert_eq!(invocation.options().output_format(), OutputFormat::Text);
 
         assert_eq!(
@@ -655,7 +659,6 @@ mod tests {
         };
 
         assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
-
         assert_eq!(invocation.options().output_format(), OutputFormat::Json);
 
         assert_eq!(
@@ -686,7 +689,6 @@ mod tests {
         };
 
         assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
-
         assert_eq!(invocation.options().output_format(), OutputFormat::Json);
 
         assert_eq!(
@@ -717,7 +719,6 @@ mod tests {
         };
 
         assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
-
         assert_eq!(invocation.options().output_format(), OutputFormat::Json);
 
         assert_eq!(

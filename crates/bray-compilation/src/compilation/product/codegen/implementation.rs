@@ -84,12 +84,14 @@ impl Compilation {
     pub fn native_product_facts(
         &self,
         product: ProductIdentity,
+        configuration: crate::BuildConfiguration,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: Option<&Linker>,
     ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         self.native_product_facts_with_cancellation(
             product,
+            configuration,
             runtime,
             required_capabilities,
             linker,
@@ -100,6 +102,7 @@ impl Compilation {
     fn native_product_facts_with_cancellation(
         &self,
         product: ProductIdentity,
+        configuration: crate::BuildConfiguration,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: Option<&Linker>,
@@ -112,6 +115,7 @@ impl Compilation {
 
         let key = NativeProductFactKey::new(
             product.clone(),
+            configuration,
             runtime.as_ref().map(|runtime| {
                 (
                     runtime.metadata().archive_digest(),
@@ -143,6 +147,7 @@ impl Compilation {
                     Ok(self
                         .compute_native_product_facts(
                             product,
+                            configuration,
                             runtime,
                             required_capabilities,
                             linker,
@@ -160,6 +165,7 @@ impl Compilation {
     fn compute_native_product_facts(
         &self,
         product: ProductIdentity,
+        configuration: crate::BuildConfiguration,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: Option<&Linker>,
@@ -170,6 +176,8 @@ impl Compilation {
             .target()
             .codegen_target()
             .map_err(NativeProductFactError::InvalidCodegenTarget)?;
+
+        let options = configuration.codegen_options();
 
         let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
 
@@ -243,6 +251,7 @@ impl Compilation {
                         &target,
                         &roots,
                         &reachability,
+                        options.debug_information() != DebugInformationMode::None,
                         cancellation,
                     )
                 })
@@ -257,9 +266,16 @@ impl Compilation {
             .as_ref()
             .ok_or(NativeProductFactError::CodegenUnavailable)?;
 
+        let debug_output = match options.debug_information() {
+            DebugInformationMode::None => DebugInformationOutputMode::Omit,
+            DebugInformationMode::LineTables | DebugInformationMode::Full => {
+                DebugInformationOutputMode::Embedded
+            }
+        };
+
         let policy = BackendEmissionPolicy::new(
-            DebugInformationMode::None,
-            DebugInformationOutputMode::Omit,
+            options.debug_information(),
+            debug_output,
             Some(LinkableArtifactKind::RelocatableObject),
             bray_codegen::BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         );
@@ -280,6 +296,7 @@ impl Compilation {
                     runtime,
                     linker,
                     &target,
+                    configuration,
                 )
             })
             .transpose()?;
@@ -287,7 +304,7 @@ impl Compilation {
         Ok(NativeProductFacts {
             backend,
             target,
-            options: CodegenOptions::default(),
+            options,
             host,
             link,
             units,
@@ -477,6 +494,7 @@ impl Compilation {
         runtime: Option<RuntimeArtifact>,
         linker: &Linker,
         target: &CodegenTarget,
+        configuration: crate::BuildConfiguration,
     ) -> Result<ProductLinkFacts, NativeProductFactError> {
         let product = match kind {
             ProductKind::Library => LinkedProductKind::StaticLibrary,
@@ -500,23 +518,55 @@ impl Compilation {
             .select_identity(&link_target, product)
             .map_err(NativeProductFactError::Linker)?;
 
+        let linked_debug = match configuration {
+            crate::BuildConfiguration::Development
+                if configuration
+                    .requires_linked_debug_companion(target.machine().object_format()) =>
+            {
+                DebugLinkPolicy::Companion
+            }
+            crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
+            crate::BuildConfiguration::Release => DebugLinkPolicy::None,
+        };
+
+        let preserve_unused = configuration.preserves_unused_link_content();
+
         let policy = match product {
             LinkedProductKind::StaticLibrary => LinkPolicy::new(
                 DeadStripPolicy::Preserve,
                 SectionGarbageCollectionPolicy::Preserve,
-                DebugLinkPolicy::None,
+                match configuration {
+                    crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
+                    crate::BuildConfiguration::Release => DebugLinkPolicy::None,
+                },
                 None,
             ),
             LinkedProductKind::Executable => LinkPolicy::new(
-                DeadStripPolicy::RemoveUnreachable,
-                SectionGarbageCollectionPolicy::RemoveUnreferenced,
-                DebugLinkPolicy::None,
+                if preserve_unused {
+                    DeadStripPolicy::Preserve
+                } else {
+                    DeadStripPolicy::RemoveUnreachable
+                },
+                if preserve_unused {
+                    SectionGarbageCollectionPolicy::Preserve
+                } else {
+                    SectionGarbageCollectionPolicy::RemoveUnreferenced
+                },
+                linked_debug,
                 Some(bray_linker::LinkSubsystem::Console),
             ),
             LinkedProductKind::SharedLibrary => LinkPolicy::new(
-                DeadStripPolicy::RemoveUnreachable,
-                SectionGarbageCollectionPolicy::RemoveUnreferenced,
-                DebugLinkPolicy::None,
+                if preserve_unused {
+                    DeadStripPolicy::Preserve
+                } else {
+                    DeadStripPolicy::RemoveUnreachable
+                },
+                if preserve_unused {
+                    SectionGarbageCollectionPolicy::Preserve
+                } else {
+                    SectionGarbageCollectionPolicy::RemoveUnreferenced
+                },
+                linked_debug,
                 None,
             ),
         };
@@ -671,7 +721,7 @@ mod tests {
         BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
         CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration, CodegenGenericArgument,
         CodegenRequest, CodegenResultMapping, CodegenSpecialization, CodegenStatus,
-        DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
+        DebugInformationMode, LinkableArtifactKind, LinkableArtifactRequirement, OptimizationLevel,
         partition_codegen_units,
     };
     use bray_compiler_known::RepresentationRole;
@@ -893,8 +943,54 @@ mod tests {
                 .unwrap_or_else(|| panic!("test product identity must be valid"));
 
         let facts = compilation
-            .native_product_facts(product, None, [], Some(&test_linker()))
+            .native_product_facts(
+                product.clone(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                Some(&test_linker()),
+            )
             .unwrap_or_else(|error| panic!("native facts must resolve: {error:?}"));
+
+        let release = compilation
+            .native_product_facts(
+                product,
+                crate::BuildConfiguration::Release,
+                None,
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("release native facts must resolve: {error:?}"));
+
+        assert_eq!(facts.options().optimization(), OptimizationLevel::Basic);
+
+        assert_eq!(
+            facts.options().debug_information(),
+            DebugInformationMode::LineTables
+        );
+
+        assert_eq!(release.options().optimization(), OptimizationLevel::Full);
+
+        assert_eq!(
+            release.options().debug_information(),
+            DebugInformationMode::None
+        );
+
+        assert!(!Arc::ptr_eq(&facts, &release));
+
+        assert!(facts.mappings().iter().any(|mappings| {
+            mappings
+                .debug_locations()
+                .iter()
+                .any(|location| location.file().path() == "source-0" && location.line().get() > 1)
+        }));
+
+        assert!(
+            release
+                .mappings()
+                .iter()
+                .all(|mappings| mappings.debug_locations().is_empty())
+        );
 
         let host = facts
             .executable_host()
@@ -1090,8 +1186,13 @@ mod tests {
             ProductIdentity::try_new(crate::test_support::package_identity(), "application")
                 .unwrap_or_else(|| panic!("test product identity must be valid"));
 
-        let result =
-            compilation.native_product_facts(product, Some(runtime), [], Some(&test_linker()));
+        let result = compilation.native_product_facts(
+            product,
+            crate::BuildConfiguration::Development,
+            Some(runtime),
+            [],
+            Some(&test_linker()),
+        );
 
         let Err(error) = result else {
             panic!("incomplete runtime must fail product validation");
@@ -1177,6 +1278,7 @@ mod tests {
                     &target,
                     &reachability.graph().roots().iter().cloned().collect(),
                     &reachability,
+                    false,
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("generic mappings must realize: {error:?}"));
@@ -1475,6 +1577,7 @@ mod tests {
         let facts = compilation
             .native_product_facts(
                 product,
+                crate::BuildConfiguration::Development,
                 Some(runtime),
                 [
                     RuntimeCapability::CooperativeExecution,
@@ -1610,7 +1713,7 @@ mod tests {
                         artifact,
                         BackendArtifactRequirement::Required,
                     )],
-                    DebugInformationOutputMode::Omit,
+                    facts.backend().policy().debug_output(),
                     (kind == BackendArtifactKind::RelocatableObject).then(|| {
                         LinkableArtifactRequirement::new(
                             LinkableArtifactKind::RelocatableObject,

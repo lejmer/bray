@@ -1,5 +1,5 @@
 use super::support::{llvm, pointer_value};
-use crate::mapping::LlvmTypeMappings;
+use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings};
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
 };
@@ -10,6 +10,7 @@ use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
+use inkwell::debug_info::DISubprogram;
 use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
@@ -25,6 +26,7 @@ pub(crate) fn translate_instances<'context, 'request>(
     module: &Module<'context>,
     request: CodegenRequest<'request>,
     types: &mut LlvmTypeMappings<'context, 'request>,
+    debug: Option<&LlvmDebugInfo<'context>>,
 ) -> Result<(), TranslationError> {
     for instance in request.unit().instances() {
         if request.cancellation().is_cancelled() {
@@ -33,14 +35,14 @@ pub(crate) fn translate_instances<'context, 'request>(
 
         if instance.protected_frame_identity().is_some() {
             super::super::frame::translate_protected_instance(
-                context, module, request, instance, types,
+                context, module, request, instance, types, debug,
             )
             .map_err(TranslationError::Failed)?;
 
             continue;
         }
 
-        translate_instance(context, module, request, instance, types)
+        translate_instance(context, module, request, instance, types, debug)
             .map_err(TranslationError::Failed)?;
     }
 
@@ -53,6 +55,7 @@ fn translate_instance<'context, 'request>(
     request: CodegenRequest<'request>,
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,
+    debug: Option<&LlvmDebugInfo<'context>>,
 ) -> Result<(), CodegenFailure> {
     let symbol = request
         .mappings()
@@ -63,6 +66,16 @@ fn translate_instance<'context, 'request>(
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+    let source = instance
+        .mir()
+        .blocks()
+        .first()
+        .map(bray_ir::MirBlock::source)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let debug_scope =
+        debug.and_then(|debug| debug.attach_function(function, symbol.name().as_str(), source));
+
     UnitTranslator::new(
         context,
         module,
@@ -71,6 +84,8 @@ fn translate_instance<'context, 'request>(
         function,
         symbol.signature(),
         types,
+        debug,
+        debug_scope,
     )?
     .translate()
 }
@@ -84,6 +99,8 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) signature: &'request bray_codegen::CodegenCallableSignature,
     pub(super) types: &'types mut LlvmTypeMappings<'context, 'request>,
     pub(super) builder: Builder<'context>,
+    pub(super) debug: Option<&'types LlvmDebugInfo<'context>>,
+    pub(super) debug_scope: Option<DISubprogram<'context>>,
     pub(super) blocks: BTreeMap<MirBlockId, BasicBlock<'context>>,
     pub(super) reachable_blocks: BTreeSet<MirBlockId>,
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
@@ -99,6 +116,10 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "translator construction keeps independent LLVM, MIR, type, and debug inputs explicit"
+    )]
     pub(super) fn new(
         context: &'context Context,
         module: &'module Module<'context>,
@@ -107,6 +128,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         function: FunctionValue<'context>,
         signature: &'request bray_codegen::CodegenCallableSignature,
         types: &'types mut LlvmTypeMappings<'context, 'request>,
+        debug: Option<&'types LlvmDebugInfo<'context>>,
+        debug_scope: Option<DISubprogram<'context>>,
     ) -> Result<Self, CodegenFailure> {
         let unit = instance.mir();
         let builder = context.create_builder();
@@ -132,6 +155,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             signature,
             types,
             builder,
+            debug,
+            debug_scope,
             blocks,
             reachable_blocks,
             phis: BTreeMap::new(),
@@ -147,6 +172,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "frame translator construction keeps independent LLVM, MIR, type, and debug inputs explicit"
+    )]
     pub(crate) fn for_frame_resume(
         context: &'context Context,
         module: &'module Module<'context>,
@@ -155,6 +184,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         function: FunctionValue<'context>,
         frame_context: StructType<'context>,
         types: &'types mut LlvmTypeMappings<'context, 'request>,
+        debug: Option<&'types LlvmDebugInfo<'context>>,
+        debug_scope: Option<DISubprogram<'context>>,
     ) -> Result<Self, CodegenFailure> {
         let signature = request
             .mappings()
@@ -186,6 +217,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             signature,
             types,
             builder: context.create_builder(),
+            debug,
+            debug_scope,
             blocks,
             reachable_blocks,
             phis: BTreeMap::new(),
@@ -224,13 +257,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .operation(*operation_id)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+                self.set_debug_location(operation.source());
+
                 self.translate_operation(*operation_id, operation)?;
             }
 
+            self.set_debug_location(block.terminator().source());
             self.translate_terminator(id, block.terminator().kind())?;
         }
 
         Ok(())
+    }
+
+    fn set_debug_location(&self, source: &bray_ir::MirSourceAnchor) {
+        match (self.debug, self.debug_scope) {
+            (Some(debug), Some(scope)) => debug.set_location(&self.builder, scope, source),
+            (None, None) => {}
+            (Some(_), None) | (None, Some(_)) => self.builder.unset_current_debug_location(),
+        }
     }
 
     fn translate_frame_dispatch(&mut self) -> Result<(), CodegenFailure> {

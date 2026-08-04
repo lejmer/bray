@@ -1,4 +1,4 @@
-use crate::mapping::LlvmTypeMappings;
+use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings};
 use crate::native::frame_operation_function;
 use crate::translation::unit::{UnitTranslator, pointer_value};
 use bray_codegen::{
@@ -21,6 +21,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     request: CodegenRequest<'request>,
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,
+    debug: Option<&LlvmDebugInfo<'context>>,
 ) -> Result<(), CodegenFailure> {
     let descriptor = instance
         .mir()
@@ -38,6 +39,15 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     let resume =
         frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
 
+    let source = instance
+        .mir()
+        .blocks()
+        .first()
+        .map(bray_ir::MirBlock::source)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let debug_scope = debug.and_then(|debug| debug.attach_function(resume, "frame.resume", source));
+
     UnitTranslator::for_frame_resume(
         context,
         module,
@@ -46,6 +56,8 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         resume,
         context_type,
         types,
+        debug,
+        debug_scope,
     )?
     .translate()?;
 
@@ -67,6 +79,7 @@ fn frame_context_type<'context>(
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let mut fields = Vec::with_capacity(instance.mir().storages().len() + 3);
+
     fields.push(context.i32_type().into());
     fields.push(types.map(descriptor.result_type())?);
     fields.push(context.i8_type().into());

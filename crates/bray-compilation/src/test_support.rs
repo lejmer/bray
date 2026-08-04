@@ -155,8 +155,7 @@ pub(crate) fn package_identity() -> PackageIdentity {
 }
 
 pub(crate) fn package_version() -> PackageVersion {
-    PackageVersion::try_new("1.0.0")
-        .unwrap_or_else(|| panic!("test package version must be valid"))
+    PackageVersion::try_new("1.0.0").unwrap_or_else(|| panic!("test package version must be valid"))
 }
 
 pub(crate) fn source_input(text: &str, version: u32) -> SourceInput {

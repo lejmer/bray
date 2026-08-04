@@ -4,7 +4,7 @@ use bray_codegen::{
     ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
     BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendTargetPlatform,
     CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
-    CodegenTarget, DebugInformationMode, ProtectedAsyncFrameMetadata,
+    CodegenTarget, DebugInformationMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_target::{ObjectFormat, TargetArchitecture};
@@ -12,7 +12,7 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 
 use crate::machine::LlvmTargetMachine;
-use crate::mapping::{LlvmTypeMappings, add_debug_metadata, declare_symbols};
+use crate::mapping::{LlvmTypeMappings, create_debug_metadata, declare_symbols};
 use crate::optimization::optimize_module;
 use crate::serialization::serialize_artifact;
 use crate::translation::{TranslationError, translate_instances};
@@ -65,17 +65,22 @@ impl LlvmCodeGenerator {
 
         declare_symbols(&module, request.mappings(), request.target(), &mut types)?;
 
-        add_debug_metadata(
+        let debug = create_debug_metadata(
             context,
             &module,
             request.mappings(),
             request.options().debug_information(),
+            request.options().optimization() != OptimizationLevel::None,
         );
 
-        match translate_instances(context, &module, request, &mut types) {
+        match translate_instances(context, &module, request, &mut types, debug.as_ref()) {
             Ok(()) => {}
             Err(TranslationError::Cancelled) => return Ok(None),
             Err(TranslationError::Failed(failure)) => return Err(failure),
+        }
+
+        if let Some(debug) = debug {
+            debug.finalize();
         }
 
         Ok(Some((machine, module)))
@@ -201,10 +206,7 @@ impl CodeGenerator for LlvmCodeGenerator {
             );
         }
 
-        match self.generate_artifacts(request) {
-            Ok(outcome) => outcome,
-            Err(failure) => CodegenOutcome::failed(failure, DiagnosticBag::new()),
-        }
+        self.generate_artifacts(request).unwrap_or_else(|failure| CodegenOutcome::failed(failure, DiagnosticBag::new()))
     }
 }
 

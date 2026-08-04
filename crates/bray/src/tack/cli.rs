@@ -169,7 +169,7 @@ impl Cli {
 enum CliCommand {
     Init(CliInit),
     Check(CliSelection),
-    Build(CliSelection),
+    Build(CliBuild),
     Run(CliExecution),
     Test(CliExecution),
     #[command(name = "fmt")]
@@ -188,15 +188,32 @@ impl CliCommand {
                 package: init.package,
             },
             Self::Check(selection) => TackCommand::Check(selection.into()),
-            Self::Build(selection) => TackCommand::Build(selection.into()),
-            Self::Run(execution) => TackCommand::Run {
-                selection: execution.selection.into(),
-                arguments: execution.arguments,
-            },
-            Self::Test(execution) => TackCommand::Test {
-                selection: execution.selection.into(),
-                arguments: execution.arguments,
-            },
+            Self::Build(build) => {
+                let configuration = build.configuration();
+
+                TackCommand::Build {
+                    selection: build.selection.into(),
+                    configuration,
+                }
+            }
+            Self::Run(execution) => {
+                let configuration = execution.configuration();
+
+                TackCommand::Run {
+                    selection: execution.selection.into(),
+                    configuration,
+                    arguments: execution.arguments,
+                }
+            }
+            Self::Test(execution) => {
+                let configuration = execution.configuration();
+
+                TackCommand::Test {
+                    selection: execution.selection.into(),
+                    configuration,
+                    arguments: execution.arguments,
+                }
+            }
             Self::Format(format) => TackCommand::Format {
                 check: format.check,
                 files: format.files,
@@ -239,6 +256,20 @@ struct CliSelection {
     target: Option<String>,
 }
 
+#[derive(Args, Debug)]
+struct CliBuild {
+    #[command(flatten)]
+    selection: CliSelection,
+    #[arg(long)]
+    release: bool,
+}
+
+impl CliBuild {
+    const fn configuration(&self) -> crate::tack::model::TackBuildConfiguration {
+        build_configuration(self.release)
+    }
+}
+
 impl From<CliSelection> for TackSelection {
     fn from(selection: CliSelection) -> Self {
         Self {
@@ -254,8 +285,24 @@ impl From<CliSelection> for TackSelection {
 struct CliExecution {
     #[command(flatten)]
     selection: CliSelection,
+    #[arg(long)]
+    release: bool,
     #[arg(value_name = "ARG")]
     arguments: Vec<OsString>,
+}
+
+impl CliExecution {
+    const fn configuration(&self) -> crate::tack::model::TackBuildConfiguration {
+        build_configuration(self.release)
+    }
+}
+
+const fn build_configuration(release: bool) -> crate::tack::model::TackBuildConfiguration {
+    if release {
+        crate::tack::model::TackBuildConfiguration::Release
+    } else {
+        crate::tack::model::TackBuildConfiguration::Development
+    }
 }
 
 #[derive(Args, Debug)]
@@ -341,6 +388,7 @@ struct CliVendorInstall {
 mod tests {
     use std::path::Path;
 
+    use crate::tack::model::{TackBuildConfiguration, TackCommand};
     use crate::tack::{TackCommandKind, TackInvocation};
 
     #[test]
@@ -401,6 +449,25 @@ mod tests {
                 .unwrap_or_else(|error| panic!("toolchain selection should parse: {error:?}"));
 
         assert_eq!(invocation.toolchain_root(), Some(Path::new("toolchain")));
+    }
+
+    #[test]
+    fn release_applies_to_every_command_that_builds_products() {
+        for command in ["build", "run", "test"] {
+            let invocation = TackInvocation::try_from_arguments(["bray", command, "--release"])
+                .unwrap_or_else(|error| panic!("release {command} should parse: {error:?}"));
+
+            let (_, _, _, _, command) = invocation.into_parts();
+
+            let configuration = match command {
+                TackCommand::Build { configuration, .. }
+                | TackCommand::Run { configuration, .. }
+                | TackCommand::Test { configuration, .. } => configuration,
+                command => panic!("expected product-building command, got {command:?}"),
+            };
+
+            assert_eq!(configuration, TackBuildConfiguration::Release);
+        }
     }
 
     #[test]

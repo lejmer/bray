@@ -2,6 +2,7 @@ mod behavior;
 mod binder;
 mod checker;
 mod codegen;
+mod configuration;
 mod constant;
 mod contribution_gate;
 mod declaration_body;
@@ -37,6 +38,7 @@ mod type_surface;
 mod unit;
 
 pub use codegen::CodegenFactError;
+pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub use facts::Compilation;

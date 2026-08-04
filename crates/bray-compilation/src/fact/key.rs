@@ -22,6 +22,7 @@ use bray_target::TargetProfile;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct NativeProductFactKey {
     product: ProductIdentity,
+    configuration: crate::BuildConfiguration,
     runtime: Option<(RuntimeArtifactDigest, std::path::PathBuf)>,
     required_capabilities: std::sync::Arc<[RuntimeCapability]>,
     linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
@@ -30,12 +31,14 @@ pub(crate) struct NativeProductFactKey {
 impl NativeProductFactKey {
     pub(crate) fn new(
         product: ProductIdentity,
+        configuration: crate::BuildConfiguration,
         runtime: Option<(RuntimeArtifactDigest, std::path::PathBuf)>,
         required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
         linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
     ) -> Self {
         Self {
             product,
+            configuration,
             runtime,
             required_capabilities: required_capabilities.into(),
             linker_drivers: linker_drivers.into(),
