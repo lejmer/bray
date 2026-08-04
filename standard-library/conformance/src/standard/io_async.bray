@@ -1,0 +1,9 @@
+module bray.standard_library_conformance.io_async;
+
+using std.io;
+
+@test
+async func asynchronous_standard_output_is_captured() -> Result<unit, std.io.IoError>
+{
+    return await std.io.print_async("captured-async-output");
+}

@@ -2,12 +2,9 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use bray_runtime_interface::RuntimeArtifactMetadata;
 use bray_target::NativeTarget;
 
-use super::core::{
-    PRODUCT_NAME, executable_name, executable_path, native_output, product_output, require_success,
-};
+use super::core::{PRODUCT_NAME, executable_path, native_output, product_output};
 
 const HELLO_WORLD_FIXTURE: &str = "xtask/fixtures/native-execution/standard-hello-world.bray";
 const HELLO_WORLD_OUTPUT: &[u8] = b"Hello world!";
@@ -21,13 +18,13 @@ pub(super) fn audit_standard_hello_world(
     let toolchain = directory.path().join("toolchain");
     let workspace = directory.path().join("workspace");
 
-    assemble_toolchain(root, target, runtime, &toolchain)?;
+    crate::native_toolchain::assemble(root, target, runtime, &toolchain)?;
     write_workspace(root, target, &workspace)?;
 
     let bray = root
         .join("target")
         .join("debug")
-        .join(executable_name("bray"));
+        .join(crate::native_toolchain::executable_name("bray"));
 
     let mut build = Command::new(&bray);
 
@@ -39,7 +36,7 @@ pub(super) fn audit_standard_hello_world(
         .arg(&toolchain)
         .arg("build");
 
-    require_success(
+    crate::command::require_success(
         build,
         "building standard-library hello world through Bray Tack",
     )?;
@@ -64,7 +61,7 @@ pub(super) fn audit_standard_hello_world(
         .arg(&toolchain)
         .arg("run");
 
-    let result = require_success(
+    let result = crate::command::require_success(
         run,
         "running standard-library hello world through Bray Tack",
     )?;
@@ -72,44 +69,6 @@ pub(super) fn audit_standard_hello_world(
     require_hello_world_output(
         &result,
         "running standard-library hello world through Bray Tack",
-    )
-}
-
-fn assemble_toolchain(
-    root: &Path,
-    target: NativeTarget,
-    runtime: &Path,
-    toolchain: &Path,
-) -> Result<(), String> {
-    let library_root = toolchain.join("lib").join("bray");
-    let standard_library = library_root.join("standard-library");
-
-    crate::standard_library::build_target_bundle(
-        &root.join("standard-library"),
-        &standard_library,
-        target,
-    )?;
-
-    let runtime_bytes = fs::read(runtime)
-        .map_err(|error| format!("could not read runtime artifact metadata: {error}"))?;
-
-    let metadata = RuntimeArtifactMetadata::decode_json(&runtime_bytes)
-        .map_err(|error| format!("could not decode runtime artifact metadata: {error:?}"))?;
-
-    let source_directory = runtime
-        .parent()
-        .ok_or_else(|| "runtime artifact metadata has no parent directory".to_owned())?;
-
-    let runtime_directory = library_root.join("runtime").join(target.as_str());
-
-    fs::create_dir_all(&runtime_directory)
-        .map_err(|error| format!("could not create toolchain runtime directory: {error}"))?;
-
-    copy_file(runtime, &runtime_directory.join("bray-runtime.brayrt"))?;
-
-    copy_file(
-        &source_directory.join(metadata.archive_file_name()),
-        &runtime_directory.join(metadata.archive_file_name()),
     )
 }
 
@@ -157,7 +116,7 @@ fn write_workspace(root: &Path, target: NativeTarget, workspace: &Path) -> Resul
 
     write_json(&workspace.join("bray-package.json"), &package_manifest)?;
 
-    copy_file(
+    crate::native_toolchain::copy_file(
         &root.join(HELLO_WORLD_FIXTURE),
         &source_directory.join("main.bray"),
     )
@@ -172,22 +131,12 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
     fs::write(path, bytes).map_err(|error| format!("could not write {}: {error}", path.display()))
 }
 
-fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::copy(source, destination).map(|_| ()).map_err(|error| {
-        format!(
-            "could not copy {} to {}: {error}",
-            source.display(),
-            destination.display()
-        )
-    })
-}
-
 fn require_hello_world_output(
     output: &std::process::Output,
     operation: &str,
 ) -> Result<(), String> {
     if !output.status.success() {
-        return Err(super::core::command_failure(operation, output));
+        return Err(crate::command::failure(operation, output));
     }
 
     if output.stdout != HELLO_WORLD_OUTPUT {

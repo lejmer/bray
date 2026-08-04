@@ -1656,6 +1656,7 @@ dependencies = [
  "bray-standard-library",
  "bray-symbols",
  "bray-target",
+ "bray-test-protocol",
  "bray-tooling",
  "quote",
  "rust-style",

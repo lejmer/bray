@@ -1,0 +1,12 @@
+module bray.standard_library_conformance.string_operations;
+
+using std.string;
+
+@test(serial)
+func string_operations()
+{
+    let value: string = "Aé";
+    let count: usize = std.string.scalar_count(&value);
+
+    assert(count == 2);
+}

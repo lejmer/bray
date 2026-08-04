@@ -4,6 +4,7 @@ mod command;
 mod compiler_known;
 mod digest;
 mod llvm;
+mod native_toolchain;
 mod package_interface;
 mod readiness;
 mod runtime_artifact;

@@ -1,0 +1,61 @@
+module bray.standard_library_conformance.outcomes;
+
+using std.run;
+using std.string;
+using std.testing;
+
+@test
+func assertion_failure()
+{
+    assert(false, "expected assertion failure");
+}
+
+@test
+func explicit_failure()
+{
+    std.testing.fail("expected explicit failure");
+}
+
+@test
+func panic_failure()
+{
+    panic("expected panic");
+}
+
+@test
+func recoverable_error() -> Result<unit, std.string.Utf8Error>
+{
+    let invalid: u8 = 255;
+    let bytes: [u8; 1] = [invalid];
+    let decoded: Result<string, std.string.Utf8Error> = std.string.from_utf8(&bytes[..]);
+
+    match consume decoded
+    {
+        case Ok(_)
+        {
+            panic("invalid UTF-8 unexpectedly decoded");
+        }
+
+        case Error(error)
+        {
+            return Error(error);
+        }
+    }
+}
+
+@test
+func timeout_requires_forced_termination()
+{
+    while true
+    {
+    }
+}
+
+@test
+func timeout_observes_cancellation()
+{
+    while true
+    {
+        std.run.checkpoint();
+    }
+}

@@ -1,0 +1,9 @@
+module bray.standard_library_conformance.format;
+
+using std.format;
+
+@test
+func formatting_options_are_available()
+{
+    let options: std.format.Options = std.format.default_options();
+}
