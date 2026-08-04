@@ -1,5 +1,7 @@
 use std::io::{Read, Write};
 
+use crate::TestErrorTypeIdentity;
+
 pub(super) const PROTOCOL_VERSION: u32 = 1;
 pub(super) const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_COLLECTION_ITEMS: usize = 1_000_000;
@@ -182,6 +184,33 @@ impl<'bytes> Decoder<'bytes> {
         self.position = end;
 
         Ok(bytes)
+    }
+}
+
+pub(super) fn encode_optional_error_type(
+    encoder: &mut Encoder,
+    error_type: Option<&TestErrorTypeIdentity>,
+) -> Result<(), TestProtocolError> {
+    match error_type {
+        Some(error_type) => {
+            encoder.u8(1);
+            encoder.string(error_type.as_str())?;
+        }
+        None => encoder.u8(0),
+    }
+
+    Ok(())
+}
+
+pub(super) fn decode_optional_error_type(
+    decoder: &mut Decoder<'_>,
+) -> Result<Option<TestErrorTypeIdentity>, TestProtocolError> {
+    match decoder.u8()? {
+        0 => Ok(None),
+        1 => TestErrorTypeIdentity::try_new(decoder.string()?)
+            .map(Some)
+            .ok_or(TestProtocolError::Malformed),
+        _ => Err(TestProtocolError::Malformed),
     }
 }
 

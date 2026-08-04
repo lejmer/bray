@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bray_messages::{BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation};
 use bray_tooling::{OutputFormat, write_diagnostic_groups};
@@ -9,10 +9,9 @@ use super::model::{
     BuildProgressPackage, BuildProgressPlan, BuildProgressReport, BuildProgressStatus,
     PackageProgressReport,
 };
+use super::presentation::{duration_milliseconds, max_column_width};
 use super::terminal::TerminalBuildProgress;
-use super::text::{
-    max_column_width, message_action, message_configuration, render_line, status_marker,
-};
+use super::text::{message_action, message_configuration, render_line};
 use crate::tack::result::TackRunResult;
 
 pub(crate) struct WorkflowProgress {
@@ -44,6 +43,10 @@ impl WorkflowProgress {
             package_reports: Mutex::new(Vec::new()),
             completed: false,
         }
+    }
+
+    pub(crate) const fn interactive(&self) -> bool {
+        self.interactive
     }
 
     pub(crate) fn write_to_result(&self, result: &mut TackRunResult) -> Result<(), ()> {
@@ -281,6 +284,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
             let line = render_line(
                 messages,
                 BuildProgressLineKind::Package,
+                package.status(),
                 operation,
                 &subject,
                 &path,
@@ -289,7 +293,8 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
                 u128::from(package.duration_milliseconds()),
             );
 
-            output.push_str(&format!("   {} {line}\n", status_marker(package.status())));
+            output.push_str(&line);
+            output.push('\n');
 
             if verbose {
                 output.push_str(&format!(
@@ -310,6 +315,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
         let line = render_line(
             messages,
             BuildProgressLineKind::FinishedProduct,
+            report.status(),
             operation,
             &subject,
             &path,
@@ -318,7 +324,8 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
             u128::from(report.duration_milliseconds()),
         );
 
-        output.push_str(&format!("   {} {line}\n", status_marker(report.status())));
+        output.push_str(&line);
+        output.push('\n');
     }
 
     output
@@ -416,10 +423,6 @@ const fn progress_status(success: bool) -> BuildProgressStatus {
     } else {
         BuildProgressStatus::Failed
     }
-}
-
-fn duration_milliseconds(duration: Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

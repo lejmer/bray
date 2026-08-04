@@ -8,11 +8,13 @@ use bray_symbols::{
 };
 
 use crate::{
-    TestCatalog, TestDeclarationPath, TestEntryMetadata, TestErrorTypeIdentity, TestIdentity,
-    TestSourceAnchor,
+    TestCatalog, TestDeclarationPath, TestEntryMetadata, TestIdentity, TestSourceAnchor,
 };
 
-use super::support::{Decoder, Encoder, MAX_COLLECTION_ITEMS, TestProtocolError};
+use super::support::{
+    Decoder, Encoder, MAX_COLLECTION_ITEMS, TestProtocolError, decode_optional_error_type,
+    encode_optional_error_type,
+};
 
 const CATALOG_MAGIC: &[u8; 8] = b"BRAYTSTC";
 
@@ -116,13 +118,7 @@ fn encode_entry(encoder: &mut Encoder, entry: &TestEntryMetadata) -> Result<(), 
         TestResultShape::Recoverable => 1,
     });
 
-    match entry.error_type() {
-        Some(error_type) => {
-            encoder.u8(1);
-            encoder.string(error_type.as_str())?;
-        }
-        None => encoder.u8(0),
-    }
+    encode_optional_error_type(encoder, entry.error_type())?;
 
     Ok(())
 }
@@ -171,14 +167,7 @@ fn decode_entry(
         _ => return Err(TestProtocolError::Malformed),
     };
 
-    let error_type = match decoder.u8()? {
-        0 => None,
-        1 => Some(
-            TestErrorTypeIdentity::try_new(decoder.string()?)
-                .ok_or(TestProtocolError::Malformed)?,
-        ),
-        _ => return Err(TestProtocolError::Malformed),
-    };
+    let error_type = decode_optional_error_type(decoder)?;
 
     let declaration = TestDeclarationPath::new(module, name);
     let identity = TestIdentity::new(product.clone(), declaration);
@@ -211,10 +200,11 @@ fn decode_product(decoder: &mut Decoder<'_>) -> Result<ProductIdentity, TestProt
 mod tests {
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
     use bray_symbols::{
-        CallableExecution, ModulePathKey, PackageIdentity, ProductIdentity, SymbolName,
-        TestExecutionConstraint, TestResultShape,
+        CallableExecution, ModulePathKey, ProductIdentity, SymbolName, TestExecutionConstraint,
+        TestResultShape,
     };
 
+    use crate::test_support::product;
     use crate::{
         TestCatalog, TestDeclarationPath, TestEntryMetadata, TestErrorTypeIdentity, TestIdentity,
         TestSourceAnchor,
@@ -264,11 +254,4 @@ mod tests {
         )
     }
 
-    fn product() -> ProductIdentity {
-        let package = PackageIdentity::try_new("example.tests")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-        ProductIdentity::try_new(package, "tests")
-            .unwrap_or_else(|| panic!("test product identity must be valid"))
-    }
 }

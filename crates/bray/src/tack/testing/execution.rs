@@ -17,11 +17,12 @@ use bray_test_protocol::{
     TestCommandReport, TestExecutionMode, TestExecutionPlan, TestHostCommand, TestHostCommandId,
     TestHostControl, TestInfrastructureFailure, TestInfrastructureFailureKind, TestInvocationPlan,
     TestInvocationResult, TestOutcome, TestSelection, TestSelectionQuery, TestSelectionSummary,
-    TestStopReason, read_host_result, write_host_command, write_host_control,
+    TestStopReason, TestDuration, read_host_result, write_host_command, write_host_control,
 };
 use bray_tooling::OutputFormat;
 
 use super::model::{BuiltTestHost, HostLocation, LoadedTestHost};
+use super::progress::TestProgress;
 use super::report::{product_reports, render_report};
 use crate::tack::error::operation_diagnostics;
 use crate::tack::model::TackTestOptions;
@@ -37,6 +38,7 @@ pub(crate) fn execute(
     options: &TackTestOptions,
     worker_count: usize,
     output_format: OutputFormat,
+    interactive: bool,
 ) -> Result<(TestCommandReport, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
@@ -79,10 +81,33 @@ pub(crate) fn execute(
         .map_err(|_| operation_diagnostics("test_execution_plan"))?;
 
     let locations = host_locations(&hosts);
-    let results = run_schedule(workspace_root, plan, &locations)?;
+
+    let mut progress = TestProgress::new(&plan, interactive);
+    let started_at = Instant::now();
+
+    let results = match run_schedule(workspace_root, plan, &locations, &mut progress) {
+        Ok(results) => results,
+        Err(diagnostics) => {
+            progress.fail();
+
+            return Err(diagnostics);
+        }
+    };
+
     let products = product_reports(&hosts, results);
-    let report = TestCommandReport::new(TestSelectionSummary::new(discovered, selected), products);
-    let rendered = render_report(&report, output_format, options.show_output)?;
+
+    let mut report = TestCommandReport::new(
+        TestSelectionSummary::new(discovered, selected),
+        products,
+    );
+
+    if let Some(duration) = TestDuration::try_from_duration(started_at.elapsed()) {
+        report = report.with_duration(duration);
+    }
+
+    progress.finish(&report, options.show_output);
+
+    let rendered = render_report(&report, output_format, options.show_output, interactive)?;
 
     Ok((report, rendered))
 }
@@ -144,6 +169,7 @@ fn run_schedule(
     workspace_root: &Path,
     plan: TestExecutionPlan,
     locations: &BTreeMap<bray_test_protocol::TestIdentity, HostLocation>,
+    progress: &mut TestProgress,
 ) -> Result<Vec<TestInvocationResult>, DiagnosticBag> {
     let invocations = plan.invocations().to_vec();
     let mut schedule = TestAdmissionSchedule::new(plan);
@@ -168,9 +194,13 @@ fn run_schedule(
             let sender = sender.clone();
             let worker_admission = admission.clone();
 
+            progress.start(admission.invocation().identity());
+
             std::thread::spawn(move || {
+                let started_at = Instant::now();
                 let result = run_host(&workspace_root, &worker_admission, &location);
-                let _ = sender.send((worker_admission, result));
+                let duration = TestDuration::try_from_duration(started_at.elapsed());
+                let _ = sender.send((worker_admission, result, duration));
             });
 
             active += 1;
@@ -192,9 +222,15 @@ fn run_schedule(
             }
         };
 
-        let (admission, result) = completion;
+        let (admission, mut result, duration) = completion;
+
+        if let Some(duration) = duration {
+            result = result.with_duration(duration);
+        }
 
         active -= 1;
+
+        progress.finish_result(&result);
 
         schedule
             .complete(&admission, result)
@@ -207,7 +243,7 @@ fn run_schedule(
         .map(|result| (result.identity().clone(), result))
         .collect::<BTreeMap<_, _>>();
 
-    Ok(invocations
+    let results = invocations
         .into_iter()
         .map(|invocation| {
             completed
@@ -215,7 +251,13 @@ fn run_schedule(
                 .cloned()
                 .unwrap_or_else(|| command_cancellation_result(&invocation))
         })
-        .collect())
+        .collect::<Vec<_>>();
+
+    for result in &results {
+        progress.finish_result(result);
+    }
+
+    Ok(results)
 }
 
 fn run_host(

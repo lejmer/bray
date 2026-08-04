@@ -12,7 +12,10 @@ use crate::{
     TestStreamFailureKind, TestTimeoutPolicy,
 };
 
-use super::support::{Decoder, Encoder, TestProtocolError, read_frame, write_frame};
+use super::support::{
+    Decoder, Encoder, TestProtocolError, decode_optional_error_type,
+    encode_optional_error_type, read_frame, write_frame,
+};
 
 const COMMAND_MAGIC: &[u8; 8] = b"BRAYTSCM";
 const CONTROL_MAGIC: &[u8; 8] = b"BRAYTSCT";
@@ -31,13 +34,7 @@ pub fn write_host_command(
     encode_timeout(&mut encoder, command.timeout());
     encode_capture_policy(&mut encoder, command.capture());
 
-    match command.error_type() {
-        Some(error_type) => {
-            encoder.u8(1);
-            encoder.string(error_type.as_str())?;
-        }
-        None => encoder.u8(0),
-    }
+    encode_optional_error_type(&mut encoder, command.error_type())?;
 
     write_frame(writer, &encoder.finish()?)
 }
@@ -52,14 +49,7 @@ pub fn read_host_command(reader: &mut impl Read) -> Result<TestHostCommand, Test
     let timeout = decode_timeout(&mut decoder)?;
     let capture = decode_capture_policy(&mut decoder)?;
 
-    let error_type = match decoder.u8()? {
-        0 => None,
-        1 => Some(
-            TestErrorTypeIdentity::try_new(decoder.string()?)
-                .ok_or(TestProtocolError::Malformed)?,
-        ),
-        _ => return Err(TestProtocolError::Malformed),
-    };
+    let error_type = decode_optional_error_type(&mut decoder)?;
 
     decoder.finish()?;
 

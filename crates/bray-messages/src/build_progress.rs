@@ -34,9 +34,9 @@ pub enum BuildProgressAction {
     ProduceArtifacts,
 }
 
-/// Stable visual field in a localized build-progress line.
+/// Stable visual field in a localized workflow-progress line.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum BuildProgressField {
+pub enum ProgressField {
     /// Localized operation text.
     Operation,
     /// Package or artifact identity.
@@ -47,8 +47,10 @@ pub enum BuildProgressField {
     Bar,
     /// Localized completion percentage.
     Percentage,
-    /// Localized completed and total unit count.
-    UnitCount,
+    /// Localized completed and total work count.
+    Count,
+    /// Localized line detail such as aggregate result counts.
+    Detail,
     /// Localized elapsed duration.
     Duration,
 }
@@ -84,7 +86,7 @@ impl BuildProgressMessageRenderer {
     }
 
     /// Returns the locale-defined field order for one progress line.
-    pub fn fields(self, kind: BuildProgressLineKind) -> &'static [BuildProgressField] {
+    pub fn fields(self, kind: BuildProgressLineKind) -> &'static [ProgressField] {
         self.catalog.build_progress_fields(kind)
     }
 

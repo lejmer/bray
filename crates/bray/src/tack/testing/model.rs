@@ -86,8 +86,9 @@ pub(super) fn publication_identity(
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_test_protocol::{TestCatalog, encode_test_catalog};
+
+    use super::super::test_support::product;
 
     #[test]
     fn publication_identity_rejects_replaced_host_artifacts() {
@@ -100,13 +101,7 @@ mod tests {
         std::fs::write(&executable, b"host-one")
             .unwrap_or_else(|error| panic!("test executable should be written: {error:?}"));
 
-        let package = PackageIdentity::try_new("example.tests")
-            .unwrap_or_else(|| panic!("test package identity should be valid"));
-
-        let product = ProductIdentity::try_new(package, "tests")
-            .unwrap_or_else(|| panic!("test product identity should be valid"));
-
-        let catalog = TestCatalog::try_new(product, [])
+        let catalog = TestCatalog::try_new(product(), [])
             .unwrap_or_else(|error| panic!("empty test catalog should be valid: {error:?}"));
 
         let (catalog, _) = encode_test_catalog(&catalog)

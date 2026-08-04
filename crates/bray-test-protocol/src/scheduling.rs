@@ -353,8 +353,8 @@ mod tests {
 
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
     use bray_symbols::{
-        CallableExecution, ModulePathKey, PackageIdentity, ProductIdentity, SymbolName,
-        TestExecutionConstraint, TestResultShape,
+        CallableExecution, ModulePathKey, ProductIdentity, SymbolName, TestExecutionConstraint,
+        TestResultShape,
     };
 
     use super::{
@@ -365,6 +365,7 @@ mod tests {
         TestDuration, TestEntryMetadata, TestIdentity, TestInvocationPlan, TestInvocationResult,
         TestOutcome, TestSelection, TestSelectionQuery, TestSourceAnchor, TestTimeoutPolicy,
     };
+    use crate::test_support::{product, product_named};
 
     #[test]
     fn sequential_mode_admits_exactly_one_invocation() {
@@ -669,18 +670,6 @@ mod tests {
             TestResultShape::Unit,
             None,
         )
-    }
-
-    fn product() -> ProductIdentity {
-        product_named("tests")
-    }
-
-    fn product_named(name: &str) -> ProductIdentity {
-        let package = PackageIdentity::try_new("example.tests")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-        ProductIdentity::try_new(package, name)
-            .unwrap_or_else(|| panic!("test product identity must be valid"))
     }
 
     fn nonzero(value: usize) -> NonZeroUsize {

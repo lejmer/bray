@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_symbols::ProductIdentity;
 
-use crate::{TestCatalogDigest, TestInvocationResult, TestOutcome};
+use crate::{TestCatalogDigest, TestDuration, TestInvocationResult, TestOutcome};
 
 /// Deterministic discovery and filtering counts for one test command.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,6 +108,7 @@ pub struct TestCommandReport {
     selection: TestSelectionSummary,
     products: Arc<[TestProductReport]>,
     counts: TestOutcomeCounts,
+    duration: Option<TestDuration>,
 }
 
 impl TestCommandReport {
@@ -127,7 +128,15 @@ impl TestCommandReport {
             selection,
             products,
             counts,
+            duration: None,
         }
+    }
+
+    /// Returns a new report carrying its runner-observed command duration.
+    pub const fn with_duration(mut self, duration: TestDuration) -> Self {
+        self.duration = Some(duration);
+
+        self
     }
 
     /// Returns command-wide discovery and selection counts.
@@ -143,6 +152,11 @@ impl TestCommandReport {
     /// Returns aggregate terminal outcome counts.
     pub const fn counts(&self) -> TestOutcomeCounts {
         self.counts
+    }
+
+    /// Returns the runner-observed command duration when one was measured.
+    pub const fn duration(&self) -> Option<TestDuration> {
+        self.duration
     }
 
     /// Returns whether every selected invocation passed.
