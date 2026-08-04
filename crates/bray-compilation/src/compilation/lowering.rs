@@ -1553,6 +1553,11 @@ mod tests {
                 "{\n",
                 "    fail(message);\n",
                 "}\n",
+                "\n",
+                "func catch_failure(pos message: string) -> Result<never, PanicReport>\n",
+                "{\n",
+                "    return catch fail(message);\n",
+                "}\n",
             ),
         ]);
 
@@ -1585,6 +1590,16 @@ mod tests {
                 block.terminator().kind(),
                 MirTerminatorKind::BeginCleanup(_) | MirTerminatorKind::Panic { .. }
             )
+        }));
+
+        let caught = compilation
+            .lowered_unit(source_function_body_key(&compilation, "catch_failure"))
+            .unwrap_or_else(|error| panic!("caught testing failure must lower: {error:?}"));
+
+        assert!(caught.diagnostics().is_empty());
+
+        assert!(lowered_mir(&caught).blocks().iter().any(|block| {
+            matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. })
         }));
     }
 
