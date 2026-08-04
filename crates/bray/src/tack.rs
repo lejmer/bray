@@ -12,6 +12,7 @@ mod output;
 mod progress;
 mod project;
 mod result;
+mod testing;
 mod tool;
 mod toolchain;
 

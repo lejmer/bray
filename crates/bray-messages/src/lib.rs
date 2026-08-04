@@ -9,6 +9,7 @@ mod language_server;
 mod locale;
 mod rendered_diagnostic;
 mod renderer;
+mod test_report;
 
 pub use build_progress::{
     BuildProgressAction, BuildProgressConfiguration, BuildProgressField, BuildProgressLineKind,
@@ -20,3 +21,4 @@ pub use rendered_diagnostic::{
     RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
 };
 pub use renderer::DiagnosticRenderer;
+pub use test_report::{TestReportMessageRenderer, TestReportOutcome};

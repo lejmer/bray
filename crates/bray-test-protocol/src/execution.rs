@@ -4,9 +4,32 @@ use std::time::Duration;
 use bray_base::shared_str;
 
 use crate::{
-    AssertionFailure, CapturedStream, ExplicitTestFailure, TestCapturePolicy, TestIdentity,
-    TestSourceAnchor,
+    AssertionFailure, CapturedStream, ExplicitTestFailure, TestCapturePolicy, TestCatalogDigest,
+    TestIdentity, TestSourceAnchor,
 };
+
+/// Unique identity of one admitted native host command.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TestHostCommandId([u8; 32]);
+
+impl TestHostCommandId {
+    /// Creates an identity from its exact 256-bit value.
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the exact identity bytes.
+    pub const fn bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+/// A control message sent to an active native test host.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TestHostControl {
+    /// Requests cooperative command cancellation.
+    Cancel,
+}
 
 /// Stable nonnegative duration used by the runner protocol.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -50,6 +73,22 @@ pub enum TestCancellationSource {
     Command,
     /// One selected invocation was cancelled independently.
     Invocation,
+}
+
+/// Stable zero-based position of one entry in a published test catalog.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TestCatalogEntryId(u32);
+
+impl TestCatalogEntryId {
+    /// Creates an entry identity from its canonical catalog position.
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the zero-based catalog position.
+    pub const fn value(self) -> u32 {
+        self.0
+    }
 }
 
 /// Stable identity of a recoverable error type crossing a test boundary.
@@ -198,6 +237,132 @@ pub struct TestInvocationPlan {
     identity: TestIdentity,
     timeout: TestTimeoutPolicy,
     capture: TestCapturePolicy,
+}
+
+/// One admitted invocation command sent to a native product host.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestHostCommand {
+    id: TestHostCommandId,
+    catalog_digest: TestCatalogDigest,
+    entry: TestCatalogEntryId,
+    timeout: TestTimeoutPolicy,
+    capture: TestCapturePolicy,
+    error_type: Option<TestErrorTypeIdentity>,
+}
+
+impl TestHostCommand {
+    /// Creates the complete bounded policy for one native host invocation.
+    pub fn new(
+        id: TestHostCommandId,
+        catalog_digest: TestCatalogDigest,
+        entry: TestCatalogEntryId,
+        timeout: TestTimeoutPolicy,
+        capture: TestCapturePolicy,
+        error_type: Option<TestErrorTypeIdentity>,
+    ) -> Self {
+        Self {
+            id,
+            catalog_digest,
+            entry,
+            timeout,
+            capture,
+            error_type,
+        }
+    }
+
+    /// Returns the unique command identity.
+    pub const fn id(&self) -> TestHostCommandId {
+        self.id
+    }
+
+    /// Returns the catalog digest selected by the runner.
+    pub const fn catalog_digest(&self) -> TestCatalogDigest {
+        self.catalog_digest
+    }
+
+    /// Returns the selected entry's canonical catalog position.
+    pub const fn entry(&self) -> TestCatalogEntryId {
+        self.entry
+    }
+
+    /// Returns the invocation timeout policy.
+    pub const fn timeout(&self) -> TestTimeoutPolicy {
+        self.timeout
+    }
+
+    /// Returns the invocation stream policy.
+    pub const fn capture(&self) -> TestCapturePolicy {
+        self.capture
+    }
+
+    /// Returns the checked recoverable error type for a fallible test entry.
+    pub const fn error_type(&self) -> Option<&TestErrorTypeIdentity> {
+        self.error_type.as_ref()
+    }
+}
+
+/// Terminal native host facts before the runner attaches a test identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestHostResult {
+    command_id: TestHostCommandId,
+    catalog_digest: TestCatalogDigest,
+    outcome: TestOutcome,
+    standard_output: CapturedStream,
+    standard_error: CapturedStream,
+}
+
+impl TestHostResult {
+    /// Creates one result after test-local cleanup has completed.
+    pub const fn after_cleanup(
+        command_id: TestHostCommandId,
+        catalog_digest: TestCatalogDigest,
+        outcome: TestOutcome,
+        standard_output: CapturedStream,
+        standard_error: CapturedStream,
+    ) -> Self {
+        Self {
+            command_id,
+            catalog_digest,
+            outcome,
+            standard_output,
+            standard_error,
+        }
+    }
+
+    /// Returns the command identity that produced this result.
+    pub const fn command_id(&self) -> TestHostCommandId {
+        self.command_id
+    }
+
+    /// Returns the catalog digest used by the host command.
+    pub const fn catalog_digest(&self) -> TestCatalogDigest {
+        self.catalog_digest
+    }
+
+    /// Returns the terminal semantic outcome.
+    pub const fn outcome(&self) -> &TestOutcome {
+        &self.outcome
+    }
+
+    /// Returns completed standard-output state.
+    pub const fn standard_output(&self) -> &CapturedStream {
+        &self.standard_output
+    }
+
+    /// Returns completed standard-error state.
+    pub const fn standard_error(&self) -> &CapturedStream {
+        &self.standard_error
+    }
+
+    /// Attaches the runner-owned stable identity.
+    pub fn into_invocation_result(self, identity: TestIdentity) -> TestInvocationResult {
+        TestInvocationResult::after_cleanup(
+            identity,
+            self.outcome,
+            self.standard_output,
+            self.standard_error,
+        )
+    }
 }
 
 impl TestInvocationPlan {

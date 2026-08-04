@@ -51,6 +51,8 @@ pub enum RuntimeAbiRole {
     PanicReporting,
     /// Report one recoverable entrypoint failure value before host resolution.
     EntryFailureReporting,
+    /// Select the catalog entry admitted by the test runner.
+    TestEntrySelection,
     /// Shut runtime and product-host infrastructure down in checked order.
     StructuredShutdown,
     /// Broadcast cancellation to tasks reachable from one frame.
@@ -87,7 +89,7 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 40] = [
         Self::RootExecution,
         Self::SynchronousRootExecution,
         Self::RootCancellationRequest,
@@ -111,6 +113,7 @@ impl RuntimeAbiRole {
         Self::RootCompletionResolution,
         Self::PanicReporting,
         Self::EntryFailureReporting,
+        Self::TestEntrySelection,
         Self::StructuredShutdown,
         Self::FrameTaskBroadcast,
         Self::FrameLifecycleResolution,
@@ -166,6 +169,7 @@ impl RuntimeAbiRole {
             Self::RootCompletionResolution => "root_completion_resolution",
             Self::PanicReporting => "panic_reporting",
             Self::EntryFailureReporting => "entry_failure_reporting",
+            Self::TestEntrySelection => "test_entry_selection",
             Self::StructuredShutdown => "structured_shutdown",
             Self::FrameTaskBroadcast => "frame_task_broadcast",
             Self::FrameLifecycleResolution => "frame_lifecycle_resolution",
@@ -227,6 +231,8 @@ pub enum RuntimeRoleContractEffect {
     ReportPanic,
     /// Report one borrowed recoverable entry failure value.
     ReportEntryFailure,
+    /// Select one admitted test entry from the runner command.
+    SelectTestEntry,
     /// Transfer ownership of a cleanup incident.
     TransferCleanupIncident,
     /// Report and destroy owned cleanup incidents.
@@ -419,6 +425,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::RootCompletionResolution => &[Effect::ReleaseRootCompletion],
         RuntimeAbiRole::PanicReporting => &[Effect::ReportPanic],
         RuntimeAbiRole::EntryFailureReporting => &[Effect::ReportEntryFailure],
+        RuntimeAbiRole::TestEntrySelection => &[Effect::SelectTestEntry],
         RuntimeAbiRole::StructuredShutdown => &[Effect::StructuredShutdown],
         RuntimeAbiRole::FrameTaskBroadcast => &[Effect::BroadcastFrameTasks],
         RuntimeAbiRole::FrameLifecycleResolution => &[Effect::ResolveFrameLifecycle],

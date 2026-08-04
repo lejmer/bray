@@ -27,6 +27,18 @@ pub(crate) struct ProjectCompiler<'project> {
     checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
 }
 
+pub(crate) struct ProductBuild {
+    outputs: Vec<ToolOutput>,
+    executable: Option<PathBuf>,
+    test_catalog: Option<PathBuf>,
+}
+
+impl ProductBuild {
+    pub(crate) fn into_parts(self) -> (Vec<ToolOutput>, Option<PathBuf>, Option<PathBuf>) {
+        (self.outputs, self.executable, self.test_catalog)
+    }
+}
+
 impl<'project> ProjectCompiler<'project> {
     pub(crate) fn new(
         workspace_root: &'project Path,
@@ -76,12 +88,16 @@ impl<'project> ProjectCompiler<'project> {
         planned: &PlannedProduct,
         configuration: TackBuildConfiguration,
         progress: Option<&BuildProgressSession<'_>>,
-    ) -> Result<(Vec<ToolOutput>, Option<PathBuf>), DiagnosticBag> {
+    ) -> Result<ProductBuild, DiagnosticBag> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
         if !self.check_dependencies(&product, planned.target(), &mut outputs, progress)? {
-            return Ok((outputs, None));
+            return Ok(ProductBuild {
+                outputs,
+                executable: None,
+                test_catalog: None,
+            });
         }
 
         let output_directory =
@@ -90,12 +106,16 @@ impl<'project> ProjectCompiler<'project> {
         std::fs::create_dir_all(&output_directory)
             .map_err(|_| operation_diagnostics("product_output_directory"))?;
 
+        let test_catalog = (product.kind() == ProductKind::Test)
+            .then(|| self.test_catalog_path(&output_directory, &product));
+
         let output = self.run_compiler(
             &product,
             planned.target(),
             CompilerAction::Build {
                 output: output_directory.clone(),
                 configuration,
+                test_catalog: test_catalog.clone(),
             },
             progress,
         )?;
@@ -104,7 +124,11 @@ impl<'project> ProjectCompiler<'project> {
 
         let executable = self.executable_path(&output_directory, &product, planned.target())?;
 
-        Ok((outputs, executable))
+        Ok(ProductBuild {
+            outputs,
+            executable,
+            test_catalog,
+        })
     }
 
     pub(crate) fn build_progress_plan(
@@ -515,6 +539,10 @@ impl<'project> ProjectCompiler<'project> {
 
         Ok(Some(output_directory.join(name)))
     }
+
+    fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {
+        output_directory.join(format!("{}.braytests", product.identity().name()))
+    }
 }
 
 fn display_path(path: &Path, workspace_root: &Path) -> String {
@@ -536,6 +564,7 @@ enum CompilerAction {
     Build {
         output: PathBuf,
         configuration: TackBuildConfiguration,
+        test_catalog: Option<PathBuf>,
     },
     Inspect {
         inspection: TackInspection,
@@ -569,6 +598,7 @@ impl CompilerAction {
             Self::Build {
                 output,
                 configuration,
+                test_catalog,
             } => {
                 request
                     .arg("build")
@@ -583,6 +613,12 @@ impl CompilerAction {
                     request
                         .arg("--runtime-artifact")
                         .arg(runtime.into_os_string());
+                }
+
+                if let Some(test_catalog) = test_catalog {
+                    request
+                        .arg("--test-catalog")
+                        .arg(test_catalog.into_os_string());
                 }
 
                 for kind in product.outputs() {

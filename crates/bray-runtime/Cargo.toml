@@ -11,6 +11,8 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 bray-platform = { path = "../bray-platform" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
+bray-source = { path = "../bray-source" }
+bray-test-protocol = { path = "../bray-test-protocol" }
 
 [lints]
 workspace = true

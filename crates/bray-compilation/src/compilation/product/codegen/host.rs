@@ -82,6 +82,10 @@ impl Compilation {
             runtime_roles.extend(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL);
         }
 
+        if kind == ProductKind::Test && !entries.is_empty() {
+            runtime_roles.insert(RuntimeAbiRole::TestEntrySelection);
+        }
+
         let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())
             || (entries
                 .iter()

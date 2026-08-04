@@ -1,9 +1,14 @@
 use std::env;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    SeverityKind,
+};
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
     RequestedArtifact, RequestedArtifactDestination,
@@ -102,7 +107,7 @@ pub(crate) fn run_build_command(
     let target_outputs = target_outputs(native_target, &artifacts, &configuration);
 
     let request = emission_request(
-        product,
+        product.clone(),
         product_kind,
         &selected_target,
         &artifacts,
@@ -133,6 +138,18 @@ pub(crate) fn run_build_command(
                 EmissionStatus::Failed(_) | EmissionStatus::Cancelled => ExitCode::FAILURE,
             };
 
+            if exit_code == ExitCode::SUCCESS
+                && let Some(destination) = configuration.test_catalog()
+                && let Err(diagnostic) = publish_test_catalog(&compilation, &product, destination)
+            {
+                return driver_result_from_compilation(
+                    compilation,
+                    DiagnosticBag::single(diagnostic),
+                    output_format,
+                    ExitCode::FAILURE,
+                );
+            }
+
             driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
         }
         Err(error) => driver_result_from_compilation(
@@ -142,6 +159,43 @@ pub(crate) fn run_build_command(
             ExitCode::FAILURE,
         ),
     }
+}
+
+fn publish_test_catalog(
+    compilation: &bray_compilation::Compilation,
+    product: &ProductIdentity,
+    destination: &std::path::Path,
+) -> Result<(), Diagnostic> {
+    let discovery = compilation
+        .test_discovery(product.clone())
+        .map_err(|_| catalog_publication_diagnostic(destination, io::ErrorKind::InvalidData))?;
+
+    let (bytes, _) = bray_test_protocol::encode_test_catalog(discovery.value().catalog())
+        .map_err(|_| catalog_publication_diagnostic(destination, io::ErrorKind::InvalidData))?;
+
+    let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
+        .map_err(|error| catalog_publication_diagnostic(destination, error.kind()))?;
+
+    staging
+        .write_all(&bytes)
+        .map_err(|error| catalog_publication_diagnostic(destination, error.kind()))?;
+
+    staging
+        .finish()
+        .and_then(|staged| staged.promote(destination))
+        .map_err(|error| catalog_publication_diagnostic(destination, error.kind()))
+}
+
+fn catalog_publication_diagnostic(path: &std::path::Path, kind: io::ErrorKind) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionArtifactWriteFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::file_path(path))
+    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+        kind,
+    )))
 }
 
 fn required_artifacts(
@@ -329,6 +383,7 @@ mod tests {
             None,
             vec![],
             "out".into(),
+            None,
             vec![],
             vec![DriverInspectionArtifact::BackendIr],
         );
@@ -376,6 +431,7 @@ mod tests {
             None,
             vec![],
             "out".into(),
+            None,
             vec![],
             vec![],
         );

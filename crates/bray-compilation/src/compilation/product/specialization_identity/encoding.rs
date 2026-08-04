@@ -14,7 +14,7 @@ use bray_symbols::{
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
 use crate::fact::FactQueryError;
 
-pub(in crate::compilation::product) fn structural_type_identity(
+pub(in crate::compilation) fn structural_type_identity(
     values: &SemanticValueStore,
     facts: &CompilationBinderFacts<'_>,
     ty: TypeId,

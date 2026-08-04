@@ -452,11 +452,7 @@ mod tests {
                     "a_serial",
                     TestExecutionConstraint::Serial,
                 ),
-                entry_for_product(
-                    second_product,
-                    "z_last",
-                    TestExecutionConstraint::Parallel,
-                ),
+                entry_for_product(second_product, "z_last", TestExecutionConstraint::Parallel),
             ],
         );
 
@@ -602,7 +598,7 @@ mod tests {
             mode,
             capture_byte_budget,
         )
-            .unwrap_or_else(|error| panic!("test execution plan must be valid: {error:?}"))
+        .unwrap_or_else(|error| panic!("test execution plan must be valid: {error:?}"))
     }
 
     fn admission(schedule: &mut TestAdmissionSchedule) -> TestAdmission {
@@ -671,6 +667,7 @@ mod tests {
             CallableExecution::Synchronous,
             constraint,
             TestResultShape::Unit,
+            None,
         )
     }
 

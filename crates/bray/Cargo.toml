@@ -14,6 +14,7 @@ bray-project = { path = "../bray-project" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
+bray-test-protocol = { path = "../bray-test-protocol" }
 bray-tooling = { path = "../bray-tooling", default-features = false }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI
@@ -23,6 +24,12 @@ clap = { version = "4", default-features = false, features = ["color", "derive",
 
 # Coordinated progress bars keep package work stable while compiler processes run.
 indicatif = "0.18.6"
+
+# Native test hosts exchange bounded results through securely created temporary files.
+tempfile = "3"
+
+# Bray Tack turns terminal interrupts into cooperative test-command cancellation.
+ctrlc = "3"
 
 # Project inspection and diagnostic output use explicit serialization DTOs.
 serde = { version = "1", features = ["derive"] }

@@ -1,14 +1,17 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use bray_base::lowercase_hex;
 use bray_diagnostics::DiagnosticResult;
 use bray_source::SourceSpan;
 use bray_symbols::{FunctionSymbolId, ProductIdentity, ProductKind};
 use bray_test_protocol::{
-    TestCatalog, TestDeclarationPath, TestEntryMetadata, TestIdentity, TestSourceAnchor,
+    TestCatalog, TestDeclarationPath, TestEntryMetadata, TestErrorTypeIdentity, TestIdentity,
+    TestSourceAnchor,
 };
 
 use crate::compilation::Compilation;
+use crate::compilation::product::structural_type_identity;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 /// Stable test metadata paired with compilation-local callable identities.
@@ -80,6 +83,8 @@ impl Compilation {
 
         let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
         let symbols = self.symbol_graph()?;
+        let binder = self.binder_facts(cancellation)?;
+        let semantic_values = self.semantic_value_store()?;
         let mut entries = Vec::new();
 
         if semantic.value().kind() == ProductKind::Test {
@@ -104,6 +109,13 @@ impl Compilation {
                     source.version(),
                 );
 
+                let error_type = test
+                    .error_type()
+                    .map(|error| structural_type_identity(semantic_values, &binder, error))
+                    .transpose()?
+                    .map(error_type_identity)
+                    .transpose()?;
+
                 entries.push((
                     TestEntryMetadata::new(
                         identity,
@@ -111,6 +123,7 @@ impl Compilation {
                         test.execution(),
                         test.constraint(),
                         test.result(),
+                        error_type,
                     ),
                     test.function(),
                 ));
@@ -132,6 +145,11 @@ impl Compilation {
             semantic.diagnostics().clone(),
         ))
     }
+}
+
+fn error_type_identity(digest: [u8; 32]) -> Result<TestErrorTypeIdentity, FactQueryError> {
+    TestErrorTypeIdentity::try_new(lowercase_hex(&digest))
+        .ok_or(FactQueryError::InfrastructureFailure)
 }
 
 #[cfg(test)]

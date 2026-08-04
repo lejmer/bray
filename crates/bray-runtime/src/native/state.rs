@@ -17,8 +17,8 @@ use crate::context::with_task_execution_context;
 use crate::{
     CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink, ExecutionLane,
     ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind, JoinWaitRegistration,
-    RunOutcome, Scheduler, SchedulerLimits, TaskControlBlock, TaskExecutionContext,
-    TaskObservationError, TaskRegistration, TaskResumeStatus,
+    RootCancellationHandle, RunOutcome, Scheduler, SchedulerLimits, TaskControlBlock,
+    TaskExecutionContext, TaskObservationError, TaskRegistration, TaskResumeStatus,
 };
 
 use super::frame::{NativeFrame, NativeTerminalPayload, NativeTerminalState};
@@ -375,6 +375,17 @@ impl NativeRuntime {
         self.request_cancellation(task)
     }
 
+    pub(super) fn root_cancellation(
+        &self,
+        root: NativeRootHandle,
+    ) -> Result<RootCancellationHandle, NativeRuntimeStatus> {
+        let task = NativeTaskHandle::new(root.raw()).ok_or(NativeRuntimeStatus::UNKNOWN_TASK)?;
+
+        self.with_started(task, |task| {
+            RootCancellationHandle::new(task.task.cancellation_context().clone())
+        })
+    }
+
     pub(super) fn observe_root(&self, root: NativeRootHandle) -> NativeRunOutcome {
         let Some(task) = NativeTaskHandle::new(root.raw()) else {
             return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
@@ -431,6 +442,16 @@ impl NativeRuntime {
         });
 
         status
+    }
+
+    pub(super) fn discard_cleanup_incidents(&self) -> usize {
+        let mut count = 0;
+
+        self.cleanup_reports.drain(|_| {
+            count += 1;
+        });
+
+        count
     }
 
     #[cfg(test)]

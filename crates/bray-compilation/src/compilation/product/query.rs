@@ -156,6 +156,7 @@ impl Compilation {
                         validation.execution(),
                         constraint,
                         result,
+                        validation.test_error(),
                     ));
 
                     requires_async_runtime |= validation.is_async();

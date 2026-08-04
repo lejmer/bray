@@ -298,7 +298,8 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
         } => {
             types.insert(*error);
         }
-        MirHostOperation::ExecuteRoot { .. }
+        MirHostOperation::SelectTestEntry { .. }
+        | MirHostOperation::ExecuteRoot { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
         | MirHostOperation::ResolveRootTerminal { error: None, .. }
         | MirHostOperation::ReportCleanupIncidents { .. }

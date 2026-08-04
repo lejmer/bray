@@ -5,6 +5,7 @@ use bray_ir::{BoundUnitKey, MirHostOperation};
 use bray_runtime_interface::{
     ExecutableEntryResult, ProtectedFrameOperation, RootExecution, RuntimeRoleImplementation,
 };
+use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -15,6 +16,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         // Keep this exhaustive so every host operation requires an explicit translation.
         match operation {
+            MirHostOperation::SelectTestEntry { entry, runtime } => {
+                self.begin_test_entry_selection(*entry, *runtime)?;
+
+                Ok(None)
+            }
             MirHostOperation::ExecuteRoot {
                 entry,
                 root,
@@ -217,6 +223,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirHostOperation::StructuredShutdown { runtime } => {
+                self.finish_test_entry_selection()?;
+
                 let status = self
                     .host_status
                     .take()
@@ -231,6 +239,121 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_compiler_shutdown(status)
             }
         }
+    }
+
+    fn begin_test_entry_selection(
+        &mut self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        if let Some(continuation) = self.host_selection_continuation.take() {
+            self.finish_selected_entry_path()?;
+            self.builder.position_at_end(continuation);
+        }
+
+        let selected = self
+            .invoke_native_runtime(
+                runtime,
+                &[self
+                    .types
+                    .context()
+                    .i32_type()
+                    .const_int(u64::from(entry.slot()), false)
+                    .into()],
+            )?
+            .and_then(super::super::support::int_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let selected = llvm(self.builder.build_int_compare(
+            IntPredicate::NE,
+            selected,
+            selected.get_type().const_zero(),
+            "test.entry.selected",
+        ))?;
+
+        let execute = self
+            .types
+            .context()
+            .append_basic_block(self.function, "test.entry.execute");
+
+        let continuation = self
+            .types
+            .context()
+            .append_basic_block(self.function, "test.entry.next");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(selected, execute, continuation),
+        )?;
+
+        self.builder.position_at_end(execute);
+        self.host_selection_continuation = Some(continuation);
+
+        Ok(())
+    }
+
+    fn finish_test_entry_selection(&mut self) -> Result<(), CodegenFailure> {
+        let Some(continuation) = self.host_selection_continuation.take() else {
+            return Ok(());
+        };
+
+        self.finish_selected_entry_path()?;
+        self.builder.position_at_end(continuation);
+
+        let shutdown = self.test_host_shutdown_block();
+        let status = self.types.context().i64_type().const_int(1, false);
+
+        let block = self
+            .builder
+            .get_insert_block()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.host_selection_statuses.push((status, block));
+        llvm(self.builder.build_unconditional_branch(shutdown))?;
+        self.builder.position_at_end(shutdown);
+
+        let status = self
+            .builder
+            .build_phi(self.types.context().i64_type(), "test.host.status")
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        let incoming = self
+            .host_selection_statuses
+            .iter()
+            .map(|(value, block)| (value as &dyn inkwell::values::BasicValue, *block))
+            .collect::<Vec<_>>();
+
+        status.add_incoming(&incoming);
+        self.host_status = Some(status.as_basic_value().into_int_value());
+
+        Ok(())
+    }
+
+    fn finish_selected_entry_path(&mut self) -> Result<(), CodegenFailure> {
+        let status = self
+            .host_status
+            .take()
+            .unwrap_or_else(|| self.types.context().i64_type().const_int(1, false));
+
+        let block = self
+            .builder
+            .get_insert_block()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let shutdown = self.test_host_shutdown_block();
+
+        self.host_selection_statuses.push((status, block));
+        llvm(self.builder.build_unconditional_branch(shutdown))?;
+
+        Ok(())
+    }
+
+    fn test_host_shutdown_block(&mut self) -> inkwell::basic_block::BasicBlock<'context> {
+        *self.host_selection_shutdown.get_or_insert_with(|| {
+            self.types
+                .context()
+                .append_basic_block(self.function, "test.host.shutdown")
+        })
     }
 
     fn translate_root_terminal_observation(
@@ -486,7 +609,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .fn_type(&[usize.into()], false);
 
         let callback = self.module.add_function(
-            "bray_host_synchronous_root_callback",
+            &format!("bray_host_synchronous_root_callback_{}", entry.slot()),
             callback_type,
             Some(inkwell::module::Linkage::Private),
         );

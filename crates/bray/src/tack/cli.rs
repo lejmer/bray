@@ -1,10 +1,12 @@
 use std::ffi::OsString;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };
+use bray_test_protocol::{TestCaptureLimits, TestCapturePolicy};
 use bray_tooling::{OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text};
 use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -174,7 +176,7 @@ enum CliCommand {
     Check(CliSelection),
     Build(CliBuild),
     Run(CliExecution),
-    Test(CliExecution),
+    Test(CliTest),
     #[command(name = "fmt")]
     Format(CliFormat),
     Inspect(CliInspect),
@@ -208,13 +210,36 @@ impl CliCommand {
                     arguments: execution.arguments,
                 }
             }
-            Self::Test(execution) => {
-                let configuration = execution.configuration();
+            Self::Test(test) => {
+                let configuration = build_configuration(test.release);
+
+                let maximum_concurrency = if test.sequential {
+                    1
+                } else {
+                    test.jobs.map_or(usize::MAX, NonZeroUsize::get)
+                };
+
+                let capture = if test.no_capture {
+                    TestCapturePolicy::Inherited
+                } else if test.discard_output {
+                    TestCapturePolicy::Discarded
+                } else {
+                    TestCapturePolicy::Captured(TestCaptureLimits::new(
+                        test.capture_limit,
+                        test.capture_limit.saturating_mul(2),
+                    ))
+                };
 
                 TackCommand::Test {
-                    selection: execution.selection.into(),
+                    selection: test.selection.into(),
                     configuration,
-                    arguments: execution.arguments,
+                    options: crate::tack::model::TackTestOptions::new(
+                        test.filters,
+                        maximum_concurrency,
+                        test.timeout_ms,
+                        capture,
+                        test.show_output,
+                    ),
                 }
             }
             Self::Format(format) => TackCommand::Format {
@@ -298,6 +323,30 @@ impl CliExecution {
     const fn configuration(&self) -> crate::tack::model::TackBuildConfiguration {
         build_configuration(self.release)
     }
+}
+
+#[derive(Args, Debug)]
+struct CliTest {
+    #[command(flatten)]
+    selection: CliSelection,
+    #[arg(long)]
+    release: bool,
+    #[arg(long, conflicts_with = "jobs")]
+    sequential: bool,
+    #[arg(long, value_name = "N")]
+    jobs: Option<NonZeroUsize>,
+    #[arg(long, value_name = "MILLISECONDS")]
+    timeout_ms: Option<u64>,
+    #[arg(long, conflicts_with = "discard_output")]
+    no_capture: bool,
+    #[arg(long, conflicts_with = "no_capture")]
+    discard_output: bool,
+    #[arg(long, default_value_t = 1_048_576, value_name = "BYTES")]
+    capture_limit: u64,
+    #[arg(long)]
+    show_output: bool,
+    #[arg(value_name = "FILTER")]
+    filters: Vec<String>,
 }
 
 const fn build_configuration(release: bool) -> crate::tack::model::TackBuildConfiguration {
@@ -391,6 +440,10 @@ struct CliVendorInstall {
 mod tests {
     use std::path::Path;
 
+    use bray_test_protocol::{
+        TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
+    };
+
     use crate::tack::model::{TackBuildConfiguration, TackCommand};
     use crate::tack::{TackCommandKind, TackInvocation};
 
@@ -479,6 +532,52 @@ mod tests {
 
             assert_eq!(configuration, TackBuildConfiguration::Release);
         }
+    }
+
+    #[test]
+    fn test_options_retain_selection_and_bounded_execution_policy() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "test",
+            "parser",
+            "recovery",
+            "--jobs",
+            "3",
+            "--timeout-ms",
+            "250",
+            "--capture-limit",
+            "2048",
+            "--show-output",
+        ])
+        .unwrap_or_else(|error| panic!("test options should parse: {error:?}"));
+
+        let (_, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Test { options, .. } = command else {
+            panic!("expected test command");
+        };
+
+        assert_eq!(options.filters, ["parser", "recovery"]);
+        assert_eq!(options.maximum_concurrency, 3);
+
+        assert_eq!(
+            options.timeout,
+            TestTimeoutPolicy::Limit(TestDuration::from_nanoseconds(250_000_000))
+        );
+
+        assert_eq!(
+            options.capture,
+            TestCapturePolicy::Captured(TestCaptureLimits::new(2048, 4096))
+        );
+
+        assert!(options.show_output);
+    }
+
+    #[test]
+    fn test_jobs_rejects_zero() {
+        let result = TackInvocation::try_from_arguments(["bray", "test", "--jobs", "0"]);
+
+        assert!(result.is_err());
     }
 
     #[test]

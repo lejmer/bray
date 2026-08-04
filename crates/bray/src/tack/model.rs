@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use bray_test_protocol::{TestCapturePolicy, TestDuration, TestTimeoutPolicy};
 use bray_tooling::OutputFormat;
 
 /// Stable category for one Bray Tack command.
@@ -63,6 +64,39 @@ impl TackBuildConfiguration {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TackTestOptions {
+    pub(crate) filters: Vec<String>,
+    pub(crate) maximum_concurrency: usize,
+    pub(crate) timeout: TestTimeoutPolicy,
+    pub(crate) capture: TestCapturePolicy,
+    pub(crate) show_output: bool,
+}
+
+impl TackTestOptions {
+    pub(crate) fn new(
+        filters: Vec<String>,
+        maximum_concurrency: usize,
+        timeout_milliseconds: Option<u64>,
+        capture: TestCapturePolicy,
+        show_output: bool,
+    ) -> Self {
+        let timeout = timeout_milliseconds.map_or(TestTimeoutPolicy::Unlimited, |milliseconds| {
+            TestTimeoutPolicy::Limit(TestDuration::from_nanoseconds(
+                milliseconds.saturating_mul(1_000_000),
+            ))
+        });
+
+        Self {
+            filters,
+            maximum_concurrency,
+            timeout,
+            capture,
+            show_output,
+        }
+    }
+}
+
 impl TackInspection {
     pub(crate) const fn command_text(self) -> &'static str {
         match self {
@@ -98,7 +132,7 @@ pub(crate) enum TackCommand {
     Test {
         selection: TackSelection,
         configuration: TackBuildConfiguration,
-        arguments: Vec<OsString>,
+        options: TackTestOptions,
     },
     Format {
         check: bool,

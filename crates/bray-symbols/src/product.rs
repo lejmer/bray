@@ -70,6 +70,7 @@ pub struct ProductTestEntry {
     execution: CallableExecution,
     constraint: TestExecutionConstraint,
     result: TestResultShape,
+    error_type: Option<crate::TypeId>,
 }
 
 impl ProductTestEntry {
@@ -81,6 +82,7 @@ impl ProductTestEntry {
         execution: CallableExecution,
         constraint: TestExecutionConstraint,
         result: TestResultShape,
+        error_type: Option<crate::TypeId>,
     ) -> Self {
         Self {
             function,
@@ -89,6 +91,7 @@ impl ProductTestEntry {
             execution,
             constraint,
             result,
+            error_type,
         }
     }
 
@@ -120,6 +123,11 @@ impl ProductTestEntry {
     /// Returns the test's accepted result shape.
     pub const fn result(&self) -> TestResultShape {
         self.result
+    }
+
+    /// Returns the concrete recoverable error type when the result is fallible.
+    pub const fn error_type(&self) -> Option<crate::TypeId> {
+        self.error_type
     }
 }
 
