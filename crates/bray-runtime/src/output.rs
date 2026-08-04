@@ -238,9 +238,7 @@ impl Drop for RunOutputGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context,
-    };
+    use super::{CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context};
 
     #[test]
     fn bounded_capture_retains_prefix_and_counts_every_discarded_byte() {
