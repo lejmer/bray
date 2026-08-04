@@ -5,7 +5,7 @@ use super::super::support::{
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
     BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation,
-    MirOperationKind, MirPlace,
+    MirOperationKind, MirPlace, MirSourceAnchor,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -160,17 +160,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: bray_ir::MirOperationId,
         cause: &bray_ir::MirPanicCause,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let message = match cause {
-            bray_ir::MirPanicCause::Message(message)
-            | bray_ir::MirPanicCause::Assertion(Some(message)) => {
-                self.native_string_view(message)?
-            }
+        let (cause, message) = match cause {
+            bray_ir::MirPanicCause::Message(message) => (
+                bray_runtime_interface::NativePanicCause::MESSAGE,
+                self.native_string_view(message)?,
+            ),
+            bray_ir::MirPanicCause::Assertion(Some(message)) => (
+                bray_runtime_interface::NativePanicCause::ASSERTION,
+                self.native_string_view(message)?,
+            ),
             bray_ir::MirPanicCause::Assertion(None) => {
-                crate::native::string_view_type(self.types.context(), self.request.target())
-                    .const_zero()
-                    .into()
+                (
+                    bray_runtime_interface::NativePanicCause::ASSERTION,
+                    crate::native::string_view_type(self.types.context(), self.request.target())
+                        .const_zero()
+                        .into(),
+                )
             }
+            bray_ir::MirPanicCause::ExplicitTestFailure(message) => (
+                bray_runtime_interface::NativePanicCause::EXPLICIT_TEST_FAILURE,
+                self.native_string_view(message)?,
+            ),
         };
+
+        let cause = self
+            .types
+            .context()
+            .i32_type()
+            .const_int(u64::from(cause.code()), false)
+            .into();
+
+        let source = self.native_source_anchor(operation)?;
 
         let helpers = self.operation_helpers(operation)?;
 
@@ -190,7 +210,51 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        self.invoke_native_runtime(*runtime, &[message])
+        self.invoke_native_runtime(*runtime, &[cause, source, message])
+    }
+
+    fn native_source_anchor(
+        &self,
+        operation: bray_ir::MirOperationId,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let source = self
+            .unit
+            .operation(operation)
+            .map(MirOperation::source)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let MirSourceAnchor::Source(origin) = source else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let anchor = origin.source_anchor();
+        let syntax = anchor.syntax();
+        let range = syntax.full_range();
+        let context = self.types.context();
+
+        let fields = [
+            context
+                .i32_type()
+                .const_int(u64::from(syntax.source_id().raw()), false)
+                .into(),
+            context
+                .i32_type()
+                .const_int(u64::from(range.start().bytes()), false)
+                .into(),
+            context
+                .i32_type()
+                .const_int(u64::from(range.end().bytes()), false)
+                .into(),
+            context
+                .i64_type()
+                .const_int(anchor.source_version().raw(), false)
+                .into(),
+        ];
+
+        fields.into_iter().enumerate().try_fold(
+            crate::native::source_anchor_type(context).const_zero().into(),
+            |source, (index, field)| insert_value(&self.builder, source, field, index),
+        )
     }
 
     fn native_string_view(

@@ -29,6 +29,8 @@ pub enum MirPanicCause {
     Message(MirOperand),
     /// A failed assertion with an optional evaluated message.
     Assertion(Option<MirOperand>),
+    /// An explicit test failure with its evaluated message.
+    ExplicitTestFailure(MirOperand),
 }
 
 /// Typed unary operation selected during lowering.

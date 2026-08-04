@@ -327,7 +327,9 @@ fn collect_conversion_types(conversion: &SelectedConversion, types: &mut BTreeSe
 
 fn collect_panic_types(cause: &MirPanicCause, types: &mut BTreeSet<TypeId>) {
     match cause {
-        MirPanicCause::Message(message) => collect_operand_types(message, types),
+        MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
+            collect_operand_types(message, types);
+        }
         MirPanicCause::Assertion(message) => {
             if let Some(message) = message {
                 collect_operand_types(message, types);

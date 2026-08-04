@@ -61,7 +61,8 @@ pub(super) fn validate_operation(
             validate_operand(unit, subject, block, Some(id))?;
         }
         MirOperationKind::PanicReport(cause) => match cause {
-            crate::MirPanicCause::Message(message) => {
+            crate::MirPanicCause::Message(message)
+            | crate::MirPanicCause::ExplicitTestFailure(message) => {
                 validate_operand(unit, message, block, Some(id))?;
             }
             crate::MirPanicCause::Assertion(message) => {

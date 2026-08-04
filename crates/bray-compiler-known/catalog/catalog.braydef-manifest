@@ -11,4 +11,5 @@ recognized/memory.braydef
 recognized/string.braydef
 recognized/character.braydef
 recognized/run.braydef
+recognized/testing.braydef
 ambient/capabilities.braydef

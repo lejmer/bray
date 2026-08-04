@@ -116,6 +116,8 @@ define_catalog_enum! {
         CharacterIsNumeric => "CharacterIsNumeric",
         /// Tests whether a character is whitespace in the selected Unicode data.
         CharacterIsWhitespace => "CharacterIsWhitespace",
+        /// Fails the current test root with one owned message.
+        TestingFail => "TestingFail",
     }
 }
 
@@ -199,6 +201,7 @@ mod tests {
             ImplementationHook::CharacterIsAlphabetic,
             ImplementationHook::CharacterIsNumeric,
             ImplementationHook::CharacterIsWhitespace,
+            ImplementationHook::TestingFail,
         ];
 
         let mut categorized = ImplementationHook::MEMORY_OPERATIONS.to_vec();

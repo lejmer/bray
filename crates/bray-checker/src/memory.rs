@@ -390,7 +390,8 @@ where
         | ImplementationHook::CharacterUtf8Byte
         | ImplementationHook::CharacterIsAlphabetic
         | ImplementationHook::CharacterIsNumeric
-        | ImplementationHook::CharacterIsWhitespace => return Ok(None),
+        | ImplementationHook::CharacterIsWhitespace
+        | ImplementationHook::TestingFail => return Ok(None),
     };
 
     Ok(Some(kind))

@@ -251,7 +251,7 @@ impl Lowerer<'_> {
         }
     }
 
-    fn push_panic_report(
+    pub(in crate::lowering::expression) fn push_panic_report(
         &mut self,
         id: BoundExpressionId,
         current: MirBlockId,
@@ -272,7 +272,7 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingOperationResult(id))
     }
 
-    pub(super) fn finish_panic_to_active_catch(
+    pub(in crate::lowering::expression) fn finish_panic_to_active_catch(
         &mut self,
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
