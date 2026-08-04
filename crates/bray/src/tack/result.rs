@@ -52,6 +52,18 @@ impl TackRunResult {
         self.stdout.insert_str(0, &output);
     }
 
+    pub(crate) fn replace_stdout(&mut self, output: String) {
+        self.stdout = output;
+    }
+
+    pub(crate) fn prepend_stderr(&mut self, output: &str) {
+        self.stderr.insert_str(0, output);
+    }
+
+    pub(crate) fn clear_diagnostics(&mut self) {
+        self.diagnostics = DiagnosticBag::new();
+    }
+
     pub(crate) const fn set_exit_code(&mut self, exit_code: ExitCode) {
         self.exit_code = exit_code;
     }

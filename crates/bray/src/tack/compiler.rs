@@ -9,6 +9,9 @@ use bray_tooling::OutputFormat;
 
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::model::{TackBuildConfiguration, TackInspection};
+use crate::tack::progress::{
+    BuildProgressAction, BuildProgressPackage, BuildProgressPlan, BuildProgressSession,
+};
 use crate::tack::project::PlannedProduct;
 use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
 use crate::tack::toolchain::Toolchain;
@@ -52,7 +55,7 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, None)? {
             return Ok(outputs);
         }
 
@@ -60,6 +63,7 @@ impl<'project> ProjectCompiler<'project> {
             &product,
             planned.target(),
             CompilerAction::Check { interface: None },
+            None,
         )?;
 
         outputs.push(output);
@@ -71,11 +75,12 @@ impl<'project> ProjectCompiler<'project> {
         &mut self,
         planned: &PlannedProduct,
         configuration: TackBuildConfiguration,
+        progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<(Vec<ToolOutput>, Option<PathBuf>), DiagnosticBag> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, progress)? {
             return Ok((outputs, None));
         }
 
@@ -92,6 +97,7 @@ impl<'project> ProjectCompiler<'project> {
                 output: output_directory.clone(),
                 configuration,
             },
+            progress,
         )?;
 
         outputs.push(output);
@@ -99,6 +105,42 @@ impl<'project> ProjectCompiler<'project> {
         let executable = self.executable_path(&output_directory, &product, planned.target())?;
 
         Ok((outputs, executable))
+    }
+
+    pub(crate) fn build_progress_plan(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<BuildProgressPlan, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+        let dependencies = self.transitive_dependencies(product)?;
+
+        let output_directory =
+            self.output_directory(product.identity(), planned.target_name(), configuration);
+
+        let executable = self.executable_path(&output_directory, product, planned.target())?;
+
+        let artifact = executable
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| product.identity().name().to_owned());
+
+        let packages = self.progress_packages(product, planned.target(), &dependencies)?;
+
+        let product_identity = format!(
+            "{}/{}",
+            product.identity().package().as_str(),
+            product.identity().name()
+        );
+
+        Ok(BuildProgressPlan::new(
+            product_identity,
+            configuration,
+            artifact,
+            display_path(&output_directory, self.workspace_root),
+            packages,
+        ))
     }
 
     pub(crate) fn inspect(
@@ -111,7 +153,7 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, None)? {
             return Ok(outputs);
         }
 
@@ -123,6 +165,7 @@ impl<'project> ProjectCompiler<'project> {
                 source_id,
                 offset,
             },
+            None,
         )?;
 
         outputs.push(output);
@@ -135,6 +178,7 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
         outputs: &mut Vec<ToolOutput>,
+        progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<bool, DiagnosticBag> {
         let dependencies = self
             .project_package(product.identity().package())?
@@ -144,7 +188,7 @@ impl<'project> ProjectCompiler<'project> {
             .collect::<Vec<_>>();
 
         for dependency in dependencies {
-            if !self.ensure_dependency(&dependency, target, outputs)? {
+            if !self.ensure_dependency(&dependency, target, outputs, progress)? {
                 return Ok(false);
             }
         }
@@ -157,6 +201,7 @@ impl<'project> ProjectCompiler<'project> {
         identity: &ProductIdentity,
         target: &TargetIdentity,
         outputs: &mut Vec<ToolOutput>,
+        progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<bool, DiagnosticBag> {
         let key = (identity.clone(), target.clone());
 
@@ -174,7 +219,7 @@ impl<'project> ProjectCompiler<'project> {
             )));
         }
 
-        if !self.check_dependencies(&product, target, outputs)? {
+        if !self.check_dependencies(&product, target, outputs, progress)? {
             return Ok(false);
         }
 
@@ -193,6 +238,7 @@ impl<'project> ProjectCompiler<'project> {
             CompilerAction::Check {
                 interface: Some(interface.clone()),
             },
+            progress,
         )?;
 
         let success = output.success();
@@ -212,7 +258,14 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
         action: CompilerAction,
+        progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<ToolOutput, DiagnosticBag> {
+        let package = product.identity().package().as_str();
+
+        if let Some(progress) = progress {
+            progress.start_package(package);
+        }
+
         let mut request = ToolRequest::new(Tool::Compiler, self.workspace_root);
 
         let runtime = action
@@ -262,9 +315,99 @@ impl<'project> ProjectCompiler<'project> {
                 .map(|source| source.beneath(self.workspace_root).into_os_string()),
         );
 
-        self.executor
+        let output = self
+            .executor
             .capture(request)
-            .map_err(|_| operation_diagnostics("compiler_process"))
+            .map_err(|_| operation_diagnostics("compiler_process"));
+
+        if let Some(progress) = progress {
+            progress.finish_package_work(
+                package,
+                1,
+                output.as_ref().is_ok_and(ToolOutput::success),
+            );
+        }
+
+        output
+    }
+
+    fn transitive_dependencies(
+        &self,
+        product: &ProjectProduct,
+    ) -> Result<BTreeSet<ProductIdentity>, DiagnosticBag> {
+        let mut dependencies = BTreeSet::new();
+
+        let mut pending = self
+            .project_package(product.identity().package())?
+            .dependencies()
+            .iter()
+            .map(|dependency| dependency.product().clone())
+            .collect::<Vec<_>>();
+
+        while let Some(identity) = pending.pop() {
+            if !dependencies.insert(identity.clone()) {
+                continue;
+            }
+
+            let package = self.project_package(identity.package())?;
+
+            pending.extend(
+                package
+                    .dependencies()
+                    .iter()
+                    .map(|dependency| dependency.product().clone()),
+            );
+        }
+
+        Ok(dependencies)
+    }
+
+    fn progress_packages(
+        &self,
+        product: &ProjectProduct,
+        target: &TargetIdentity,
+        dependencies: &BTreeSet<ProductIdentity>,
+    ) -> Result<Vec<BuildProgressPackage>, DiagnosticBag> {
+        let mut packages = Vec::new();
+
+        for package in self.graph.packages() {
+            let mut units = 0_u64;
+            let mut action = BuildProgressAction::CheckInterface;
+
+            for candidate in package.products() {
+                let is_root = candidate.identity() == product.identity();
+
+                let is_pending_dependency = dependencies.contains(candidate.identity())
+                    && !self
+                        .checked
+                        .contains(&(candidate.identity().clone(), target.clone()));
+
+                if !is_root && !is_pending_dependency {
+                    continue;
+                }
+
+                units = units
+                    .checked_add(1)
+                    .ok_or_else(|| operation_diagnostics("workflow_unit_count"))?;
+
+                if is_root {
+                    action = BuildProgressAction::ProduceArtifacts;
+                }
+            }
+
+            if units == 0 {
+                continue;
+            }
+
+            packages.push(BuildProgressPackage::new(
+                package.identity().as_str(),
+                package.path().as_str(),
+                units,
+                action,
+            ));
+        }
+
+        Ok(packages)
     }
 
     fn dependencies(
@@ -372,6 +515,13 @@ impl<'project> ProjectCompiler<'project> {
 
         Ok(Some(output_directory.join(name)))
     }
+}
+
+fn display_path(path: &Path, workspace_root: &Path) -> String {
+    path.strip_prefix(workspace_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 struct DependencyArtifact {

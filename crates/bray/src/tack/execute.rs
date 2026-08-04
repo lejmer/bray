@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -13,6 +13,10 @@ use crate::tack::init::initialize_project;
 use crate::tack::inspection::render_project_inspection;
 use crate::tack::install::{install_git_repository, run_project_process};
 use crate::tack::model::{TackCommand, TackInspection, TackInvocation, TackSelection};
+use crate::tack::output::{
+    failure, result_from_operation, result_from_output, result_from_outputs,
+};
+use crate::tack::progress::WorkflowProgress;
 use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
 };
@@ -22,34 +26,22 @@ use crate::tack::toolchain::Toolchain;
 
 /// Runs Bray Tack using independently installed toolchain executables.
 pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
+    let interactive = io::stderr().is_terminal();
+    let mut protocol_output = Vec::new();
+
+    let result = run_tack_result_with_input_and_output(
+        arguments,
+        &NativeToolExecutor,
+        Box::new(io::stdin()),
+        &mut protocol_output,
+        interactive,
+    );
+
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
-    run_tack_with_io(
-        arguments,
-        &NativeToolExecutor,
-        io::stdin(),
-        &mut stdout,
-        &mut stderr,
-    )
-}
-
-/// Runs Bray Tack and returns its structured outcome.
-pub fn run_tack_result(arguments: impl IntoIterator<Item = OsString>) -> TackRunResult {
-    run_tack_result_with_input(arguments, &NativeToolExecutor, io::empty())
-}
-
-fn run_tack_with_io(
-    arguments: impl IntoIterator<Item = OsString>,
-    executor: &dyn ToolExecutor,
-    stdin: impl Read + Send + 'static,
-    stdout: &mut impl Write,
-    stderr: &mut impl Write,
-) -> ExitCode {
-    let result =
-        run_tack_result_with_input_and_output(arguments, executor, Box::new(stdin), stdout);
-
-    if stdout.write_all(result.stdout().as_bytes()).is_err()
+    if stdout.write_all(&protocol_output).is_err()
+        || stdout.write_all(result.stdout().as_bytes()).is_err()
         || stderr.write_all(result.stderr().as_bytes()).is_err()
     {
         return ExitCode::FAILURE;
@@ -59,8 +51,8 @@ fn run_tack_with_io(
         && write_diagnostic_groups(
             result.diagnostic_groups(),
             result.output_format(),
-            stdout,
-            stderr,
+            &mut stdout,
+            &mut stderr,
         )
         .is_err()
     {
@@ -68,6 +60,11 @@ fn run_tack_with_io(
     }
 
     result.exit_code()
+}
+
+/// Runs Bray Tack and returns its structured outcome.
+pub fn run_tack_result(arguments: impl IntoIterator<Item = OsString>) -> TackRunResult {
+    run_tack_result_with_input(arguments, &NativeToolExecutor, io::empty())
 }
 
 fn run_tack_result_with_input(
@@ -82,6 +79,7 @@ fn run_tack_result_with_input(
         executor,
         Box::new(stdin),
         &mut protocol_output,
+        false,
     );
 
     if let Ok(protocol_output) = String::from_utf8(protocol_output) {
@@ -96,6 +94,7 @@ fn run_tack_result_with_input_and_output(
     executor: &dyn ToolExecutor,
     stdin: Box<dyn Read + Send>,
     protocol_output: &mut dyn Write,
+    interactive: bool,
 ) -> TackRunResult {
     let invocation = match TackInvocation::try_from_arguments(arguments) {
         Ok(invocation) => invocation,
@@ -115,14 +114,40 @@ fn run_tack_result_with_input_and_output(
         }
     };
 
-    execute_invocation(invocation, executor, stdin, protocol_output)
+    execute_invocation(invocation, executor, stdin, protocol_output, interactive)
 }
 
 fn execute_invocation(
     invocation: TackInvocation,
     executor: &dyn ToolExecutor,
+    stdin: Box<dyn Read + Send>,
+    protocol_output: &mut dyn Write,
+    interactive: bool,
+) -> TackRunResult {
+    let progress = WorkflowProgress::new(
+        interactive && invocation.output_format() == OutputFormat::Text,
+        invocation.verbose(),
+    );
+
+    let mut result =
+        execute_invocation_with_progress(invocation, executor, stdin, protocol_output, &progress);
+
+    if progress.write_to_result(&mut result).is_err() {
+        return failure(
+            operation_diagnostics("workflow_progress_output"),
+            result.output_format(),
+        );
+    }
+
+    result
+}
+
+fn execute_invocation_with_progress(
+    invocation: TackInvocation,
+    executor: &dyn ToolExecutor,
     mut stdin: Box<dyn Read + Send>,
     protocol_output: &mut dyn Write,
+    progress: &WorkflowProgress,
 ) -> TackRunResult {
     let (workspace_root, toolchain_root, worker_count, output_format, command) =
         invocation.into_parts();
@@ -197,6 +222,7 @@ fn execute_invocation(
             configuration,
             output_format,
             executor,
+            progress,
         ),
         TackCommand::Run {
             selection,
@@ -212,6 +238,7 @@ fn execute_invocation(
             arguments,
             output_format,
             executor,
+            progress,
         ),
         TackCommand::Test {
             selection,
@@ -227,6 +254,7 @@ fn execute_invocation(
             arguments,
             output_format,
             executor,
+            progress,
         ),
         TackCommand::Inspect {
             selection,
@@ -298,6 +326,10 @@ fn run_check(
     result_from_outputs(outputs, output_format)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "build routing keeps the selected project, process, and command inputs explicit"
+)]
 fn run_build(
     workspace_root: &Path,
     graph: &ProjectGraph,
@@ -307,6 +339,7 @@ fn run_build(
     configuration: crate::tack::model::TackBuildConfiguration,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
+    progress: &WorkflowProgress,
 ) -> TackRunResult {
     let products = match select_products(graph, selection, ProductSelectionKind::Any, false) {
         Ok(products) => products,
@@ -325,9 +358,25 @@ fn run_build(
     let mut outputs = Vec::new();
 
     for product in products {
-        match compiler.build(&product, configuration) {
-            Ok((product_outputs, _)) => outputs.extend(product_outputs),
+        let plan = match compiler.build_progress_plan(&product, configuration) {
+            Ok(plan) => plan,
             Err(diagnostics) => return failure(diagnostics, output_format),
+        };
+
+        let session = progress.begin(plan);
+
+        match compiler.build(&product, configuration, Some(&session)) {
+            Ok((product_outputs, _)) => {
+                let success = product_outputs.iter().all(ToolOutput::success);
+
+                session.finish(success);
+                outputs.extend(product_outputs);
+            }
+            Err(diagnostics) => {
+                session.finish(false);
+
+                return failure(diagnostics, output_format);
+            }
         }
     }
 
@@ -348,6 +397,7 @@ fn run_one(
     arguments: Vec<OsString>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
+    progress: &WorkflowProgress,
 ) -> TackRunResult {
     let products = match select_products(graph, selection, ProductSelectionKind::Executable, true) {
         Ok(products) => products,
@@ -367,12 +417,27 @@ fn run_one(
         executor,
     );
 
-    let (outputs, executable) = match compiler.build(product, configuration) {
-        Ok(result) => result,
+    let plan = match compiler.build_progress_plan(product, configuration) {
+        Ok(plan) => plan,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    if outputs.iter().any(|output| !output.success()) {
+    let session = progress.begin(plan);
+
+    let (outputs, executable) = match compiler.build(product, configuration, Some(&session)) {
+        Ok(result) => result,
+        Err(diagnostics) => {
+            session.finish(false);
+
+            return failure(diagnostics, output_format);
+        }
+    };
+
+    let compilation_succeeded = outputs.iter().all(ToolOutput::success);
+
+    session.finish(compilation_succeeded);
+
+    if !compilation_succeeded {
         return result_from_outputs(outputs, output_format);
     }
 
@@ -405,6 +470,7 @@ fn run_tests(
     arguments: Vec<OsString>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
+    progress: &WorkflowProgress,
 ) -> TackRunResult {
     let products = match select_products(graph, selection, ProductSelectionKind::Test, false) {
         Ok(products) => products,
@@ -424,12 +490,26 @@ fn run_tests(
     let mut tests_succeeded = true;
 
     for product in products {
-        let (product_outputs, executable) = match compiler.build(&product, configuration) {
-            Ok(result) => result,
+        let plan = match compiler.build_progress_plan(&product, configuration) {
+            Ok(plan) => plan,
             Err(diagnostics) => return failure(diagnostics, output_format),
         };
 
+        let session = progress.begin(plan);
+
+        let (product_outputs, executable) =
+            match compiler.build(&product, configuration, Some(&session)) {
+                Ok(result) => result,
+                Err(diagnostics) => {
+                    session.finish(false);
+
+                    return failure(diagnostics, output_format);
+                }
+            };
+
         let compilation_succeeded = product_outputs.iter().all(ToolOutput::success);
+
+        session.finish(compilation_succeeded);
 
         outputs.extend(product_outputs);
 
@@ -628,106 +708,6 @@ fn run_format(
     match executor.capture(request) {
         Ok(output) => result_from_output(output, output_format),
         Err(()) => failure(operation_diagnostics("formatter_process"), output_format),
-    }
-}
-
-fn result_from_operation(
-    operation: Result<(), DiagnosticBag>,
-    output_format: OutputFormat,
-) -> TackRunResult {
-    match operation {
-        Ok(()) => TackRunResult::new(ExitCode::SUCCESS, DiagnosticBag::new(), output_format),
-        Err(diagnostics) => failure(diagnostics, output_format),
-    }
-}
-
-fn result_from_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat) -> TackRunResult {
-    if output_format == OutputFormat::Json && outputs.len() > 1 {
-        return aggregate_json_outputs(outputs, output_format);
-    }
-
-    let success = outputs.iter().all(ToolOutput::success);
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-
-    for output in outputs {
-        let (_, child_stdout, child_stderr) = output.into_parts();
-
-        stdout.push_str(&child_stdout);
-        stderr.push_str(&child_stderr);
-    }
-
-    TackRunResult::with_output(
-        exit_code(success),
-        DiagnosticBag::new(),
-        output_format,
-        stdout,
-        stderr,
-    )
-}
-
-fn result_from_output(output: ToolOutput, output_format: OutputFormat) -> TackRunResult {
-    let (success, stdout, stderr) = output.into_parts();
-
-    TackRunResult::with_output(
-        exit_code(success),
-        DiagnosticBag::new(),
-        output_format,
-        stdout,
-        stderr,
-    )
-}
-
-fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat) -> TackRunResult {
-    let success = outputs.iter().all(ToolOutput::success);
-    let mut diagnostics = Vec::new();
-    let mut stderr = String::new();
-
-    for output in outputs {
-        let (_, stdout, child_stderr) = output.into_parts();
-
-        stderr.push_str(&child_stderr);
-
-        let Ok(mut report) = serde_json::from_str::<serde_json::Value>(&stdout) else {
-            return failure(operation_diagnostics("compiler_json_output"), output_format);
-        };
-
-        let Some(entries) = report
-            .get_mut("diagnostics")
-            .and_then(serde_json::Value::as_array_mut)
-        else {
-            return failure(operation_diagnostics("compiler_json_output"), output_format);
-        };
-
-        diagnostics.append(entries);
-    }
-
-    let stdout = match serde_json::to_string_pretty(&serde_json::json!({
-        "has_errors": !success,
-        "diagnostics": diagnostics,
-    })) {
-        Ok(stdout) => format!("{stdout}\n"),
-        Err(_) => return failure(operation_diagnostics("compiler_json_output"), output_format),
-    };
-
-    TackRunResult::with_output(
-        exit_code(success),
-        DiagnosticBag::new(),
-        output_format,
-        stdout,
-        stderr,
-    )
-}
-
-fn failure(diagnostics: DiagnosticBag, output_format: OutputFormat) -> TackRunResult {
-    TackRunResult::new(ExitCode::FAILURE, diagnostics, output_format)
-}
-
-const fn exit_code(success: bool) -> ExitCode {
-    if success {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
     }
 }
 
@@ -981,6 +961,15 @@ mod tests {
         );
 
         assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+
+        assert!(
+            result
+                .stderr()
+                .contains("Building example.application/application [debug]")
+        );
+
+        assert!(result.stderr().contains("✓ Compiled example.application"));
+        assert!(result.stderr().contains("✓ Finished application"));
 
         let requests = executor.requests();
 

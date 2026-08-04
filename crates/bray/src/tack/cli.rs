@@ -134,6 +134,8 @@ struct Cli {
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
     output_format: OutputFormat,
+    #[arg(short, long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: CliCommand,
 }
@@ -160,6 +162,7 @@ impl Cli {
             self.toolchain_root,
             worker_count,
             output_format,
+            self.verbose,
             self.command.into_command(),
         ))
     }
@@ -449,6 +452,14 @@ mod tests {
                 .unwrap_or_else(|error| panic!("toolchain selection should parse: {error:?}"));
 
         assert_eq!(invocation.toolchain_root(), Some(Path::new("toolchain")));
+    }
+
+    #[test]
+    fn keeps_verbose_workflow_selection() {
+        let invocation = TackInvocation::try_from_arguments(["bray", "--verbose", "build"])
+            .unwrap_or_else(|error| panic!("verbose build should parse: {error:?}"));
+
+        assert!(invocation.verbose());
     }
 
     #[test]

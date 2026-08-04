@@ -2,9 +2,12 @@ use bray_diagnostics::{
     DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticNoteKind, SeverityKind,
 };
 
-use crate::LanguageServerMessage;
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
+use crate::{
+    BuildProgressAction, BuildProgressConfiguration, BuildProgressField, BuildProgressLineKind,
+    BuildProgressOperation, LanguageServerMessage,
+};
 
 use super::english::{
     diagnostic_template as english_diagnostic_template, label_style as english_label_style,
@@ -30,6 +33,69 @@ impl MessageCatalog {
     ) -> &'static str {
         match self.locale {
             DiagnosticLocale::English => super::english::language_server_message(message),
+        }
+    }
+
+    pub(crate) fn build_progress_fields(
+        self,
+        kind: BuildProgressLineKind,
+    ) -> &'static [BuildProgressField] {
+        match self.locale {
+            DiagnosticLocale::English => super::english::build_progress_fields(kind),
+        }
+    }
+
+    pub(crate) fn build_progress_heading(
+        self,
+        product: &str,
+        configuration: BuildProgressConfiguration,
+    ) -> String {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::build_progress_heading(product, configuration)
+            }
+        }
+    }
+
+    pub(crate) const fn build_progress_operation(
+        self,
+        operation: BuildProgressOperation,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => super::english::build_progress_operation(operation),
+        }
+    }
+
+    pub(crate) const fn build_progress_action(
+        self,
+        action: BuildProgressAction,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => super::english::build_progress_action(action),
+        }
+    }
+
+    pub(crate) fn build_progress_unit_count(self, completed: u64, total: u64) -> String {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::build_progress_unit_count(completed, total)
+            }
+        }
+    }
+
+    pub(crate) fn build_progress_duration(self, milliseconds: u128) -> String {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::build_progress_duration(milliseconds)
+            }
+        }
+    }
+
+    pub(crate) fn build_progress_percentage(self, percentage: u64) -> String {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::build_progress_percentage(percentage)
+            }
         }
     }
 

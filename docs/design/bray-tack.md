@@ -43,12 +43,12 @@ workspace-local manifest names rather than host inference.
 
 ## Build Configurations
 
-Build, run, and test commands use the development configuration by default. `--release` selects
+Build, run, and test commands use the debug configuration by default. `--release` selects
 the release configuration. The selected configuration applies to every product built by that
 command and is forwarded explicitly to `brayc` rather than inferred from the compiler executable
 or host environment.
 
-Development builds use inexpensive optimization, emit source line tables, preserve otherwise
+Debug builds use inexpensive optimization, emit source line tables, preserve otherwise
 unused linked content, and request any debug companion required by the target. Release builds use
 the production optimization pipeline, omit debug information, and permit dead-code and section
 removal. Both configurations preserve Bray language semantics.
@@ -61,6 +61,31 @@ Published products use separate directories beneath `output_root`:
 
 This separation prevents build, run, and test commands from reusing or replacing artifacts from
 another configuration. Check and semantic inspection remain configuration-independent.
+
+## Workflow Progress
+
+Text-mode build workflows present the selected package product and configuration first, followed
+by one stable line for every package that performs compiler work. A package line carries its
+package identity, workspace-relative path, completed and total compiler invocations, and elapsed
+time. Interactive terminals update those lines in place through coordinated spinners and progress
+bars. Redirected output emits only the final package summaries and therefore contains no terminal
+control sequences or repeated transient states.
+
+The default presentation treats checking, code generation, artifact production, and linking as
+one package-level `Compiling` operation. `--verbose` exposes the exact compiler action requested
+for each package without changing the underlying work. All visible vocabulary is rendered through
+`bray-messages`, while color and animation are presentation concerns owned by Bray Tack.
+
+```text
+Building hello_world/application [debug]
+   ✓ Compiled std               toolchain/standard-library      1/1 units  128 ms
+   ✓ Compiled hello_world       examples/hello_world            1/1 units   94 ms
+   ✓ Finished application.exe   build/native/debug/             2/2 units  247 ms
+```
+
+JSON output carries the same workflow facts as structured data rather than terminal-rendered
+strings. Package completion order remains deterministic even when compiler work becomes more
+parallel internally.
 
 ## Project Initialization
 
