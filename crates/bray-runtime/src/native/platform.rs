@@ -5,6 +5,9 @@ use std::sync::{Condvar, Mutex, OnceLock};
 
 use bray_runtime_interface::NativePlatformStatus;
 
+use crate::RunOutputStream;
+use crate::output::{flush_current_run_output, write_current_run_output};
+
 const CONTEXT_HEADER_BYTES: usize = 96;
 const STANDARD_INPUT_HANDLE: u64 = 1;
 const STANDARD_OUTPUT_HANDLE: u64 = 2;
@@ -119,10 +122,17 @@ native_platform_export! {
 
         let source = unsafe { std::slice::from_raw_parts(source, length) };
 
-        let result = match handle {
-            STANDARD_OUTPUT_HANDLE => io::stdout().lock().write(source),
-            STANDARD_ERROR_HANDLE => io::stderr().lock().write(source),
-            _ => return NativePlatformStatus::INVALID_INPUT,
+        let Some(stream) = run_output_stream(handle) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if let Some(count) = write_current_run_output(stream, source) {
+            return publish_transfer(transferred, count);
+        }
+
+        let result = match stream {
+            RunOutputStream::StandardOutput => io::stdout().lock().write(source),
+            RunOutputStream::StandardError => io::stderr().lock().write(source),
         };
 
         match result {
@@ -134,10 +144,17 @@ native_platform_export! {
 
 native_platform_export! {
     pub extern "C" fn bray_platform_stream_flush_v1(handle: u64) -> NativePlatformStatus {
-        let result = match handle {
-            STANDARD_OUTPUT_HANDLE => io::stdout().lock().flush(),
-            STANDARD_ERROR_HANDLE => io::stderr().lock().flush(),
-            _ => return NativePlatformStatus::INVALID_INPUT,
+        let Some(stream) = run_output_stream(handle) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if flush_current_run_output(stream).is_some() {
+            return NativePlatformStatus::SUCCESS;
+        }
+
+        let result = match stream {
+            RunOutputStream::StandardOutput => io::stdout().lock().flush(),
+            RunOutputStream::StandardError => io::stderr().lock().flush(),
         };
 
         match result {
@@ -359,6 +376,14 @@ fn length_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
+const fn run_output_stream(handle: u64) -> Option<RunOutputStream> {
+    match handle {
+        STANDARD_OUTPUT_HANDLE => Some(RunOutputStream::StandardOutput),
+        STANDARD_ERROR_HANDLE => Some(RunOutputStream::StandardError),
+        _ => None,
+    }
+}
+
 #[cfg(windows)]
 fn native_text(value: &std::ffi::OsStr) -> Vec<u8> {
     use std::os::windows::ffi::OsStrExt;
@@ -394,8 +419,10 @@ mod tests {
     use bray_runtime_interface::NativePlatformStatus;
 
     use super::{
-        CONTEXT_HEADER_BYTES, STANDARD_OUTPUT_HANDLE, lock_stream, process_context, unlock_stream,
+        CONTEXT_HEADER_BYTES, STANDARD_OUTPUT_HANDLE, bray_platform_stream_write_v1, lock_stream,
+        process_context, unlock_stream,
     };
+    use crate::{RunOutputContext, RunOutputStream, with_run_output_context};
 
     #[test]
     fn native_platform_status_has_the_specified_layout() {
@@ -414,6 +441,37 @@ mod tests {
         assert_eq!(context[16], 1);
         assert_eq!(context[24], 2);
         assert_eq!(context[32], 3);
+    }
+
+    #[test]
+    fn platform_stream_writes_use_the_active_run_capture() {
+        let output = RunOutputContext::captured(32, 32);
+        let bytes = b"captured output";
+
+        let byte_count = u64::try_from(bytes.len())
+            .unwrap_or_else(|_| panic!("test output length must fit the native ABI"));
+
+        let mut transferred = 0;
+
+        let status = with_run_output_context(output.clone(), || {
+            bray_platform_stream_write_v1(
+                STANDARD_OUTPUT_HANDLE,
+                bytes.as_ptr(),
+                byte_count,
+                &mut transferred,
+            )
+        });
+
+        assert_eq!(status, NativePlatformStatus::SUCCESS);
+        assert_eq!(transferred, byte_count);
+
+        assert_eq!(
+            output
+                .captured_stream(RunOutputStream::StandardOutput)
+                .as_ref()
+                .map(crate::CapturedRunStream::bytes),
+            Some(&bytes[..])
+        );
     }
 
     #[test]

@@ -257,6 +257,7 @@ impl NativeRuntime {
             task.id(),
             ready.state(),
             task.cancellation_context().clone(),
+            task.output_context().cloned(),
             ready.lane(),
             wake.clone(),
         );

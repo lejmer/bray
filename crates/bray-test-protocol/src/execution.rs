@@ -1,0 +1,316 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use bray_base::shared_str;
+
+use crate::{
+    AssertionFailure, CapturedStream, ExplicitTestFailure, TestCapturePolicy, TestIdentity,
+    TestSourceAnchor,
+};
+
+/// Stable nonnegative duration used by the runner protocol.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TestDuration(u64);
+
+impl TestDuration {
+    /// Creates a duration from an exact nanosecond count.
+    pub const fn from_nanoseconds(nanoseconds: u64) -> Self {
+        Self(nanoseconds)
+    }
+
+    /// Converts a host duration when its nanosecond count is representable.
+    pub fn try_from_duration(duration: Duration) -> Option<Self> {
+        u64::try_from(duration.as_nanos()).ok().map(Self)
+    }
+
+    /// Returns the exact protocol nanosecond count.
+    pub const fn nanoseconds(self) -> u64 {
+        self.0
+    }
+
+    /// Returns the corresponding host duration.
+    pub const fn duration(self) -> Duration {
+        Duration::from_nanos(self.0)
+    }
+}
+
+/// Timeout behavior selected for one test invocation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TestTimeoutPolicy {
+    /// No per-invocation timeout is enforced.
+    Unlimited,
+    /// Cooperative cancellation is requested after this duration.
+    Limit(TestDuration),
+}
+
+/// Source of an explicit test cancellation outcome.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TestCancellationSource {
+    /// The complete test command was cancelled.
+    Command,
+    /// One selected invocation was cancelled independently.
+    Invocation,
+}
+
+/// Stable identity of a recoverable error type crossing a test boundary.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TestErrorTypeIdentity(Arc<str>);
+
+impl TestErrorTypeIdentity {
+    /// Creates a nonempty durable type identity.
+    pub fn try_new(identity: impl Into<Arc<str>>) -> Option<Self> {
+        let identity = shared_str(identity);
+
+        if identity.is_empty() {
+            return None;
+        }
+
+        Some(Self(identity))
+    }
+
+    /// Returns the durable type identity text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Stable panic category reported by one test root.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TestPanicCause {
+    /// An explicit language panic.
+    Message,
+    /// A failed built-in assertion.
+    Assertion,
+    /// An explicit `std.testing.fail` call.
+    ExplicitFailure,
+}
+
+/// Structured panic data crossing the native test-host boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestPanicReport {
+    cause: TestPanicCause,
+    source: Option<TestSourceAnchor>,
+    message: Arc<str>,
+}
+
+impl TestPanicReport {
+    /// Creates a panic report without rendering user-facing prose.
+    pub fn new(
+        cause: TestPanicCause,
+        source: Option<TestSourceAnchor>,
+        message: impl Into<Arc<str>>,
+    ) -> Self {
+        Self {
+            cause,
+            source,
+            message: shared_str(message),
+        }
+    }
+
+    /// Returns the stable panic category.
+    pub const fn cause(&self) -> TestPanicCause {
+        self.cause
+    }
+
+    /// Returns the source occurrence when one was available.
+    pub const fn source(&self) -> Option<TestSourceAnchor> {
+        self.source
+    }
+
+    /// Returns the retained panic payload text.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// Stable category for a test-host or runner infrastructure failure.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TestInfrastructureFailureKind {
+    /// Runner and host protocol state was malformed or incompatible.
+    Protocol,
+    /// The native host could not execute an admitted invocation.
+    Host,
+    /// Per-invocation stream capture could not preserve its contract.
+    Capture,
+    /// A configured process, invocation, protocol, or capture budget was exhausted.
+    ResourceExhausted,
+    /// An admitted invocation produced no terminal outcome.
+    MissingOutcome,
+    /// Test-local cleanup could not complete normally.
+    Cleanup,
+    /// The host process required forced termination.
+    ForcedTermination,
+}
+
+/// Structured infrastructure failure without rendered user-facing text.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TestInfrastructureFailure {
+    kind: TestInfrastructureFailureKind,
+    detail_code: Option<u64>,
+}
+
+impl TestInfrastructureFailure {
+    /// Creates an infrastructure failure with an optional domain-specific code.
+    pub const fn new(kind: TestInfrastructureFailureKind, detail_code: Option<u64>) -> Self {
+        Self { kind, detail_code }
+    }
+
+    /// Returns the stable failure category.
+    pub const fn kind(self) -> TestInfrastructureFailureKind {
+        self.kind
+    }
+
+    /// Returns the optional domain-specific code.
+    pub const fn detail_code(self) -> Option<u64> {
+        self.detail_code
+    }
+}
+
+/// Terminal semantic outcome of one test invocation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TestOutcome {
+    /// The test returned normally without an error.
+    Passed,
+    /// The test returned a recoverable error value.
+    ReturnedError {
+        /// Durable identity of the concrete error type.
+        error_type: TestErrorTypeIdentity,
+        /// Formatted value when checked formatting support exists.
+        formatted_value: Option<Arc<str>>,
+    },
+    /// `std.testing.fail` terminated the test.
+    ExplicitFailure(ExplicitTestFailure),
+    /// A built-in assertion failed.
+    AssertionFailure(AssertionFailure),
+    /// A panic crossed the isolated test root.
+    Panicked(TestPanicReport),
+    /// The invocation exceeded its configured limit and completed cancellation cleanup.
+    TimedOut(TestDuration),
+    /// Explicit cancellation completed normally.
+    Cancelled(TestCancellationSource),
+    /// The host or protocol could not complete the invocation contract.
+    InfrastructureFailed(TestInfrastructureFailure),
+}
+
+/// Immutable runner instructions for one selected test invocation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestInvocationPlan {
+    identity: TestIdentity,
+    timeout: TestTimeoutPolicy,
+    capture: TestCapturePolicy,
+}
+
+impl TestInvocationPlan {
+    /// Creates one invocation plan after selection and admission policy are known.
+    pub const fn new(
+        identity: TestIdentity,
+        timeout: TestTimeoutPolicy,
+        capture: TestCapturePolicy,
+    ) -> Self {
+        Self {
+            identity,
+            timeout,
+            capture,
+        }
+    }
+
+    /// Returns the selected test identity.
+    pub const fn identity(&self) -> &TestIdentity {
+        &self.identity
+    }
+
+    /// Returns the selected timeout behavior.
+    pub const fn timeout(&self) -> TestTimeoutPolicy {
+        self.timeout
+    }
+
+    /// Returns the selected stream behavior.
+    pub const fn capture(&self) -> TestCapturePolicy {
+        self.capture
+    }
+}
+
+/// Completed immutable result for one invocation after test-local cleanup.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestInvocationResult {
+    identity: TestIdentity,
+    outcome: TestOutcome,
+    standard_output: CapturedStream,
+    standard_error: CapturedStream,
+}
+
+impl TestInvocationResult {
+    /// Creates a terminal result after the invocation and its cleanup have completed.
+    pub const fn after_cleanup(
+        identity: TestIdentity,
+        outcome: TestOutcome,
+        standard_output: CapturedStream,
+        standard_error: CapturedStream,
+    ) -> Self {
+        Self {
+            identity,
+            outcome,
+            standard_output,
+            standard_error,
+        }
+    }
+
+    /// Returns the exact selected test identity.
+    pub const fn identity(&self) -> &TestIdentity {
+        &self.identity
+    }
+
+    /// Returns the terminal semantic outcome.
+    pub const fn outcome(&self) -> &TestOutcome {
+        &self.outcome
+    }
+
+    /// Returns completed standard-output state.
+    pub const fn standard_output(&self) -> &CapturedStream {
+        &self.standard_output
+    }
+
+    /// Returns completed standard-error state.
+    pub const fn standard_error(&self) -> &CapturedStream {
+        &self.standard_error
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{ModulePathKey, PackageIdentity, ProductIdentity, SymbolName};
+
+    use super::{TestDuration, TestInvocationPlan, TestTimeoutPolicy};
+    use crate::{TestCaptureLimits, TestCapturePolicy, TestDeclarationPath, TestIdentity};
+
+    #[test]
+    fn invocation_plans_retain_typed_timeout_and_capture_policy() {
+        let package = PackageIdentity::try_new("example.tests")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "tests")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let module = ModulePathKey::try_new(["example", "tests"])
+            .unwrap_or_else(|| panic!("test module path must be valid"));
+
+        let name = SymbolName::try_new("runs").unwrap_or_else(|| panic!("test name must be valid"));
+
+        let identity = TestIdentity::new(product, TestDeclarationPath::new(module, name));
+        let timeout = TestDuration::from_nanoseconds(2_000_000);
+
+        let plan = TestInvocationPlan::new(
+            identity.clone(),
+            TestTimeoutPolicy::Limit(timeout),
+            TestCapturePolicy::Captured(TestCaptureLimits::new(4096, 6144)),
+        );
+
+        assert_eq!(plan.identity(), &identity);
+        assert_eq!(plan.timeout(), TestTimeoutPolicy::Limit(timeout));
+
+        assert_eq!(
+            plan.capture(),
+            TestCapturePolicy::Captured(TestCaptureLimits::new(4096, 6144))
+        );
+    }
+}

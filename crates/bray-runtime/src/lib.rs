@@ -12,10 +12,12 @@ mod lane;
 mod native;
 mod observation;
 mod outcome;
+mod output;
 mod root;
 mod scheduler;
 mod shutdown;
 mod task;
+mod timeout;
 
 #[cfg(test)]
 mod test_support;
@@ -42,8 +44,10 @@ pub use observation::{
     TaskSnapshot, TaskStartSite, TaskWakeCause,
 };
 pub use outcome::{RunOutcome, RunOutcomeKind};
+pub use output::{CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context};
 pub use root::{
-    RootCancellationHandle, RootExecutionError, execute_async_root, execute_synchronous_root,
+    RootCancellationHandle, RootCancellationSource, RootExecutionError, execute_async_root,
+    execute_synchronous_root,
 };
 pub use scheduler::{
     ReadyTask, Scheduler, SchedulerError, SchedulerLimits, TaskRegistration, TaskWakeHandle,
@@ -57,3 +61,4 @@ pub use task::{
     JoinWaitRegistration, JoinWake, TaskControlBlock, TaskFailureKind, TaskId,
     TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
 };
+pub use timeout::{RunCancellationTimer, RunTimeoutError, RunTimeoutScheduler};

@@ -1,4 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use bray_platform::RuntimeThread;
 use bray_runtime_interface::ProtectedFrameStateId;
@@ -15,12 +17,57 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct RootCancellationHandle {
     cancellation: CancellationContext,
+    source: Arc<AtomicU8>,
 }
 
 impl RootCancellationHandle {
     /// Requests cooperative cancellation of the executable root.
     pub fn request(&self) -> bool {
+        self.request_with_source(RootCancellationSource::Explicit)
+    }
+
+    /// Requests cooperative cancellation because the host deadline elapsed.
+    pub fn request_timeout(&self) -> bool {
+        self.request_with_source(RootCancellationSource::Timeout)
+    }
+
+    /// Returns the first host request source when cancellation was requested.
+    pub fn source(&self) -> Option<RootCancellationSource> {
+        RootCancellationSource::from_code(self.source.load(Ordering::Acquire))
+    }
+
+    fn request_with_source(&self, source: RootCancellationSource) -> bool {
+        let _ = self
+            .source
+            .compare_exchange(0, source.code(), Ordering::AcqRel, Ordering::Acquire);
+
         self.cancellation.request()
+    }
+}
+
+/// First host action that requested root cancellation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RootCancellationSource {
+    /// An explicit host or runner request.
+    Explicit,
+    /// The configured root deadline elapsed.
+    Timeout,
+}
+
+impl RootCancellationSource {
+    const fn code(self) -> u8 {
+        match self {
+            Self::Explicit => 1,
+            Self::Timeout => 2,
+        }
+    }
+
+    const fn from_code(code: u8) -> Option<Self> {
+        match code {
+            1 => Some(Self::Explicit),
+            2 => Some(Self::Timeout),
+            _ => None,
+        }
     }
 }
 
@@ -82,9 +129,11 @@ pub fn execute_synchronous_root<T>(
     on_started: impl FnOnce(RootCancellationHandle),
 ) -> RunOutcome<T> {
     let cancellation = CancellationContext::root();
+    let source = Arc::new(AtomicU8::new(0));
 
     on_started(RootCancellationHandle {
         cancellation: cancellation.clone(),
+        source,
     });
 
     with_run_cancellation_context(cancellation, || {
@@ -110,6 +159,7 @@ where
     F: ProtectedFrame<Output = T>,
 {
     let root = TaskControlBlock::start_local(frame)?;
+    let source = Arc::new(AtomicU8::new(0));
     let initial_state = ProtectedFrameStateId::new(0);
 
     let result = (|| {
@@ -139,6 +189,7 @@ where
         on_started(RootCancellationHandle {
             // Host cancellation authority must remain valid while root storage is driven.
             cancellation: root.cancellation_context().clone(),
+            source,
         });
 
         wake.wake(initial_state)?;
@@ -159,6 +210,7 @@ where
                 root.id(),
                 ready.state(),
                 root.cancellation_context().clone(),
+                root.output_context().cloned(),
                 ready.lane(),
                 wake.clone(),
             );
@@ -201,7 +253,7 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
-        RootExecutionError, execute_async_root, execute_synchronous_root,
+        RootCancellationSource, RootExecutionError, execute_async_root, execute_synchronous_root,
         propagate_current_run_cancellation,
     };
     use crate::context::with_task_execution_context;
@@ -237,6 +289,28 @@ mod tests {
         let outcome = execute_synchronous_root(propagate_current_run_cancellation, |_| {});
 
         assert!(matches!(outcome, RunOutcome::Cancelled));
+    }
+
+    #[test]
+    fn first_root_cancellation_source_is_stable() {
+        let mut cancellation = None;
+
+        let outcome = execute_synchronous_root(
+            || (),
+            |root| {
+                assert!(root.request_timeout());
+                assert!(!root.request());
+
+                cancellation = Some(root);
+            },
+        );
+
+        assert!(matches!(outcome, RunOutcome::Completed(())));
+
+        assert_eq!(
+            cancellation.and_then(|cancellation| cancellation.source()),
+            Some(RootCancellationSource::Timeout)
+        );
     }
 
     #[test]
@@ -410,6 +484,7 @@ mod tests {
                     child.id(),
                     ready.state(),
                     child.cancellation_context().clone(),
+                    child.output_context().cloned(),
                     ready.lane(),
                     child_wake.clone(),
                 );
