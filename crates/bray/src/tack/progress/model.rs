@@ -144,6 +144,10 @@ impl PackageProgressReport {
         &self.path
     }
 
+    pub(super) const fn action(&self) -> BuildProgressAction {
+        self.action
+    }
+
     pub(super) const fn status(&self) -> BuildProgressStatus {
         self.status
     }

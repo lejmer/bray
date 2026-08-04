@@ -1,20 +1,25 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bray_messages::{BuildProgressMessage, BuildProgressMessageRenderer};
+use bray_messages::{
+    BuildProgressField, BuildProgressLineKind, BuildProgressMessageRenderer,
+    BuildProgressOperation,
+};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use super::model::{
-    BuildProgressAction, BuildProgressPackage, BuildProgressPlan, BuildProgressStatus,
+    BuildProgressPackage, BuildProgressPlan, BuildProgressStatus,
 };
-use super::text::{configuration_text, max_column_width, status_marker};
+use super::text::{
+    max_column_width, message_action, message_configuration, status_marker,
+};
 
 pub(super) struct TerminalBuildProgress {
     progress: MultiProgress,
     heading: ProgressBar,
     aggregate: ProgressBar,
     packages: BTreeMap<String, PackageTerminalProgress>,
-    artifact_column_width: usize,
+    subject_column_width: usize,
     path_column_width: usize,
     messages: BuildProgressMessageRenderer,
     verbose: bool,
@@ -25,7 +30,7 @@ impl TerminalBuildProgress {
         let messages = BuildProgressMessageRenderer::english();
         let progress = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(20));
 
-        let artifact_column_width = max_column_width(
+        let subject_column_width = max_column_width(
             plan.packages()
                 .iter()
                 .map(BuildProgressPackage::identity)
@@ -41,26 +46,28 @@ impl TerminalBuildProgress {
 
         let heading = progress.add(ProgressBar::new(0));
 
-        heading.set_style(progress_style("{prefix:.cyan.bold} {msg:.bold}"));
-        heading.set_prefix(messages.render(BuildProgressMessage::Building));
+        heading.set_style(progress_style("{msg:.bold}"));
 
-        heading.set_message(format!(
-            "{} [{}]",
+        heading.set_message(messages.heading(
             plan.product(),
-            configuration_text(messages, plan.configuration())
+            message_configuration(plan.configuration()),
         ));
 
         let aggregate = progress.add(ProgressBar::new(plan.total_units()));
 
-        aggregate.set_style(active_product_style(messages));
+        aggregate.set_style(
+            active_progress_style(
+                messages,
+                BuildProgressLineKind::ActiveProduct,
+                String::new(),
+                "{spinner:.white}",
+                "cyan",
+            )
+            .tick_strings(&["○"]),
+        );
 
-        aggregate.set_prefix(padded_subject(
-            messages.render(BuildProgressMessage::Building),
-            plan.artifact(),
-            artifact_column_width,
-        ));
-
-        aggregate.set_message(String::new());
+        aggregate.set_prefix(messages.operation(BuildProgressOperation::Building));
+        aggregate.set_message(padded(plan.artifact(), subject_column_width));
         aggregate.enable_steady_tick(Duration::from_millis(80));
 
         let packages = plan
@@ -79,7 +86,7 @@ impl TerminalBuildProgress {
             heading,
             aggregate,
             packages,
-            artifact_column_width,
+            subject_column_width,
             path_column_width,
             messages,
             verbose,
@@ -91,39 +98,40 @@ impl TerminalBuildProgress {
             return;
         };
 
-        if package.started() {
+        let started = package.start(|| {
+            let bar = self
+                .progress
+                .insert_before(&self.aggregate, ProgressBar::new(package.plan.units()));
+
+            bar.set_style(active_progress_style(
+                self.messages,
+                BuildProgressLineKind::Package,
+                padded(package.plan.path(), self.path_column_width),
+                "{spinner:.cyan.bold}",
+                "cyan",
+            ));
+
+            bar.set_prefix(
+                self.messages
+                    .operation(BuildProgressOperation::Compiling),
+            );
+
+            bar.set_message(padded(
+                package.plan.identity(),
+                self.subject_column_width,
+            ));
+
+            bar.enable_steady_tick(Duration::from_millis(80));
+
+            bar
+        });
+
+        if !started || !self.verbose {
             return;
         }
 
-        let bar = self
-            .progress
-            .insert_before(&self.aggregate, ProgressBar::new(package.plan.units()));
-
-        bar.set_style(active_package_style(self.messages));
-
-        bar.set_prefix(padded_subject(
-            self.messages.render(BuildProgressMessage::Compiling),
-            package.plan.identity(),
-            self.artifact_column_width,
-        ));
-
-        bar.set_message(padded_path(package.plan.path(), self.path_column_width));
-        bar.enable_steady_tick(Duration::from_millis(80));
-
-        package.start(bar);
-
-        if self.verbose {
-            let detail = match package.plan.action() {
-                BuildProgressAction::CheckInterface => self
-                    .messages
-                    .render(BuildProgressMessage::CheckingInterface),
-                BuildProgressAction::ProduceArtifacts => self
-                    .messages
-                    .render(BuildProgressMessage::ProducingArtifacts),
-            };
-
-            let _ = self.progress.println(format!("      {detail}"));
-        }
+        let detail = self.messages.action(message_action(package.plan.action()));
+        let _ = self.progress.println(format!("      {detail}"));
     }
 
     pub(super) fn finish_package(&self, identity: &str, status: BuildProgressStatus) {
@@ -135,27 +143,21 @@ impl TerminalBuildProgress {
             return;
         };
 
-        match status {
-            BuildProgressStatus::Complete => {
-                bar.set_position(package.plan.units());
-                bar.set_style(finished_package_style(self.messages, true));
-
-                bar.set_prefix(padded_subject(
-                    self.messages.render(BuildProgressMessage::Compiled),
-                    package.plan.identity(),
-                    self.artifact_column_width,
-                ));
-            }
-            BuildProgressStatus::Failed => {
-                bar.set_style(finished_package_style(self.messages, false));
-
-                bar.set_prefix(padded_subject(
-                    self.messages.render(BuildProgressMessage::Failed),
-                    package.plan.identity(),
-                    self.artifact_column_width,
-                ));
-            }
+        if status == BuildProgressStatus::Complete {
+            bar.set_position(package.plan.units());
         }
+
+        bar.set_style(finished_progress_style(
+            self.messages,
+            BuildProgressLineKind::Package,
+            padded(package.plan.path(), self.path_column_width),
+            status,
+        ));
+
+        bar.set_prefix(self.messages.operation(status_operation(
+            status,
+            BuildProgressOperation::Compiled,
+        )));
 
         bar.finish();
     }
@@ -179,33 +181,21 @@ impl TerminalBuildProgress {
     pub(super) fn finish(&self, plan: &BuildProgressPlan, status: BuildProgressStatus) {
         self.aggregate.disable_steady_tick();
 
-        self.aggregate
-            .set_message(padded_path(plan.output_path(), self.path_column_width));
-
-        match status {
-            BuildProgressStatus::Complete => {
-                self.aggregate.set_position(plan.total_units());
-
-                self.aggregate
-                    .set_style(finished_product_style(self.messages, true));
-
-                self.aggregate.set_prefix(padded_subject(
-                    self.messages.render(BuildProgressMessage::Finished),
-                    plan.artifact(),
-                    self.artifact_column_width,
-                ));
-            }
-            BuildProgressStatus::Failed => {
-                self.aggregate
-                    .set_style(finished_product_style(self.messages, false));
-
-                self.aggregate.set_prefix(padded_subject(
-                    self.messages.render(BuildProgressMessage::Failed),
-                    plan.artifact(),
-                    self.artifact_column_width,
-                ));
-            }
+        if status == BuildProgressStatus::Complete {
+            self.aggregate.set_position(plan.total_units());
         }
+
+        self.aggregate.set_style(finished_progress_style(
+            self.messages,
+            BuildProgressLineKind::FinishedProduct,
+            padded(plan.output_path(), self.path_column_width),
+            status,
+        ));
+
+        self.aggregate.set_prefix(self.messages.operation(status_operation(
+            status,
+            BuildProgressOperation::Finished,
+        )));
 
         self.aggregate.finish();
         self.heading.finish();
@@ -225,17 +215,16 @@ impl PackageTerminalProgress {
         }
     }
 
-    fn started(&self) -> bool {
-        self.bar
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .is_some()
-    }
-
-    fn start(&self, bar: ProgressBar) {
+    fn start(&self, create: impl FnOnce() -> ProgressBar) -> bool {
         let mut current = self.bar.lock().unwrap_or_else(|error| error.into_inner());
 
-        *current = Some(bar);
+        if current.is_some() {
+            return false;
+        }
+
+        *current = Some(create());
+
+        true
     }
 
     fn bar(&self) -> Option<ProgressBar> {
@@ -246,67 +235,80 @@ impl PackageTerminalProgress {
     }
 }
 
-fn active_package_style(messages: BuildProgressMessageRenderer) -> ProgressStyle {
-    progress_style(&format!(
-        "   {{spinner:.cyan.bold}} {{prefix:.cyan.bold}} {{msg}} {{pos:>4}}/{{len:<4}} {} {{elapsed_ms:.dim}}",
-        messages.render(BuildProgressMessage::Units)
-    ))
-    .tick_strings(&["◐", "◓", "◑", "◒"])
-    .with_key("elapsed_ms", elapsed_milliseconds)
+fn active_progress_style(
+    messages: BuildProgressMessageRenderer,
+    kind: BuildProgressLineKind,
+    path: String,
+    marker: &str,
+    color: &str,
+) -> ProgressStyle {
+    line_style(messages, kind, path, marker, color)
+        .tick_strings(&["◐", "◓", "◑", "◒"])
+        .progress_chars("━╸ ")
 }
 
-fn finished_package_style(messages: BuildProgressMessageRenderer, success: bool) -> ProgressStyle {
-    let status = if success {
-        BuildProgressStatus::Complete
-    } else {
-        BuildProgressStatus::Failed
-    };
-
-    let marker = status_marker(status);
-    let color = status_color(status);
-
-    progress_style(&format!(
-        "   {marker} {{prefix:.{color}.bold}} {{msg}} {{pos:>4}}/{{len:<4}} {} {{elapsed_ms:.dim}}",
-        messages.render(BuildProgressMessage::Units),
-        marker = marker,
-        color = color
-    ))
-    .with_key("elapsed_ms", elapsed_milliseconds)
+fn finished_progress_style(
+    messages: BuildProgressMessageRenderer,
+    kind: BuildProgressLineKind,
+    path: String,
+    status: BuildProgressStatus,
+) -> ProgressStyle {
+    line_style(
+        messages,
+        kind,
+        path,
+        status_marker(status),
+        status_color(status),
+    )
 }
 
-fn active_product_style(messages: BuildProgressMessageRenderer) -> ProgressStyle {
-    progress_style(&format!(
-        "   {{spinner:.white}} {{prefix:.cyan.bold}} {{bar:20.cyan/dim}} {{percent:>3}}% {{pos:>4}}/{{len:<4}} {} {{elapsed_ms:.dim}}",
-        messages.render(BuildProgressMessage::Units)
-    ))
-    .tick_strings(&["○"])
-    .progress_chars("━╸ ")
-    .with_key("elapsed_ms", elapsed_milliseconds)
+fn line_style(
+    messages: BuildProgressMessageRenderer,
+    kind: BuildProgressLineKind,
+    path: String,
+    marker: &str,
+    color: &str,
+) -> ProgressStyle {
+    let fields = messages
+        .fields(kind)
+        .iter()
+        .map(|field| field_template(*field, color))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let template = format!("   {marker} {fields}");
+
+    progress_style(&template)
+        .with_key("path", move |_: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+            let _ = writer.write_str(&path);
+        })
+        .with_key("unit_count", move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+            let _ = writer.write_str(
+                &messages.unit_count(state.pos(), state.len().unwrap_or_default()),
+            );
+        })
+        .with_key("duration", move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+            let _ = writer.write_str(&messages.duration(state.elapsed().as_millis()));
+        })
+        .with_key("percentage", move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+            let percentage = match state.len().unwrap_or_default() {
+                0 => 100,
+                total => state.pos().saturating_mul(100) / total,
+            };
+
+            let _ = writer.write_str(&messages.percentage(percentage));
+        })
 }
 
-fn finished_product_style(messages: BuildProgressMessageRenderer, success: bool) -> ProgressStyle {
-    let status = if success {
-        BuildProgressStatus::Complete
-    } else {
-        BuildProgressStatus::Failed
-    };
-
-    let marker = status_marker(status);
-    let color = status_color(status);
-
-    progress_style(&format!(
-        "   {marker} {{prefix:.{color}.bold}} {{msg}} {{pos:>4}}/{{len:<4}} {} {{elapsed_ms:.dim}}",
-        messages.render(BuildProgressMessage::Units),
-        marker = marker,
-        color = color
-    ))
-    .with_key("elapsed_ms", elapsed_milliseconds)
-}
-
-const fn status_color(status: BuildProgressStatus) -> &'static str {
-    match status {
-        BuildProgressStatus::Complete => "green",
-        BuildProgressStatus::Failed => "red",
+fn field_template(field: BuildProgressField, color: &str) -> String {
+    match field {
+        BuildProgressField::Operation => format!("{{prefix:.{color}.bold}}"),
+        BuildProgressField::Subject => String::from("{msg}"),
+        BuildProgressField::Path => String::from("{path}"),
+        BuildProgressField::Bar => String::from("{bar:20.cyan/dim}"),
+        BuildProgressField::Percentage => String::from("{percentage}"),
+        BuildProgressField::UnitCount => String::from("{unit_count}"),
+        BuildProgressField::Duration => String::from("{duration:.dim}"),
     }
 }
 
@@ -317,35 +319,68 @@ fn progress_style(template: &str) -> ProgressStyle {
     }
 }
 
-fn elapsed_milliseconds(state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write) {
-    let _ = write!(writer, "{} ms", state.elapsed().as_millis());
+fn padded(value: &str, width: usize) -> String {
+    format!("{value:<width$}")
 }
 
-fn padded_subject(status: &str, subject: &str, subject_width: usize) -> String {
-    format!("{status} {subject:<subject_width$}")
+const fn status_operation(
+    status: BuildProgressStatus,
+    successful: BuildProgressOperation,
+) -> BuildProgressOperation {
+    match status {
+        BuildProgressStatus::Complete => successful,
+        BuildProgressStatus::Failed => BuildProgressOperation::Failed,
+    }
 }
 
-fn padded_path(path: &str, path_width: usize) -> String {
-    format!("{path:<path_width$}")
+const fn status_color(status: BuildProgressStatus) -> &'static str {
+    match status {
+        BuildProgressStatus::Complete => "green",
+        BuildProgressStatus::Failed => "red",
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_messages::BuildProgressMessageRenderer;
+    use bray_messages::{BuildProgressLineKind, BuildProgressMessageRenderer};
 
-    use super::{
-        active_package_style, active_product_style, finished_package_style, finished_product_style,
-    };
+    use super::{active_progress_style, finished_progress_style};
+    use crate::tack::progress::model::BuildProgressStatus;
 
     #[test]
     fn every_terminal_progress_template_is_valid() {
         let messages = BuildProgressMessageRenderer::english();
 
-        let _ = active_package_style(messages);
-        let _ = active_product_style(messages);
-        let _ = finished_package_style(messages, true);
-        let _ = finished_package_style(messages, false);
-        let _ = finished_product_style(messages, true);
-        let _ = finished_product_style(messages, false);
+        let _ = active_progress_style(
+            messages,
+            BuildProgressLineKind::Package,
+            String::from("package"),
+            "{spinner}",
+            "cyan",
+        );
+
+        let _ = active_progress_style(
+            messages,
+            BuildProgressLineKind::ActiveProduct,
+            String::new(),
+            "{spinner}",
+            "cyan",
+        );
+
+        for status in [BuildProgressStatus::Complete, BuildProgressStatus::Failed] {
+            let _ = finished_progress_style(
+                messages,
+                BuildProgressLineKind::Package,
+                String::from("package"),
+                status,
+            );
+
+            let _ = finished_progress_style(
+                messages,
+                BuildProgressLineKind::FinishedProduct,
+                String::from("product"),
+                status,
+            );
+        }
     }
 }

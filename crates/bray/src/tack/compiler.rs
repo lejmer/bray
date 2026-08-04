@@ -261,7 +261,6 @@ impl<'project> ProjectCompiler<'project> {
         progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<ToolOutput, DiagnosticBag> {
         let package = product.identity().package().as_str();
-        let source_units = source_unit_count(product)?;
 
         if let Some(progress) = progress {
             progress.start_package(package);
@@ -324,7 +323,7 @@ impl<'project> ProjectCompiler<'project> {
         if let Some(progress) = progress {
             progress.finish_package_work(
                 package,
-                source_units,
+                1,
                 output.as_ref().is_ok_and(ToolOutput::success),
             );
         }
@@ -387,10 +386,8 @@ impl<'project> ProjectCompiler<'project> {
                     continue;
                 }
 
-                let source_units = source_unit_count(candidate)?;
-
                 units = units
-                    .checked_add(source_units)
+                    .checked_add(1)
                     .ok_or_else(|| operation_diagnostics("workflow_unit_count"))?;
 
                 if is_root {
@@ -525,11 +522,6 @@ fn display_path(path: &Path, workspace_root: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
-}
-
-fn source_unit_count(product: &ProjectProduct) -> Result<u64, DiagnosticBag> {
-    u64::try_from(product.sources().len())
-        .map_err(|_| operation_diagnostics("workflow_unit_count"))
 }
 
 struct DependencyArtifact {

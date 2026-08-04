@@ -66,7 +66,7 @@ another configuration. Check and semantic inspection remain configuration-indepe
 
 Text-mode build workflows present the selected package product and configuration first, followed
 by one stable line for every package that performs compiler work. A package line carries its
-package identity, workspace-relative path, completed and total selected source units, and elapsed
+package identity, workspace-relative path, completed and total compiler invocations, and elapsed
 time. Interactive terminals update those lines in place through coordinated spinners and progress
 bars. Redirected output emits only the final package summaries and therefore contains no terminal
 control sequences or repeated transient states.
@@ -78,9 +78,9 @@ for each package without changing the underlying work. All visible vocabulary is
 
 ```text
 Building hello_world/application [debug]
-   ✓ Compiled std               toolchain/standard-library    12/12 units  128 ms
-   ✓ Compiled hello_world       examples/hello_world            3/3 units   94 ms
-   ✓ Finished application.exe   build/native/debug/           15/15 units  247 ms
+   ✓ Compiled std               toolchain/standard-library      1/1 units  128 ms
+   ✓ Compiled hello_world       examples/hello_world            1/1 units   94 ms
+   ✓ Finished application.exe   build/native/debug/             2/2 units  247 ms
 ```
 
 JSON output carries the same workflow facts as structured data rather than terminal-rendered

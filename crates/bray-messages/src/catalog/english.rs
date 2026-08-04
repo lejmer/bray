@@ -6,7 +6,12 @@ mod label;
 mod language_server;
 
 pub(crate) use argument::{format_source_location, format_source_span, format_value};
-pub(crate) use build_progress::message as build_progress_message;
+pub(crate) use build_progress::{
+    action as build_progress_action, duration as build_progress_duration,
+    fields as build_progress_fields, heading as build_progress_heading,
+    operation as build_progress_operation, percentage as build_progress_percentage,
+    unit_count as build_progress_unit_count,
+};
 pub(crate) use diagnostics::{
     diagnostic_template, note_heading, note_kind, note_template, severity_label,
 };

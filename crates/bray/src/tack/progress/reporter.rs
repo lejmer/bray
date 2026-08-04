@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use bray_messages::{BuildProgressMessage, BuildProgressMessageRenderer};
+use bray_messages::{
+    BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation,
+};
 use bray_tooling::{OutputFormat, write_diagnostic_groups};
 
 use super::model::{
@@ -10,7 +12,9 @@ use super::model::{
     PackageProgressReport,
 };
 use super::terminal::TerminalBuildProgress;
-use super::text::{configuration_text, max_column_width, status_marker};
+use super::text::{
+    max_column_width, message_action, message_configuration, render_line, status_marker,
+};
 use crate::tack::result::TackRunResult;
 
 pub(crate) struct WorkflowProgress {
@@ -57,7 +61,7 @@ impl WorkflowProgress {
         match result.output_format() {
             OutputFormat::Text if self.interactive => Ok(()),
             OutputFormat::Text => {
-                result.prepend_stderr(&render_plain(&reports));
+                result.prepend_stderr(&render_plain(&reports, self.verbose));
 
                 Ok(())
             }
@@ -247,18 +251,17 @@ impl Drop for BuildProgressSession<'_> {
     }
 }
 
-fn render_plain(reports: &[BuildProgressReport]) -> String {
+fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
     let messages = BuildProgressMessageRenderer::english();
     let mut output = String::new();
 
     for report in reports {
-        let heading = messages.render(BuildProgressMessage::Building);
-
-        output.push_str(&format!(
-            "{heading} {} [{}]\n",
+        output.push_str(&messages.heading(
             report.product(),
-            configuration_text(messages, report.configuration())
+            message_configuration(report.configuration()),
         ));
+
+        output.push('\n');
 
         let subject_width = max_column_width(
             report
@@ -277,37 +280,60 @@ fn render_plain(reports: &[BuildProgressReport]) -> String {
         );
 
         for package in report.packages() {
-            let status = match package.status() {
-                BuildProgressStatus::Complete => messages.render(BuildProgressMessage::Compiled),
-                BuildProgressStatus::Failed => messages.render(BuildProgressMessage::Failed),
+            let operation = match package.status() {
+                BuildProgressStatus::Complete => BuildProgressOperation::Compiled,
+                BuildProgressStatus::Failed => BuildProgressOperation::Failed,
             };
 
-            output.push_str(&format!(
-                "   {} {status} {:<subject_width$} {:<path_width$} {}/{} {} {} ms\n",
-                status_marker(package.status()),
-                package.package(),
-                package.path(),
+            let subject = format!("{:<subject_width$}", package.package());
+            let path = format!("{:<path_width$}", package.path());
+
+            let line = render_line(
+                messages,
+                BuildProgressLineKind::Package,
+                operation,
+                &subject,
+                &path,
                 package.completed_units(),
                 package.total_units(),
-                messages.render(BuildProgressMessage::Units),
-                package.duration_milliseconds(),
+                u128::from(package.duration_milliseconds()),
+            );
+
+            output.push_str(&format!(
+                "   {} {line}\n",
+                status_marker(package.status())
             ));
+
+            if verbose {
+                output.push_str(&format!(
+                    "      {}\n",
+                    messages.action(message_action(package.action()))
+                ));
+            }
         }
 
-        let status = match report.status() {
-            BuildProgressStatus::Complete => messages.render(BuildProgressMessage::Finished),
-            BuildProgressStatus::Failed => messages.render(BuildProgressMessage::Failed),
+        let operation = match report.status() {
+            BuildProgressStatus::Complete => BuildProgressOperation::Finished,
+            BuildProgressStatus::Failed => BuildProgressOperation::Failed,
         };
 
-        output.push_str(&format!(
-            "   {} {status} {:<subject_width$} {:<path_width$} {}/{} {} {} ms\n",
-            status_marker(report.status()),
-            report.artifact(),
-            report.output_path(),
+        let subject = format!("{:<subject_width$}", report.artifact());
+        let path = format!("{:<path_width$}", report.output_path());
+
+        let line = render_line(
+            messages,
+            BuildProgressLineKind::FinishedProduct,
+            operation,
+            &subject,
+            &path,
             report.completed_units(),
             report.total_units(),
-            messages.render(BuildProgressMessage::Units),
-            report.duration_milliseconds(),
+            u128::from(report.duration_milliseconds()),
+        );
+
+        output.push_str(&format!(
+            "   {} {line}\n",
+            status_marker(report.status())
         ));
     }
 
@@ -450,6 +476,25 @@ mod tests {
         assert!(lines[1].starts_with("   ✓ Compiled std"));
         assert!(lines[2].starts_with("   ✓ Compiled hello_world"));
         assert!(lines[3].starts_with("   ✓ Finished application.exe"));
+    }
+
+    #[test]
+    fn noninteractive_verbose_progress_retains_compiler_action_detail() {
+        let progress = WorkflowProgress::new(false, true);
+        let session = progress.begin(plan());
+
+        session.start_package("std");
+        session.finish_package_work("std", 12, true);
+        session.finish(true);
+
+        let mut result = TackRunResult::new(
+            std::process::ExitCode::SUCCESS,
+            DiagnosticBag::new(),
+            OutputFormat::Text,
+        );
+
+        assert_eq!(progress.write_to_result(&mut result), Ok(()));
+        assert!(result.stderr().contains("Checking dependency interface"));
     }
 
     #[test]
