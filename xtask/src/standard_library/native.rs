@@ -2,7 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use bray_base::is_lowercase_hex;
+use bray_symbols::TestExecutionConstraint;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+use bray_test_protocol::decode_test_catalog;
 use serde::Deserialize;
 
 use super::command::BuildError;
@@ -51,6 +54,8 @@ fn audit_standard_product(
     toolchain: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
+    // TODO(BRA-348): Cover owned buffers, sinks, buffering, and repeated stream access
+    // once imported standard-library lifecycle execution terminates reliably.
     let sequential = run_tests(
         root,
         workspace,
@@ -70,6 +75,8 @@ fn audit_standard_product(
     let catalog = product_artifact(workspace, target, STANDARD_PRODUCT, Artifact::Catalog)?;
     let sequential_executable = read_artifact(&executable)?;
     let sequential_catalog = read_artifact(&catalog)?;
+
+    require_serial_metadata(&sequential_catalog)?;
 
     let parallel = run_tests(
         root,
@@ -136,66 +143,97 @@ fn audit_outcomes(
     toolchain: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
+    let cases = [
+        OutcomeCase::new("assertion_failure", OutcomeExpectation::Assertion),
+        OutcomeCase::new("explicit_failure", OutcomeExpectation::Explicit),
+        OutcomeCase::new("panic_failure", OutcomeExpectation::Panic),
+        OutcomeCase::new("recoverable_error", OutcomeExpectation::ReturnedError),
+        OutcomeCase::timed(
+            "timeout_observes_cancellation",
+            OutcomeExpectation::TimedOut,
+        ),
+        OutcomeCase::timed(
+            "timeout_requires_forced_termination",
+            OutcomeExpectation::ForcedTermination,
+        ),
+    ];
+
+    for case in cases {
+        audit_outcome(root, workspace, toolchain, target, case)?;
+    }
+
+    let catalog = product_artifact(workspace, target, OUTCOME_PRODUCT, Artifact::Catalog)?;
+
+    require_catalog_separation(&read_artifact(&catalog)?)
+}
+
+fn audit_outcome(
+    root: &Path,
+    workspace: &Path,
+    toolchain: &Path,
+    target: NativeTarget,
+    case: OutcomeCase,
+) -> Result<(), BuildError> {
+    let mut arguments = vec!["--sequential"];
+
+    if case.timed {
+        arguments.extend(["--timeout-ms", "100"]);
+    }
+
+    arguments.push(case.identity);
+
     let output = run_tests(
         root,
         workspace,
         toolchain,
         target,
         OUTCOME_PRODUCT,
-        &["--sequential", "--timeout-ms", "100"],
+        &arguments,
     )?;
 
     if output.status.success() {
         return Err(BuildError::conformance(
             "native outcomes",
-            "failure fixtures unexpectedly succeeded",
+            format!("{} unexpectedly succeeded", case.identity),
         ));
     }
 
     let report = parse_report("native outcomes", &output)?;
 
-    require_selection(&report, 5, 5, 0)?;
+    require_product(&report, OUTCOME_PRODUCT)?;
+    require_selection(&report, 6, 1, 5)?;
 
-    let catalog = product_artifact(workspace, target, OUTCOME_PRODUCT, Artifact::Catalog)?;
-
-    require_catalog_separation(&read_artifact(&catalog)?)?;
-
-    let expected = [
-        ("assertion_failure", "assertion_failure"),
-        ("explicit_failure", "explicit_failure"),
-        ("panic_failure", "panicked"),
-        ("recoverable_error", "returned_error"),
-        ("timeout_requires_forced_termination", "forced_termination"),
-    ];
-
-    for (identity, outcome) in expected {
-        let Some(test) = tests(&report)
-            .into_iter()
-            .find(|test| test.identity.ends_with(identity))
-        else {
-            return Err(BuildError::conformance(
-                "native outcomes",
-                format!("missing fixture {identity}"),
-            ));
-        };
-
-        let actual = match &test.outcome {
-            NativeOutcome::InfrastructureFailed { failure } => failure.as_str(),
-            outcome => outcome.kind(),
-        };
-
-        if actual != outcome {
-            return Err(BuildError::conformance(
-                "native outcomes",
-                format!("fixture {identity} reported {actual} instead of {outcome}"),
-            ));
-        }
+    if report.summary.passed != 0 || report.summary.failed != 1 {
+        return Err(BuildError::conformance(
+            "native outcomes",
+            format!("{} did not report one failed test", case.identity),
+        ));
     }
 
-    Ok(())
+    let results = tests(&report);
+
+    let [test] = results.as_slice() else {
+        return Err(BuildError::conformance(
+            "native outcomes",
+            format!("{} did not produce one result", case.identity),
+        ));
+    };
+
+    if !test.identity.ends_with(case.identity) {
+        return Err(BuildError::conformance(
+            "native outcomes",
+            format!("{} selected an unrelated result", case.identity),
+        ));
+    }
+
+    case.expectation.validate(case.identity, &test.outcome)?;
+    require_stream(&test.identity, "stdout", &test.stdout, &[])?;
+
+    require_stream(&test.identity, "stderr", &test.stderr, &[])
 }
 
 fn validate_standard_report(report: &NativeTestReport) -> Result<(), BuildError> {
+    require_product(report, STANDARD_PRODUCT)?;
     require_selection(report, 6, 6, 0)?;
 
     if report.summary.passed != 6 || report.summary.failed != 0 {
@@ -244,13 +282,40 @@ fn validate_standard_report(report: &NativeTestReport) -> Result<(), BuildError>
     Ok(())
 }
 
+fn require_product(report: &NativeTestReport, product: &str) -> Result<(), BuildError> {
+    let [actual] = report.products.as_slice() else {
+        return Err(BuildError::conformance(
+            "native report",
+            "the report did not contain exactly one selected product",
+        ));
+    };
+
+    if report.format != 1
+        || actual.package != PACKAGE_IDENTITY
+        || actual.product != product
+        || !is_lowercase_sha256(&actual.catalog_digest)
+    {
+        return Err(BuildError::conformance(
+            "native report",
+            format!("the {product} report identity or catalog digest is invalid"),
+        ));
+    }
+
+    Ok(())
+}
+
+fn is_lowercase_sha256(value: &str) -> bool {
+    value.len() == 64 && is_lowercase_hex(value)
+}
+
 fn require_stream(
     identity: &str,
     name: &str,
     stream: &NativeStream,
     expected: &[u8],
 ) -> Result<(), BuildError> {
-    if stream.bytes != expected
+    if stream.policy != "captured"
+        || stream.bytes != expected
         || stream.truncated
         || stream.discarded_byte_count != 0
         || stream.failure.is_some()
@@ -320,6 +385,32 @@ fn require_catalog_separation(bytes: &[u8]) -> Result<(), BuildError> {
                 format!("catalog contains source body text {source_message:?}"),
             ));
         }
+    }
+
+    Ok(())
+}
+
+fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
+    let (catalog, _) = decode_test_catalog(bytes).map_err(|error| {
+        BuildError::conformance(
+            "catalog metadata",
+            format!("could not decode native test catalog: {error:?}"),
+        )
+    })?;
+
+    let serial: Vec<_> = catalog
+        .entries()
+        .iter()
+        .filter(|entry| entry.constraint() == TestExecutionConstraint::Serial)
+        .collect();
+
+    if serial.len() != 1
+        || serial[0].identity().declaration().name().as_str() != "string_operations"
+    {
+        return Err(BuildError::conformance(
+            "catalog metadata",
+            "the native catalog did not retain the exact serial test constraint",
+        ));
     }
 
     Ok(())
@@ -485,8 +576,99 @@ enum Artifact {
     Executable,
 }
 
+#[derive(Clone, Copy)]
+struct OutcomeCase {
+    identity: &'static str,
+    expectation: OutcomeExpectation,
+    timed: bool,
+}
+
+impl OutcomeCase {
+    const fn new(identity: &'static str, expectation: OutcomeExpectation) -> Self {
+        Self {
+            identity,
+            expectation,
+            timed: false,
+        }
+    }
+
+    const fn timed(identity: &'static str, expectation: OutcomeExpectation) -> Self {
+        Self {
+            identity,
+            expectation,
+            timed: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum OutcomeExpectation {
+    Assertion,
+    Explicit,
+    Panic,
+    ReturnedError,
+    TimedOut,
+    ForcedTermination,
+}
+
+impl OutcomeExpectation {
+    fn validate(self, identity: &str, outcome: &NativeOutcome) -> Result<(), BuildError> {
+        let valid = match (self, outcome) {
+            (Self::Assertion, NativeOutcome::AssertionFailure { source, message }) => {
+                source.is_valid() && message.as_deref() == Some("expected assertion failure")
+            }
+            (Self::Explicit, NativeOutcome::ExplicitFailure { source, message }) => {
+                source.is_valid() && message == "expected explicit failure"
+            }
+            (
+                Self::Panic,
+                NativeOutcome::Panicked {
+                    cause,
+                    source,
+                    message,
+                },
+            ) => {
+                cause == "message"
+                    && source.is_some_and(NativeSourceAnchor::is_valid)
+                    && message == "expected panic"
+            }
+            (
+                Self::ReturnedError,
+                NativeOutcome::ReturnedError {
+                    error_type,
+                    formatted_value,
+                },
+            ) => is_lowercase_sha256(error_type) && formatted_value.is_none(),
+            (Self::TimedOut, NativeOutcome::TimedOut { nanoseconds }) => {
+                *nanoseconds == 100_000_000
+            }
+            (
+                Self::ForcedTermination,
+                NativeOutcome::InfrastructureFailed {
+                    failure,
+                    detail_code,
+                },
+            ) => failure == "forced_termination" && detail_code.is_none(),
+            _ => false,
+        };
+
+        if !valid {
+            return Err(BuildError::conformance(
+                "native outcomes",
+                format!(
+                    "{identity} produced an invalid {} payload: {outcome:?}",
+                    outcome.kind()
+                ),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 struct NativeTestReport {
+    format: u32,
     selection: NativeSelection,
     products: Vec<NativeProductReport>,
     summary: NativeSummary,
@@ -507,6 +689,9 @@ struct NativeSummary {
 
 #[derive(Deserialize)]
 struct NativeProductReport {
+    package: String,
+    product: String,
+    catalog_digest: String,
     tests: Vec<NativeTestResult>,
 }
 
@@ -518,29 +703,64 @@ struct NativeTestResult {
     stderr: NativeStream,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum NativeOutcome {
     Passed,
-    ReturnedError,
-    ExplicitFailure,
-    AssertionFailure,
-    Panicked,
-    TimedOut,
-    Cancelled,
-    InfrastructureFailed { failure: String },
+    ReturnedError {
+        error_type: String,
+        formatted_value: Option<String>,
+    },
+    ExplicitFailure {
+        source: NativeSourceAnchor,
+        message: String,
+    },
+    AssertionFailure {
+        source: NativeSourceAnchor,
+        message: Option<String>,
+    },
+    Panicked {
+        cause: String,
+        source: Option<NativeSourceAnchor>,
+        message: String,
+    },
+    TimedOut {
+        nanoseconds: u64,
+    },
+    Cancelled {
+        #[serde(rename = "source")]
+        _source: String,
+    },
+    InfrastructureFailed {
+        failure: String,
+        detail_code: Option<u64>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+struct NativeSourceAnchor {
+    source: u32,
+    start: u32,
+    end: u32,
+    version: u64,
+}
+
+impl NativeSourceAnchor {
+    const fn is_valid(self) -> bool {
+        self.source == 0 && self.start < self.end && self.version == 0
+    }
 }
 
 impl NativeOutcome {
     const fn kind(&self) -> &'static str {
         match self {
             Self::Passed => "passed",
-            Self::ReturnedError => "returned_error",
-            Self::ExplicitFailure => "explicit_failure",
-            Self::AssertionFailure => "assertion_failure",
-            Self::Panicked => "panicked",
-            Self::TimedOut => "timed_out",
-            Self::Cancelled => "cancelled",
+            Self::ReturnedError { .. } => "returned_error",
+            Self::ExplicitFailure { .. } => "explicit_failure",
+            Self::AssertionFailure { .. } => "assertion_failure",
+            Self::Panicked { .. } => "panicked",
+            Self::TimedOut { .. } => "timed_out",
+            Self::Cancelled { .. } => "cancelled",
             Self::InfrastructureFailed { .. } => "infrastructure_failed",
         }
     }
@@ -548,6 +768,7 @@ impl NativeOutcome {
 
 #[derive(Deserialize)]
 struct NativeStream {
+    policy: String,
     bytes: Vec<u8>,
     truncated: bool,
     discarded_byte_count: u64,

@@ -1,5 +1,6 @@
 module bray.standard_library_conformance.outcomes;
 
+using std.run;
 using std.string;
 using std.testing;
 
@@ -47,5 +48,14 @@ func timeout_requires_forced_termination()
 {
     while true
     {
+    }
+}
+
+@test
+func timeout_observes_cancellation()
+{
+    while true
+    {
+        std.run.checkpoint();
     }
 }

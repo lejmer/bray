@@ -21,6 +21,7 @@ bray-source = { path = "../crates/bray-source" }
 bray-standard-library = { path = "../crates/bray-standard-library" }
 bray-symbols = { path = "../crates/bray-symbols" }
 bray-target = { path = "../crates/bray-target" }
+bray-test-protocol = { path = "../crates/bray-test-protocol" }
 bray-tooling = { path = "../crates/bray-tooling" }
 rust-style = { path = "../tools/rust-style" }
 quote = "1"

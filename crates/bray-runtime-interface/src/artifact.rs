@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, shared_slice};
+use bray_base::{NonEmptySharedStr, is_lowercase_hex, shared_slice};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
@@ -45,11 +45,7 @@ impl RuntimeArtifactDigest {
     }
 
     fn from_hex(value: &str) -> Option<Self> {
-        if value.len() != 64
-            || !value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
+        if value.len() != 64 || !is_lowercase_hex(value) {
             return None;
         }
 
