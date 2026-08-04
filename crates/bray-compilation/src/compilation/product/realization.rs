@@ -2237,7 +2237,7 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         match data.as_ref() {
-            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
+            TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
                 let substitution =
                     substitution_for_owner(values, definition.into_any(), [substitution])?;
 
@@ -2490,7 +2490,7 @@ impl Compilation {
             TypeData::TraitView(_) => {
                 CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::UnsizedTraitView)
             }
-            TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
+            TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
                 let mut candidates = mappings.values().filter(|mapping| {
                     values.type_data(mapping.ty()).is_ok_and(|data| {
                         matches!(
@@ -2522,8 +2522,8 @@ impl Compilation {
             TypeData::Error
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(
-                bray_symbols::SelfTypeContext::Trait(_)
-                | bray_symbols::SelfTypeContext::Implementation(_),
+                SelfTypeContext::Trait(_)
+                | SelfTypeContext::Implementation(_),
             )
             | TypeData::TypeValuedMemberProjection { .. } => {
                 return Err(CodegenFactError::UnresolvedType(ty));
