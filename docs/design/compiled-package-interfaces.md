@@ -323,6 +323,10 @@ select different public surfaces and dependencies.
 Executable and test products do not become importable merely because the compiler can describe their symbols. Any future tooling
 snapshot for those products is a different artifact contract.
 
+Test products publish a bounded test catalog beside their native host. The catalog contains checked entry identities and runner
+metadata but no importable declaration surface. Its host identity and digest bind it to one emitted test product, and its format is
+owned by the testing protocol rather than the compiled-package-interface codec.
+
 ### Exported Symbol Graph
 
 The exported symbol graph contains:

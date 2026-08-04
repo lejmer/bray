@@ -783,6 +783,11 @@ Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and co
 Private runtime ABI contracts belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime.
 Executable and test products select one target-specific runtime before code generation and linking.
 
+Test products additionally publish a native test host and immutable test catalog derived from checked product facts. Bray Tack
+discovers and filters tests from that catalog without reparsing source, then communicates with the host through the bounded
+[testing protocol](testing.md). The protocol keeps runner control separate from per-test stdout and stderr so sequential and bounded
+parallel execution share one capture, cancellation, timeout, cleanup, and reporting model.
+
 Standard-library bundle manifests and configured roots follow `docs/design/standard-library.md`. Project loading supplies the
 explicit root and compilation demand-resolves only the interface and target artifacts required by the current request. Compilation
 does not search for an installation, acquire packages, or eagerly load every bundled artifact.
