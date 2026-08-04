@@ -18,7 +18,8 @@ const _: () = assert!(
         && char::UNICODE_VERSION.2 == CHARACTER_UNICODE_DATA_VERSION.2
 );
 
-use crate::current_run_cancellation_observable;
+use crate::current_run_cancellation_requested;
+use crate::root::{is_propagated_cancellation, propagate_current_run_cancellation};
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
@@ -331,6 +332,9 @@ native_export! {
     ) -> NativeRunOutcome {
         match catch_unwind(AssertUnwindSafe(|| callback(destination))) {
             Ok(()) => NativeRunOutcome::new(NativeRunState::COMPLETED, destination),
+            Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
+                NativeRunOutcome::new(NativeRunState::CANCELLED, 0)
+            }
             Err(payload) => payload
                 .downcast_ref::<PropagatedPanicReport>()
                 .map_or_else(
@@ -557,9 +561,15 @@ native_export! {
 
 native_export! {
     pub extern "C" fn bray_runtime_current_run_cancellation_observation_v1() -> u8 {
-        catch_unwind(AssertUnwindSafe(current_run_cancellation_observable))
+        catch_unwind(AssertUnwindSafe(current_run_cancellation_requested))
             .map(u8::from)
             .unwrap_or(0)
+    }
+}
+
+native_export! {
+    pub extern "C-unwind" fn bray_runtime_current_run_cancellation_entry_v1() -> ! {
+        propagate_current_run_cancellation()
     }
 }
 
@@ -1379,6 +1389,14 @@ mod tests {
     }
 
     #[test]
+    fn synchronous_root_boundary_catches_current_run_cancellation() {
+        let outcome = bray_runtime_synchronous_root_execution_v1(propagate_test_cancellation, 0);
+
+        assert_eq!(outcome.state(), NativeRunState::CANCELLED);
+        assert_eq!(outcome.payload(), 0);
+    }
+
+    #[test]
     fn entry_failure_reporting_borrows_the_complete_payload() {
         let payload = 42_i32;
 
@@ -1452,6 +1470,10 @@ mod tests {
         ));
 
         super::bray_runtime_panic_propagation_v1(report)
+    }
+
+    extern "C-unwind" fn propagate_test_cancellation(_: usize) {
+        super::bray_runtime_current_run_cancellation_entry_v1()
     }
 
     extern "C-unwind" fn suspend_and_self_wake(_: usize) -> NativeFrameProgress {

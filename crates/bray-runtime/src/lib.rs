@@ -22,7 +22,8 @@ mod test_support;
 
 pub use cancellation::{CancellationContext, CancellationShield};
 pub use context::{
-    TaskExecutionContext, current_run_cancellation_observable, current_task_execution_context,
+    TaskExecutionContext, current_run_cancellation_observable,
+    current_run_cancellation_requested, current_task_execution_context,
 };
 pub use event::{
     RuntimeEvent, RuntimeEventError, RuntimeEventGeneration, RuntimeEventRegistration,
@@ -30,8 +31,8 @@ pub use event::{
 };
 pub use frame::{
     ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExit, FrameProgress,
-    FrameSuspension, ProtectedFrame, RuntimePanic, SendableProtectedFrame, erase_protected_frame,
-    erase_sendable_protected_frame, resume_direct,
+    FrameSuspension, FrameSuspensionKind, ProtectedFrame, RuntimePanic, SendableProtectedFrame,
+    erase_protected_frame, erase_sendable_protected_frame, resume_direct,
 };
 pub use lane::{
     ExecutionLane, ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,

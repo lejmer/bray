@@ -69,6 +69,18 @@ impl TestFrame {
         )
     }
 
+    pub(crate) fn yielding_then_completing(value: i32) -> Self {
+        Self::sequence(
+            [
+                FrameProgress::Suspended(FrameSuspension::yielding(
+                    ProtectedFrameStateId::new(1),
+                )),
+                FrameProgress::Completed(value),
+            ],
+            2,
+        )
+    }
+
     pub(crate) fn retaining_state(value: i32) -> Self {
         Self {
             descriptor: descriptor_from_states([

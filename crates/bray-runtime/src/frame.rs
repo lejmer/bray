@@ -29,13 +29,39 @@ impl FrameContext {
 /// Checked protected-frame state retained while execution is suspended.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FrameSuspension {
+    kind: FrameSuspensionKind,
     state: ProtectedFrameStateId,
+}
+
+/// Runtime action that caused a protected frame to suspend.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FrameSuspensionKind {
+    /// The frame is waiting for a directly composed child frame.
+    Awaited,
+    /// The frame yielded so another ready task can run.
+    Yield,
 }
 
 impl FrameSuspension {
     /// Creates a suspension at one descriptor-local state.
     pub const fn new(state: ProtectedFrameStateId) -> Self {
-        Self { state }
+        Self {
+            kind: FrameSuspensionKind::Awaited,
+            state,
+        }
+    }
+
+    /// Creates a cooperative-yield suspension.
+    pub const fn yielding(state: ProtectedFrameStateId) -> Self {
+        Self {
+            kind: FrameSuspensionKind::Yield,
+            state,
+        }
+    }
+
+    /// Returns the runtime action that caused the suspension.
+    pub const fn kind(self) -> FrameSuspensionKind {
+        self.kind
     }
 
     /// Returns the descriptor-local suspended state.

@@ -636,6 +636,7 @@ mod tests {
             "StandardStringScalarSlice",
             "StandardStringScalars",
             "StandardStringUtf8",
+            "StandardTaskYieldSupport",
             "StandardTruncateTo",
             "StandardUtf8Error",
             "StandardUtf8ErrorVariant0InvalidEncoding",

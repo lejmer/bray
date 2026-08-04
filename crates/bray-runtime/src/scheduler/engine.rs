@@ -799,8 +799,8 @@ mod tests {
     use super::{Scheduler, SchedulerError, SchedulerLimits};
     use crate::test_support::{TestFrame, register_task};
     use crate::{
-        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ScheduledTaskState,
-        TaskControlBlock, TaskWakeCause,
+        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind,
+        ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
     };
 
     #[test]
@@ -894,6 +894,65 @@ mod tests {
             .unwrap_or_else(|| panic!("second task must be ready"));
 
         assert_eq!(second_ready.task(), second_task.id());
+    }
+
+    #[test]
+    fn cooperative_yield_places_the_current_task_behind_ready_work() {
+        let runtime = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
+
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let yielding = TaskControlBlock::start(TestFrame::yielding_then_completing(1))
+            .unwrap_or_else(|error| panic!("yielding task must start: {error:?}"));
+
+        let ready = TaskControlBlock::start(TestFrame::completing(2))
+            .unwrap_or_else(|error| panic!("ready task must start: {error:?}"));
+
+        let yielding_registration = register_task(&scheduler, &yielding, runtime.runtime().id());
+        let ready_registration = register_task(&scheduler, &ready, runtime.runtime().id());
+
+        yielding_registration
+            .wake_handle()
+            .wake(ProtectedFrameStateId::new(0))
+            .unwrap_or_else(|error| panic!("yielding task must wake: {error:?}"));
+
+        ready_registration
+            .wake_handle()
+            .wake(ProtectedFrameStateId::new(0))
+            .unwrap_or_else(|error| panic!("ready task must wake: {error:?}"));
+
+        let dispatch = scheduler
+            .take_ready(cooperative_lane())
+            .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
+            .unwrap_or_else(|| panic!("yielding task must be ready first"));
+
+        assert_eq!(dispatch.task(), yielding.id());
+
+        let TaskResumeStatus::Suspended(suspension) = yielding
+            .resume()
+            .unwrap_or_else(|error| panic!("yielding task must suspend: {error:?}"))
+        else {
+            panic!("yielding task must suspend");
+        };
+
+        assert_eq!(suspension.kind(), FrameSuspensionKind::Yield);
+
+        dispatch
+            .suspend(suspension)
+            .unwrap_or_else(|error| panic!("yielding task must retain its state: {error:?}"));
+
+        yielding_registration
+            .wake_handle()
+            .wake(suspension.state())
+            .unwrap_or_else(|error| panic!("yielding task must requeue: {error:?}"));
+
+        let next = scheduler
+            .take_ready(cooperative_lane())
+            .unwrap_or_else(|error| panic!("ready queue must remain available: {error:?}"))
+            .unwrap_or_else(|| panic!("ready task must remain queued"));
+
+        assert_eq!(next.task(), ready.id());
     }
 
     #[test]

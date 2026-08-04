@@ -16,5 +16,9 @@ async func checkpoint()
 
 async func yield_now()
 {
+    support_yield();
+
     return unit;
 }
+
+extern internal func support_yield();

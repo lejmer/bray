@@ -207,6 +207,7 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
         MirTerminatorKind::PropagatePanic { report, .. } => {
             collect_operand_value(report, demands);
         }
+        MirTerminatorKind::PropagateCancellation { .. } => {}
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             collect_cleanup_edge_values(cleanup, demands);
         }

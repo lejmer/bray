@@ -157,6 +157,12 @@ impl ProtectedFrame for NativeFrame {
             )));
         }
 
+        if kind == NativeFrameProgressKind::YIELDED {
+            return FrameProgress::Suspended(FrameSuspension::yielding(
+                ProtectedFrameStateId::new(progress.state()),
+            ));
+        }
+
         if kind == NativeFrameProgressKind::COMPLETED {
             let Some(payload) = NativeTerminalPayload::completion(
                 self.abi.completion_size(),

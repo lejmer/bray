@@ -16,9 +16,9 @@ use bray_runtime_interface::{
 use crate::context::with_task_execution_context;
 use crate::{
     CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink, ExecutionLane,
-    ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration, RunOutcome, Scheduler,
-    SchedulerLimits, TaskControlBlock, TaskExecutionContext, TaskObservationError,
-    TaskRegistration, TaskResumeStatus,
+    ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind, JoinWaitRegistration,
+    RunOutcome, Scheduler, SchedulerLimits, TaskControlBlock, TaskExecutionContext,
+    TaskObservationError, TaskRegistration, TaskResumeStatus,
 };
 
 use super::frame::{NativeFrame, NativeTerminalPayload, NativeTerminalState};
@@ -252,12 +252,13 @@ impl NativeRuntime {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
+        // The resume context retains one wake handle while yield publication uses the other.
         let context = TaskExecutionContext::new(
             task.id(),
             ready.state(),
             task.cancellation_context().clone(),
             ready.lane(),
-            wake,
+            wake.clone(),
         );
 
         CURRENT_NATIVE_TASK.with(|current| current.set(Some(handle)));
@@ -273,12 +274,20 @@ impl NativeRuntime {
         match status {
             TaskResumeStatus::Suspended(suspension) => {
                 let state = suspension.state();
+                let kind = suspension.kind();
 
                 if ready.suspend(suspension).is_err() {
                     return NativeRuntimeStatus::RUNTIME_FAILURE;
                 }
 
-                self.register_awaited_wake(handle, state)
+                match kind {
+                    FrameSuspensionKind::Awaited => self.register_awaited_wake(handle, state),
+                    FrameSuspensionKind::Yield => wake
+                        .wake(state)
+                        .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
+                            NativeRuntimeStatus::SUCCESS
+                        }),
+                }
             }
             TaskResumeStatus::Terminal(_) => NativeRuntimeStatus::SUCCESS,
         }

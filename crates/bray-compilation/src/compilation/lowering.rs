@@ -1536,7 +1536,12 @@ mod tests {
             lowered_mir(&checkpoint)
                 .blocks()
                 .iter()
-                .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Unreachable))
+                .any(|block| {
+                    matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::PropagateCancellation { .. }
+                    )
+                })
         );
     }
 
@@ -1563,6 +1568,21 @@ mod tests {
             lowered_mir(&lowered).kind(),
             bray_ir::MirUnitKind::ProtectedAsyncFrame(_)
         ));
+
+        assert_eq!(
+            implementation_hooks(&compilation, "yield_now"),
+            [ImplementationHook::TaskYield]
+        );
+
+        assert!(lowered_mir(&lowered).blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend {
+                    kind: bray_ir::MirSuspensionKind::Yield,
+                    ..
+                }
+            )
+        }));
     }
 
     fn standard_text_compilation(additional_sources: &[&str]) -> Compilation {

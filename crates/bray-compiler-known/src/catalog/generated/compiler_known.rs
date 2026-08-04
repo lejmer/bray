@@ -11,7 +11,7 @@ use crate::{AvailabilityRule, CompilerKnownIterationRole, CompilerKnownOperation
 // rust-style: allow(wildcard-import, reason = "the generated catalog references a machine-generated symbol inventory")
 use super::super::*;
 
-pub const CATALOG_SOURCE_DIGEST: &str = "edcd3260828f5b4abc8879fc6de9fb547abc9fc3f4077580fb0c0523bf919396";
+pub const CATALOG_SOURCE_DIGEST: &str = "8707e75d8c5251150d0e62c8ef633ba9b35709150e7ccd679cc4b11a46a47fcd";
 
 static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
     CompilerKnownScopeDescriptor {
@@ -2309,7 +2309,7 @@ static RECOGNIZED_SCOPES: &[RecognizedStandardLibraryScopeDescriptor] = &[
         id: RecognizedStandardLibraryScopeId::new(2),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRoot"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(7), RecognizedStandardLibraryDeclarationId::new(53), RecognizedStandardLibraryDeclarationId::new(54), RecognizedStandardLibraryDeclarationId::new(62), RecognizedStandardLibraryDeclarationId::new(74), RecognizedStandardLibraryDeclarationId::new(77)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(7), RecognizedStandardLibraryDeclarationId::new(53), RecognizedStandardLibraryDeclarationId::new(54), RecognizedStandardLibraryDeclarationId::new(62), RecognizedStandardLibraryDeclarationId::new(75), RecognizedStandardLibraryDeclarationId::new(78)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(3),
@@ -2321,7 +2321,13 @@ static RECOGNIZED_SCOPES: &[RecognizedStandardLibraryScopeDescriptor] = &[
         id: RecognizedStandardLibraryScopeId::new(4),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardString"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("string")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(63), RecognizedStandardLibraryDeclarationId::new(64), RecognizedStandardLibraryDeclarationId::new(66), RecognizedStandardLibraryDeclarationId::new(67), RecognizedStandardLibraryDeclarationId::new(68), RecognizedStandardLibraryDeclarationId::new(69), RecognizedStandardLibraryDeclarationId::new(70), RecognizedStandardLibraryDeclarationId::new(71), RecognizedStandardLibraryDeclarationId::new(72), RecognizedStandardLibraryDeclarationId::new(73), RecognizedStandardLibraryDeclarationId::new(75)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(63), RecognizedStandardLibraryDeclarationId::new(64), RecognizedStandardLibraryDeclarationId::new(66), RecognizedStandardLibraryDeclarationId::new(67), RecognizedStandardLibraryDeclarationId::new(68), RecognizedStandardLibraryDeclarationId::new(69), RecognizedStandardLibraryDeclarationId::new(70), RecognizedStandardLibraryDeclarationId::new(71), RecognizedStandardLibraryDeclarationId::new(72), RecognizedStandardLibraryDeclarationId::new(73), RecognizedStandardLibraryDeclarationId::new(76)]),
+    },
+    RecognizedStandardLibraryScopeDescriptor {
+        id: RecognizedStandardLibraryScopeId::new(5),
+        key: RecognizedStandardLibraryScopeKey::from_static("StandardTask"),
+        path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("task")]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(74)]),
     },
 ];
 
@@ -3068,6 +3074,16 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
     },
     RecognizedStandardLibraryDeclarationDescriptor {
         id: RecognizedStandardLibraryDeclarationId::new(74),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTaskYieldSupport"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("support_yield"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(719), TextSize::new(751)) }),
+        implementation_hook: Some(ImplementationHook::TaskYield),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(75),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTruncateTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("truncate_to"),
@@ -3077,7 +3093,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(75),
+        id: RecognizedStandardLibraryDeclarationId::new(76),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardUtf8Error"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(4)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("Utf8Error"),
@@ -3087,9 +3103,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(76),
+        id: RecognizedStandardLibraryDeclarationId::new(77),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardUtf8ErrorVariant0InvalidEncoding"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(75)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(76)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(0),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(329), TextSize::new(347)) }),
@@ -3097,7 +3113,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(77),
+        id: RecognizedStandardLibraryDeclarationId::new(78),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardWrapTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("wrap_to"),
@@ -4498,6 +4514,11 @@ static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(497), TextSize::new(542)) }),
         kind: CatalogDeclarationKind::Function,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "support_enter_cancellation")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(719), TextSize::new(751)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "support_yield")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(143), TextSize::new(179)) }),

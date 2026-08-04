@@ -117,6 +117,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTerminatorKind::PropagatePanic { report, runtime } => {
                 self.translate_panic_propagation(report, *runtime)?;
             }
+            MirTerminatorKind::PropagateCancellation { runtime } => {
+                self.clear_moved_places()?;
+                self.invoke_runtime(*runtime, &[])?;
+                llvm(self.builder.build_unreachable())?;
+            }
             MirTerminatorKind::PatternBranch {
                 subject,
                 predicate,
@@ -149,61 +154,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_iteration(cursor, *next, *element_type, *item, exhausted)?;
             }
             MirTerminatorKind::Suspend {
+                kind,
                 resume_state,
                 registration,
                 wake,
                 ..
             } => {
-                if let Some(frame_context) = self.frame_context {
-                    let context = self.frame_context_argument()?;
-
-                    let pointer = llvm(
-                        self.builder.build_int_to_ptr(
-                            context,
-                            self.types
-                                .context()
-                                .ptr_type(inkwell::AddressSpace::default()),
-                            "frame.context",
-                        ),
-                    )?;
-
-                    let state_pointer = llvm(self.builder.build_struct_gep(
-                        frame_context,
-                        pointer,
-                        0,
-                        "frame.state.pointer",
-                    ))?;
-
-                    let state = self
-                        .types
-                        .context()
-                        .i32_type()
-                        .const_int(u64::from(resume_state.raw()), false);
-
-                    llvm(self.builder.build_store(state_pointer, state))?;
-
-                    let progress = crate::native::frame_progress_type(self.types.context())
-                        .const_named_struct(&[
-                            self.types.context().i32_type().const_zero().into(),
-                            state.into(),
-                            self.types.context().i64_type().const_zero().into(),
-                        ]);
-
-                    self.return_frame_progress(progress.into())?;
-
-                    return Ok(());
-                }
-
-                self.runtime_function_pointer(*wake)?;
-
-                let state =
-                    self.runtime_integer_argument(*registration, 0, u64::from(resume_state.raw()))?;
-
-                let outcome = self
-                    .invoke_runtime(*registration, &[state])?
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                self.return_machine_value(outcome)?;
+                self.translate_suspension(*kind, *resume_state, *registration, *wake)?;
             }
             MirTerminatorKind::ForwardRunResult { result, edges } => {
                 let result_type = self.operand_type(result)?;
@@ -239,6 +196,77 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(())
+    }
+
+    fn translate_suspension(
+        &mut self,
+        kind: bray_ir::MirSuspensionKind,
+        resume_state: bray_ir::MirFrameStateId,
+        registration: bray_ir::MirRuntimeReference,
+        wake: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        if let Some(frame_context) = self.frame_context {
+            let context = self.frame_context_argument()?;
+
+            let pointer = llvm(
+                self.builder.build_int_to_ptr(
+                    context,
+                    self.types
+                        .context()
+                        .ptr_type(inkwell::AddressSpace::default()),
+                    "frame.context",
+                ),
+            )?;
+
+            let state_pointer = llvm(self.builder.build_struct_gep(
+                frame_context,
+                pointer,
+                0,
+                "frame.state.pointer",
+            ))?;
+
+            let state = self
+                .types
+                .context()
+                .i32_type()
+                .const_int(u64::from(resume_state.raw()), false);
+
+            llvm(self.builder.build_store(state_pointer, state))?;
+
+            let progress_kind = match kind {
+                bray_ir::MirSuspensionKind::Awaited => {
+                    bray_runtime_interface::NativeFrameProgressKind::SUSPENDED
+                }
+                bray_ir::MirSuspensionKind::Yield => {
+                    bray_runtime_interface::NativeFrameProgressKind::YIELDED
+                }
+            };
+
+            let progress = crate::native::frame_progress_type(self.types.context())
+                .const_named_struct(&[
+                    self.types
+                        .context()
+                        .i32_type()
+                        .const_int(u64::from(progress_kind.code()), false)
+                        .into(),
+                    state.into(),
+                    self.types.context().i64_type().const_zero().into(),
+                ]);
+
+            self.return_frame_progress(progress.into())?;
+
+            return Ok(());
+        }
+
+        self.runtime_function_pointer(wake)?;
+
+        let state = self.runtime_integer_argument(registration, 0, u64::from(resume_state.raw()))?;
+
+        let outcome = self
+            .invoke_runtime(registration, &[state])?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.return_machine_value(outcome)
     }
 
     fn translate_panic_propagation(

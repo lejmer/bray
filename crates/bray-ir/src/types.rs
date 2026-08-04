@@ -209,6 +209,7 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
         MirTerminatorKind::PropagatePanic { report, .. } => {
             collect_operand_types(report, types);
         }
+        MirTerminatorKind::PropagateCancellation { .. } => {}
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             collect_cleanup_edge_types(cleanup, types);
         }

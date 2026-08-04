@@ -89,6 +89,16 @@ pub fn current_run_cancellation_observable() -> bool {
     })
 }
 
+/// Returns whether cancellation was requested for the current run, including while shielded.
+pub fn current_run_cancellation_requested() -> bool {
+    CURRENT_RUN_CANCELLATION.with(|context| {
+        context
+            .borrow()
+            .as_ref()
+            .is_some_and(|context| context.observation().requested())
+    })
+}
+
 /// Installs one task-local context for the duration of a resume operation.
 pub(crate) fn with_task_execution_context<T>(
     context: TaskExecutionContext,
@@ -159,7 +169,8 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
-        TaskExecutionContext, current_run_cancellation_observable, current_task_execution_context,
+        TaskExecutionContext, current_run_cancellation_observable,
+        current_run_cancellation_requested, current_task_execution_context,
         with_task_execution_context,
     };
     use crate::test_support::TestFrame;
@@ -214,6 +225,7 @@ mod tests {
 
         with_task_execution_context(context, || {
             assert!(!current_run_cancellation_observable());
+            assert!(!current_run_cancellation_requested());
 
             assert_eq!(
                 current_task_execution_context()
@@ -231,6 +243,21 @@ mod tests {
         });
 
         assert!(current_task_execution_context().is_none());
+    }
+
+    #[test]
+    fn requested_state_remains_visible_while_delivery_is_shielded() {
+        let cancellation = CancellationContext::root();
+        let shield = cancellation.shield();
+
+        assert!(cancellation.request());
+
+        super::with_run_cancellation_context(cancellation, || {
+            assert!(!current_run_cancellation_observable());
+            assert!(current_run_cancellation_requested());
+        });
+
+        drop(shield);
     }
 
     fn nonzero(value: usize) -> NonZeroUsize {

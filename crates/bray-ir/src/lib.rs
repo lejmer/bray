@@ -26,7 +26,7 @@ pub use bray_bound_tree::{
 };
 pub use control::{
     MirCleanupEdge, MirCleanupPhase, MirEdge, MirRunResultEdges, MirSwitchCase, MirTerminator,
-    MirTerminatorKind,
+    MirSuspensionKind, MirTerminatorKind,
 };
 pub use frame::{
     MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameStateFacts,

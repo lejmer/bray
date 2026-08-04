@@ -1464,12 +1464,14 @@ fn inspection_terminator(
         }
         MirTerminatorKind::Unreachable => "unreachable",
         MirTerminatorKind::Suspend {
+            kind,
             resume_state,
             resume,
             cancellation,
             registration,
             wake,
         } => {
+            parts.attribute("kind", kind.as_str());
             parts.attribute("resume_state", resume_state.raw());
             parts.attribute("registration_runtime", registration.role().as_str());
 
@@ -1511,6 +1513,7 @@ fn inspection_terminator(
 
             "propagate_panic"
         }
+        MirTerminatorKind::PropagateCancellation { .. } => "propagate_cancellation",
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             parts.cleanup_edge("cleanup", cleanup, &context)?;
 
