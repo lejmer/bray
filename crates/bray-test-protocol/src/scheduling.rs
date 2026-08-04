@@ -41,6 +41,8 @@ pub enum TestExecutionPlanBuildError {
     InvocationCountMismatch,
     /// An invocation does not identify the entry at the same canonical position.
     InvocationIdentityMismatch(TestIdentity),
+    /// More than one selected entry claims the same product-qualified identity.
+    DuplicateIdentity(TestIdentity),
     /// One invocation cannot fit inside the command-wide capture reservation.
     CaptureBudgetExceeded(TestIdentity),
 }
@@ -56,14 +58,32 @@ pub struct TestExecutionPlan {
 
 impl TestExecutionPlan {
     /// Validates selected entries, invocation policies, and the capture budget.
-    pub fn try_new(
-        selection: &TestSelection,
+    pub fn try_new<'a>(
+        selections: impl IntoIterator<Item = &'a TestSelection>,
         invocations: impl IntoIterator<Item = TestInvocationPlan>,
         mode: TestExecutionMode,
         capture_byte_budget: u64,
     ) -> Result<Self, TestExecutionPlanBuildError> {
-        let entries = selection.entries();
-        let invocations = invocations.into_iter().collect::<Vec<_>>();
+        let mut entries = selections
+            .into_iter()
+            .flat_map(TestSelection::entries)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        entries.sort_by(|left, right| left.identity().cmp(right.identity()));
+
+        if let Some(duplicate) = entries
+            .windows(2)
+            .find(|pair| pair[0].identity() == pair[1].identity())
+        {
+            return Err(TestExecutionPlanBuildError::DuplicateIdentity(
+                duplicate[1].identity().clone(),
+            ));
+        }
+
+        let mut invocations = invocations.into_iter().collect::<Vec<_>>();
+
+        invocations.sort_by(|left, right| left.identity().cmp(right.identity()));
 
         if entries.len() != invocations.len() {
             return Err(TestExecutionPlanBuildError::InvocationCountMismatch);
@@ -84,7 +104,7 @@ impl TestExecutionPlan {
         }
 
         Ok(Self {
-            entries: shared_slice(entries.iter().cloned()),
+            entries: shared_slice(entries),
             invocations: shared_slice(invocations),
             mode,
             capture_byte_budget,
@@ -412,14 +432,36 @@ mod tests {
 
     #[test]
     fn serial_entries_are_command_wide_barriers() {
-        let selection = selection([
-            entry("a_first", TestExecutionConstraint::Parallel),
-            entry("b_serial", TestExecutionConstraint::Serial),
-            entry("c_last", TestExecutionConstraint::Parallel),
-        ]);
+        let first_product = product_named("a-tests");
+        let second_product = product_named("b-tests");
 
-        let plan = plan(
-            &selection,
+        let first_selection = selection_for_product(
+            first_product.clone(),
+            [entry_for_product(
+                first_product,
+                "first",
+                TestExecutionConstraint::Parallel,
+            )],
+        );
+
+        let second_selection = selection_for_product(
+            second_product.clone(),
+            [
+                entry_for_product(
+                    second_product.clone(),
+                    "a_serial",
+                    TestExecutionConstraint::Serial,
+                ),
+                entry_for_product(
+                    second_product,
+                    "z_last",
+                    TestExecutionConstraint::Parallel,
+                ),
+            ],
+        );
+
+        let plan = plan_for_selections(
+            [&first_selection, &second_selection],
             TestExecutionMode::Parallel {
                 maximum_concurrency: nonzero(3),
             },
@@ -443,19 +485,35 @@ mod tests {
 
         assert_eq!(
             last.entry().identity().declaration().name().as_str(),
-            "c_last"
+            "z_last"
         );
     }
 
     #[test]
     fn capture_reservations_bound_active_invocations() {
-        let selection = selection([
-            entry("first", TestExecutionConstraint::Parallel),
-            entry("second", TestExecutionConstraint::Parallel),
-        ]);
+        let first_product = product_named("a-tests");
+        let second_product = product_named("b-tests");
 
-        let plan = plan(
-            &selection,
+        let first_selection = selection_for_product(
+            first_product.clone(),
+            [entry_for_product(
+                first_product,
+                "first",
+                TestExecutionConstraint::Parallel,
+            )],
+        );
+
+        let second_selection = selection_for_product(
+            second_product.clone(),
+            [entry_for_product(
+                second_product,
+                "second",
+                TestExecutionConstraint::Parallel,
+            )],
+        );
+
+        let plan = plan_for_selections(
+            [&first_selection, &second_selection],
             TestExecutionMode::Parallel {
                 maximum_concurrency: nonzero(2),
             },
@@ -518,15 +576,32 @@ mod tests {
         mode: TestExecutionMode,
         capture_byte_budget: u64,
     ) -> TestExecutionPlan {
-        let invocations = selection.entries().iter().map(|entry| {
-            TestInvocationPlan::new(
-                entry.identity().clone(),
-                TestTimeoutPolicy::Limit(TestDuration::from_nanoseconds(1_000_000)),
-                TestCapturePolicy::Captured(TestCaptureLimits::new(64, 64)),
-            )
+        plan_for_selections([selection], mode, capture_byte_budget)
+    }
+
+    fn plan_for_selections<'a>(
+        selections: impl IntoIterator<Item = &'a TestSelection>,
+        mode: TestExecutionMode,
+        capture_byte_budget: u64,
+    ) -> TestExecutionPlan {
+        let selections = selections.into_iter().collect::<Vec<_>>();
+
+        let invocations = selections.iter().flat_map(|selection| {
+            selection.entries().iter().map(|entry| {
+                TestInvocationPlan::new(
+                    entry.identity().clone(),
+                    TestTimeoutPolicy::Limit(TestDuration::from_nanoseconds(1_000_000)),
+                    TestCapturePolicy::Captured(TestCaptureLimits::new(64, 64)),
+                )
+            })
         });
 
-        TestExecutionPlan::try_new(selection, invocations, mode, capture_byte_budget)
+        TestExecutionPlan::try_new(
+            selections.iter().copied(),
+            invocations,
+            mode,
+            capture_byte_budget,
+        )
             .unwrap_or_else(|error| panic!("test execution plan must be valid: {error:?}"))
     }
 
@@ -552,6 +627,13 @@ mod tests {
     fn selection(entries: impl IntoIterator<Item = TestEntryMetadata>) -> TestSelection {
         let product = product();
 
+        selection_for_product(product, entries)
+    }
+
+    fn selection_for_product(
+        product: ProductIdentity,
+        entries: impl IntoIterator<Item = TestEntryMetadata>,
+    ) -> TestSelection {
         let catalog = TestCatalog::try_new(product, entries)
             .unwrap_or_else(|error| panic!("test catalog must be valid: {error:?}"));
 
@@ -559,13 +641,21 @@ mod tests {
     }
 
     fn entry(name: &str, constraint: TestExecutionConstraint) -> TestEntryMetadata {
+        entry_for_product(product(), name, constraint)
+    }
+
+    fn entry_for_product(
+        product: ProductIdentity,
+        name: &str,
+        constraint: TestExecutionConstraint,
+    ) -> TestEntryMetadata {
         let module = ModulePathKey::try_new(["example", "tests"])
             .unwrap_or_else(|| panic!("test module path must be valid"));
 
         let name =
             SymbolName::try_new(name).unwrap_or_else(|| panic!("test function name must be valid"));
 
-        let identity = TestIdentity::new(product(), TestDeclarationPath::new(module, name));
+        let identity = TestIdentity::new(product, TestDeclarationPath::new(module, name));
 
         let source = TestSourceAnchor::new(
             SourceSpan::new(
@@ -585,10 +675,14 @@ mod tests {
     }
 
     fn product() -> ProductIdentity {
+        product_named("tests")
+    }
+
+    fn product_named(name: &str) -> ProductIdentity {
         let package = PackageIdentity::try_new("example.tests")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        ProductIdentity::try_new(package, "tests")
+        ProductIdentity::try_new(package, name)
             .unwrap_or_else(|| panic!("test product identity must be valid"))
     }
 
