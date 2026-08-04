@@ -39,6 +39,7 @@ pub struct NativeProductFacts {
     target: CodegenTarget,
     options: CodegenOptions,
     host: Option<ExecutableHostContract>,
+    test_catalog: Option<bray_test_protocol::TestCatalog>,
     link: Option<ProductLinkFacts>,
     units: Arc<[CodegenUnit]>,
     mappings: Arc<[CodegenMappings]>,
@@ -63,6 +64,11 @@ impl NativeProductFacts {
     /// Returns the executable host when the product has a process root.
     pub const fn executable_host(&self) -> Option<&ExecutableHostContract> {
         self.host.as_ref()
+    }
+
+    /// Returns the immutable test catalog published with a native test host.
+    pub const fn test_catalog(&self) -> Option<&bray_test_protocol::TestCatalog> {
+        self.test_catalog.as_ref()
     }
 
     /// Returns native link facts when link planning was requested.
@@ -181,26 +187,50 @@ impl Compilation {
 
         let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
 
-        if semantic.value().kind() == ProductKind::Test {
-            return Err(NativeProductFactError::UnsupportedProductKind(
-                ProductKind::Test,
-            ));
-        }
+        let test_discovery = if semantic.value().kind() == ProductKind::Test {
+            // Discovery owns the product identity used by its independently cached fact key.
+            Some(
+                self.test_discovery_with_cancellation(product.clone(), cancellation)?
+            )
+        } else {
+            None
+        };
 
-        let source_roots = self.product_root_instances(semantic.value(), &target, cancellation)?;
+        let source_roots = self.product_root_instances(
+            semantic.value(),
+            test_discovery.as_deref().map(|discovery| discovery.value()),
+            &target,
+            cancellation,
+        )?;
 
-        let (host, units, mappings) = if source_roots.is_empty() {
+        // Native product facts retain the exact immutable catalog selected for this host.
+        let test_catalog = test_discovery
+            .as_ref()
+            .map(|discovery| discovery.value().catalog().clone());
+
+        let (host, units, mappings) = if source_roots.is_empty()
+            && semantic.value().kind() != ProductKind::Test
+        {
             (None, Arc::from([]), Vec::new())
         } else {
-            let source_reachability =
-                self.codegen_reachability(source_roots.clone(), None, &target, cancellation)?;
+            let source_reachability = if source_roots.is_empty() {
+                None
+            } else {
+                Some(self.codegen_reachability(
+                    source_roots.clone(),
+                    None,
+                    &target,
+                    cancellation,
+                )?)
+            };
 
             let host = self.executable_host(
                 &product,
                 semantic.value().kind(),
-                semantic.value().requires_async_runtime(),
                 &source_roots,
-                source_reachability.graph(),
+                source_reachability
+                    .as_ref()
+                    .map(ConcreteCodegenReachability::graph),
                 runtime.as_ref(),
                 required_capabilities,
                 &target,
@@ -209,16 +239,25 @@ impl Compilation {
 
             let reachability = match host.as_ref() {
                 Some(host) => {
-                    let root = source_roots
-                        .first()
-                        .ok_or(NativeProductFactError::MissingProductRoot)?;
+                    let host_target = source_roots.first().map_or_else(
+                        || {
+                            bray_ir::MirTargetFacts::new(
+                                target.profile().clone(),
+                                self.selected_target().target().runtime_abi(),
+                            )
+                        },
+                        |root| root.key().target().clone(),
+                    );
 
                     let host_mir = bray_lowering::lower_executable_host(
                         bray_lowering::ExecutableHostLoweringInput::new(
                             GENERATED_HOST_UNIT,
-                            bound_template(root.key())?,
+                            source_roots
+                                .iter()
+                                .map(|root| bound_template(root.key()))
+                                .collect::<Result<Vec<_>, _>>()?,
                             host.clone(),
-                            root.key().target().clone(),
+                            host_target,
                         ),
                     )
                     .map_err(NativeProductFactError::InvalidHostMir)?;
@@ -229,12 +268,12 @@ impl Compilation {
 
                     self.codegen_reachability(
                         [host],
-                        Some((host_mir, root.clone())),
+                        Some((host_mir, source_roots)),
                         &target,
                         cancellation,
                     )?
                 }
-                None => source_reachability,
+                None => source_reachability.ok_or(NativeProductFactError::MissingProductRoot)?,
             };
 
             let units = partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
@@ -306,6 +345,7 @@ impl Compilation {
             target,
             options,
             host,
+            test_catalog,
             link,
             units,
             mappings: shared_slice(mappings),
@@ -315,6 +355,7 @@ impl Compilation {
     fn product_root_instances(
         &self,
         semantic: &bray_symbols::ProductSemanticFacts,
+        test_discovery: Option<&super::super::super::testing::TestDiscovery>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductFactError> {
@@ -324,12 +365,18 @@ impl Compilation {
                 .map(AnySymbolId::from)
                 .into_iter()
                 .collect(),
-            ProductKind::Test => semantic
-                .test_entries()
-                .iter()
-                .map(|entry| entry.function())
-                .map(AnySymbolId::from)
-                .collect(),
+            ProductKind::Test => {
+                let discovery =
+                    test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
+
+                discovery
+                    .catalog()
+                    .entries()
+                    .iter()
+                    .filter_map(|entry| discovery.function(entry.identity()))
+                    .map(AnySymbolId::from)
+                    .collect()
+            }
             ProductKind::Library => semantic.public_symbols().to_vec(),
         };
 
@@ -355,10 +402,12 @@ impl Compilation {
             )?);
         }
 
-        roots.sort_unstable_by(|left, right| left.key().cmp(right.key()));
-        roots.dedup_by(|left, right| left.key() == right.key());
+        if semantic.kind() != ProductKind::Test {
+            roots.sort_unstable_by(|left, right| left.key().cmp(right.key()));
+            roots.dedup_by(|left, right| left.key() == right.key());
+        }
 
-        if roots.is_empty() && semantic.kind() != ProductKind::Library {
+        if roots.is_empty() && semantic.kind() == ProductKind::Executable {
             return Err(NativeProductFactError::MissingProductRoot);
         }
 
@@ -368,7 +417,7 @@ impl Compilation {
     fn codegen_reachability(
         &self,
         roots: impl IntoIterator<Item = ConcreteCodegenInstance>,
-        generated_host: Option<(MirUnit, ConcreteCodegenInstance)>,
+        generated_host: Option<(MirUnit, Vec<ConcreteCodegenInstance>)>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenReachability, NativeProductFactError> {
@@ -385,10 +434,12 @@ impl Compilation {
         )
         .map_err(NativeProductFactError::InvalidReachability)?;
 
-        let generated_host = generated_host.map(|(mir, root)| {
-            realizations.insert(root.key().clone(), root.clone());
+        let generated_host = generated_host.map(|(mir, source_roots)| {
+            for root in &source_roots {
+                realizations.insert(root.key().clone(), root.clone());
+            }
 
-            (CodegenInstanceKey::non_generic(&mir), mir, root)
+            (CodegenInstanceKey::non_generic(&mir), mir, source_roots)
         });
 
         loop {
@@ -439,13 +490,17 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                if let Some((host_key, _, root)) = &generated_host
+                if let Some((host_key, _, source_roots)) = &generated_host
                     && key == host_key
-                    && !concrete_dependencies
-                        .iter()
-                        .any(|dependency| dependency.key() == root.key())
                 {
-                    concrete_dependencies.push(root.clone());
+                    for root in source_roots {
+                        if !concrete_dependencies
+                            .iter()
+                            .any(|dependency| dependency.key() == root.key())
+                        {
+                            concrete_dependencies.push(root.clone());
+                        }
+                    }
                 }
 
                 concrete_dependencies.sort_unstable_by(|left, right| left.key().cmp(right.key()));
@@ -726,7 +781,7 @@ mod tests {
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticBag;
-    use bray_ir::MirHelperReference;
+    use bray_ir::{MirHelperReference, MirHostOperation, MirOperationKind, MirUnitKind};
     use bray_linker::{
         LinkFailure, LinkInputKind, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome,
         LinkPlan, LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
@@ -938,9 +993,7 @@ mod tests {
             compilation.check_diagnostics()
         );
 
-        let product =
-            ProductIdentity::try_new(crate::test_support::package_identity(), "application")
-                .unwrap_or_else(|| panic!("test product identity must be valid"));
+        let product = test_product_identity();
 
         let facts = compilation
             .native_product_facts(
@@ -996,8 +1049,8 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("executable must own a host"));
 
-        assert_eq!(host.root(), RootExecution::Synchronous);
-        assert_eq!(host.entry_result(), ExecutableEntryResult::I32);
+        assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
+        assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
         assert!(
             generated_artifacts(&backend, &facts)
@@ -1016,11 +1069,11 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("async executable must own a host"));
 
-        let RootExecution::Asynchronous { frame } = host.root() else {
+        let RootExecution::Asynchronous { frame } = host.entries()[0].root() else {
             panic!("async executable host must retain a protected root frame");
         };
 
-        assert_eq!(host.entry_result(), ExecutableEntryResult::I32);
+        assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
         let frame_unit = facts
             .units()
@@ -1046,7 +1099,7 @@ mod tests {
             })
             .map(bray_codegen::CodegenSymbolMapping::name);
 
-        assert_eq!(host.root_frame_adapter(), adapter);
+        assert_eq!(host.entries()[0].root_frame_adapter(), adapter);
 
         for role in [
             RuntimeAbiRole::RootExecution,
@@ -1095,10 +1148,14 @@ mod tests {
                 .executable_host()
                 .unwrap_or_else(|| panic!("async executable must own a host"));
 
-            assert!(matches!(host.root(), RootExecution::Asynchronous { .. }));
+            assert!(matches!(
+                host.entries()[0].root(),
+                RootExecution::Asynchronous { .. }
+            ));
 
             if fallible {
-                let ExecutableEntryResult::Fallible { error, .. } = host.entry_result() else {
+                let ExecutableEntryResult::Fallible { error, .. } = host.entries()[0].result()
+                else {
                     panic!("Result root must retain its concrete error type");
                 };
 
@@ -1126,7 +1183,7 @@ mod tests {
                 assert!(ir.contains("entry.failure"));
                 assert!(ir.contains("bray_runtime_entry_failure_reporting_v1"));
             } else {
-                assert_eq!(host.entry_result(), ExecutableEntryResult::Unit);
+                assert_eq!(host.entries()[0].result(), ExecutableEntryResult::Unit);
             }
 
             assert!(
@@ -1147,7 +1204,7 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("executable must own a host"));
 
-        assert_eq!(host.root(), RootExecution::Synchronous);
+        assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
 
         for role in [
             RuntimeAbiRole::SynchronousRootExecution,
@@ -1182,9 +1239,7 @@ mod tests {
 
         let runtime = runtime_artifact_with_roles(&compilation, archive.path(), roles);
 
-        let product =
-            ProductIdentity::try_new(crate::test_support::package_identity(), "application")
-                .unwrap_or_else(|| panic!("test product identity must be valid"));
+        let product = test_product_identity();
 
         let result = compilation.native_product_facts(
             product,
@@ -1234,7 +1289,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(semantic.value(), &target, &cancellation)
+            .product_root_instances(
+                semantic.value(),
+                None,
+                &target,
+                &cancellation,
+            )
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         let reachability = compilation
@@ -1355,7 +1415,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(semantic.value(), &target, &cancellation)
+            .product_root_instances(
+                semantic.value(),
+                None,
+                &target,
+                &cancellation,
+            )
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         assert!(roots.is_empty());
@@ -1570,9 +1635,7 @@ mod tests {
         let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
         let runtime = runtime_artifact(&compilation, archive.path());
 
-        let product =
-            ProductIdentity::try_new(crate::test_support::package_identity(), "application")
-                .unwrap_or_else(|| panic!("test product identity must be valid"));
+        let product = test_product_identity();
 
         let facts = compilation
             .native_product_facts(
@@ -1596,6 +1659,159 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
     ) {
+        codegen_compilation_for_product(source, ProductKind::Executable)
+    }
+
+    #[test]
+    fn native_test_products_emit_every_entry_in_catalog_order() {
+        let source = concat!(
+            "module app.tests;\n",
+            "\n",
+            "@test\n",
+            "func alpha()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "@test\n",
+            "async func gamma()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "@test(serial)\n",
+            "func beta()\n",
+            "{\n",
+            "}\n",
+        );
+
+        let (backend, compilation) =
+            codegen_compilation_for_product(source, ProductKind::Test);
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
+        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [
+                    RuntimeCapability::CooperativeExecution,
+                    RuntimeCapability::MainThreadLane,
+                ],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("native test facts must resolve: {error:?}"));
+
+        let catalog = facts
+            .test_catalog()
+            .unwrap_or_else(|| panic!("native test facts must retain their catalog"));
+
+        assert_eq!(
+            catalog
+                .entries()
+                .iter()
+                .map(|entry| entry.identity().declaration().name().as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta", "gamma"]
+        );
+
+        let host = facts
+            .executable_host()
+            .unwrap_or_else(|| panic!("native test facts must retain their host"));
+
+        assert_eq!(host.entries().len(), catalog.entries().len());
+        assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
+        assert_eq!(host.entries()[1].root(), RootExecution::Synchronous);
+
+        assert!(matches!(
+            host.entries()[2].root(),
+            RootExecution::Asynchronous { .. }
+        ));
+
+        let host_mir = facts
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
+            .unwrap_or_else(|| panic!("native test facts must retain generated host MIR"));
+
+        let executed_entries = host_mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Host(MirHostOperation::ExecuteRoot { entry, .. }) => {
+                    Some(entry.slot())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(executed_entries, [0, 1, 2]);
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn empty_native_test_products_emit_a_successful_host() {
+        let (backend, compilation) =
+            codegen_compilation_for_product("module app.tests;\n", ProductKind::Test);
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("empty native test facts must resolve: {error:?}"));
+
+        let catalog = facts
+            .test_catalog()
+            .unwrap_or_else(|| panic!("empty native test facts must retain their catalog"));
+
+        assert!(catalog.entries().is_empty());
+
+        let host = facts
+            .executable_host()
+            .unwrap_or_else(|| panic!("empty native test facts must retain their host"));
+
+        assert!(host.entries().is_empty());
+
+        let host_mir = facts
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
+            .unwrap_or_else(|| panic!("empty native test facts must retain generated host MIR"));
+
+        assert!(matches!(
+            host_mir.operations(),
+            [operation]
+                if matches!(
+                    operation.kind(),
+                    MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. })
+                )
+        ));
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    fn codegen_compilation_for_product(
+        source: &str,
+        product_kind: ProductKind,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
         let backend = Arc::new(
             bray_codegen_llvm::LlvmCodeGenerator::try_new()
                 .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
@@ -1613,7 +1829,7 @@ mod tests {
             vec![crate::test_support::source_input(source, 0)],
             CompilationOptions::new(
                 WorkerBudget::serial(),
-                ProductKind::Executable,
+                product_kind,
                 SelectedTarget::baseline(),
             ),
         );
@@ -1763,6 +1979,11 @@ mod tests {
             .collect()
     }
 
+    fn test_product_identity() -> ProductIdentity {
+        ProductIdentity::try_new(crate::test_support::package_identity(), "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"))
+    }
+
     fn test_linker() -> Linker {
         Linker::try_new([Arc::new(TestLinkerDriver) as Arc<dyn LinkerDriver>])
             .unwrap_or_else(|error| panic!("test linker must validate: {error:?}"))
@@ -1879,7 +2100,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(semantic.value(), &target, &cancellation)
+            .product_root_instances(
+                semantic.value(),
+                None,
+                &target,
+                &cancellation,
+            )
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         compilation

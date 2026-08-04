@@ -22,10 +22,15 @@ impl MirUnit {
         }
 
         if let crate::MirUnitKind::ExecutableHost(host) = self.kind()
-            && let bray_runtime_interface::ExecutableEntryResult::Fallible { ty, error, .. } =
-                host.entry_result()
         {
-            types.extend([ty, error]);
+            for entry in host.entries() {
+                if let bray_runtime_interface::ExecutableEntryResult::Fallible {
+                    ty, error, ..
+                } = entry.result()
+                {
+                    types.extend([ty, error]);
+                }
+            }
         }
 
         for operation in self.operations() {

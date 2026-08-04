@@ -3,10 +3,11 @@ use bray_ir::{
     MirUnitKind,
 };
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract,
-    RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, ExecutableEntryResult, ExecutableHostContract,
+    ExecutableHostContractBuilder, ExecutableHostEntry, PanicAbiIdentity,
+    ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution, RuntimeAbiRole,
+    RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity,
+    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, TypeData, TypeId};
 use bray_target::TargetIdentity;
@@ -158,21 +159,22 @@ fn test_host_contract(
         RuntimeAbiRole::StructuredShutdown,
     ];
 
+    let host_entry = match root {
+        RootExecution::Synchronous => ExecutableHostEntry::synchronous(entry_result),
+        RootExecution::Asynchronous { frame } => ExecutableHostEntry::asynchronous(
+            frame,
+            BinarySymbolName::try_new("__bray_test_root_frame_adapter")
+                .unwrap_or_else(|| panic!("test frame adapter symbol must be valid")),
+            entry_result,
+        ),
+    };
+
     let mut builder = ExecutableHostContractBuilder::new(
         product,
         entry,
-        root,
+        host_entry,
         test_runtime_requirements(target.clone(), runtime.is_some()),
     );
-
-    builder.set_entry_result(entry_result);
-
-    if matches!(root, RootExecution::Asynchronous { .. }) {
-        builder.set_root_frame_adapter(
-            BinarySymbolName::try_new("__bray_test_root_frame_adapter")
-                .unwrap_or_else(|| panic!("test frame adapter symbol must be valid")),
-        );
-    }
 
     for role in roles {
         builder.push_role_binding(test_role_binding(

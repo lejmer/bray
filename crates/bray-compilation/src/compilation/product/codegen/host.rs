@@ -4,8 +4,8 @@ use bray_codegen::{CodegenLinkage, CodegenTarget, CodegenUnit, demanded_runtime_
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeCapability, RuntimeRequirements,
-    RuntimeRoleBinding, RuntimeRoleImplementation,
+    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact,
+    RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
@@ -20,9 +20,8 @@ impl Compilation {
         &self,
         product: &ProductIdentity,
         kind: ProductKind,
-        is_async: bool,
         roots: &[ConcreteCodegenInstance],
-        reachability: &bray_codegen::CodegenReachability,
+        reachability: Option<&bray_codegen::CodegenReachability>,
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
@@ -32,41 +31,67 @@ impl Compilation {
             return Ok(None);
         }
 
-        let root_realization = roots
-            .first()
-            .ok_or(NativeProductFactError::MissingProductRoot)?;
+        let mut entries = Vec::with_capacity(roots.len());
 
-        let root = reachability
-            .instance(root_realization.key())
-            .ok_or(NativeProductFactError::MissingProductRoot)?;
+        for root_realization in roots {
+            let root = reachability
+                .and_then(|reachability| reachability
+                .instance(root_realization.key())
+                )
+                .ok_or(NativeProductFactError::MissingProductRoot)?;
 
-        let entry_result_type = root
-            .mir()
-            .frame_descriptor()
-            .map(bray_ir::MirFrameDescriptor::result_type);
+            let entry_result_type = root
+                .mir()
+                .frame_descriptor()
+                .map(bray_ir::MirFrameDescriptor::result_type);
 
-        let entry_result =
-            self.executable_entry_result(root_realization, entry_result_type, cancellation)?;
+            let result =
+                self.executable_entry_result(root_realization, entry_result_type, cancellation)?;
 
-        let root_execution = match (is_async, root.protected_frame_identity()) {
-            (false, _) => RootExecution::Synchronous,
-            (true, Some(frame)) => RootExecution::Asynchronous { frame },
-            (true, None) => {
-                return Err(NativeProductFactError::MissingProtectedRootFrame);
-            }
-        };
+            let entry = match root.protected_frame_identity() {
+                Some(frame) => ExecutableHostEntry::asynchronous(
+                    frame,
+                    super::super::realization::generated_frame_symbol_name(
+                        target,
+                        frame,
+                        bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
+                    )?,
+                    result,
+                ),
+                None => ExecutableHostEntry::synchronous(result),
+            };
+
+            entries.push(entry);
+        }
+
+        if entries.is_empty() && kind != ProductKind::Test {
+            return Err(NativeProductFactError::MissingProductRoot);
+        }
+
+        let has_async_entries = entries
+            .iter()
+            .any(|entry| matches!(entry.root(), RootExecution::Asynchronous { .. }));
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
-        let mut runtime_roles = demanded_product_runtime_roles(reachability)?;
 
-        if is_async {
+        let mut runtime_roles = match reachability {
+            Some(reachability) => demanded_product_runtime_roles(reachability)?,
+            None => BTreeSet::new(),
+        };
+
+        if has_async_entries {
             runtime_roles.insert(RuntimeAbiRole::RootExecution);
             runtime_roles.extend(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL);
         }
 
-        let synchronous_host_runtime = !is_async
-            && (runtime_roles.contains(&RuntimeAbiRole::PanicPropagation)
-                || matches!(entry_result, ExecutableEntryResult::Fallible { .. }));
+        let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())
+            || (entries
+                .iter()
+                .any(|entry| entry.root() == RootExecution::Synchronous)
+                && (runtime_roles.contains(&RuntimeAbiRole::PanicPropagation)
+                || entries.iter().any(|entry| {
+                    matches!(entry.result(), ExecutableEntryResult::Fallible { .. })
+                })));
 
         if synchronous_host_runtime {
             runtime_roles.extend([
@@ -79,13 +104,13 @@ impl Compilation {
             ]);
         }
 
-        if runtime_contract.is_none() && (is_async || synchronous_host_runtime) {
+        if runtime_contract.is_none() && (has_async_entries || synchronous_host_runtime) {
             return Err(NativeProductFactError::MissingRuntime);
         }
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
-        if is_async {
+        if has_async_entries {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
             capabilities.insert(RuntimeCapability::MainThreadLane);
         }
@@ -104,21 +129,24 @@ impl Compilation {
         let native_entry =
             BinarySymbolName::try_new("main").ok_or(NativeProductFactError::InvalidSymbolName)?;
 
-        let mut builder = ExecutableHostContractBuilder::new(
-            product.clone(),
-            native_entry,
-            root_execution,
-            requirements,
-        );
+        let mut entries = entries.into_iter();
 
-        builder.set_entry_result(entry_result);
+        let mut builder = match entries.next() {
+            Some(first_entry) => ExecutableHostContractBuilder::new(
+                product.clone(),
+                native_entry,
+                first_entry,
+                requirements,
+            ),
+            None => ExecutableHostContractBuilder::empty(
+                product.clone(),
+                native_entry,
+                requirements,
+            ),
+        };
 
-        if let RootExecution::Asynchronous { frame } = root_execution {
-            builder.set_root_frame_adapter(super::super::realization::generated_frame_symbol_name(
-                target,
-                frame,
-                bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
-            )?);
+        for entry in entries {
+            builder.push_entry(entry);
         }
 
         if let Some(runtime) = runtime_contract {

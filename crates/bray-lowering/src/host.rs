@@ -3,7 +3,7 @@ use bray_ir::{
     MirBlockKind, MirHostOperation, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
     MirTargetFacts, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
 };
-use bray_runtime_interface::{ExecutableHostContract, RuntimeAbiRole};
+use bray_runtime_interface::{ExecutableHostContract, ExecutableHostEntryId, RuntimeAbiRole};
 
 /// Complete synthetic input for lowering a compiler-generated executable host stub.
 ///
@@ -12,22 +12,22 @@ use bray_runtime_interface::{ExecutableHostContract, RuntimeAbiRole};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutableHostLoweringInput {
     unit: MirUnitId,
-    root: BoundUnitKey,
+    roots: Vec<BoundUnitKey>,
     contract: ExecutableHostContract,
     target: MirTargetFacts,
 }
 
 impl ExecutableHostLoweringInput {
     /// Creates synthetic lowering input for one selected executable or test product.
-    pub const fn new(
+    pub fn new(
         unit: MirUnitId,
-        root: BoundUnitKey,
+        roots: impl IntoIterator<Item = BoundUnitKey>,
         contract: ExecutableHostContract,
         target: MirTargetFacts,
     ) -> Self {
         Self {
             unit,
-            root,
+            roots: roots.into_iter().collect(),
             contract,
             target,
         }
@@ -40,69 +40,97 @@ pub fn lower_executable_host(
 ) -> Result<MirUnit, MirUnitBuildError> {
     let ExecutableHostLoweringInput {
         unit,
-        root,
+        roots,
         contract,
         target,
     } = input;
 
     // The generated source anchor owns the same immutable product identity as the host contract.
     let source = MirSourceAnchor::executable_host(contract.product().clone());
-    let execution = contract.root();
     let runtime_abi = target.runtime_abi();
 
-    let root_role = if execution == bray_runtime_interface::RootExecution::Synchronous
-        && contract
-            .requirements()
-            .roles()
-            .contains(&RuntimeAbiRole::SynchronousRootExecution)
-    {
-        RuntimeAbiRole::SynchronousRootExecution
-    } else {
-        RuntimeAbiRole::RootExecution
-    };
+    if roots.len() != contract.entries().len() {
+        return Err(MirUnitBuildError::InvalidHostSequence);
+    }
 
-    let entry_error = match contract.entry_result() {
-        bray_runtime_interface::ExecutableEntryResult::Fallible { error, .. } => Some(error),
-        bray_runtime_interface::ExecutableEntryResult::Unit
-        | bray_runtime_interface::ExecutableEntryResult::I32 => None,
-    };
-
-    let mut builder = MirUnitBuilder::for_executable_host(unit, contract, target);
+    // The finished MIR owns the contract while lowering still reads each entry below.
+    let mut builder = MirUnitBuilder::for_executable_host(unit, contract.clone(), target);
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
-    let operations = [
-        MirHostOperation::ExecuteRoot {
-            root,
-            execution,
-            runtime: runtime_reference(root_role, runtime_abi),
-        },
-        MirHostOperation::ObserveRootTerminal {
-            runtime: runtime_reference(RuntimeAbiRole::RootTerminalObservation, runtime_abi),
-        },
-        MirHostOperation::ResolveRootTerminal {
-            error: entry_error,
-            completion: runtime_reference(RuntimeAbiRole::RootCompletionResolution, runtime_abi),
-            panic: runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
-            entry_failure: runtime_reference(RuntimeAbiRole::EntryFailureReporting, runtime_abi),
-        },
-        MirHostOperation::ReportCleanupIncidents {
-            runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
-        },
-        MirHostOperation::StructuredShutdown {
-            runtime: runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
-        },
-    ];
+    for (index, (root, contract_entry)) in roots
+        .into_iter()
+        .zip(contract.entries().iter())
+        .enumerate()
+    {
+        let entry_index = ExecutableHostEntryId::new(
+            u32::try_from(index).map_err(|_| MirUnitBuildError::InvalidHostSequence)?,
+        );
 
-    for operation in operations {
-        builder.push_operation(
-            entry,
-            // Each immutable MIR operation retains the same generated source identity.
-            source.clone(),
-            MirOperationKind::Host(operation),
-            None,
-        )?;
+        let execution = contract_entry.root();
+
+        let root_role = if execution == bray_runtime_interface::RootExecution::Synchronous
+            && contract
+                .requirements()
+                .roles()
+                .contains(&RuntimeAbiRole::SynchronousRootExecution)
+        {
+            RuntimeAbiRole::SynchronousRootExecution
+        } else {
+            RuntimeAbiRole::RootExecution
+        };
+
+        let entry_error = match contract_entry.result() {
+            bray_runtime_interface::ExecutableEntryResult::Fallible { error, .. } => Some(error),
+            bray_runtime_interface::ExecutableEntryResult::Unit
+            | bray_runtime_interface::ExecutableEntryResult::I32 => None,
+        };
+
+        for operation in [
+            MirHostOperation::ExecuteRoot {
+                entry: entry_index,
+                root,
+                execution,
+                runtime: runtime_reference(root_role, runtime_abi),
+            },
+            MirHostOperation::ObserveRootTerminal {
+                entry: entry_index,
+                runtime: runtime_reference(RuntimeAbiRole::RootTerminalObservation, runtime_abi),
+            },
+            MirHostOperation::ResolveRootTerminal {
+                entry: entry_index,
+                error: entry_error,
+                completion: runtime_reference(
+                    RuntimeAbiRole::RootCompletionResolution,
+                    runtime_abi,
+                ),
+                panic: runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
+                entry_failure: runtime_reference(
+                    RuntimeAbiRole::EntryFailureReporting,
+                    runtime_abi,
+                ),
+            },
+            MirHostOperation::ReportCleanupIncidents {
+                runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
+            },
+        ] {
+            builder.push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Host(operation),
+                None,
+            )?;
+        }
     }
+
+    builder.push_operation(
+        entry,
+        source.clone(),
+        MirOperationKind::Host(MirHostOperation::StructuredShutdown {
+            runtime: runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
+        }),
+        None,
+    )?;
 
     builder.set_terminator(entry, source, MirTerminatorKind::Return(None))?;
 
@@ -123,7 +151,8 @@ mod tests {
         MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
-        ExecutableEntryResult, RootExecution, RuntimeAbiRole, RuntimeRoleImplementation,
+        ExecutableEntryResult, ExecutableHostEntryId, RootExecution, RuntimeAbiRole,
+        RuntimeRoleImplementation,
     };
     use bray_symbols::{SymbolId, UnionVariantSymbolId};
     use bray_testing::{
@@ -141,7 +170,7 @@ mod tests {
 
         let input = ExecutableHostLoweringInput::new(
             MirUnitId::new(90),
-            root.clone(),
+            [root.clone()],
             host.clone(),
             test_mir_target(),
         );
@@ -185,7 +214,10 @@ mod tests {
     fn asynchronous_host_retains_the_distinguished_main_thread_lane_contract() {
         let host = test_async_executable_host_contract();
 
-        assert!(matches!(host.root(), RootExecution::Asynchronous { .. }));
+        assert!(matches!(
+            host.entries()[0].root(),
+            RootExecution::Asynchronous { .. }
+        ));
 
         for role in [
             RuntimeAbiRole::MainThreadLaneStartup,
@@ -200,7 +232,7 @@ mod tests {
 
         let input = ExecutableHostLoweringInput::new(
             MirUnitId::new(92),
-            bray_testing::test_bound_unit(92).key().clone(),
+            [bray_testing::test_bound_unit(92).key().clone()],
             host.clone(),
             test_mir_target(),
         );
@@ -237,7 +269,7 @@ mod tests {
 
         let input = ExecutableHostLoweringInput::new(
             MirUnitId::new(93),
-            bray_testing::test_bound_unit(93).key().clone(),
+            [bray_testing::test_bound_unit(93).key().clone()],
             host,
             test_mir_target(),
         );
@@ -264,11 +296,13 @@ mod tests {
 
         for operation in [
             MirHostOperation::ExecuteRoot {
+                entry: ExecutableHostEntryId::new(0),
                 root: bray_testing::test_bound_unit(91).key().clone(),
                 execution: RootExecution::Synchronous,
                 runtime: super::runtime_reference(RuntimeAbiRole::RootExecution, runtime_abi),
             },
             MirHostOperation::ObserveRootTerminal {
+                entry: ExecutableHostEntryId::new(0),
                 runtime: super::runtime_reference(
                     RuntimeAbiRole::RootTerminalObservation,
                     runtime_abi,
@@ -281,6 +315,7 @@ mod tests {
                 ),
             },
             MirHostOperation::ResolveRootTerminal {
+                entry: ExecutableHostEntryId::new(0),
                 error: None,
                 completion: super::runtime_reference(
                     RuntimeAbiRole::RootCompletionResolution,

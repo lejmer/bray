@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(executable_host.native_entry().as_str(), "_bray_host_start");
 
         assert_eq!(
-            executable_host.root(),
+            executable_host.entries()[0].root(),
             RootExecution::Asynchronous {
                 frame: ProtectedAsyncFrameId::new([7; 32]),
             }

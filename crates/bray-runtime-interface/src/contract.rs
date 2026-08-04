@@ -142,6 +142,69 @@ pub enum ExecutableEntryResult {
     },
 }
 
+/// Stable position of one source entry in an executable host contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ExecutableHostEntryId(u32);
+
+impl ExecutableHostEntryId {
+    /// Creates an entry identity from its zero-based contract slot.
+    pub const fn new(slot: u32) -> Self {
+        Self(slot)
+    }
+
+    /// Returns the zero-based contract slot.
+    pub const fn slot(self) -> u32 {
+        self.0
+    }
+}
+
+/// One source entry executed by a compiler-generated native host.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExecutableHostEntry {
+    root: RootExecution,
+    root_frame_adapter: Option<BinarySymbolName>,
+    result: ExecutableEntryResult,
+}
+
+impl ExecutableHostEntry {
+    /// Creates one synchronous source entry and its checked result mapping.
+    pub const fn synchronous(result: ExecutableEntryResult) -> Self {
+        Self {
+            root: RootExecution::Synchronous,
+            root_frame_adapter: None,
+            result,
+        }
+    }
+
+    /// Creates one asynchronous source entry and its generated frame-transfer adapter.
+    pub fn asynchronous(
+        frame: ProtectedAsyncFrameId,
+        root_frame_adapter: BinarySymbolName,
+        result: ExecutableEntryResult,
+    ) -> Self {
+        Self {
+            root: RootExecution::Asynchronous { frame },
+            root_frame_adapter: Some(root_frame_adapter),
+            result,
+        }
+    }
+
+    /// Returns how this source entry becomes a root run.
+    pub const fn root(&self) -> RootExecution {
+        self.root
+    }
+
+    /// Returns the generated asynchronous frame-transfer adapter, when required.
+    pub fn root_frame_adapter(&self) -> Option<&BinarySymbolName> {
+        self.root_frame_adapter.as_ref()
+    }
+
+    /// Returns the checked source result mapping for this entry.
+    pub const fn result(&self) -> ExecutableEntryResult {
+        self.result
+    }
+}
+
 /// Complete selected execution contract for one compiler-generated executable host stub.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutableHostContract {
@@ -152,9 +215,7 @@ pub struct ExecutableHostContract {
 struct ExecutableHostContractData {
     product: ProductIdentity,
     native_entry: BinarySymbolName,
-    root: RootExecution,
-    root_frame_adapter: Option<BinarySymbolName>,
-    entry_result: ExecutableEntryResult,
+    entries: Arc<[ExecutableHostEntry]>,
     requirements: RuntimeRequirements,
     runtime: Option<RuntimeContract>,
     host_role_bindings: Arc<[RuntimeRoleBinding]>,
@@ -166,9 +227,7 @@ struct ExecutableHostContractData {
 pub struct ExecutableHostContractBuilder {
     product: ProductIdentity,
     native_entry: BinarySymbolName,
-    root: RootExecution,
-    root_frame_adapter: Option<BinarySymbolName>,
-    entry_result: ExecutableEntryResult,
+    entries: Vec<ExecutableHostEntry>,
     requirements: RuntimeRequirements,
     runtime: Option<RuntimeContract>,
     host_role_bindings: Vec<RuntimeRoleBinding>,
@@ -176,19 +235,16 @@ pub struct ExecutableHostContractBuilder {
 }
 
 impl ExecutableHostContractBuilder {
-    /// Starts a host contract from its product, native entry, root mode, and requirements.
-    pub const fn new(
+    /// Starts a host contract without source entries.
+    pub const fn empty(
         product: ProductIdentity,
         native_entry: BinarySymbolName,
-        root: RootExecution,
         requirements: RuntimeRequirements,
     ) -> Self {
         Self {
             product,
             native_entry,
-            root,
-            root_frame_adapter: None,
-            entry_result: ExecutableEntryResult::Unit,
+            entries: Vec::new(),
             requirements,
             runtime: None,
             host_role_bindings: Vec::new(),
@@ -196,19 +252,27 @@ impl ExecutableHostContractBuilder {
         }
     }
 
+    /// Starts a host contract from its product, native entry, first executable entry, and requirements.
+    pub fn new(
+        product: ProductIdentity,
+        native_entry: BinarySymbolName,
+        entry: ExecutableHostEntry,
+        requirements: RuntimeRequirements,
+    ) -> Self {
+        let mut builder = Self::empty(product, native_entry, requirements);
+        builder.entries.push(entry);
+
+        builder
+    }
+
     /// Selects the validated target-specific execution runtime.
     pub fn select_runtime(&mut self, runtime: RuntimeContract) {
         self.runtime = Some(runtime);
     }
 
-    /// Selects the checked source result mapping for the executable entrypoint.
-    pub fn set_entry_result(&mut self, result: ExecutableEntryResult) {
-        self.entry_result = result;
-    }
-
-    /// Selects the generated adapter that transfers an asynchronous entry frame to the runtime.
-    pub fn set_root_frame_adapter(&mut self, symbol: BinarySymbolName) {
-        self.root_frame_adapter = Some(symbol);
+    /// Adds another source entry in deterministic execution order.
+    pub fn push_entry(&mut self, entry: ExecutableHostEntry) {
+        self.entries.push(entry);
     }
 
     /// Adds one private ABI role supplied outside the selected runtime artifact.
@@ -254,30 +318,30 @@ impl ExecutableHostContractBuilder {
             return Err(ExecutableHostContractBuildError::MissingRuntime);
         }
 
-        match (self.root, self.root_frame_adapter.as_ref()) {
-            (RootExecution::Synchronous, Some(_)) => {
-                return Err(ExecutableHostContractBuildError::UnexpectedRootFrameAdapter);
-            }
-            (RootExecution::Asynchronous { .. }, None) => {
-                return Err(ExecutableHostContractBuildError::MissingRootFrameAdapter);
-            }
-            (RootExecution::Synchronous, None) | (RootExecution::Asynchronous { .. }, Some(_)) => {}
-        }
-
-        validate_root_contract(
-            self.root,
-            &self.requirements,
+        if !has_role_binding(
+            RuntimeAbiRole::StructuredShutdown,
             self.runtime.as_ref(),
             &host_role_bindings,
-        )?;
+        ) {
+            return Err(ExecutableHostContractBuildError::MissingRole(
+                RuntimeAbiRole::StructuredShutdown,
+            ));
+        }
+
+        for entry in &self.entries {
+            validate_root_contract(
+                entry.root(),
+                &self.requirements,
+                self.runtime.as_ref(),
+                &host_role_bindings,
+            )?;
+        }
 
         Ok(ExecutableHostContract {
             data: Arc::new(ExecutableHostContractData {
                 product: self.product,
                 native_entry: self.native_entry,
-                root: self.root,
-                root_frame_adapter: self.root_frame_adapter,
-                entry_result: self.entry_result,
+                entries: self.entries.into(),
                 requirements: self.requirements,
                 runtime: self.runtime,
                 host_role_bindings,
@@ -298,19 +362,16 @@ impl ExecutableHostContract {
         &self.data.native_entry
     }
 
-    /// Returns how the source entry body becomes the root run.
-    pub fn root(&self) -> RootExecution {
-        self.data.root
+    /// Returns source entries in deterministic execution order.
+    pub fn entries(&self) -> &[ExecutableHostEntry] {
+        &self.data.entries
     }
 
-    /// Returns the checked source result mapping performed by the host.
-    pub fn entry_result(&self) -> ExecutableEntryResult {
-        self.data.entry_result
-    }
-
-    /// Returns the generated asynchronous root-frame adapter symbol.
-    pub fn root_frame_adapter(&self) -> Option<&BinarySymbolName> {
-        self.data.root_frame_adapter.as_ref()
+    /// Returns the source entry at an exact contract position.
+    pub fn entry(&self, entry: ExecutableHostEntryId) -> Option<&ExecutableHostEntry> {
+        usize::try_from(entry.slot())
+            .ok()
+            .and_then(|entry| self.data.entries.get(entry))
     }
 
     /// Returns the complete reachable runtime requirements.
@@ -394,10 +455,6 @@ pub enum ExecutableHostContractBuildError {
     MissingMainThreadLaneCapability,
     /// An async root has no protected-frame operation compatibility contract.
     MissingProtectedFrameAbi,
-    /// An async root has no generated frame-transfer adapter.
-    MissingRootFrameAdapter,
-    /// A synchronous root retains an asynchronous frame-transfer adapter.
-    UnexpectedRootFrameAdapter,
     /// A mandatory executable-host role has no selected binding.
     MissingRole(RuntimeAbiRole),
 }
@@ -408,13 +465,6 @@ fn validate_root_contract(
     runtime: Option<&RuntimeContract>,
     host_role_bindings: &[RuntimeRoleBinding],
 ) -> Result<(), ExecutableHostContractBuildError> {
-    let has_role = |role| {
-        host_role_bindings
-            .binary_search_by_key(&role, RuntimeRoleBinding::role)
-            .is_ok()
-            || runtime.is_some_and(|runtime| runtime.role_binding(role).is_some())
-    };
-
     let root_role = if root == RootExecution::Synchronous
         && requirements
             .roles()
@@ -426,7 +476,7 @@ fn validate_root_contract(
     };
 
     for role in std::iter::once(root_role).chain(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL) {
-        if !has_role(role) {
+        if !has_role_binding(role, runtime, host_role_bindings) {
             return Err(ExecutableHostContractBuildError::MissingRole(role));
         }
     }
@@ -455,12 +505,23 @@ fn validate_root_contract(
         RuntimeAbiRole::MainThreadLaneStartup,
         RuntimeAbiRole::MainThreadLaneDrive,
     ] {
-        if !has_role(role) {
+        if !has_role_binding(role, runtime, host_role_bindings) {
             return Err(ExecutableHostContractBuildError::MissingRole(role));
         }
     }
 
     Ok(())
+}
+
+fn has_role_binding(
+    role: RuntimeAbiRole,
+    runtime: Option<&RuntimeContract>,
+    host_role_bindings: &[RuntimeRoleBinding],
+) -> bool {
+    host_role_bindings
+        .binary_search_by_key(&role, RuntimeRoleBinding::role)
+        .is_ok()
+        || runtime.is_some_and(|runtime| runtime.role_binding(role).is_some())
 }
 
 fn requires_runtime(requirements: &RuntimeRequirements) -> bool {
@@ -477,8 +538,9 @@ mod tests {
     use bray_target::TargetIdentity;
 
     use super::{
-        ExecutableHostContract, ExecutableHostContractBuildError, ExecutableHostContractBuilder,
-        RootExecution, RuntimeCapability,
+        ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuildError,
+        ExecutableHostContractBuilder, ExecutableHostEntry, RootExecution,
+        RuntimeCapability,
     };
     use crate::{
         BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
@@ -584,64 +646,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn host_root_modes_require_exact_frame_adapter_presence() {
-        let root = RootExecution::Asynchronous {
-            frame: ProtectedAsyncFrameId::new([7; 32]),
-        };
-
-        let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
-            panic!("test host entry symbol name must be valid");
-        };
-
-        let Some(package) = PackageIdentity::try_new("example.app") else {
-            panic!("test package identity must be valid");
-        };
-
-        let Some(product) = ProductIdentity::try_new(package, "application") else {
-            panic!("test product identity must be valid");
-        };
-
-        let mut asynchronous = ExecutableHostContractBuilder::new(
-            product.clone(),
-            entry.clone(),
-            root,
-            runtime_requirements([RuntimeCapability::MainThreadLane]),
-        );
-
-        asynchronous.select_runtime(runtime_contract());
-
-        for binding in base_bindings() {
-            asynchronous.push_role_binding(binding);
-        }
-
-        assert_eq!(
-            asynchronous.finish(),
-            Err(ExecutableHostContractBuildError::MissingRootFrameAdapter)
-        );
-
-        let mut synchronous = ExecutableHostContractBuilder::new(
-            product,
-            entry,
-            RootExecution::Synchronous,
-            synchronous_requirements(),
-        );
-
-        synchronous.set_root_frame_adapter(
-            BinarySymbolName::try_new("test_root_frame_adapter")
-                .unwrap_or_else(|| panic!("test frame adapter must be valid")),
-        );
-
-        for binding in base_bindings() {
-            synchronous.push_role_binding(binding);
-        }
-
-        assert_eq!(
-            synchronous.finish(),
-            Err(ExecutableHostContractBuildError::UnexpectedRootFrameAdapter)
-        );
-    }
-
     fn host(
         root: RootExecution,
         requirements: RuntimeRequirements,
@@ -660,14 +664,20 @@ mod tests {
             panic!("test host entry symbol name must be valid");
         };
 
-        let mut builder = ExecutableHostContractBuilder::new(product, entry, root, requirements);
-
-        if matches!(root, RootExecution::Asynchronous { .. }) {
-            builder.set_root_frame_adapter(
+        let host_entry = match root {
+            RootExecution::Synchronous => {
+                ExecutableHostEntry::synchronous(ExecutableEntryResult::Unit)
+            }
+            RootExecution::Asynchronous { frame } => ExecutableHostEntry::asynchronous(
+                frame,
                 BinarySymbolName::try_new("test_root_frame_adapter")
                     .unwrap_or_else(|| panic!("test frame adapter must be valid")),
-            );
-        }
+                ExecutableEntryResult::Unit,
+            ),
+        };
+
+        let mut builder =
+            ExecutableHostContractBuilder::new(product, entry, host_entry, requirements);
 
         if let Some(runtime) = runtime {
             builder.select_runtime(runtime);

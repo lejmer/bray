@@ -5,7 +5,7 @@ use bray_bound_tree::{
     BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionDefaultProvider,
     ConstructionInputId, ConstructionTarget, PatternProjection, SelectedConversion,
 };
-use bray_runtime_interface::{ProtectedAsyncFrameId, RootExecution};
+use bray_runtime_interface::{ExecutableHostEntryId, ProtectedAsyncFrameId, RootExecution};
 use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
 
 use crate::{
@@ -526,6 +526,8 @@ pub enum MirAsyncOperation {
 pub enum MirHostOperation {
     /// Establish and execute the selected source root.
     ExecuteRoot {
+        /// Position of this source entry in the host contract.
+        entry: ExecutableHostEntryId,
         /// Exact source unit selected as the product root.
         root: BoundUnitKey,
         /// Synchronous or protected-frame root execution.
@@ -535,11 +537,15 @@ pub enum MirHostOperation {
     },
     /// Observe the root terminal record.
     ObserveRootTerminal {
+        /// Position of this source entry in the host contract.
+        entry: ExecutableHostEntryId,
         /// Selected private terminal-observation ABI role.
         runtime: MirRuntimeReference,
     },
     /// Map and release the observed terminal root payload.
     ResolveRootTerminal {
+        /// Position of this source entry in the host contract.
+        entry: ExecutableHostEntryId,
         /// Recoverable error type whose lifecycle the host resolves after reporting.
         error: Option<TypeId>,
         /// Selected private completion-release ABI role.

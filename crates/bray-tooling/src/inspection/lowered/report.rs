@@ -861,7 +861,7 @@ mod tests {
 
         let input = ExecutableHostLoweringInput::new(
             MirUnitId::new(91),
-            root,
+            [root],
             test_executable_host_contract(),
             test_mir_target(),
         );

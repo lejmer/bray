@@ -1321,10 +1321,12 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
 fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
         MirHostOperation::ExecuteRoot {
+            entry,
             root,
             execution,
             runtime,
         } => {
+            parts.attribute("entry", entry.slot());
             parts.attribute("root_kind", root.kind().as_str());
 
             match execution {
@@ -1341,17 +1343,20 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
 
             "execute_root"
         }
-        MirHostOperation::ObserveRootTerminal { runtime } => {
+        MirHostOperation::ObserveRootTerminal { entry, runtime } => {
+            parts.attribute("entry", entry.slot());
             runtime_reference("runtime", *runtime, parts);
 
             "observe_root_terminal"
         }
         MirHostOperation::ResolveRootTerminal {
+            entry,
             error: _,
             completion,
             panic,
             entry_failure,
         } => {
+            parts.attribute("entry", entry.slot());
             runtime_reference("completion", *completion, parts);
             runtime_reference("panic", *panic, parts);
             runtime_reference("entry_failure", *entry_failure, parts);
