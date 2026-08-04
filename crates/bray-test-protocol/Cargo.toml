@@ -1,0 +1,14 @@
+[package]
+name = "bray-test-protocol"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-base = { path = "../bray-base" }
+bray-source = { path = "../bray-source" }
+bray-symbols = { path = "../bray-symbols" }
+
+[lints]
+workspace = true

@@ -260,7 +260,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.runtime_function_pointer(wake)?;
 
-        let state = self.runtime_integer_argument(registration, 0, u64::from(resume_state.raw()))?;
+        let state =
+            self.runtime_integer_argument(registration, 0, u64::from(resume_state.raw()))?;
 
         let outcome = self
             .invoke_runtime(registration, &[state])?

@@ -1532,17 +1532,12 @@ mod tests {
 
         assert!(checkpoint.diagnostics().is_empty());
 
-        assert!(
-            lowered_mir(&checkpoint)
-                .blocks()
-                .iter()
-                .any(|block| {
-                    matches!(
-                        block.terminator().kind(),
-                        MirTerminatorKind::PropagateCancellation { .. }
-                    )
-                })
-        );
+        assert!(lowered_mir(&checkpoint).blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::PropagateCancellation { .. }
+            )
+        }));
     }
 
     #[test]

@@ -44,12 +44,21 @@ impl Parser {
         builder.build()
     }
 
-    pub(super) fn parse_test_directive(&mut self) -> TestDirectiveSyntax {
+    pub(super) fn parse_test_directive(
+        &mut self,
+        argument_recovery_kinds: &[SyntaxKind],
+    ) -> TestDirectiveSyntax {
         let start = self.peek().full_range().start();
         let mut builder = TestDirectiveSyntax::builder(self.syntax_source(), start);
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
+        if self.at(SyntaxKind::OpenParenToken) {
+            builder.push_directive_argument_list(
+                self.parse_directive_argument_list(argument_recovery_kinds),
+            );
+        }
 
         builder.build()
     }

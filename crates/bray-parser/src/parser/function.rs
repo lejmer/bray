@@ -104,7 +104,10 @@ impl Parser {
             }
 
             if self.at_directive_name(TEST_DIRECTIVE_NAME) {
-                builder.push_test_directive(self.parse_test_directive());
+                builder.push_test_directive(
+                    self.parse_test_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
+                );
+
                 continue;
             }
 
@@ -197,7 +200,8 @@ impl Parser {
                 ABI_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME | SYMBOL_DIRECTIVE_NAME => {
                     DirectiveScanKind::ArgumentList
                 }
-                ENTRYPOINT_DIRECTIVE_NAME | TEST_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+                TEST_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
+                ENTRYPOINT_DIRECTIVE_NAME => DirectiveScanKind::Bare,
                 _ => DirectiveScanKind::Unknown,
             }
         });
@@ -226,7 +230,7 @@ mod tests {
     fn parser_parses_function_declarations_after_source_unit_modules() {
         let source = concat!(
             "module main; ",
-            "@test @abi(\"C\") public async func main<T, const N: Int>",
+            "@test(serial) @abi(\"C\") public async func main<T, const N: Int>",
             "(pos value: Int = 1, mut tail: Bool,) ",
             "-> Unit {}"
         );
@@ -260,11 +264,23 @@ mod tests {
 
         assert_eq!(
             declaration.full_text(),
-            "@test @abi(\"C\") public async func main<T, const N: Int>(pos value: Int = 1, mut tail: Bool,) -> Unit {}"
+            "@test(serial) @abi(\"C\") public async func main<T, const N: Int>(pos value: Int = 1, mut tail: Bool,) -> Unit {}"
         );
 
         assert_eq!(directives.test_directives().count(), 1);
         assert_eq!(directives.abi_directives().count(), 1);
+
+        let test_directive = directives
+            .test_directives()
+            .next()
+            .unwrap_or_else(|| panic!("expected test directive"));
+
+        assert_eq!(
+            test_directive
+                .directive_argument_list()
+                .map(|arguments| arguments.full_text()),
+            Some("(serial) ".to_owned())
+        );
 
         let abi_directive = match directives.abi_directives().next() {
             Some(directive) => directive,

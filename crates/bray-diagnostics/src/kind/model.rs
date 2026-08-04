@@ -386,6 +386,12 @@ define_diagnostic_kinds! {
     CheckingInvalidEntrypointResult,
     /// A test entry has an unsupported result type.
     CheckingInvalidTestResult,
+    /// A function test directive has unsupported arguments.
+    CheckingInvalidTestEntryDirective,
+    /// A module test directive supplies arguments.
+    CheckingInvalidTestModuleDirective,
+    /// More than one test entry claims the same fully qualified declaration path.
+    CheckingDuplicateTestIdentity,
     /// A product entry is eligible for constant evaluation.
     CheckingEntryCannotBeConstant,
     /// A product entry exposes trusted caller obligations.
@@ -603,6 +609,9 @@ impl DiagnosticKind {
             Self::CheckingEntryCannotTakeParameters => 7071,
             Self::CheckingInvalidEntrypointResult => 7072,
             Self::CheckingInvalidTestResult => 7073,
+            Self::CheckingInvalidTestEntryDirective => 7090,
+            Self::CheckingInvalidTestModuleDirective => 7091,
+            Self::CheckingDuplicateTestIdentity => 7092,
             Self::CheckingEntryCannotBeConstant => 7074,
             Self::CheckingEntryCannotRequireTrust => 7075,
             Self::CheckingExportDependsOnInternalDeclaration => 7076,
@@ -891,6 +900,9 @@ impl DiagnosticKind {
             Self::CheckingEntryCannotTakeParameters => "checking_entry_cannot_take_parameters",
             Self::CheckingInvalidEntrypointResult => "checking_invalid_entrypoint_result",
             Self::CheckingInvalidTestResult => "checking_invalid_test_result",
+            Self::CheckingInvalidTestEntryDirective => "checking_invalid_test_entry_directive",
+            Self::CheckingInvalidTestModuleDirective => "checking_invalid_test_module_directive",
+            Self::CheckingDuplicateTestIdentity => "checking_duplicate_test_identity",
             Self::CheckingEntryCannotBeConstant => "checking_entry_cannot_be_constant",
             Self::CheckingEntryCannotRequireTrust => "checking_entry_cannot_require_trust",
             Self::CheckingExportDependsOnInternalDeclaration => {

@@ -30,9 +30,9 @@ use bray_symbols::{
     GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
     ImplementationParticipationFact, ImplementationRequirementKey, ImplementationSelection,
     ImplementationSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
-    PackageIdentity, ProductSemanticFacts, ProofOutcome, SemanticFactResult, SemanticValueStore,
-    SemanticValueStoreCreateError, SymbolGraph, TraitImplementationConformanceFact,
-    TypeAssociatedSurface,
+    PackageIdentity, ProductIdentity, ProductSemanticFacts, ProofOutcome, SemanticFactResult,
+    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+    TraitImplementationConformanceFact, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 
@@ -53,6 +53,7 @@ use super::load::{
     source_load_diagnostic,
 };
 use super::source_graph::ProductSourceGraph;
+use super::testing::TestDiscovery;
 
 pub(super) type CheckedExpressionSemantics = (
     CheckedExpressionTypes,
@@ -85,6 +86,7 @@ pub(super) struct CompilationState {
     pub(super) declaration_table_result: FactCell<DeclarationTableResult>,
     pub(super) product_source_graph: FactCell<Result<ProductSourceGraph, FactQueryError>>,
     pub(super) product_semantics: FactCell<DiagnosticResult<ProductSemanticFacts>>,
+    pub(super) test_discoveries: FactCellMap<ProductIdentity, Arc<DiagnosticResult<TestDiscovery>>>,
     pub(super) compiler_known_symbols:
         FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
     pub(super) selected_target: FactCell<crate::SelectedTargetContext>,
@@ -263,8 +265,7 @@ impl Compilation {
         }
 
         for (source_index, source_input) in source_inputs.into_iter().enumerate() {
-            // Preserve request-boundary metadata before handing ownership to
-            // the loader so source-load diagnostics can identify the input.
+            // Preserve request metadata so source-load diagnostics can identify the input.
             let diagnostic_context =
                 SourceInputDiagnosticContext::from_input(source_index, &source_input);
 
@@ -319,6 +320,7 @@ impl Compilation {
                 declaration_table_result: FactCell::new(),
                 product_source_graph: FactCell::new(),
                 product_semantics: FactCell::new(),
+                test_discoveries: FactCellMap::new(),
                 compiler_known_symbols: FactCell::new(),
                 selected_target: FactCell::new(),
                 target_validity: FactCellMap::new(),

@@ -327,7 +327,7 @@ impl Compilation {
             ProductKind::Test => semantic
                 .test_entries()
                 .iter()
-                .copied()
+                .map(|entry| entry.function())
                 .map(AnySymbolId::from)
                 .collect(),
             ProductKind::Library => semantic.public_symbols().to_vec(),

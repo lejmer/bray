@@ -140,9 +140,7 @@ fn terminator_runtime_references(
             registration, wake, ..
         } => [Some(*registration), Some(*wake), None],
         MirTerminatorKind::PropagatePanic { runtime, .. }
-        | MirTerminatorKind::PropagateCancellation { runtime } => {
-            [Some(*runtime), None, None]
-        }
+        | MirTerminatorKind::PropagateCancellation { runtime } => [Some(*runtime), None, None],
         MirTerminatorKind::Goto(_)
         | MirTerminatorKind::Branch { .. }
         | MirTerminatorKind::PatternBranch { .. }

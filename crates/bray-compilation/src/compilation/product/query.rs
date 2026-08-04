@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, DeclarationDirectivesFact, DirectiveKind, ProductKind, ProductSemanticFacts,
-    SymbolFactRequest,
+    AnySymbolId, DeclarationDirectivesFact, DirectiveArgumentName, DirectiveKind,
+    DirectiveTemplate, ProductKind, ProductSemanticFacts, ProductTestEntry, SymbolFactRequest,
+    TestExecutionConstraint,
 };
 
 use super::dependency::validate_public_expression_dependencies;
@@ -13,7 +14,7 @@ use super::visibility::{symbol_is_publicly_reachable, validate_public_surface};
 use crate::compilation::Compilation;
 use crate::compilation::binder::binder_fact_error;
 use crate::compilation::diagnostics::source_diagnostic;
-use crate::compilation::directive::first_directive;
+use crate::compilation::directive::{bare_directive_argument_name, first_directive};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -71,6 +72,7 @@ impl Compilation {
 
         let mut explicit_entrypoints = Vec::new();
         let mut test_entries = Vec::new();
+        let mut test_identities = BTreeSet::new();
         let mut requires_async_runtime = false;
         let mut is_recovered = false;
 
@@ -100,8 +102,16 @@ impl Compilation {
             }
 
             if kind == ProductKind::Test
-                && first_directive(directives.value(), DirectiveKind::Test).is_some()
+                && let Some(directive) = first_directive(directives.value(), DirectiveKind::Test)
             {
+                let Some(constraint) =
+                    self.test_execution_constraint(directive, &mut diagnostics)?
+                else {
+                    is_recovered = true;
+
+                    continue;
+                };
+
                 let validation = validate_entry(
                     &binder,
                     semantic_values,
@@ -112,9 +122,43 @@ impl Compilation {
                     &mut diagnostics,
                 )?;
 
-                if let Some(is_async) = validation {
-                    test_entries.push(function);
-                    requires_async_runtime |= is_async;
+                if let Some(validation) = validation {
+                    let result = validation
+                        .test_result()
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    let module = symbols
+                        .containing_module(function.into())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    let name = symbols
+                        .member_name(function.into())
+                        .cloned()
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    let identity = (module.path().clone(), name.clone());
+
+                    if !test_identities.insert(identity) {
+                        diagnostics.add(source_diagnostic(
+                            directive.syntax(),
+                            DiagnosticKind::CheckingDuplicateTestIdentity,
+                        ));
+
+                        is_recovered = true;
+
+                        continue;
+                    }
+
+                    test_entries.push(ProductTestEntry::new(
+                        function,
+                        module.path().clone(),
+                        name,
+                        validation.execution(),
+                        constraint,
+                        result,
+                    ));
+
+                    requires_async_runtime |= validation.is_async();
                 } else {
                     is_recovered = true;
                 }
@@ -169,6 +213,42 @@ impl Compilation {
         );
 
         Ok(DiagnosticResult::new(facts, diagnostics))
+    }
+
+    fn test_execution_constraint(
+        &self,
+        directive: &DirectiveTemplate,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<TestExecutionConstraint>, FactQueryError> {
+        let constraint = match directive.arguments() {
+            [] => Some(TestExecutionConstraint::Parallel),
+            [argument] if matches!(argument.name(), DirectiveArgumentName::Positional) => {
+                let syntax = argument.expression().syntax();
+
+                let source = self
+                    .source(syntax.source_id())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let name = bare_directive_argument_name(
+                    self.syntax_tree_result().syntax_tree(),
+                    source,
+                    syntax,
+                );
+
+                (name.as_ref().map(bray_symbols::SymbolName::as_str) == Some("serial"))
+                    .then_some(TestExecutionConstraint::Serial)
+            }
+            [_] | [_, ..] => None,
+        };
+
+        if constraint.is_none() {
+            diagnostics.add(source_diagnostic(
+                directive.syntax(),
+                DiagnosticKind::CheckingInvalidTestEntryDirective,
+            ));
+        }
+
+        Ok(constraint)
     }
 }
 
@@ -315,6 +395,72 @@ func main()
         assert!(facts.diagnostics().is_empty());
         assert_eq!(facts.value().test_entries().len(), 1);
         assert!(facts.value().requires_async_runtime());
+    }
+
+    #[test]
+    fn test_products_retain_serial_entry_constraints() {
+        let compilation = compilation_with_product(
+            "module app;\n\n@test(serial)\nfunc runs_alone()\n{\n}\n",
+            ProductKind::Test,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert_eq!(facts.value().test_entries().len(), 1);
+
+        assert_eq!(
+            facts.value().test_entries()[0].constraint(),
+            bray_symbols::TestExecutionConstraint::Serial
+        );
+    }
+
+    #[test]
+    fn test_products_reject_unknown_test_directive_arguments() {
+        let compilation = compilation_with_product(
+            "module app;\n\n@test(other)\nfunc invalid()\n{\n}\n",
+            ProductKind::Test,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert_eq!(
+            diagnostic_kinds(facts.diagnostics()),
+            [DiagnosticKind::CheckingInvalidTestEntryDirective]
+        );
+
+        assert!(facts.value().test_entries().is_empty());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn test_products_reject_duplicate_test_identities() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "@test\n",
+                "func repeated()\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "@test\n",
+                "func repeated()\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Test,
+        );
+
+        let facts = product_facts(&compilation);
+
+        assert_eq!(
+            diagnostic_kinds(facts.diagnostics()),
+            [DiagnosticKind::CheckingDuplicateTestIdentity]
+        );
+
+        assert_eq!(facts.value().test_entries().len(), 1);
+        assert!(facts.value().is_recovered());
     }
 
     #[test]

@@ -524,12 +524,9 @@ impl Lowerer<'_> {
                 report: value.ok_or(LoweringError::SemanticValueUnavailable)?,
                 runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
-            CleanupDestination::PropagateCancellation => {
-                MirTerminatorKind::PropagateCancellation {
-                    runtime: self
-                        .runtime_reference(RuntimeAbiRole::CurrentRunCancellationEntry),
-                }
-            }
+            CleanupDestination::PropagateCancellation => MirTerminatorKind::PropagateCancellation {
+                runtime: self.runtime_reference(RuntimeAbiRole::CurrentRunCancellationEntry),
+            },
         };
 
         self.builder

@@ -58,6 +58,9 @@ documents.
 - `bray-target`
     - Target-machine identities and backend-neutral machine and output contracts.
 
+- `bray-test-protocol`
+    - Stable test identities, discovery metadata, selection filters, and runner protocol records shared across compiler and tooling.
+
 - `bray-codegen`
     - Backend-independent code generation contracts, requests, artifact contributions, and backend orchestration.
 
