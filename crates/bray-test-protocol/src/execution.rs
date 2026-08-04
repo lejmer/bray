@@ -402,6 +402,7 @@ pub struct TestInvocationResult {
     outcome: TestOutcome,
     standard_output: CapturedStream,
     standard_error: CapturedStream,
+    duration: Option<TestDuration>,
 }
 
 impl TestInvocationResult {
@@ -417,7 +418,15 @@ impl TestInvocationResult {
             outcome,
             standard_output,
             standard_error,
+            duration: None,
         }
+    }
+
+    /// Returns a new result carrying its runner-observed execution duration.
+    pub const fn with_duration(mut self, duration: TestDuration) -> Self {
+        self.duration = Some(duration);
+
+        self
     }
 
     /// Returns the exact selected test identity.
@@ -439,29 +448,29 @@ impl TestInvocationResult {
     pub const fn standard_error(&self) -> &CapturedStream {
         &self.standard_error
     }
+
+    /// Returns the runner-observed execution duration when one was measured.
+    pub const fn duration(&self) -> Option<TestDuration> {
+        self.duration
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{ModulePathKey, PackageIdentity, ProductIdentity, SymbolName};
+    use bray_symbols::{ModulePathKey, SymbolName};
 
     use super::{TestDuration, TestInvocationPlan, TestTimeoutPolicy};
+    use crate::test_support::product;
     use crate::{TestCaptureLimits, TestCapturePolicy, TestDeclarationPath, TestIdentity};
 
     #[test]
     fn invocation_plans_retain_typed_timeout_and_capture_policy() {
-        let package = PackageIdentity::try_new("example.tests")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-        let product = ProductIdentity::try_new(package, "tests")
-            .unwrap_or_else(|| panic!("test product identity must be valid"));
-
         let module = ModulePathKey::try_new(["example", "tests"])
             .unwrap_or_else(|| panic!("test module path must be valid"));
 
         let name = SymbolName::try_new("runs").unwrap_or_else(|| panic!("test name must be valid"));
 
-        let identity = TestIdentity::new(product, TestDeclarationPath::new(module, name));
+        let identity = TestIdentity::new(product(), TestDeclarationPath::new(module, name));
         let timeout = TestDuration::from_nanoseconds(2_000_000);
 
         let plan = TestInvocationPlan::new(

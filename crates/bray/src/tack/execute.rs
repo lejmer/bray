@@ -42,8 +42,8 @@ pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     let mut stderr = io::stderr().lock();
 
     if stdout.write_all(&protocol_output).is_err()
-        || stdout.write_all(result.stdout().as_bytes()).is_err()
         || stderr.write_all(result.stderr().as_bytes()).is_err()
+        || stdout.write_all(result.stdout().as_bytes()).is_err()
     {
         return ExitCode::FAILURE;
     }
@@ -553,6 +553,7 @@ fn run_tests(
         &options,
         worker_count,
         output_format,
+        progress.interactive(),
     ) {
         Ok(report) => report,
         Err(diagnostics) => return failure(diagnostics, output_format),

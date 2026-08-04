@@ -1,9 +1,10 @@
 use bray_messages::{
-    BuildProgressAction as MessageAction, BuildProgressConfiguration, BuildProgressField,
-    BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation,
+    BuildProgressAction as MessageAction, BuildProgressConfiguration, BuildProgressLineKind,
+    BuildProgressMessageRenderer, BuildProgressOperation, ProgressField,
 };
 
 use super::model::{BuildProgressAction, BuildProgressStatus};
+use super::presentation::{ProgressVisualState, render_plain_line};
 use crate::tack::model::TackBuildConfiguration;
 
 pub(super) fn message_configuration(
@@ -29,6 +30,7 @@ pub(super) fn message_action(action: BuildProgressAction) -> MessageAction {
 pub(super) fn render_line(
     messages: BuildProgressMessageRenderer,
     kind: BuildProgressLineKind,
+    status: BuildProgressStatus,
     operation: BuildProgressOperation,
     subject: &str,
     path: &str,
@@ -36,35 +38,21 @@ pub(super) fn render_line(
     total: u64,
     duration_milliseconds: u128,
 ) -> String {
-    let mut fields = Vec::new();
-
-    for field in messages.fields(kind) {
-        let value = match field {
-            BuildProgressField::Operation => messages.operation(operation).to_owned(),
-            BuildProgressField::Subject => subject.to_owned(),
-            BuildProgressField::Path => path.to_owned(),
-            BuildProgressField::UnitCount => messages.unit_count(completed, total),
-            BuildProgressField::Duration => messages.duration(duration_milliseconds),
-            BuildProgressField::Bar | BuildProgressField::Percentage => continue,
-        };
-
-        fields.push(value);
-    }
-
-    fields.join(" ")
+    render_plain_line(messages.fields(kind), visual_state(status), |field| {
+        match field {
+            ProgressField::Operation => Some(messages.operation(operation).to_owned()),
+            ProgressField::Subject => Some(subject.to_owned()),
+            ProgressField::Path => Some(path.to_owned()),
+            ProgressField::Count => Some(messages.unit_count(completed, total)),
+            ProgressField::Duration => Some(messages.duration(duration_milliseconds)),
+            ProgressField::Bar | ProgressField::Percentage | ProgressField::Detail => None,
+        }
+    })
 }
 
-pub(super) fn max_column_width<'text>(values: impl IntoIterator<Item = &'text str>) -> usize {
-    values
-        .into_iter()
-        .map(|value| value.chars().count())
-        .max()
-        .unwrap_or(0)
-}
-
-pub(super) const fn status_marker(status: BuildProgressStatus) -> &'static str {
+const fn visual_state(status: BuildProgressStatus) -> ProgressVisualState {
     match status {
-        BuildProgressStatus::Complete => "✓",
-        BuildProgressStatus::Failed => "×",
+        BuildProgressStatus::Complete => ProgressVisualState::Complete,
+        BuildProgressStatus::Failed => ProgressVisualState::Failed,
     }
 }

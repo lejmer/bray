@@ -19,6 +19,9 @@ pub(crate) use diagnostics::{
 pub(crate) use label::{style as label_style, template as label_template};
 pub(crate) use language_server::message as language_server_message;
 pub(crate) use test_report::{
+    activity_operation as test_report_activity_operation,
     captured_stream as test_report_captured_stream, heading as test_report_heading,
-    result as test_report_result, summary as test_report_summary,
+    duration as test_report_duration, result_operation as test_report_result_operation,
+    fields as test_report_fields, summary_counts as test_report_summary_counts,
+    summary_operation as test_report_summary_operation,
 };

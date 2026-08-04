@@ -1,34 +1,34 @@
 use crate::{
-    BuildProgressAction, BuildProgressConfiguration, BuildProgressField, BuildProgressLineKind,
-    BuildProgressOperation,
+    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind,
+    BuildProgressOperation, ProgressField,
 };
 
-const PACKAGE_FIELDS: &[BuildProgressField] = &[
-    BuildProgressField::Operation,
-    BuildProgressField::Subject,
-    BuildProgressField::Path,
-    BuildProgressField::UnitCount,
-    BuildProgressField::Duration,
+const PACKAGE_FIELDS: &[ProgressField] = &[
+    ProgressField::Operation,
+    ProgressField::Subject,
+    ProgressField::Path,
+    ProgressField::Count,
+    ProgressField::Duration,
 ];
 
-const ACTIVE_PRODUCT_FIELDS: &[BuildProgressField] = &[
-    BuildProgressField::Operation,
-    BuildProgressField::Subject,
-    BuildProgressField::Bar,
-    BuildProgressField::Percentage,
-    BuildProgressField::UnitCount,
-    BuildProgressField::Duration,
+const ACTIVE_PRODUCT_FIELDS: &[ProgressField] = &[
+    ProgressField::Operation,
+    ProgressField::Subject,
+    ProgressField::Bar,
+    ProgressField::Percentage,
+    ProgressField::Count,
+    ProgressField::Duration,
 ];
 
-const FINISHED_PRODUCT_FIELDS: &[BuildProgressField] = &[
-    BuildProgressField::Operation,
-    BuildProgressField::Subject,
-    BuildProgressField::Path,
-    BuildProgressField::UnitCount,
-    BuildProgressField::Duration,
+const FINISHED_PRODUCT_FIELDS: &[ProgressField] = &[
+    ProgressField::Operation,
+    ProgressField::Subject,
+    ProgressField::Path,
+    ProgressField::Count,
+    ProgressField::Duration,
 ];
 
-pub(crate) const fn fields(kind: BuildProgressLineKind) -> &'static [BuildProgressField] {
+pub(crate) const fn fields(kind: BuildProgressLineKind) -> &'static [ProgressField] {
     match kind {
         BuildProgressLineKind::Package => PACKAGE_FIELDS,
         BuildProgressLineKind::ActiveProduct => ACTIVE_PRODUCT_FIELDS,

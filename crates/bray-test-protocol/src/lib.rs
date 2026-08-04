@@ -12,6 +12,8 @@ mod filter;
 mod identity;
 mod report;
 mod scheduling;
+#[cfg(test)]
+mod test_support;
 
 pub use capture::{
     CapturedStream, CapturedStreamPolicy, TestCaptureLimits, TestCapturePolicy, TestStreamFailure,

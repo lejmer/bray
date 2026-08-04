@@ -5,8 +5,9 @@ use bray_diagnostics::{
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 use crate::{
-    BuildProgressAction, BuildProgressConfiguration, BuildProgressField, BuildProgressLineKind,
-    BuildProgressOperation, LanguageServerMessage, TestReportOutcome,
+    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind,
+    BuildProgressOperation, LanguageServerMessage, ProgressField, TestReportActivity,
+    TestReportLineKind, TestReportOutcome, TestReportSummaryStatus,
 };
 
 use super::english::{
@@ -39,7 +40,7 @@ impl MessageCatalog {
     pub(crate) fn build_progress_fields(
         self,
         kind: BuildProgressLineKind,
-    ) -> &'static [BuildProgressField] {
+    ) -> &'static [ProgressField] {
         match self.locale {
             DiagnosticLocale::English => super::english::build_progress_fields(kind),
         }
@@ -98,15 +99,60 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) fn test_report_result(self, outcome: TestReportOutcome, identity: &str) -> String {
+    pub(crate) const fn test_report_result_operation(
+        self,
+        outcome: TestReportOutcome,
+    ) -> &'static str {
         match self.locale {
-            DiagnosticLocale::English => super::english::test_report_result(outcome, identity),
+            DiagnosticLocale::English => super::english::test_report_result_operation(outcome),
         }
     }
 
-    pub(crate) fn test_report_summary(self, passed: usize, failed: usize) -> String {
+    pub(crate) fn test_report_fields(
+        self,
+        kind: TestReportLineKind,
+    ) -> &'static [ProgressField] {
         match self.locale {
-            DiagnosticLocale::English => super::english::test_report_summary(passed, failed),
+            DiagnosticLocale::English => super::english::test_report_fields(kind),
+        }
+    }
+
+    pub(crate) const fn test_report_activity_operation(
+        self,
+        activity: TestReportActivity,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::test_report_activity_operation(activity)
+            }
+        }
+    }
+
+    pub(crate) const fn test_report_summary_operation(
+        self,
+        status: TestReportSummaryStatus,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_summary_operation(status),
+        }
+    }
+
+    pub(crate) fn test_report_summary_counts(
+        self,
+        passed: usize,
+        failed: usize,
+        filtered: usize,
+    ) -> String {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::test_report_summary_counts(passed, failed, filtered)
+            }
+        }
+    }
+
+    pub(crate) fn test_report_duration(self, milliseconds: u128) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_duration(milliseconds),
         }
     }
 

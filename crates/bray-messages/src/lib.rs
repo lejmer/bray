@@ -12,8 +12,8 @@ mod renderer;
 mod test_report;
 
 pub use build_progress::{
-    BuildProgressAction, BuildProgressConfiguration, BuildProgressField, BuildProgressLineKind,
-    BuildProgressMessageRenderer, BuildProgressOperation,
+    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind,
+    BuildProgressMessageRenderer, BuildProgressOperation, ProgressField,
 };
 pub use language_server::{LanguageServerMessage, LanguageServerMessageRenderer};
 pub use locale::DiagnosticLocale;
@@ -21,4 +21,7 @@ pub use rendered_diagnostic::{
     RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
 };
 pub use renderer::DiagnosticRenderer;
-pub use test_report::{TestReportMessageRenderer, TestReportOutcome};
+pub use test_report::{
+    TestReportActivity, TestReportLineKind, TestReportMessageRenderer, TestReportOutcome,
+    TestReportSummaryStatus,
+};

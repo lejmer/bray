@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use bray_base::lowercase_hex;
 use bray_diagnostics::DiagnosticBag;
-use bray_messages::{TestReportMessageRenderer, TestReportOutcome};
+use bray_messages::{
+    ProgressField, TestReportActivity, TestReportLineKind, TestReportMessageRenderer,
+    TestReportOutcome, TestReportSummaryStatus,
+};
 use bray_test_protocol::{
     CapturedStream, CapturedStreamPolicy, TestCancellationSource, TestCommandReport,
     TestInfrastructureFailureKind, TestInvocationResult, TestOutcome, TestPanicCause,
@@ -13,6 +16,11 @@ use serde::Serialize;
 
 use super::model::LoadedTestHost;
 use crate::tack::error::operation_diagnostics;
+use crate::tack::progress::{
+    ProgressVisualState, max_column_width, padded, render_plain_line,
+};
+
+use super::identity::identity_text;
 
 pub(super) fn product_reports(
     hosts: &[LoadedTestHost],
@@ -46,39 +54,160 @@ pub(super) fn render_report(
     report: &TestCommandReport,
     output_format: OutputFormat,
     show_output: bool,
+    interactive: bool,
 ) -> Result<String, DiagnosticBag> {
     match output_format {
-        OutputFormat::Text => Ok(render_text_report(report, show_output)),
+        OutputFormat::Text => Ok(render_text_report(report, show_output, interactive)),
         OutputFormat::Json => serde_json::to_string_pretty(&JsonTestCommandReport::from(report))
             .map(|report| format!("{report}\n"))
             .map_err(|_| operation_diagnostics("test_report_json")),
     }
 }
 
-fn render_text_report(report: &TestCommandReport, show_output: bool) -> String {
+fn render_text_report(report: &TestCommandReport, show_output: bool, interactive: bool) -> String {
+    if interactive {
+        return String::new();
+    }
+
     let renderer = TestReportMessageRenderer::english();
-    let mut output = format!("{}\n", renderer.heading(report.selection().selected()));
+
+    let results = report
+        .products()
+        .iter()
+        .flat_map(TestProductReport::results)
+        .collect::<Vec<_>>();
+
+    let mut output = String::new();
+
+    let (operation_width, subject_width) =
+        append_result_rows(&mut output, &renderer, report, &results);
+
+    output.push_str(&render_details(report, show_output));
+
+    append_summary(
+        &mut output,
+        &renderer,
+        report,
+        operation_width,
+        subject_width,
+    );
+
+    output
+}
+
+pub(super) fn render_details(report: &TestCommandReport, show_output: bool) -> String {
+    let renderer = TestReportMessageRenderer::english();
+    let mut output = String::new();
 
     for result in report
         .products()
         .iter()
         .flat_map(TestProductReport::results)
     {
-        output.push_str(&renderer.result(report_outcome(result.outcome()), &identity_text(result)));
-        output.push('\n');
-
         if show_output || !matches!(result.outcome(), TestOutcome::Passed) {
             append_captured_stream(&mut output, &renderer, result.standard_output(), false);
             append_captured_stream(&mut output, &renderer, result.standard_error(), true);
         }
     }
 
-    let counts = report.counts();
+    output
+}
 
-    output.push_str(&renderer.summary(counts.passed(), counts.failed()));
+fn append_result_rows(
+    output: &mut String,
+    renderer: &TestReportMessageRenderer,
+    report: &TestCommandReport,
+    results: &[&TestInvocationResult],
+) -> (usize, usize) {
+    output.push('\n');
+    output.push_str(&renderer.heading(report.selection().selected()));
     output.push('\n');
 
-    output
+    let operation_width = operation_width(*renderer);
+
+    let identities = results
+        .iter()
+        .map(|result| identity_text(result.identity()))
+        .collect::<Vec<_>>();
+
+    let subject_width = max_column_width(identities.iter().map(String::as_str));
+
+    for (result, identity) in results.iter().zip(identities) {
+        let outcome = report_outcome(result.outcome());
+
+        let duration = result
+            .duration()
+            .map(|duration| renderer.duration(duration.duration().as_millis()));
+
+        let line = render_plain_line(
+            renderer.fields(TestReportLineKind::Result),
+            outcome_state(outcome),
+            |field| match field {
+                ProgressField::Operation => Some(padded(
+                    renderer.result_operation(outcome),
+                    operation_width,
+                )),
+                ProgressField::Subject => Some(padded(&identity, subject_width)),
+                ProgressField::Duration => duration.clone(),
+                ProgressField::Path
+                | ProgressField::Bar
+                | ProgressField::Percentage
+                | ProgressField::Count
+                | ProgressField::Detail => None,
+            },
+        );
+
+        output.push_str(&line);
+        output.push('\n');
+    }
+
+    (operation_width, subject_width)
+}
+
+fn append_summary(
+    output: &mut String,
+    renderer: &TestReportMessageRenderer,
+    report: &TestCommandReport,
+    operation_width: usize,
+    subject_width: usize,
+) {
+    let status = summary_status(report.succeeded());
+    let counts = report.counts();
+
+    let detail = renderer.summary_counts(
+        counts.passed(),
+        counts.failed(),
+        report.selection().filtered_out(),
+    );
+
+    let duration = report
+        .duration()
+        .map(|duration| renderer.duration(duration.duration().as_millis()));
+
+    let summary_width = operation_width
+        .saturating_add(subject_width)
+        .saturating_add(1);
+
+    let line = render_plain_line(
+        renderer.fields(TestReportLineKind::Summary),
+        summary_state(status),
+        |field| match field {
+            ProgressField::Operation => Some(padded(
+                renderer.summary_operation(status),
+                summary_width,
+            )),
+            ProgressField::Detail => Some(detail.clone()),
+            ProgressField::Duration => duration.clone(),
+            ProgressField::Subject
+            | ProgressField::Path
+            | ProgressField::Bar
+            | ProgressField::Percentage
+            | ProgressField::Count => None,
+        },
+    );
+
+    output.push_str(&line);
+    output.push('\n');
 }
 
 fn append_captured_stream(
@@ -101,7 +230,7 @@ fn append_captured_stream(
     }
 }
 
-fn report_outcome(outcome: &TestOutcome) -> TestReportOutcome {
+pub(super) const fn report_outcome(outcome: &TestOutcome) -> TestReportOutcome {
     match outcome {
         TestOutcome::Passed => TestReportOutcome::Passed,
         TestOutcome::ReturnedError { .. } => TestReportOutcome::ReturnedError,
@@ -114,27 +243,13 @@ fn report_outcome(outcome: &TestOutcome) -> TestReportOutcome {
     }
 }
 
-fn identity_text(result: &TestInvocationResult) -> String {
-    let identity = result.identity();
-    let path = identity.declaration();
-    let mut segments = path.module().segments().collect::<Vec<_>>();
-
-    segments.push(path.name().as_str());
-
-    format!(
-        "{}/{}::{}",
-        identity.product().package().as_str(),
-        identity.product().name(),
-        segments.join(".")
-    )
-}
-
 #[derive(Serialize)]
 struct JsonTestCommandReport<'report> {
     format: u32,
     selection: JsonTestSelectionSummary,
     products: Vec<JsonTestProductReport<'report>>,
     summary: JsonTestOutcomeCounts,
+    duration_nanoseconds: Option<u64>,
 }
 
 impl<'report> From<&'report TestCommandReport> for JsonTestCommandReport<'report> {
@@ -154,6 +269,7 @@ impl<'report> From<&'report TestCommandReport> for JsonTestCommandReport<'report
                 passed: counts.passed(),
                 failed: counts.failed(),
             },
+            duration_nanoseconds: report.duration().map(|duration| duration.nanoseconds()),
         }
     }
 }
@@ -196,16 +312,70 @@ struct JsonTestResult<'report> {
     outcome: JsonTestOutcome<'report>,
     stdout: JsonCapturedStream<'report>,
     stderr: JsonCapturedStream<'report>,
+    duration_nanoseconds: Option<u64>,
 }
 
 impl<'report> From<&'report TestInvocationResult> for JsonTestResult<'report> {
     fn from(result: &'report TestInvocationResult) -> Self {
         Self {
-            identity: identity_text(result),
+            identity: identity_text(result.identity()),
             outcome: result.outcome().into(),
             stdout: result.standard_output().into(),
             stderr: result.standard_error().into(),
+            duration_nanoseconds: result.duration().map(|duration| duration.nanoseconds()),
         }
+    }
+}
+
+pub(super) fn operation_width(renderer: TestReportMessageRenderer) -> usize {
+    let activities = [TestReportActivity::Waiting, TestReportActivity::Running]
+        .map(|activity| renderer.activity_operation(activity));
+
+    let outcomes = [
+        TestReportOutcome::Passed,
+        TestReportOutcome::ReturnedError,
+        TestReportOutcome::ExplicitFailure,
+        TestReportOutcome::AssertionFailure,
+        TestReportOutcome::Panicked,
+        TestReportOutcome::TimedOut,
+        TestReportOutcome::Cancelled,
+        TestReportOutcome::InfrastructureFailed,
+    ]
+    .map(|outcome| renderer.result_operation(outcome));
+
+    activities
+        .into_iter()
+        .chain(outcomes)
+        .map(|operation| operation.chars().count())
+        .max()
+        .unwrap_or(0)
+}
+
+pub(super) const fn outcome_state(outcome: TestReportOutcome) -> ProgressVisualState {
+    match outcome {
+        TestReportOutcome::Passed => ProgressVisualState::Complete,
+        TestReportOutcome::ReturnedError
+        | TestReportOutcome::ExplicitFailure
+        | TestReportOutcome::AssertionFailure
+        | TestReportOutcome::Panicked
+        | TestReportOutcome::TimedOut
+        | TestReportOutcome::Cancelled
+        | TestReportOutcome::InfrastructureFailed => ProgressVisualState::Failed,
+    }
+}
+
+pub(super) const fn summary_status(succeeded: bool) -> TestReportSummaryStatus {
+    if succeeded {
+        TestReportSummaryStatus::Finished
+    } else {
+        TestReportSummaryStatus::Failed
+    }
+}
+
+pub(super) const fn summary_state(status: TestReportSummaryStatus) -> ProgressVisualState {
+    match status {
+        TestReportSummaryStatus::Finished => ProgressVisualState::Complete,
+        TestReportSummaryStatus::Failed => ProgressVisualState::Failed,
     }
 }
 
@@ -377,14 +547,15 @@ const fn stream_failure(kind: bray_test_protocol::TestStreamFailureKind) -> &'st
 #[cfg(test)]
 mod tests {
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
-    use bray_symbols::{ModulePathKey, PackageIdentity, ProductIdentity, SymbolName};
+    use bray_symbols::{ModulePathKey, ProductIdentity, SymbolName};
     use bray_test_protocol::{
         AssertionFailure, CapturedStream, TestCatalog, TestCatalogDigest, TestCommandReport,
-        TestDeclarationPath, TestIdentity, TestInvocationResult, TestOutcome, TestProductReport,
-        TestSelectionSummary, TestSourceAnchor, encode_test_catalog,
+        TestDeclarationPath, TestDuration, TestIdentity, TestInvocationResult, TestOutcome,
+        TestProductReport, TestSelectionSummary, TestSourceAnchor, encode_test_catalog,
     };
     use bray_tooling::OutputFormat;
 
+    use super::super::test_support::product;
     use super::render_report;
 
     #[test]
@@ -408,9 +579,10 @@ mod tests {
         let report = TestCommandReport::new(
             TestSelectionSummary::new(2, 2),
             [TestProductReport::new(product, digest, results)],
-        );
+        )
+        .with_duration(TestDuration::from_nanoseconds(9_000_000));
 
-        let rendered = render_report(&report, OutputFormat::Text, false)
+        let rendered = render_report(&report, OutputFormat::Text, false, false)
             .unwrap_or_else(|diagnostics| panic!("report must render: {diagnostics:?}"));
 
         let first = rendered
@@ -422,9 +594,13 @@ mod tests {
             .unwrap_or_else(|| panic!("second result must be rendered"));
 
         assert!(first < second);
+        assert!(rendered.starts_with("\nRunning 2 tests\n"));
+        assert!(rendered.contains("✓ Passed"));
+        assert!(rendered.contains("× Assertion failed"));
         assert!(!rendered.contains("hidden"));
         assert!(rendered.contains("visible"));
-        assert!(rendered.contains("1 passed, 1 failed"));
+        assert!(rendered.contains("× Failed test run"));
+        assert!(rendered.contains("1 passed, 1 failed 9 ms"));
     }
 
     #[test]
@@ -443,9 +619,10 @@ mod tests {
                 catalog_digest(&product),
                 [result(product, "fails", outcome, b"prefix")],
             )],
-        );
+        )
+        .with_duration(TestDuration::from_nanoseconds(12_000_000));
 
-        let rendered = render_report(&report, OutputFormat::Json, false)
+        let rendered = render_report(&report, OutputFormat::Json, false, false)
             .unwrap_or_else(|diagnostics| panic!("report must render: {diagnostics:?}"));
 
         let report: serde_json::Value = serde_json::from_str(&rendered)
@@ -475,6 +652,8 @@ mod tests {
         );
 
         assert_eq!(report["summary"]["failed"], 1);
+        assert_eq!(report["duration_nanoseconds"], 12_000_000);
+        assert_eq!(report["products"][0]["tests"][0]["duration_nanoseconds"], 6_000_000);
     }
 
     fn result(
@@ -496,6 +675,7 @@ mod tests {
             CapturedStream::captured(output.iter().copied(), 0, None),
             CapturedStream::captured([], 0, None),
         )
+        .with_duration(TestDuration::from_nanoseconds(6_000_000))
     }
 
     fn source() -> TestSourceAnchor {
@@ -506,14 +686,6 @@ mod tests {
             ),
             SourceVersion::new(2),
         )
-    }
-
-    fn product() -> ProductIdentity {
-        let package = PackageIdentity::try_new("example.tests")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-        ProductIdentity::try_new(package, "tests")
-            .unwrap_or_else(|| panic!("test product identity must be valid"))
     }
 
     fn catalog_digest(product: &ProductIdentity) -> TestCatalogDigest {
