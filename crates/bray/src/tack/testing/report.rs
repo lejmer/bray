@@ -79,11 +79,18 @@ fn render_text_report(report: &TestCommandReport, show_output: bool, interactive
 
     let mut output = String::new();
 
-    let operation_width = append_result_rows(&mut output, &renderer, report, &results);
+    let (operation_width, subject_width) =
+        append_result_rows(&mut output, &renderer, report, &results);
 
     output.push_str(&render_details(report, show_output));
 
-    append_summary(&mut output, &renderer, report, operation_width);
+    append_summary(
+        &mut output,
+        &renderer,
+        report,
+        operation_width,
+        subject_width,
+    );
 
     output
 }
@@ -111,7 +118,7 @@ fn append_result_rows(
     renderer: &TestReportMessageRenderer,
     report: &TestCommandReport,
     results: &[&TestInvocationResult],
-) -> usize {
+) -> (usize, usize) {
     output.push('\n');
     output.push_str(&renderer.heading(report.selection().selected()));
     output.push('\n');
@@ -154,7 +161,7 @@ fn append_result_rows(
         output.push('\n');
     }
 
-    operation_width
+    (operation_width, subject_width)
 }
 
 fn append_summary(
@@ -162,6 +169,7 @@ fn append_summary(
     renderer: &TestReportMessageRenderer,
     report: &TestCommandReport,
     operation_width: usize,
+    subject_width: usize,
 ) {
     let status = summary_status(report.succeeded());
     let counts = report.counts();
@@ -184,7 +192,7 @@ fn append_summary(
                 renderer.summary_operation(status),
                 operation_width,
             )),
-            ProgressField::Detail => Some(detail.clone()),
+            ProgressField::Detail => Some(padded(&detail, subject_width)),
             ProgressField::Duration => duration.clone(),
             ProgressField::Subject
             | ProgressField::Path
@@ -588,10 +596,19 @@ mod tests {
         assert!(!rendered.contains("hidden"));
         assert!(rendered.contains("visible"));
 
-        assert_eq!(
-            rendered.lines().last(),
-            Some("   × Failed                1 passed, 1 failed 9 ms")
-        );
+        let result_line = rendered
+            .lines()
+            .find(|line| line.contains("second"))
+            .unwrap_or_else(|| panic!("test result line must be rendered"));
+
+        let summary_line = rendered
+            .lines()
+            .last()
+            .unwrap_or_else(|| panic!("test summary line must be rendered"));
+
+        assert!(summary_line.starts_with("   × Failed"));
+        assert!(summary_line.contains("1 passed, 1 failed"));
+        assert_eq!(result_line.find("6 ms"), summary_line.find("9 ms"));
     }
 
     #[test]

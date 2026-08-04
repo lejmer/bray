@@ -61,6 +61,7 @@ struct TerminalTestProgress {
     tests: BTreeMap<TestIdentity, TestTerminalLine>,
     messages: TestReportMessageRenderer,
     operation_width: usize,
+    subject_width: usize,
     completed: bool,
 }
 
@@ -118,6 +119,7 @@ impl TerminalTestProgress {
             tests,
             messages,
             operation_width,
+            subject_width,
             completed: false,
         }
     }
@@ -216,7 +218,7 @@ impl TerminalTestProgress {
             self.messages,
             TestReportLineKind::Summary,
             state,
-            detail,
+            padded(&detail, self.subject_width),
         ));
 
         summary.set_prefix(padded(
