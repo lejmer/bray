@@ -441,16 +441,16 @@ fn runtime_function_type<'context>(
             ],
             false,
         )),
-        RuntimeAbiRole::PanicReportConstruction => Some(
-            pointer_integer_type(context, target).fn_type(
+        RuntimeAbiRole::PanicReportConstruction => {
+            Some(pointer_integer_type(context, target).fn_type(
                 &[
                     context.i32_type().into(),
                     source_anchor_type(context).into(),
                     string_view_type(context, target).into(),
                 ],
                 false,
-            ),
-        ),
+            ))
+        }
         RuntimeAbiRole::PanicPropagation => Some(
             context
                 .void_type()

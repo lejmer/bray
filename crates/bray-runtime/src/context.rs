@@ -2,7 +2,9 @@ use std::cell::RefCell;
 
 use bray_runtime_interface::ProtectedFrameStateId;
 
-use crate::{CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle};
+use crate::{
+    CancellationContext, ExecutionLane, RunOutputContext, TaskId, TaskStartSite, TaskWakeHandle,
+};
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
@@ -17,6 +19,7 @@ pub struct TaskExecutionContext {
     task: TaskId,
     state: ProtectedFrameStateId,
     cancellation: CancellationContext,
+    output: Option<RunOutputContext>,
     lane: ExecutionLane,
     wake: TaskWakeHandle,
 }
@@ -27,6 +30,7 @@ impl TaskExecutionContext {
         task: TaskId,
         state: ProtectedFrameStateId,
         cancellation: CancellationContext,
+        output: Option<RunOutputContext>,
         lane: ExecutionLane,
         wake: TaskWakeHandle,
     ) -> Self {
@@ -34,6 +38,7 @@ impl TaskExecutionContext {
             task,
             state,
             cancellation,
+            output,
             lane,
             wake,
         }
@@ -105,6 +110,7 @@ pub(crate) fn with_task_execution_context<T>(
     callback: impl FnOnce() -> T,
 ) -> T {
     let cancellation = context.cancellation.clone();
+    let output = context.output.clone();
     let previous = CURRENT_CONTEXT.with(|current| current.replace(Some(context)));
 
     let previous_cancellation =
@@ -115,7 +121,7 @@ pub(crate) fn with_task_execution_context<T>(
         cancellation: previous_cancellation,
     };
 
-    callback()
+    crate::output::with_optional_run_output_context(output, callback)
 }
 
 pub(crate) fn with_run_cancellation_context<T>(
@@ -175,8 +181,9 @@ mod tests {
     };
     use crate::test_support::TestFrame;
     use crate::{
-        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, Scheduler,
-        SchedulerLimits, TaskControlBlock,
+        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
+        RunOutputContext, RunOutputStream, Scheduler, SchedulerLimits, TaskControlBlock,
+        with_run_output_context,
     };
 
     #[test]
@@ -217,6 +224,7 @@ mod tests {
             task.id(),
             ProtectedFrameStateId::new(0),
             cancellation,
+            task.output_context().cloned(),
             lane,
             registration.wake_handle(),
         );
@@ -243,6 +251,67 @@ mod tests {
         });
 
         assert!(current_task_execution_context().is_none());
+    }
+
+    #[test]
+    fn task_contexts_inherit_their_root_output_sinks() {
+        let runtime = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
+
+        let output = RunOutputContext::captured(32, 64);
+
+        let task = with_run_output_context(output.clone(), || {
+            TaskControlBlock::start(TestFrame::completing(1))
+                .unwrap_or_else(|error| panic!("test task must start: {error:?}"))
+        });
+
+        let scheduler = Scheduler::new(
+            [RuntimeCapability::CooperativeExecution],
+            runtime.runtime().id(),
+            SchedulerLimits::new(nonzero(1), nonzero(1)),
+        );
+
+        let cancellation = CancellationContext::root();
+
+        let registration = scheduler
+            .register_task(
+                task.id(),
+                task.descriptor().clone(),
+                runtime.runtime().id(),
+                ProtectedFrameStateId::new(0),
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("task must register: {error:?}"));
+
+        let context = TaskExecutionContext::new(
+            task.id(),
+            ProtectedFrameStateId::new(0),
+            cancellation,
+            task.output_context().cloned(),
+            ExecutionLane::new(
+                ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
+                ExecutionWorkload::Cooperative,
+            ),
+            registration.wake_handle(),
+        );
+
+        with_task_execution_context(context, || {
+            assert_eq!(
+                crate::output::write_current_run_output(
+                    RunOutputStream::StandardOutput,
+                    b"child output",
+                ),
+                Some(12)
+            );
+        });
+
+        assert_eq!(
+            output
+                .captured_stream(RunOutputStream::StandardOutput)
+                .as_ref()
+                .map(crate::CapturedRunStream::bytes),
+            Some(&b"child output"[..])
+        );
     }
 
     #[test]

@@ -58,10 +58,8 @@ pub fn lower_executable_host(
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
-    for (index, (root, contract_entry)) in roots
-        .into_iter()
-        .zip(contract.entries().iter())
-        .enumerate()
+    for (index, (root, contract_entry)) in
+        roots.into_iter().zip(contract.entries().iter()).enumerate()
     {
         let entry_index = ExecutableHostEntryId::new(
             u32::try_from(index).map_err(|_| MirUnitBuildError::InvalidHostSequence)?,

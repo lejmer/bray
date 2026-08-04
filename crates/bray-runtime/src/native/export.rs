@@ -5,11 +5,11 @@ use std::sync::atomic::AtomicUsize;
 
 use bray_runtime_interface::{
     CHARACTER_UNICODE_DATA_VERSION, NativeExecutionLaneResult, NativeFrameProgress,
-    NativeFrameProgressKind, NativeInactiveFrame, NativeProtectedFrame,
-    NativePanicCause, NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart,
-    NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
-    NativeRuntimeStatus, NativeSourceAnchor, NativeStringView, NativeSynchronousRootCallback,
-    NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
+    NativeFrameProgressKind, NativeInactiveFrame, NativePanicCause, NativeProtectedFrame,
+    NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
+    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
+    NativeSourceAnchor, NativeStringView, NativeSynchronousRootCallback, NativeTaskAllocation,
+    NativeTaskHandle, NativeWakeCallback,
 };
 
 const _: () = assert!(
@@ -732,9 +732,9 @@ mod tests {
 
     use bray_runtime_interface::{
         CHARACTER_UNICODE_DATA_VERSION, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
-        NativeFrameProgressKind, NativeFrameState, NativeLaneRequirements, NativeProtectedFrame,
-        NativeProtectedFrameTransfer, NativeRunState, NativeRuntimeConfiguration,
-        NativePanicCause, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
+        NativeFrameProgressKind, NativeFrameState, NativeLaneRequirements, NativePanicCause,
+        NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRunState,
+        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
     };
 
     use super::{

@@ -169,14 +169,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 bray_runtime_interface::NativePanicCause::ASSERTION,
                 self.native_string_view(message)?,
             ),
-            bray_ir::MirPanicCause::Assertion(None) => {
-                (
-                    bray_runtime_interface::NativePanicCause::ASSERTION,
-                    crate::native::string_view_type(self.types.context(), self.request.target())
-                        .const_zero()
-                        .into(),
-                )
-            }
+            bray_ir::MirPanicCause::Assertion(None) => (
+                bray_runtime_interface::NativePanicCause::ASSERTION,
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero()
+                    .into(),
+            ),
             bray_ir::MirPanicCause::ExplicitTestFailure(message) => (
                 bray_runtime_interface::NativePanicCause::EXPLICIT_TEST_FAILURE,
                 self.native_string_view(message)?,
@@ -252,7 +250,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ];
 
         fields.into_iter().enumerate().try_fold(
-            crate::native::source_anchor_type(context).const_zero().into(),
+            crate::native::source_anchor_type(context)
+                .const_zero()
+                .into(),
             |source, (index, field)| insert_value(&self.builder, source, field, index),
         )
     }

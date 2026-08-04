@@ -35,9 +35,7 @@ impl Compilation {
 
         for root_realization in roots {
             let root = reachability
-                .and_then(|reachability| reachability
-                .instance(root_realization.key())
-                )
+                .and_then(|reachability| reachability.instance(root_realization.key()))
                 .ok_or(NativeProductFactError::MissingProductRoot)?;
 
             let entry_result_type = root
@@ -89,9 +87,9 @@ impl Compilation {
                 .iter()
                 .any(|entry| entry.root() == RootExecution::Synchronous)
                 && (runtime_roles.contains(&RuntimeAbiRole::PanicPropagation)
-                || entries.iter().any(|entry| {
-                    matches!(entry.result(), ExecutableEntryResult::Fallible { .. })
-                })));
+                    || entries.iter().any(|entry| {
+                        matches!(entry.result(), ExecutableEntryResult::Fallible { .. })
+                    })));
 
         if synchronous_host_runtime {
             runtime_roles.extend([
@@ -138,11 +136,9 @@ impl Compilation {
                 first_entry,
                 requirements,
             ),
-            None => ExecutableHostContractBuilder::empty(
-                product.clone(),
-                native_entry,
-                requirements,
-            ),
+            None => {
+                ExecutableHostContractBuilder::empty(product.clone(), native_entry, requirements)
+            }
         };
 
         for entry in entries {

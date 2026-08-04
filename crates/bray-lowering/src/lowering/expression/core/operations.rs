@@ -419,12 +419,9 @@ impl Lowerer<'_> {
             return Ok(lowered);
         }
 
-        if let Some(lowered) = self.lower_testing_call(
-            id,
-            current,
-            Self::retained_source(&source),
-            &selection,
-        )? {
+        if let Some(lowered) =
+            self.lower_testing_call(id, current, Self::retained_source(&source), &selection)?
+        {
             return Ok(lowered);
         }
 

@@ -61,9 +61,9 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
                 entry: resolved,
                 ..
             }),
-            crate::MirOperationKind::Host(
-                crate::MirHostOperation::ReportCleanupIncidents { .. },
-            ),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents {
+                ..
+            }),
         ] = operations
         else {
             return Err(MirUnitBuildError::InvalidHostSequence);
