@@ -295,7 +295,9 @@ fn collect_call_values(call: &MirCall, demands: &mut ConstantDemands) {
 
 fn collect_panic_values(cause: &MirPanicCause, demands: &mut ConstantDemands) {
     match cause {
-        MirPanicCause::Message(message) => collect_operand_value(message, demands),
+        MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
+            collect_operand_value(message, demands);
+        }
         MirPanicCause::Assertion(message) => {
             if let Some(message) = message {
                 collect_operand_value(message, demands);

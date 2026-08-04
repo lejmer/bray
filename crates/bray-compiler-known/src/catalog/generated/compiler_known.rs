@@ -11,7 +11,7 @@ use crate::{AvailabilityRule, CompilerKnownIterationRole, CompilerKnownOperation
 // rust-style: allow(wildcard-import, reason = "the generated catalog references a machine-generated symbol inventory")
 use super::super::*;
 
-pub const CATALOG_SOURCE_DIGEST: &str = "8707e75d8c5251150d0e62c8ef633ba9b35709150e7ccd679cc4b11a46a47fcd";
+pub const CATALOG_SOURCE_DIGEST: &str = "fa33f68313216194d1c134fda215ac19173a1c3b8c637678aa8918c5c2563fb7";
 
 static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
     CompilerKnownScopeDescriptor {
@@ -472,7 +472,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("DeviceMemoryCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(143), TextSize::new(179)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(143), TextSize::new(179)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -762,7 +762,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("IntrinsicCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(276), TextSize::new(308)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(276), TextSize::new(308)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -852,7 +852,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("LayoutReinterpretCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(413), TextSize::new(454)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(413), TextSize::new(454)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -872,7 +872,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("ManualAllocationCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(558), TextSize::new(593)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(558), TextSize::new(593)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -1092,7 +1092,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("RawMemoryCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(690), TextSize::new(723)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(690), TextSize::new(723)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -2102,7 +2102,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("UncheckedAliasCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(825), TextSize::new(863)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(825), TextSize::new(863)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -2112,7 +2112,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("UncheckedInitializationCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(974), TextSize::new(1011)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(974), TextSize::new(1011)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -2309,7 +2309,7 @@ static RECOGNIZED_SCOPES: &[RecognizedStandardLibraryScopeDescriptor] = &[
         id: RecognizedStandardLibraryScopeId::new(2),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRoot"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(7), RecognizedStandardLibraryDeclarationId::new(53), RecognizedStandardLibraryDeclarationId::new(54), RecognizedStandardLibraryDeclarationId::new(62), RecognizedStandardLibraryDeclarationId::new(75), RecognizedStandardLibraryDeclarationId::new(78)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(7), RecognizedStandardLibraryDeclarationId::new(53), RecognizedStandardLibraryDeclarationId::new(54), RecognizedStandardLibraryDeclarationId::new(62), RecognizedStandardLibraryDeclarationId::new(76), RecognizedStandardLibraryDeclarationId::new(79)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(3),
@@ -2321,13 +2321,19 @@ static RECOGNIZED_SCOPES: &[RecognizedStandardLibraryScopeDescriptor] = &[
         id: RecognizedStandardLibraryScopeId::new(4),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardString"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("string")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(63), RecognizedStandardLibraryDeclarationId::new(64), RecognizedStandardLibraryDeclarationId::new(66), RecognizedStandardLibraryDeclarationId::new(67), RecognizedStandardLibraryDeclarationId::new(68), RecognizedStandardLibraryDeclarationId::new(69), RecognizedStandardLibraryDeclarationId::new(70), RecognizedStandardLibraryDeclarationId::new(71), RecognizedStandardLibraryDeclarationId::new(72), RecognizedStandardLibraryDeclarationId::new(73), RecognizedStandardLibraryDeclarationId::new(76)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(63), RecognizedStandardLibraryDeclarationId::new(64), RecognizedStandardLibraryDeclarationId::new(66), RecognizedStandardLibraryDeclarationId::new(67), RecognizedStandardLibraryDeclarationId::new(68), RecognizedStandardLibraryDeclarationId::new(69), RecognizedStandardLibraryDeclarationId::new(70), RecognizedStandardLibraryDeclarationId::new(71), RecognizedStandardLibraryDeclarationId::new(72), RecognizedStandardLibraryDeclarationId::new(73), RecognizedStandardLibraryDeclarationId::new(77)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(5),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardTask"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("task")]),
         declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(74)]),
+    },
+    RecognizedStandardLibraryScopeDescriptor {
+        id: RecognizedStandardLibraryScopeId::new(6),
+        key: RecognizedStandardLibraryScopeKey::from_static("StandardTesting"),
+        path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("testing")]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(75)]),
     },
 ];
 
@@ -3084,6 +3090,16 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
     },
     RecognizedStandardLibraryDeclarationDescriptor {
         id: RecognizedStandardLibraryDeclarationId::new(75),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTestingFail"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(6)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("fail"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(197), TextSize::new(239)) }),
+        implementation_hook: Some(ImplementationHook::TestingFail),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(76),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTruncateTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("truncate_to"),
@@ -3093,7 +3109,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(76),
+        id: RecognizedStandardLibraryDeclarationId::new(77),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardUtf8Error"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(4)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("Utf8Error"),
@@ -3103,9 +3119,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(77),
+        id: RecognizedStandardLibraryDeclarationId::new(78),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardUtf8ErrorVariant0InvalidEncoding"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(76)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(77)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(0),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(329), TextSize::new(347)) }),
@@ -3113,7 +3129,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(78),
+        id: RecognizedStandardLibraryDeclarationId::new(79),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardWrapTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("wrap_to"),
@@ -4521,37 +4537,42 @@ static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "support_yield")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(143), TextSize::new(179)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(197), TextSize::new(239)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "fail")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "message")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "string")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "never")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(143), TextSize::new(179)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "device_memory")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(276), TextSize::new(308)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(276), TextSize::new(308)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "intrinsic")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(413), TextSize::new(454)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(413), TextSize::new(454)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "layout_reinterpret")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(558), TextSize::new(593)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(558), TextSize::new(593)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "manual_alloc")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(690), TextSize::new(723)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(690), TextSize::new(723)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "raw_memory")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(825), TextSize::new(863)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(825), TextSize::new(863)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "unchecked_alias")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(13), range: TextRange::new(TextSize::new(974), TextSize::new(1011)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(974), TextSize::new(1011)) }),
         kind: CatalogDeclarationKind::Predicate,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PredicateKeyword, "predicate")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "unchecked_init")), CatalogSurfaceElement::EnterNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::PredicateDeclaration)]),
     },

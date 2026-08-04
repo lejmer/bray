@@ -1,0 +1,10 @@
+catalog recognized_standard_library;
+
+scope StandardTesting at std.testing {
+    declaration StandardTestingFail {
+        identity name fail;
+        implementation TestingFail;
+
+        surface { func fail(pos message: string) -> never; }
+    }
+}

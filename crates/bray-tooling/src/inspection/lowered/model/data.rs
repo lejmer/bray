@@ -763,6 +763,10 @@ fn operation_parts(
                         parts.operand("message", message, context)?;
                     }
                 }
+                MirPanicCause::ExplicitTestFailure(message) => {
+                    parts.attribute("cause", "explicit_test_failure");
+                    parts.operand("message", message, context)?;
+                }
             }
 
             "panic_report"

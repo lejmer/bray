@@ -190,8 +190,8 @@ mod tests {
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
-        MirCallTarget, MirOperand, MirOperationKind, MirTerminatorKind, MirTextOperationKind,
-        MirUnit,
+        MirCallTarget, MirOperand, MirOperationKind, MirPanicCause, MirTerminatorKind,
+        MirTextOperationKind, MirUnit,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
@@ -1192,10 +1192,12 @@ mod tests {
 
         let mir = lowered_mir(&result);
 
-        assert!(mir.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            bray_ir::MirOperationKind::PanicReport(_)
-        )));
+        assert!(mir.operations().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::PanicReport(MirPanicCause::Assertion(None))
+            )
+        }));
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
@@ -1537,6 +1539,67 @@ mod tests {
                 block.terminator().kind(),
                 MirTerminatorKind::PropagateCancellation { .. }
             )
+        }));
+    }
+
+    #[test]
+    fn standard_testing_failure_lowers_to_structured_failure_control() {
+        let compilation = standard_text_compilation(&[
+            include_str!("../../../../standard-library/std/src/testing.bray"),
+            concat!(
+                "module std.testing;\n",
+                "\n",
+                "func exercise(pos message: string) -> never\n",
+                "{\n",
+                "    fail(message);\n",
+                "}\n",
+                "\n",
+                "func catch_failure(pos message: string) -> Result<never, PanicReport>\n",
+                "{\n",
+                "    return catch fail(message);\n",
+                "}\n",
+            ),
+        ]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        assert_eq!(
+            implementation_hooks(&compilation, "exercise"),
+            [ImplementationHook::TestingFail]
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "exercise"))
+            .unwrap_or_else(|error| panic!("testing failure must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty());
+
+        assert!(lowered_mir(&lowered).operations().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::PanicReport(MirPanicCause::ExplicitTestFailure(_))
+            )
+        }));
+
+        assert!(lowered_mir(&lowered).blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::BeginCleanup(_) | MirTerminatorKind::Panic { .. }
+            )
+        }));
+
+        let caught = compilation
+            .lowered_unit(source_function_body_key(&compilation, "catch_failure"))
+            .unwrap_or_else(|error| panic!("caught testing failure must lower: {error:?}"));
+
+        assert!(caught.diagnostics().is_empty());
+
+        assert!(lowered_mir(&caught).blocks().iter().any(|block| {
+            matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. })
         }));
     }
 

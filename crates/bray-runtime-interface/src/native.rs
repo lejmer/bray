@@ -301,6 +301,77 @@ pub struct NativeRunOutcome {
     payload: usize,
 }
 
+/// Structured cause retained by one native panic report.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePanicCause(u32);
+
+impl NativePanicCause {
+    /// An explicit language `panic` expression.
+    pub const MESSAGE: Self = Self(0);
+    /// A failed built-in assertion.
+    pub const ASSERTION: Self = Self(1);
+    /// An explicit failure produced by `std.testing.fail`.
+    pub const EXPLICIT_TEST_FAILURE: Self = Self(2);
+
+    /// Returns whether this cause is defined by the current native ABI.
+    pub const fn is_known(&self) -> bool {
+        matches!(self.0, 0..=2)
+    }
+
+    /// Returns the stable native ABI code.
+    pub const fn code(self) -> u32 {
+        self.0
+    }
+}
+
+/// Exact source occurrence retained by a native panic report.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativeSourceAnchor {
+    source: u32,
+    start: u32,
+    end: u32,
+    version: u64,
+}
+
+impl NativeSourceAnchor {
+    /// Creates one source anchor from its stable scalar ABI fields.
+    pub const fn new(source: u32, start: u32, end: u32, version: u64) -> Self {
+        Self {
+            source,
+            start,
+            end,
+            version,
+        }
+    }
+
+    /// Returns the source snapshot identity.
+    pub const fn source(self) -> u32 {
+        self.source
+    }
+
+    /// Returns the inclusive UTF-8 byte start offset.
+    pub const fn start(self) -> u32 {
+        self.start
+    }
+
+    /// Returns the exclusive UTF-8 byte end offset.
+    pub const fn end(self) -> u32 {
+        self.end
+    }
+
+    /// Returns the logical source revision.
+    pub const fn version(self) -> u64 {
+        self.version
+    }
+
+    /// Returns whether the half-open source range is ordered.
+    pub const fn is_valid(&self) -> bool {
+        self.start <= self.end
+    }
+}
+
 /// Borrowed UTF-8 message accepted by the panic-report construction ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

@@ -6,10 +6,10 @@ use std::sync::atomic::AtomicUsize;
 use bray_runtime_interface::{
     CHARACTER_UNICODE_DATA_VERSION, NativeExecutionLaneResult, NativeFrameProgress,
     NativeFrameProgressKind, NativeInactiveFrame, NativeProtectedFrame,
-    NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
-    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
-    NativeStringView, NativeSynchronousRootCallback, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
+    NativePanicCause, NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart,
+    NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
+    NativeRuntimeStatus, NativeSourceAnchor, NativeStringView, NativeSynchronousRootCallback,
+    NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
 };
 
 const _: () = assert!(
@@ -54,6 +54,8 @@ native_export! {
 
 #[derive(Debug)]
 struct NativePanicReport {
+    cause: NativePanicCause,
+    source: NativeSourceAnchor,
     message: String,
 }
 
@@ -382,6 +384,10 @@ native_export! {
                 Box::from_raw(payload as *mut NativePanicReport)
             };
 
+            if !report.cause.is_known() || !report.source.is_valid() {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
+            }
+
             eprintln!("{}", report.message);
 
             NativeRuntimeStatus::SUCCESS
@@ -417,10 +423,15 @@ native_export! {
 
 native_export! {
     pub extern "C" fn bray_runtime_panic_report_construction_v1(
+        cause: NativePanicCause,
+        source: NativeSourceAnchor,
         message: NativeStringView,
     ) -> usize {
         catch_unwind(AssertUnwindSafe(|| {
-            if message.length() != 0 && message.data().is_null() {
+            if !cause.is_known()
+                || !source.is_valid()
+                || (message.length() != 0 && message.data().is_null())
+            {
                 return 0;
             }
 
@@ -434,6 +445,8 @@ native_export! {
             };
 
             Box::into_raw(Box::new(NativePanicReport {
+                cause,
+                source,
                 message: String::from_utf8_lossy(bytes).into_owned(),
             })) as usize
         }))
@@ -721,7 +734,7 @@ mod tests {
         CHARACTER_UNICODE_DATA_VERSION, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
         NativeFrameProgressKind, NativeFrameState, NativeLaneRequirements, NativeProtectedFrame,
         NativeProtectedFrameTransfer, NativeRunState, NativeRuntimeConfiguration,
-        NativeRuntimeStatus, NativeStringView,
+        NativePanicCause, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
     };
 
     use super::{
@@ -1464,10 +1477,11 @@ mod tests {
     extern "C-unwind" fn propagate_test_panic(_: usize) {
         const MESSAGE: &[u8] = b"synchronous root panic";
 
-        let report = super::bray_runtime_panic_report_construction_v1(NativeStringView::new(
-            MESSAGE.as_ptr(),
-            MESSAGE.len(),
-        ));
+        let report = super::bray_runtime_panic_report_construction_v1(
+            NativePanicCause::MESSAGE,
+            NativeSourceAnchor::new(0, 0, 1, 0),
+            NativeStringView::new(MESSAGE.as_ptr(), MESSAGE.len()),
+        );
 
         super::bray_runtime_panic_propagation_v1(report)
     }

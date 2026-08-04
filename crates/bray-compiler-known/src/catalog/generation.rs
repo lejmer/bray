@@ -460,7 +460,7 @@ mod tests {
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 14);
+        assert_eq!(generator_input_inventory().sources().len(), 15);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
@@ -637,6 +637,7 @@ mod tests {
             "StandardStringScalars",
             "StandardStringUtf8",
             "StandardTaskYieldSupport",
+            "StandardTestingFail",
             "StandardTruncateTo",
             "StandardUtf8Error",
             "StandardUtf8ErrorVariant0InvalidEncoding",

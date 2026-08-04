@@ -1,0 +1,3 @@
+module std.testing;
+
+extern func fail(pos message: string) -> never;
