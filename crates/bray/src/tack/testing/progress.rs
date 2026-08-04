@@ -61,7 +61,6 @@ struct TerminalTestProgress {
     tests: BTreeMap<TestIdentity, TestTerminalLine>,
     messages: TestReportMessageRenderer,
     operation_width: usize,
-    subject_width: usize,
     completed: bool,
 }
 
@@ -119,7 +118,6 @@ impl TerminalTestProgress {
             tests,
             messages,
             operation_width,
-            subject_width,
             completed: false,
         }
     }
@@ -221,14 +219,9 @@ impl TerminalTestProgress {
             detail,
         ));
 
-        let summary_width = self
-            .operation_width
-            .saturating_add(self.subject_width)
-            .saturating_add(1);
-
         summary.set_prefix(padded(
             self.messages.summary_operation(status),
-            summary_width,
+            self.operation_width,
         ));
 
         if let Some(duration) = report.duration() {

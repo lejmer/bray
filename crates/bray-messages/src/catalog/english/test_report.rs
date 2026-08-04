@@ -56,8 +56,8 @@ pub(crate) const fn result_operation(outcome: TestReportOutcome) -> &'static str
 
 pub(crate) const fn summary_operation(status: TestReportSummaryStatus) -> &'static str {
     match status {
-        TestReportSummaryStatus::Finished => "Finished test run",
-        TestReportSummaryStatus::Failed => "Failed test run",
+        TestReportSummaryStatus::Finished => "Finished",
+        TestReportSummaryStatus::Failed => "Failed",
     }
 }
 

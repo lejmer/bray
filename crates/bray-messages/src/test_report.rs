@@ -128,7 +128,7 @@ mod tests {
 
         assert_eq!(
             renderer.summary_operation(TestReportSummaryStatus::Finished),
-            "Finished test run"
+            "Finished"
         );
 
         assert_eq!(
