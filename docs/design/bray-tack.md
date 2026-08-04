@@ -56,7 +56,7 @@ removal. Both configurations preserve Bray language semantics.
 Published products use separate directories beneath `output_root`:
 
 ```text
-<output_root>/<workspace-target>/<development|release>/<package>/<product>/
+<output_root>/<workspace-target>/<debug|release>/<package>/<product>/
 ```
 
 This separation prevents build, run, and test commands from reusing or replacing artifacts from

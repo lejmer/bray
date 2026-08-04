@@ -304,6 +304,7 @@ const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
         ArtifactKind::Executable => Some(LinkedArtifactKind::Executable),
         ArtifactKind::StaticLibrary => Some(LinkedArtifactKind::StaticLibrary),
         ArtifactKind::SharedLibrary => Some(LinkedArtifactKind::SharedLibrary),
+        ArtifactKind::LinkedCompanion => Some(LinkedArtifactKind::DebugCompanion),
         ArtifactKind::Assembly
         | ArtifactKind::BackendIr
         | ArtifactKind::BackendBitcode
@@ -311,8 +312,7 @@ const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
         | ArtifactKind::ExecutableModule
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
-        | ArtifactKind::DependencyMetadata
-        | ArtifactKind::LinkedCompanion => None,
+        | ArtifactKind::DependencyMetadata => None,
     }
 }
 
@@ -435,7 +435,7 @@ mod tests {
         DebugInformationOutputMode, LinkableArtifactKind,
     };
 
-    use super::LinkStaging;
+    use super::{LinkStaging, linked_kind};
     use crate::test_support::{
         backend_capabilities, backend_identity, codegen_unit_key, executable_host_contract,
         product_identity, target_identity, target_output_description,
@@ -445,6 +445,14 @@ mod tests {
         EmissionBackend, EmissionPlanner, EmissionRequest, ReplacementPolicy, RequestedArtifact,
         RequestedArtifactDestination,
     };
+
+    #[test]
+    fn linked_companions_use_debug_output_staging() {
+        assert_eq!(
+            linked_kind(ArtifactKind::LinkedCompanion),
+            Some(bray_linker::LinkedArtifactKind::DebugCompanion)
+        );
+    }
 
     #[test]
     fn link_staging_owns_validated_inputs_and_deterministic_output_keys() {

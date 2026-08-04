@@ -1008,6 +1008,15 @@ mod tests {
             request.arguments
         );
 
+        let output = request
+            .arguments
+            .windows(2)
+            .find(|pair| pair[0] == "--output")
+            .map(|pair| PathBuf::from(&pair[1]))
+            .unwrap_or_else(|| panic!("debug build must select an output directory"));
+
+        assert!(output.ends_with("native/debug/example.application/application"));
+
         let runtime = std::path::absolute(&toolchain)
             .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
             .join("lib")

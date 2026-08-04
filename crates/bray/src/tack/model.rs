@@ -49,14 +49,14 @@ pub(crate) enum TackInspection {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum TackBuildConfiguration {
     #[default]
-    Development,
+    Debug,
     Release,
 }
 
 impl TackBuildConfiguration {
     pub(crate) const fn directory_name(self) -> &'static str {
         match self {
-            Self::Development => "development",
+            Self::Debug => "debug",
             Self::Release => "release",
         }
     }

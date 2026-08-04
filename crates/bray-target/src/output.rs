@@ -218,14 +218,9 @@ const fn native_name_fragments(
             }
         },
         TargetOutputKind::ExecutableModule => ("", ".wasm"),
-        TargetOutputKind::DebugCompanion => match format {
-            ObjectFormat::Coff => ("", ".pdb"),
-            ObjectFormat::Elf => ("", ".debug"),
-            ObjectFormat::MachO => ("", ".dSYM"),
-            ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
-                panic!("native target must use COFF, ELF, or Mach-O")
-            }
-        },
+        TargetOutputKind::DebugCompanion | TargetOutputKind::LinkedCompanion => {
+            ("", debug_companion_suffix(format))
+        }
         TargetOutputKind::PackageInterface => ("", ".brayi"),
         TargetOutputKind::DependencyMetadata => ("", ".brayd"),
         TargetOutputKind::Executable => match format {
@@ -250,7 +245,17 @@ const fn native_name_fragments(
                 panic!("native target must use COFF, ELF, or Mach-O")
             }
         },
-        TargetOutputKind::LinkedCompanion => ("", ".companion"),
+    }
+}
+
+const fn debug_companion_suffix(format: ObjectFormat) -> &'static str {
+    match format {
+        ObjectFormat::Coff => ".pdb",
+        ObjectFormat::Elf => ".debug",
+        ObjectFormat::MachO => ".dSYM",
+        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+            panic!("native target must use COFF, ELF, or Mach-O")
+        }
     }
 }
 
@@ -358,6 +363,22 @@ mod tests {
             });
 
             assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn linked_debug_companions_use_native_debug_names() {
+        let cases = [
+            (ObjectFormat::Coff, "application.pdb"),
+            (ObjectFormat::Elf, "application.debug"),
+            (ObjectFormat::MachO, "application.dSYM"),
+        ];
+
+        for (format, expected) in cases {
+            let name = TargetOutputName::for_native(format, TargetOutputKind::LinkedCompanion)
+                .file_name("application");
+
+            assert_eq!(name.as_deref(), Some(expected));
         }
     }
 

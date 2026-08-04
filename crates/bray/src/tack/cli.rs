@@ -301,7 +301,7 @@ const fn build_configuration(release: bool) -> crate::tack::model::TackBuildConf
     if release {
         crate::tack::model::TackBuildConfiguration::Release
     } else {
-        crate::tack::model::TackBuildConfiguration::Development
+        crate::tack::model::TackBuildConfiguration::Debug
     }
 }
 
