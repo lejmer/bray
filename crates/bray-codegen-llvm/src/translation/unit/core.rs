@@ -1,5 +1,6 @@
 use super::support::{llvm, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings};
+use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
 };
@@ -134,15 +135,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let unit = instance.mir();
         let builder = context.create_builder();
 
-        let blocks = unit
-            .blocks_with_ids()
-            .enumerate()
-            .map(|(index, (id, _))| {
-                let block = context.append_basic_block(function, &format!("block.{index}"));
-
-                (id, block)
-            })
-            .collect();
+        let blocks = create_blocks(context, function, unit);
 
         let reachable_blocks = reachable_blocks(unit);
 
@@ -196,15 +189,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let unit = instance.mir();
         let dispatch = context.append_basic_block(function, "frame.dispatch");
 
-        let blocks = unit
-            .blocks_with_ids()
-            .enumerate()
-            .map(|(index, (id, _))| {
-                let block = context.append_basic_block(function, &format!("block.{index}"));
-
-                (id, block)
-            })
-            .collect();
+        let blocks = create_blocks(context, function, unit);
 
         let reachable_blocks = reachable_blocks(unit);
 
@@ -478,16 +463,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )?;
 
             for (id, _) in self.unit.storages_with_ids() {
-                let index = id
-                    .slot()
-                    .checked_add(3)
-                    .and_then(|index| u32::try_from(index).ok())
-                    .ok_or(CodegenFailure::ResourceExhausted)?;
-
                 let storage = llvm(self.builder.build_struct_gep(
                     frame_context,
                     pointer,
-                    index,
+                    frame_storage_field_index(id)?,
                     &format!("storage.{}", id.slot()),
                 ))?;
 
@@ -583,6 +562,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         Ok(())
     }
+}
+
+fn create_blocks<'context>(
+    context: &'context Context,
+    function: FunctionValue<'context>,
+    unit: &MirUnit,
+) -> BTreeMap<MirBlockId, BasicBlock<'context>> {
+    unit.blocks_with_ids()
+        .enumerate()
+        .map(|(index, (id, _))| {
+            let block = context.append_basic_block(function, &format!("block.{index}"));
+
+            (id, block)
+        })
+        .collect()
 }
 
 fn reachable_blocks(unit: &MirUnit) -> BTreeSet<MirBlockId> {

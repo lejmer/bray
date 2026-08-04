@@ -206,7 +206,8 @@ impl CodeGenerator for LlvmCodeGenerator {
             );
         }
 
-        self.generate_artifacts(request).unwrap_or_else(|failure| CodegenOutcome::failed(failure, DiagnosticBag::new()))
+        self.generate_artifacts(request)
+            .unwrap_or_else(|failure| CodegenOutcome::failed(failure, DiagnosticBag::new()))
     }
 }
 

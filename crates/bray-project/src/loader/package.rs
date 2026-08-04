@@ -337,13 +337,13 @@ fn select_sources(
     let mut sources = Vec::new();
 
     for name in names.iter() {
-        let Some(root) = roots.iter().find(|root| root.name() == name.as_ref()) else {
-            return Err(ProjectLoadError::invalid(
-                manifest_path.to_path_buf(),
-                ProjectManifestProblem::UnknownSourceRoot,
-                name.to_string(),
-            ));
-        };
+        let root = select_named(
+            roots,
+            name,
+            ProjectSourceRoot::name,
+            manifest_path,
+            ProjectManifestProblem::UnknownSourceRoot,
+        )?;
 
         // Product source lists retain the roots' immutable, Arc-backed portable paths.
         sources.extend(root.sources().iter().cloned());
@@ -361,13 +361,13 @@ fn select_targets(
     let mut identities = Vec::with_capacity(names.len());
 
     for name in names.iter() {
-        let Some(target) = targets.iter().find(|target| target.name() == name.as_ref()) else {
-            return Err(ProjectLoadError::invalid(
-                manifest_path.to_path_buf(),
-                ProjectManifestProblem::UnknownTarget,
-                name.to_string(),
-            ));
-        };
+        let target = select_named(
+            targets,
+            name,
+            ProjectTarget::name,
+            manifest_path,
+            ProjectManifestProblem::UnknownTarget,
+        )?;
 
         // Product selections retain immutable Arc-backed target identities.
         identities.push(target.identity().clone());
@@ -376,6 +376,21 @@ fn select_targets(
     identities.sort_unstable();
 
     Ok(identities.into())
+}
+
+fn select_named<'a, T>(
+    values: &'a [T],
+    name: &str,
+    value_name: impl Fn(&T) -> &str,
+    manifest_path: &Path,
+    problem: ProjectManifestProblem,
+) -> Result<&'a T, ProjectLoadError> {
+    values
+        .iter()
+        .find(|value| value_name(value) == name)
+        .ok_or_else(|| {
+            ProjectLoadError::invalid(manifest_path.to_path_buf(), problem, name.to_string())
+        })
 }
 
 fn select_outputs(

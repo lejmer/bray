@@ -2522,8 +2522,7 @@ impl Compilation {
             TypeData::Error
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(
-                SelfTypeContext::Trait(_)
-                | SelfTypeContext::Implementation(_),
+                SelfTypeContext::Trait(_) | SelfTypeContext::Implementation(_),
             )
             | TypeData::TypeValuedMemberProjection { .. } => {
                 return Err(CodegenFactError::UnresolvedType(ty));

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use bray_compilation::{
-    BuildConfiguration, Compilation, CompilationOptions, CompilationRequest,
-    ProductEmissionInputs, SelectedTarget, WorkerBudget,
+    BuildConfiguration, Compilation, CompilationOptions, CompilationRequest, ProductEmissionInputs,
+    SelectedTarget, WorkerBudget,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
