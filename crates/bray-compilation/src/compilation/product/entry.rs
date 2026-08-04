@@ -378,8 +378,10 @@ fn result_of_unit(
             arguments,
             ..
         } if named_role(*definition, available) == Some(RepresentationRole::Result) => {
-            let [GenericArgumentTemplate::Type(result), GenericArgumentTemplate::Type(error)] =
-                arguments.as_ref()
+            let [
+                GenericArgumentTemplate::Type(result),
+                GenericArgumentTemplate::Type(error),
+            ] = arguments.as_ref()
             else {
                 return (false, None);
             };

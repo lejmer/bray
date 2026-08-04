@@ -3,8 +3,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compilation::ProductEmissionInputs;
 use bray_base::{FileReplacementMode, StagedFile};
+use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     SeverityKind,

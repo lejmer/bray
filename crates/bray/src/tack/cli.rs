@@ -440,7 +440,9 @@ struct CliVendorInstall {
 mod tests {
     use std::path::Path;
 
-    use bray_test_protocol::{TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy};
+    use bray_test_protocol::{
+        TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
+    };
 
     use crate::tack::model::{TackBuildConfiguration, TackCommand};
     use crate::tack::{TackCommandKind, TackInvocation};

@@ -21,9 +21,9 @@ use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
 };
 use crate::tack::result::TackRunResult;
+use crate::tack::testing::BuiltTestHost;
 use crate::tack::tool::{NativeToolExecutor, Tool, ToolExecutor, ToolOutput, ToolRequest};
 use crate::tack::toolchain::Toolchain;
-use crate::tack::testing::BuiltTestHost;
 
 /// Runs Bray Tack using independently installed toolchain executables.
 pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -531,7 +531,14 @@ fn run_tests(
             return failure(selection_diagnostics("test_catalog_output"), output_format);
         };
 
-        hosts.push(BuiltTestHost::new(executable, test_catalog));
+        let Some(host) = BuiltTestHost::try_new(executable, test_catalog) else {
+            return failure(
+                selection_diagnostics("test_host_publication"),
+                output_format,
+            );
+        };
+
+        hosts.push(host);
     }
 
     let mut result = result_from_outputs(outputs, output_format);

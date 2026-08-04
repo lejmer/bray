@@ -98,11 +98,7 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) fn test_report_result(
-        self,
-        outcome: TestReportOutcome,
-        identity: &str,
-    ) -> String {
+    pub(crate) fn test_report_result(self, outcome: TestReportOutcome, identity: &str) -> String {
         match self.locale {
             DiagnosticLocale::English => super::english::test_report_result(outcome, identity),
         }

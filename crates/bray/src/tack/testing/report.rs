@@ -21,11 +21,14 @@ pub(super) fn product_reports(
     let mut results = results
         .into_iter()
         .map(|result| (result.identity().product().clone(), result))
-        .fold(BTreeMap::<_, Vec<_>>::new(), |mut results, (product, result)| {
-            results.entry(product).or_default().push(result);
+        .fold(
+            BTreeMap::<_, Vec<_>>::new(),
+            |mut results, (product, result)| {
+                results.entry(product).or_default().push(result);
 
-            results
-        });
+                results
+            },
+        );
 
     hosts
         .iter()
@@ -404,11 +407,7 @@ mod tests {
 
         let report = TestCommandReport::new(
             TestSelectionSummary::new(2, 2),
-            [TestProductReport::new(
-                product,
-                digest,
-                results,
-            )],
+            [TestProductReport::new(product, digest, results)],
         );
 
         let rendered = render_report(&report, OutputFormat::Text, false)
@@ -454,10 +453,27 @@ mod tests {
 
         assert_eq!(report["format"], 1);
         assert_eq!(report["selection"]["filtered_out"], 2);
-        assert_eq!(report["products"][0]["tests"][0]["outcome"]["kind"], "assertion_failure");
-        assert_eq!(report["products"][0]["tests"][0]["outcome"]["message"], "expected equality");
-        assert_eq!(report["products"][0]["tests"][0]["stdout"]["policy"], "captured");
-        assert_eq!(report["products"][0]["tests"][0]["stdout"]["bytes"], serde_json::json!([112, 114, 101, 102, 105, 120]));
+
+        assert_eq!(
+            report["products"][0]["tests"][0]["outcome"]["kind"],
+            "assertion_failure"
+        );
+
+        assert_eq!(
+            report["products"][0]["tests"][0]["outcome"]["message"],
+            "expected equality"
+        );
+
+        assert_eq!(
+            report["products"][0]["tests"][0]["stdout"]["policy"],
+            "captured"
+        );
+
+        assert_eq!(
+            report["products"][0]["tests"][0]["stdout"]["bytes"],
+            serde_json::json!([112, 114, 101, 102, 105, 120])
+        );
+
         assert_eq!(report["summary"]["failed"], 1);
     }
 
@@ -470,8 +486,7 @@ mod tests {
         let module = ModulePathKey::try_new(["example", "tests"])
             .unwrap_or_else(|| panic!("test module path must be valid"));
 
-        let name =
-            SymbolName::try_new(name).unwrap_or_else(|| panic!("test name must be valid"));
+        let name = SymbolName::try_new(name).unwrap_or_else(|| panic!("test name must be valid"));
 
         let identity = TestIdentity::new(product, TestDeclarationPath::new(module, name));
 

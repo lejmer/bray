@@ -1,14 +1,18 @@
 use std::cell::RefCell;
 use std::fs::File;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use bray_runtime_interface::{NativePanicCause, NativeRunOutcome, NativeRunState, NativeSourceAnchor};
+use bray_runtime_interface::{
+    NativePanicCause, NativeRunOutcome, NativeRunState, NativeSourceAnchor,
+};
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_test_protocol::{
     AssertionFailure, CapturedStream, ExplicitTestFailure, TestCancellationSource,
-    TestCapturePolicy, TestHostCommand, TestHostResult, TestInfrastructureFailure,
+    TestCapturePolicy, TestHostCommand, TestHostControl, TestHostResult, TestInfrastructureFailure,
     TestInfrastructureFailureKind, TestOutcome, TestPanicCause, TestPanicReport, TestSourceAnchor,
-    TestTimeoutPolicy, read_host_command, write_host_result,
+    TestTimeoutPolicy, read_host_command, read_host_control, write_host_result,
 };
 
 use crate::{
@@ -24,11 +28,17 @@ thread_local! {
 
 struct NativeTestSession {
     command: TestHostCommand,
+    command_cancellation: Arc<CommandCancellation>,
     output: RunOutputContext,
     outcome: Option<TestOutcome>,
     cancellation: Option<RootCancellationHandle>,
     timeouts: Option<RunTimeoutScheduler>,
     timer: Option<RunCancellationTimer>,
+}
+
+struct CommandCancellation {
+    requested: AtomicBool,
+    cancellation: Mutex<Option<RootCancellationHandle>>,
 }
 
 pub(super) fn select_entry(entry: u32) -> bool {
@@ -72,6 +82,7 @@ pub(super) fn register_timeout(cancellation: RootCancellationHandle) {
         };
 
         session.cancellation = Some(cancellation.clone());
+        session.command_cancellation.register(cancellation.clone());
 
         let TestTimeoutPolicy::Limit(limit) = session.command.timeout() else {
             return;
@@ -111,19 +122,14 @@ pub(super) fn record_outcome(outcome: NativeRunOutcome) {
                     u64::try_from(outcome.payload()).ok(),
                 )),
             ),
-            _ => Some(TestOutcome::InfrastructureFailed(TestInfrastructureFailure::new(
-                TestInfrastructureFailureKind::MissingOutcome,
-                None,
-            ))),
+            _ => Some(TestOutcome::InfrastructureFailed(
+                TestInfrastructureFailure::new(TestInfrastructureFailureKind::MissingOutcome, None),
+            )),
         };
     });
 }
 
-pub(super) fn record_panic(
-    cause: NativePanicCause,
-    source: NativeSourceAnchor,
-    message: String,
-) {
+pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, message: String) {
     TEST_SESSION.with(|session| {
         let mut session = session.borrow_mut();
 
@@ -208,6 +214,9 @@ pub(super) fn finish() -> io::Result<()> {
 impl NativeTestSession {
     fn read() -> Result<Self, ()> {
         let command = read_host_command(&mut io::stdin().lock()).map_err(|_| ())?;
+        let command_cancellation = Arc::new(CommandCancellation::new());
+
+        CommandCancellation::listen(command_cancellation.clone());
 
         let output = match command.capture() {
             TestCapturePolicy::Captured(limits) => RunOutputContext::captured(
@@ -220,6 +229,7 @@ impl NativeTestSession {
 
         Ok(Self {
             command,
+            command_cancellation,
             output,
             outcome: None,
             cancellation: None,
@@ -236,8 +246,13 @@ impl NativeTestSession {
         {
             Some(RootCancellationSource::Timeout) => match self.command.timeout() {
                 TestTimeoutPolicy::Limit(limit) => TestOutcome::TimedOut(limit),
-                TestTimeoutPolicy::Unlimited => TestOutcome::Cancelled(TestCancellationSource::Invocation),
+                TestTimeoutPolicy::Unlimited => {
+                    TestOutcome::Cancelled(TestCancellationSource::Invocation)
+                }
             },
+            Some(RootCancellationSource::Explicit) if self.command_cancellation.requested() => {
+                TestOutcome::Cancelled(TestCancellationSource::Command)
+            }
             Some(RootCancellationSource::Explicit) | None => {
                 TestOutcome::Cancelled(TestCancellationSource::Invocation)
             }
@@ -245,9 +260,9 @@ impl NativeTestSession {
     }
 
     fn fail(&mut self, kind: TestInfrastructureFailureKind) {
-        self.outcome = Some(TestOutcome::InfrastructureFailed(TestInfrastructureFailure::new(
-            kind, None,
-        )));
+        self.outcome = Some(TestOutcome::InfrastructureFailed(
+            TestInfrastructureFailure::new(kind, None),
+        ));
     }
 
     fn write_result(self) -> io::Result<()> {
@@ -270,11 +285,70 @@ impl NativeTestSession {
             self.command.capture(),
         );
 
-        let result = TestHostResult::after_cleanup(outcome, standard_output, standard_error);
+        let result = TestHostResult::after_cleanup(
+            self.command.id(),
+            self.command.catalog_digest(),
+            outcome,
+            standard_output,
+            standard_error,
+        );
+
         let path = std::env::var_os(RESULT_PATH_VARIABLE).ok_or(io::ErrorKind::NotFound)?;
         let mut file = File::create(path)?;
 
         write_host_result(&mut file, &result).map_err(|_| io::ErrorKind::InvalidData.into())
+    }
+}
+
+impl CommandCancellation {
+    fn new() -> Self {
+        Self {
+            requested: AtomicBool::new(false),
+            cancellation: Mutex::new(None),
+        }
+    }
+
+    fn listen(cancellation: Arc<Self>) {
+        std::thread::spawn(move || {
+            let mut input = io::stdin().lock();
+
+            while let Ok(control) = read_host_control(&mut input) {
+                match control {
+                    TestHostControl::Cancel => cancellation.request(),
+                }
+            }
+        });
+    }
+
+    fn register(&self, cancellation: RootCancellationHandle) {
+        let mut registered = self
+            .cancellation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+
+        *registered = Some(cancellation.clone());
+
+        if self.requested() {
+            cancellation.request();
+        }
+    }
+
+    fn request(&self) {
+        self.requested.store(true, Ordering::Release);
+
+        let cancellation = self
+            .cancellation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+
+        if let Some(cancellation) = cancellation {
+            cancellation.request();
+        }
+    }
+
+    fn requested(&self) -> bool {
+        self.requested.load(Ordering::Acquire)
     }
 }
 

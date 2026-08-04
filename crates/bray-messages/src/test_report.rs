@@ -1,5 +1,5 @@
-use crate::catalog::MessageCatalog;
 use crate::DiagnosticLocale;
+use crate::catalog::MessageCatalog;
 
 /// Stable outcome category rendered in a human test report.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

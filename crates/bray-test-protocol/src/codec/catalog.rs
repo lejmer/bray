@@ -21,6 +21,11 @@ const CATALOG_MAGIC: &[u8; 8] = b"BRAYTSTC";
 pub struct TestCatalogDigest([u8; 32]);
 
 impl TestCatalogDigest {
+    /// Creates a digest from its exact canonical bytes.
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// Returns the exact 256-bit digest bytes.
     pub const fn bytes(self) -> [u8; 32] {
         self.0
@@ -182,12 +187,7 @@ fn decode_entry(
         TestSourceAnchor::new(SourceSpan::new(source, TextRange::new(start, end)), version);
 
     Ok(TestEntryMetadata::new(
-        identity,
-        source,
-        execution,
-        constraint,
-        result,
-        error_type,
+        identity, source, execution, constraint, result, error_type,
     ))
 }
 

@@ -5,15 +5,17 @@ use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
 use crate::{
     AssertionFailure, CapturedStream, CapturedStreamPolicy, ExplicitTestFailure,
-    TestCancellationSource, TestCaptureLimits, TestCapturePolicy, TestCatalogEntryId, TestDuration,
-    TestErrorTypeIdentity, TestHostCommand, TestHostResult, TestInfrastructureFailure,
-    TestInfrastructureFailureKind, TestOutcome, TestPanicCause, TestPanicReport, TestSourceAnchor,
-    TestStreamFailure, TestStreamFailureKind, TestTimeoutPolicy,
+    TestCancellationSource, TestCaptureLimits, TestCapturePolicy, TestCatalogDigest,
+    TestCatalogEntryId, TestDuration, TestErrorTypeIdentity, TestHostCommand, TestHostCommandId,
+    TestHostControl, TestHostResult, TestInfrastructureFailure, TestInfrastructureFailureKind,
+    TestOutcome, TestPanicCause, TestPanicReport, TestSourceAnchor, TestStreamFailure,
+    TestStreamFailureKind, TestTimeoutPolicy,
 };
 
 use super::support::{Decoder, Encoder, TestProtocolError, read_frame, write_frame};
 
 const COMMAND_MAGIC: &[u8; 8] = b"BRAYTSCM";
+const CONTROL_MAGIC: &[u8; 8] = b"BRAYTSCT";
 const RESULT_MAGIC: &[u8; 8] = b"BRAYTSRS";
 
 /// Writes one bounded native host startup command.
@@ -23,6 +25,8 @@ pub fn write_host_command(
 ) -> Result<(), TestProtocolError> {
     let mut encoder = Encoder::new(COMMAND_MAGIC);
 
+    encoder.bytes(&command.id().bytes())?;
+    encoder.bytes(&command.catalog_digest().bytes())?;
     encoder.u32(command.entry().value());
     encode_timeout(&mut encoder, command.timeout());
     encode_capture_policy(&mut encoder, command.capture());
@@ -42,6 +46,8 @@ pub fn write_host_command(
 pub fn read_host_command(reader: &mut impl Read) -> Result<TestHostCommand, TestProtocolError> {
     let payload = read_frame(reader)?;
     let mut decoder = Decoder::new(&payload, COMMAND_MAGIC)?;
+    let id = TestHostCommandId::from_bytes(decode_digest(&mut decoder)?);
+    let catalog_digest = TestCatalogDigest::from_bytes(decode_digest(&mut decoder)?);
     let entry = TestCatalogEntryId::new(decoder.u32()?);
     let timeout = decode_timeout(&mut decoder)?;
     let capture = decode_capture_policy(&mut decoder)?;
@@ -57,7 +63,43 @@ pub fn read_host_command(reader: &mut impl Read) -> Result<TestHostCommand, Test
 
     decoder.finish()?;
 
-    Ok(TestHostCommand::new(entry, timeout, capture, error_type))
+    Ok(TestHostCommand::new(
+        id,
+        catalog_digest,
+        entry,
+        timeout,
+        capture,
+        error_type,
+    ))
+}
+
+/// Writes one control message to an active native test host.
+pub fn write_host_control(
+    writer: &mut impl Write,
+    control: TestHostControl,
+) -> Result<(), TestProtocolError> {
+    let mut encoder = Encoder::new(CONTROL_MAGIC);
+
+    encoder.u8(match control {
+        TestHostControl::Cancel => 0,
+    });
+
+    write_frame(writer, &encoder.finish()?)
+}
+
+/// Reads one control message for an active native test host.
+pub fn read_host_control(reader: &mut impl Read) -> Result<TestHostControl, TestProtocolError> {
+    let payload = read_frame(reader)?;
+    let mut decoder = Decoder::new(&payload, CONTROL_MAGIC)?;
+
+    let control = match decoder.u8()? {
+        0 => TestHostControl::Cancel,
+        _ => return Err(TestProtocolError::Malformed),
+    };
+
+    decoder.finish()?;
+
+    Ok(control)
 }
 
 /// Writes one terminal native host result after cleanup.
@@ -67,6 +109,8 @@ pub fn write_host_result(
 ) -> Result<(), TestProtocolError> {
     let mut encoder = Encoder::new(RESULT_MAGIC);
 
+    encoder.bytes(&result.command_id().bytes())?;
+    encoder.bytes(&result.catalog_digest().bytes())?;
     encode_outcome(&mut encoder, result.outcome())?;
     encode_stream(&mut encoder, result.standard_output())?;
     encode_stream(&mut encoder, result.standard_error())?;
@@ -78,6 +122,8 @@ pub fn write_host_result(
 pub fn read_host_result(reader: &mut impl Read) -> Result<TestHostResult, TestProtocolError> {
     let payload = read_frame(reader)?;
     let mut decoder = Decoder::new(&payload, RESULT_MAGIC)?;
+    let command_id = TestHostCommandId::from_bytes(decode_digest(&mut decoder)?);
+    let catalog_digest = TestCatalogDigest::from_bytes(decode_digest(&mut decoder)?);
     let outcome = decode_outcome(&mut decoder)?;
     let standard_output = decode_stream(&mut decoder)?;
     let standard_error = decode_stream(&mut decoder)?;
@@ -85,10 +131,19 @@ pub fn read_host_result(reader: &mut impl Read) -> Result<TestHostResult, TestPr
     decoder.finish()?;
 
     Ok(TestHostResult::after_cleanup(
+        command_id,
+        catalog_digest,
         outcome,
         standard_output,
         standard_error,
     ))
+}
+
+fn decode_digest(decoder: &mut Decoder<'_>) -> Result<[u8; 32], TestProtocolError> {
+    decoder
+        .bytes()?
+        .try_into()
+        .map_err(|_| TestProtocolError::Malformed)
 }
 
 fn encode_timeout(encoder: &mut Encoder, timeout: TestTimeoutPolicy) {
@@ -431,14 +486,17 @@ mod tests {
 
     use crate::{
         CapturedStream, ExplicitTestFailure, TestCaptureLimits, TestCapturePolicy,
-        TestCatalogEntryId, TestDuration, TestErrorTypeIdentity, TestHostCommand, TestHostResult,
-        TestOutcome, TestSourceAnchor, TestTimeoutPolicy,
+        TestCatalogDigest, TestCatalogEntryId, TestDuration, TestErrorTypeIdentity,
+        TestHostCommand, TestHostCommandId, TestHostControl, TestHostResult, TestOutcome,
+        TestSourceAnchor, TestTimeoutPolicy,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     #[test]
     fn host_commands_and_results_round_trip_through_bounded_frames() {
         let command = TestHostCommand::new(
+            TestHostCommandId::from_bytes([3; 32]),
+            TestCatalogDigest::from_bytes([4; 32]),
             TestCatalogEntryId::new(7),
             TestTimeoutPolicy::Limit(TestDuration::from_nanoseconds(50)),
             TestCapturePolicy::Captured(TestCaptureLimits::new(1024, 1536)),
@@ -464,6 +522,8 @@ mod tests {
         );
 
         let result = TestHostResult::after_cleanup(
+            command.id(),
+            command.catalog_digest(),
             TestOutcome::ExplicitFailure(ExplicitTestFailure::new(source, "failed")),
             CapturedStream::captured(b"out".iter().copied(), 2, None),
             CapturedStream::discarded(),
@@ -478,5 +538,43 @@ mod tests {
             .unwrap_or_else(|error| panic!("test result must decode: {error:?}"));
 
         assert_eq!(decoded_result, result);
+    }
+
+    #[test]
+    fn host_control_messages_round_trip() {
+        let mut bytes = Vec::new();
+
+        super::write_host_control(&mut bytes, TestHostControl::Cancel)
+            .unwrap_or_else(|error| panic!("test control must encode: {error:?}"));
+
+        let decoded = super::read_host_control(&mut Cursor::new(bytes))
+            .unwrap_or_else(|error| panic!("test control must decode: {error:?}"));
+
+        assert_eq!(decoded, TestHostControl::Cancel);
+    }
+
+    #[test]
+    fn captured_streams_accept_the_default_one_mebibyte_limit() {
+        let command_id = TestHostCommandId::from_bytes([8; 32]);
+        let catalog_digest = TestCatalogDigest::from_bytes([9; 32]);
+        let bytes = vec![b'x'; 1024 * 1024];
+
+        let result = TestHostResult::after_cleanup(
+            command_id,
+            catalog_digest,
+            TestOutcome::Passed,
+            CapturedStream::captured(bytes, 0, None),
+            CapturedStream::discarded(),
+        );
+
+        let mut encoded = Vec::new();
+
+        super::write_host_result(&mut encoded, &result)
+            .unwrap_or_else(|error| panic!("bounded capture must encode: {error:?}"));
+
+        let decoded = super::read_host_result(&mut Cursor::new(encoded))
+            .unwrap_or_else(|error| panic!("bounded capture must decode: {error:?}"));
+
+        assert_eq!(decoded, result);
     }
 }

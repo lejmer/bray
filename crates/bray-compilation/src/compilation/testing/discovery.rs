@@ -10,8 +10,8 @@ use bray_test_protocol::{
     TestSourceAnchor,
 };
 
-use crate::compilation::product::structural_type_identity;
 use crate::compilation::Compilation;
+use crate::compilation::product::structural_type_identity;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 /// Stable test metadata paired with compilation-local callable identities.

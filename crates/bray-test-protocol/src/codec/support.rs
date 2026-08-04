@@ -141,7 +141,11 @@ impl<'bytes> Decoder<'bytes> {
     }
 
     pub(super) fn bytes(&mut self) -> Result<&'bytes [u8], TestProtocolError> {
-        let length = self.length()?;
+        let length = usize::try_from(self.u32()?).map_err(|_| TestProtocolError::ResourceLimit)?;
+
+        if length > MAX_FRAME_BYTES {
+            return Err(TestProtocolError::ResourceLimit);
+        }
 
         self.take(length)
     }

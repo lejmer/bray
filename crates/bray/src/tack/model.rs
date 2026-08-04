@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use bray_tooling::OutputFormat;
 use bray_test_protocol::{TestCapturePolicy, TestDuration, TestTimeoutPolicy};
+use bray_tooling::OutputFormat;
 
 /// Stable category for one Bray Tack command.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

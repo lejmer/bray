@@ -17,8 +17,7 @@ use bray_runtime_interface::{
     RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
     RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
     SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
-    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
-    TEST_ENTRY_SELECTION_SYMBOL,
+    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
 };
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::{NativeTarget, ObjectFormat, TargetIdentity};

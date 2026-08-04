@@ -17,8 +17,8 @@ use crate::context::with_task_execution_context;
 use crate::{
     CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink, ExecutionLane,
     ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind, JoinWaitRegistration,
-    RunOutcome, Scheduler, SchedulerLimits, TaskControlBlock, TaskExecutionContext,
-    RootCancellationHandle, TaskObservationError, TaskRegistration, TaskResumeStatus,
+    RootCancellationHandle, RunOutcome, Scheduler, SchedulerLimits, TaskControlBlock,
+    TaskExecutionContext, TaskObservationError, TaskRegistration, TaskResumeStatus,
 };
 
 use super::frame::{NativeFrame, NativeTerminalPayload, NativeTerminalState};

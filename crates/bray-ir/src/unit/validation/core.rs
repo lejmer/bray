@@ -55,9 +55,10 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 
     for (expected, operations) in entries.chunks_exact(operations_per_entry).enumerate() {
         let operations = if selects_entries {
-            let Some(crate::MirOperationKind::Host(
-                crate::MirHostOperation::SelectTestEntry { entry, .. },
-            )) = operations.first()
+            let Some(crate::MirOperationKind::Host(crate::MirHostOperation::SelectTestEntry {
+                entry,
+                ..
+            })) = operations.first()
             else {
                 return Err(MirUnitBuildError::InvalidHostSequence);
             };

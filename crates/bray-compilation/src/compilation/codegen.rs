@@ -129,8 +129,8 @@ impl Compilation {
 
                 let roots = match semantics.value().kind() {
                     bray_symbols::ProductKind::Test => {
-                        let discovery = self
-                            .test_discovery_with_cancellation(product.clone(), cancellation)?;
+                        let discovery =
+                            self.test_discovery_with_cancellation(product.clone(), cancellation)?;
 
                         discovery
                             .value()
@@ -151,8 +151,7 @@ impl Compilation {
                             })
                             .collect::<Result<Vec<_>, _>>()?
                     }
-                    bray_symbols::ProductKind::Executable
-                    | bray_symbols::ProductKind::Library => {
+                    bray_symbols::ProductKind::Executable | bray_symbols::ProductKind::Library => {
                         let entrypoint = semantics
                             .value()
                             .entrypoint()
@@ -161,9 +160,10 @@ impl Compilation {
                         let definition = CallableDefinitionId::try_new(entrypoint.into())
                             .ok_or(CodegenFactError::MissingEntrypoint)?;
 
-                        vec![self
-                            .callable_body_key(definition)?
-                            .ok_or(CodegenFactError::MissingEntrypoint)?]
+                        vec![
+                            self.callable_body_key(definition)?
+                                .ok_or(CodegenFactError::MissingEntrypoint)?,
+                        ]
                     }
                 };
 
