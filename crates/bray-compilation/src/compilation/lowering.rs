@@ -1598,9 +1598,11 @@ mod tests {
 
         assert!(caught.diagnostics().is_empty());
 
-        assert!(lowered_mir(&caught).blocks().iter().any(|block| {
-            matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. })
-        }));
+        assert!(
+            lowered_mir(&caught).blocks().iter().any(|block| {
+                matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. })
+            })
+        );
     }
 
     #[test]

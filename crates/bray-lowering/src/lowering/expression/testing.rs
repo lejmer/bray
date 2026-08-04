@@ -18,11 +18,13 @@ impl Lowerer<'_> {
             return Ok(None);
         }
 
-        let [SelectedArgument::Explicit {
-            expression: message,
-            conversion,
-            ..
-        }] = selection.arguments()
+        let [
+            SelectedArgument::Explicit {
+                expression: message,
+                conversion,
+                ..
+            },
+        ] = selection.arguments()
         else {
             return Err(LoweringError::UnsupportedExpression(expression));
         };

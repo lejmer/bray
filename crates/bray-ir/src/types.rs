@@ -21,8 +21,7 @@ impl MirUnit {
             types.insert(descriptor.result_type());
         }
 
-        if let crate::MirUnitKind::ExecutableHost(host) = self.kind()
-        {
+        if let crate::MirUnitKind::ExecutableHost(host) = self.kind() {
             for entry in host.entries() {
                 if let bray_runtime_interface::ExecutableEntryResult::Fallible {
                     ty, error, ..

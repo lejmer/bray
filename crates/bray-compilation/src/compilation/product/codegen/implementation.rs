@@ -189,9 +189,7 @@ impl Compilation {
 
         let test_discovery = if semantic.value().kind() == ProductKind::Test {
             // Discovery owns the product identity used by its independently cached fact key.
-            Some(
-                self.test_discovery_with_cancellation(product.clone(), cancellation)?
-            )
+            Some(self.test_discovery_with_cancellation(product.clone(), cancellation)?)
         } else {
             None
         };
@@ -366,8 +364,7 @@ impl Compilation {
                 .into_iter()
                 .collect(),
             ProductKind::Test => {
-                let discovery =
-                    test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
+                let discovery = test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
 
                 discovery
                     .catalog()
@@ -1289,12 +1286,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(
-                semantic.value(),
-                None,
-                &target,
-                &cancellation,
-            )
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         let reachability = compilation
@@ -1415,12 +1407,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(
-                semantic.value(),
-                None,
-                &target,
-                &cancellation,
-            )
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         assert!(roots.is_empty());
@@ -1683,8 +1670,7 @@ mod tests {
             "}\n",
         );
 
-        let (backend, compilation) =
-            codegen_compilation_for_product(source, ProductKind::Test);
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Test);
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
         let runtime = runtime_artifact(&compilation, archive.path());
@@ -2100,12 +2086,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
 
         let roots = compilation
-            .product_root_instances(
-                semantic.value(),
-                None,
-                &target,
-                &cancellation,
-            )
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         compilation

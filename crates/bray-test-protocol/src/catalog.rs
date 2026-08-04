@@ -159,10 +159,8 @@ mod tests {
         let first = entry(product_named("other-a"), "first", 4);
         let second = entry(product_named("other-b"), "second", 8);
 
-        let forward = TestCatalog::try_new(
-            catalog_product.clone(),
-            [first.clone(), second.clone()],
-        );
+        let forward =
+            TestCatalog::try_new(catalog_product.clone(), [first.clone(), second.clone()]);
 
         let reversed = TestCatalog::try_new(catalog_product, [second, first]);
 
