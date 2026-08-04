@@ -55,16 +55,7 @@ impl TerminalBuildProgress {
 
         let aggregate = progress.add(ProgressBar::new(plan.total_units()));
 
-        aggregate.set_style(
-            active_progress_style(
-                messages,
-                BuildProgressLineKind::ActiveProduct,
-                String::new(),
-                "{spinner:.white}",
-                "cyan",
-            )
-            .tick_strings(&["○"]),
-        );
+        aggregate.set_style(active_product_progress_style(messages));
 
         aggregate.set_prefix(messages.operation(BuildProgressOperation::Building));
         aggregate.set_message(padded(plan.artifact(), subject_column_width));
@@ -235,6 +226,17 @@ impl PackageTerminalProgress {
     }
 }
 
+fn active_product_progress_style(messages: BuildProgressMessageRenderer) -> ProgressStyle {
+    active_progress_style(
+        messages,
+        BuildProgressLineKind::ActiveProduct,
+        String::new(),
+        "{spinner:.white}",
+        "cyan",
+    )
+    .tick_strings(&["○", "○"])
+}
+
 fn active_progress_style(
     messages: BuildProgressMessageRenderer,
     kind: BuildProgressLineKind,
@@ -243,7 +245,7 @@ fn active_progress_style(
     color: &str,
 ) -> ProgressStyle {
     line_style(messages, kind, path, marker, color)
-        .tick_strings(&["◐", "◓", "◑", "◒"])
+        .tick_strings(&["◐", "◓", "◑", "◒", "◐"])
         .progress_chars("━╸ ")
 }
 
@@ -344,14 +346,19 @@ const fn status_color(status: BuildProgressStatus) -> &'static str {
 mod tests {
     use bray_messages::{BuildProgressLineKind, BuildProgressMessageRenderer};
 
-    use super::{active_progress_style, finished_progress_style};
+    use super::{active_product_progress_style, active_progress_style, finished_progress_style};
     use crate::tack::progress::model::BuildProgressStatus;
 
     #[test]
-    fn every_terminal_progress_template_is_valid() {
+    fn terminal_progress_styles_have_valid_templates_and_ticks() {
         let messages = BuildProgressMessageRenderer::english();
 
-        let _ = active_progress_style(
+        let active_product = active_product_progress_style(messages);
+
+        assert_eq!(active_product.get_tick_str(0), "○");
+        assert_eq!(active_product.get_final_tick_str(), "○");
+
+        let package = active_progress_style(
             messages,
             BuildProgressLineKind::Package,
             String::from("package"),
@@ -359,13 +366,10 @@ mod tests {
             "cyan",
         );
 
-        let _ = active_progress_style(
-            messages,
-            BuildProgressLineKind::ActiveProduct,
-            String::new(),
-            "{spinner}",
-            "cyan",
-        );
+        assert_eq!(package.get_tick_str(0), "◐");
+        assert_eq!(package.get_tick_str(1), "◓");
+        assert_eq!(package.get_tick_str(2), "◑");
+        assert_eq!(package.get_tick_str(3), "◒");
 
         for status in [BuildProgressStatus::Complete, BuildProgressStatus::Failed] {
             let _ = finished_progress_style(
