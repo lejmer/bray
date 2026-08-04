@@ -2,17 +2,12 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use bray_messages::{
-    BuildProgressField, BuildProgressLineKind, BuildProgressMessageRenderer,
-    BuildProgressOperation,
+    BuildProgressField, BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-use super::model::{
-    BuildProgressPackage, BuildProgressPlan, BuildProgressStatus,
-};
-use super::text::{
-    max_column_width, message_action, message_configuration, status_marker,
-};
+use super::model::{BuildProgressPackage, BuildProgressPlan, BuildProgressStatus};
+use super::text::{max_column_width, message_action, message_configuration, status_marker};
 
 pub(super) struct TerminalBuildProgress {
     progress: MultiProgress,
@@ -48,10 +43,9 @@ impl TerminalBuildProgress {
 
         heading.set_style(progress_style("{msg:.bold}"));
 
-        heading.set_message(messages.heading(
-            plan.product(),
-            message_configuration(plan.configuration()),
-        ));
+        heading.set_message(
+            messages.heading(plan.product(), message_configuration(plan.configuration())),
+        );
 
         let aggregate = progress.add(ProgressBar::new(plan.total_units()));
 
@@ -102,15 +96,9 @@ impl TerminalBuildProgress {
                 "cyan",
             ));
 
-            bar.set_prefix(
-                self.messages
-                    .operation(BuildProgressOperation::Compiling),
-            );
+            bar.set_prefix(self.messages.operation(BuildProgressOperation::Compiling));
 
-            bar.set_message(padded(
-                package.plan.identity(),
-                self.subject_column_width,
-            ));
+            bar.set_message(padded(package.plan.identity(), self.subject_column_width));
 
             bar.enable_steady_tick(Duration::from_millis(80));
 
@@ -145,10 +133,10 @@ impl TerminalBuildProgress {
             status,
         ));
 
-        bar.set_prefix(self.messages.operation(status_operation(
-            status,
-            BuildProgressOperation::Compiled,
-        )));
+        bar.set_prefix(
+            self.messages
+                .operation(status_operation(status, BuildProgressOperation::Compiled)),
+        );
 
         bar.finish();
     }
@@ -183,10 +171,10 @@ impl TerminalBuildProgress {
             status,
         ));
 
-        self.aggregate.set_prefix(self.messages.operation(status_operation(
-            status,
-            BuildProgressOperation::Finished,
-        )));
+        self.aggregate.set_prefix(
+            self.messages
+                .operation(status_operation(status, BuildProgressOperation::Finished)),
+        );
 
         self.aggregate.finish();
         self.heading.finish();
@@ -281,25 +269,36 @@ fn line_style(
     let template = format!("   {marker} {fields}");
 
     progress_style(&template)
-        .with_key("path", move |_: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
-            let _ = writer.write_str(&path);
-        })
-        .with_key("unit_count", move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
-            let _ = writer.write_str(
-                &messages.unit_count(state.pos(), state.len().unwrap_or_default()),
-            );
-        })
-        .with_key("duration", move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
-            let _ = writer.write_str(&messages.duration(state.elapsed().as_millis()));
-        })
-        .with_key("percentage", move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
-            let percentage = match state.len().unwrap_or_default() {
-                0 => 100,
-                total => state.pos().saturating_mul(100) / total,
-            };
+        .with_key(
+            "path",
+            move |_: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+                let _ = writer.write_str(&path);
+            },
+        )
+        .with_key(
+            "unit_count",
+            move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+                let _ = writer
+                    .write_str(&messages.unit_count(state.pos(), state.len().unwrap_or_default()));
+            },
+        )
+        .with_key(
+            "duration",
+            move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+                let _ = writer.write_str(&messages.duration(state.elapsed().as_millis()));
+            },
+        )
+        .with_key(
+            "percentage",
+            move |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
+                let percentage = match state.len().unwrap_or_default() {
+                    0 => 100,
+                    total => state.pos().saturating_mul(100) / total,
+                };
 
-            let _ = writer.write_str(&messages.percentage(percentage));
-        })
+                let _ = writer.write_str(&messages.percentage(percentage));
+            },
+        )
 }
 
 fn field_template(field: BuildProgressField, color: &str) -> String {

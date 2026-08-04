@@ -1,0 +1,17 @@
+catalog recognized_standard_library;
+
+scope StandardRun at std.run {
+    declaration StandardRunCancellationRequestedSupport {
+        identity name support_cancellation_requested;
+        implementation CurrentRunCancellationObservation;
+
+        surface { internal func support_cancellation_requested() -> bool; }
+    }
+
+    declaration StandardRunEnterCancellationSupport {
+        identity name support_enter_cancellation;
+        implementation CurrentRunCancellationEntry;
+
+        surface { internal func support_enter_cancellation(); }
+    }
+}

@@ -1,0 +1,18 @@
+module std.run;
+
+func cancellation_requested() -> bool
+{
+    return support_cancellation_requested();
+}
+
+func checkpoint()
+{
+    if support_cancellation_requested()
+    {
+        support_enter_cancellation();
+    }
+}
+
+extern internal func support_cancellation_requested() -> bool;
+
+extern internal func support_enter_cancellation();

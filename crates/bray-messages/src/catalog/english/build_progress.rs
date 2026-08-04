@@ -36,10 +36,7 @@ pub(crate) const fn fields(kind: BuildProgressLineKind) -> &'static [BuildProgre
     }
 }
 
-pub(crate) fn heading(
-    product: &str,
-    configuration: BuildProgressConfiguration,
-) -> String {
+pub(crate) fn heading(product: &str, configuration: BuildProgressConfiguration) -> String {
     format!("Building {product} [{}]", configuration_text(configuration))
 }
 

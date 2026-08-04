@@ -407,10 +407,11 @@ impl RuntimeConformance for BrayRuntime {
         let waiter_wakes = Arc::new(AtomicUsize::new(0));
         let observed_wakes = Arc::clone(&waiter_wakes);
 
-        task.register_join_waiter(Arc::new(move || {
-            observed_wakes.fetch_add(1, Ordering::Relaxed);
-        }))
-        .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
+        let _registration = task
+            .register_join_waiter(Arc::new(move || {
+                observed_wakes.fetch_add(1, Ordering::Relaxed);
+            }))
+            .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
 
         task.request_cancellation();
 

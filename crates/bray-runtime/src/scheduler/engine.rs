@@ -38,7 +38,8 @@ pub(super) struct SchedulerData {
 pub(super) struct SchedulerState {
     pub(super) tasks: BTreeMap<TaskId, RegisteredTask>,
     pub(super) queues: BTreeMap<ExecutionLane, VecDeque<QueuedTask>>,
-    timers: BTreeMap<MonotonicDeadline, Vec<TimerWake>>,
+    timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
+    next_timer: u64,
     pub(super) timer_count: usize,
 }
 
@@ -195,7 +196,7 @@ impl Scheduler {
         deadline: MonotonicDeadline,
         wake: &TaskWakeHandle,
         state_id: ProtectedFrameStateId,
-    ) -> Result<(), SchedulerError> {
+    ) -> Result<TimerRegistration, SchedulerError> {
         if !Weak::ptr_eq(&wake.scheduler, &Arc::downgrade(&self.data)) {
             return Err(SchedulerError::UnknownTask(wake.task));
         }
@@ -212,18 +213,39 @@ impl Scheduler {
             return Err(SchedulerError::TimerCapacityReached);
         }
 
-        state.timers.entry(deadline).or_default().push(TimerWake {
-            task: wake.task,
-            state: state_id,
-        });
+        let identity = state.next_timer;
+
+        let Some(next_timer) = identity.checked_add(1) else {
+            return Err(SchedulerError::TimerIdentityExhausted);
+        };
+
+        state.next_timer = next_timer;
+
+        state.timers.entry(deadline).or_default().insert(
+            identity,
+            TimerWake {
+                task: wake.task,
+                state: state_id,
+            },
+        );
 
         state.timer_count += 1;
 
         drop(state);
 
-        self.data.event.wake_handle().wake()?;
+        let registration = TimerRegistration {
+            deadline,
+            identity: Some(identity),
+            scheduler: Arc::downgrade(&self.data),
+        };
 
-        Ok(())
+        if let Err(error) = self.data.event.wake_handle().wake() {
+            drop(registration);
+
+            return Err(error.into());
+        }
+
+        Ok(registration)
     }
 
     /// Takes the next task compatible with one exact worker lane.
@@ -299,7 +321,7 @@ impl Scheduler {
 
             let mut wakes = wakes.into_iter();
 
-            while let Some(wake) = wakes.next() {
+            while let Some((identity, wake)) = wakes.next() {
                 match enqueue_task(
                     &self.data,
                     scheduler,
@@ -313,7 +335,7 @@ impl Scheduler {
                     Err(error) => {
                         let retained = scheduler.timers.entry(deadline).or_default();
 
-                        retained.push(wake);
+                        retained.insert(identity, wake);
                         retained.extend(wakes);
 
                         return Err(error);
@@ -330,6 +352,45 @@ impl Scheduler {
             .state
             .lock()
             .map_err(|_| SchedulerError::SynchronizationPoisoned)
+    }
+}
+
+/// Cancellation-safe ownership of one pending scheduler timer.
+#[derive(Debug)]
+pub struct TimerRegistration {
+    deadline: MonotonicDeadline,
+    identity: Option<u64>,
+    scheduler: Weak<SchedulerData>,
+}
+
+impl Drop for TimerRegistration {
+    fn drop(&mut self) {
+        let Some(identity) = self.identity.take() else {
+            return;
+        };
+
+        let Some(scheduler) = self.scheduler.upgrade() else {
+            return;
+        };
+
+        let mut state = scheduler
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let mut removed = false;
+
+        if let Some(timers) = state.timers.get_mut(&self.deadline) {
+            removed = timers.remove(&identity).is_some();
+
+            if timers.is_empty() {
+                state.timers.remove(&self.deadline);
+            }
+        }
+
+        if removed {
+            state.timer_count = state.timer_count.saturating_sub(1);
+        }
     }
 }
 
@@ -395,7 +456,7 @@ impl Drop for TaskRegistration {
         state.timers.retain(|_, wakes| {
             let previous = wakes.len();
 
-            wakes.retain(|wake| wake.task != self.task);
+            wakes.retain(|_, wake| wake.task != self.task);
             removed_timers += previous - wakes.len();
 
             !wakes.is_empty()
@@ -961,7 +1022,7 @@ mod tests {
             .deadline_after(Duration::ZERO)
             .unwrap_or_else(|| panic!("zero deadline must be representable"));
 
-        scheduler
+        let _timer = scheduler
             .register_timer(
                 deadline,
                 &registration.wake_handle(),
@@ -1000,7 +1061,7 @@ mod tests {
             .deadline_after(Duration::ZERO)
             .unwrap_or_else(|| panic!("zero deadline must be representable"));
 
-        scheduler
+        let _timer = scheduler
             .register_timer(
                 deadline,
                 &registration.wake_handle(),
@@ -1020,7 +1081,44 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         assert_eq!(state.timer_count, 1);
-        assert_eq!(state.timers.get(&deadline).map(Vec::len), Some(1));
+
+        assert_eq!(
+            state.timers.get(&deadline).map(|timers| timers.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn dropping_timer_registration_withdraws_the_pending_wake() {
+        let runtime = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
+
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task = TaskControlBlock::start(TestFrame::completing(1))
+            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+
+        let deadline = MonotonicClock
+            .deadline_after(Duration::from_secs(60))
+            .unwrap_or_else(|| panic!("timer deadline must be representable"));
+
+        let timer = scheduler
+            .register_timer(
+                deadline,
+                &registration.wake_handle(),
+                ProtectedFrameStateId::new(0),
+            )
+            .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
+
+        drop(timer);
+
+        let snapshot = scheduler
+            .snapshot()
+            .unwrap_or_else(|error| panic!("scheduler must remain observable: {error:?}"));
+
+        assert_eq!(snapshot.timer_count(), 0);
     }
 
     #[test]
@@ -1086,7 +1184,7 @@ mod tests {
             .deadline_after(Duration::from_secs(60))
             .unwrap_or_else(|| panic!("timer deadline must be representable"));
 
-        scheduler
+        let _timer = scheduler
             .register_timer(
                 deadline,
                 &registration.wake_handle(),

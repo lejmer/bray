@@ -66,10 +66,7 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) const fn build_progress_action(
-        self,
-        action: BuildProgressAction,
-    ) -> &'static str {
+    pub(crate) const fn build_progress_action(self, action: BuildProgressAction) -> &'static str {
         match self.locale {
             DiagnosticLocale::English => super::english::build_progress_action(action),
         }
@@ -85,17 +82,13 @@ impl MessageCatalog {
 
     pub(crate) fn build_progress_duration(self, milliseconds: u128) -> String {
         match self.locale {
-            DiagnosticLocale::English => {
-                super::english::build_progress_duration(milliseconds)
-            }
+            DiagnosticLocale::English => super::english::build_progress_duration(milliseconds),
         }
     }
 
     pub(crate) fn build_progress_percentage(self, percentage: u64) -> String {
         match self.locale {
-            DiagnosticLocale::English => {
-                super::english::build_progress_percentage(percentage)
-            }
+            DiagnosticLocale::English => super::english::build_progress_percentage(percentage),
         }
     }
 

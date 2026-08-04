@@ -45,10 +45,7 @@ pub(super) fn result_from_outputs(
     )
 }
 
-pub(super) fn result_from_output(
-    output: ToolOutput,
-    output_format: OutputFormat,
-) -> TackRunResult {
+pub(super) fn result_from_output(output: ToolOutput, output_format: OutputFormat) -> TackRunResult {
     let (success, stdout, stderr) = output.into_parts();
 
     TackRunResult::with_output(
@@ -101,10 +98,7 @@ fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat)
     )
 }
 
-pub(super) fn failure(
-    diagnostics: DiagnosticBag,
-    output_format: OutputFormat,
-) -> TackRunResult {
+pub(super) fn failure(diagnostics: DiagnosticBag, output_format: OutputFormat) -> TackRunResult {
     TackRunResult::new(ExitCode::FAILURE, diagnostics, output_format)
 }
 

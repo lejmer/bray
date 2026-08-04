@@ -16,9 +16,9 @@ use bray_runtime_interface::{
 use crate::context::with_task_execution_context;
 use crate::{
     CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink, ExecutionLane,
-    ExecutionLanePlacement, ExecutionWorkload, RunOutcome, Scheduler, SchedulerLimits,
-    TaskControlBlock, TaskExecutionContext, TaskObservationError, TaskRegistration,
-    TaskResumeStatus,
+    ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration, RunOutcome, Scheduler,
+    SchedulerLimits, TaskControlBlock, TaskExecutionContext, TaskObservationError,
+    TaskRegistration, TaskResumeStatus,
 };
 
 use super::frame::{NativeFrame, NativeTerminalPayload, NativeTerminalState};
@@ -55,6 +55,7 @@ enum NativeTaskSlot {
 struct StartedTask {
     task: Arc<NativeTask>,
     registration: TaskRegistration,
+    waits: RefCell<Vec<JoinWaitRegistration<usize>>>,
     terminal: Arc<NativeTerminalState>,
 }
 
@@ -193,6 +194,7 @@ impl NativeRuntime {
             NativeTaskSlot::Started(StartedTask {
                 task,
                 registration,
+                waits: RefCell::new(Vec::new()),
                 terminal,
             }),
         );
@@ -235,8 +237,15 @@ impl NativeRuntime {
                 return None;
             };
 
-            (task.task.id() == ready.task())
-                .then(|| (*handle, task.task.clone(), task.registration.wake_handle()))
+            if task.task.id() != ready.task() {
+                return None;
+            }
+
+            task.waits
+                .borrow_mut()
+                .retain(JoinWaitRegistration::is_pending);
+
+            Some((*handle, task.task.clone(), task.registration.wake_handle()))
         });
 
         let Some((handle, task, wake)) = selected else {
@@ -431,14 +440,22 @@ impl NativeRuntime {
             return outcome;
         }
 
+        let owner = current_native_task().unwrap_or(handle);
+
+        let registration = self.with_started(handle, |task| {
+            task.task
+                .register_join_waiter(Arc::new(move || callback(context)))
+        });
+
+        let Ok(Ok(registration)) = registration else {
+            return runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
+        };
+
         let status = self
-            .with_started(handle, |task| {
-                task.task
-                    .register_join_waiter(Arc::new(move || callback(context)))
-                    .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |()| {
-                        NativeRuntimeStatus::SUCCESS
-                    })
+            .with_started(owner, |task| {
+                task.waits.borrow_mut().push(registration);
             })
+            .map(|()| NativeRuntimeStatus::SUCCESS)
             .unwrap_or_else(|status| status);
 
         if status.is_success() {
@@ -471,6 +488,8 @@ impl NativeRuntime {
 
         match task.task.take_outcome() {
             Ok(outcome) => {
+                task.waits.borrow_mut().clear();
+
                 self.transfer_cleanup_incidents(&task);
 
                 let outcome = task_outcome(outcome, &task.terminal);
@@ -490,6 +509,8 @@ impl NativeRuntime {
                 NativeRunOutcome::new(NativeRunState::PENDING, 0)
             }
             Err(TaskObservationError::RuntimeFailed(_)) => {
+                task.waits.borrow_mut().clear();
+
                 self.transfer_cleanup_incidents(&task);
 
                 let outcome = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
@@ -502,6 +523,7 @@ impl NativeRuntime {
             }
             Err(
                 TaskObservationError::AlreadyObserved
+                | TaskObservationError::WaiterIdentityExhausted
                 | TaskObservationError::SynchronizationPoisoned,
             ) => runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE),
         }
@@ -591,15 +613,20 @@ impl NativeRuntime {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
-        self.with_started(child, |task| {
-            task.task
-                .register_join_waiter(Arc::new(move || {
-                    let _ = wake.wake(state);
-                }))
-                .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |()| {
-                    NativeRuntimeStatus::SUCCESS
-                })
+        let registration = self.with_started(child, |task| {
+            task.task.register_join_waiter(Arc::new(move || {
+                let _ = wake.wake(state);
+            }))
+        });
+
+        let Ok(Ok(registration)) = registration else {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        };
+
+        self.with_started(parent, |task| {
+            task.waits.borrow_mut().push(registration);
         })
+        .map(|()| NativeRuntimeStatus::SUCCESS)
         .unwrap_or_else(|status| status)
     }
 

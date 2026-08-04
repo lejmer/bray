@@ -5,6 +5,7 @@ use bray_bound_tree::{
     SelectedArgument, SelectedConstructionInput, SelectedConversion, SelectedOperation,
     SemanticSelection,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CurrentRunCancellation;
 
@@ -37,6 +38,7 @@ where
 
     let mut calls = Vec::new();
     let mut defaults = Vec::new();
+    let mut enters_current_run_cancellation = false;
 
     for entry in selections.entries() {
         if request.is_cancelled() {
@@ -45,6 +47,11 @@ where
 
         match entry.selection() {
             SemanticSelection::Call(call) => {
+                enters_current_run_cancellation |= matches!(
+                    call.implementation_hook(),
+                    Some(ImplementationHook::CurrentRunCancellationEntry)
+                );
+
                 let mut contribution =
                     BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::Invocation);
 
@@ -99,9 +106,10 @@ where
         calls.extend(suspension.deferred_calls().iter().cloned());
     }
 
-    let current_run_cancellation = if control_flow
-        .completion()
-        .contains(bray_bound_tree::ControlCompletionKind::Cancellation)
+    let current_run_cancellation = if enters_current_run_cancellation
+        || control_flow
+            .completion()
+            .contains(bray_bound_tree::ControlCompletionKind::Cancellation)
     {
         CurrentRunCancellation::MayEnter
     } else {

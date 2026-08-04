@@ -413,6 +413,12 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
+        if let Some(lowered) =
+            self.lower_run_call(id, current, Self::retained_source(&source), &selection)?
+        {
+            return Ok(lowered);
+        }
+
         if let Some(operation) = self
             .input
             .storage_flow()

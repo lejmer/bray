@@ -374,6 +374,8 @@ where
         | ImplementationHook::BlockingExecution
         | ImplementationHook::ComputeExecution
         | ImplementationHook::MainThreadExecution
+        | ImplementationHook::CurrentRunCancellationObservation
+        | ImplementationHook::CurrentRunCancellationEntry
         | ImplementationHook::StringScalarCount
         | ImplementationHook::StringIsEmpty
         | ImplementationHook::StringEquals
