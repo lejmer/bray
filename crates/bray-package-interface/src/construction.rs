@@ -93,7 +93,7 @@ pub enum ImportedSymbolConstructionError {
         /// Defining dependency package.
         package: PackageIdentity,
         /// Missing stable external identity.
-        key: bray_symbols::ExternalSymbolKey,
+        key: ExternalSymbolKey,
     },
     /// An exported lookup attempted to project a compiler-known symbol.
     CompilerKnownExportTarget(bray_symbols::SymbolKey),
@@ -291,7 +291,7 @@ fn lookup_target_key(
     loaded: LoadedInterfaceSurface<'_>,
     package_index: &BTreeMap<PackageIdentity, LoadedInterfaceSurface<'_>>,
     target: &InterfaceSymbolReference,
-) -> Result<bray_symbols::ExternalSymbolKey, ImportedSymbolConstructionError> {
+) -> Result<ExternalSymbolKey, ImportedSymbolConstructionError> {
     match target {
         InterfaceSymbolReference::Local(symbol) => loaded
             .surface()
@@ -341,8 +341,8 @@ mod tests {
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
         AnySymbolId, ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolIdentityInput,
-        InterfaceSymbolId, MemberLookupResult, ModulePathKey, PackageIdentity, SymbolId, SymbolKind,
-        SymbolName,
+        InterfaceSymbolId, MemberLookupResult, ModulePathKey, PackageIdentity, SymbolId,
+        SymbolKind, SymbolName,
     };
 
     use super::{

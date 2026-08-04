@@ -654,8 +654,7 @@ mod tests {
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, MemberLookupResult, ModulePathKey,
-        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference,
-        TypeExpressionTemplate,
+        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference, TypeExpressionTemplate,
     };
     use bray_testing::test_source_inputs;
 

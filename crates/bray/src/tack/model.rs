@@ -46,6 +46,22 @@ pub(crate) enum TackInspection {
     Mir,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum TackBuildConfiguration {
+    #[default]
+    Development,
+    Release,
+}
+
+impl TackBuildConfiguration {
+    pub(crate) const fn directory_name(self) -> &'static str {
+        match self {
+            Self::Development => "development",
+            Self::Release => "release",
+        }
+    }
+}
+
 impl TackInspection {
     pub(crate) const fn command_text(self) -> &'static str {
         match self {
@@ -69,13 +85,18 @@ pub(crate) enum TackCommand {
         package: Option<String>,
     },
     Check(TackSelection),
-    Build(TackSelection),
+    Build {
+        selection: TackSelection,
+        configuration: TackBuildConfiguration,
+    },
     Run {
         selection: TackSelection,
+        configuration: TackBuildConfiguration,
         arguments: Vec<OsString>,
     },
     Test {
         selection: TackSelection,
+        configuration: TackBuildConfiguration,
         arguments: Vec<OsString>,
     },
     Format {
@@ -102,7 +123,7 @@ impl TackCommand {
         match self {
             Self::Init { .. } => TackCommandKind::Init,
             Self::Check(_) => TackCommandKind::Check,
-            Self::Build(_) => TackCommandKind::Build,
+            Self::Build { .. } => TackCommandKind::Build,
             Self::Run { .. } => TackCommandKind::Run,
             Self::Test { .. } => TackCommandKind::Test,
             Self::Format { .. } => TackCommandKind::Format,

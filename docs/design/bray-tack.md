@@ -41,6 +41,27 @@ deterministic before compiler work begins.
 Package, product, and target filters use `--package`, `--product`, and `--target`. Target names are
 workspace-local manifest names rather than host inference.
 
+## Build Configurations
+
+Build, run, and test commands use the development configuration by default. `--release` selects
+the release configuration. The selected configuration applies to every product built by that
+command and is forwarded explicitly to `brayc` rather than inferred from the compiler executable
+or host environment.
+
+Development builds use inexpensive optimization, emit source line tables, preserve otherwise
+unused linked content, and request any debug companion required by the target. Release builds use
+the production optimization pipeline, omit debug information, and permit dead-code and section
+removal. Both configurations preserve Bray language semantics.
+
+Published products use separate directories beneath `output_root`:
+
+```text
+<output_root>/<workspace-target>/<development|release>/<package>/<product>/
+```
+
+This separation prevents build, run, and test commands from reusing or replacing artifacts from
+another configuration. Check and semantic inspection remain configuration-independent.
+
 ## Project Initialization
 
 Initialization creates `bray-workspace.json`, `bray-package.json`, and `src/main.bray` beneath the

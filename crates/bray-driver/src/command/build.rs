@@ -68,6 +68,7 @@ impl DriverInspectionArtifact {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverProductConfiguration {
     backend: DriverBackend,
+    build: bray_compilation::BuildConfiguration,
     runtime: Option<DriverRuntimeSelection>,
     required_capabilities: Vec<RuntimeCapability>,
     output: PathBuf,
@@ -79,6 +80,7 @@ impl DriverProductConfiguration {
     /// Creates product configuration and canonicalizes repeated artifact selections.
     pub fn new(
         backend: DriverBackend,
+        build: bray_compilation::BuildConfiguration,
         runtime: Option<DriverRuntimeSelection>,
         mut required_capabilities: Vec<RuntimeCapability>,
         output: PathBuf,
@@ -94,6 +96,7 @@ impl DriverProductConfiguration {
 
         Self {
             backend,
+            build,
             runtime,
             required_capabilities,
             output,
@@ -105,6 +108,11 @@ impl DriverProductConfiguration {
     /// Returns the selected code generation backend.
     pub const fn backend(&self) -> DriverBackend {
         self.backend
+    }
+
+    /// Returns the selected native build configuration.
+    pub const fn build(&self) -> bray_compilation::BuildConfiguration {
+        self.build
     }
 
     /// Returns the selected runtime artifact or configured profile.
@@ -137,6 +145,8 @@ impl DriverProductConfiguration {
 pub(crate) struct CliBuildCommand {
     #[arg(long, value_enum, default_value = "llvm")]
     backend: CliBackend,
+    #[arg(long)]
+    release: bool,
     #[arg(
         long = "runtime-artifact",
         value_name = "METADATA",
@@ -178,6 +188,11 @@ impl CliBuildCommand {
 
         let configuration = DriverProductConfiguration::new(
             self.backend.into(),
+            if self.release {
+                bray_compilation::BuildConfiguration::Release
+            } else {
+                bray_compilation::BuildConfiguration::Development
+            },
             runtime,
             self.required_capabilities
                 .into_iter()
@@ -313,6 +328,7 @@ mod tests {
     fn product_configuration_canonicalizes_repeated_selections() {
         let configuration = DriverProductConfiguration::new(
             DriverBackend::Llvm,
+            bray_compilation::BuildConfiguration::Development,
             None,
             [
                 RuntimeCapability::Reactor,

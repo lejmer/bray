@@ -625,6 +625,19 @@ semantics. The backend may attach optimization metadata only when earlier checke
 
 Optimization must not repair invalid MIR or make new language-semantic decisions.
 
+## Debug Information
+
+Debug-enabled code generation receives a complete stable mapping from every demanded MIR source anchor to its source file, one-based
+line, and one-based column. Compiler-generated MIR uses an explicit generated-source identity. The backend attaches source locations
+to generated functions, operations, and terminators and finalizes metadata before verification and serialization.
+
+The development build configuration requests source line tables. This supports source-level breakpoints and stack locations without
+claiming variable inspection. A full-debug configuration must first extend the typed mapping contract with variable and
+lexical-scope facts.
+
+Debug metadata is embedded in relocatable objects. Native linking retains embedded metadata where the object format supports it
+directly and produces a target-required linked companion where it does not. Release code generation omits debug metadata entirely.
+
 ---
 
 ## Diagnostics

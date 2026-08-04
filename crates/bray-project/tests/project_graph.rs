@@ -120,7 +120,9 @@ fn manifests_load_an_exact_dependency_first_project_graph() {
     );
 
     assert_eq!(
-        graph.package(&identity).map(|package| package.version().to_string()),
+        graph
+            .package(&identity)
+            .map(|package| package.version().to_string()),
         Some(String::from("2.0.0-beta.1"))
     );
 }
@@ -142,7 +144,11 @@ fn package_versions_must_be_semantic_versions() {
 
     let diagnostic = error.into_diagnostic(DiagnosticId::new(9));
 
-    assert_eq!(diagnostic.kind(), DiagnosticKind::ProjectPackageVersionInvalid);
+    assert_eq!(
+        diagnostic.kind(),
+        DiagnosticKind::ProjectPackageVersionInvalid
+    );
+
     assert_eq!(diagnostic.notes().len(), 1);
 
     assert_eq!(

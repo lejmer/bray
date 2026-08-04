@@ -8,10 +8,7 @@ pub struct PackageVersion(Arc<semver::Version>);
 impl PackageVersion {
     /// Parses a package version using the Semantic Versioning specification.
     pub fn try_new(value: &str) -> Option<Self> {
-        semver::Version::parse(value)
-            .ok()
-            .map(Arc::new)
-            .map(Self)
+        semver::Version::parse(value).ok().map(Arc::new).map(Self)
     }
 
     /// Returns the major version component.

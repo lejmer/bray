@@ -684,6 +684,11 @@ Code generation does not own language semantics.
 
 Code generation does not own CLI policy, package policy, source discovery, artifact layout, or linking policy.
 
+Compilation owns typed development and release build configurations. The selected configuration participates in lazy native-product
+fact identity and determines backend-neutral optimization, debug-information, and link-retention policy. Command drivers only select
+and forward that typed policy. Configuration-specific artifact directories prevent development and release products from overwriting
+each other.
+
 Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code generation.
 Backend-specific legalization preserves those decisions rather than replacing them.
 

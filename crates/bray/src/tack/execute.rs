@@ -185,17 +185,22 @@ fn execute_invocation(
             output_format,
             executor,
         ),
-        TackCommand::Build(selection) => run_build(
+        TackCommand::Build {
+            selection,
+            configuration,
+        } => run_build(
             &workspace_root,
             &graph,
             &toolchain,
             worker_count,
             &selection,
+            configuration,
             output_format,
             executor,
         ),
         TackCommand::Run {
             selection,
+            configuration,
             arguments,
         } => run_one(
             &workspace_root,
@@ -203,12 +208,14 @@ fn execute_invocation(
             &toolchain,
             worker_count,
             &selection,
+            configuration,
             arguments,
             output_format,
             executor,
         ),
         TackCommand::Test {
             selection,
+            configuration,
             arguments,
         } => run_tests(
             &workspace_root,
@@ -216,6 +223,7 @@ fn execute_invocation(
             &toolchain,
             worker_count,
             &selection,
+            configuration,
             arguments,
             output_format,
             executor,
@@ -296,6 +304,7 @@ fn run_build(
     toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
+    configuration: crate::tack::model::TackBuildConfiguration,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
@@ -316,7 +325,7 @@ fn run_build(
     let mut outputs = Vec::new();
 
     for product in products {
-        match compiler.build(&product) {
+        match compiler.build(&product, configuration) {
             Ok((product_outputs, _)) => outputs.extend(product_outputs),
             Err(diagnostics) => return failure(diagnostics, output_format),
         }
@@ -335,6 +344,7 @@ fn run_one(
     toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
+    configuration: crate::tack::model::TackBuildConfiguration,
     arguments: Vec<OsString>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
@@ -357,7 +367,7 @@ fn run_one(
         executor,
     );
 
-    let (outputs, executable) = match compiler.build(product) {
+    let (outputs, executable) = match compiler.build(product, configuration) {
         Ok(result) => result,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
@@ -391,6 +401,7 @@ fn run_tests(
     toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
+    configuration: crate::tack::model::TackBuildConfiguration,
     arguments: Vec<OsString>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
@@ -413,7 +424,7 @@ fn run_tests(
     let mut tests_succeeded = true;
 
     for product in products {
-        let (product_outputs, executable) = match compiler.build(&product) {
+        let (product_outputs, executable) = match compiler.build(&product, configuration) {
             Ok(result) => result,
             Err(diagnostics) => return failure(diagnostics, output_format),
         };
@@ -1013,6 +1024,48 @@ mod tests {
             "compiler request should contain runtime metadata {runtime:?}: {:#?}",
             request.arguments
         );
+    }
+
+    #[test]
+    fn release_build_selects_release_compiler_policy_and_output_directory() {
+        let workspace = ProjectWorkspace::basic();
+        let executor = RecordingExecutor::default();
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "build".into(),
+                "--release".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+
+        let requests = executor.requests();
+
+        let [request] = requests.as_slice() else {
+            panic!("build should invoke exactly one compiler: {requests:#?}");
+        };
+
+        assert!(
+            request
+                .arguments
+                .iter()
+                .any(|argument| argument == "--release")
+        );
+
+        let output = request
+            .arguments
+            .windows(2)
+            .find(|pair| pair[0] == "--output")
+            .map(|pair| PathBuf::from(&pair[1]))
+            .unwrap_or_else(|| panic!("release build must select an output directory"));
+
+        assert!(output.ends_with("native/release/example.application/application"));
     }
 
     #[test]

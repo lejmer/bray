@@ -1,11 +1,11 @@
-use crate::mapping::LlvmTypeMappings;
+use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings};
 use crate::native::frame_operation_function;
 use crate::translation::unit::{UnitTranslator, pointer_value};
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
     CodegenSymbolKey,
 };
-use bray_ir::MirStorageKind;
+use bray_ir::{MirStorageId, MirStorageKind};
 use bray_runtime_interface::ProtectedFrameOperation;
 use inkwell::AddressSpace;
 use inkwell::context::Context;
@@ -13,7 +13,7 @@ use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
-use super::cleanup::translate_action_callbacks;
+use super::{cleanup::translate_action_callbacks, support::frame_storage_field_index};
 
 pub(crate) fn translate_protected_instance<'context, 'request>(
     context: &'context Context,
@@ -21,6 +21,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     request: CodegenRequest<'request>,
     instance: &'request CodegenInstance,
     types: &mut LlvmTypeMappings<'context, 'request>,
+    debug: Option<&LlvmDebugInfo<'context>>,
 ) -> Result<(), CodegenFailure> {
     let descriptor = instance
         .mir()
@@ -38,6 +39,19 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     let resume =
         frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
 
+    let source = instance
+        .mir()
+        .blocks()
+        .first()
+        .map(bray_ir::MirBlock::source)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let debug_scope = debug.and_then(|debug| {
+        let linkage_name = resume.get_name().to_str().ok()?;
+
+        debug.attach_function(resume, "frame.resume", linkage_name, source)
+    });
+
     UnitTranslator::for_frame_resume(
         context,
         module,
@@ -46,6 +60,8 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         resume,
         context_type,
         types,
+        debug,
+        debug_scope,
     )?
     .translate()?;
 
@@ -67,6 +83,7 @@ fn frame_context_type<'context>(
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let mut fields = Vec::with_capacity(instance.mir().storages().len() + 3);
+
     fields.push(context.i32_type().into());
     fields.push(types.map(descriptor.result_type())?);
     fields.push(context.i8_type().into());
@@ -234,24 +251,7 @@ fn initialize_parameters(
                     .get_nth_param(parameter_index)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                if let Some(storage) = storage {
-                    let destination = builder
-                        .build_struct_gep(
-                            context_type,
-                            context,
-                            storage
-                                .slot()
-                                .checked_add(3)
-                                .and_then(|index| u32::try_from(index).ok())
-                                .ok_or(CodegenFailure::ResourceExhausted)?,
-                            "frame.parameter",
-                        )
-                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-                    builder
-                        .build_store(destination, value)
-                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-                }
+                store_frame_parameter(builder, context_type, context, storage, value)?;
 
                 parameter_index += 1;
             }
@@ -265,29 +265,39 @@ fn initialize_parameters(
                     .build_load(types.map(*pointee)?, source, "frame.parameter.indirect")
                     .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
-                if let Some(storage) = storage {
-                    let destination = builder
-                        .build_struct_gep(
-                            context_type,
-                            context,
-                            storage
-                                .slot()
-                                .checked_add(3)
-                                .and_then(|index| u32::try_from(index).ok())
-                                .ok_or(CodegenFailure::ResourceExhausted)?,
-                            "frame.parameter",
-                        )
-                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-                    builder
-                        .build_store(destination, value)
-                        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-                }
+                store_frame_parameter(builder, context_type, context, storage, value)?;
 
                 parameter_index += 1;
             }
         }
     }
+
+    Ok(())
+}
+
+fn store_frame_parameter<'context>(
+    builder: &inkwell::builder::Builder<'context>,
+    context_type: StructType<'context>,
+    context: PointerValue<'context>,
+    storage: Option<MirStorageId>,
+    value: BasicValueEnum<'context>,
+) -> Result<(), CodegenFailure> {
+    let Some(storage) = storage else {
+        return Ok(());
+    };
+
+    let destination = builder
+        .build_struct_gep(
+            context_type,
+            context,
+            frame_storage_field_index(storage)?,
+            "frame.parameter",
+        )
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_store(destination, value)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
     Ok(())
 }

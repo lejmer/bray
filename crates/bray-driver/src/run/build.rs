@@ -32,7 +32,7 @@ pub(crate) fn run_build_command(
     let selected_target = bray_compilation::SelectedTarget::for_native(native_target);
     let product = compilation_configuration.product().clone();
     let product_kind = compilation_configuration.product_kind();
-    let artifacts = required_artifacts(product_kind, &configuration);
+    let artifacts = required_artifacts(product_kind, native_target, &configuration);
     let export_interface = artifacts.contains(&TargetOutputKind::PackageInterface);
 
     let request = match compilation_request(options, files, export_interface) {
@@ -82,6 +82,7 @@ pub(crate) fn run_build_command(
 
         match compilation.native_product_facts(
             product.clone(),
+            configuration.build(),
             runtime,
             configuration.required_capabilities().iter().copied(),
             linker.as_ref(),
@@ -145,19 +146,36 @@ pub(crate) fn run_build_command(
 
 fn required_artifacts(
     product_kind: ProductKind,
+    target: bray_target::NativeTarget,
     configuration: &DriverProductConfiguration,
 ) -> Vec<TargetOutputKind> {
-    if !configuration.artifacts().is_empty() {
-        return configuration.artifacts().to_vec();
+    let mut artifacts = if configuration.artifacts().is_empty() {
+        match product_kind {
+            ProductKind::Library => vec![
+                TargetOutputKind::PackageInterface,
+                TargetOutputKind::StaticLibrary,
+            ],
+            ProductKind::Executable | ProductKind::Test => vec![TargetOutputKind::Executable],
+        }
+    } else {
+        configuration.artifacts().to_vec()
+    };
+
+    let needs_debug_companion = configuration
+        .build()
+        .requires_linked_debug_companion(target.object_format())
+        && artifacts.iter().any(|artifact| {
+            matches!(
+                artifact,
+                TargetOutputKind::Executable | TargetOutputKind::SharedLibrary
+            )
+        });
+
+    if needs_debug_companion && !artifacts.contains(&TargetOutputKind::LinkedCompanion) {
+        artifacts.push(TargetOutputKind::LinkedCompanion);
     }
 
-    match product_kind {
-        ProductKind::Library => vec![
-            TargetOutputKind::PackageInterface,
-            TargetOutputKind::StaticLibrary,
-        ],
-        ProductKind::Executable | ProductKind::Test => vec![TargetOutputKind::Executable],
-    }
+    artifacts
 }
 
 const fn is_linked(artifact: TargetOutputKind) -> bool {
@@ -298,7 +316,7 @@ mod tests {
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
 
-    use super::emission_request;
+    use super::{emission_request, required_artifacts};
     use crate::command::{DriverBackend, DriverInspectionArtifact, DriverProductConfiguration};
     use crate::run::run_result;
     use crate::test_support::TemporaryFile;
@@ -307,6 +325,7 @@ mod tests {
     fn emission_request_keeps_required_product_and_optional_inspections_typed() {
         let configuration = DriverProductConfiguration::new(
             DriverBackend::Llvm,
+            bray_compilation::BuildConfiguration::Development,
             None,
             vec![],
             "out".into(),
@@ -346,6 +365,47 @@ mod tests {
                 .artifact(ArtifactKind::BackendIr)
                 .map(|artifact| artifact.requirement()),
             Some(ArtifactRequirement::Optional)
+        );
+    }
+
+    #[test]
+    fn development_executables_request_target_required_debug_companions() {
+        let configuration = DriverProductConfiguration::new(
+            DriverBackend::Llvm,
+            bray_compilation::BuildConfiguration::Development,
+            None,
+            vec![],
+            "out".into(),
+            vec![],
+            vec![],
+        );
+
+        let artifacts = required_artifacts(
+            ProductKind::Executable,
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            &configuration,
+        );
+
+        assert_eq!(
+            artifacts,
+            [
+                bray_target::TargetOutputKind::Executable,
+                bray_target::TargetOutputKind::LinkedCompanion,
+            ]
+        );
+
+        let artifacts = required_artifacts(
+            ProductKind::Executable,
+            bray_target::NativeTarget::Aarch64MacOs,
+            &configuration,
+        );
+
+        assert_eq!(
+            artifacts,
+            [
+                bray_target::TargetOutputKind::Executable,
+                bray_target::TargetOutputKind::LinkedCompanion,
+            ]
         );
     }
 

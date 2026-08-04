@@ -8,7 +8,7 @@ use bray_target::{NativeTarget, TargetIdentity, TargetOutputKind, TargetOutputNa
 use bray_tooling::OutputFormat;
 
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
-use crate::tack::model::TackInspection;
+use crate::tack::model::{TackBuildConfiguration, TackInspection};
 use crate::tack::project::PlannedProduct;
 use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
 use crate::tack::toolchain::Toolchain;
@@ -70,6 +70,7 @@ impl<'project> ProjectCompiler<'project> {
     pub(crate) fn build(
         &mut self,
         planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
     ) -> Result<(Vec<ToolOutput>, Option<PathBuf>), DiagnosticBag> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
@@ -78,7 +79,8 @@ impl<'project> ProjectCompiler<'project> {
             return Ok((outputs, None));
         }
 
-        let output_directory = self.output_directory(product.identity(), planned.target_name());
+        let output_directory =
+            self.output_directory(product.identity(), planned.target_name(), configuration);
 
         std::fs::create_dir_all(&output_directory)
             .map_err(|_| operation_diagnostics("product_output_directory"))?;
@@ -88,6 +90,7 @@ impl<'project> ProjectCompiler<'project> {
             planned.target(),
             CompilerAction::Build {
                 output: output_directory.clone(),
+                configuration,
             },
         )?;
 
@@ -323,11 +326,17 @@ impl<'project> ProjectCompiler<'project> {
             .ok_or_else(|| selection_diagnostics(identity.as_str()))
     }
 
-    fn output_directory(&self, product: &ProductIdentity, target_name: &str) -> PathBuf {
+    fn output_directory(
+        &self,
+        product: &ProductIdentity,
+        target_name: &str,
+        configuration: TackBuildConfiguration,
+    ) -> PathBuf {
         self.graph
             .output_root()
             .beneath(self.workspace_root)
             .join(target_name)
+            .join(configuration.directory_name())
             .join(product.package().as_str())
             .join(product.name())
     }
@@ -376,6 +385,7 @@ enum CompilerAction {
     },
     Build {
         output: PathBuf,
+        configuration: TackBuildConfiguration,
     },
     Inspect {
         inspection: TackInspection,
@@ -406,11 +416,18 @@ impl CompilerAction {
                         .arg(interface.into_os_string());
                 }
             }
-            Self::Build { output } => {
+            Self::Build {
+                output,
+                configuration,
+            } => {
                 request
                     .arg("build")
                     .arg("--output")
                     .arg(output.into_os_string());
+
+                if configuration == TackBuildConfiguration::Release {
+                    request.arg("--release");
+                }
 
                 if let Some(runtime) = runtime {
                     request
