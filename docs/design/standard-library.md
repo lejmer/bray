@@ -10,6 +10,9 @@ The public text, byte, collection, formatting, hashing, ordering, and numeric co
 The public I/O package layout and private target mechanism boundary are defined by
 [I/O and platform services](io-and-platform-services.md).
 
+The public testing surface and its private native-host boundary are defined by
+[Testing standard library and runner](testing.md).
+
 ## Principles
 
 The standard library follows the same language and package rules as other Bray libraries except where the language reserves its

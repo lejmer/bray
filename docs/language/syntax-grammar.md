@@ -157,10 +157,11 @@ target-directive =
     directive-marker "target" "(" constant-expression ")" ;
 
 test-directive =
-    directive-marker "test" ;
+    directive-marker "test" [ "(" "serial" ")" ] ;
 ```
 
-`@target(...)`, `@test`, and `@link(...)` can apply to module declarations.
+`@target(...)`, bare `@test`, and `@link(...)` can apply to module declarations. `@test(serial)` applies only to function
+declarations.
 
 Directive names are identifier spellings used after `@` in directive context.
 

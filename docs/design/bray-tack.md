@@ -26,9 +26,11 @@ deterministic before compiler work begins.
   order, then emits only the artifact categories selected by each manifest.
 - `bray run` selects exactly one executable product and target, builds it, and runs the published
   executable with the trailing arguments.
-- `bray test` builds selected test products and runs their published executables in deterministic
-  graph order. Rich test discovery, scheduling, capture, and reports remain owned by the test
-  runner.
+- `bray test` builds selected test products, discovers entries from their published test catalogs,
+  and runs their native test hosts. Bray Tack owns cross-product filtering, resource budgets,
+  scheduling, cancellation, and report aggregation. Each generated host owns entry invocation,
+  per-test capture, timeout delivery, and cleanup completion through the shared
+  [testing protocol](testing.md).
 - `bray fmt` routes explicit files, standard input (`-`), or the sorted root-package source graph
   to `brayfmt`.
 - `bray inspect project` renders the immutable graph. Other inspection kinds select exactly one
