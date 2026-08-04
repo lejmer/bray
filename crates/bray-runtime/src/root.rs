@@ -1,4 +1,4 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
 
 use bray_platform::RuntimeThread;
 use bray_runtime_interface::ProtectedFrameStateId;
@@ -65,6 +65,17 @@ impl From<TaskObservationError> for RootExecutionError {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct PropagatedCancellation;
+
+pub(crate) fn propagate_current_run_cancellation() -> ! {
+    panic_any(PropagatedCancellation)
+}
+
+pub(crate) fn is_propagated_cancellation(payload: &(dyn std::any::Any + Send)) -> bool {
+    payload.is::<PropagatedCancellation>()
+}
+
 /// Executes a synchronous entrypoint directly as the executable root run.
 pub fn execute_synchronous_root<T>(
     root: impl FnOnce() -> T,
@@ -76,11 +87,10 @@ pub fn execute_synchronous_root<T>(
         cancellation: cancellation.clone(),
     });
 
-    with_run_cancellation_context(cancellation, || {
-        catch_unwind(AssertUnwindSafe(root)).map_or_else(
-            |payload| RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload)),
-            RunOutcome::Completed,
-        )
+    with_run_cancellation_context(cancellation, || match catch_unwind(AssertUnwindSafe(root)) {
+        Ok(value) => RunOutcome::Completed(value),
+        Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
+        Err(payload) => RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload)),
     })
 }
 
@@ -188,7 +198,10 @@ mod tests {
     use bray_platform::RuntimeThreadScope;
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
-    use super::{RootExecutionError, execute_async_root, execute_synchronous_root};
+    use super::{
+        RootExecutionError, execute_async_root, execute_synchronous_root,
+        propagate_current_run_cancellation,
+    };
     use crate::context::with_task_execution_context;
     use crate::test_support::{TestFrame, register_task};
     use crate::{
@@ -215,6 +228,13 @@ mod tests {
         });
 
         assert!(matches!(outcome, RunOutcome::Completed(true)));
+    }
+
+    #[test]
+    fn synchronous_cancellation_entry_reaches_the_root_outcome() {
+        let outcome = execute_synchronous_root(propagate_current_run_cancellation, |_| {});
+
+        assert!(matches!(outcome, RunOutcome::Cancelled));
     }
 
     #[test]

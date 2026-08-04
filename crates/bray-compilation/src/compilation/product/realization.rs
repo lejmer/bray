@@ -3623,6 +3623,17 @@ impl Compilation {
         &self,
         role: RuntimeAbiRole,
     ) -> Result<CodegenCallableSignature, CodegenFactError> {
+        if role == RuntimeAbiRole::CurrentRunCancellationObservation {
+            let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(boolean, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
         if role == RuntimeAbiRole::PanicPropagation {
             let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
 
@@ -5024,6 +5035,26 @@ mod tests {
         assert_eq!(destruction.parameters().len(), 3);
         assert_eq!(begin.result(), &CodegenResultMapping::Void);
         assert_eq!(destruction.result(), &CodegenResultMapping::Void);
+    }
+
+    #[test]
+    fn cancellation_observation_runtime_helper_returns_boolean() {
+        let compilation = compilation("module app; func main() {}");
+
+        let signature = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::CurrentRunCancellationObservation)
+            .expect("cancellation observation signature must realize");
+
+        let boolean = compilation
+            .codegen_representation_type(RepresentationRole::ScalarBool)
+            .expect("boolean representation must realize");
+
+        assert!(signature.parameters().is_empty());
+
+        assert_eq!(
+            signature.result(),
+            &CodegenResultMapping::direct(boolean, None, [])
+        );
     }
 
     #[test]

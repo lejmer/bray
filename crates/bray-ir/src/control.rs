@@ -103,6 +103,25 @@ pub struct MirRunResultEdges {
     cancelled: MirCleanupEdge,
 }
 
+/// Reason a protected frame voluntarily suspended.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirSuspensionKind {
+    /// The frame is waiting for a directly composed child frame.
+    Awaited,
+    /// The frame yielded so another ready task can run.
+    Yield,
+}
+
+impl MirSuspensionKind {
+    /// Returns the stable machine-readable suspension name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Awaited => "awaited",
+            Self::Yield => "yield",
+        }
+    }
+}
+
 impl MirRunResultEdges {
     /// Creates the three distinct run-result successors.
     pub fn new(
@@ -204,6 +223,8 @@ pub enum MirTerminatorKind {
     Unreachable,
     /// Suspend a protected frame and retain its checked resume state.
     Suspend {
+        /// Reason this frame suspended.
+        kind: MirSuspensionKind,
         /// State entered when execution resumes.
         resume_state: MirFrameStateId,
         /// Destination used after the frame is resumed.
@@ -238,6 +259,11 @@ pub enum MirTerminatorKind {
         /// Owned panic report being propagated.
         report: MirOperand,
         /// Selected private panic-propagation ABI role.
+        runtime: crate::MirRuntimeReference,
+    },
+    /// Transfer cancellation to the nearest native run boundary.
+    PropagateCancellation {
+        /// Selected private cancellation-entry ABI role.
         runtime: crate::MirRuntimeReference,
     },
     /// Abandon normal continuation because the current run was cancelled.
@@ -322,7 +348,10 @@ impl MirTerminatorKind {
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
             | Self::CancelCurrentRun { cleanup } => visit(cleanup.edge().target()),
-            Self::Return(_) | Self::Unreachable | Self::PropagatePanic { .. } => {}
+            Self::Return(_)
+            | Self::Unreachable
+            | Self::PropagatePanic { .. }
+            | Self::PropagateCancellation { .. } => {}
         }
     }
 
@@ -352,6 +381,7 @@ impl MirTerminatorKind {
             | Self::Return(_)
             | Self::Unreachable
             | Self::PropagatePanic { .. }
+            | Self::PropagateCancellation { .. }
             | Self::Suspend { .. }
             | Self::ForwardRunResult { .. }
             | Self::BeginCleanup(_)

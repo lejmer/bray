@@ -356,10 +356,7 @@ fn write_u64(block: &mut [u8], offset: usize, value: u64) {
 }
 
 fn length_u64(value: usize) -> u64 {
-    match u64::try_from(value) {
-        Ok(value) => value,
-        Err(_) => u64::MAX,
-    }
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 #[cfg(windows)]

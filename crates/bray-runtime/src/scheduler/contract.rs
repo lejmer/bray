@@ -36,6 +36,8 @@ pub enum SchedulerError {
     TaskCapacityReached,
     /// The hard timer capacity was reached.
     TimerCapacityReached,
+    /// Pending timer identities cannot be represented.
+    TimerIdentityExhausted,
     /// The task identity is already registered.
     TaskAlreadyRegistered(TaskId),
     /// The task is no longer registered with this scheduler.

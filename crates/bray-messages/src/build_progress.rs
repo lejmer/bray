@@ -1,5 +1,5 @@
-use crate::catalog::MessageCatalog;
 use crate::DiagnosticLocale;
+use crate::catalog::MessageCatalog;
 
 /// Structured build operation rendered in workflow progress.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -89,11 +89,7 @@ impl BuildProgressMessageRenderer {
     }
 
     /// Renders a complete product heading.
-    pub fn heading(
-        self,
-        product: &str,
-        configuration: BuildProgressConfiguration,
-    ) -> String {
+    pub fn heading(self, product: &str, configuration: BuildProgressConfiguration) -> String {
         self.catalog.build_progress_heading(product, configuration)
     }
 

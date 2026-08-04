@@ -1478,6 +1478,113 @@ mod tests {
         assert_eq!(mutable_receiver_borrows, 4);
     }
 
+    #[test]
+    fn standard_run_utilities_lower_to_current_run_operations() {
+        let compilation = standard_text_compilation(&[include_str!(
+            "../../../../standard-library/std/src/run.bray"
+        )]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        assert_eq!(
+            implementation_hooks(&compilation, "cancellation_requested"),
+            [ImplementationHook::CurrentRunCancellationObservation]
+        );
+
+        assert_eq!(
+            implementation_hooks(&compilation, "checkpoint"),
+            [
+                ImplementationHook::CurrentRunCancellationObservation,
+                ImplementationHook::CurrentRunCancellationEntry,
+            ]
+        );
+
+        let observation = compilation
+            .lowered_unit(source_function_body_key(
+                &compilation,
+                "cancellation_requested",
+            ))
+            .unwrap_or_else(|error| panic!("cancellation observation must lower: {error:?}"));
+
+        assert!(observation.diagnostics().is_empty());
+
+        assert!(
+            lowered_mir(&observation)
+                .operations()
+                .iter()
+                .any(|operation| {
+                    matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(
+                            bray_ir::MirAsyncOperation::ObserveCurrentRunCancellation { .. }
+                        )
+                    )
+                })
+        );
+
+        let checkpoint = compilation
+            .lowered_unit(source_function_body_key(&compilation, "checkpoint"))
+            .unwrap_or_else(|error| panic!("cancellation checkpoint must lower: {error:?}"));
+
+        assert!(checkpoint.diagnostics().is_empty());
+
+        assert!(
+            lowered_mir(&checkpoint)
+                .blocks()
+                .iter()
+                .any(|block| {
+                    matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::PropagateCancellation { .. }
+                    )
+                })
+        );
+    }
+
+    #[test]
+    fn standard_task_yield_is_an_asynchronous_computation() {
+        let compilation = standard_text_compilation(&[
+            include_str!("../../../../standard-library/std/src/run.bray"),
+            include_str!("../../../../standard-library/std/src/task.bray"),
+        ]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "yield_now"))
+            .unwrap_or_else(|error| panic!("task yield must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty());
+
+        assert!(matches!(
+            lowered_mir(&lowered).kind(),
+            bray_ir::MirUnitKind::ProtectedAsyncFrame(_)
+        ));
+
+        assert_eq!(
+            implementation_hooks(&compilation, "yield_now"),
+            [ImplementationHook::TaskYield]
+        );
+
+        assert!(lowered_mir(&lowered).blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend {
+                    kind: bray_ir::MirSuspensionKind::Yield,
+                    ..
+                }
+            )
+        }));
+    }
+
     fn standard_text_compilation(additional_sources: &[&str]) -> Compilation {
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library identity must be valid"));

@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use bray_messages::{
-    BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation,
-};
+use bray_messages::{BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation};
 use bray_tooling::{OutputFormat, write_diagnostic_groups};
 
 use super::model::{
@@ -139,17 +137,9 @@ impl BuildProgressSession<'_> {
             let completed_units = state.completed_units;
             let duration = state.started_at.elapsed();
 
-            let total_completed_units = states
-                .values()
-                .map(|state| state.completed_units)
-                .sum();
+            let total_completed_units = states.values().map(|state| state.completed_units).sum();
 
-            (
-                completed_units,
-                total_completed_units,
-                duration,
-                finalized,
-            )
+            (completed_units, total_completed_units, duration, finalized)
         };
 
         if let Some(terminal) = &self.terminal {
@@ -299,10 +289,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
                 u128::from(package.duration_milliseconds()),
             );
 
-            output.push_str(&format!(
-                "   {} {line}\n",
-                status_marker(package.status())
-            ));
+            output.push_str(&format!("   {} {line}\n", status_marker(package.status())));
 
             if verbose {
                 output.push_str(&format!(
@@ -331,10 +318,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
             u128::from(report.duration_milliseconds()),
         );
 
-        output.push_str(&format!(
-            "   {} {line}\n",
-            status_marker(report.status())
-        ));
+        output.push_str(&format!("   {} {line}\n", status_marker(report.status())));
     }
 
     output

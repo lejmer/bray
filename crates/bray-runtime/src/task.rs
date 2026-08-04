@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
@@ -107,6 +108,8 @@ pub enum TaskObservationError {
     Pending,
     /// The terminal outcome was already moved to its observer.
     AlreadyObserved,
+    /// Completion-waiter identities cannot be represented.
+    WaiterIdentityExhausted,
     /// The task failed its compiler/runtime frame contract.
     RuntimeFailed(TaskFailureKind),
     /// Internal task state was poisoned by an unexpected runtime panic.
@@ -136,7 +139,8 @@ where
     state: TaskState,
     frame_state: ProtectedFrameStateId,
     outcome: Option<RunOutcome<T>>,
-    join_waiters: Vec<Arc<dyn JoinWake>>,
+    join_waiters: BTreeMap<u64, Arc<dyn JoinWake>>,
+    next_join_waiter: u64,
 }
 
 /// Stable runtime-owned storage for one independently executing task.
@@ -248,7 +252,8 @@ where
                 state: TaskState::Ready,
                 frame_state: ProtectedFrameStateId::new(0),
                 outcome: None,
-                join_waiters: Vec::new(),
+                join_waiters: BTreeMap::new(),
+                next_join_waiter: 0,
             }),
             cancellation,
             resuming: AtomicBool::new(false),
@@ -358,7 +363,7 @@ where
                 data.state = TaskState::Suspended(suspension.state());
                 data.frame_state = suspension.state();
 
-                (TaskResumeStatus::Suspended(suspension), Vec::new())
+                (TaskResumeStatus::Suspended(suspension), BTreeMap::new())
             }
             FrameProgress::RuntimeFailure => {
                 let failure = TaskFailureKind::FrameContract;
@@ -401,21 +406,28 @@ where
 
     /// Registers an observer to wake when this task becomes terminal.
     pub fn register_join_waiter(
-        &self,
+        self: &Arc<Self>,
         waiter: Arc<dyn JoinWake>,
-    ) -> Result<(), TaskObservationError> {
-        let wake_now = {
+    ) -> Result<JoinWaitRegistration<T, F>, TaskObservationError> {
+        let (identity, wake_now) = {
             let mut data = self
                 .data
                 .lock()
                 .map_err(|_| TaskObservationError::SynchronizationPoisoned)?;
 
             if data.state.is_terminal() {
-                Some(waiter)
+                (None, Some(waiter))
             } else {
-                data.join_waiters.push(waiter);
+                let identity = data.next_join_waiter;
 
-                None
+                let Some(next) = identity.checked_add(1) else {
+                    return Err(TaskObservationError::WaiterIdentityExhausted);
+                };
+
+                data.next_join_waiter = next;
+                data.join_waiters.insert(identity, waiter);
+
+                (Some(identity), None)
             }
         };
 
@@ -423,7 +435,10 @@ where
             waiter.wake();
         }
 
-        Ok(())
+        Ok(JoinWaitRegistration {
+            identity,
+            task: Arc::downgrade(self),
+        })
     }
 
     /// Moves the terminal run outcome to its single observer.
@@ -507,6 +522,59 @@ where
         self.data
             .lock()
             .map_err(|_| TaskResumeError::SynchronizationPoisoned)
+    }
+}
+
+/// Cancellation-safe ownership of one pending task-completion wait.
+pub struct JoinWaitRegistration<
+    T,
+    F: ?Sized + ProtectedFrame<Output = T> = dyn SendableProtectedFrame<Output = T>,
+> {
+    identity: Option<u64>,
+    task: std::sync::Weak<TaskControlBlock<T, F>>,
+}
+
+impl<T, F> Drop for JoinWaitRegistration<T, F>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    fn drop(&mut self) {
+        let Some(identity) = self.identity.take() else {
+            return;
+        };
+
+        let Some(task) = self.task.upgrade() else {
+            return;
+        };
+
+        let mut data = task
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        data.join_waiters.remove(&identity);
+    }
+}
+
+impl<T, F> JoinWaitRegistration<T, F>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    pub(crate) fn is_pending(&self) -> bool {
+        let Some(identity) = self.identity else {
+            return false;
+        };
+
+        let Some(task) = self.task.upgrade() else {
+            return false;
+        };
+
+        let data = task
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        data.join_waiters.contains_key(&identity)
     }
 }
 
@@ -612,7 +680,10 @@ where
     panic
 }
 
-fn fail_task<T, F>(data: &mut TaskData<T, F>, failure: TaskFailureKind) -> Vec<Arc<dyn JoinWake>>
+fn fail_task<T, F>(
+    data: &mut TaskData<T, F>,
+    failure: TaskFailureKind,
+) -> BTreeMap<u64, Arc<dyn JoinWake>>
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
@@ -648,8 +719,8 @@ const fn task_state(kind: RunOutcomeKind) -> TaskState {
     }
 }
 
-fn wake_all(waiters: Vec<Arc<dyn JoinWake>>) {
-    for waiter in waiters {
+fn wake_all(waiters: BTreeMap<u64, Arc<dyn JoinWake>>) {
+    for waiter in waiters.into_values() {
         waiter.wake();
     }
 }
@@ -847,10 +918,11 @@ mod tests {
 
         let waiter_count = std::sync::Arc::clone(&wake_count);
 
-        task.register_join_waiter(std::sync::Arc::new(move || {
-            waiter_count.fetch_add(1, Ordering::Relaxed);
-        }))
-        .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
+        let _registration = task
+            .register_join_waiter(std::sync::Arc::new(move || {
+                waiter_count.fetch_add(1, Ordering::Relaxed);
+            }))
+            .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
 
         assert!(task.request_cancellation());
         assert!(!task.request_cancellation());
@@ -862,6 +934,30 @@ mod tests {
 
         assert_eq!(wake_count.load(Ordering::Relaxed), 1);
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Cancelled)));
+    }
+
+    #[test]
+    fn dropping_join_registration_withdraws_the_waiter() {
+        let task = TaskControlBlock::start(TestFrame::completing(9))
+            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let waiter_count = Arc::clone(&wake_count);
+
+        let registration = task
+            .register_join_waiter(Arc::new(move || {
+                waiter_count.fetch_add(1, Ordering::Relaxed);
+            }))
+            .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
+
+        drop(registration);
+
+        assert_eq!(
+            task.resume(),
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
+        );
+
+        assert_eq!(wake_count.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -941,10 +1037,11 @@ mod tests {
         let wake_count = Arc::new(AtomicUsize::new(0));
         let waiter_count = Arc::clone(&wake_count);
 
-        task.register_join_waiter(Arc::new(move || {
-            waiter_count.fetch_add(1, Ordering::Relaxed);
-        }))
-        .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
+        let _registration = task
+            .register_join_waiter(Arc::new(move || {
+                waiter_count.fetch_add(1, Ordering::Relaxed);
+            }))
+            .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
 
         let failure = TaskFailureKind::UnknownSuspensionState(
             bray_runtime_interface::ProtectedFrameStateId::new(9),

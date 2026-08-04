@@ -13,7 +13,7 @@ enum CleanupDestination {
     Goto(MirBlockId),
     Return,
     PropagatePanic,
-    Unreachable,
+    PropagateCancellation,
 }
 
 enum CleanupEntry {
@@ -195,7 +195,7 @@ impl Lowerer<'_> {
         let destination = if self.input.unit_kind().protected_frame().is_some() {
             CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Cancelled)?)
         } else {
-            CleanupDestination::Unreachable
+            CleanupDestination::PropagateCancellation
         };
 
         self.finish_cleanup(
@@ -524,7 +524,12 @@ impl Lowerer<'_> {
                 report: value.ok_or(LoweringError::SemanticValueUnavailable)?,
                 runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
-            CleanupDestination::Unreachable => MirTerminatorKind::Unreachable,
+            CleanupDestination::PropagateCancellation => {
+                MirTerminatorKind::PropagateCancellation {
+                    runtime: self
+                        .runtime_reference(RuntimeAbiRole::CurrentRunCancellationEntry),
+                }
+            }
         };
 
         self.builder

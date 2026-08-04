@@ -38,6 +38,10 @@ pub const MAIN_THREAD_LANE_DRIVE_SYMBOL: &str = "bray_runtime_main_thread_lane_d
 pub const CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL: &str =
     "bray_runtime_current_run_cancellation_observation_v1";
 
+/// Stable symbol transferring cancellation to the current run boundary.
+pub const CURRENT_RUN_CANCELLATION_ENTRY_SYMBOL: &str =
+    "bray_runtime_current_run_cancellation_entry_v1";
+
 /// Stable symbol shutting down the initialized runtime infrastructure.
 pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown_v1";
 
@@ -156,6 +160,7 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
         Role::CurrentRunCancellationObservation => {
             Some(CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL)
         }
+        Role::CurrentRunCancellationEntry => Some(CURRENT_RUN_CANCELLATION_ENTRY_SYMBOL),
         Role::JoinRegistration => Some(JOIN_REGISTRATION_SYMBOL),
         Role::TerminalPublication => Some(TERMINAL_PUBLICATION_SYMBOL),
         Role::RuntimeEvent => Some(RUNTIME_EVENT_SYMBOL),
@@ -541,6 +546,8 @@ impl NativeFrameProgressKind {
     pub const PANICKED: Self = Self(3);
     /// The generated frame violated its runtime contract.
     pub const RUNTIME_FAILURE: Self = Self(4);
+    /// The frame yielded voluntarily at the returned state.
+    pub const YIELDED: Self = Self(5);
 
     /// Creates a progress category from its stable ABI code.
     pub const fn from_code(code: u32) -> Self {

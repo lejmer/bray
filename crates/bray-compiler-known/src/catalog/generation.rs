@@ -460,7 +460,7 @@ mod tests {
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 13);
+        assert_eq!(generator_input_inventory().sources().len(), 14);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
@@ -622,6 +622,8 @@ mod tests {
             "StandardRoundingRuleVariant2TowardNegativeInfinity",
             "StandardRoundingRuleVariant3TowardPositiveInfinity",
             "StandardRoundingRuleVariant4AwayFromZero",
+            "StandardRunCancellationRequestedSupport",
+            "StandardRunEnterCancellationSupport",
             "StandardSaturateTo",
             "StandardScalarCursor",
             "StandardScalarCursorIterator",
@@ -634,6 +636,7 @@ mod tests {
             "StandardStringScalarSlice",
             "StandardStringScalars",
             "StandardStringUtf8",
+            "StandardTaskYieldSupport",
             "StandardTruncateTo",
             "StandardUtf8Error",
             "StandardUtf8ErrorVariant0InvalidEncoding",

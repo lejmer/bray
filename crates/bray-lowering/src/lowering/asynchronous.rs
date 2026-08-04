@@ -6,7 +6,7 @@ use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirEdge,
     MirFrameInitializer, MirFrameReference, MirFrameStateFacts, MirFrameStateId, MirOperand,
-    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
+    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirSuspensionKind, MirTerminatorKind,
 };
 use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiRole};
 
@@ -70,6 +70,7 @@ impl Lowerer<'_> {
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Suspend {
+                kind: MirSuspensionKind::Awaited,
                 resume_state: state,
                 resume: MirEdge::new(resume, []),
                 cancellation,
@@ -186,7 +187,7 @@ impl Lowerer<'_> {
             .collect()
     }
 
-    fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
+    pub(super) fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
         let state = u32::try_from(self.frame_states.len()).map_err(|_| {
             LoweringError::Mir(bray_ir::MirUnitBuildError::IdentityCapacityExceeded)
         })?;

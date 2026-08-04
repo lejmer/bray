@@ -1,0 +1,24 @@
+module std.task;
+
+using std.run;
+
+func cancellation_requested() -> bool
+{
+    return std.run.cancellation_requested();
+}
+
+async func checkpoint()
+{
+    std.run.checkpoint();
+
+    return unit;
+}
+
+async func yield_now()
+{
+    support_yield();
+
+    return unit;
+}
+
+extern internal func support_yield();

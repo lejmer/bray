@@ -6,6 +6,7 @@ mod cancellation;
 #[cfg(test)]
 mod conformance;
 mod context;
+mod event;
 mod frame;
 mod lane;
 mod native;
@@ -21,12 +22,17 @@ mod test_support;
 
 pub use cancellation::{CancellationContext, CancellationShield};
 pub use context::{
-    TaskExecutionContext, current_run_cancellation_observable, current_task_execution_context,
+    TaskExecutionContext, current_run_cancellation_observable,
+    current_run_cancellation_requested, current_task_execution_context,
+};
+pub use event::{
+    RuntimeEvent, RuntimeEventError, RuntimeEventGeneration, RuntimeEventRegistration,
+    RuntimeEventWake,
 };
 pub use frame::{
     ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExit, FrameProgress,
-    FrameSuspension, ProtectedFrame, RuntimePanic, SendableProtectedFrame, erase_protected_frame,
-    erase_sendable_protected_frame, resume_direct,
+    FrameSuspension, FrameSuspensionKind, ProtectedFrame, RuntimePanic, SendableProtectedFrame,
+    erase_protected_frame, erase_sendable_protected_frame, resume_direct,
 };
 pub use lane::{
     ExecutionLane, ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
@@ -41,12 +47,13 @@ pub use root::{
 };
 pub use scheduler::{
     ReadyTask, Scheduler, SchedulerError, SchedulerLimits, TaskRegistration, TaskWakeHandle,
+    TimerRegistration,
 };
 pub use shutdown::{
     CleanupIncident, CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
     finish_product_shutdown,
 };
 pub use task::{
-    JoinWake, TaskControlBlock, TaskFailureKind, TaskId, TaskObservationError, TaskResumeError,
-    TaskResumeStatus, TaskStartError, TaskState,
+    JoinWaitRegistration, JoinWake, TaskControlBlock, TaskFailureKind, TaskId,
+    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
 };

@@ -82,6 +82,12 @@ define_catalog_enum! {
         ComputeExecution => "ComputeExecution",
         /// Tests whether execution is on the distinguished initial thread.
         MainThreadExecution => "MainThreadExecution",
+        /// Observes whether cancellation is requested for the current run.
+        CurrentRunCancellationObservation => "CurrentRunCancellationObservation",
+        /// Enters cancellation for the current run.
+        CurrentRunCancellationEntry => "CurrentRunCancellationEntry",
+        /// Cooperatively yields the current task.
+        TaskYield => "TaskYield",
         /// Counts Unicode scalar values in valid UTF-8 text.
         StringScalarCount => "StringScalarCount",
         /// Tests whether UTF-8 text is empty.
@@ -176,6 +182,9 @@ mod tests {
             ImplementationHook::BlockingExecution,
             ImplementationHook::ComputeExecution,
             ImplementationHook::MainThreadExecution,
+            ImplementationHook::CurrentRunCancellationObservation,
+            ImplementationHook::CurrentRunCancellationEntry,
+            ImplementationHook::TaskYield,
             ImplementationHook::StringScalarCount,
             ImplementationHook::StringIsEmpty,
             ImplementationHook::StringEquals,

@@ -398,41 +398,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_runtime(*runtime, &[task])
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
-                if let Some(frame_context) = self.frame_context {
-                    let context = self.frame_context_argument()?;
-
-                    let context = llvm(
-                        self.builder.build_int_to_ptr(
-                            context,
-                            self.types
-                                .context()
-                                .ptr_type(inkwell::AddressSpace::default()),
-                            "frame.context",
-                        ),
-                    )?;
-
-                    let cancellation = llvm(self.builder.build_struct_gep(
-                        frame_context,
-                        context,
-                        2,
-                        "frame.cancellation.pointer",
-                    ))?;
-
-                    let cancellation = llvm(self.builder.build_load(
-                        self.types.context().i8_type(),
-                        cancellation,
-                        "frame.cancellation",
-                    ))?
-                    .into_int_value();
-
-                    return llvm(self.builder.build_int_truncate(
-                        cancellation,
-                        self.types.context().bool_type(),
-                        "frame.cancellation",
-                    ))
-                    .map(|value| Some(value.into()));
-                }
-
                 self.invoke_runtime(*runtime, &[])
             }
             MirAsyncOperation::PublishTerminalState { state, runtime } => {

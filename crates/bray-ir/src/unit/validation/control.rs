@@ -76,6 +76,7 @@ pub(super) fn validate_terminator(
             cancellation,
             registration,
             wake,
+            ..
         } => {
             validate_frame_state(unit, *resume_state)?;
             validate_ordinary_edge(unit, block_id, resume)?;
@@ -138,6 +139,13 @@ pub(super) fn validate_terminator(
                 unit,
                 *runtime,
                 bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+            )?;
+        }
+        MirTerminatorKind::PropagateCancellation { runtime } => {
+            validate_runtime_role(
+                unit,
+                *runtime,
+                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationEntry,
             )?;
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
