@@ -142,7 +142,7 @@ impl Compilation {
                 bray_lowering::lower_executable_host(
                     bray_lowering::ExecutableHostLoweringInput::new(
                         mir_unit,
-                        root,
+                        [root],
                         // Generated MIR owns host and target facts after this request.
                         host.clone(),
                         instance.target().clone(),

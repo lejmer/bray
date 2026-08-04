@@ -9,6 +9,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn resolve_host_result(
         &mut self,
         operation_id: bray_ir::MirOperationId,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
         integer: inkwell::types::IntType<'context>,
         completion: bray_ir::MirRuntimeReference,
         panic: bray_ir::MirRuntimeReference,
@@ -18,8 +19,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let entry_result = host.entry_result();
-        let asynchronous = matches!(host.root(), RootExecution::Asynchronous { .. });
+        let entry = host
+            .entry(entry)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let entry_result = entry.result();
+        let asynchronous = matches!(entry.root(), RootExecution::Asynchronous { .. });
 
         let native_boundary = asynchronous
             || host

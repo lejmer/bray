@@ -93,7 +93,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         )
         | MirOperationKind::Host(
             MirHostOperation::ExecuteRoot { runtime, .. }
-            | MirHostOperation::ObserveRootTerminal { runtime }
+            | MirHostOperation::ObserveRootTerminal { runtime, .. }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
         )

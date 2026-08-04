@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(linked_host.abi_version(), runtime.contract().abi_version());
 
         assert!(matches!(
-            linked_host.root(),
+            linked_host.entries()[0].root(),
             RootExecution::Asynchronous { .. }
         ));
 

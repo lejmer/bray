@@ -16,6 +16,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         // Keep this exhaustive so every host operation requires an explicit translation.
         match operation {
             MirHostOperation::ExecuteRoot {
+                entry,
                 root,
                 execution,
                 runtime,
@@ -35,7 +36,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 if *execution == RootExecution::Synchronous {
                     self.host_result =
-                        Some(self.translate_synchronous_root_boundary(root, *runtime)?);
+                        Some(self.translate_synchronous_root_boundary(*entry, root, *runtime)?);
 
                     return Ok(None);
                 }
@@ -68,7 +69,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     };
 
                     let adapter_name = host
-                        .root_frame_adapter()
+                        .entry(*entry)
+                        .and_then(
+                            bray_runtime_interface::ExecutableHostEntryContract::root_frame_adapter,
+                        )
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     let adapter = self
@@ -177,36 +181,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Err(CodegenFailure::GeneratedModuleInvariant)
             }
-            MirHostOperation::ObserveRootTerminal { runtime } => {
-                if self.host_role_implementation(*runtime)?
-                    == RuntimeRoleImplementation::CompilerLowering
-                {
-                    Ok(None)
-                } else {
-                    let root = self
-                        .host_root
-                        .as_ref()
-                        .copied()
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                    self.host_result = self.invoke_native_runtime(*runtime, &[root])?;
-
-                    Ok(None)
-                }
+            MirHostOperation::ObserveRootTerminal { entry, runtime } => {
+                self.translate_root_terminal_observation(*entry, *runtime)
             }
             MirHostOperation::ResolveRootTerminal {
+                entry,
                 error: _,
                 completion,
                 panic,
                 entry_failure,
             } => {
-                self.host_status = Some(self.resolve_host_result(
+                let status = self.resolve_host_result(
                     operation_id,
+                    *entry,
                     self.module.get_context().i64_type(),
                     *completion,
                     *panic,
                     *entry_failure,
-                )?);
+                )?;
+
+                self.host_status = Some(match self.host_status.take() {
+                    Some(current) => llvm(self.builder.build_or(current, status, "host.status"))?,
+                    None => status,
+                });
 
                 Ok(None)
             }
@@ -223,7 +220,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let status = self
                     .host_status
                     .take()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .unwrap_or_else(|| self.module.get_context().i64_type().const_zero());
 
                 if self.host_role_implementation(*runtime)?
                     != RuntimeRoleImplementation::CompilerLowering
@@ -234,6 +231,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_compiler_shutdown(status)
             }
         }
+    }
+
+    fn translate_root_terminal_observation(
+        &mut self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let synchronous = host
+            .entry(entry)
+            .is_some_and(|entry| entry.root() == RootExecution::Synchronous);
+
+        if synchronous
+            || self.host_role_implementation(runtime)?
+                == RuntimeRoleImplementation::CompilerLowering
+        {
+            return Ok(None);
+        }
+
+        let root = self
+            .host_root
+            .as_ref()
+            .copied()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.host_result = self.invoke_native_runtime(runtime, &[root])?;
+
+        Ok(None)
     }
 
     pub(super) fn invoke_native_runtime(
@@ -411,6 +439,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn translate_synchronous_root_boundary(
         &mut self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
         root: &BoundUnitKey,
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
@@ -418,7 +447,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let result_type = match host.entry_result() {
+        let entry_result = host
+            .entry(entry)
+            .map(bray_runtime_interface::ExecutableHostEntryContract::result)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let result_type = match entry_result {
             ExecutableEntryResult::Unit => None,
             ExecutableEntryResult::I32 => Some(self.types.context().i32_type().into()),
             ExecutableEntryResult::Fallible { ty, .. } => Some(self.types.map(ty)?),

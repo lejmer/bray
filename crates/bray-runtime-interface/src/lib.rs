@@ -23,8 +23,8 @@ pub use compatibility::{
 };
 pub use contract::{
     ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuildError,
-    ExecutableHostContractBuilder, ExecutionCapacityLimits, ExecutionLaneRequirement,
-    RootExecution, RuntimeCapability,
+    ExecutableHostContractBuilder, ExecutableHostEntryContract, ExecutableHostEntryId,
+    ExecutionCapacityLimits, ExecutionLaneRequirement, RootExecution, RuntimeCapability,
 };
 pub use frame::{
     ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,

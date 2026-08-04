@@ -5,7 +5,6 @@ use bray_codegen::{
 use bray_emitter::EmissionBackendBuildError;
 use bray_linker::LinkTargetBuildError;
 use bray_runtime_interface::ExecutableHostContractBuildError;
-use bray_symbols::ProductKind;
 
 use crate::fact::FactQueryError;
 
@@ -16,12 +15,8 @@ pub enum NativeProductFactError {
     CodegenUnavailable,
     /// The selected product has no executable code root.
     MissingProductRoot,
-    /// Native test-product hosting is not available.
-    UnsupportedProductKind(ProductKind),
     /// The checked executable entry result is inconsistent with product semantics.
     InvalidEntryResult,
-    /// An asynchronous root has no protected-frame identity.
-    MissingProtectedRootFrame,
     /// An asynchronous product has no selected runtime artifact.
     MissingRuntime,
     /// A generated binary symbol name is invalid.
@@ -60,8 +55,6 @@ impl NativeProductFactError {
         matches!(
             self,
             Self::CodegenUnavailable
-                | Self::UnsupportedProductKind(_)
-                | Self::MissingProtectedRootFrame
                 | Self::MissingRuntime
                 | Self::Codegen(super::super::super::CodegenFactError::UnsupportedType(_))
         )

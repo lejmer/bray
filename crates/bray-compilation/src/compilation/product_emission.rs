@@ -592,21 +592,12 @@ fn validate_executable_units(
 
     let planned_units = units
         .iter()
-        .filter(|unit| plan.backend_request(unit.key()).is_some());
+        .filter(|unit| plan.backend_request(unit.key()).is_some())
+        .collect::<Vec<_>>();
 
     let mut has_host = false;
-    let mut has_root_frame = !matches!(host.root(), RootExecution::Asynchronous { .. });
 
-    for unit in planned_units {
-        if let RootExecution::Asynchronous { frame } = host.root()
-            && unit
-                .instances()
-                .iter()
-                .any(|instance| instance.protected_frame_identity() == Some(frame))
-        {
-            has_root_frame = true;
-        }
-
+    for unit in &planned_units {
         for mir in unit.mir_units() {
             if matches!(
                 mir.kind(),
@@ -621,8 +612,20 @@ fn validate_executable_units(
         return Err(ProductEmissionErrorKind::MissingExecutableHost);
     }
 
-    if !has_root_frame && let RootExecution::Asynchronous { frame } = host.root() {
-        return Err(ProductEmissionErrorKind::MissingRootFrame(frame));
+    for entry in host.entries() {
+        let RootExecution::Asynchronous { frame } = entry.root() else {
+            continue;
+        };
+
+        let has_root_frame = planned_units.iter().any(|unit| {
+            unit.instances()
+                .iter()
+                .any(|instance| instance.protected_frame_identity() == Some(frame))
+        });
+
+        if !has_root_frame {
+            return Err(ProductEmissionErrorKind::MissingRootFrame(frame));
+        }
     }
 
     Ok(())
@@ -785,7 +788,7 @@ mod tests {
             frame,
         );
 
-        let RootExecution::Asynchronous { frame: host_frame } = host.root() else {
+        let RootExecution::Asynchronous { frame: host_frame } = host.entries()[0].root() else {
             panic!("test executable host must be asynchronous");
         };
 
@@ -928,7 +931,7 @@ mod tests {
 
         lower_executable_host(ExecutableHostLoweringInput::new(
             MirUnitId::new(90),
-            root,
+            [root],
             host,
             test_mir_target(),
         ))

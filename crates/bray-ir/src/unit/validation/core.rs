@@ -24,9 +24,9 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildE
 }
 
 fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
-    if !matches!(unit.kind(), crate::MirUnitKind::ExecutableHost(_)) {
+    let crate::MirUnitKind::ExecutableHost(host) = unit.kind() else {
         return Ok(());
-    }
+    };
 
     let operations = unit
         .operations()
@@ -34,17 +34,47 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         .map(crate::MirOperation::kind)
         .collect::<Vec<_>>();
 
-    if !matches!(
-        operations.as_slice(),
-        [
-            crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot { .. }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::ObserveRootTerminal { .. }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::ResolveRootTerminal { .. }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. }),
-        ]
-    ) {
+    let Some((shutdown, entries)) = operations.split_last() else {
         return Err(MirUnitBuildError::InvalidHostSequence);
+    };
+
+    if !matches!(
+        shutdown,
+        crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. })
+    ) || entries.len() % 4 != 0
+        || entries.len() / 4 != host.entries().len()
+    {
+        return Err(MirUnitBuildError::InvalidHostSequence);
+    }
+
+    for (expected, operations) in entries.chunks_exact(4).enumerate() {
+        let [
+            crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot {
+                entry: executed,
+                ..
+            }),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ObserveRootTerminal {
+                entry: observed,
+                ..
+            }),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ResolveRootTerminal {
+                entry: resolved,
+                ..
+            }),
+            crate::MirOperationKind::Host(
+                crate::MirHostOperation::ReportCleanupIncidents { .. },
+            ),
+        ] = operations
+        else {
+            return Err(MirUnitBuildError::InvalidHostSequence);
+        };
+
+        if [executed, observed, resolved]
+            .into_iter()
+            .any(|entry| usize::try_from(entry.slot()) != Ok(expected))
+        {
+            return Err(MirUnitBuildError::InvalidHostSequence);
+        }
     }
 
     Ok(())
