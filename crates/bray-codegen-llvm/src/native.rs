@@ -441,6 +441,11 @@ fn runtime_function_type<'context>(
             ],
             false,
         )),
+        RuntimeAbiRole::TestEntrySelection => Some(
+            context
+                .i8_type()
+                .fn_type(&[context.i32_type().into()], false),
+        ),
         RuntimeAbiRole::PanicReportConstruction => {
             Some(pointer_integer_type(context, target).fn_type(
                 &[

@@ -18,6 +18,7 @@ use bray_runtime_interface::{
     RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
     SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
     TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, WAKE_SYMBOL,
+    TEST_ENTRY_SELECTION_SYMBOL,
 };
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::{NativeTarget, ObjectFormat, TargetIdentity};
@@ -288,6 +289,10 @@ fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
         (
             RuntimeAbiRole::EntryFailureReporting,
             ENTRY_FAILURE_REPORTING_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::TestEntrySelection,
+            TEST_ENTRY_SELECTION_SYMBOL,
         ),
         (RuntimeAbiRole::TaskAllocation, TASK_ALLOCATION_SYMBOL),
         (RuntimeAbiRole::TaskStart, TASK_START_SYMBOL),
@@ -776,6 +781,7 @@ mod tests {
                 RuntimeAbiRole::PanicReportConstruction,
                 RuntimeAbiRole::PanicPropagation,
                 RuntimeAbiRole::EntryFailureReporting,
+                RuntimeAbiRole::TestEntrySelection,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,
                 RuntimeAbiRole::AwaitedFrameComposition,

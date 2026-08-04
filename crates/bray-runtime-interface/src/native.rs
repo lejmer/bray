@@ -25,6 +25,9 @@ pub const PANIC_PROPAGATION_SYMBOL: &str = "bray_runtime_panic_propagation_v1";
 /// Stable symbol reporting one recoverable entrypoint failure.
 pub const ENTRY_FAILURE_REPORTING_SYMBOL: &str = "bray_runtime_entry_failure_reporting_v1";
 
+/// Stable symbol selecting the catalog entry admitted by the test runner.
+pub const TEST_ENTRY_SELECTION_SYMBOL: &str = "bray_runtime_test_entry_selection_v1";
+
 /// Stable symbol draining and reporting host-owned cleanup incidents.
 pub const CLEANUP_INCIDENT_REPORTING_SYMBOL: &str = "bray_runtime_cleanup_incident_reporting_v1";
 
@@ -172,6 +175,7 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
         Role::RootCompletionResolution => Some(ROOT_COMPLETION_RESOLUTION_SYMBOL),
         Role::PanicReporting => Some(PANIC_REPORTING_SYMBOL),
         Role::EntryFailureReporting => Some(ENTRY_FAILURE_REPORTING_SYMBOL),
+        Role::TestEntrySelection => Some(TEST_ENTRY_SELECTION_SYMBOL),
         Role::StructuredShutdown => Some(STRUCTURED_SHUTDOWN_SYMBOL),
         Role::FrameCompletionMove => Some(FRAME_COMPLETION_MOVE_SYMBOL),
         Role::PanicReportConstruction => Some(PANIC_REPORT_CONSTRUCTION_SYMBOL),

@@ -84,6 +84,21 @@ pub fn lower_executable_host(
             | bray_runtime_interface::ExecutableEntryResult::I32 => None,
         };
 
+        if contract
+            .role_binding(RuntimeAbiRole::TestEntrySelection)
+            .is_some()
+        {
+            builder.push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Host(MirHostOperation::SelectTestEntry {
+                    entry: entry_index,
+                    runtime: runtime_reference(RuntimeAbiRole::TestEntrySelection, runtime_abi),
+                }),
+                None,
+            )?;
+        }
+
         for operation in [
             MirHostOperation::ExecuteRoot {
                 entry: entry_index,

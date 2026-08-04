@@ -38,16 +38,39 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         return Err(MirUnitBuildError::InvalidHostSequence);
     };
 
+    let selects_entries = host
+        .role_binding(bray_runtime_interface::RuntimeAbiRole::TestEntrySelection)
+        .is_some();
+
+    let operations_per_entry = if selects_entries { 5 } else { 4 };
+
     if !matches!(
         shutdown,
         crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. })
-    ) || entries.len() % 4 != 0
-        || entries.len() / 4 != host.entries().len()
+    ) || entries.len() % operations_per_entry != 0
+        || entries.len() / operations_per_entry != host.entries().len()
     {
         return Err(MirUnitBuildError::InvalidHostSequence);
     }
 
-    for (expected, operations) in entries.chunks_exact(4).enumerate() {
+    for (expected, operations) in entries.chunks_exact(operations_per_entry).enumerate() {
+        let operations = if selects_entries {
+            let Some(crate::MirOperationKind::Host(
+                crate::MirHostOperation::SelectTestEntry { entry, .. },
+            )) = operations.first()
+            else {
+                return Err(MirUnitBuildError::InvalidHostSequence);
+            };
+
+            if usize::try_from(entry.slot()) != Ok(expected) {
+                return Err(MirUnitBuildError::InvalidHostSequence);
+            }
+
+            &operations[1..]
+        } else {
+            operations
+        };
+
         let [
             crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot {
                 entry: executed,

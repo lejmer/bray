@@ -127,22 +127,50 @@ impl Compilation {
 
                 let semantics = self.product_semantic_facts_with_cancellation(cancellation)?;
 
-                let Some(entrypoint) = semantics.value().entrypoint() else {
-                    return Err(CodegenFactError::MissingEntrypoint);
-                };
+                let roots = match semantics.value().kind() {
+                    bray_symbols::ProductKind::Test => {
+                        let discovery = self
+                            .test_discovery_with_cancellation(product.clone(), cancellation)?;
 
-                let Some(definition) = CallableDefinitionId::try_new(entrypoint.into()) else {
-                    return Err(CodegenFactError::MissingEntrypoint);
-                };
+                        discovery
+                            .value()
+                            .catalog()
+                            .entries()
+                            .iter()
+                            .map(|entry| {
+                                let function = discovery
+                                    .value()
+                                    .function(entry.identity())
+                                    .ok_or(CodegenFactError::MissingEntrypoint)?;
 
-                let Some(root) = self.callable_body_key(definition)? else {
-                    return Err(CodegenFactError::MissingEntrypoint);
+                                let definition = CallableDefinitionId::try_new(function.into())
+                                    .ok_or(CodegenFactError::MissingEntrypoint)?;
+
+                                self.callable_body_key(definition)?
+                                    .ok_or(CodegenFactError::MissingEntrypoint)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    bray_symbols::ProductKind::Executable
+                    | bray_symbols::ProductKind::Library => {
+                        let entrypoint = semantics
+                            .value()
+                            .entrypoint()
+                            .ok_or(CodegenFactError::MissingEntrypoint)?;
+
+                        let definition = CallableDefinitionId::try_new(entrypoint.into())
+                            .ok_or(CodegenFactError::MissingEntrypoint)?;
+
+                        vec![self
+                            .callable_body_key(definition)?
+                            .ok_or(CodegenFactError::MissingEntrypoint)?]
+                    }
                 };
 
                 bray_lowering::lower_executable_host(
                     bray_lowering::ExecutableHostLoweringInput::new(
                         mir_unit,
-                        [root],
+                        roots,
                         // Generated MIR owns host and target facts after this request.
                         host.clone(),
                         instance.target().clone(),

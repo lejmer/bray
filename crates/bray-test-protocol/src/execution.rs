@@ -52,6 +52,22 @@ pub enum TestCancellationSource {
     Invocation,
 }
 
+/// Stable zero-based position of one entry in a published test catalog.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TestCatalogEntryId(u32);
+
+impl TestCatalogEntryId {
+    /// Creates an entry identity from its canonical catalog position.
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the zero-based catalog position.
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+}
+
 /// Stable identity of a recoverable error type crossing a test boundary.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TestErrorTypeIdentity(Arc<str>);
@@ -198,6 +214,100 @@ pub struct TestInvocationPlan {
     identity: TestIdentity,
     timeout: TestTimeoutPolicy,
     capture: TestCapturePolicy,
+}
+
+/// One admitted invocation command sent to a native product host.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestHostCommand {
+    entry: TestCatalogEntryId,
+    timeout: TestTimeoutPolicy,
+    capture: TestCapturePolicy,
+    error_type: Option<TestErrorTypeIdentity>,
+}
+
+impl TestHostCommand {
+    /// Creates the complete bounded policy for one native host invocation.
+    pub fn new(
+        entry: TestCatalogEntryId,
+        timeout: TestTimeoutPolicy,
+        capture: TestCapturePolicy,
+        error_type: Option<TestErrorTypeIdentity>,
+    ) -> Self {
+        Self {
+            entry,
+            timeout,
+            capture,
+            error_type,
+        }
+    }
+
+    /// Returns the selected entry's canonical catalog position.
+    pub const fn entry(&self) -> TestCatalogEntryId {
+        self.entry
+    }
+
+    /// Returns the invocation timeout policy.
+    pub const fn timeout(&self) -> TestTimeoutPolicy {
+        self.timeout
+    }
+
+    /// Returns the invocation stream policy.
+    pub const fn capture(&self) -> TestCapturePolicy {
+        self.capture
+    }
+
+    /// Returns the checked recoverable error type for a fallible test entry.
+    pub const fn error_type(&self) -> Option<&TestErrorTypeIdentity> {
+        self.error_type.as_ref()
+    }
+}
+
+/// Terminal native host facts before the runner attaches a test identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestHostResult {
+    outcome: TestOutcome,
+    standard_output: CapturedStream,
+    standard_error: CapturedStream,
+}
+
+impl TestHostResult {
+    /// Creates one result after test-local cleanup has completed.
+    pub const fn after_cleanup(
+        outcome: TestOutcome,
+        standard_output: CapturedStream,
+        standard_error: CapturedStream,
+    ) -> Self {
+        Self {
+            outcome,
+            standard_output,
+            standard_error,
+        }
+    }
+
+    /// Returns the terminal semantic outcome.
+    pub const fn outcome(&self) -> &TestOutcome {
+        &self.outcome
+    }
+
+    /// Returns completed standard-output state.
+    pub const fn standard_output(&self) -> &CapturedStream {
+        &self.standard_output
+    }
+
+    /// Returns completed standard-error state.
+    pub const fn standard_error(&self) -> &CapturedStream {
+        &self.standard_error
+    }
+
+    /// Attaches the runner-owned stable identity.
+    pub fn into_invocation_result(self, identity: TestIdentity) -> TestInvocationResult {
+        TestInvocationResult::after_cleanup(
+            identity,
+            self.outcome,
+            self.standard_output,
+            self.standard_error,
+        )
+    }
 }
 
 impl TestInvocationPlan {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_symbols::{CallableExecution, ProductIdentity, TestExecutionConstraint, TestResultShape};
 
-use crate::{TestIdentity, TestSourceAnchor};
+use crate::{TestErrorTypeIdentity, TestIdentity, TestSourceAnchor};
 
 /// Stable metadata needed to select and invoke one declared test.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -13,6 +13,7 @@ pub struct TestEntryMetadata {
     execution: CallableExecution,
     constraint: TestExecutionConstraint,
     result: TestResultShape,
+    error_type: Option<TestErrorTypeIdentity>,
 }
 
 impl TestEntryMetadata {
@@ -23,6 +24,7 @@ impl TestEntryMetadata {
         execution: CallableExecution,
         constraint: TestExecutionConstraint,
         result: TestResultShape,
+        error_type: Option<TestErrorTypeIdentity>,
     ) -> Self {
         Self {
             identity,
@@ -30,6 +32,7 @@ impl TestEntryMetadata {
             execution,
             constraint,
             result,
+            error_type,
         }
     }
 
@@ -57,6 +60,11 @@ impl TestEntryMetadata {
     pub const fn result(&self) -> TestResultShape {
         self.result
     }
+
+    /// Returns the recoverable error type identity for a fallible test.
+    pub const fn error_type(&self) -> Option<&TestErrorTypeIdentity> {
+        self.error_type.as_ref()
+    }
 }
 
 /// Failure to assemble a canonical test catalog.
@@ -66,6 +74,8 @@ pub enum TestCatalogBuildError {
     ProductMismatch(TestIdentity),
     /// Two entries claim the same product-qualified test identity.
     DuplicateIdentity(TestIdentity),
+    /// An entry's result shape and recoverable error identity disagree.
+    InvalidResultMetadata(TestIdentity),
 }
 
 /// Canonically ordered metadata for every test in one package product.
@@ -92,6 +102,14 @@ impl TestCatalog {
         for entry in &entries {
             if entry.identity().product() != &product {
                 return Err(TestCatalogBuildError::ProductMismatch(
+                    entry.identity().clone(),
+                ));
+            }
+
+            let expects_error = entry.result() == TestResultShape::Recoverable;
+
+            if expects_error != entry.error_type().is_some() {
+                return Err(TestCatalogBuildError::InvalidResultMetadata(
                     entry.identity().clone(),
                 ));
             }
@@ -193,6 +211,7 @@ mod tests {
             CallableExecution::Synchronous,
             TestExecutionConstraint::Parallel,
             TestResultShape::Unit,
+            None,
         )
     }
 

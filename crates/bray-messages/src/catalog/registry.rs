@@ -6,7 +6,7 @@ use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 use crate::{
     BuildProgressAction, BuildProgressConfiguration, BuildProgressField, BuildProgressLineKind,
-    BuildProgressOperation, LanguageServerMessage,
+    BuildProgressOperation, LanguageServerMessage, TestReportOutcome,
 };
 
 use super::english::{
@@ -89,6 +89,36 @@ impl MessageCatalog {
     pub(crate) fn build_progress_percentage(self, percentage: u64) -> String {
         match self.locale {
             DiagnosticLocale::English => super::english::build_progress_percentage(percentage),
+        }
+    }
+
+    pub(crate) fn test_report_heading(self, count: usize) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_heading(count),
+        }
+    }
+
+    pub(crate) fn test_report_result(
+        self,
+        outcome: TestReportOutcome,
+        identity: &str,
+    ) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_result(outcome, identity),
+        }
+    }
+
+    pub(crate) fn test_report_summary(self, passed: usize, failed: usize) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_summary(passed, failed),
+        }
+    }
+
+    pub(crate) const fn test_report_captured_stream(self, standard_error: bool) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::test_report_captured_stream(standard_error)
+            }
         }
     }
 

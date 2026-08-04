@@ -14,6 +14,7 @@ mod project;
 mod result;
 mod tool;
 mod toolchain;
+mod testing;
 
 pub use cli::TackCliError;
 pub use execute::{run_tack, run_tack_result};

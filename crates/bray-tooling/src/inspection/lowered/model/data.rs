@@ -1320,6 +1320,12 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
 
 fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
+        MirHostOperation::SelectTestEntry { entry, runtime } => {
+            parts.attribute("entry", entry.slot());
+            runtime_reference("runtime", *runtime, parts);
+
+            "select_test_entry"
+        }
         MirHostOperation::ExecuteRoot {
             entry,
             root,

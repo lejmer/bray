@@ -72,6 +72,7 @@ pub struct DriverProductConfiguration {
     runtime: Option<DriverRuntimeSelection>,
     required_capabilities: Vec<RuntimeCapability>,
     output: PathBuf,
+    test_catalog: Option<PathBuf>,
     artifacts: Vec<TargetOutputKind>,
     inspections: Vec<DriverInspectionArtifact>,
 }
@@ -84,6 +85,7 @@ impl DriverProductConfiguration {
         runtime: Option<DriverRuntimeSelection>,
         mut required_capabilities: Vec<RuntimeCapability>,
         output: PathBuf,
+        test_catalog: Option<PathBuf>,
         mut artifacts: Vec<TargetOutputKind>,
         mut inspections: Vec<DriverInspectionArtifact>,
     ) -> Self {
@@ -100,6 +102,7 @@ impl DriverProductConfiguration {
             runtime,
             required_capabilities,
             output,
+            test_catalog,
             artifacts,
             inspections,
         }
@@ -128,6 +131,11 @@ impl DriverProductConfiguration {
     /// Returns the product output directory.
     pub fn output(&self) -> &Path {
         &self.output
+    }
+
+    /// Returns the requested test-catalog publication path, when applicable.
+    pub fn test_catalog(&self) -> Option<&Path> {
+        self.test_catalog.as_deref()
     }
 
     /// Returns required artifacts in canonical order.
@@ -164,6 +172,8 @@ pub(crate) struct CliBuildCommand {
     required_capabilities: Vec<CliRuntimeCapability>,
     #[arg(long, value_name = "DIRECTORY")]
     output: PathBuf,
+    #[arg(long = "test-catalog", value_name = "PATH")]
+    test_catalog: Option<PathBuf>,
     #[arg(long = "artifact", value_enum, value_name = "ARTIFACT")]
     artifacts: Vec<CliArtifact>,
     #[arg(long = "inspect", value_enum, value_name = "ARTIFACT")]
@@ -199,6 +209,7 @@ impl CliBuildCommand {
                 .map(RuntimeCapability::from)
                 .collect(),
             self.output,
+            self.test_catalog,
             self.artifacts
                 .into_iter()
                 .map(TargetOutputKind::from)
@@ -337,6 +348,7 @@ mod tests {
             ]
             .into(),
             "out".into(),
+            None,
             [
                 TargetOutputKind::StaticLibrary,
                 TargetOutputKind::StaticLibrary,

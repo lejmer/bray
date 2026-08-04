@@ -21,6 +21,13 @@ pub struct RootCancellationHandle {
 }
 
 impl RootCancellationHandle {
+    pub(crate) fn new(cancellation: CancellationContext) -> Self {
+        Self {
+            cancellation,
+            source: Arc::new(AtomicU8::new(0)),
+        }
+    }
+
     /// Requests cooperative cancellation of the executable root.
     pub fn request(&self) -> bool {
         self.request_with_source(RootCancellationSource::Explicit)
@@ -129,12 +136,7 @@ pub fn execute_synchronous_root<T>(
     on_started: impl FnOnce(RootCancellationHandle),
 ) -> RunOutcome<T> {
     let cancellation = CancellationContext::root();
-    let source = Arc::new(AtomicU8::new(0));
-
-    on_started(RootCancellationHandle {
-        cancellation: cancellation.clone(),
-        source,
-    });
+    on_started(RootCancellationHandle::new(cancellation.clone()));
 
     with_run_cancellation_context(cancellation, || {
         match catch_unwind(AssertUnwindSafe(root)) {

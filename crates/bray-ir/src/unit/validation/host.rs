@@ -15,6 +15,17 @@ pub(super) fn validate_host_operation(
     };
 
     match host_operation {
+        MirHostOperation::SelectTestEntry { entry, runtime } => {
+            if host.entry(*entry).is_none()
+                || host
+                    .role_binding(RuntimeAbiRole::TestEntrySelection)
+                    .is_none()
+            {
+                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            }
+
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TestEntrySelection)
+        }
         MirHostOperation::ExecuteRoot {
             entry,
             root,

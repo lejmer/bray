@@ -23,6 +23,7 @@ use crate::tack::project::{
 use crate::tack::result::TackRunResult;
 use crate::tack::tool::{NativeToolExecutor, Tool, ToolExecutor, ToolOutput, ToolRequest};
 use crate::tack::toolchain::Toolchain;
+use crate::tack::testing::BuiltTestHost;
 
 /// Runs Bray Tack using independently installed toolchain executables.
 pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -243,7 +244,7 @@ fn execute_invocation_with_progress(
         TackCommand::Test {
             selection,
             configuration,
-            arguments,
+            options,
         } => run_tests(
             &workspace_root,
             &graph,
@@ -251,7 +252,7 @@ fn execute_invocation_with_progress(
             worker_count,
             &selection,
             configuration,
-            arguments,
+            options,
             output_format,
             executor,
             progress,
@@ -366,7 +367,9 @@ fn run_build(
         let session = progress.begin(plan);
 
         match compiler.build(&product, configuration, Some(&session)) {
-            Ok((product_outputs, _)) => {
+            Ok(build) => {
+                let (product_outputs, _, _) = build.into_parts();
+
                 let success = product_outputs.iter().all(ToolOutput::success);
 
                 session.finish(success);
@@ -424,8 +427,8 @@ fn run_one(
 
     let session = progress.begin(plan);
 
-    let (outputs, executable) = match compiler.build(product, configuration, Some(&session)) {
-        Ok(result) => result,
+    let (outputs, executable, _) = match compiler.build(product, configuration, Some(&session)) {
+        Ok(result) => result.into_parts(),
         Err(diagnostics) => {
             session.finish(false);
 
@@ -467,7 +470,7 @@ fn run_tests(
     worker_count: usize,
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
-    arguments: Vec<OsString>,
+    options: crate::tack::model::TackTestOptions,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
     progress: &WorkflowProgress,
@@ -487,7 +490,7 @@ fn run_tests(
     );
 
     let mut outputs = Vec::new();
-    let mut tests_succeeded = true;
+    let mut hosts = Vec::new();
 
     for product in products {
         let plan = match compiler.build_progress_plan(&product, configuration) {
@@ -497,9 +500,9 @@ fn run_tests(
 
         let session = progress.begin(plan);
 
-        let (product_outputs, executable) =
+        let (product_outputs, executable, test_catalog) =
             match compiler.build(&product, configuration, Some(&session)) {
-                Ok(result) => result,
+                Ok(result) => result.into_parts(),
                 Err(diagnostics) => {
                     session.finish(false);
 
@@ -513,26 +516,44 @@ fn run_tests(
 
         outputs.extend(product_outputs);
 
-        if compilation_succeeded {
-            let Some(executable) = executable else {
-                return failure(
-                    selection_diagnostics("test_executable_output"),
-                    output_format,
-                );
-            };
-
-            match run_project_process(&executable, &arguments, workspace_root) {
-                Ok(code) => tests_succeeded &= code == ExitCode::SUCCESS,
-                Err(diagnostics) => return failure(diagnostics, output_format),
-            }
-        } else {
-            tests_succeeded = false;
+        if !compilation_succeeded {
+            continue;
         }
+
+        let Some(executable) = executable else {
+            return failure(
+                selection_diagnostics("test_executable_output"),
+                output_format,
+            );
+        };
+
+        let Some(test_catalog) = test_catalog else {
+            return failure(selection_diagnostics("test_catalog_output"), output_format);
+        };
+
+        hosts.push(BuiltTestHost::new(executable, test_catalog));
     }
 
     let mut result = result_from_outputs(outputs, output_format);
 
-    if !tests_succeeded {
+    if result.exit_code() != ExitCode::SUCCESS {
+        return result;
+    }
+
+    let (report, rendered) = match crate::tack::testing::execute(
+        workspace_root,
+        hosts,
+        &options,
+        worker_count,
+        output_format,
+    ) {
+        Ok(report) => report,
+        Err(diagnostics) => return failure(diagnostics, output_format),
+    };
+
+    result.replace_stdout(rendered);
+
+    if !report.succeeded() {
         result.set_exit_code(ExitCode::FAILURE);
     }
 

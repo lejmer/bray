@@ -14,6 +14,7 @@ bray-project = { path = "../bray-project" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
+bray-test-protocol = { path = "../bray-test-protocol" }
 bray-tooling = { path = "../bray-tooling", default-features = false }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI

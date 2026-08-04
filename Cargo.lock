@@ -127,6 +127,7 @@ dependencies = [
  "bray-source",
  "bray-symbols",
  "bray-target",
+ "bray-test-protocol",
  "bray-testing",
  "bray-tooling",
  "clap",
@@ -298,6 +299,7 @@ dependencies = [
  "bray-standard-library",
  "bray-symbols",
  "bray-target",
+ "bray-test-protocol",
  "bray-testing",
  "bray-tooling",
  "clap",
@@ -461,6 +463,8 @@ version = "0.0.0"
 dependencies = [
  "bray-platform",
  "bray-runtime-interface",
+ "bray-source",
+ "bray-test-protocol",
 ]
 
 [[package]]

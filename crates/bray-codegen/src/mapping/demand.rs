@@ -273,7 +273,8 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
 
 fn collect_host_values(operation: &MirHostOperation, _demands: &mut ConstantDemands) {
     match operation {
-        MirHostOperation::ExecuteRoot { .. }
+        MirHostOperation::SelectTestEntry { .. }
+        | MirHostOperation::ExecuteRoot { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
         | MirHostOperation::ResolveRootTerminal { .. }
         | MirHostOperation::ReportCleanupIncidents { .. }

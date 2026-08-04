@@ -20,6 +20,7 @@ const _: () = assert!(
 
 use crate::current_run_cancellation_requested;
 use crate::root::{is_propagated_cancellation, propagate_current_run_cancellation};
+use crate::{RunOutcome, execute_synchronous_root};
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
@@ -44,11 +45,27 @@ native_export! {
                 return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
             };
 
-            execute_root(frame, configuration)
+            let start = super::test::with_output(|| execute_root(frame, configuration));
+
+            if let Some(root) = start.root() {
+                if let Ok(cancellation) = with_runtime(|runtime| runtime.root_cancellation(root)) {
+                    if let Ok(cancellation) = cancellation {
+                        super::test::register_timeout(cancellation);
+                    }
+                }
+            }
+
+            start
         }))
             .unwrap_or_else(|_| {
                 NativeRootStart::failure(NativeRuntimeStatus::PANICKED)
             })
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_test_entry_selection_v1(entry: u32) -> u8 {
+        u8::from(super::test::select_entry(entry))
     }
 }
 
@@ -332,18 +349,33 @@ native_export! {
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        match catch_unwind(AssertUnwindSafe(|| callback(destination))) {
-            Ok(()) => NativeRunOutcome::new(NativeRunState::COMPLETED, destination),
-            Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
-                NativeRunOutcome::new(NativeRunState::CANCELLED, 0)
-            }
-            Err(payload) => payload
-                .downcast_ref::<PropagatedPanicReport>()
-                .map_or_else(
-                    || runtime_failure(NativeRuntimeStatus::PANICKED),
-                    |report| NativeRunOutcome::new(NativeRunState::PANICKED, report.0),
-                ),
-        }
+        let outcome = execute_synchronous_root(
+            || {
+                super::test::with_output(|| {
+                    match catch_unwind(AssertUnwindSafe(|| callback(destination))) {
+                        Ok(()) => NativeRunOutcome::new(NativeRunState::COMPLETED, destination),
+                        Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
+                            NativeRunOutcome::new(NativeRunState::CANCELLED, 0)
+                        }
+                        Err(payload) => payload.downcast_ref::<PropagatedPanicReport>().map_or_else(
+                            || runtime_failure(NativeRuntimeStatus::PANICKED),
+                            |report| NativeRunOutcome::new(NativeRunState::PANICKED, report.0),
+                        ),
+                    }
+                })
+            },
+            super::test::register_timeout,
+        );
+
+        let outcome = match outcome {
+            RunOutcome::Completed(outcome) => outcome,
+            RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
+            RunOutcome::Panicked(_) => runtime_failure(NativeRuntimeStatus::PANICKED),
+        };
+
+        super::test::record_outcome(outcome);
+
+        outcome
     }
 }
 
@@ -351,11 +383,15 @@ native_export! {
     pub extern "C" fn bray_runtime_root_terminal_observation_v1(
         root: NativeRootHandle,
     ) -> NativeRunOutcome {
-        catch_unwind(AssertUnwindSafe(|| {
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
             with_runtime(|runtime| runtime.observe_root(root))
                 .unwrap_or_else(runtime_failure)
         }))
-        .unwrap_or_else(|_| runtime_failure(NativeRuntimeStatus::PANICKED))
+        .unwrap_or_else(|_| runtime_failure(NativeRuntimeStatus::PANICKED));
+
+        super::test::record_outcome(outcome);
+
+        outcome
     }
 }
 
@@ -388,7 +424,11 @@ native_export! {
                 return NativeRuntimeStatus::INVALID_ARGUMENT;
             }
 
-            eprintln!("{}", report.message);
+            if super::test::active() {
+                super::test::record_panic(report.cause, report.source, report.message);
+            } else {
+                eprintln!("{}", report.message);
+            }
 
             NativeRuntimeStatus::SUCCESS
         })
@@ -414,7 +454,11 @@ native_export! {
                 }
             };
 
-            eprintln!("{bytes:02x?}");
+            if super::test::active() {
+                super::test::record_returned_error();
+            } else {
+                eprintln!("{bytes:02x?}");
+            }
 
             NativeRuntimeStatus::SUCCESS
         })
@@ -466,6 +510,15 @@ native_export! {
     pub extern "C" fn bray_runtime_cleanup_incident_reporting_v1(
     ) -> NativeRuntimeStatus {
         contain_status(|| {
+            if super::test::active() {
+                let count = with_runtime(|runtime| runtime.discard_cleanup_incidents())
+                    .unwrap_or_default();
+
+                super::test::record_cleanup_failure(count);
+
+                return NativeRuntimeStatus::SUCCESS;
+            }
+
             with_runtime(|runtime| runtime.report_cleanup_incidents())
                 .unwrap_or_else(|status| status)
         })
@@ -666,7 +719,15 @@ native_export! {
 
 native_export! {
     pub extern "C" fn bray_runtime_structured_shutdown_v1() -> NativeRuntimeStatus {
-        contain_status(shutdown)
+        contain_status(|| {
+            let runtime_status = shutdown();
+
+            if super::test::finish().is_err() {
+                return NativeRuntimeStatus::RUNTIME_FAILURE;
+            }
+
+            runtime_status
+        })
     }
 }
 

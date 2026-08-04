@@ -7,7 +7,7 @@ use bray_symbols::{
     CallableContractTemplateFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
     CallableSignatureTemplate, DeclarationPredicateClauseKind, FunctionSymbolId, GenericArgument,
     GenericArgumentTemplate, NamedTypeSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TestResultShape, TypeData, TypeExpressionTemplate,
+    TestResultShape, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TrustBoundaryExpressionSyntax;
 
@@ -25,6 +25,7 @@ pub(super) enum ProductEntryKind {
 pub(super) struct ProductEntryValidation {
     execution: CallableExecution,
     test_result: Option<TestResultShape>,
+    test_error: Option<TypeId>,
 }
 
 impl ProductEntryValidation {
@@ -38,6 +39,10 @@ impl ProductEntryValidation {
 
     pub(super) const fn test_result(self) -> Option<TestResultShape> {
         self.test_result
+    }
+
+    pub(super) const fn test_error(self) -> Option<TypeId> {
+        self.test_error
     }
 }
 
@@ -280,8 +285,8 @@ pub(super) fn validate_entry(
 
     let unit_result = is_unit(signature.value().result(), semantic_values, available);
 
-    let recoverable_result =
-        is_result_of_unit(signature.value().result(), semantic_values, available);
+    let (recoverable_result, test_error) =
+        result_of_unit(signature.value().result(), semantic_values, available);
 
     let valid_result = match kind {
         ProductEntryKind::Executable => {
@@ -317,6 +322,7 @@ pub(super) fn validate_entry(
     Ok(is_valid.then_some(ProductEntryValidation {
         execution,
         test_result,
+        test_error,
     }))
 }
 
@@ -361,26 +367,32 @@ fn exposes_trusted_caller_obligation(
     })
 }
 
-fn is_result_of_unit(
+fn result_of_unit(
     template: &TypeExpressionTemplate,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
-) -> bool {
+) -> (bool, Option<TypeId>) {
     match template {
         TypeExpressionTemplate::Named {
             definition,
             arguments,
             ..
         } if named_role(*definition, available) == Some(RepresentationRole::Result) => {
-            matches!(
-                arguments.first(),
-                Some(GenericArgumentTemplate::Type(result))
-                    if is_unit(result, semantic_values, available)
-            )
+            let [GenericArgumentTemplate::Type(result), GenericArgumentTemplate::Type(error)] =
+                arguments.as_ref()
+            else {
+                return (false, None);
+            };
+
+            if !is_unit(result, semantic_values, available) {
+                return (false, None);
+            }
+
+            (true, error.resolved_type())
         }
         TypeExpressionTemplate::Resolved(ty) => {
             let Ok(data) = semantic_values.type_data(*ty) else {
-                return false;
+                return (false, None);
             };
 
             let TypeData::Named {
@@ -388,24 +400,31 @@ fn is_result_of_unit(
                 substitution,
             } = data.as_ref()
             else {
-                return false;
+                return (false, None);
             };
 
             if named_role(*definition, available) != Some(RepresentationRole::Result) {
-                return false;
+                return (false, None);
             }
 
             let Ok(substitution) = semantic_values.generic_substitution_data(*substitution) else {
-                return false;
+                return (false, None);
             };
 
-            matches!(
-                substitution.bindings().first().map(|binding| binding.argument()),
-                Some(GenericArgument::Type(result))
-                    if resolved_is_unit(result, semantic_values, available)
-            )
+            let [success, error] = substitution.bindings() else {
+                return (false, None);
+            };
+
+            match (success.argument(), error.argument()) {
+                (GenericArgument::Type(result), GenericArgument::Type(error))
+                    if resolved_is_unit(result, semantic_values, available) =>
+                {
+                    (true, Some(error))
+                }
+                _ => (false, None),
+            }
         }
-        _ => false,
+        _ => (false, None),
     }
 }
 

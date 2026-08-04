@@ -524,6 +524,13 @@ pub enum MirAsyncOperation {
 /// Explicit compiler-generated product-host operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirHostOperation {
+    /// Select one catalog entry admitted by the test runner.
+    SelectTestEntry {
+        /// Position of this source entry in the host contract.
+        entry: ExecutableHostEntryId,
+        /// Selected private test-entry-selection ABI role.
+        runtime: MirRuntimeReference,
+    },
     /// Establish and execute the selected source root.
     ExecuteRoot {
         /// Position of this source entry in the host contract.
