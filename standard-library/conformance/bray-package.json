@@ -3,14 +3,14 @@
   "identity": "bray.standard_library_conformance",
   "version": { "workspace": true },
   "source_roots": [
-    { "name": "standard", "path": "src/standard" },
+    { "name": "api", "path": "src/api" },
     { "name": "outcomes", "path": "src/outcomes" }
   ],
   "products": [
     {
-      "name": "standard",
+      "name": "api",
       "kind": "test",
-      "source_roots": ["standard"],
+      "source_roots": ["api"],
       "targets": [
         "aarch64-linux",
         "aarch64-macos",

@@ -11,7 +11,7 @@ use serde::Deserialize;
 use super::command::BuildError;
 
 const PACKAGE_IDENTITY: &str = "bray.standard_library_conformance";
-const STANDARD_PRODUCT: &str = "standard";
+const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 
 pub(super) fn test() -> Result<(), BuildError> {
@@ -43,12 +43,12 @@ pub(super) fn test() -> Result<(), BuildError> {
     let workspace = directory.path().join("workspace");
 
     copy_fixture(&root.join("standard-library/conformance"), &workspace)?;
-    audit_standard_product(&root, &workspace, &toolchain, target)?;
+    audit_api(&root, &workspace, &toolchain, target)?;
 
     audit_outcomes(&root, &workspace, &toolchain, target)
 }
 
-fn audit_standard_product(
+fn audit_api(
     root: &Path,
     workspace: &Path,
     toolchain: &Path,
@@ -61,7 +61,7 @@ fn audit_standard_product(
         workspace,
         toolchain,
         target,
-        STANDARD_PRODUCT,
+        API_PRODUCT,
         &["--sequential"],
     )?;
 
@@ -69,10 +69,10 @@ fn audit_standard_product(
 
     let sequential_report = parse_report("sequential execution", &sequential)?;
 
-    validate_standard_report(&sequential_report)?;
+    validate_api_report(&sequential_report)?;
 
-    let executable = product_artifact(workspace, target, STANDARD_PRODUCT, Artifact::Executable)?;
-    let catalog = product_artifact(workspace, target, STANDARD_PRODUCT, Artifact::Catalog)?;
+    let executable = product_artifact(workspace, target, API_PRODUCT, Artifact::Executable)?;
+    let catalog = product_artifact(workspace, target, API_PRODUCT, Artifact::Catalog)?;
     let sequential_executable = read_artifact(&executable)?;
     let sequential_catalog = read_artifact(&catalog)?;
 
@@ -83,7 +83,7 @@ fn audit_standard_product(
         workspace,
         toolchain,
         target,
-        STANDARD_PRODUCT,
+        API_PRODUCT,
         &["--jobs", "2"],
     )?;
 
@@ -91,7 +91,7 @@ fn audit_standard_product(
 
     let parallel_report = parse_report("parallel execution", &parallel)?;
 
-    validate_standard_report(&parallel_report)?;
+    validate_api_report(&parallel_report)?;
     require_stable_order(&sequential_report, &parallel_report)?;
 
     require_equal_artifact(
@@ -111,7 +111,7 @@ fn audit_standard_product(
         workspace,
         toolchain,
         target,
-        STANDARD_PRODUCT,
+        API_PRODUCT,
         &["standard_output"],
     )?;
 
@@ -232,14 +232,14 @@ fn audit_outcome(
     require_stream(&test.identity, "stderr", &test.stderr, &[])
 }
 
-fn validate_standard_report(report: &NativeTestReport) -> Result<(), BuildError> {
-    require_product(report, STANDARD_PRODUCT)?;
+fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
+    require_product(report, API_PRODUCT)?;
     require_selection(report, 6, 6, 0)?;
 
     if report.summary.passed != 6 || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
-            "the standard product did not report six passing tests",
+            "the API product did not report six passing tests",
         ));
     }
 
