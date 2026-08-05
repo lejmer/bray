@@ -1,5 +1,7 @@
 use bray_syntax::SyntaxKind;
 
+use crate::FormatterRule;
+
 pub(super) fn needs_space_before(
     previous: Option<SyntaxKind>,
     previous_operator_was_prefix: bool,
@@ -87,6 +89,20 @@ pub(super) fn comma_uses_line_break(parent: Option<SyntaxKind>) -> bool {
         parent,
         Some(SyntaxKind::StructConstructionBody | SyntaxKind::OverloadArmList)
     )
+}
+
+pub(super) const fn list_layout(parent: Option<SyntaxKind>) -> Option<FormatterRule> {
+    match parent {
+        Some(
+            SyntaxKind::DirectiveArgumentList
+            | SyntaxKind::PredicateParameterList
+            | SyntaxKind::ParameterList
+            | SyntaxKind::ArgumentList
+            | SyntaxKind::TupleExpression,
+        ) => Some(FormatterRule::ParenthesizedListLayout),
+        Some(SyntaxKind::ArrayExpression) => Some(FormatterRule::BracketedListLayout),
+        _ => None,
+    }
 }
 
 pub(super) fn semicolon_stays_inline(parent: Option<SyntaxKind>) -> bool {

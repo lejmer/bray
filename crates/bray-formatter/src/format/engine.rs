@@ -10,13 +10,13 @@ use bray_syntax::{
 
 use super::context::{
     clears_pending_space_before, comma_uses_line_break, is_directive, is_generic_delimiter,
-    is_line_comment, is_operator, is_prefix_operator, needs_space_before, semicolon_stays_inline,
-    should_separate_after,
+    is_line_comment, is_operator, is_prefix_operator, list_layout, needs_space_before,
+    semicolon_stays_inline, should_separate_after,
 };
 use super::line_ending;
 use super::model::FormattedSource;
 use super::writer::FormatWriter;
-use crate::FormatterConfiguration;
+use crate::{FormatterConfiguration, FormatterRule};
 
 /// Parses and formats one UTF-8 Bray source text.
 pub fn format_text(
@@ -68,7 +68,7 @@ pub(crate) fn format_snapshot(
 /// unchanged so malformed regions remain lossless and idempotent.
 pub fn format_source_unit(
     source_unit: &SourceUnitSyntax,
-    _configuration: &FormatterConfiguration,
+    configuration: &FormatterConfiguration,
 ) -> FormattedSource {
     let source_text = source_unit.source().text();
 
@@ -79,7 +79,8 @@ pub fn format_source_unit(
         };
     }
 
-    let mut formatter = Formatter::new(source_text, line_ending::detect(source_text));
+    let mut formatter =
+        Formatter::new(source_text, line_ending::detect(source_text), configuration);
 
     walk_source_unit(source_unit, |event| formatter.visit(event));
 
@@ -89,8 +90,9 @@ pub fn format_source_unit(
     FormattedSource { text, changed }
 }
 
-struct Formatter<'source> {
+struct Formatter<'source, 'configuration> {
     source_text: &'source str,
+    configuration: &'configuration FormatterConfiguration,
     writer: FormatWriter,
     nodes: Vec<SyntaxKind>,
     previous_token: Option<SyntaxKind>,
@@ -98,11 +100,16 @@ struct Formatter<'source> {
     previous_was_generic_delimiter: bool,
 }
 
-impl<'source> Formatter<'source> {
-    fn new(source_text: &'source str, line_ending: &'static str) -> Self {
+impl<'source, 'configuration> Formatter<'source, 'configuration> {
+    fn new(
+        source_text: &'source str,
+        line_ending: &'static str,
+        configuration: &'configuration FormatterConfiguration,
+    ) -> Self {
         Self {
             source_text,
-            writer: FormatWriter::new(line_ending),
+            configuration,
+            writer: FormatWriter::new(line_ending, configuration.maximum_line_width().into()),
             nodes: Vec::new(),
             previous_token: None,
             previous_operator_was_prefix: false,
@@ -180,6 +187,7 @@ impl<'source> Formatter<'source> {
         let kind = token.kind();
         let parent = self.nodes.last().copied();
         let generic_delimiter = is_generic_delimiter(kind, parent);
+        let list_layout = self.enabled_list_layout(parent);
 
         let operator_is_prefix = is_operator(kind)
             && !generic_delimiter
@@ -187,7 +195,15 @@ impl<'source> Formatter<'source> {
                 .previous_token
                 .is_none_or(|previous| is_prefix_operator(kind, previous));
 
-        self.prepare_token(kind, operator_is_prefix, generic_delimiter);
+        self.prepare_token(kind, operator_is_prefix, generic_delimiter, list_layout);
+
+        if matches!(
+            kind,
+            SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken
+        ) && list_layout
+        {
+            self.writer.begin_group();
+        }
 
         self.writer
             .write(required_token_text(token, self.source_text));
@@ -197,7 +213,15 @@ impl<'source> Formatter<'source> {
         self.previous_was_generic_delimiter = generic_delimiter;
 
         self.write_trivia(token.trailing_trivia());
-        self.finish_token(kind, parent);
+        self.finish_token(kind, parent, list_layout);
+
+        if matches!(
+            kind,
+            SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken
+        ) && list_layout
+        {
+            self.writer.end_group();
+        }
 
         SyntaxWalkControl::Continue
     }
@@ -207,12 +231,20 @@ impl<'source> Formatter<'source> {
         kind: SyntaxKind,
         operator_is_prefix: bool,
         generic_delimiter: bool,
+        list_layout: bool,
     ) {
         if clears_pending_space_before(kind) {
             self.writer.clear_space();
         }
 
-        if kind == SyntaxKind::CloseBraceToken {
+        if matches!(
+            kind,
+            SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken
+        ) && list_layout
+        {
+            self.writer.decrease_indent();
+            self.writer.request_optional_break(false);
+        } else if kind == SyntaxKind::CloseBraceToken {
             self.writer.decrease_indent();
             self.writer.set_newlines(1);
         } else if kind == SyntaxKind::OpenBraceToken
@@ -239,11 +271,18 @@ impl<'source> Formatter<'source> {
         }
     }
 
-    fn finish_token(&mut self, kind: SyntaxKind, parent: Option<SyntaxKind>) {
+    fn finish_token(&mut self, kind: SyntaxKind, parent: Option<SyntaxKind>, list_layout: bool) {
         match kind {
+            SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken if list_layout => {
+                self.writer.increase_indent();
+                self.writer.request_optional_break(false);
+            }
             SyntaxKind::OpenBraceToken => {
                 self.writer.increase_indent();
                 self.writer.request_newlines(1);
+            }
+            SyntaxKind::CommaToken if self.enabled_list_layout(parent) => {
+                self.writer.request_optional_break(true);
             }
             SyntaxKind::CommaToken if comma_uses_line_break(parent) => {
                 self.writer.request_newlines(1);
@@ -311,6 +350,11 @@ impl<'source> Formatter<'source> {
 
     fn finish(self) -> String {
         self.writer.finish()
+    }
+
+    fn enabled_list_layout(&self, parent: Option<SyntaxKind>) -> bool {
+        self.configuration.is_enabled(FormatterRule::LineWrapping)
+            && list_layout(parent).is_some_and(|rule| self.configuration.is_enabled(rule))
     }
 }
 

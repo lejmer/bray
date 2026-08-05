@@ -345,6 +345,7 @@ dependencies = [
  "bray-source",
  "bray-syntax",
  "bray-testing",
+ "unicode-width",
 ]
 
 [[package]]

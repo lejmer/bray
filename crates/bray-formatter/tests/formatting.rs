@@ -256,6 +256,45 @@ fn preserves_lf_and_crlf_line_ending_styles() {
 }
 
 #[test]
+fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
+    let source = concat!(
+        "module app;",
+        "func collect(first:i32,second:i32,third:i32){",
+        "let values=[first,second,third,];",
+        "collect(first,second,third);",
+        "}",
+    );
+
+    let output = formatted_with_width(source, 36);
+
+    assert_eq!(
+        output.text(),
+        concat!(
+            "module app;\n",
+            "\n",
+            "func collect(\n",
+            "    first: i32,\n",
+            "    second: i32,\n",
+            "    third: i32\n",
+            ")\n",
+            "{\n",
+            "    let values = [\n",
+            "        first,\n",
+            "        second,\n",
+            "        third,\n",
+            "    ];\n",
+            "    collect(first, second, third);\n",
+            "}\n",
+        )
+    );
+
+    assert_eq!(
+        formatted_with_width(output.text(), 36).text(),
+        output.text()
+    );
+}
+
+#[test]
 fn empty_and_comment_only_standard_input_are_stable() {
     let empty = formatted("");
     let whitespace = formatted(" \t\r\n");
@@ -330,3 +369,14 @@ fn formatted(source: &str) -> FormattedSource {
         Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
     }
 }
+
+fn formatted_with_width(source: &str, width: u16) -> FormattedSource {
+    let width = NonZeroU16::new(width).unwrap_or_else(|| unreachable!());
+    let configuration = FormatterConfiguration::default().with_maximum_line_width(width);
+
+    match format_text(source, &configuration) {
+        Ok(formatted) => formatted,
+        Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
+    }
+}
+use std::num::NonZeroU16;

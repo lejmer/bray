@@ -1,4 +1,5 @@
 use bray_codegen::{BackendArtifactId, BackendArtifactKind, BackendIdentity};
+use bray_diagnostics::DiagnosticArtifactKind;
 use bray_linker::{LinkedArtifactKind, LinkedArtifactRequirement};
 use bray_target::TargetOutputKind;
 
@@ -35,19 +36,23 @@ pub enum ArtifactKind {
 
 impl ArtifactKind {
     pub(crate) const fn machine_key(self) -> &'static str {
+        self.diagnostic_kind().as_str()
+    }
+
+    pub(crate) const fn diagnostic_kind(self) -> DiagnosticArtifactKind {
         match self {
-            Self::Assembly => "assembly",
-            Self::BackendIr => "backend_ir",
-            Self::BackendBitcode => "backend_bitcode",
-            Self::RelocatableObject => "relocatable_object",
-            Self::ExecutableModule => "executable_module",
-            Self::DebugCompanion => "debug_companion",
-            Self::PackageInterface => "package_interface",
-            Self::DependencyMetadata => "dependency_metadata",
-            Self::Executable => "executable",
-            Self::StaticLibrary => "static_library",
-            Self::SharedLibrary => "shared_library",
-            Self::LinkedCompanion => "linked_companion",
+            Self::Assembly => DiagnosticArtifactKind::Assembly,
+            Self::BackendIr => DiagnosticArtifactKind::BackendIr,
+            Self::BackendBitcode => DiagnosticArtifactKind::BackendBitcode,
+            Self::RelocatableObject => DiagnosticArtifactKind::RelocatableObject,
+            Self::ExecutableModule => DiagnosticArtifactKind::ExecutableModule,
+            Self::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
+            Self::PackageInterface => DiagnosticArtifactKind::PackageInterface,
+            Self::DependencyMetadata => DiagnosticArtifactKind::DependencyMetadata,
+            Self::Executable => DiagnosticArtifactKind::Executable,
+            Self::StaticLibrary => DiagnosticArtifactKind::StaticLibrary,
+            Self::SharedLibrary => DiagnosticArtifactKind::SharedLibrary,
+            Self::LinkedCompanion => DiagnosticArtifactKind::LinkedCompanion,
         }
     }
 

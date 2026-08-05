@@ -3,13 +3,11 @@ use std::io;
 use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticArtifactKind, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticOutputSink, SeverityKind,
+    DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticOutputSink,
+    SeverityKind,
 };
 
-use crate::{
-    ArtifactId, ArtifactKind, EmissionFailure, EmissionOutcome, EmittedArtifactSet, OutputSink,
-};
+use crate::{ArtifactId, EmissionFailure, EmissionOutcome, EmittedArtifactSet, OutputSink};
 
 pub(super) struct PublicationDiagnostics {
     pending: Vec<PendingDiagnostic>,
@@ -109,9 +107,9 @@ impl PublicationError {
         let artifact_ordinal = self.artifact.ordinal();
 
         let diagnostic = Diagnostic::new(id, diagnostic_kind, severity)
-            .with_arg(DiagnosticArg::artifact_kind(diagnostic_artifact_kind(
-                artifact_kind,
-            )))
+            .with_arg(DiagnosticArg::artifact_kind(
+                artifact_kind.diagnostic_kind(),
+            ))
             .with_arg(DiagnosticArg::artifact_ordinal(artifact_ordinal));
 
         let mut diagnostic = self.kind.with_detail_args(diagnostic);
@@ -238,23 +236,6 @@ impl PublicationFailureKind {
             Self::InvalidContribution => EmissionFailure::InvalidContribution(artifact),
             Self::Publication => EmissionFailure::Publication(artifact),
         }
-    }
-}
-
-const fn diagnostic_artifact_kind(kind: ArtifactKind) -> DiagnosticArtifactKind {
-    match kind {
-        ArtifactKind::Assembly => DiagnosticArtifactKind::Assembly,
-        ArtifactKind::BackendIr => DiagnosticArtifactKind::BackendIr,
-        ArtifactKind::BackendBitcode => DiagnosticArtifactKind::BackendBitcode,
-        ArtifactKind::RelocatableObject => DiagnosticArtifactKind::RelocatableObject,
-        ArtifactKind::ExecutableModule => DiagnosticArtifactKind::ExecutableModule,
-        ArtifactKind::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
-        ArtifactKind::PackageInterface => DiagnosticArtifactKind::PackageInterface,
-        ArtifactKind::DependencyMetadata => DiagnosticArtifactKind::DependencyMetadata,
-        ArtifactKind::Executable => DiagnosticArtifactKind::Executable,
-        ArtifactKind::StaticLibrary => DiagnosticArtifactKind::StaticLibrary,
-        ArtifactKind::SharedLibrary => DiagnosticArtifactKind::SharedLibrary,
-        ArtifactKind::LinkedCompanion => DiagnosticArtifactKind::LinkedCompanion,
     }
 }
 
