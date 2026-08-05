@@ -63,6 +63,10 @@ func ordering_helpers()
     assert(std.order.minimum(3, 7) == 3);
     assert(std.order.maximum(3, 7) == 7);
     assert(std.order.clamp(8, minimum = 2, maximum = 5) == 5);
+    assert(std.order.reverse(Ordering.Equal) == Ordering.Equal);
+    assert(std.order.then(Ordering.Less, Ordering.Greater) == Ordering.Less);
+    assert(std.order.clamp(1, minimum = 2, maximum = 5) == 2);
+    assert(std.order.clamp(4, minimum = 2, maximum = 5) == 4);
 }
 
 @test
@@ -95,6 +99,22 @@ func ordering_algorithms()
     {
         case ?index { assert(index == 3); }
         case none { assert(false); }
+    }
+
+    let absent_value: i32 = 8;
+    let absent: usize? = std.order.find<NumberSequence>(&stable, &absent_value);
+    let unsearchable: usize? = std.order.binary_search<NumberSequence>(&stable, &absent_value);
+
+    match absent
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    match unsearchable
+    {
+        case ?_ { assert(false); }
+        case none {}
     }
 
     let mut unstable: NumberSequence = NumberSequence

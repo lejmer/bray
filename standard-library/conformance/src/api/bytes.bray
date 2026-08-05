@@ -14,3 +14,77 @@ func byte_slice_operations()
     assert(length == 2);
     assert(equal);
 }
+
+@test
+trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let initial: [u8; 2] = [65, 66];
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.from_slice(&initial[..]);
+
+    try trusted std.bytes.push(&mut buffer, value = 67);
+    try trusted std.bytes.append_repeated(&mut buffer, value = 68, count = 2);
+
+    let appended: [u8; 2] = [69, 70];
+
+    try trusted std.bytes.append(&mut buffer, &appended[..]);
+
+    let values: &[u8] = std.bytes.as_slice(&buffer);
+
+    assert(std.bytes.length(&buffer) == 7);
+    assert(std.bytes.capacity(&buffer) >= 7);
+    assert(values[0] == 65);
+    assert(values[2] == 67);
+    assert(values[4] == 68);
+    assert(values[6] == 70);
+
+    let removed: u8? = trusted std.bytes.pop(&mut buffer);
+
+    match removed
+    {
+        case ?value { assert(value == 70); }
+        case none { assert(false); }
+    }
+
+    try trusted std.bytes.resize(&mut buffer, new_length = 8, fill = 90);
+
+    let resized: &mut [u8] = std.bytes.as_slice_mut(&mut buffer);
+
+    assert(resized[6] == 90);
+    assert(resized[7] == 90);
+
+    resized[0] = 97;
+
+    trusted std.bytes.truncate(&mut buffer, new_length = 1);
+
+    assert(std.bytes.length(&buffer) == 1);
+    assert(std.bytes.as_slice(&buffer)[0] == 97);
+
+    std.bytes.clear(&mut buffer);
+
+    assert(std.bytes.length(&buffer) == 0);
+
+    let exhausted: u8? = trusted std.bytes.pop(&mut buffer);
+
+    match exhausted
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    return Ok(unit);
+}
+
+@test
+func byte_slice_comparison_boundaries()
+{
+    let empty: [u8; 0] = [];
+    let first: [u8; 2] = [1, 2];
+    let same: [u8; 2] = [1, 2];
+    let different_value: [u8; 2] = [1, 3];
+    let different_length: [u8; 1] = [1];
+
+    assert(std.bytes.equals(&empty[..], &empty[..]));
+    assert(std.bytes.equals(&first[..], &same[..]));
+    assert(!std.bytes.equals(&first[..], &different_value[..]));
+    assert(!std.bytes.equals(&first[..], &different_length[..]));
+}

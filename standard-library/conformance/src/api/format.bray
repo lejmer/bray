@@ -1,9 +1,77 @@
 module bray.standard_library_conformance.format;
 
 using std.format;
+using std.bytes;
+using std.memory;
 
 @test
 func formatting_options_are_available()
 {
     let options: std.format.Options = std.format.Options.default();
+
+    assert(options.radix == std.format.Radix.Decimal);
+    assert(options.width == 0);
+    assert(options.precision == 0);
+}
+
+@test
+func scalar_formatting_is_deterministic() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 0);
+
+    try std.format.write<i32>(&mut sink, std.format.Argument<i32>(-42));
+    try std.format.write<bool>(&mut sink, std.format.Argument<bool>(true));
+    try std.format.write<char>(&mut sink, std.format.Argument<char>('A'));
+
+    let expected: [u8; 8] = [45, 52, 50, 116, 114, 117, 101, 65];
+
+    assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
+
+    return Ok(unit);
+}
+
+@test
+func formatting_options_control_output() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let options: std.format.Options = std.format.Options(
+        radix = std.format.Radix.HexadecimalUppercase,
+        precision = 4,
+        width = 6,
+        alignment = std.format.Alignment.Right,
+        sign = std.format.Sign.Always,
+        escaping = std.format.Escaping.Raw,
+    );
+    let argument: std.format.Argument<u32> = std.format.Argument<u32>.with_options(42, options = options);
+    let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 6);
+
+    try std.format.write<u32>(&mut sink, argument);
+
+    let expected: [u8; 6] = [32, 43, 48, 48, 50, 65];
+
+    assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
+
+    return Ok(unit);
+}
+
+@test
+func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let options: std.format.Options = std.format.Options(
+        radix = std.format.Radix.Decimal,
+        precision = 0,
+        width = 0,
+        alignment = std.format.Alignment.Left,
+        sign = std.format.Sign.NegativeOnly,
+        escaping = std.format.Escaping.Quoted,
+    );
+    let argument: std.format.Argument<string> = std.format.Argument<string>.with_options("A\n", options = options);
+    let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 0);
+
+    try std.format.write<string>(&mut sink, argument);
+
+    let expected: [u8; 5] = [34, 65, 92, 110, 34];
+
+    assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
+
+    return Ok(unit);
 }

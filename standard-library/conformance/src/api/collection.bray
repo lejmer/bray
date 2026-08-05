@@ -205,3 +205,40 @@ trusted func borrowed_list_iteration_preserves_access() -> Result<unit, std.memo
 
     return Ok(unit);
 }
+
+@test
+trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut values: std.collection.List<i32> = try trusted std.collection.List<i32>();
+
+    try trusted std.collection.push<i32>(&mut values, 1);
+    try trusted std.collection.push<i32>(&mut values, 2);
+
+    let zero_cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
+    let zero: std.iteration.Take<std.collection.MoveCursor<i32>, i32> =
+        std.iteration.take<std.collection.MoveCursor<i32>>(zero_cursor, count = 0);
+    let missing: i32? = std.iteration.first<std.iteration.Take<std.collection.MoveCursor<i32>, i32>>(zero);
+
+    match missing
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    let mut skipped_values: std.collection.List<i32> = try trusted std.collection.List<i32>();
+
+    try trusted std.collection.push<i32>(&mut skipped_values, 3);
+
+    let skip_cursor: std.collection.MoveCursor<i32> = skipped_values(Iterable).iterate();
+    let skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> =
+        std.iteration.skip<std.collection.MoveCursor<i32>>(skip_cursor, count = 2);
+    let exhausted: i32? = std.iteration.first<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>>(skipped);
+
+    match exhausted
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    return Ok(unit);
+}
