@@ -49,7 +49,7 @@ where
             SemanticSelection::Call(call) => {
                 enters_current_run_cancellation |= matches!(
                     call.implementation_hook(),
-                    Some(ImplementationHook::CurrentRunCancellationEntry)
+                    Some(ImplementationHook::CurrentRunCancellationPropagation)
                 );
 
                 let mut contribution =

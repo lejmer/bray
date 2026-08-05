@@ -1,0 +1,49 @@
+module std.format;
+
+using std.bytes;
+using std.memory;
+using std.string;
+
+struct ByteSink
+{
+    internal mut buffer: std.bytes.Buffer;
+}
+
+func byte_sink(capacity: usize) -> Result<ByteSink, std.memory.MemoryLayoutError>
+{
+    let buffer: std.bytes.Buffer = try std.bytes.create(capacity = capacity);
+
+    return Ok(ByteSink { buffer = buffer, });
+}
+
+func bytes(pos sink: &ByteSink) -> &[u8]
+{
+    return std.bytes.as_slice(&sink.buffer);
+}
+
+func into_bytes(pos sink: ByteSink) -> std.bytes.Buffer
+{
+    return sink.buffer;
+}
+
+struct TextSink
+{
+    internal mut bytes: ByteSink;
+}
+
+func text_sink(capacity: usize) -> Result<TextSink, std.memory.MemoryLayoutError>
+{
+    let sink: ByteSink = try byte_sink(capacity = capacity);
+
+    return Ok(TextSink { bytes = sink, });
+}
+
+func text(pos sink: &TextSink) -> Result<string, std.string.Utf8Error>
+{
+    return std.string.from_utf8(bytes(&sink.bytes));
+}
+
+func text_bytes(pos sink: &mut TextSink) -> &mut ByteSink
+{
+    return &mut sink.bytes;
+}

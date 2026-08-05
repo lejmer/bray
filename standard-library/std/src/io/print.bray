@@ -184,7 +184,7 @@ internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: 
     );
 }
 
-internal func support_print(pos text: string) -> Result<unit, IoError>
+func print(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let mut output: StandardOutput = standard_output();
@@ -218,7 +218,7 @@ internal func support_print(pos text: string) -> Result<unit, IoError>
     }
 }
 
-internal func support_print_line(pos text: string) -> Result<unit, IoError>
+func print_line(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let mut output: StandardOutput = standard_output();
@@ -268,14 +268,14 @@ internal func support_print_line(pos text: string) -> Result<unit, IoError>
     }
 }
 
-internal async func support_print_async(pos text: string) -> Result<unit, IoError>
+async func print_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
-    return support_print(text);
+    return print(text);
 }
 
-internal async func support_print_line_async(pos text: string) -> Result<unit, IoError>
+async func print_line_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
-    return support_print_line(text);
+    return print_line(text);
 }

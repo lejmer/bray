@@ -1,0 +1,22 @@
+trusted module std.io;
+
+union IoErrorKind
+{
+    Unsupported;
+    PermissionDenied;
+    NotFound;
+    AlreadyExists;
+    InvalidInput;
+    Interrupted;
+    Exhausted;
+    BrokenStream;
+    TimedOut;
+    Other;
+}
+
+struct IoError
+{
+    kind: IoErrorKind;
+    platform_code: i64?;
+    transferred: usize;
+}

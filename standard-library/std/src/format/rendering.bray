@@ -754,16 +754,4 @@ impl IsizeFormat = isize(Format)
     }
 }
 
-func write<Value>(
-    pos destination: &mut ByteSink,
-    pos value: Argument<Value>,
-) -> Result<unit, std.memory.MemoryLayoutError>
-    with(Value: Format)
-{
-    let formatted: Value = value.value;
-    let formatting_options: Options = value.options;
-
-    return formatted.format(destination, &formatting_options);
-}
-
 // TODO(BRA-295): Add real and complex formatting after numeric text conversion is available.

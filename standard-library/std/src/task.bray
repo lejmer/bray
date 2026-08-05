@@ -16,9 +16,9 @@ async func checkpoint()
 
 async func yield_now()
 {
-    support_yield();
+    yield_current_task();
 
     return unit;
 }
 
-extern internal func support_yield();
+extern internal func yield_current_task();

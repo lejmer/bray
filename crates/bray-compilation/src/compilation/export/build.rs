@@ -952,8 +952,10 @@ mod tests {
                 "extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;\n",
             ),
             include_str!("../../../../../standard-library/std/src/character.bray"),
-            include_str!("../../../../../standard-library/std/src/format.bray"),
-            include_str!("../../../../../standard-library/std/src/format_impl.bray"),
+            include_str!("../../../../../standard-library/std/src/format/options.bray"),
+            include_str!("../../../../../standard-library/std/src/format/argument.bray"),
+            include_str!("../../../../../standard-library/std/src/format/sink.bray"),
+            include_str!("../../../../../standard-library/std/src/format/rendering.bray"),
         ]);
 
         assert!(

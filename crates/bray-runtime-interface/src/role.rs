@@ -26,7 +26,7 @@ pub enum RuntimeAbiRole {
     /// Observe cancellation requested for the current run.
     CurrentRunCancellationObservation,
     /// Transfer current-run cancellation to the nearest run boundary.
-    CurrentRunCancellationEntry,
+    CurrentRunCancellationPropagation,
     /// Register and resolve a task join.
     JoinRegistration,
     /// Publish one terminal run outcome.
@@ -100,7 +100,7 @@ impl RuntimeAbiRole {
         Self::Wake,
         Self::TaskCancellationRequest,
         Self::CurrentRunCancellationObservation,
-        Self::CurrentRunCancellationEntry,
+        Self::CurrentRunCancellationPropagation,
         Self::JoinRegistration,
         Self::TerminalPublication,
         Self::RuntimeEvent,
@@ -156,7 +156,7 @@ impl RuntimeAbiRole {
             Self::Wake => "wake",
             Self::TaskCancellationRequest => "task_cancellation_request",
             Self::CurrentRunCancellationObservation => "current_run_cancellation_observation",
-            Self::CurrentRunCancellationEntry => "current_run_cancellation_entry",
+            Self::CurrentRunCancellationPropagation => "current_run_cancellation_propagation",
             Self::JoinRegistration => "join_registration",
             Self::TerminalPublication => "terminal_publication",
             Self::RuntimeEvent => "runtime_event",
@@ -404,7 +404,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::SuspensionRegistration => &[Effect::RegisterContinuation],
         RuntimeAbiRole::Wake => &[Effect::PublishWork, Effect::EstablishVisibility],
         RuntimeAbiRole::CurrentRunCancellationObservation => &[Effect::ObserveCancellation],
-        RuntimeAbiRole::CurrentRunCancellationEntry => &[Effect::PropagateCancellation],
+        RuntimeAbiRole::CurrentRunCancellationPropagation => &[Effect::PropagateCancellation],
         RuntimeAbiRole::JoinRegistration => &[
             Effect::RegisterContinuation,
             Effect::AcquireTerminalState,

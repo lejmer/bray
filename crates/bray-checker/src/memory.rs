@@ -375,7 +375,7 @@ where
         | ImplementationHook::ComputeExecution
         | ImplementationHook::MainThreadExecution
         | ImplementationHook::CurrentRunCancellationObservation
-        | ImplementationHook::CurrentRunCancellationEntry
+        | ImplementationHook::CurrentRunCancellationPropagation
         | ImplementationHook::TaskYield
         | ImplementationHook::StringScalarCount
         | ImplementationHook::StringIsEmpty

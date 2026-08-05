@@ -1,0 +1,72 @@
+module std.format;
+
+union Radix
+{
+    Binary;
+    Octal;
+    Decimal;
+    HexadecimalLowercase;
+    HexadecimalUppercase;
+}
+
+union Alignment
+{
+    Left;
+    Center;
+    Right;
+}
+
+union Sign
+{
+    NegativeOnly;
+    Always;
+    Space;
+}
+
+union Escaping
+{
+    Raw;
+    Quoted;
+}
+
+struct Options
+{
+    radix: Radix;
+    precision: usize;
+    width: usize;
+    alignment: Alignment;
+    sign: Sign;
+    escaping: Escaping;
+}
+
+func options(
+    radix: Radix,
+    precision: usize,
+    width: usize,
+    alignment: Alignment,
+    sign: Sign,
+    escaping: Escaping,
+) -> Options
+{
+    return Options
+    {
+        radix = radix,
+        precision = precision,
+        width = width,
+        alignment = alignment,
+        sign = sign,
+        escaping = escaping,
+    };
+}
+
+func default_options() -> Options
+{
+    return options(
+        radix = Decimal,
+        precision = 0,
+        width = 0,
+        alignment = Right,
+        sign = NegativeOnly,
+        escaping = Raw,
+    );
+}

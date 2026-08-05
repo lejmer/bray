@@ -1,10 +1,39 @@
 trusted module std.io;
 
-internal func support_buffered_writer<Sink>(pos sink: Sink, capacity: usize) -> Result<BufferedWriter<Sink>, IoError>
+trait Writer
+{
+    mut func write(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+
+    mut func flush() -> Result<unit, IoError>
+        requires(blocking_execution());
+}
+
+trait AsyncWriter
+{
+    mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+
+    mut async func flush_async() -> Result<unit, IoError>
+        requires(blocking_execution());
+}
+
+struct StandardOutput
+{
+    internal handle: u64;
+}
+
+struct StandardError
+{
+    internal handle: u64;
+}
+
+func buffered_writer<Sink>(pos sink: Sink, capacity: usize) -> Result<BufferedWriter<Sink>, IoError>
+    requires(capacity > 0)
 {
     if capacity == 0
     {
-        return Error(support_io_error(
+        return Error(io_error(
             kind = InvalidInput,
             native_code = 0,
             transferred = 0,
@@ -54,7 +83,7 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
 
 impl BufferedWriter<Sink>
 {
-    mut func support_flush() -> Result<unit, IoError>
+    mut func flush_buffered() -> Result<unit, IoError>
         with(Sink: Writer)
         requires(blocking_execution())
     {
@@ -123,13 +152,13 @@ impl BufferedWriter<Sink>
         }
     }
 
-    mut func support_write(pos source: &[u8]) -> Result<usize, IoError>
+    mut func write_buffered(pos source: &[u8]) -> Result<usize, IoError>
         with(Sink: Writer)
         requires(blocking_execution())
     {
         if self.length == self.capacity
         {
-            let result: Result<unit, IoError> = self.support_flush();
+            let result: Result<unit, IoError> = self.flush_buffered();
 
             match consume result
             {
@@ -146,7 +175,7 @@ impl BufferedWriter<Sink>
         return Ok(buffer_bytes(&mut self, source));
     }
 
-    mut async func support_flush_async() -> Result<unit, IoError>
+    mut async func flush_buffered_async() -> Result<unit, IoError>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
@@ -215,13 +244,13 @@ impl BufferedWriter<Sink>
         }
     }
 
-    mut async func support_write_async(pos source: &[u8]) -> Result<usize, IoError>
+    mut async func write_buffered_async(pos source: &[u8]) -> Result<usize, IoError>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
         if self.length == self.capacity
         {
-            let result: Result<unit, IoError> = await self.support_flush_async();
+            let result: Result<unit, IoError> = await self.flush_buffered_async();
 
             match consume result
             {
@@ -245,7 +274,7 @@ impl BufferedWriter<Sink>
         with(Sink: Writer)
         requires(blocking_execution())
     {
-        let result: Result<unit, IoError> = self.support_flush();
+        let result: Result<unit, IoError> = self.flush_buffered();
 
         match consume result
         {
@@ -267,7 +296,7 @@ impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
     mut func write(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
-        let result: Result<usize, IoError> = self.support_write(source);
+        let result: Result<usize, IoError> = self.write_buffered(source);
 
         return result;
     }
@@ -275,7 +304,7 @@ impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
     mut func flush() -> Result<unit, IoError>
         requires(blocking_execution())
     {
-        let result: Result<unit, IoError> = self.support_flush();
+        let result: Result<unit, IoError> = self.flush_buffered();
 
         return result;
     }
@@ -287,7 +316,7 @@ impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter)
     mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
-        let result: Result<usize, IoError> = await self.support_write_async(source);
+        let result: Result<usize, IoError> = await self.write_buffered_async(source);
 
         return result;
     }
@@ -295,7 +324,7 @@ impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter)
     mut async func flush_async() -> Result<unit, IoError>
         requires(blocking_execution())
     {
-        let result: Result<unit, IoError> = await self.support_flush_async();
+        let result: Result<unit, IoError> = await self.flush_buffered_async();
 
         return result;
     }

@@ -84,8 +84,8 @@ define_catalog_enum! {
         MainThreadExecution => "MainThreadExecution",
         /// Observes whether cancellation is requested for the current run.
         CurrentRunCancellationObservation => "CurrentRunCancellationObservation",
-        /// Enters cancellation for the current run.
-        CurrentRunCancellationEntry => "CurrentRunCancellationEntry",
+        /// Propagates cancellation to the current run boundary.
+        CurrentRunCancellationPropagation => "CurrentRunCancellationPropagation",
         /// Cooperatively yields the current task.
         TaskYield => "TaskYield",
         /// Counts Unicode scalar values in valid UTF-8 text.
@@ -185,7 +185,7 @@ mod tests {
             ImplementationHook::ComputeExecution,
             ImplementationHook::MainThreadExecution,
             ImplementationHook::CurrentRunCancellationObservation,
-            ImplementationHook::CurrentRunCancellationEntry,
+            ImplementationHook::CurrentRunCancellationPropagation,
             ImplementationHook::TaskYield,
             ImplementationHook::StringScalarCount,
             ImplementationHook::StringIsEmpty,
