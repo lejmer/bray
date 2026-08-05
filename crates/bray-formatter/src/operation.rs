@@ -8,8 +8,8 @@ use bray_source::{
     TextSizeOverflow, leading_utf8_bom_len,
 };
 
-use crate::FormattedSource;
 use crate::format::format_snapshot;
+use crate::{FormattedSource, FormatterConfiguration};
 
 /// Stable category for a source-byte formatting failure.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -172,7 +172,10 @@ impl FormatFileError {
 ///
 /// Source bytes must be UTF-8. An accepted leading UTF-8 byte order mark is
 /// retained in the formatted output and excluded from reported byte offsets.
-pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
+pub fn format_bytes(
+    bytes: &[u8],
+    configuration: &FormatterConfiguration,
+) -> Result<FormattedSource, FormatBytesError> {
     let byte_order_mark_len = leading_utf8_bom_len(bytes);
     let has_byte_order_mark = byte_order_mark_len > 0;
     let byte_count = bytes.len() - byte_order_mark_len;
@@ -198,7 +201,7 @@ pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
             }
         })?;
 
-    let formatted = format_snapshot(&snapshot);
+    let formatted = format_snapshot(&snapshot, configuration);
 
     Ok(if has_byte_order_mark {
         formatted.with_leading_byte_order_mark()
@@ -214,13 +217,14 @@ pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
 pub fn format_file(
     path: impl AsRef<Path>,
     mode: FormatMode,
+    configuration: &FormatterConfiguration,
 ) -> Result<FormatFileOutcome, FormatFileError> {
     let path = path.as_ref();
 
     let bytes = fs::read(path)
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Read, path, &error))?;
 
-    let formatted = format_bytes(&bytes).map_err(|error| match error.kind() {
+    let formatted = format_bytes(&bytes, configuration).map_err(|error| match error.kind() {
         FormatBytesErrorKind::InvalidUtf8 => {
             let valid_up_to = error
                 .invalid_utf8_at()

@@ -4,14 +4,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_diagnostics::DiagnosticBag;
-use bray_formatter::FormatMode;
+use bray_formatter::{FormatMode, FormatterConfiguration};
 use bray_tooling::{
     OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text, write_diagnostics,
 };
 use clap::Parser;
 use clap::error::ErrorKind;
 
-use crate::diagnostic::{format_files, format_standard_input};
+use crate::configuration::load_configuration;
+use crate::diagnostic::{configuration_error_diagnostic, format_files, format_standard_input};
 
 pub(crate) fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     let mut stdout = io::stdout().lock();
@@ -33,6 +34,18 @@ fn run_with_io(
 
     let output_format = cli.format;
 
+    let configuration = match cli.config.as_deref() {
+        Some(path) => match load_configuration(path) {
+            Ok(configuration) => configuration,
+            Err(error) => {
+                let diagnostics = DiagnosticBag::single(configuration_error_diagnostic(error));
+
+                return write_result(&diagnostics, "", output_format, stdout, stderr);
+            }
+        },
+        None => FormatterConfiguration::default(),
+    };
+
     let mode = if cli.check {
         FormatMode::Check
     } else {
@@ -46,21 +59,34 @@ fn run_with_io(
             return ExitCode::FAILURE;
         }
 
-        match format_standard_input(&bytes, mode) {
+        match format_standard_input(&bytes, mode, &configuration) {
             Ok(formatted) => (DiagnosticBag::new(), formatted),
             Err(diagnostics) => (diagnostics, String::new()),
         }
     } else {
-        (format_files(&cli.files, mode), String::new())
+        (
+            format_files(&cli.files, mode, &configuration),
+            String::new(),
+        )
     };
 
+    write_result(&diagnostics, &formatted, output_format, stdout, stderr)
+}
+
+fn write_result(
+    diagnostics: &DiagnosticBag,
+    formatted: &str,
+    output_format: OutputFormat,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> ExitCode {
     if stdout.write_all(formatted.as_bytes()).is_err()
-        || write_diagnostics(&diagnostics, None, output_format, stdout, stderr).is_err()
+        || write_diagnostics(diagnostics, None, output_format, stdout, stderr).is_err()
     {
         return ExitCode::FAILURE;
     }
 
-    exit_code_from_diagnostics(&diagnostics)
+    exit_code_from_diagnostics(diagnostics)
 }
 
 fn write_clap_error(
@@ -104,6 +130,8 @@ struct Cli {
     check: bool,
     #[arg(long, value_enum, default_value = "text")]
     format: OutputFormat,
+    #[arg(long, value_name = "FILE")]
+    config: Option<PathBuf>,
     #[arg(value_name = "FILE", required = true)]
     files: Vec<PathBuf>,
 }

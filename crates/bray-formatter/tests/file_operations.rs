@@ -1,4 +1,9 @@
-use bray_formatter::{FormatFileErrorKind, FormatFileOutcome, FormatMode, format_file};
+use std::path::Path;
+
+use bray_formatter::{
+    FormatFileError, FormatFileErrorKind, FormatFileOutcome, FormatMode, FormatterConfiguration,
+    format_file,
+};
 use bray_testing::TemporaryFile;
 
 #[test]
@@ -6,7 +11,7 @@ fn check_mode_reports_changes_without_writing() {
     let file = TemporaryFile::write("main.bray", b"module app;func main(){return;}");
     let original = read(file.path());
 
-    let outcome = match format_file(file.path(), FormatMode::Check) {
+    let outcome = match format_test_file(file.path(), FormatMode::Check) {
         Ok(outcome) => outcome,
         Err(error) => panic!("check formatting should succeed: {error:?}"),
     };
@@ -20,14 +25,14 @@ fn check_mode_reports_changes_without_writing() {
 fn write_mode_updates_changed_files_and_leaves_formatted_files_stable() {
     let file = TemporaryFile::write("main.bray", b"module app;func main(){return;}");
 
-    let first = match format_file(file.path(), FormatMode::Write) {
+    let first = match format_test_file(file.path(), FormatMode::Write) {
         Ok(outcome) => outcome,
         Err(error) => panic!("write formatting should succeed: {error:?}"),
     };
 
     let formatted_bytes = read(file.path());
 
-    let second = match format_file(file.path(), FormatMode::Write) {
+    let second = match format_test_file(file.path(), FormatMode::Write) {
         Ok(outcome) => outcome,
         Err(error) => panic!("repeat formatting should succeed: {error:?}"),
     };
@@ -44,7 +49,7 @@ fn write_mode_preserves_utf8_byte_order_mark_and_crlf() {
         b"\xef\xbb\xbfmodule app;\r\nfunc main(){return;}\r\n",
     );
 
-    let outcome = match format_file(file.path(), FormatMode::Write) {
+    let outcome = match format_test_file(file.path(), FormatMode::Write) {
         Ok(outcome) => outcome,
         Err(error) => panic!("BOM source formatting should succeed: {error:?}"),
     };
@@ -63,7 +68,7 @@ fn invalid_utf8_returns_a_typed_failure_without_writing() {
     let file = TemporaryFile::write("main.bray", &[b'm', 0xff, b'x']);
     let original = read(file.path());
 
-    let error = match format_file(file.path(), FormatMode::Write) {
+    let error = match format_test_file(file.path(), FormatMode::Write) {
         Ok(outcome) => panic!("invalid UTF-8 should fail, got {outcome:?}"),
         Err(error) => error,
     };
@@ -94,7 +99,7 @@ fn failed_atomic_replacement_preserves_original_source() {
         Err(error) => panic!("test source must be locked against replacement: {error:?}"),
     };
 
-    let error = match format_file(file.path(), FormatMode::Write) {
+    let error = match format_test_file(file.path(), FormatMode::Write) {
         Ok(outcome) => panic!("locked source replacement should fail, got {outcome:?}"),
         Err(error) => error,
     };
@@ -110,4 +115,8 @@ fn read(path: &std::path::Path) -> Vec<u8> {
         Ok(bytes) => bytes,
         Err(error) => panic!("temporary source should be readable: {error:?}"),
     }
+}
+
+fn format_test_file(path: &Path, mode: FormatMode) -> Result<FormatFileOutcome, FormatFileError> {
+    format_file(path, mode, &FormatterConfiguration::default())
 }

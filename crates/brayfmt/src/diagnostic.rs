@@ -6,14 +6,20 @@ use bray_diagnostics::{
 };
 use bray_formatter::{
     FormatBytesError, FormatBytesErrorKind, FormatFileError, FormatFileErrorKind,
-    FormatFileOutcome, FormatMode, format_bytes, format_file,
+    FormatFileOutcome, FormatMode, FormatterConfiguration, format_bytes, format_file,
 };
 
-pub(crate) fn format_files(paths: &[PathBuf], mode: FormatMode) -> DiagnosticBag {
+use crate::configuration::ConfigurationError;
+
+pub(crate) fn format_files(
+    paths: &[PathBuf],
+    mode: FormatMode,
+    configuration: &FormatterConfiguration,
+) -> DiagnosticBag {
     let mut diagnostics = DiagnosticBag::with_capacity(paths.len());
 
     for path in paths {
-        match format_file(path, mode) {
+        match format_file(path, mode, configuration) {
             Ok(FormatFileOutcome::WouldChange) => diagnostics.add(path_diagnostic(
                 DiagnosticId::from_index(diagnostics.len()),
                 DiagnosticKind::FormatterSourceNotFormatted,
@@ -33,8 +39,9 @@ pub(crate) fn format_files(paths: &[PathBuf], mode: FormatMode) -> DiagnosticBag
 pub(crate) fn format_standard_input(
     bytes: &[u8],
     mode: FormatMode,
+    configuration: &FormatterConfiguration,
 ) -> Result<String, DiagnosticBag> {
-    let formatted = format_bytes(bytes).map_err(|error| {
+    let formatted = format_bytes(bytes, configuration).map_err(|error| {
         DiagnosticBag::single(bytes_error_diagnostic(DiagnosticId::new(0), error))
     })?;
 
@@ -51,6 +58,41 @@ pub(crate) fn format_standard_input(
     }
 
     Ok(formatted.into_text())
+}
+
+pub(crate) fn configuration_error_diagnostic(error: ConfigurationError) -> Diagnostic {
+    let id = DiagnosticId::new(0);
+
+    match error {
+        ConfigurationError::Read {
+            path,
+            io_error_kind,
+        } => Diagnostic::new(
+            id,
+            DiagnosticKind::FormatterConfigurationReadFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path(path))
+        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+            io_error_kind,
+        ))),
+        ConfigurationError::Malformed { path } => {
+            path_diagnostic(id, DiagnosticKind::FormatterConfigurationMalformed, &path)
+        }
+        ConfigurationError::UnknownRule { path, rule_name } => {
+            path_diagnostic(id, DiagnosticKind::FormatterConfigurationUnknownRule, &path)
+                .with_arg(DiagnosticArg::referenced_name(rule_name))
+        }
+        ConfigurationError::InvalidMaximumLineWidth {
+            path,
+            maximum_line_width,
+        } => path_diagnostic(
+            id,
+            DiagnosticKind::FormatterConfigurationInvalidMaximumWidth,
+            &path,
+        )
+        .with_arg(DiagnosticArg::actual_count(maximum_line_width)),
+    }
 }
 
 fn file_error_diagnostic(id: DiagnosticId, error: FormatFileError) -> Diagnostic {

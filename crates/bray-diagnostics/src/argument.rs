@@ -229,6 +229,14 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an actual externally supplied count argument.
+    pub const fn actual_count(actual_count: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualCount,
+            DiagnosticArgValue::Count(actual_count),
+        )
+    }
+
     /// Creates a source-input-kind argument.
     pub const fn source_input_kind(kind: SourceInputKind) -> Self {
         Self::new(

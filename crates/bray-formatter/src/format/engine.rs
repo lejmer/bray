@@ -16,9 +16,13 @@ use super::context::{
 use super::line_ending;
 use super::model::FormattedSource;
 use super::writer::FormatWriter;
+use crate::FormatterConfiguration;
 
 /// Parses and formats one UTF-8 Bray source text.
-pub fn format_text(source_text: &str) -> Result<FormattedSource, TextSizeOverflow> {
+pub fn format_text(
+    source_text: &str,
+    configuration: &FormatterConfiguration,
+) -> Result<FormattedSource, TextSizeOverflow> {
     let has_byte_order_mark = leading_utf8_bom_len(source_text.as_bytes()) > 0;
     let mut loader = SourceLoader::new();
 
@@ -39,7 +43,7 @@ pub fn format_text(source_text: &str) -> Result<FormattedSource, TextSizeOverflo
             }
         })?;
 
-    let formatted = format_snapshot(&snapshot);
+    let formatted = format_snapshot(&snapshot, configuration);
 
     Ok(if has_byte_order_mark {
         formatted.with_leading_byte_order_mark()
@@ -48,10 +52,13 @@ pub fn format_text(source_text: &str) -> Result<FormattedSource, TextSizeOverflo
     })
 }
 
-pub(crate) fn format_snapshot(snapshot: &SourceSnapshot) -> FormattedSource {
+pub(crate) fn format_snapshot(
+    snapshot: &SourceSnapshot,
+    configuration: &FormatterConfiguration,
+) -> FormattedSource {
     let result = parse_source_unit(snapshot);
 
-    format_source_unit(result.source_unit())
+    format_source_unit(result.source_unit(), configuration)
 }
 
 /// Formats one parsed Bray source unit.
@@ -59,7 +66,10 @@ pub(crate) fn format_snapshot(snapshot: &SourceSnapshot) -> FormattedSource {
 /// Token spellings, comments, and skipped recovery nodes are copied from the
 /// owning source snapshot. A source unit containing recovery is returned
 /// unchanged so malformed regions remain lossless and idempotent.
-pub fn format_source_unit(source_unit: &SourceUnitSyntax) -> FormattedSource {
+pub fn format_source_unit(
+    source_unit: &SourceUnitSyntax,
+    _configuration: &FormatterConfiguration,
+) -> FormattedSource {
     let source_text = source_unit.source().text();
 
     if source_unit.is_recovered() {

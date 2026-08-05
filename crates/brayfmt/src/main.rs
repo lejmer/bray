@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod command;
+mod configuration;
 mod diagnostic;
 
 use std::process::ExitCode;

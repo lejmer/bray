@@ -609,6 +609,8 @@ dependencies = [
  "bray-testing",
  "bray-tooling",
  "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

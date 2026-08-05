@@ -1,4 +1,6 @@
-use bray_formatter::{FormatBytesErrorKind, FormattedSource, format_bytes, format_text};
+use bray_formatter::{
+    FormatBytesErrorKind, FormattedSource, FormatterConfiguration, format_bytes, format_text,
+};
 use bray_parser::parse_source_unit;
 use bray_testing::test_source_snapshot;
 
@@ -303,14 +305,16 @@ fn editor_text_preserves_utf8_byte_order_mark() {
 
 #[test]
 fn standard_input_bytes_preserve_bom_and_report_invalid_utf8() {
-    let output = match format_bytes(b"\xef\xbb\xbfmodule editor;func main(){}") {
+    let configuration = FormatterConfiguration::default();
+
+    let output = match format_bytes(b"\xef\xbb\xbfmodule editor;func main(){}", &configuration) {
         Ok(output) => output,
         Err(error) => panic!("BOM input should format: {error:?}"),
     };
 
     assert!(output.text().as_bytes().starts_with(b"\xef\xbb\xbf"));
 
-    let error = match format_bytes(&[b'm', 0xff, b'x']) {
+    let error = match format_bytes(&[b'm', 0xff, b'x'], &configuration) {
         Ok(output) => panic!("invalid UTF-8 should fail, got {output:?}"),
         Err(error) => error,
     };
@@ -321,7 +325,7 @@ fn standard_input_bytes_preserve_bom_and_report_invalid_utf8() {
 }
 
 fn formatted(source: &str) -> FormattedSource {
-    match format_text(source) {
+    match format_text(source, &FormatterConfiguration::default()) {
         Ok(formatted) => formatted,
         Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
     }
