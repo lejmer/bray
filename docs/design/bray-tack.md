@@ -31,8 +31,8 @@ deterministic before compiler work begins.
   scheduling, cancellation, and report aggregation. Each generated host owns entry invocation,
   per-test capture, timeout delivery, and cleanup completion through the shared
   [testing protocol](testing.md).
-- `bray fmt` routes explicit files, standard input (`-`), or the sorted root-package source graph
-  to `brayfmt`.
+- `bray fmt` resolves the selected formatter configuration and routes explicit files, standard input (`-`), or the sorted
+  root-package source graph to `brayfmt`.
 - `bray inspect project` renders the immutable graph. Other inspection kinds select exactly one
   manifest product and delegate to existing compiler fact inspection.
 - `bray language-server` runs `bray-lsp` for the selected workspace and target and forwards the
@@ -63,6 +63,24 @@ Published products use separate directories beneath `output_root`:
 
 This separation prevents build, run, and test commands from reusing or replacing artifacts from
 another configuration. Check and semantic inspection remain configuration-independent.
+
+## Formatter Configuration
+
+Formatting uses the formatter defaults when the workspace does not select a formatter configuration. A workspace can select one
+formatter configuration file, and `bray fmt --config <path>` can explicitly override that selection for one invocation. Relative
+configuration paths are resolved against the workspace directory rather than the process working directory.
+
+Bray Tack owns configuration selection and path resolution, but it does not interpret formatting rules or reproduce formatter
+policy. It passes the exact selected configuration path to `brayfmt`. The formatter executable owns decoding and validating the
+configuration, resolving named rule overrides, applying rule parameters, and reporting structured configuration diagnostics.
+
+One `bray fmt` invocation applies one resolved configuration consistently to every selected source input, including standard
+input. Bray Tack does not search parent directories, infer configuration from a source file's physical location, or silently fall
+back to defaults when an explicitly selected configuration is invalid.
+
+The formatter configuration can override the default 120-column width, disable any default rule, and enable rules that are off by
+default. This includes explicitly enabled syntax rewrites such as `simplify-nested-if`. Bray Tack forwards these choices without
+performing syntax or semantic analysis itself.
 
 ## Workflow Progress
 
@@ -112,7 +130,8 @@ changing project orchestration.
 Tool discovery first honors the explicit `BRAYC`, `BRAYFMT`, or `BRAY_LSP` environment override,
 then checks for a sibling executable beside `bray`, and finally delegates to the host executable
 search path. Compiler requests carry exact package, product, target, source, dependency-interface,
-and artifact selections. Paths remain native process arguments rather than being embedded in
+and artifact selections. Formatter requests carry exact source inputs, operation mode, and selected
+configuration path. Paths remain native process arguments rather than being embedded in
 delimiter-based strings.
 
 Machine-oriented compiler and formatter requests use structured JSON output. Bray Tack may combine

@@ -17,19 +17,104 @@ files without moving formatter policy into the command layer.
 
 ## Layout
 
-The formatter uses syntax node context and source-order token traversal.
+The formatter uses syntax node context and source-order token traversal. Ordinary formatting preserves the ordered non-trivia
+token stream. Syntax-changing transformations are separate, explicitly enabled rewrite rules with stronger correctness
+requirements.
 
 - Indentation is four spaces.
 - Braces use the language documentation's block layout.
 - Module declarations are separated by one empty line.
 - Struct construction and overload-arm bodies place comma-separated entries on
   separate lines.
-- Parenthesized and bracketed lists remain inline unless comments require a
-  line break.
+- Ordinary blocks preserve at most one intentional empty line between complete block items.
+- Adjacent match case clauses have no empty lines between them.
+- Parenthesized and bracketed lists remain inline while they fit and wrap at syntax-defined breakpoints when they do not.
+- Lines have a default maximum width of 120 display columns.
 - Token spellings, literal spellings, and comment text are copied exactly from
   the source snapshot.
 - Ordinary whitespace is reconstructed from syntax context. Source whitespace
   still controls blank-line placement around comments.
+
+The maximum width is a layout target rather than permission to rewrite source tokens. An indivisible token, preserved comment,
+or other source text without a legal breakpoint may exceed it. Width-aware layout uses groups, indentation, required breaks, and
+optional breaks so wrapping remains deterministic and idempotent instead of relying on local column checks scattered throughout
+syntax formatting code.
+
+## Formatting rules and configuration
+
+Every independently enforceable formatting behavior has a stable rule name. This includes indentation, brace placement, spacing,
+blank-line placement, list layout, wrapping, comments, final newlines, line endings, and optional syntax rewrites.
+
+The formatter provides a default configuration and accepts an immutable caller-provided configuration containing:
+
+- the maximum line width, which defaults to 120 display columns,
+- explicit enabled or disabled overrides keyed by formatting rule name,
+- parameters owned by individual rules when a Boolean setting is insufficient.
+
+A caller can disable any rule enabled by default or enable a rule disabled by default. Unknown rule names and invalid rule
+parameters are configuration errors and are not silently ignored.
+
+Disabling a layout rule means that the formatter does not enforce that policy. It does not mean that the formatter enforces the
+opposite policy. Where the relevant trivia can be retained independently of enabled rules, the formatter preserves the source
+layout.
+
+Rule interaction and precedence must be deterministic and documented. Formatting the same source with the same configuration
+always produces the same result, and formatting that result again makes no changes.
+
+Initial rule names include:
+
+- `indentation`,
+- `block-braces`,
+- `module-item-spacing`,
+- `callable-member-spacing`,
+- `directive-line-breaks`,
+- `block-paragraph-spacing`,
+- `match-case-spacing`,
+- `struct-construction-layout`,
+- `overload-arm-layout`,
+- `parenthesized-list-layout`,
+- `bracketed-list-layout`,
+- `trailing-comma-layout`,
+- `comma-spacing`,
+- `colon-spacing`,
+- `operator-spacing`,
+- `generic-delimiter-spacing`,
+- `member-access-spacing`,
+- `range-spacing`,
+- `prefix-operator-spacing`,
+- `semicolon-layout`,
+- `comment-placement`,
+- `line-wrapping`,
+- `line-ending-style`,
+- `final-newline`,
+- `simplify-nested-if`.
+
+This registry grows when another independently configurable behavior is introduced. A broad rule must not hide unrelated style
+decisions merely to avoid assigning them stable names.
+
+Configuration-file discovery and workspace policy do not belong in `bray-formatter`. Its APIs receive resolved configuration.
+`brayfmt` accepts explicit formatter configuration, while Bray Tack can resolve workspace-owned configuration before invoking the
+formatter executable.
+
+## Optional syntax rewrites
+
+An optional syntax rewrite may change non-trivia tokens only when its rule is explicitly enabled and the formatter can prove that
+the replacement preserves program behavior. Failure to prove equivalence leaves the original syntax unchanged. A rewrite must
+also preserve comments without changing which construct they document.
+
+`simplify-nested-if` is disabled by default. It can combine nested conditional expressions only when all of the following are
+preserved:
+
+- condition evaluation order and short-circuit behavior,
+- the result expected from the conditional expression,
+- lexical scope and the lifetime of values and temporaries,
+- constructor, destructor, finalizer, and scope lifecycle behavior,
+- control-flow behavior,
+- comment ownership and placement.
+
+The rule may retain explicit inner blocks when those blocks are necessary to preserve scope and lifecycle behavior. It must leave
+the nested form unchanged when an available syntax-local proof is insufficient. Formatting must not trigger binding or whole
+program semantic analysis merely to make an optional rewrite apply.
 
 The first LF or CRLF line ending in a source selects the output line ending.
 Sources without a line ending use LF. A leading UTF-8 byte order mark is not
