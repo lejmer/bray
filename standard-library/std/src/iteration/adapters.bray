@@ -53,7 +53,8 @@ func enumerate<I>(pos source: I) -> Enumerate<I, I(Iterator).Element>
     return adapter;
 }
 
-impl TakeIterator = Take<I, E>(Iterator) with(I: Iterator, I(Iterator).Element == E)
+impl TakeIterator = Take<I, E>(Iterator)
+    with(I: Iterator, I(Iterator).Element == E)
 {
     type Element = E;
 
@@ -88,7 +89,8 @@ impl TakeIterator = Take<I, E>(Iterator) with(I: Iterator, I(Iterator).Element =
     }
 }
 
-impl SkipIterator = Skip<I, E>(Iterator) with(I: Iterator, I(Iterator).Element == E)
+impl SkipIterator = Skip<I, E>(Iterator)
+    with(I: Iterator, I(Iterator).Element == E)
 {
     type Element = E;
 
@@ -116,7 +118,8 @@ impl SkipIterator = Skip<I, E>(Iterator) with(I: Iterator, I(Iterator).Element =
     }
 }
 
-impl EnumerateIterator = Enumerate<I, E>(Iterator) with(I: Iterator, I(Iterator).Element == E)
+impl EnumerateIterator = Enumerate<I, E>(Iterator)
+    with(I: Iterator, I(Iterator).Element == E)
 {
     type Element = (usize, E);
 

@@ -180,7 +180,8 @@ impl BufferedReader<Source>
     }
 }
 
-impl BufferedReaderSourceReader = BufferedReader<Source>(Reader) with(Source: Reader)
+impl BufferedReaderSourceReader = BufferedReader<Source>(Reader)
+    with(Source: Reader)
 {
     mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
@@ -189,7 +190,8 @@ impl BufferedReaderSourceReader = BufferedReader<Source>(Reader) with(Source: Re
     }
 }
 
-impl BufferedReaderSourceAsyncReader = BufferedReader<Source>(AsyncReader) with(Source: AsyncReader)
+impl BufferedReaderSourceAsyncReader = BufferedReader<Source>(AsyncReader)
+    with(Source: AsyncReader)
 {
     mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())

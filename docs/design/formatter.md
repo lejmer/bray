@@ -26,6 +26,10 @@ token stream. Token spellings, literal spellings, and comment text are copied ex
 whitespace is reconstructed from syntax context, while source whitespace still controls blank-line placement around comments.
 Syntax-changing transformations are separate, explicitly enabled rewrite rules with stronger correctness requirements.
 
+Declaration contract clauses are continuation lines of their declaration header. The formatter places each `with(...)`,
+`requires(...)`, `ensures(...)`, and `uses(...)` clause on its own line for every declaration form that accepts the clause rather
+than limiting this layout to callable declarations.
+
 The maximum width is a layout target rather than permission to rewrite source tokens. An indivisible token, preserved comment,
 or other source text without a legal breakpoint may exceed it. Width-aware layout uses groups, indentation, required breaks, and
 optional breaks so wrapping remains deterministic and idempotent instead of relying on local column checks scattered throughout

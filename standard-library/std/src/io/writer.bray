@@ -235,7 +235,8 @@ impl BufferedWriter<Sink>
     }
 }
 
-impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer) with(Sink: Writer)
+impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
+    with(Sink: Writer)
 {
     mut func write(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
@@ -254,7 +255,8 @@ impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer) with(Sink: Writer)
     }
 }
 
-impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter) with(Sink: AsyncWriter)
+impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter)
+    with(Sink: AsyncWriter)
 {
     mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
